@@ -4,6 +4,9 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
+  invalidateTodoReads: vi.fn(),
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+  AUTH_RESTORED_EVENT: 'mitzo:auth-restored',
 }));
 
 vi.mock('../../lib/event-bus-singleton', () => ({
@@ -58,6 +61,7 @@ const mockResponse = {
 };
 
 beforeEach(() => {
+  window.dispatchEvent(new Event('mitzo:auth-lost'));
   vi.clearAllMocks();
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
@@ -362,4 +366,69 @@ describe('useTodoData', () => {
     // Optimistic toggle persists despite network error
     expect(result.current.items[0].starred).toBe(true);
   });
+});
+
+it('keeps Telos items visible during refresh, including a failed refresh', async () => {
+  const { result } = renderHook(() => useTodoData());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  let finish!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  act(() => result.current.refresh());
+  expect(result.current.loading).toBe(false);
+  expect(result.current.items).toEqual(mockItems);
+  await act(async () => finish(Response.json({}, { status: 503 })));
+  await waitFor(() => expect(result.current.error).toBe('Unable to load Telos items'));
+  expect(result.current.items).toEqual(mockItems);
+});
+
+it('restores the same profile immediately on remount and keeps profiles separate', async () => {
+  const first = renderHook(() => useTodoData('centaur'));
+  await waitFor(() => expect(first.result.current.loading).toBe(false));
+  first.unmount();
+  vi.mocked(apiFetch).mockImplementation(() => new Promise<Response>(() => {}));
+  const restored = renderHook(() => useTodoData('centaur'));
+  expect(restored.result.current.loading).toBe(false);
+  expect(restored.result.current.items).toEqual(mockItems);
+  const other = renderHook(() => useTodoData('personal'));
+  expect(other.result.current.loading).toBe(true);
+  expect(other.result.current.items).toEqual([]);
+});
+
+it('retries an uncached profile read invalidated by an action finishing after a profile switch', async () => {
+  const hook = renderHook(({ profile }) => useTodoData(profile), {
+    initialProps: { profile: 'work' },
+  });
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  let finishAction!: (response: Response) => void;
+  let finishRead!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishAction = resolve;
+      }),
+  );
+  let action!: Promise<void>;
+  act(() => {
+    action = hook.result.current.done('abc123');
+  });
+  vi.mocked(apiFetch).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRead = resolve;
+      }),
+  );
+  hook.rerender({ profile: 'personal' });
+  expect(hook.result.current.loading).toBe(true);
+  await act(async () => {
+    finishAction(Response.json({ ok: true }));
+    await action;
+  });
+  await act(async () => finishRead(Response.json({ profiles: ['personal'], items: [] })));
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  expect(apiFetch).toHaveBeenLastCalledWith('/api/todos?profile=personal');
 });

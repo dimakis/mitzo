@@ -2682,6 +2682,46 @@ describe('task CRUD actions', () => {
 });
 
 describe('foreground recovery', () => {
+  it('keeps loaded messages visible without history loading while foreground recovery is pending', async () => {
+    const transport = mockTransport();
+    let finish!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url.includes('/messages')
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ ok: true, json: async () => [] }),
+    );
+    const store = createReadyStore(transport);
+    const existing = {
+      messageId: 'existing',
+      role: 'assistant' as const,
+      blocks: [],
+      isStreaming: false,
+    };
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+      messages: { ...s.messages, messages: [existing] },
+    }));
+    lastWs.simulateMessage({ type: '_foreground' });
+    expect(store.getState().historyLoading).toBe(false);
+    expect(store.getState().messages.messages).toEqual([existing]);
+    finish({
+      ok: true,
+      json: async () => [
+        existing,
+        { messageId: 'missed', role: 'assistant', blocks: [], isStreaming: false },
+      ],
+    });
+    await vi.waitFor(() =>
+      expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual([
+        'existing',
+        'missed',
+      ]),
+    );
+    expect(store.getState().historyLoading).toBe(false);
+  });
+
   it('restores seat currents while retaining a newer ordinary current covered by the cursor', async () => {
     const seat = {
       seatId: 'architect',
@@ -3304,6 +3344,8 @@ it('rejects a foreign same-ID echo for an assigned observed ordinary send', asyn
 it('rejects foreign same-ID history and accepts the original ordinary send transcript once', async () => {
   const transport = mockTransport();
   const store = createReadyStore(transport);
+  // Other stores can reconnect during awaits and replace the shared fixture pointer.
+  const socket = lastWs;
   await store.getState().switchSession('target');
   const onDelivery = vi.fn();
   store.getState().sendMessage('Exact draft', { onDelivery });
@@ -3314,22 +3356,22 @@ it('rejects foreign same-ID history and accepts the original ordinary send trans
     json: async () =>
       url.includes('/messages') ? [{ messageId: id, role: 'user', blocks: [], timestamp: 1 }] : [],
   }));
-  lastWs.simulateMessage({ type: '_foreground' });
+  socket.simulateMessage({ type: '_foreground' });
   await vi.waitFor(() =>
     expect(store.getState().messages.messages.some((m) => m.messageId === id)).toBe(true),
   );
   expect(onDelivery).not.toHaveBeenCalled();
   await store.getState().switchSession('target');
-  lastWs.simulateMessage({ type: '_foreground' });
+  socket.simulateMessage({ type: '_foreground' });
   await vi.waitFor(() => expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted'));
-  lastWs.simulateMessage({
+  socket.simulateMessage({
     type: 'user_message',
     sessionId: 'target',
     messageId: id,
     text: 'Exact draft',
   });
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
-  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
+  expect(socket.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
 });
 
 it('scopes offscreen reconnect receipts to their requested session instead of another send ID', async () => {

@@ -17,6 +17,8 @@ Telos **Open in Chat** and **Start Session** open a launch preview with Workspac
 
 Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Known native capacity failures schedule up to five continuations from saved progress, 30 seconds apart, using the same account, model and provider thread. **Try again** runs one attempt immediately within that budget; after exhaustion it explicitly starts a new five-attempt cycle. **Stop retries** cancels waiting work and interrupts only its active continuation. A new user message supersedes pending retries. Each continuation is a new native turn with fresh standard admission and acknowledgment-bound context delivery; it does not replay the original prompt or replace completed tool results. Restart stops the retry schedule until a manual **Try again**; uncertain dispatched work remains held for inspection.
 
+Chats and Telos retain their last successful lists in memory while refreshing, including when you return to a loaded page. Chats does not wait for configuration or version checks to finish displaying conversations. The native splash yields to the route authentication status as soon as the app renders. Authentication checks have a five-second deadline; a stalled or unavailable check preserves the login and offers Retry without requiring a tab change. Protected routes reuse a successful authentication check for up to 30 seconds within the same login; credential changes, logout and protected 401 responses invalidate that proof. List snapshots clear when authentication changes. Identical simultaneous Telos list requests from pages and navigation badges share one network request, reducing duplicate Python startup and database lock contention. Native-provider chats receive local automatic titles without sending their content to a separate naming account; older unnamed conversations derive a display title from saved prompts. Chats shows its Drafts shortcut only while saved drafts exist.
+
 Codex startup failures distinguish known account, workspace-routing, transport and request errors. A resume with an unavailable or changed native conversation binding reports that binding problem and preserves saved messages; it does not automatically create replacement provider history. Startup exceptions identify the failing step when available and show a **Reference** shared with the server log. Recognized storage, permission and connection error codes receive specific explanations. Unknown startup failures do not imply queued work or prove that a provider turn ran. First-send preparation failures before native dispatch explicitly report that no provider turn started. A rejected sandbox policy identifies the runtime contract mismatch; failures after dispatch retain advice to inspect uncertain work. Logs retain the session ID, bounded failure categories, recognized RPC methods, allowlisted resource codes, command exit status/signals and application source locations. Commands, stderr, upstream exception text and private paths remain excluded. Inspect conversation recovery before retrying uncertain work.
 
 Ordinary OpenShell Codex chats reserve their account-bound native ledger before provisioning. If provisioning fails before provider initialization, a later send finishes that reserved startup under the same chat ID. Once provider initialization begins, an unacknowledged thread outcome blocks ordinary resume; existing legacy history is never marked undispatched automatically.
@@ -196,9 +198,16 @@ If the service template catalog is temporarily unavailable, existing connections
 
 ## Architecture
 
+Browser and native iOS chat use SSE for live updates and acknowledged HTTP POST
+for prompts and controls, independently of the selected AI provider. Prompts
+can enter the delivery outbox while the event stream reconnects; drafts clear
+only after acceptance. An explicit `mitzo:transport=ws` localStorage preference
+retains WebSocket for diagnostics. Existing overrides are preserved; remove that
+preference to use SSE. Installed iOS apps need an updated bundle to adopt this default.
+
 ```
 Phone (Tailscale) ──┬── HTTP: REST API
-                    └── WebSocket: v2 streaming protocol
+                    └── SSE: v2 streaming protocol (WS diagnostic override)
                         │
                     Server (Node + TypeScript)
                         │
@@ -544,6 +553,30 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 | `session-index.ts` | YAML session index at `<repo>/.claude/sessions/index.yaml`. Tracks active/closed sessions with repo worktree mappings |
 
 **Observability**
+
+Browser and iOS tracing are opt-in. Set `VITE_OTEL_ENDPOINT=api` to export
+through `/api/telemetry/v1/traces` on the app's configured API origin. The
+relay requires normal Mitzo authentication and forwards only trace payloads
+to the server's configured `OTEL_EXPORTER_OTLP_ENDPOINT`; login headers and
+cookies are never forwarded. Requests and collector responses are capped
+at 1 MiB, with a two-second collector deadline. The iOS build must use this
+relay: `localhost:4318` would address the phone itself. Direct collector URLs
+remain supported for local browser development and receive no Mitzo token.
+Browser spans export in bounded batches to reduce per-span network work.
+Cold authentication checks wait for the browser tracer within the existing
+five-second authentication deadline, so delayed tracing initialization cannot
+leave startup pending. A late initialization records its failed duration without
+sending an obsolete check or changing authentication state.
+Authentication checks use a shared W3C trace context between the phone and
+server, with separate `http.auth.check` spans for network wait and server
+verification. These spans record the static route, HTTP method and response
+status; they exclude cookies, tokens, query strings and request contents.
+
+Unavailable authentication makes up to three automatic retries with backoff.
+The existing Retry action remains available; native foreground, browser
+visibility and restored network connectivity also resume recovery automatically.
+Hidden apps wait for foreground, verified routes stay visible, and genuine
+authorization denial continues to redirect to Login.
 
 | File                | Purpose                                                                                          |
 | ------------------- | ------------------------------------------------------------------------------------------------ |

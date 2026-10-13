@@ -29,7 +29,7 @@ Use grouped bordered rows and quiet surfaces for lists. Put the most useful titl
 
 ## Drafts and updates
 
-Chats keeps a counted Drafts destination separate from active and recent conversations. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
+Chats shows a counted Drafts destination when saved drafts exist, separate from active and recent conversations. The shortcut disappears when the last draft is removed. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
 
 Empty messages with a repository preparation retain their exact receipt and account/model binding. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
 
@@ -103,6 +103,17 @@ for surfaces, preserving drafts, focus, and subscriptions. Streaming content doe
 not replay transitions. Reduce Motion disables animation and press scaling.
 `npm run test:design` also rejects literal timings/easing, broad transitions, and
 direct Web Animations calls outside the shared helper.
+
+## Authentication recovery
+
+The native splash yields to the rendered authentication status without waiting for a network response. A stalled check has a five-second deadline and reaches the existing token-styled unavailable alert and Retry action. Mobile shell navigation remains reachable. Retry starts a fresh check without clearing a valid login or requiring another tab; only an actual authentication denial redirects to Login with the original destination. Offline fixtures cover startup, tab changes, light/dark appearance and retry on mobile WebKit and mobile/desktop Chromium.
+
+Transient failures also retry automatically with three bounded backoff attempts.
+Returning to the native foreground, restoring network connectivity or making the
+document visible restarts unavailable authentication without requiring a manual
+Retry. Hidden apps do not send recovery attempts; duplicate wake signals are
+coalesced. Verified routes remain visible, and denied authorization still goes
+directly to Login. Recovery reuses the same status, alert and shared button styles.
 
 ## Verification
 

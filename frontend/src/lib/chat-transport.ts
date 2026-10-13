@@ -4,12 +4,10 @@ export function parseChatTransportPreference(value: string | null): ChatTranspor
   return value === 'sse' || value === 'ws' ? value : null;
 }
 
-/** Keep WKWebView on the proven WebSocket transport unless SSE is explicitly requested. */
+/** SSE + POST is the default on every platform; WS remains an explicit diagnostic override. */
 export function shouldUseSseTransport(
-  nativePlatform: boolean,
+  _nativePlatform: boolean,
   preference: ChatTransportPreference,
 ): boolean {
-  if (preference === 'sse') return true;
-  if (preference === 'ws') return false;
-  return !nativePlatform;
+  return preference !== 'ws';
 }

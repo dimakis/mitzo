@@ -14,30 +14,39 @@
 
 import { trace, context } from '@opentelemetry/api';
 import type { Span } from '@opentelemetry/api';
+import { browserTelemetryConfig } from './telemetry-config';
 
 const endpoint = import.meta.env.VITE_OTEL_ENDPOINT as string | undefined;
 
-if (endpoint) {
-  // Dynamic import to keep the bundle small when tracing is off
-  void (async () => {
-    const { WebTracerProvider, SimpleSpanProcessor } = await import('@opentelemetry/sdk-trace-web');
-    const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http');
-    const { resourceFromAttributes } = await import('@opentelemetry/resources');
-    const { ATTR_SERVICE_NAME } = await import('@opentelemetry/semantic-conventions');
+export const tracingReady = endpoint
+  ? // Dynamic import to keep the bundle small when tracing is off
+    (async () => {
+      const { WebTracerProvider, BatchSpanProcessor } =
+        await import('@opentelemetry/sdk-trace-web');
+      const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http');
+      const { resourceFromAttributes } = await import('@opentelemetry/resources');
+      const { ATTR_SERVICE_NAME } = await import('@opentelemetry/semantic-conventions');
 
-    const provider = new WebTracerProvider({
-      resource: resourceFromAttributes({
-        [ATTR_SERVICE_NAME]: 'mitzo-frontend',
-      }),
-      spanProcessors: [
-        new SimpleSpanProcessor(new OTLPTraceExporter({ url: `${endpoint}/v1/traces` })),
-      ],
-    });
-    provider.register();
-  })().catch((err) => {
-    console.warn('[mitzo] browser tracing init failed', err);
-  });
-}
+      const config = browserTelemetryConfig(endpoint, import.meta.env.VITE_API_BASE_URL || '', () =>
+        localStorage.getItem('mitzo_auth_token'),
+      )!;
+      const provider = new WebTracerProvider({
+        resource: resourceFromAttributes({
+          [ATTR_SERVICE_NAME]: 'mitzo-frontend',
+        }),
+        spanProcessors: [
+          new BatchSpanProcessor(new OTLPTraceExporter({ ...config, timeoutMillis: 2000 }), {
+            scheduledDelayMillis: 1000,
+            maxExportBatchSize: 64,
+            maxQueueSize: 256,
+          }),
+        ],
+      });
+      provider.register();
+    })().catch((err) => {
+      console.warn('[mitzo] browser tracing init failed', err);
+    })
+  : undefined;
 
 /**
  * Browser tracer instance. Returns noop spans when OTel is not configured.

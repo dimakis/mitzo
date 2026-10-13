@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.74';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.77';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -96,7 +96,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': 'c568d62547758f6149cb9266d3c0dc6c90b026bc57868598e5e5e341b362340c',
+  '../chat.ts': 'b2ebcd7693bc319ac69ad75134f7ecc36b3b93e0d4cdd13263241f9e32d4e582',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
@@ -106,7 +106,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '4bfe9d12a46863c8344d25902928bfd92a6de52a7ed20ee190c030a575fd8f98',
+  '../app.ts': 'bb5fb66a18dfd7e9b2c4bec1b151834182ed5affe9298d978d5d0e9fe12ccab2',
+  '../auth-check-tracing.ts': '22a3e6c0830cd014e011ed396f323442b37f4b984098d4e51409089d8fa6ffb9',
+  '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
     'bc2cb2a85517a1f16279fd87757a97b9bb46a16d9efc5f15b52bf41a6f14cae3',
   '../symposium-review-host-contract.ts':

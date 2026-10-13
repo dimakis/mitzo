@@ -141,6 +141,56 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
+it('submits an existing conversation prompt while the event stream reconnects without adding a notice', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).endsWith('/meta')
+            ? {
+                sessionType: 'chat',
+                accountBinding: { accountId: 'work', accountLabel: 'Work', model: 'luna-fixture' },
+                modelSelection: {
+                  model: 'luna-fixture',
+                  models: [{ id: 'luna-fixture', label: 'Luna' }],
+                },
+              }
+            : String(url).endsWith('/symposium/status')
+              ? { sessionId: 'existing-chat', config: null, seats: [] }
+              : [],
+        ),
+      ),
+  );
+  const store = createTestStore();
+  const sendMessage = vi.fn();
+  store.setState({
+    sessions: { ...store.getState().sessions, active: 'existing-chat' },
+    connection: { status: 'disconnected', clientId: null },
+    sendMessage,
+    fetchSessionMeta: vi.fn().mockResolvedValue(undefined),
+  });
+  render(
+    <MemoryRouter initialEntries={['/chat/existing-chat']}>
+      <Routes>
+        <Route
+          path="/chat/:sessionId"
+          element={
+            <MitzoStoreProvider value={store}>
+              <ChatView />
+            </MitzoStoreProvider>
+          }
+        />
+      </Routes>
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Test send' }));
+  expect(sendMessage).toHaveBeenCalledWith(
+    'hello',
+    expect.objectContaining({ onDelivery: expect.any(Function) }),
+  );
+  expect(store.getState().messages.messages).toHaveLength(0);
+});
+
 it('passes genuine draft resets to the composer independently of session assignment', () => {
   const store = createTestStore();
   store.setState({ chatDraftRevision: 3 });

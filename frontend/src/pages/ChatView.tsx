@@ -99,7 +99,6 @@ export function ChatView() {
   const storeCloseSession = useMitzoStore((s) => s.closeSession);
   const storeSetMode = useMitzoStore((s) => s.setMode);
   const storeSetModel = useMitzoStore((s) => s.setModel);
-  const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const connectionId = useMitzoStore((s) => s.connection.clientId);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
@@ -489,14 +488,8 @@ export function ChatView() {
     if (!activeSessionId && agentProfileBlocked) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
-    // For new sessions (no activeSessionId) the store bootstraps a WS on
-    // demand inside sendMessage(), so we must not block on connection status.
-    // Only gate on connection for existing sessions where a WS should already
-    // be open.
-    if (activeSessionId && connection.status !== 'connected') {
-      storeDispatchMessages({ type: 'CONNECTION_LOST' });
-      return false;
-    }
+    // Prompt delivery has its own authenticated outbox and acknowledgement;
+    // event-stream recovery must not block an existing conversation's input.
     voice.stopSpeaking();
     // Codex supports per-turn model changes. The server ignores these fields for
     // sessions bound to other providers and rejects cross-account rebinding.

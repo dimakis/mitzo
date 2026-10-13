@@ -256,3 +256,13 @@ describe('createAnthropicClient (Vertex)', () => {
     expect(client).toBeInstanceOf(Anthropic);
   });
 });
+
+it('names the readable prompt rather than attached reference content', () => {
+  const assembled =
+    'The user has attached the following reference files for this message.\n' +
+    'Use them to inform your response.\n\n' +
+    '<context name="Reference" source="/workspace/guide.md">\n' +
+    'Architecture documentation agent capability background\n</context>\n\n' +
+    '---CONTEXT_END---\nFix calendar sync';
+  expect(generateSessionNameFallback([assembled])).toBe('Calendar Fix Sync');
+});
