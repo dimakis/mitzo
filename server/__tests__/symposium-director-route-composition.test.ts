@@ -87,16 +87,14 @@ async function fixture(before: boolean) {
       expect(this).toBe(accounts);
     }),
   };
-  let profiles: SymposiumDirectorCompositionDependencies['currentAccounts'] extends () => infer P
-    ? P
-    : never = accounts;
+  let profiles: ReturnType<SymposiumDirectorCompositionDependencies['currentAccounts']> = accounts;
   const currentAccounts = vi.fn(() => profiles);
   const currentHost = vi.fn(() => host);
   const runtime = vi.fn((): SymposiumOrchestrator | null => null);
   const registry = {
     findBySessionId: vi.fn(
       (): ReturnType<SymposiumDirectorCompositionDependencies['registry']['findBySessionId']> =>
-        undefined,
+        null,
     ),
     isActive: vi.fn(() => false),
   };
