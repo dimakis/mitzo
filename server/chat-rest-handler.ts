@@ -78,6 +78,11 @@ function getConnectionId(req: Request, res: Response): string | null {
   return connectionId;
 }
 
+function rejectExpiredConnection(connectionId: string, res: Response, error: string): void {
+  log.info('chat transport expired', { connectionId, operation: res.req.path, reason: error });
+  res.status(404).json({ ok: false, code: 'connection_expired', error });
+}
+
 function getTransport(
   connectionId: string,
   sseRegistry: SessionSseRegistry,
@@ -85,7 +90,7 @@ function getTransport(
   res: Response,
 ): SseTransport | null {
   if (!sseRegistry.isOpen(connectionId)) {
-    res.status(404).json({ ok: false, error: 'No SSE stream for this connection' });
+    rejectExpiredConnection(connectionId, res, 'No SSE stream for this connection');
     return null;
   }
   const authSessionId = res.locals.authSession?.id as string | undefined;
@@ -95,7 +100,7 @@ function getTransport(
   }
   const conn = connRegistry.get(connectionId);
   if (!conn) {
-    res.status(404).json({ ok: false, error: 'Connection not registered' });
+    rejectExpiredConnection(connectionId, res, 'Connection not registered');
     return null;
   }
   return conn.transport as SseTransport;
@@ -108,7 +113,7 @@ function requireConnection(
   res: Response,
 ): boolean {
   if (!connRegistry.get(connectionId)) {
-    res.status(404).json({ ok: false, error: 'Connection not registered' });
+    rejectExpiredConnection(connectionId, res, 'Connection not registered');
     return false;
   }
   return true;
