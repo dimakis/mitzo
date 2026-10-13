@@ -232,7 +232,7 @@ it('allows blank WS interrupt but never cold-starts a bound runtime for interrup
   await ws.handleInterruptV2(
     'browser',
     live.transport,
-    { type: 'interrupt', sessionId: live.id, prompt: '' },
+    { type: 'interrupt', sessionId: live.id, clientMsgId: `${live.id}-interrupt`, prompt: '' },
     live.context,
   );
   expect(native.interrupt).toHaveBeenCalledOnce();
@@ -241,7 +241,12 @@ it('allows blank WS interrupt but never cold-starts a bound runtime for interrup
   await ws.handleInterruptV2(
     'browser',
     cold.transport,
-    { type: 'interrupt', sessionId: cold.id, prompt: 'replacement' },
+    {
+      type: 'interrupt',
+      sessionId: cold.id,
+      clientMsgId: `${cold.id}-replacement`,
+      prompt: 'replacement',
+    },
     cold.context,
   );
   expect(native.interrupt).not.toHaveBeenCalled();
