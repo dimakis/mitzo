@@ -26,6 +26,8 @@ async function offline(
   location: 'local' | 'openshell' = 'local',
 ) {
   const requests: unknown[] = [];
+  const attachments: Array<string | null> = [];
+  const controls: string[] = [];
   const forbidden: string[] = [];
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -88,6 +90,8 @@ async function offline(
       return route.abort();
     }
     const method = route.request().method();
+    if (method === 'POST' && /^\/api\/chat\/(?:interrupt|stop|close|archive)$/.test(url.pathname))
+      controls.push(url.pathname);
     const binding = {
       version: 2,
       account: localInventoryFixture().accounts[0].account,
@@ -139,7 +143,8 @@ async function offline(
       expect(method).toBe('POST');
       expect(route.request().headers()['x-connection-id']).toBe('local-offline-sse');
       const selection = SwitchSessionMessage.strict().parse(route.request().postDataJSON());
-      expect(selection.sessionId).toBe(sessionId);
+      expect([sessionId, null]).toContain(selection.sessionId);
+      attachments.push(selection.sessionId);
       return route.fulfill({ json: { ok: true } });
     }
     if (url.pathname === '/api/chat/send' || url.pathname.endsWith('/selection')) {
@@ -256,7 +261,7 @@ async function offline(
       return route.fulfill({ status: 404, body: '' });
     }
   });
-  return { requests, forbidden, errors };
+  return { requests, forbidden, errors, attachments, controls };
 }
 async function emitLocalState(page: Page, state: 'running' | 'idle') {
   await page.evaluate(
@@ -598,11 +603,14 @@ test('OpenShell conversation: default route starts and continues without legacy 
     },
   ]);
   await page.getByRole('button', { name: 'New session on Local Mac' }).click();
+  await expect.poll(() => fixture.attachments.at(-1)).toBe(null);
   await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('local:mac');
   await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
     'personal',
   );
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  expect(fixture.controls).toEqual([]);
+  expect(fixture.requests).toHaveLength(2);
   await page.screenshot({
     path: testInfo.outputPath('openshell-new-session-elsewhere.png'),
     fullPage: true,
