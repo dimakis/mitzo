@@ -253,8 +253,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '9c2f349a51febe5b8818358f558a67a4e324eda2f525d85a5578e84463f5dc01',
   '../repository-workspaces.ts': '2211f29498e2ba89164dae8d5799e06714b000a963dadb1e3c0f63ef0d741187',
+  '../../packages/protocol/src/session-metadata-store.ts':
+    '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    '822a768cfec8de456570c528e7e4114aab51f0f352a7756b6101c11fa700c6a0',
+    '50c152c67bb1db462e6cb0a462edd08a018cef3841655306b30f1aa04a2e9209',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
