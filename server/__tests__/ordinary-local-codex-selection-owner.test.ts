@@ -1,6 +1,16 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentLibraryStore } from '../agent-library-store.js';
@@ -9,7 +19,7 @@ import { recordPermissionChange } from '../session-permission-revision.js';
 import { OrdinaryLocalCodexSelectionOwner } from '../ordinary-local-codex-selection-owner.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 import { ordinaryLocalCodexBootstrapId } from '../ordinary-local-codex-admission.js';
-import type { RepositoryWorkspaces } from '../repository-workspaces.js';
+import { RepositoryWorkspaces } from '../repository-workspaces.js';
 
 const fixtures: Array<() => void> = [];
 afterEach(() => fixtures.splice(0).forEach((close) => close()));
@@ -58,6 +68,7 @@ function fixture() {
     directory: join(taskRoot, 'checkout'),
     sandbox: false,
     state: 'reserved',
+    featureBranch: 'fixture',
     hostReservation: {
       version: 1,
       taskRoot,
@@ -67,6 +78,22 @@ function fixture() {
   const workspace = {
     getHostReservation: vi.fn((_input: unknown) => structuredClone(descriptor)),
     reserveHostTask: vi.fn(async (_input: unknown) => structuredClone(descriptor)),
+    getForConversation: vi.fn((_id: string) => {
+      const directory = descriptor.directory;
+      const root = statSync(directory),
+        git = statSync(join(directory, '.git'));
+      return {
+        ...structuredClone(descriptor),
+        featureBranch: 'fixture',
+        taskIdentity: {
+          directory,
+          featureBranch: 'fixture',
+          root: { dev: root.dev, ino: root.ino },
+          git: { dev: git.dev, ino: git.ino },
+        },
+      };
+    }),
+    validateHostTask: vi.fn(async (_id: string, _directory: string) => {}),
   };
   let authorized = true;
   const operator = {
@@ -120,6 +147,8 @@ function fixture() {
     operator,
     taskRoot,
     binding,
+    root,
+    reservation,
   };
 }
 it('qualifies exact published agent, operator, permission and retained reservation before bootstrap effects', async () => {
@@ -192,7 +221,108 @@ it('keeps the qualified selection across durable uncertainty and workspace mater
   f.events.claimOrdinaryLocalCommandDispatch('command');
   await expect(f.owner.assertCurrent(f.expected)).resolves.toBeUndefined();
   f.descriptor.state = 'claimed';
+  mkdirSync(join(f.descriptor.directory, '.git'), { recursive: true });
   await expect(f.owner.assertCurrent(f.expected)).resolves.toBeUndefined();
   f.events.completeOrdinaryLocalCommand('command');
   expect(() => f.owner.assertCurrentSync(f.expected)).not.toThrow();
+});
+
+async function claimedFixture() {
+  const f = fixture();
+  const source = join(f.root, 'source');
+  execFileSync('git', ['init', '-q', '-b', 'main', source]);
+  const git = (directory: string, ...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-C', directory, '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
+      {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          GIT_CONFIG_GLOBAL: '/dev/null',
+          GIT_CONFIG_SYSTEM: '/dev/null',
+        },
+      },
+    ).trim();
+  git(source, 'config', 'user.name', 'Offline');
+  git(source, 'config', 'user.email', 'fixture@example.test');
+  writeFileSync(join(source, 'task.txt'), 'accepted source');
+  git(source, 'add', 'task.txt');
+  git(source, 'commit', '-qm', 'base');
+  const baseOid = git(source, 'rev-parse', 'HEAD');
+  const inspect = async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid });
+  const workspace = new RepositoryWorkspaces(join(f.root, 'repositories'), {
+    authorize: async () => ({ revision: 1, allowedBaseBranches: ['main'] }),
+    inspect,
+    prepare: async (_preview, directory, branch) => {
+      cpSync(source, directory, { recursive: true });
+      git(directory, 'checkout', '-qb', branch);
+      return { ...(await inspect()), directory, featureBranch: branch };
+    },
+    verify: async () => {},
+  });
+  fixtures.push(() => workspace.close());
+  const preview = await workspace.preview(
+    f.binding,
+    'fixture-github',
+    'example/repo',
+    f.abort.signal,
+  );
+  const prepared = await workspace.prepare(preview.id, f.binding, f.abort.signal);
+  const reservation = { ...f.reservation, id: prepared.id };
+  const reserved = await workspace.reserveHostTask({ ...reservation, signal: f.abort.signal });
+  f.expected.workspace = { workspaceId: reserved.id, cwd: reserved.directory };
+  const owner = new OrdinaryLocalCodexSelectionOwner({
+    events: f.events,
+    library: f.library,
+    workspace,
+    reservation,
+    operator: f.operator,
+    signal: f.abort.signal,
+    commandId: 'command',
+  });
+  await owner.assertCurrent(f.expected);
+  await workspace.claimReservedHostTask({ ...reservation, signal: f.abort.signal });
+  await owner.assertCurrent(f.expected);
+  return { ...f, owner, workspace, git, cwd: reserved.directory };
+}
+it.each(['checkout', 'git'] as const)(
+  'rejects replaced claimed %s at the final synchronous effect fence',
+  async (kind) => {
+    const f = await claimedFixture();
+    const path = kind === 'checkout' ? f.cwd : join(f.cwd, '.git');
+    renameSync(path, path + '-retained');
+    cpSync(path + '-retained', path, { recursive: true });
+    expect(() => f.owner.assertCurrentSync(f.expected)).toThrow('selection unavailable');
+  },
+);
+it.each(['checkout', 'git'] as const)(
+  'rejects replaced claimed %s at awaited admission',
+  async (kind) => {
+    const f = await claimedFixture();
+    const path = kind === 'checkout' ? f.cwd : join(f.cwd, '.git');
+    renameSync(path, path + '-retained');
+    cpSync(path + '-retained', path, { recursive: true });
+    await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
+  },
+);
+it('validates the retained Git claim after asynchronous workspace authorization', async () => {
+  const f = await claimedFixture();
+  const reserve = f.workspace.reserveHostTask.bind(f.workspace);
+  vi.spyOn(f.workspace, 'reserveHostTask').mockImplementationOnce(async (input) => {
+    const descriptor = await reserve(input);
+    f.git(f.cwd, 'checkout', '-qb', 'substituted-branch');
+    return descriptor;
+  });
+  await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
+});
+it('preserves legitimate edits and commits in the same retained checkout and Git directory', async () => {
+  const f = await claimedFixture();
+  writeFileSync(join(f.cwd, 'task.txt'), 'legitimate edit');
+  expect(() => f.owner.assertCurrentSync(f.expected)).not.toThrow();
+  await expect(f.owner.assertCurrent(f.expected)).resolves.toBeUndefined();
+  f.git(f.cwd, 'add', 'task.txt');
+  f.git(f.cwd, 'commit', '-qm', 'legitimate task change');
+  expect(() => f.owner.assertCurrentSync(f.expected)).not.toThrow();
+  await expect(f.owner.assertCurrent(f.expected)).resolves.toBeUndefined();
 });

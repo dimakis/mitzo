@@ -1,4 +1,5 @@
 import { lstatSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { AgentLibraryStore } from './agent-library-store.js';
 import type { EventStore } from './event-store.js';
@@ -84,6 +85,39 @@ export class OrdinaryLocalCodexSelectionOwner {
         root.ino !== descriptor.hostReservation.rootIdentity.ino
       )
         throw unavailable();
+      if (descriptor.state === 'claimed') {
+        // The existing repository ledger owns the materialized checkout identity.
+        // Do not accept another directory merely because its reservation path matches.
+        const claimed = this.owners.workspace.getForConversation(reservation.conversationId);
+        const identity = claimed?.taskIdentity;
+        if (
+          !claimed ||
+          claimed.id !== descriptor.id ||
+          claimed.conversationId !== descriptor.conversationId ||
+          claimed.directory !== descriptor.directory ||
+          claimed.sandbox ||
+          !isDeepStrictEqual(claimed.binding, reservation.binding) ||
+          claimed.featureBranch !== descriptor.featureBranch ||
+          !identity ||
+          identity.directory !== descriptor.directory ||
+          identity.featureBranch !== claimed.featureBranch
+        )
+          throw unavailable();
+        for (const [path, retained] of [
+          [identity.directory, identity.root],
+          [join(identity.directory, '.git'), identity.git],
+        ] as const) {
+          const current = lstatSync(path);
+          if (
+            !current.isDirectory() ||
+            current.isSymbolicLink() ||
+            realpathSync(path) !== path ||
+            current.dev !== retained.dev ||
+            current.ino !== retained.ino
+          )
+            throw unavailable();
+        }
+      }
       const session = this.owners.events.getSession(reservation.conversationId);
       if (session) {
         const admission = this.owners.events.getOrdinaryLocalCommandAdmission(
@@ -122,6 +156,13 @@ export class OrdinaryLocalCodexSelectionOwner {
         signal: this.owners.signal,
       });
       this.assertCurrentSync(expected);
+      if (this.owners.workspace.getHostReservation(this.#reservation).state === 'claimed') {
+        await this.owners.workspace.validateHostTask(
+          this.#reservation.conversationId,
+          expected.workspace.cwd,
+        );
+        this.assertCurrentSync(expected);
+      }
     } catch {
       throw unavailable();
     }
