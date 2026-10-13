@@ -2687,10 +2687,10 @@ test('builder launcher distinguishes built-in guidance from a saved profile with
   await page.goto('https://mitzo-ui.test/agent-library');
   await page.getByRole('link', { name: 'Create with advisor', exact: true }).click();
   await expect(page).toHaveURL(/agentProfileKind=builtin/);
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: 'Use selection', exact: true })
-    .click();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
+    'Help me create an agent.',
+  );
+  await page.getByRole('button', { name: /^Workspace controls/ }).click();
   const picker = page.getByRole('combobox', { name: 'Agent profile', exact: true });
   await expect(picker).toHaveValue(JSON.stringify(['builtin', 'mitzo-profile-builder', 1]));
   await expect(picker.getByRole('option', { name: /My saved builder/ })).toHaveCount(1);
