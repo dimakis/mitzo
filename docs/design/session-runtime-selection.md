@@ -178,6 +178,14 @@ No later-turn admission, cold resume, default-runtime switch or general picker i
 implemented by this entry. Offline fixtures provide source evidence only; no live
 host/account/model qualification or activation was performed.
 
+The enabled legacy WebSocket handler checks that same retained login before every
+supported attachment and control message. It uses the assigned authenticated
+connection key, even after a reattach changes the query's client key. Approval
+responses resolve their actual pending-session owner before permission effects,
+including direct answers without reattachment. Legacy owned Send and mode changes
+are refused before native command or skill routing. Socket teardown detaches only
+the exact current transport, so an old socket cannot detach its replacement.
+
 ## Host workspace reservation before checkout creation
 
 `RepositoryWorkspaces.reserveHostTask()` starts from an existing pinned, ready
