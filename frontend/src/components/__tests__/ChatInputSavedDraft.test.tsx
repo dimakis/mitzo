@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatInput } from '../ChatInput';
+import { renderToString } from 'react-dom/server';
 import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
@@ -11,6 +12,57 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+it('does not announce a save before the composer has persisted content', () => {
+  const draft = { ...createChatDraft(), text: 'Not saved yet' };
+  const html = renderToString(
+    <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
+  );
+  expect(html).not.toContain('Saved to Drafts');
+  expect(html).not.toContain('Draft saved on this device');
+  expect(getChatDraft(draft.id)).toBeNull();
+});
+
+it('announces a confirmed local save only while the composer has a stored draft', () => {
+  const draft = createChatDraft();
+  render(
+    <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
+  );
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(getChatDraft(draft.id)).toBeNull();
+
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Just a test.' } });
+  expect(screen.getByRole('status').textContent).toBe('Draft saved on this device');
+  expect(getChatDraft(draft.id)?.text).toBe('Just a test.');
+
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(getChatDraft(draft.id)).toBeNull();
+});
+
+it('replaces the save confirmation with a warning when a newer edit cannot be stored', () => {
+  const draft = { ...createChatDraft(), text: 'Saved text' };
+  render(
+    <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
+  );
+  expect(screen.getByRole('status').textContent).toBe('Draft saved on this device');
+  const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('Storage full');
+  });
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Unsaved edit' } });
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.getByRole('alert').textContent).toContain(
+    'Couldn’t save this draft on this device',
+  );
+  expect(getChatDraft(draft.id)?.text).toBe('Saved text');
+
+  storage.mockRestore();
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Recovered edit' } });
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByRole('status').textContent).toBe('Draft saved on this device');
+  expect(getChatDraft(draft.id)?.text).toBe('Recovered edit');
 });
 
 it('restores full content, saves instant edits, and never puts a fresh composer in the shared key', () => {

@@ -78,6 +78,7 @@ export function useSessionList(): UseSessionListReturn {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [checking, setChecking] = useState(false);
   const nextOffset = useRef(sessions.length);
+  const hasLoaded = useRef(!loading);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -89,10 +90,15 @@ export function useSessionList(): UseSessionListReturn {
       setSessions(page);
       setHasMore(more);
       nextOffset.current = page.length;
+      hasLoaded.current = true;
       setError(null);
     } catch (error) {
       if (!(error instanceof SupersededListRequest))
-        setError('Couldn’t load chats. Check the connection and try again.');
+        setError(
+          hasLoaded.current
+            ? 'Couldn’t refresh chats. Showing the last loaded list.'
+            : 'Couldn’t load chats. Check the connection and try again.',
+        );
     } finally {
       setLoading(false);
     }
