@@ -44,12 +44,29 @@ export function sessionCredentialTools(
       signal: AbortSignal,
     ) => Promise<{ content: string; isError: boolean }>;
   },
+  assertRuntimeCurrent?: () => Promise<void>,
+  assertRuntimeCurrentSync?: () => void,
 ) {
-  const profileTools = sessionProfileTools(sessionId, session, registry, toolPrefix);
-  const repositoryTools = sessionRepositoryTools(sessionId, session, registry, toolPrefix);
+  const profileTools = sessionProfileTools(
+    sessionId,
+    session,
+    registry,
+    toolPrefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  );
+  const repositoryTools = sessionRepositoryTools(
+    sessionId,
+    session,
+    registry,
+    toolPrefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  );
   const currentService = getCredentialConnectionsRuntime();
   const owner = () => registry.findBySessionId(sessionId);
   const stillAllowed = (name: string, method?: string) => {
+    assertRuntimeCurrentSync?.();
     const current = owner();
     return (
       !!current &&
@@ -76,13 +93,21 @@ export function sessionCredentialTools(
     ? createCredentialConnectionTools(
         currentService,
         sessionId,
-        (name, input, opts) => {
+        async (name, input, opts) => {
+          await assertRuntimeCurrent?.();
           const current = owner();
           if (!current || !credentialAllowed(name))
             return Promise.resolve({ behavior: 'deny', message: 'Session unavailable' });
-          return buildPermissionHandler(current.clientId, registry)(toolPrefix + name, input, opts);
+          const decision = await buildPermissionHandler(current.clientId, registry)(
+            toolPrefix + name,
+            input,
+            opts,
+          );
+          await assertRuntimeCurrent?.();
+          return decision;
         },
         credentialAllowed,
+        assertRuntimeCurrent,
       )
     : undefined;
   return {
@@ -97,6 +122,7 @@ export function sessionCredentialTools(
       signal: AbortSignal,
       call?: ProfileToolCall,
     ) {
+      await assertRuntimeCurrent?.();
       const profileResult = await profileTools.execute(name, input, signal, call);
       if (profileResult) return profileResult;
       const repositoryResult = await repositoryTools.execute(name, input, signal);

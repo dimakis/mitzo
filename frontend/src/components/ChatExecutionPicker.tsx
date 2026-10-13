@@ -36,7 +36,18 @@ export function ChatExecutionPicker({
   const selectedRoute = runtime.inventory?.routes.find(
     (route) =>
       route.account.accountId === runtime.intent.account?.accountId &&
-      route.targetId === runtime.intent.execution.targetId,
+      route.targetId === runtime.intent.execution.targetId &&
+      (() => {
+        const candidates = runtime.inventory!.targets.filter(
+          (target) =>
+            target.targetId === route.targetId &&
+            target.harness === route.harness &&
+            (!route.location || target.location === route.location),
+        );
+        return (
+          candidates.length === 1 && candidates[0].location === runtime.intent.execution.location
+        );
+      })(),
   );
   const harness = runtime.bound ? runtime.binding?.harness.implementation : selectedRoute?.harness;
   const software =
@@ -141,8 +152,8 @@ export function ChatExecutionPicker({
       {software && <p>Runs with {software}</p>}
       {runtime.selectedLocal && (
         <p>
-          Local Mac uses a configured signed-in ChatGPT account and a separate checkout. The
-          admitted conversation keeps its account and execution location.
+          Local Mac uses a separate checkout. Authentication and billing remain with the selected
+          account. The admitted conversation keeps its account and execution location.
         </p>
       )}
       {runtime.reason && <span role="status">{runtime.reason}</span>}

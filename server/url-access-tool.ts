@@ -50,13 +50,24 @@ export function clearUrlAccessGrants(session: ManagedSession) {
 }
 interface Dependencies {
   resolve(value: string): Promise<ApprovedUrlTarget>;
-  fetch(value: string, target: ApprovedUrlTarget, signal: AbortSignal): Promise<string>;
+  fetch(
+    value: string,
+    target: ApprovedUrlTarget,
+    signal: AbortSignal,
+    assertRuntimeCurrent?: () => Promise<void>,
+  ): Promise<string>;
   now(): number;
 }
 export function createUrlAccessTool(
   conversation: string | (() => string),
   registry: SessionRegistry,
-  deps: Dependencies = { resolve: resolveApprovedUrl, fetch: fetchApprovedUrl, now: Date.now },
+  deps: Dependencies = {
+    resolve: resolveApprovedUrl,
+    fetch: (value, target, signal, assertCurrent) =>
+      fetchApprovedUrl(value, target, signal, undefined, assertCurrent),
+    now: Date.now,
+  },
+  assertRuntimeCurrent?: () => Promise<void>,
 ) {
   const owner = () =>
     registry.findBySessionId(typeof conversation === 'function' ? conversation() : conversation);
@@ -183,6 +194,7 @@ export function createUrlAccessTool(
             if (pending.get(key) === flight) pending.delete(key);
           }
         }
+        await assertRuntimeCurrent?.();
         signal.throwIfAborted();
         if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
         if (
@@ -271,7 +283,13 @@ export function createUrlAccessTool(
           if (!chainCurrent())
             return { content: 'Session permissions changed during URL read', isError: true };
           try {
-            const content = await deps.fetch(url.href, activeGrant.target, signal);
+            await assertRuntimeCurrent?.();
+            const content = await deps.fetch(
+              url.href,
+              activeGrant.target,
+              signal,
+              assertRuntimeCurrent,
+            );
             signal.throwIfAborted();
             if (!chainCurrent())
               return { content: 'Session permissions changed during URL read', isError: true };

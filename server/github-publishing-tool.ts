@@ -85,6 +85,7 @@ export function createGithubPublishingTool(
   registry: SessionRegistry,
   source: () => GithubPublishingSource | undefined,
   ownerSession?: ReturnType<SessionRegistry['get']>,
+  assertRuntimeCurrent?: () => Promise<void>,
 ) {
   const runtimeOwnerId = randomUUID();
   let closed = false;
@@ -98,6 +99,7 @@ export function createGithubPublishingTool(
     let stage = 'admission';
     const requestId = randomUUID();
     try {
+      await assertRuntimeCurrent?.();
       signal.throwIfAborted();
       const parsed = Input.safeParse(input);
       if (!parsed.success) return { content: 'Invalid GitHub publishing request', isError: true };
@@ -128,6 +130,7 @@ export function createGithubPublishingTool(
         isDeepStrictEqual(owner.session.accountBinding, identity) &&
         effectivePermissionMode(owner.session) !== 'ask' &&
         checkSkillPolicy(registry, owner.clientId, REQUEST_GITHUB_PUBLISH) !== 'deny';
+      await assertRuntimeCurrent?.();
       if (!isCurrent())
         return {
           content: 'Session permissions changed; retry the publishing request',
@@ -145,6 +148,7 @@ export function createGithubPublishingTool(
         parsed.data.baseBranch,
         signal,
       );
+      await assertRuntimeCurrent?.();
       if (!isCurrent())
         return { content: 'Session permissions changed; retry publishing', isError: true };
       const connections = githubRepositoryConnections(
@@ -169,6 +173,7 @@ export function createGithubPublishingTool(
             'The controller GitHub publishing identity does not match this connection. Check its publishing authorization; local changes are preserved.',
           isError: true,
         };
+      await assertRuntimeCurrent?.();
       if (!isCurrent())
         return { content: 'Session permissions changed; retry publishing', isError: true };
       const currentConnection = () => {
@@ -221,6 +226,7 @@ export function createGithubPublishingTool(
               'Enables the selected AI account to request publication for this repository within the configured branch scope. You may also allow the reviewed publication operation scope for this session when approving a publication.',
           },
         );
+        await assertRuntimeCurrent?.();
         signal.throwIfAborted();
         if (decision.behavior !== 'allow')
           return {
@@ -233,6 +239,7 @@ export function createGithubPublishingTool(
           parsed.data.baseBranch,
           signal,
         );
+        await assertRuntimeCurrent?.();
         signal.throwIfAborted();
         if (
           !isCurrent() ||
@@ -267,6 +274,7 @@ export function createGithubPublishingTool(
         runtime.capabilityStore.approveGithubRepository(repositoryScope);
       }
       const resolved = source();
+      await assertRuntimeCurrent?.();
       if (!resolved || !isCurrent() || !currentConnection())
         return {
           content: 'The live publishing workspace is unavailable; reconnect before retrying',
@@ -290,6 +298,7 @@ export function createGithubPublishingTool(
         identity.accountId,
         conversationId,
         signal,
+        ...(assertRuntimeCurrent ? [assertRuntimeCurrent] : []),
       );
       const unresolved = recovered.filter((operation) =>
         ['pending_approval', 'running', 'verification_pending'].includes(operation.status),
@@ -305,6 +314,7 @@ export function createGithubPublishingTool(
         parsed.data.baseBranch,
         signal,
       );
+      await assertRuntimeCurrent?.();
       signal.throwIfAborted();
       if (
         !isCurrent() ||
@@ -339,6 +349,7 @@ export function createGithubPublishingTool(
         },
         signal,
         capabilityApprovalForConversation(registry, conversationId),
+        ...(assertRuntimeCurrent ? [assertRuntimeCurrent] : []),
       );
       return {
         content: JSON.stringify({

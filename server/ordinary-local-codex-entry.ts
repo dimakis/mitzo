@@ -147,6 +147,7 @@ export function ordinaryCodexCapabilities() {
       source?.routes.map((route) => ({
         ...route,
         capabilityRevision: source.capabilityRevision,
+        location: source.targets.find((target) => target.targetId === route.targetId)?.location,
       })) ?? [],
   );
   const result = {

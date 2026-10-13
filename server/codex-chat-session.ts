@@ -50,6 +50,7 @@ import {
   REQUEST_WEB_ACCESS,
   WEB_ACCESS_INSTRUCTIONS,
 } from './request-web-access.js';
+import { sessionProfileTools, profileToolDefinitions } from './session-profile-tools.js';
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
@@ -442,6 +443,10 @@ export function readCodexQueue(
   try {
     const live = session ? getCodexRuntime(session) : undefined;
     const summary = store().queueSummary(conversationId, binding);
+    const guarded = !!(
+      store().readHostCustody(conversationId, binding) ||
+      store().readOpenShellCustody(conversationId, binding)
+    );
     return {
       model: summary.model,
       reasoningEffort: summary.reasoningEffort,
@@ -453,9 +458,11 @@ export function readCodexQueue(
       interrupted: summary.interrupted,
       failed: summary.failed,
       retryAvailableAt: summary.retryAvailableAt,
-      retryable: summary.retryable,
-      requiresRetryConfirmation: summary.requiresRetryConfirmation,
-      ...(summary.capacityRecovery ? { capacityRecovery: summary.capacityRecovery } : {}),
+      retryable: guarded ? false : summary.retryable,
+      requiresRetryConfirmation: guarded ? false : summary.requiresRetryConfirmation,
+      ...(!guarded && summary.capacityRecovery
+        ? { capacityRecovery: summary.capacityRecovery }
+        : {}),
     };
   } catch {
     return {
@@ -981,6 +988,12 @@ async function openCodexChatBound(
       turn?.pending.delete(provider);
     }
   };
+  const ownedHost = options.ownedLocal ?? options.ownedOpenShell;
+  const assertHostCurrentSync = () => ownedHost?.assertCurrentSync();
+  const assertHostCurrent = async () => {
+    await ownedHost?.assertCurrent();
+    assertHostCurrentSync();
+  };
   const requestIntegrationAccessInner = async (
     provider: string,
     signal: AbortSignal,
@@ -1008,6 +1021,7 @@ async function openCodexChatBound(
       provider;
     const attachApprovedProvider = async () => {
       try {
+        await assertHostCurrent();
         const onDemand = onDemandConnections.find(
           (connection) => connection.gatewayProviderName === provider,
         );
@@ -1017,13 +1031,15 @@ async function openCodexChatBound(
             onDemand.revision,
             options.binding.accountId,
             signal,
-            () =>
-              runtimeManager!.grantServiceProvider(
+            async () => {
+              await assertHostCurrent();
+              return runtimeManager!.grantServiceProvider(
                 options.conversationId,
                 managedOpenShell,
                 provider,
                 signal,
-              ),
+              );
+            },
             () =>
               runtimeManager!.revokeServiceProvider(
                 options.conversationId,
@@ -1035,6 +1051,7 @@ async function openCodexChatBound(
           integrationTransportNeedsRefresh = true;
           return true;
         }
+        await assertHostCurrent();
         await runtimeManager!.grantServiceProvider(
           options.conversationId,
           managedOpenShell,
@@ -1213,8 +1230,25 @@ async function openCodexChatBound(
         startupReservation?.();
         throw error;
       });
+  const localProfileTools = options.ownedLocal
+    ? sessionProfileTools(
+        options.conversationId,
+        options.session,
+        options.registry,
+        '',
+        assertHostCurrent,
+        assertHostCurrentSync,
+      )
+    : undefined;
   const ownedToolNames = options.ownedLocal
-    ? new Set([...nativeToolDefinitions, ...mcp.definitions].map((tool) => tool.name))
+    ? new Set(
+        [
+          ...nativeToolDefinitions,
+          ...mcp.definitions,
+          ...profileToolDefinitions,
+          githubPublishingDefinition,
+        ].map((tool) => tool.name),
+      )
     : undefined;
   const connectionTools = sessionCredentialTools(
     options.conversationId,
@@ -1245,12 +1279,12 @@ async function openCodexChatBound(
       ],
       request: requestIntegrationAccess,
     },
+    ownedHost ? assertHostCurrent : undefined,
+    ownedHost ? assertHostCurrentSync : undefined,
   );
-  const managedCapabilityConnection =
-    !options.ownedLocal && options.binding?.accountId
-      ? (managedConnections.find((connection) => connection.templateId === 'github-readonly') ??
-        null)
-      : null;
+  const managedCapabilityConnection = options.binding?.accountId
+    ? (managedConnections.find((connection) => connection.templateId === 'github-readonly') ?? null)
+    : null;
   const capabilityTools = capabilityToolsForConversation(
     options.binding?.accountId ?? '',
     managedCapabilityConnection,
@@ -1268,6 +1302,8 @@ async function openCodexChatBound(
             }
           : undefined
         : hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
+    undefined,
+    ownedHost ? assertHostCurrent : undefined,
   );
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
@@ -1300,7 +1336,7 @@ async function openCodexChatBound(
       });
   }
   const baseSystemPrompt = options.ownedLocal
-    ? options.systemPrompt + HOST_TOOL_INSTRUCTIONS
+    ? options.systemPrompt + HOST_TOOL_INSTRUCTIONS + GITHUB_PUBLISHING_INSTRUCTIONS
     : options.systemPrompt +
       CONNECTION_TOOL_INSTRUCTIONS +
       WEB_ACCESS_INSTRUCTIONS +
@@ -1376,7 +1412,7 @@ async function openCodexChatBound(
     route: options.binding?.provider === 'openai' ? 'openai-api' : 'chatgpt-subscription',
     store: privateStorage,
     deferToolSurfaceReplacement: !!runtimeManager,
-    enableCapacityRecovery: !options.ownedLocal,
+    enableCapacityRecovery: !options.ownedLocal && !options.ownedOpenShell,
     transportClosure: options.ownedLocal ? 'terminal' : undefined,
     webSearchBackend: openShell ? 'openshell' : 'host',
     webSearchDeploymentRevision: options.ownedLocal
@@ -1387,11 +1423,11 @@ async function openCodexChatBound(
     getMode: () => options.session.mode,
     systemPrompt: persistentSystemPrompt,
     startupSignal: signal,
-    prepareAgentContext: options.ownedLocal
+    prepareAgentContext: ownedHost
       ? async (signal) => {
-          await options.ownedLocal!.assertCurrent();
+          await assertHostCurrent();
           await options.prepareAgentContext?.(signal);
-          options.ownedLocal!.assertCurrentSync();
+          await assertHostCurrent();
         }
       : options.prepareAgentContext,
     ...(options.ownedLocal
@@ -1645,6 +1681,7 @@ async function openCodexChatBound(
                 options.binding.accountId,
                 options.conversationId,
                 signal,
+                ...(ownedHost ? [assertHostCurrent] : []),
               );
           },
         }
@@ -1657,7 +1694,12 @@ async function openCodexChatBound(
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
     tools: options.ownedLocal
-      ? [...nativeToolDefinitions, ...mcp.definitions]
+      ? [
+          ...nativeToolDefinitions,
+          ...mcp.definitions,
+          ...profileToolDefinitions,
+          githubPublishingDefinition,
+        ]
       : connectedOpenShell
         ? [
             ...connectionTools.definitions,
@@ -1731,10 +1773,12 @@ async function openCodexChatBound(
       finish();
     },
     requestUserInput: async (params, signal) => {
-      await options.ownedLocal?.assertCurrent();
+      await assertHostCurrent();
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
-      return requestCodexUserInput(params, signal, owner.clientId, options.registry);
+      const result = await requestCodexUserInput(params, signal, owner.clientId, options.registry);
+      await assertHostCurrent();
+      return result;
     },
     ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
       ? {
@@ -1782,7 +1826,9 @@ async function openCodexChatBound(
       // Refuse an unqualified helper before any owner await, approval or effect.
       if (ownedToolNames && !ownedToolNames.has(name))
         throw Error('Tool unavailable for owned local Codex chat');
-      await options.ownedLocal?.assertCurrent();
+      await assertHostCurrent();
+      const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
+      if (profileResult) return profileResult;
       const keychainResult = options.ownedLocal
         ? undefined
         : await connectionTools.execute(name, input, signal, callContext);
@@ -1808,6 +1854,7 @@ async function openCodexChatBound(
           },
           signal,
           capabilityApprovalForConversation(options.registry, options.conversationId),
+          ...(ownedHost ? [assertHostCurrent] : []),
         );
         return {
           content: JSON.stringify({
@@ -1843,6 +1890,7 @@ async function openCodexChatBound(
           return { content: 'Telos input changed during approval; retry the tool', isError: true };
         if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
           return { content: 'Session permissions changed; retry the tool', isError: true };
+        await assertHostCurrent();
         return executeTelosArtifactTool(
           localHttpBaseUrl(Number.parseInt(process.env.PORT || '3100', 10), localServerUsesTls()),
           owner.clientId,
@@ -1874,6 +1922,7 @@ async function openCodexChatBound(
           return { content: 'Telos input changed during approval; retry the tool', isError: true };
         if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
           return { content: 'Session permissions changed; retry the tool', isError: true };
+        await assertHostCurrent();
         const port = Number.parseInt(process.env.PORT || '3100', 10);
         return executeTelosCreateOutcome(
           localHttpBaseUrl(port, localServerUsesTls()),
@@ -1888,8 +1937,11 @@ async function openCodexChatBound(
         return requestIntegrationAccess(provider, signal);
       }
       if (name === REQUEST_WEB_ACCESS) {
-        return createWebAccessTool(options.conversationId, options.registry, (query, signal) =>
-          runtime.searchWeb(query, signal),
+        return createWebAccessTool(
+          options.conversationId,
+          options.registry,
+          (query, signal) => runtime.searchWeb(query, signal),
+          ownedHost ? assertHostCurrent : undefined,
         )(input, signal);
       }
       return (
@@ -1994,6 +2046,7 @@ async function openCodexChatBound(
         options.binding.accountId,
         options.conversationId,
         signal,
+        ...(ownedHost ? [assertHostCurrent] : []),
       );
     }
     if (runtimeManager && managedOpenShell) {

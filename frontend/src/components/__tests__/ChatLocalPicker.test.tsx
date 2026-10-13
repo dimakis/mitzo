@@ -7,6 +7,7 @@ import { AccountModelPicker } from '../AccountModelPicker';
 import { ChatAgentProfilePicker } from '../ChatAgentProfilePicker';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 import { ChatExecutionPicker } from '../ChatExecutionPicker';
+import type { ExplicitLocalInventory } from '../../lib/explicit-local-chat';
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import type { useExplicitLocalChat } from '../../hooks/useExplicitLocalChat';
 afterEach(cleanup);
@@ -208,4 +209,33 @@ it('uses only the Account control to explicitly reselect routing while model edi
     target: { value: 'personal' },
   });
   expect(account).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'personal' }));
+});
+
+it('does not claim software from an ambiguous unlocated target or imply another billing account', () => {
+  const data: ExplicitLocalInventory = localInventoryFixture();
+  data.targets.push({ ...data.targets[0], location: 'openshell', label: 'OpenShell' });
+  const runtime = {
+    visible: true,
+    selectedLocal: true,
+    bound: false,
+    metadataUnavailable: false,
+    inventory: data,
+    intent: {
+      ...createChatRuntimeSelection(),
+      execution: { location: 'local', targetId: 'mac' },
+      account: { accountId: 'personal', model: 'luna-fixture' },
+    },
+    update: vi.fn(),
+    refresh: vi.fn(),
+    review: vi.fn(),
+  } as unknown as ReturnType<typeof useExplicitLocalChat>;
+  render(
+    <MemoryRouter>
+      <ChatExecutionPicker runtime={runtime} />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByText(/Runs with/)).toBeNull();
+  expect(
+    screen.getByText(/Authentication and billing remain with the selected account/),
+  ).toBeInTheDocument();
 });

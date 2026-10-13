@@ -445,3 +445,28 @@ it('keeps a connection disabled when a newer pending replacement fails and an ol
   expect(failed.status).toBe('disabled');
   expect(service.sessions(c.id)).toEqual([]);
 });
+
+it('freshens runtime authority after awaiting vault access before REST dispatch', async () => {
+  const { service, vault, send } = setup();
+  const c = await service.create(input, { secret: 'test-only' });
+  service.grant('owned', c.id, c.revision);
+  let revoked = false;
+  vault.read.mockImplementationOnce(async () => {
+    revoked = true;
+    return 'test-only';
+  });
+  const assertCurrent = async () => {
+    if (revoked) throw Error('Owned authority revoked');
+  };
+  await expect(
+    service.request(
+      'owned',
+      c.id,
+      { path: '/api/', method: 'GET' },
+      new AbortController().signal,
+      () => true,
+      assertCurrent,
+    ),
+  ).rejects.toThrow('Connection request failed');
+  expect(send).not.toHaveBeenCalled();
+});

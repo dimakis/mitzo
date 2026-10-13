@@ -83,6 +83,7 @@ export async function fetchPublicPage(
   value: string,
   callerSignal: AbortSignal,
   deps: Dependencies = { resolve: (host) => lookup(host, { all: true }), send },
+  assertRuntimeCurrent?: () => Promise<void>,
 ): Promise<string> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(20_000)]);
   try {
@@ -97,6 +98,7 @@ export async function fetchPublicPage(
         addresses.some((address) => !canonicalPublicDnsAddress(address.address))
       )
         throw new WebAccessError('Website DNS must resolve exclusively to public addresses');
+      await assertRuntimeCurrent?.();
       const response = await deps.send(url, addresses[0]!, signal);
       signal.throwIfAborted();
       if (Buffer.byteLength(response.body) > MAX_BYTES)

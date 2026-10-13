@@ -1219,3 +1219,130 @@ it('does not report success if the remote feature branch no longer has the appro
     f.executor.verify(context(), { output: {}, externalResultId: f.pull.url }),
   ).rejects.toThrow(/commit/);
 });
+
+it('refuses final host reconstruction and publication when runtime owner revokes during export', async () => {
+  const f = fixture();
+  let revoked = false;
+  vi.mocked(f.sandbox.exportBundle).mockImplementation(async () => {
+    revoked = true;
+    return Buffer.from('bundle');
+  });
+  const guard = vi.fn(async () => {
+    if (revoked) throw Error('runtime owner revoked');
+  });
+  const request = context();
+  const preflight = await f.executor.preflight!(request);
+  await expect(
+    f.executor.execute({
+      ...request,
+      approvalInput: preflight.approvalInput,
+      assertRuntimeCurrent: guard,
+    } as CapabilityExecutionContext),
+  ).rejects.toThrow('runtime owner revoked');
+  expect(f.host.reconstruct).not.toHaveBeenCalled();
+  expect(f.host.push).not.toHaveBeenCalled();
+  expect(f.host.create).not.toHaveBeenCalled();
+  expect(f.host.update).not.toHaveBeenCalled();
+});
+
+it.each(['reconstruct', 'lookup'] as const)(
+  'refreshes publishing authority after awaited %s before its following mutation',
+  async (stage) => {
+    const f = fixture();
+    let revoked = false;
+    const guard = vi.fn(async () => {
+      if (revoked) throw Error('runtime owner revoked');
+    });
+    const request = context();
+    const preflight = await f.executor.preflight!(request);
+    if (stage === 'reconstruct')
+      vi.mocked(f.host.reconstruct).mockImplementation(async () => {
+        revoked = true;
+        return { directory: '/tmp/authorized-reconstruction' };
+      });
+    else {
+      let calls = 0;
+      vi.mocked(f.host.findOpen).mockImplementation(async () => {
+        if (++calls === 2) revoked = true;
+        return null;
+      });
+    }
+    await expect(
+      f.executor.execute({
+        ...request,
+        approvalInput: preflight.approvalInput,
+        assertRuntimeCurrent: guard,
+      }),
+    ).rejects.toThrow('runtime owner revoked');
+    expect(f.host.create).not.toHaveBeenCalled();
+    expect(f.host.update).not.toHaveBeenCalled();
+    if (stage === 'reconstruct') expect(f.host.push).not.toHaveBeenCalled();
+    else expect(f.host.push).toHaveBeenCalledTimes(1);
+    expect(f.host.cleanup).toHaveBeenCalledTimes(1);
+  },
+);
+it('refuses recovery POST when its retained owner revokes while checking the exact prior result', async () => {
+  const f = fixture();
+  const preflight = await f.executor.preflight!(context());
+  let revoked = false;
+  vi.mocked(f.host.read).mockImplementation(async () => {
+    revoked = true;
+    return null;
+  });
+  const guard = async () => {
+    if (revoked) throw Error('runtime owner revoked');
+  };
+  await expect(
+    f.executor.recover(
+      { ...operation, recoveryIntent: preflight.recoveryIntent! },
+      new AbortController().signal,
+      guard,
+    ),
+  ).rejects.toThrow('runtime owner revoked');
+  expect(f.host.create).not.toHaveBeenCalled();
+});
+
+it('checks the retained owner again between PATCH and the separate draft-state host mutation', async () => {
+  const pull = {
+    repository: 'acme/widgets',
+    sourceBranch: 'feature/safe',
+    baseBranch: 'main',
+    url: 'https://github.com/acme/widgets/pull/12',
+    id: '12',
+    title: input.title,
+    body: input.body,
+    draft: false,
+  };
+  let revoked = false;
+  const run = vi.fn(async (_command: string, args: readonly string[]) => {
+    if (args.includes('PATCH')) revoked = true;
+    return {
+      stdout: JSON.stringify({
+        number: 12,
+        html_url: pull.url,
+        title: input.title,
+        body: input.body,
+        draft: false,
+        head: { ref: pull.sourceBranch },
+        base: { ref: pull.baseBranch, repo: { full_name: pull.repository } },
+      }),
+      stderr: '',
+    };
+  });
+  const guard = async () => {
+    if (revoked) throw Error('runtime owner revoked');
+  };
+  const publisher = new GitHubCliHostPublisher(run);
+  await expect(
+    publisher.update({
+      ...pull,
+      pullRequest: pull,
+      draft: true,
+      operationId: 'original-operation',
+      signal: new AbortController().signal,
+      assertRuntimeCurrent: guard,
+    } as Parameters<typeof publisher.update>[0]),
+  ).rejects.toThrow('runtime owner revoked');
+  expect(run.mock.calls.some(([, args]) => args[0] === 'pr')).toBe(false);
+  expect(run).toHaveBeenCalledTimes(1);
+});

@@ -95,6 +95,7 @@ export async function fetchApprovedUrl(
   target: ApprovedUrlTarget,
   callerSignal: AbortSignal,
   deps = { resolve: resolveApprovedUrl, read },
+  assertRuntimeCurrent?: () => Promise<void>,
 ): Promise<string> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(20_000)]);
   try {
@@ -119,6 +120,7 @@ export async function fetchApprovedUrl(
       for (const address of current.addresses) {
         signal.throwIfAborted();
         try {
+          await assertRuntimeCurrent?.();
           response = await deps.read(url, address, signal);
           break;
         } catch (error) {

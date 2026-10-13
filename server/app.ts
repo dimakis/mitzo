@@ -1,3 +1,4 @@
+import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
 import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
 import { ordinaryCodexContinuationStatus } from './ordinary-codex-continuation-status.js';
 import { createTelemetryRelay } from './telemetry-relay.js';
@@ -2802,6 +2803,9 @@ async function reattachCodexQueue(
   deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
 ): Promise<'ready' | 'reattaching' | 'unavailable'> {
   const existing = registry.findBySessionId(id)?.session;
+  // Bound cold continuation must reacquire its original owning route through runtime admission.
+  if (eventStore.getSessionRuntimeBinding(id) && !existing?.ordinaryRuntimeOwner)
+    return 'unavailable';
   if (existing && getCodexRuntime(existing)) return 'ready';
   const meta = eventStore.getSession(id);
   if (!meta) return 'unavailable';
@@ -2840,9 +2844,28 @@ async function reattachCodexQueue(
   return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
 }
 
+function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
+  assertOwnedCodexQueueControl(
+    {
+      runtimeBinding: (sessionId) => eventStore.getSessionRuntimeBinding(sessionId),
+      accountBinding: (sessionId) => eventStore.getSession(sessionId)?.accountBinding,
+      custody: (sessionId, account, binding) => {
+        if (binding.harness.implementation !== 'codex') throw Error('Queue owner unavailable');
+        const native = getCodexConversationStore();
+        return binding.execution.location === 'local'
+          ? native.readHostCustody(sessionId, account)
+          : native.readOpenShellCustody(sessionId, account);
+      },
+    },
+    id,
+    authorization,
+  );
+}
+
 app.use(
   '/api/sessions',
   createCodexQueueRouter({
+    authorizeMutation: assertQueueOperator,
     binding(sessionId) {
       const meta = eventStore.getSession(sessionId);
       const binding = meta?.accountBinding;
@@ -2891,6 +2914,14 @@ app.use(
 
 app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
   const sessionId = req.params.id;
+  try {
+    assertQueueOperator(sessionId, res.locals.authSession);
+  } catch {
+    res
+      .status(403)
+      .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
+    return;
+  }
   const live = registry.findBySessionId(sessionId);
   const recentSend = eventStore.hasRecentSendCommandForSession(sessionId, Date.now() - 10_000);
   if (!live && !recentSend) {
@@ -2914,6 +2945,7 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
     return;
   }
   try {
+    assertQueueOperator(sessionId, res.locals.authSession);
     await runtime.acknowledgeRecovery();
     res.json({ ok: true });
   } catch {

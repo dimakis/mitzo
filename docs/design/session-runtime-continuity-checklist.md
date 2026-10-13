@@ -65,3 +65,26 @@ prompt/image history during metadata refresh. The regression deliberately makes
 completed payloads unreadable and verifies running/completed and binding checks.
 Fresh current-head hosted checks and Centaur/MGMT source acceptance remain
 required. No live account, tool or publication qualification is claimed here.
+
+## Independent source review corrections
+
+Queue mutations now require the original current signed login and native custody,
+including cold cancellation; bound cold provider reattachment cannot use legacy
+startup. Guarded retry helpers refuse synthetic native children without ordinary
+admission. The normal fresh-message admission remains the route to supported
+continuation; uncertain original work is retained.
+
+Owned OpenShell host requests refresh full owning authority before and after
+continuations. Host publishing, capability execution/recovery, provider grants,
+profile/repository helpers, REST and web calls recheck authority after approval
+and asynchronous preparation, immediately before effects. Guarded WebSocket and
+dashboard channels remain unavailable until async per-frame checks exist. Local
+Codex now delivers the existing profile helpers and GitHub publisher with these
+same fences; the native adapter fixture verifies publication uses its original
+checkout and selected account.
+
+Configured routes carry an explicit location, and target matching includes
+location and software. Identical target IDs across environments cannot change the
+selected route or software. Older ambiguous projections refuse selection. These
+changes preserve the picker and retain authentication/billing with the selected
+account. Fresh hosted evidence and independent review are required for this head.

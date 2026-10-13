@@ -31,6 +31,25 @@ describe('shared web access tool wiring', () => {
       execute: createWebAccessTool('conversation', registry, search),
     };
   }
+  it('refreshes owned authority after approval before a web provider effect', async () => {
+    const f = fixture();
+    let revoked = false;
+    const assertCurrent = vi.fn(async () => {
+      if (revoked) throw Error('Owned runtime revoked');
+    });
+    approve.mockImplementation(async (_name, input) => {
+      revoked = true;
+      return { behavior: 'allow', updatedInput: input };
+    });
+    const execute = createWebAccessTool('conversation', f.registry, f.search, assertCurrent);
+    await expect(
+      execute(
+        { operation: 'search', query: 'Research', reason: 'Check' },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ isError: true });
+    expect(f.search).not.toHaveBeenCalled();
+  });
   it('keeps redirect destination consent explicit alongside session search consent', async () => {
     const f = fixture();
     approve.mockImplementation(async (_name, input) => ({

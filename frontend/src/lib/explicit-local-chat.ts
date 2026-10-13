@@ -56,6 +56,7 @@ export const ExplicitLocalInventorySchema = z
         z.strictObject({
           account,
           targetId: ref,
+          location: z.enum(['local', 'openshell']).optional(),
           harness: z.literal('codex'),
           modes: z.array(z.enum(['ask', 'agent', 'auto'])).max(3),
           skillCeiling: z.literal('unsupported').optional(),
@@ -112,14 +113,23 @@ export function normalizeLocalInventory(data: ExplicitLocalInventory): ChatRunti
       const configured = data.accounts.find(
         (a) => JSON.stringify(a.account) === JSON.stringify(route.account),
       );
-      const target = data.targets.find((target) => target.targetId === route.targetId);
+      const candidates = data.targets.filter(
+        (target) =>
+          target.targetId === route.targetId &&
+          target.harness === route.harness &&
+          (!route.location || target.location === route.location),
+      );
+      const target = candidates.length === 1 ? candidates[0] : undefined;
       return {
         accountId: route.account.accountId,
         accountReference: route.account,
         targetId: route.targetId,
         location: target?.location ?? 'local',
         available: !!target && !!configured && !configured.modelDiscovery.stale,
-        reason: 'Refresh the selected account and model before sending.',
+        reason:
+          candidates.length > 1
+            ? 'The configured target identity is ambiguous. Refresh execution choices.'
+            : 'Refresh the selected account and model before sending.',
         models: configured?.models ?? [],
       };
     }),
@@ -149,7 +159,8 @@ export function prepareLocalFirstCommand(
   const route = inventory.routes.find(
     (r) =>
       r.account.accountId === configured?.account.accountId &&
-      r.targetId === selection.execution.targetId,
+      r.targetId === selection.execution.targetId &&
+      (!r.location || r.location === selection.execution.location),
   );
   if (!configured || !route?.modes.includes(input.mode))
     return { request: null, reason: 'Review the selected execution choices before sending.' };

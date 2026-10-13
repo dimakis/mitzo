@@ -276,3 +276,30 @@ it('refuses cancelled results even when an injected sender ignores caller cancel
   });
   await expect(sendConnectionRequest(input(), controller.signal, sender)).rejects.toThrow();
 });
+
+it('refreshes owned authority after DNS before releasing a checked destination', async () => {
+  const mock = transport();
+  let revoked = false;
+  const assertCurrent = async () => {
+    if (revoked) throw Error('Owned authority revoked');
+  };
+  const pending = sendConnectionRequest(
+    { ...input(), assertRuntimeCurrent: assertCurrent },
+    new AbortController().signal,
+  );
+  await Promise.resolve();
+  network.lookup.mockImplementationOnce((_host, _options, callback) => {
+    revoked = true;
+    callback(null, [{ address: '8.8.8.8', family: 4 }]);
+  });
+  const callback = vi.fn();
+  (mock.options().lookup! as CapturedLookup)('service.example', { all: true }, callback);
+  await Promise.resolve();
+  expect(callback).toHaveBeenCalledWith(
+    expect.objectContaining({ message: 'Owned authority revoked' }),
+    [],
+    undefined,
+  );
+  mock.request.emit('error', new Error('fixture cancelled'));
+  await expect(pending).rejects.toThrow('fixture cancelled');
+});

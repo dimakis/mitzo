@@ -930,6 +930,8 @@ export class CodexConversation {
     sourceCommandId: string,
     deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
   ) {
+    if (this.opts.canClaimCommand || !this.opts.enableCapacityRecovery)
+      throw new Error('Capacity recovery unavailable');
     assertCapacityAdmissionDeadline(deadline);
     if (!this.binding || this.closed) throw new Error('Capacity recovery unavailable');
     const before = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
@@ -1162,6 +1164,7 @@ export class CodexConversation {
   }
   async retryLatestFailed(confirmAmbiguous = false) {
     if (!this.binding || this.closed) throw new Error('Codex conversation unavailable');
+    if (this.opts.canClaimCommand) return 'not_retryable' as const;
     const result = this.opts.store.retryLatestFailed(
       this.opts.conversationId,
       this.binding,
@@ -2328,7 +2331,7 @@ export class CodexConversation {
           status,
           providerTransportFailed ? 'fork' : 'resume',
           providerFailure?.retryAfterMs ? Date.now() + providerFailure.retryAfterMs : undefined,
-          providerFailure?.retryable ?? true,
+          this.opts.canClaimCommand ? false : (providerFailure?.retryable ?? true),
           providerFailure?.ambiguous ?? false,
         );
       const capacity =

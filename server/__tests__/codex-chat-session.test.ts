@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 const mocks = vi.hoisted(() => ({
@@ -2995,7 +2995,7 @@ it('keeps the admitted developer input fixed while asynchronous owned verificati
   }
 });
 
-it('limits owned tools to native and MCP and rejects helpers before owner awaits or approval', async () => {
+it('qualifies owned native, MCP, profile and publishing tools and rejects other helpers before effects', async () => {
   vi.clearAllMocks();
   mocks.initialize.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
@@ -3026,16 +3026,24 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
     .spyOn(native, 'createNativeToolExecutor')
     .mockReturnValue(nativeExecute as never);
   const f = ownedLocalOptions();
+  f.opts.session.accountBinding = f.opts.binding;
   f.opts.registry = {
     ...f.opts.registry,
     findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
+    get: () => f.opts.session,
   } as never;
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
     chat = await openCodexChat(f.opts);
     const config = mocks.conversationOptions!;
+    expect(config.systemPrompt).toContain('RequestGithubPublish');
     expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
-      [...native.nativeToolDefinitions.map((tool) => tool.name), mcpDefinition.name].sort(),
+      [
+        ...native.nativeToolDefinitions.map((tool) => tool.name),
+        ...profileToolDefinitions.map((tool) => tool.name),
+        'RequestGithubPublish',
+        mcpDefinition.name,
+      ].sort(),
     );
     const execute = config.executeTool as (
       name: string,
@@ -3046,11 +3054,8 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
     vi.mocked(f.lease.assertCurrent).mockClear();
     for (const name of [
       'ListConnections',
-      'SymposiumReadProfiles',
       'PrepareRepositoryChat',
       'RequestWebAccess',
-      'RequestGithubPublish',
-      'SymposiumProposeProfile',
       'Capability_fixture',
       'UnknownAlias',
     ])
@@ -3058,6 +3063,64 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
         execute(name, {}, new AbortController().signal, { turnId: 'turn', callId: name }),
       ).rejects.toThrow('Tool unavailable for owned local Codex chat');
     expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    await expect(
+      execute('RequestGithubPublish', {}, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'publish',
+      }),
+    ).resolves.toMatchObject({ content: 'Invalid GitHub publishing request', isError: true });
+    expect(f.lease.assertCurrent).toHaveBeenCalled();
+    const connection = {
+      id: 'owned-publisher',
+      revision: 1,
+      templateId: 'github-readonly',
+      status: 'active',
+      desiredAccountIds: [f.opts.binding.accountId],
+      publicConfig: { allowedRepositories: ['example/repo'] },
+    };
+    const invoke = vi.fn(async () => ({
+      id: 'published',
+      status: 'succeeded',
+      result: { url: 'https://github.com/example/repo/pull/1' },
+    }));
+    const resolve = vi.fn(async () => 'example/repo');
+    setConnectionsRuntime({
+      store: { list: () => [connection], get: () => connection },
+      verifyGithubPublishingIdentity: vi.fn(async () => true),
+      resolveGithubPublishingRepository: resolve,
+      capabilityStore: {
+        getGrant: () => ({ status: 'active', accountIds: [f.opts.binding.accountId] }),
+        hasGithubRepositoryAccess: () => true,
+      },
+      capabilities: { invoke, recoverPendingForConversation: vi.fn(async () => []) },
+    } as unknown as import('../connections-runtime.js').ConnectionsRuntime);
+    await expect(
+      execute(
+        'RequestGithubPublish',
+        {
+          repositoryPath: f.opts.session.cwd,
+          baseBranch: 'main',
+          title: 'Owned work',
+          body: 'Review',
+          draft: true,
+        },
+        new AbortController().signal,
+        { turnId: 'turn', callId: 'real-publication' },
+      ),
+    ).resolves.toMatchObject({ isError: false });
+    expect(resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ runtime: 'host', workspace: realpathSync(f.opts.session.cwd!) }),
+      f.opts.session.cwd,
+      'main',
+      expect.any(AbortSignal),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: f.opts.binding.accountId }),
+      expect.any(AbortSignal),
+      expect.any(Function),
+      expect.any(Function),
+    );
+    setConnectionsRuntime(null);
     expect(connectionExecute).not.toHaveBeenCalled();
     expect(mocks.permissionHandler).not.toHaveBeenCalled();
     expect(nativeExecute).not.toHaveBeenCalled();
@@ -3079,6 +3142,7 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
     expect(mcpExecute).toHaveBeenCalledOnce();
   } finally {
     chat?.close();
+    setConnectionsRuntime(null);
     f.eventStore.close();
     nativeFactory.mockRestore();
     connectionFactory.mockRestore();
@@ -3335,6 +3399,11 @@ it('consumes frozen owned OpenShell configuration and executes guarded runtime a
     expect(ensure).toHaveBeenCalledTimes(1);
     expect(verify).toHaveBeenCalled();
     const captured = mocks.conversationOptions!;
+    expect(captured.enableCapacityRecovery).toBe(false);
+    const prepare = captured.prepareAgentContext as (signal: AbortSignal) => Promise<void>;
+    vi.mocked(owner.assertCurrent).mockClear();
+    await prepare(new AbortController().signal);
+    expect(owner.assertCurrent).toHaveBeenCalledTimes(2);
     const reconnect = captured.reconnectGuard as <T>(operation: () => Promise<T>) => Promise<T>;
     const operation = vi.fn(async () => 'exact-operation-result');
     await expect(reconnect(operation)).resolves.toBe('exact-operation-result');

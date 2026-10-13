@@ -1,5 +1,7 @@
 import { expect, it } from 'vitest';
+import type { ExplicitLocalInventory } from '../explicit-local-chat';
 import {
+  ExplicitLocalInventorySchema,
   buildLocalFirstCommand,
   normalizeLocalInventory,
   prepareLocalFirstCommand,
@@ -137,4 +139,48 @@ it('prepares OpenShell with its native route revision while the draft reviews th
     runtime: { targetId: 'sandbox', account: data.accounts[0].account },
   });
   expect(intent.capabilityRevision).toBe('combined-caps-r1');
+});
+
+it('keeps route locations distinct when independently configured targets reuse an ID', () => {
+  const data: ExplicitLocalInventory = localInventoryFixture();
+  const local = data.targets[0];
+  data.targets.push({ ...local, location: 'openshell', label: 'OpenShell' });
+  data.routes[0] = { ...data.routes[0], location: 'local', capabilityRevision: 'local-revision' };
+  data.routes.push({
+    ...data.routes[0],
+    location: 'openshell',
+    capabilityRevision: 'shell-revision',
+  });
+  expect(
+    normalizeLocalInventory(ExplicitLocalInventorySchema.parse(data)).routes.map(
+      (route) => route.location,
+    ),
+  ).toEqual(['local', 'openshell']);
+  data.locations[0] = { location: 'openshell', status: 'configured' };
+  const result = prepareLocalFirstCommand(
+    {
+      ...createChatRuntimeSelection(),
+      execution: { location: 'openshell', targetId: local.targetId },
+      capabilityRevision: data.capabilityRevision,
+      account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+      agentProfile: { profileId: 'agent', revision: 1 },
+    },
+    data,
+    {
+      clientMsgId: 'first',
+      repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
+      mode: 'agent',
+      text: 'Inspect',
+    },
+  );
+  expect(result.request?.capabilityRevision).toBe('shell-revision');
+  expect(result.request?.runOn).toBe('openshell');
+});
+
+it('refuses an older ambiguous route without choosing the first environment', () => {
+  const data: ExplicitLocalInventory = localInventoryFixture();
+  data.targets.push({ ...data.targets[0], location: 'openshell', label: 'OpenShell' });
+  const route = normalizeLocalInventory(data).routes[0];
+  expect(route.available).toBe(false);
+  expect(route.reason).toContain('ambiguous');
 });

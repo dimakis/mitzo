@@ -15,7 +15,7 @@ Expand **Workspace** in chat to choose the account and model. **Make default for
 
 Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
 
-Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Known native capacity failures schedule up to five continuations from saved progress, 30 seconds apart, using the same account, model and provider thread. **Try again** runs one attempt immediately within that budget; after exhaustion it explicitly starts a new five-attempt cycle. **Stop retries** cancels waiting work and interrupts only its active continuation. A new user message supersedes pending retries. Each continuation is a new native turn with fresh standard admission and acknowledgment-bound context delivery; it does not replay the original prompt or replace completed tool results. Restart stops the retry schedule until a manual **Try again**; uncertain dispatched work remains held for inspection.
+Legacy Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Known native capacity failures schedule up to five continuations from saved progress, 30 seconds apart, using the same account, model and provider thread. **Try again** runs one attempt immediately within that budget; after exhaustion it explicitly starts a new five-attempt cycle. **Stop retries** cancels waiting work and interrupts only its active continuation. A new user message supersedes pending retries. Each continuation is a new native turn with fresh standard admission and acknowledgment-bound context delivery; it does not replay the original prompt or replace completed tool results. Restart stops the retry schedule until a manual **Try again**; uncertain dispatched work remains held for inspection.
 
 Chats and Telos retain their last successful lists in memory while refreshing, including when you return to a loaded page. Chats does not wait for configuration or version checks to finish displaying conversations. Opening saved history skips SDK directory discovery when its workspace is already recorded; histories bound to other providers skip Claude SDK workspace lookup. Assistant responses reuse parsed Markdown across collapse measurement and unrelated updates, refreshing it when the text or owning session changes. The native splash yields to the route authentication status as soon as the app renders. Authentication checks have a five-second deadline; a stalled or unavailable check preserves the login and offers Retry without requiring a tab change. Protected routes reuse a successful authentication check for up to 30 seconds within the same login; credential changes, logout and protected 401 responses invalidate that proof. List snapshots clear when authentication changes. Identical simultaneous Telos list requests from pages and navigation badges share one network request, reducing duplicate Python startup and database lock contention. Native-provider chats receive local automatic titles without sending their content to a separate naming account; older unnamed conversations derive a display title from saved prompts. Chats shows its Drafts shortcut only while saved drafts exist.
 
@@ -39,6 +39,15 @@ enrolled on OpenShell, and changing environment retains that choice with an
 unavailable reason when its original account has no compatible route. Local API,
 Vertex, built-ins, recipes, Local workspace/brokered authentication and native
 sandbox subscription routes are not advertised by this contract.
+
+Bound Codex queues require the original still-valid signed login for cancellation,
+continuation and recovery controls, including cold controls. Native retry helpers
+that synthesize a command outside ordinary admission remain unavailable; existing
+failed/uncertain work stays retained. Local delivers the existing profile helpers
+and approval-backed GitHub publisher from its original checkout. Owned OpenShell
+host effects recheck the selected account/profile/target after approvals and before
+publication, provider grants, REST and web effects. WebSocket/dashboard helpers
+remain unavailable on this bound route until their per-frame authority is supported.
 
 Configuration remains operator-owned and disabled by default. Local requires
 `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and separately reviewed target/native files.

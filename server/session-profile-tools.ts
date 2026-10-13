@@ -38,8 +38,11 @@ export function sessionProfileTools(
   session: ManagedSession,
   registry: SessionRegistry,
   prefix: string,
+  assertRuntimeCurrent?: () => Promise<void>,
+  assertRuntimeCurrentSync?: () => void,
 ) {
   const current = (name: string) => {
+    assertRuntimeCurrentSync?.();
     const owner = registry.findBySessionId(sessionId);
     if (
       !owner ||
@@ -61,6 +64,7 @@ export function sessionProfileTools(
       try {
         signal = AbortSignal.any([signal, session.abortController.signal]);
         signal.throwIfAborted();
+        await assertRuntimeCurrent?.();
         const owner = current(name);
         if (name === 'SymposiumProposeProfile' && (!call?.turnId || !call.callId))
           throw Error('Verified tool call identity is required');
@@ -106,6 +110,7 @@ export function sessionProfileTools(
             );
             if (!read.data.revision) throw Error('Saved profile revision was not found');
           }
+          await assertRuntimeCurrent?.();
           const response = await custodianControllerClient.request(
             {
               requestId: randomUUID(),

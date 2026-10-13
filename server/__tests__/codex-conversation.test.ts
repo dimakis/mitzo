@@ -509,6 +509,7 @@ async function setup(
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>,
   disableProjectDocuments = false,
   shouldContinueAfterToolResult?: CodexConversationOptions['shouldContinueAfterToolResult'],
+  canClaimCommand?: CodexConversationOptions['canClaimCommand'],
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -598,6 +599,7 @@ async function setup(
     prepareAgentContext,
     disableProjectDocuments,
     shouldContinueAfterToolResult,
+    canClaimCommand,
     onApplicationContextAccepted,
     beforeRuntimeAdmission,
     reconnectGuard,
@@ -5322,3 +5324,36 @@ it('reports a trusted external owner environment receipt without creating an una
   });
   expect(terminal).toHaveBeenCalledWith('external-command', 'turn-1', 'completed');
 });
+
+it('refuses synthetic retry children when command admission owns the queue', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[28] = () => true;
+  const { c, store } = await setup(...args);
+  const retry = vi.spyOn(store, 'retryLatestFailed');
+  expect(await c.retryLatestFailed(true)).toBe('not_retryable');
+  expect(retry).not.toHaveBeenCalled();
+});
+
+it.each(['guarded', 'disabled'] as const)(
+  'preserves a retained capacity receipt when direct retry is %s',
+  async (mode) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      const retained = f.store.capacityRecovery('app', binding)!;
+      const commands = f.store.commands('app', binding);
+      if (mode === 'guarded') f.conversationOptions.canClaimCommand = () => true;
+      else f.conversationOptions.enableCapacityRecovery = false;
+      const reserve = vi.spyOn(f.store, 'queueCapacityRetry');
+      await expect(f.c.tryCapacityNow(retained.id, retained.sourceCommandId)).rejects.toThrow(
+        'Capacity recovery unavailable',
+      );
+      expect(reserve).not.toHaveBeenCalled();
+      expect(f.store.capacityRecovery('app', binding)).toEqual(retained);
+      expect(f.store.commands('app', binding)).toEqual(commands);
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

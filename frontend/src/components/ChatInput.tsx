@@ -189,7 +189,9 @@ export function ChatInput({
   const sendDisabledReason =
     suppliedSendDisabledReason ??
     ((boundedFirstCommand || guardedConversation) && activeContextBlocks.length
-      ? 'Remove attached context before sending the Local command.'
+      ? boundedFirstCommand
+        ? 'Remove attached context before sending the Local command.'
+        : 'Remove attached context before sending this conversation command.'
       : undefined) ??
     validateSend?.(
       text.trim() || 'What do you see in this image?',
