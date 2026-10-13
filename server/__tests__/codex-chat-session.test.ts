@@ -402,6 +402,28 @@ it('does not open MCP processes if private storage is unavailable', async () => 
   await expect(opening).rejects.toMatchObject({ phase: 'conversation_storage' });
   expect(mocks.connect).not.toHaveBeenCalled();
 });
+it.each([
+  ['openai', 'openai-api'],
+  ['openai-codex', 'chatgpt-subscription'],
+] as const)(
+  'labels %s provider conversations with their actual trace route',
+  async (provider, route) => {
+    vi.clearAllMocks();
+    mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+    const abort = new AbortController();
+    const opts = options(abort);
+    opts.binding = {
+      accountId: 'offline-route-fixture',
+      accountLabel: 'Fixture',
+      provider,
+      model: 'test-model',
+      profileRevision: 'fixture',
+    };
+    const chat = await openCodexChat(opts);
+    expect(mocks.conversationOptions?.route).toBe(route);
+    chat.close();
+  },
+);
 it('retains the failing initialization step while closing the runtime', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });

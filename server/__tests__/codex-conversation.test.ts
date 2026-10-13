@@ -21,7 +21,14 @@ import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { CodexRequestError } from '../codex-app-server-client.js';
 import { tracer } from '../tracing.js';
-import type { Span } from '@opentelemetry/api';
+import {
+  context,
+  ROOT_CONTEXT,
+  createContextKey,
+  type Context,
+  type Span,
+} from '@opentelemetry/api';
+import { AsyncLocalStorage } from 'node:async_hooks';
 const cleanup: (() => void)[] = [];
 const binding = {
   accountId: 'personal',
@@ -148,6 +155,7 @@ it('delivers complete long application context in ordered fragments below the pi
   c.close();
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   cleanup.splice(0).forEach((f) => f());
 });
@@ -175,12 +183,25 @@ it.each([
 ] as const)(
   'traces a subscription turn through %s exactly once',
   async (_case, status, failure) => {
-    const span = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
-    const start = vi.spyOn(tracer, 'startSpan').mockReturnValue(span as unknown as Span);
+    const span = {
+      setAttribute: vi.fn(),
+      setStatus: vi.fn(),
+      end: vi.fn(),
+      spanContext: () => ({
+        traceId: '12345678901234567890123456789012',
+        spanId: '1234567890123456',
+        traceFlags: 1,
+      }),
+    };
+    const original = tracer.startSpan.bind(tracer);
+    const start = vi
+      .spyOn(tracer, 'startSpan')
+      .mockImplementation((name, options, ctx) =>
+        name === 'codex.turn' ? (span as unknown as Span) : original(name, options, ctx),
+      );
     const { c, callbacks } = await setup();
     await c.send({ id: 'traced', prompt: 'private text must stay out of spans' });
-    expect(start).toHaveBeenCalledOnce();
-    expect(start.mock.calls[0][0]).toBe('codex.turn');
+    expect(start.mock.calls.filter(([name]) => name === 'codex.turn')).toHaveLength(1);
     expect(span.end).not.toHaveBeenCalled();
     const notification = {
       threadId: 'provider-thread',
@@ -203,9 +224,177 @@ it.each([
   },
 );
 
+it('ends dispatch, acknowledgment and first-output spans and labels the selected route', async () => {
+  const spans = new Map<
+    string,
+    {
+      setAttribute: ReturnType<typeof vi.fn>;
+      setStatus: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    }
+  >();
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name) => {
+    const span = {
+      setAttribute: vi.fn(),
+      setStatus: vi.fn(),
+      end: vi.fn(),
+      spanContext: () => ({
+        traceId: '12345678901234567890123456789012',
+        spanId: '1234567890123456',
+        traceFlags: 1,
+      }),
+    };
+    spans.set(name, span);
+    return span as unknown as Span;
+  });
+  const f = await setup();
+  f.conversationOptions.route = 'openai-api';
+  await f.c.send({ id: 'finite-spans', prompt: 'private prompt' });
+  expect(spans.get('codex.turn')?.setAttribute).toHaveBeenCalledWith('mitzo.route', 'openai-api');
+  expect(spans.get('codex.turn.dispatch')?.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.acknowledgment')?.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_output')?.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/agentMessage/delta', {
+    threadId: 'provider-thread',
+    turnId: 'stale-turn',
+    itemId: 'old',
+    delta: 'stale',
+  });
+  expect(spans.get('codex.turn.first_output')?.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/agentMessage/delta', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'output',
+    delta: 'hello',
+  });
+  expect(spans.get('codex.turn.first_output')?.end).toHaveBeenCalledOnce();
+  f.c.close();
+  expect(spans.get('codex.turn.first_output')?.end).toHaveBeenCalledOnce();
+  expect(
+    JSON.stringify([...spans.values()].map((span) => span.setAttribute.mock.calls)),
+  ).not.toContain('private prompt');
+});
+
+it('records matching first output before the turn/start acknowledgment', async () => {
+  const firstOutput = { setAttribute: vi.fn(), end: vi.fn() };
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) =>
+    name === 'codex.turn.first_output'
+      ? (firstOutput as unknown as Span)
+      : original(name, options, ctx),
+  );
+  const f = await setup();
+  const request = f.rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start') {
+      f.callbacks.onNotification('turn/started', {
+        threadId: 'provider-thread',
+        turn: { id: 'turn-1' },
+      });
+      f.callbacks.onNotification('item/agentMessage/delta', {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        itemId: 'output',
+        delta: 'early',
+      });
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    }
+    return request(method, params);
+  });
+  const send = f.c.send({ id: 'early-output', prompt: 'continue' });
+  await vi.waitFor(() => expect(firstOutput.end).toHaveBeenCalledOnce());
+  expect(firstOutput.setAttribute).toHaveBeenCalledWith('mitzo.first_output.result', 'output');
+  release();
+  await send;
+  expect(firstOutput.end).toHaveBeenCalledOnce();
+});
+
+it('parents a queued FIFO turn to its own send context after the previous turn completes', async () => {
+  const contexts = new AsyncLocalStorage<Context>();
+  vi.spyOn(context, 'active').mockImplementation(() => contexts.getStore() ?? ROOT_CONTEXT);
+  vi.spyOn(context, 'with').mockImplementation((ctx, fn, thisArg, ...args) =>
+    contexts.run(ctx, () => fn.call(thisArg, ...args)),
+  );
+  const original = tracer.startSpan.bind(tracer);
+  const start = vi
+    .spyOn(tracer, 'startSpan')
+    .mockImplementation((name, options, ctx) => original(name, options, ctx));
+  const key = createContextKey('test-command');
+  const first = ROOT_CONTEXT.setValue(key, 'first');
+  const second = ROOT_CONTEXT.setValue(key, 'second');
+  const f = await setup();
+  await context.with(first, () => f.c.send({ id: 'trace-first', prompt: 'first' }));
+  await context.with(second, () => f.c.send({ id: 'trace-second', prompt: 'second' }));
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() =>
+    expect(start.mock.calls.filter(([name]) => name === 'codex.turn')).toHaveLength(2),
+  );
+  expect(
+    start.mock.calls
+      .filter(([name]) => name === 'codex.turn')
+      .map(([, , ctx]) => ctx?.getValue(key)),
+  ).toEqual(['first', 'second']);
+  f.c.close();
+  contexts.disable();
+});
+
+it('distinguishes a terminal turn before any first output', async () => {
+  const spans = new Map<
+    string,
+    {
+      setAttribute: ReturnType<typeof vi.fn>;
+      setStatus: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    }
+  >();
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name) => {
+    const span = {
+      setAttribute: vi.fn(),
+      setStatus: vi.fn(),
+      end: vi.fn(),
+      spanContext: () => ({
+        traceId: '12345678901234567890123456789012',
+        spanId: '1234567890123456',
+        traceFlags: 1,
+      }),
+    };
+    spans.set(name, span);
+    return span as unknown as Span;
+  });
+  const f = await setup();
+  await f.c.send({ id: 'silent-turn', prompt: 'private prompt' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(spans.get('codex.turn.first_output')?.setAttribute).toHaveBeenCalledWith(
+    'mitzo.first_output.result',
+    'terminal_before_output',
+  );
+  expect(spans.get('codex.turn.first_output')?.end).toHaveBeenCalledOnce();
+});
+
 it.each(['transport', 'close'] as const)('ends a subscription span on %s loss', async (loss) => {
-  const span = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
-  vi.spyOn(tracer, 'startSpan').mockReturnValue(span as unknown as Span);
+  const span = {
+    setAttribute: vi.fn(),
+    setStatus: vi.fn(),
+    end: vi.fn(),
+    spanContext: () => ({
+      traceId: '12345678901234567890123456789012',
+      spanId: '1234567890123456',
+      traceFlags: 1,
+    }),
+  };
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) =>
+    name === 'codex.turn' ? (span as unknown as Span) : original(name, options, ctx),
+  );
   const { c, callbacks } = await setup();
   await c.send({ id: 'traced', prompt: 'hello' });
   if (loss === 'transport') callbacks.onClose(new Error('private transport detail'));
@@ -1496,6 +1685,76 @@ it('recovers an idle dead transport before persisting the explicit send', async 
   expect(onTransportClosed).toHaveBeenCalledWith({ activeTurn: false, reason: 'closed' });
 });
 
+it('bounds a silent idle probe, retires it before reconnect, and ignores its late reply', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const f = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => binding,
+    beforeReconnect,
+  );
+  f.conversationOptions.idleProbeTimeoutMs = 2000;
+  vi.useFakeTimers();
+  const request = f.rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  let held = true;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read' && held) {
+      held = false;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    }
+    return request(method, params);
+  });
+  beforeReconnect.mockImplementation(async () => {
+    expect(f.rpc.close).toHaveBeenCalledOnce();
+    expect(f.c.isPaused()).toBe(true);
+  });
+  const send = f.c.send({ id: 'bounded-idle', prompt: 'continue' });
+  await vi.advanceTimersByTimeAsync(1999);
+  expect(f.c.queue()).toEqual([]);
+  expect(f.rpc.close).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  await send;
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.c.queue().map(({ status }) => status)).toEqual(['running']);
+  release();
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(f.rpc.close).toHaveBeenCalledOnce();
+  expect(f.c.isPaused()).toBe(false);
+  expect(f.onError).not.toHaveBeenCalled();
+  vi.useRealTimers();
+});
+
+it('queues an explicit follow-up without applying the idle deadline to a busy turn', async () => {
+  const f = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    vi.fn(async () => {}),
+  );
+  await f.c.send({ id: 'busy', prompt: 'working' });
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockClear();
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read') return new Promise(() => {});
+    return request(method, params);
+  });
+  const send = f.c.send({ id: 'follow-up', prompt: 'next' });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(f.rpc.request.mock.calls.some(([method]) => method === 'config/read')).toBe(false);
+  await send;
+  expect(f.c.queue().map(({ status }) => status)).toEqual(['running', 'queued']);
+  expect(f.rpc.close).not.toHaveBeenCalled();
+});
+
 it('reports transport loss during an active turn and preserves its unknown outcome', async () => {
   const { c, callbacks, onError } = await setup();
   await c.send({ id: 'active-loss', prompt: 'hello' });
@@ -1505,6 +1764,50 @@ it('reports transport loss during an active turn and preserves its unknown outco
   );
   expect(c.isPaused()).toBe(true);
   expect(c.queue()[0]).toMatchObject({ status: 'interrupted' });
+});
+
+it('retires a cancelled silent idle probe so its old RPC timer cannot interrupt a later turn', async () => {
+  const f = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    vi.fn(async () => {}),
+  );
+  vi.useFakeTimers();
+  const request = f.rpc.request.getMockImplementation()!;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let held = true;
+  f.rpc.close.mockImplementation(() => clearTimeout(timer));
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read' && held) {
+      held = false;
+      return new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          f.callbacks.onClose(new Error('old RPC timed out'));
+          reject(new Error('timeout'));
+        }, 30000);
+      });
+    }
+    return request(method, params);
+  });
+  const controller = new AbortController();
+  const admission = f.c.admitExplicitSend(
+    { id: 'cancelled-silent', prompt: 'do not send' },
+    controller.signal,
+  );
+  await vi.advanceTimersByTimeAsync(0);
+  controller.abort();
+  await expect(admission).rejects.toMatchObject({ name: 'AbortError' });
+  expect(f.rpc.close).toHaveBeenCalledOnce();
+  await f.c.send({ id: 'later', prompt: 'continue' });
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(f.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'later', status: 'running' },
+  ]);
+  expect(f.c.isPaused()).toBe(false);
+  vi.useRealTimers();
 });
 
 it('does not persist an explicit send cancelled during its transport probe', async () => {

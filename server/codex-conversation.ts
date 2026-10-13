@@ -8,7 +8,7 @@ import {
 } from './codex-capacity-reattachment.js';
 import { z } from 'zod';
 import { searchCodex } from './codex-approved-search.js';
-import { context, SpanStatusCode, type Span } from '@opentelemetry/api';
+import { context, trace, SpanStatusCode, type Span, type Context } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { CodexUserInput } from './codex-user-input.js';
@@ -91,6 +91,9 @@ export interface CodexStartupConfigObservation {
 }
 
 export interface CodexConversationOptions {
+  /** Read-only idle health deadline; never changes model RPC timeouts. */
+  idleProbeTimeoutMs?: number;
+  route?: 'openai-api' | 'chatgpt-subscription';
   /** An enrolled route's existing command owner rejects unadmitted sends before
    * private queue mutation. No default gate is imposed on legacy conversations. */
   beforeEnqueue?: (input: CodexCommandInput) => void;
@@ -344,6 +347,7 @@ export class CodexConversation {
     reason?: 'provider_transport_failure';
   };
   private mapper?: CodexSessionEvents;
+  private commandContexts = new Map<string, Context>();
   private active?: {
     command: CodexCommand;
     turnId?: string;
@@ -355,6 +359,8 @@ export class CodexConversation {
     interruptRequested?: boolean;
     abort: AbortController;
     span?: Span;
+    firstOutputSpan?: Span;
+    traceContext?: Context;
   };
   private terminalTurns = new Map<string, { commandId: string; status: string }>();
   private paused = false;
@@ -996,17 +1002,23 @@ export class CodexConversation {
       },
       true,
     );
-    if (saved) this.clearCapacityTimer();
+    if (saved) {
+      this.clearCapacityTimer();
+      this.commandContexts.set(input.id, context.active());
+    }
     this.opts.onQueueChange?.();
     return { model, reasoningEffort };
   }
   async admitExplicitSend(input: CodexCommandInput, signal?: AbortSignal) {
-    const admission = this.explicitEnqueue.then(async () => {
-      if (signal?.aborted) throw sendCancelledError();
-      await this.probeOpenShellTransport(signal);
-      if (signal?.aborted) throw sendCancelledError();
-      return this.enqueue(input);
-    });
+    const sendContext = context.active();
+    const admission = this.explicitEnqueue.then(() =>
+      context.with(sendContext, async () => {
+        if (signal?.aborted) throw sendCancelledError();
+        await this.probeOpenShellTransport(signal);
+        if (signal?.aborted) throw sendCancelledError();
+        return this.enqueue(input);
+      }),
+    );
     this.explicitEnqueue = admission.then(
       () => undefined,
       () => undefined,
@@ -1032,21 +1044,63 @@ export class CodexConversation {
    * command into an ambiguous interrupted turn.
    */
   private async probeOpenShellTransport(signal?: AbortSignal) {
-    if (!this.opts.beforeReconnect || this.paused || !this.ready || this.closed) return;
+    if (
+      !this.opts.beforeReconnect ||
+      this.paused ||
+      !this.ready ||
+      this.closed ||
+      this.active ||
+      this.pumping
+    )
+      return;
     const generation = this.transportGeneration;
+    const client = this.client;
+    const span = tracer.startSpan('codex.transport.idle_probe');
+    span.setAttribute('mitzo.transport.generation', generation);
+    const configured = this.opts.idleProbeTimeoutMs ?? 2000;
+    const deadline = Number.isFinite(configured) && configured > 0 ? configured : 2000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      const expired = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new CodexTransportError('timeout');
+          // Invalidate callbacks before close: a synchronous late notification
+          // or a delayed old RPC can never settle the replacement generation.
+          this.transportClosed(generation, error);
+          client.close();
+          reject(error);
+        }, deadline);
+      });
       await raceWithAbort(
-        this.client.request('config/read', {
-          cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-          includeLayers: false,
-        }),
+        Promise.race([
+          client.request('config/read', {
+            cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+            includeLayers: false,
+          }),
+          expired,
+        ]),
         signal,
       );
+      span.setAttribute('mitzo.probe.result', 'healthy');
     } catch (error) {
+      span.setAttribute('mitzo.probe.result', signal?.aborted ? 'cancelled' : 'failed');
+      if (signal?.aborted) {
+        // A cancelled read must not retain its client's general RPC timer: it
+        // could otherwise close a later successfully dispatched turn. Retire
+        // this owned idle generation; only a later explicit send reconnects.
+        if (generation === this.transportGeneration) {
+          this.transportClosed(generation, new CodexTransportError('connection'));
+          client.close();
+        }
+        throw error;
+      }
       // The transport close callback owns recovery persistence. If it ran,
       // continue so this explicit send can acknowledge recovery and reconnect.
       if (generation !== this.transportGeneration && this.paused) return;
       throw error;
+    } finally {
+      clearTimeout(timer);
+      span.end();
     }
   }
   /** A new user message explicitly resumes saved FIFO work. Interrupted work
@@ -1069,7 +1123,10 @@ export class CodexConversation {
   cancelQueued(commandId: string) {
     if (!this.binding) throw new Error('Codex account binding unavailable');
     const result = this.opts.store.cancelQueued(this.opts.conversationId, this.binding, commandId);
-    if (result === 'cancelled') this.opts.onQueueChange?.();
+    if (result === 'cancelled') {
+      this.commandContexts.delete(commandId);
+      this.opts.onQueueChange?.();
+    }
     return result;
   }
   async startQueued() {
@@ -1092,7 +1149,8 @@ export class CodexConversation {
   }
   async acknowledgeRecovery() {
     if (this.recovery) return this.recovery;
-    const operation = this.continueRecovery();
+    const span = tracer.startSpan('codex.transport.recovery');
+    const operation = this.continueRecovery().finally(() => span.end());
     const shared = operation.finally(() => {
       if (this.recovery === shared) {
         this.recovery = undefined;
@@ -1654,15 +1712,27 @@ export class CodexConversation {
   private pump(): Promise<void> {
     if (this.pumping) return this.pumping;
     if (this.active || this.paused || this.closed) return Promise.resolve();
-    this.pumping = this.beginNext().finally(() => {
-      this.pumping = undefined;
-    });
+    const next = this.queue().find((command) => command.status === 'queued');
+    const commandContext = next && this.commandContexts.get(next.id);
+    this.pumping = context
+      .with(commandContext ?? context.active(), () => this.beginNext())
+      .finally(() => {
+        this.pumping = undefined;
+      });
     return this.pumping;
   }
   private finishTurnSpan(
     status: 'completed' | 'interrupted' | 'failed',
     failureCategory: 'none' | 'provider' | 'dispatch' | 'transport' | 'close' | 'acknowledgment',
   ) {
+    this.active?.firstOutputSpan?.setAttribute(
+      'mitzo.first_output.result',
+      failureCategory === 'none' || failureCategory === 'provider'
+        ? 'terminal_before_output'
+        : 'failed_before_output',
+    );
+    this.active?.firstOutputSpan?.end();
+    if (this.active) this.active.firstOutputSpan = undefined;
     const span = this.active?.span;
     if (!span) return;
     this.active!.span = undefined;
@@ -1720,7 +1790,10 @@ export class CodexConversation {
       completions: new Map<string, { first: ObjectValue; conflict?: ObjectValue }>(),
       interruptRequested: false,
       span: undefined as Span | undefined,
+      firstOutputSpan: undefined as Span | undefined,
+      traceContext: this.commandContexts.get(command.id) ?? context.active(),
     };
+    this.commandContexts.delete(command.id);
     this.active = active;
     let transportGeneration = this.transportGeneration;
     this.opts.onQueueChange?.();
@@ -1782,9 +1855,12 @@ export class CodexConversation {
       await this.opts.prepareAgentContext?.(active.abort.signal);
       active.abort.signal.throwIfAborted();
       this.opts.onProviderDispatch?.(command.id);
-      active.span = tracer.startSpan('codex.turn', {}, context.active());
-      active.span.setAttribute('mitzo.route', 'chatgpt-subscription');
+      active.span = tracer.startSpan('codex.turn', {}, active.traceContext);
+      active.span.setAttribute('mitzo.route', this.opts.route ?? 'chatgpt-subscription');
       active.span.setAttribute('gen_ai.request.model', model);
+      active.span.setAttribute('mitzo.command.id', command.id);
+      active.span.setAttribute('mitzo.account.id', this.binding!.accountId);
+      active.span.setAttribute('mitzo.transport.generation', transportGeneration);
       if (rolloverContext && !attemptContext)
         additionalContext['mitzo.tool-surface-rollover'] = {
           kind: 'untrusted',
@@ -1806,8 +1882,14 @@ export class CodexConversation {
       }
       active.abort.signal.throwIfAborted();
       this.turnDispatchCount += 1;
-      const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(
-        await this.client.request('turn/start', {
+      const turnContext = trace.setSpan(active.traceContext, active.span);
+      const dispatchSpan = tracer.startSpan('codex.turn.dispatch', {}, turnContext);
+      const ackSpan = tracer.startSpan('codex.turn.acknowledgment', {}, turnContext);
+      active.firstOutputSpan = tracer.startSpan('codex.turn.first_output', {}, turnContext);
+      let response: unknown;
+      let dispatched = false;
+      try {
+        const pendingAck = this.client.request('turn/start', {
           threadId: this.threadId,
           clientUserMessageId: command.id,
           model,
@@ -1826,8 +1908,15 @@ export class CodexConversation {
           sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
           ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
           ...(Object.keys(additionalContext).length ? { additionalContext } : {}),
-        }),
-      );
+        });
+        dispatchSpan.end();
+        dispatched = true;
+        response = await pendingAck;
+      } finally {
+        if (!dispatched) dispatchSpan.end();
+        ackSpan.end();
+      }
+      const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(response);
       if (this.active === active) {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');
@@ -1971,6 +2060,7 @@ export class CodexConversation {
         );
       }
       if (continuation && error instanceof CapacityAdmissionTimeoutError && !active.turnId) {
+        if (this.active === active) this.finishTurnSpan('failed', 'dispatch');
         this.opts.store.cancelUndispatchedCapacityContinuation(
           this.opts.conversationId,
           this.binding!,
@@ -2033,6 +2123,20 @@ export class CodexConversation {
   }
   private notification(method: string, params: ObjectValue) {
     if (this.closed || params.threadId !== this.threadId) return;
+    if (
+      this.active?.firstOutputSpan &&
+      [
+        'item/agentMessage/delta',
+        'item/reasoning/summaryTextDelta',
+        'item/reasoning/textDelta',
+      ].includes(method) &&
+      !!this.active.turnId &&
+      params.turnId === this.active.turnId
+    ) {
+      this.active.firstOutputSpan.setAttribute('mitzo.first_output.result', 'output');
+      this.active.firstOutputSpan.end();
+      this.active.firstOutputSpan = undefined;
+    }
     const turn = z
       .object({
         id: z.string(),
@@ -2487,6 +2591,7 @@ export class CodexConversation {
     }
   }
   close() {
+    this.commandContexts.clear();
     if (this.closed) return;
     this.closed = true;
     this.paused = true;

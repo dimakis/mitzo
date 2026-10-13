@@ -1,3 +1,5 @@
+import { SpanStatusCode } from '@opentelemetry/api';
+import { tracer } from './tracing.js';
 import { atSymposiumReconciliationStageAsync } from './symposium-reconciliation-error.js';
 import {
   AgentCompiledBootContextSchema,
@@ -49,7 +51,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshArgvProcessSpec, openShellSshProcessSpec } from './codex-app-server-client.js';
@@ -757,6 +759,33 @@ export function verifiedOpenShellPolicy(
   )
     throw new Error('Runtime authored policy differs from selected manifest');
   return load(bytes.toString('utf8'));
+}
+
+/** Bounded phase names and status only: remote failures can contain sensitive output. */
+async function knowledgePhase<T>(
+  phase:
+    | 'reconcile'
+    | 'verify_host'
+    | 'freeze_upload'
+    | 'upload'
+    | 'verify_runtime'
+    | 'verify_cache'
+    | 'verify_delivery'
+    | 'compile_context'
+    | 'cleanup',
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  const span = tracer.startSpan(`knowledge.${phase}`);
+  try {
+    const result = await operation();
+    span.setStatus({ code: SpanStatusCode.OK });
+    return result;
+  } catch (error) {
+    span.setStatus({ code: SpanStatusCode.ERROR });
+    throw error;
+  } finally {
+    span.end();
+  }
 }
 
 /** Resolve one immutable publication and verify it before a new ordinary seed upload. */
@@ -2525,9 +2554,34 @@ export class OpenShellRuntimeManager {
     }
     if (!runtime.sandboxId)
       throw new Error('Knowledge adoption requires a physical sandbox identity');
-    const prepared = await preparePublishedOpenShellSeed(this.config, signal);
+    const publication = await knowledgePhase('reconcile', () =>
+      this.config.knowledgeStore?.reconcile(signal),
+    );
+    signal.throwIfAborted();
+    // Mutable host publications are verified on every turn. Capture their exact
+    // baseline before remote awaits, without allocating an unused upload copy.
+    const selected = await knowledgePhase('verify_host', () => {
+      const config = { ...this.config, seed: publication?.seed ?? this.config.seed };
+      const seed = realpathSync(config.seed);
+      const baselineBytes = readFileSync(join(seed, '..', 'baseline.json'));
+      verifiedOpenShellSeed({ ...config, seed });
+      if (!readFileSync(join(seed, '..', 'baseline.json')).equals(baselineBytes))
+        throw new Error('Knowledge publication changed during host verification');
+      if (publication) {
+        if (createHash('sha256').update(baselineBytes).digest('hex') !== publication.baselineSha256)
+          throw new Error('Selected bundle baseline differs from verified publication');
+        const baseline = JSON.parse(baselineBytes.toString('utf8'));
+        if (baseline.startingCommit !== publication.sourceCommit)
+          throw new Error('Selected bundle revision differs from publication');
+        if (!Object.hasOwn(baseline, 'runtimeBaseCommit'))
+          throw new Error('Published knowledge requires a dynamic runtime contract');
+      }
+      return { config: { ...config, seed }, baselineBytes };
+    });
+    signal.throwIfAborted();
+    let prepared: ReturnType<typeof prepareOpenShellSeed> | undefined;
     try {
-      const baseline = JSON.parse(readFileSync(join(prepared.seed, '..', 'baseline.json'), 'utf8'));
+      const baseline = JSON.parse(selected.baselineBytes.toString('utf8'));
       const view = knowledgeViewManifest(baseline);
       const bytes = JSON.stringify(view);
       const manifestSha256 = createHash('sha256').update(bytes).digest('hex');
@@ -2537,14 +2591,18 @@ export class OpenShellRuntimeManager {
       const current = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
       if (current.phase !== 'Ready' || current.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox is not Ready');
-      const contract = await this.verifyKnowledgeRuntime(runtime, signal);
+      const contract = await knowledgePhase('verify_runtime', () =>
+        this.verifyKnowledgeRuntime(runtime, signal),
+      );
       const remoteRoot = `/sandbox/workspaces/knowledge/knowledge-${manifestSha256}`;
       const cacheProbe = openShellSshArgvProcessSpec(runtime, [
         '/bin/sh',
         '-c',
         knowledgeCacheStatusCommand(remoteRoot, manifestSha256),
       ]);
-      const validCache = (await this.runSsh(cacheProbe.args, signal)).trim();
+      const validCache = (
+        await knowledgePhase('verify_cache', () => this.runSsh(cacheProbe.args, signal))
+      ).trim();
       if (validCache !== 'true' && validCache !== 'false')
         throw new Error('Invalid knowledge cache verification response');
       if (validCache === 'false') {
@@ -2552,15 +2610,8 @@ export class OpenShellRuntimeManager {
         selection = undefined;
       }
       if (!selection || selection.manifestSha256 !== manifestSha256) {
-        // Portable Git belongs to the writable task root. It is deliberately
-        // absent from this separately attested, versioned retrieval lane.
-        rmSync(join(prepared.seed, '.git'), { recursive: true, force: true });
-        const parent = join(dirname(prepared.seed), `knowledge-${manifestSha256}`);
-        mkdirSync(parent);
-        renameSync(prepared.seed, join(parent, 'mgmt'));
-        writeFileSync(join(parent, 'knowledge-view.json'), bytes);
         const destination = '/sandbox/workspaces/knowledge';
-        const remote = `${destination}/${basename(parent)}`;
+        const remote = remoteRoot;
         const presence = openShellSshArgvProcessSpec(runtime, [
           '/bin/sh',
           '-c',
@@ -2570,6 +2621,28 @@ export class OpenShellRuntimeManager {
         if (present !== 'true' && present !== 'false')
           throw new Error('Invalid knowledge presence response');
         if (validCache === 'false') {
+          prepared = await knowledgePhase('freeze_upload', () => {
+            signal.throwIfAborted();
+            const frozen = prepareOpenShellSeed(selected.config);
+            try {
+              // Re-verify the mutable source and frozen copy, then bind upload to
+              // the publication selected before awaits. A changed source must
+              // never silently substitute another view for the selected digest.
+              const frozenBaseline = readFileSync(join(frozen.seed, '..', 'baseline.json'));
+              if (!frozenBaseline.equals(selected.baselineBytes))
+                throw new Error('Knowledge publication changed before upload');
+              return frozen;
+            } catch (error) {
+              frozen.cleanup();
+              throw error;
+            }
+          });
+          // Portable Git belongs only to the writable task lane.
+          rmSync(join(prepared.seed, '.git'), { recursive: true, force: true });
+          const parent = join(dirname(prepared.seed), `knowledge-${manifestSha256}`);
+          mkdirSync(parent);
+          renameSync(prepared.seed, join(parent, 'mgmt'));
+          writeFileSync(join(parent, 'knowledge-view.json'), bytes);
           const repairOwner = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
           if (repairOwner.phase !== 'Ready' || repairOwner.name !== runtime.sandboxName)
             throw new Error('Knowledge sandbox changed before cache repair');
@@ -2581,16 +2654,18 @@ export class OpenShellRuntimeManager {
             ]);
             await this.runSsh(repair.args, signal);
           }
-          await this.run(
-            ['sandbox', ...this.base(), 'upload', runtime.sandboxName, parent, destination],
-            signal,
+          await knowledgePhase('upload', () =>
+            this.run(
+              ['sandbox', ...this.base(), 'upload', runtime.sandboxName, parent, destination],
+              signal,
+            ),
           );
         }
         selection = {
           sourceCommit: view.sourceCommit,
           payloadSha256: view.payloadSha256,
           manifestSha256,
-          knowledgeRoot: `${destination}/${basename(parent)}/mgmt`,
+          knowledgeRoot: `${remote}/mgmt`,
         };
       }
       const after = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
@@ -2601,7 +2676,9 @@ export class OpenShellRuntimeManager {
         '-c',
         knowledgeVerificationCommand(dirname(selection.knowledgeRoot), manifestSha256),
       ]);
-      const receipt = JSON.parse(await this.runSsh(spec.args, signal));
+      const receipt = JSON.parse(
+        await knowledgePhase('verify_delivery', () => this.runSsh(spec.args, signal)),
+      );
       if (
         receipt.sourceCommit !== selection.sourceCommit ||
         receipt.payloadSha256 !== selection.payloadSha256
@@ -2612,7 +2689,9 @@ export class OpenShellRuntimeManager {
       const context =
         profileContext ??
         selection.context ??
-        (await this.compileContext({ ...runtime, workdir: selection.knowledgeRoot }, signal));
+        (await knowledgePhase('compile_context', () =>
+          this.compileContext({ ...runtime, workdir: selection.knowledgeRoot }, signal),
+        ));
       const verified = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
       if (verified.phase !== 'Ready' || verified.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox changed during verification');
@@ -2644,10 +2723,10 @@ export class OpenShellRuntimeManager {
         '-c',
         knowledgeCleanupCommand(adopted.knowledgeRoot),
       ]);
-      await this.runSsh(cleanup.args, signal);
+      await knowledgePhase('cleanup', () => this.runSsh(cleanup.args, signal));
       return adopted;
     } finally {
-      prepared.cleanup();
+      prepared?.cleanup();
     }
   }
 
