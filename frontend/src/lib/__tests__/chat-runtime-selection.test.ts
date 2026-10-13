@@ -81,6 +81,33 @@ describe('chat runtime selection preservation', () => {
     expect(result.issues.map((issue) => issue.code)).toContain('thinking_unavailable');
   });
 
+  it.each([null, undefined])(
+    'requires an explicit supported thinking level when the model lists efforts (%s)',
+    (effort) => {
+      const choice = selected();
+      choice.account!.reasoningEffort = effort;
+      const result = evaluateChatRuntimeSelection(choice, inventory());
+      expect(result.ready).toBe(false);
+      expect(result.selection).toBe(choice);
+      expect(result.selection.account!.reasoningEffort).toBe(effort);
+      expect(result.issues.map((issue) => issue.code)).toContain('thinking_required');
+      expect(snapshotChatRuntimeSelection(choice, inventory())).toBeNull();
+    },
+  );
+
+  it.each([null, undefined])(
+    'allows default thinking when the model has no efforts (%s)',
+    (effort) => {
+      const choice = selected();
+      choice.account!.reasoningEffort = effort;
+      const capabilities = inventory();
+      capabilities.routes[0].models = [{ id: 'luna' }];
+      expect(evaluateChatRuntimeSelection(choice, capabilities).ready).toBe(true);
+      capabilities.routes[0].models = [{ id: 'luna', reasoningEfforts: [] }];
+      expect(evaluateChatRuntimeSelection(choice, capabilities).ready).toBe(true);
+    },
+  );
+
   it('requires refresh for stale capabilities without rewriting the retained revision', () => {
     const choice = selected();
     const capabilities = inventory();

@@ -53,6 +53,7 @@ export interface ChatRuntimeSelectionIssue {
     | 'route_unavailable'
     | 'agent_unavailable'
     | 'model_unavailable'
+    | 'thinking_required'
     | 'thinking_unavailable';
   message: string;
 }
@@ -124,6 +125,8 @@ export function evaluateChatRuntimeSelection(
         const models = routes[0].models.filter((entry) => entry.id === selection.account!.model);
         if (models.length !== 1)
           add('model_unavailable', 'The selected model is unavailable. Choose a model explicitly.');
+        else if (models[0].reasoningEfforts?.length && selection.account.reasoningEffort == null)
+          add('thinking_required', 'Choose a supported thinking level before sending.');
         else if (
           selection.account.reasoningEffort != null &&
           !models[0].reasoningEfforts?.includes(selection.account.reasoningEffort)
