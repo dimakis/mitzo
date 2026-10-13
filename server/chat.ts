@@ -218,7 +218,7 @@ export function broadcastDurableSymposiumEvent(
 
 type SessionChangeCallback = (
   clientId: string,
-  event: 'start' | 'end' | 'turn_end' | 'user_message',
+  event: 'start' | 'end' | 'turn_end' | 'user_message' | 'detach',
   sessionId?: string,
 ) => void;
 let _onSessionChange: SessionChangeCallback | null = null;
@@ -2957,7 +2957,12 @@ export async function prepareOwnedLocalCodexChat(
         admission.assertConsumerOwner(eventStore, sessionId, commandId);
         const current = registry.findBySessionId(sessionId);
         if (!current || current.session !== session) throw unavailable();
-        currentClientId = current.clientId;
+        if (!session.transport.isOpen())
+          detachChatIfCurrentTransport(current.clientId, session.transport);
+        // Detach notifies the existing lifecycle callback; capture its current key afterward.
+        const ready = registry.findBySessionId(sessionId);
+        if (!ready || ready.session !== session) throw unavailable();
+        currentClientId = ready.clientId;
         ownedClientId = currentClientId;
       } catch {
         throw unavailable();
@@ -4157,6 +4162,23 @@ export function detachChat(clientId: string) {
       });
     }
   });
+}
+/** Attachment teardown never changes the retained execution or login owner. */
+export function detachChatIfCurrentTransport(
+  clientId: string,
+  transport: SessionTransport,
+): boolean {
+  const session = registry.get(clientId);
+  if (
+    !session ||
+    session.transport !== transport ||
+    registry.isSuspended(clientId) ||
+    !registry.isAttached(clientId)
+  )
+    return false;
+  detachChat(clientId);
+  _onSessionChange?.(clientId, 'detach', session.sessionId);
+  return true;
 }
 export function reattachChat(clientId: string, transport: SessionTransport): boolean {
   return withSpan('session.reattach', { 'session.clientId': clientId }, () => {

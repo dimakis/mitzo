@@ -52,6 +52,7 @@ import {
   interruptChat,
   stopOrdinaryChat,
   detachChat,
+  detachChatIfCurrentTransport,
   reattachChat,
   isActive,
   BASE_REPO,
@@ -134,7 +135,6 @@ import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { ConnectionRegistry } from '@mitzo/harness';
 import {
   isHelloHandshake,
-  getOwnerConnection,
   handleHello,
   scheduleV2Message,
   handleLegacySetMode,
@@ -558,7 +558,7 @@ healthMonitor.start();
 
 // Hook session lifecycle events into the overview emitter
 setSessionChangeCallback((clientId, event, sessionId) => {
-  if (event === 'start') {
+  if (event === 'start' || event === 'detach') {
     overviewEmitter.touch(clientId);
   } else if (event === 'end') {
     overviewEmitter.forget(clientId, sessionId);
@@ -717,15 +717,7 @@ app.get('/api/chat/events', (req, res) => {
           continue;
         }
 
-        const session = registry.get(found.clientId);
-        if (
-          session &&
-          (session.ownerConnectionId ?? getOwnerConnection(found.clientId)) === connectionId &&
-          registry.isAttached(found.clientId)
-        ) {
-          detachChat(found.clientId);
-          overviewEmitter.touch(found.clientId);
-          overviewEmitter.scheduleBroadcast();
+        if (detachChatIfCurrentTransport(found.clientId, transport)) {
           log.info('SSE session detached (surviving)', { connectionId, sessionId });
         }
       }
@@ -823,23 +815,15 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
         continue;
       }
 
-      const session = registry.get(found.clientId);
-      if (
-        session &&
-        (session.ownerConnectionId ?? getOwnerConnection(found.clientId)) === connectionId &&
-        registry.isAttached(found.clientId)
-      ) {
-        withSpan(
-          'session.detach',
-          { 'session.sessionId': sessionId, 'ws.connectionId': connectionId },
-          () => {
-            detachChat(found.clientId);
-            overviewEmitter.touch(found.clientId);
-            overviewEmitter.scheduleBroadcast();
+      withSpan(
+        'session.detach',
+        { 'session.sessionId': sessionId, 'ws.connectionId': connectionId },
+        () => {
+          if (detachChatIfCurrentTransport(found.clientId, transport)) {
             log.info('v2 session detached (surviving)', { connectionId, sessionId });
-          },
-        );
-      }
+          }
+        },
+      );
     }
   });
 

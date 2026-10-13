@@ -19,13 +19,15 @@ import {
   loadOrdinaryLocalCodexTarget,
 } from './ordinary-local-codex-capabilities.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
-import { BASE_REPO, startOwnedLocalCodexCommand } from './chat.js';
+import { BASE_REPO, detachChatIfCurrentTransport, startOwnedLocalCodexCommand } from './chat.js';
+import { createLogger } from './logger.js';
 import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-repository-startup.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import type { V2HandlerContext } from './ws-handler-v2.js';
 
 const unavailable = 'Local Codex entry unavailable';
+const log = createLogger('local-codex-entry');
 
 /** Pure configured projection. Every dispatch still qualifies the actual host/account. */
 function inventory() {
@@ -247,6 +249,14 @@ export function createOwnedLocalCodexEntryRouter(
         ...(state ? { state } : {}),
       });
     } finally {
+      try {
+        if (!transport.isOpen()) {
+          const current = ctx.sessionRegistry.findBySessionId(sessionId);
+          if (current) detachChatIfCurrentTransport(current.clientId, transport);
+        }
+      } catch {
+        log.warn('Local chat attachment cleanup remains unconfirmed', { sessionId });
+      }
       if (timer) clearTimeout(timer);
       releaseStartup?.();
       releaseBinding?.();
