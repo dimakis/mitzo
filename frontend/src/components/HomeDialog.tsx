@@ -8,11 +8,13 @@ export function HomeDialog({
   onClose,
   children,
   className,
+  inactive = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   className?: string;
+  inactive?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocus = useRef(document.activeElement);
@@ -33,6 +35,8 @@ export function HomeDialog({
       ref={dialogRef}
       className={['home-dialog', className].filter(Boolean).join(' ')}
       aria-label={title}
+      inert={inactive || undefined}
+      aria-hidden={inactive || undefined}
       onKeyDown={(event) => event.stopPropagation()}
       onCancel={(event) => {
         event.preventDefault();

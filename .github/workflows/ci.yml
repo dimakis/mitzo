@@ -107,6 +107,17 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: Retain artefact sharing acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: artefact-sharing-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/**/artefact-sharing.png
+            test-results/offline/**/file-options.png
+          retention-days: 7
+          if-no-files-found: ignore
+
   native:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}

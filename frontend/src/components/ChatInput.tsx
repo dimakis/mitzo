@@ -288,7 +288,8 @@ export function ChatInput({
   }, []);
 
   useEffect(() => {
-    textareaRef.current?.focus();
+    // Returning routes may mount after a user has focused a file control.
+    if (document.activeElement === document.body) textareaRef.current?.focus();
   }, []);
 
   useEffect(() => {

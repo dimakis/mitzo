@@ -50,6 +50,7 @@ test('a file reopened from an existing conversation can follow links and share i
   await page.getByRole('link', { name: 'Notes', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Notes', exact: true })).toBeVisible();
   expect(new URL(page.url()).searchParams.get('sessionId')).toBe(sessionId);
+  await page.getByRole('button', { name: 'File options', exact: true }).click();
   const share = page.getByRole('button', { name: 'Share file', exact: true });
   await expect(share).toBeInViewport();
   await share.click();
@@ -97,6 +98,7 @@ test('Download saves the original document when the browser share sheet is block
   });
   await page.goto('/files?path=%2Fworkspace%2Fdocument.md&sessionId=saved-session');
   await expect(page.getByRole('heading', { name: 'Document' })).toBeVisible();
+  await page.getByRole('button', { name: 'File options', exact: true }).click();
   // Reproduce the reported share error, then recover with the independent Download action.
   await page.getByRole('button', { name: 'Share file', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Tap Share again');
@@ -108,5 +110,6 @@ test('Download saves the original document when the browser share sheet is block
   expect(file.suggestedFilename()).toBe('document.md');
   expect(await file.failure()).toBeNull();
   expect(await readFile((await file.path())!, 'utf8')).toBe(document);
-  await expect(page.getByRole('button', { name: 'Downloaded', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'File options' })).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'File options', exact: true })).toBeVisible();
 });
