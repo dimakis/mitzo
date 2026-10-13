@@ -1024,3 +1024,8 @@ it('keeps Stop pending until server state confirms completion', () => {
   expect(store.getState().messages.running).toBe(true);
   expect(screen.getByTestId('composer-running').textContent).toBe('true');
 });
+
+vi.mock('../../hooks/useExplicitLocalChat', async () => {
+  const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
+  return { useExplicitLocalChat: disabledLocalChat };
+});

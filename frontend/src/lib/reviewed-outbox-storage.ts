@@ -1,4 +1,4 @@
-import { V2SendMessage } from '@mitzo/protocol';
+import { V2SendMessage, LocalCodexFirstCommandSchema } from '@mitzo/protocol';
 
 type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'>;
 type Entry = { body: Record<string, unknown>; scope: number; uncertain?: boolean };
@@ -10,8 +10,9 @@ const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 export function createReviewedOutboxStorage(
   disk: Disk,
   backendSendUrl: string,
+  route: 'briefing' | 'local' = 'briefing',
 ): Pick<Storage, 'getItem' | 'setItem'> {
-  const prefix = `mitzo-reviewed-send-outbox:${encodeURIComponent(backendSendUrl)}:`;
+  const prefix = `mitzo-${route === 'local' ? 'local-first-command' : 'reviewed-send'}-outbox:${encodeURIComponent(backendSendUrl)}:`;
   let owned = new Set<string>();
   const key = (id: string) => prefix + encodeURIComponent(id);
   function decode(raw: string): Entry {
@@ -25,6 +26,11 @@ export function createReviewedOutboxStorage(
       (value.uncertain !== undefined && typeof value.uncertain !== 'boolean')
     )
       throw new Error('Invalid reviewed command envelope');
+    if (route === 'local') {
+      if (!LocalCodexFirstCommandSchema.safeParse(value.body).success)
+        throw Error('Invalid Local command');
+      return value;
+    }
     const parsed = V2SendMessage.safeParse(value.body);
     if (
       !parsed.success ||

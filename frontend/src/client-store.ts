@@ -65,6 +65,14 @@ export const clientStore = createMitzoStore({
   ...(sseConfig ? { sseConfig } : {}),
   ...(typeof window !== 'undefined'
     ? {
+        localFirstCommandConfig: {
+          url: `${getApiBaseUrl()}/api/chat/local-codex/send`,
+          storage: createReviewedOutboxStorage(
+            localStorage,
+            new URL(`${getApiBaseUrl()}/api/chat/local-codex/send`, window.location.href).href,
+            'local',
+          ),
+        },
         reviewedSendConfig: {
           url: `${getApiBaseUrl()}/api/chat/send`,
           storage: createReviewedOutboxStorage(

@@ -406,3 +406,8 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(screen.getByRole('alert').textContent).toMatch(/draft.*unavailable/i);
   });
 }
+
+vi.mock('../../hooks/useExplicitLocalChat', async () => {
+  const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
+  return { useExplicitLocalChat: disabledLocalChat };
+});

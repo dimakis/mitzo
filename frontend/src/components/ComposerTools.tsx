@@ -8,6 +8,7 @@ interface Props {
   terminalHref?: string;
   onCommands: () => void;
   commandsExpanded: boolean;
+  commandsDisabled?: boolean;
   onAttach: () => void;
   attachmentDisabled: boolean;
   onDismiss: () => void;
@@ -21,6 +22,7 @@ interface Props {
 export function ComposerTools({
   onCommands,
   commandsExpanded,
+  commandsDisabled,
   onAttach,
   attachmentDisabled,
   onDismiss,
@@ -111,6 +113,7 @@ export function ComposerTools({
           title="Commands"
           aria-label="Commands"
           aria-expanded={commandsExpanded}
+          disabled={commandsDisabled}
         >
           <UiIcon name="list" size={16} />
           <span className="chat-input-command-label">Commands</span>

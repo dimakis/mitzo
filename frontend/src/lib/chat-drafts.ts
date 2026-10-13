@@ -68,7 +68,9 @@ export function getChatDraft(id: string): ChatDraft | null {
       draft.settings.runtimeSelection = retainChatRuntimeSelection(
         draft.settings.runtimeSelection,
         draft.settings.selection,
-        params.has('agentProfile') || params.has('profileRevision')
+        params.has('agentProfile') ||
+          params.has('profileRevision') ||
+          params.has('agentProfileKind')
           ? chatAgentProfileFromSearch(draft.settings.search)
           : undefined,
       );

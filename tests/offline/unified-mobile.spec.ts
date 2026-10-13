@@ -1,3 +1,4 @@
+import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
@@ -622,6 +623,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
       // No app mutation or model request can leave this fixture suite.
       if (route.request().method() !== 'GET')

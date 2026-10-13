@@ -98,6 +98,15 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Retain Local first-command visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-first-command-visuals-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/offline/**/local-*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Retain artefact sharing acceptance screenshots
         if: always()
         uses: actions/upload-artifact@v7

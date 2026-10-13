@@ -9,7 +9,7 @@ import { subscribeSymposiumAccountCatalog } from '../lib/symposium-account-catal
 
 import type { AccountSelection } from '../types/account-selection';
 export type { AccountSelection } from '../types/account-selection';
-interface Account {
+export interface Account {
   id: string;
   label: string;
   modelDiscovery?: { stale: boolean };
@@ -73,7 +73,23 @@ function PickerField({
 }
 
 /** Catalog refreshes and draft confirmation belong to one conversation. */
-export function AccountModelPicker(props: Parameters<typeof SessionAccountModelPicker>[0]) {
+export function AccountModelPicker(
+  props: Parameters<typeof SessionAccountModelPicker>[0] & {
+    controlled?: {
+      accounts: Account[];
+      selection: AccountSelection | null;
+      onChange(selection: AccountSelection): void;
+    };
+  },
+) {
+  if (props.controlled)
+    return (
+      <ControlledAccountModelPicker
+        {...props.controlled}
+        disabled={props.disabled}
+        lockAccountModel={props.lockAccountModel}
+      />
+    );
   const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}:${JSON.stringify(props.allowedAccountIds?.slice().sort() ?? null)}`;
   return <SessionAccountModelPicker key={sessionKey} {...props} />;
 }
@@ -82,6 +98,7 @@ function SessionAccountModelPicker({
   sessionId: requestedSessionId,
   preferredModel,
   onChange,
+  onSessionHydrated,
   onUnavailable,
   onSummaryChange,
   disabled = false,
@@ -109,6 +126,8 @@ function SessionAccountModelPicker({
   sessionId: string | null;
   preferredModel: string;
   onChange: (selection: AccountSelection | null) => void;
+  /** Persisted session metadata is hydration, independent of editable controls. */
+  onSessionHydrated?: (selection: AccountSelection, sessionId: string) => void;
   onUnavailable?: () => void;
   /** Editable controls may have a choice before explicit send confirmation. */
   onDraftSelectionChange?: (selection: AccountSelection) => void;
@@ -140,8 +159,20 @@ function SessionAccountModelPicker({
   const [fixedSession, setFixedSession] = useState(false);
   const [empty, setEmpty] = useState(false);
   const [draftUnavailable, setDraftUnavailable] = useState(false);
-  const callbacks = useRef({ onChange, onUnavailable, onSummaryChange, onDraftSelectionChange });
-  callbacks.current = { onChange, onUnavailable, onSummaryChange, onDraftSelectionChange };
+  const callbacks = useRef({
+    onChange,
+    onSessionHydrated,
+    onUnavailable,
+    onSummaryChange,
+    onDraftSelectionChange,
+  });
+  callbacks.current = {
+    onChange,
+    onSessionHydrated,
+    onUnavailable,
+    onSummaryChange,
+    onDraftSelectionChange,
+  };
   useEffect(() => {
     if (selection) callbacks.current.onDraftSelectionChange?.(selection);
   }, [selection]);
@@ -282,7 +313,9 @@ function SessionAccountModelPicker({
             if (modelSelection.data.reasoningEffort !== undefined)
               next.reasoningEffort = modelSelection.data.reasoningEffort;
             setSelection(next);
-            callbacks.current.onChange(explicitSelection ? null : next);
+            if (callbacks.current.onSessionHydrated)
+              callbacks.current.onSessionHydrated(next, sessionId);
+            else callbacks.current.onChange(explicitSelection ? null : next);
           } else {
             const next = data.accountBinding
               ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
@@ -294,7 +327,14 @@ function SessionAccountModelPicker({
               model: 'Model unknown',
               thinking: 'Thinking: unknown',
             });
-            callbacks.current.onChange(explicitSelection ? null : next);
+            if (
+              callbacks.current.onSessionHydrated &&
+              typeof next.accountId === 'string' &&
+              next.accountId &&
+              next.model
+            )
+              callbacks.current.onSessionHydrated(next, sessionId);
+            else callbacks.current.onChange(explicitSelection ? null : next);
           }
           setBindingLabel(
             data.accountBinding
@@ -690,6 +730,76 @@ function SessionAccountModelPicker({
         <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
           Refresh models
         </button>
+      )}
+    </>
+  );
+}
+
+/** A bounded chat route keeps invalid intent visible until an explicit edit. */
+function ControlledAccountModelPicker({
+  accounts,
+  selection,
+  onChange,
+  disabled,
+  lockAccountModel,
+}: {
+  accounts: Account[];
+  selection: AccountSelection | null;
+  onChange(selection: AccountSelection): void;
+  disabled?: boolean;
+  lockAccountModel?: boolean;
+}) {
+  const account = accounts.find((a) => a.id === selection?.accountId);
+  const model = account?.models.find((m) => m.id === selection?.model);
+  const field = (
+    label: string,
+    value: string,
+    entries: { id: string; label: string }[],
+    change: (value: string) => void,
+  ) => (
+    <PickerField label={label} visible>
+      <select
+        aria-label={label}
+        className="chat-model-select"
+        disabled={disabled || (label !== 'Thinking' && lockAccountModel)}
+        value={value}
+        onChange={(e) => change(e.target.value)}
+      >
+        <option value="">Choose {label.toLowerCase()}</option>
+        {value && !entries.some((e) => e.id === value) && (
+          <option disabled value={value}>
+            Unavailable {label.toLowerCase()}: {value}
+          </option>
+        )}
+        {entries.map((entry) => (
+          <option key={entry.id} value={entry.id}>
+            {entry.label}
+          </option>
+        ))}
+      </select>
+    </PickerField>
+  );
+  return (
+    <>
+      {field('Account', selection?.accountId ?? '', accounts, (id) => {
+        const chosen = accounts.find((a) => a.id === id);
+        if (chosen)
+          onChange({
+            accountId: id,
+            model: selection?.model ?? chosen.models[0].id,
+            reasoningEffort: selection?.reasoningEffort ?? null,
+          });
+      })}
+      {field('Model', selection?.model ?? '', account?.models ?? [], (id) => {
+        if (selection && id) onChange({ ...selection, model: id });
+      })}
+      {field(
+        'Thinking',
+        selection?.reasoningEffort ?? '',
+        model?.reasoningEfforts?.map((id) => ({ id, label: id })) ?? [],
+        (effort) => {
+          if (selection) onChange({ ...selection, reasoningEffort: effort || null });
+        },
       )}
     </>
   );
