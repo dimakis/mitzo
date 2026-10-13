@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.83';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.84';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -169,7 +169,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'e2f140242c847cb2d2daed71d6d73cd6c952440c0ca46f6395ec38552d6cf75b',
+  '../codex-conversation.ts': 'f31bacca789d0c9343f991eef90efd752c1273debb083a47419d48976c63cfc1',
   '../codex-conversation-store.ts':
     '76ef29aa2d6861db49ef3afa8c41464c9f6f4da1fd556fa949e2286fede0a216',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
@@ -317,7 +317,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-policy.ts':
     '9733d55cd1cb15dcf68dd844fd85861bf4fece6f3d46e1926ec9c416dd59d7f2',
   '../openshell-runtime.ts': 'e0b5527a4f4dd03752b38e23535b62d2f05e83c76439ab0478369960f7c745a3',
-  '../codex-chat-session.ts': '40722f3dc4beae4083dc35065b8bd409ba656d7907d362c4cdafa2ce61dee856',
+  '../codex-chat-session.ts': '084062632b4af1d24e8098ccb647d656c2c75f03b412717986839807d5376468',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
