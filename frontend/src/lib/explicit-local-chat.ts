@@ -5,8 +5,8 @@ import {
   AgentProfileSelectionSchema,
   type AgentLibraryVersion,
   type AgentContextSnapshot,
-  OrdinaryCodexContinuationCommandSchema,
-  OrdinaryCodexFirstCommandSchema,
+  OrdinaryRuntimeContinuationCommandSchema,
+  OrdinaryRuntimeFirstCommandSchema,
   SessionRuntimeBindingV1Schema,
 } from '@mitzo/protocol';
 import {
@@ -51,7 +51,7 @@ export const ExplicitLocalInventorySchema = z
           targetRevision: ref,
           label: z.string().min(1).max(256),
           location: z.enum(['local', 'openshell']),
-          harness: z.literal('codex'),
+          harness: z.enum(['codex', 'responses']),
         }),
       )
       .max(64),
@@ -61,10 +61,9 @@ export const ExplicitLocalInventorySchema = z
           account,
           targetId: ref,
           location: z.enum(['local', 'openshell']).optional(),
-          harness: z.literal('codex'),
+          harness: z.enum(['codex', 'responses']),
           modes: z.array(z.enum(['ask', 'agent', 'auto'])).max(3),
           skillCeiling: z.literal('unsupported').optional(),
-          capabilityRevision: ref.optional(),
           agentProfiles: z.array(AgentProfileSelectionSchema).max(256).optional(),
           agentProfileRejections: z
             .array(
@@ -79,6 +78,15 @@ export const ExplicitLocalInventorySchema = z
               }),
             )
             .max(256)
+            .optional(),
+          capabilityRevision: ref.optional(),
+          models: z.array(model).min(1).max(256).optional(),
+          modelDiscovery: z
+            .strictObject({
+              source: z.enum(['cached', 'configured']),
+              stale: z.boolean(),
+              updatedAt: z.number().finite().nonnegative().optional(),
+            })
             .optional(),
         }),
       )
@@ -146,12 +154,13 @@ export function normalizeLocalInventory(data: ExplicitLocalInventory): ChatRunti
         accountReference: route.account,
         targetId: route.targetId,
         location: target?.location ?? 'local',
-        available: !!target && !!configured && !configured.modelDiscovery.stale,
+        available:
+          !!target && !!configured && !(route.modelDiscovery ?? configured.modelDiscovery).stale,
         reason:
           candidates.length > 1
             ? 'The configured target identity is ambiguous. Refresh execution choices.'
             : 'Refresh the selected account and model before sending.',
-        models: configured?.models ?? [],
+        models: route.models ?? configured?.models ?? [],
         agentProfiles: route.agentProfiles,
         agentProfileRejections: route.agentProfileRejections,
       };
@@ -243,14 +252,14 @@ export function prepareLocalFirstCommand(
   if (!configured || !route?.modes.includes(input.mode))
     return { request: null, reason: 'Review the selected execution choices before sending.' };
   const label = selection.execution.location === 'local' ? 'Local' : 'OpenShell';
-  const parsed = OrdinaryCodexFirstCommandSchema.safeParse({
+  const parsed = OrdinaryRuntimeFirstCommandSchema.safeParse({
     runOn: selection.execution.location,
     repositoryWorkspaceId: input.repositoryWorkspaceId,
     clientMsgId: input.clientMsgId,
     capabilityRevision: route.capabilityRevision ?? inventory.capabilityRevision,
     runtime: {
       account: configured.account,
-      harness: 'codex',
+      harness: route.harness,
       targetId: selection.execution.targetId,
       mode: input.mode,
     },
@@ -290,7 +299,7 @@ export function prepareLocalContinuationCommand(
 ) {
   const first = prepareLocalFirstCommand(selection, inventory, input);
   if (!first.request) return first;
-  const parsed = OrdinaryCodexContinuationCommandSchema.safeParse({
+  const parsed = OrdinaryRuntimeContinuationCommandSchema.safeParse({
     ...first.request,
     sessionId: input.sessionId,
   });

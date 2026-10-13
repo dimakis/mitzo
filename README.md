@@ -53,6 +53,16 @@ host effects recheck the selected account/profile/target after approvals and bef
 publication, provider grants, REST and web effects. WebSocket/dashboard helpers
 remain unavailable on this bound route until their per-frame authority is supported.
 
+Local enrolled OpenAI API accounts also have a gated [Responses conversation route](docs/design/local-responses-continuity.md)
+through the same picker and runtime endpoints. It retains the exact API account,
+original private history and independent checkout across follow-up, FIFO queue,
+Stop and supported cold resume. Its per-command model/thinking snapshots stay
+separate from the original native binding. Plain provider-compatible Library
+profiles and the canonical Agent Builder namespace are supported; reusable
+context recipes remain explicitly unavailable. An unfinished provider execution
+after restart remains held for outcome recovery. No live account qualification or
+activation is claimed by this source increment.
+
 Configuration remains operator-owned and disabled by default. Local requires
 `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and separately reviewed target/native files.
 OpenShell requires `MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED=1`, the existing reviewed

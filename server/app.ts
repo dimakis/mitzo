@@ -1,4 +1,11 @@
 import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
+import { getNativeResponsesStore } from './responses-chat-session.js';
+import { continueOwnedLocalResponsesQueue } from './chat.js';
+import {
+  readOwnedResponsesQueue,
+  readOwnedResponsesQueueOverview,
+  cancelOwnedResponsesQueuedCommand,
+} from './ordinary-local-responses-queue.js';
 import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
 import { ordinaryCodexContinuationStatus } from './ordinary-codex-continuation-status.js';
 import { createTelemetryRelay } from './telemetry-relay.js';
@@ -2714,14 +2721,24 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     (meta.accountBinding?.provider === 'openai-codex' ||
       (meta.accountBinding?.provider === 'openai' &&
         !!meta.cwd?.startsWith('/sandbox/workspaces/')));
+  const responsesBacked =
+    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'responses';
   const codexQueue =
-    codexBacked && meta.accountBinding
-      ? readCodexQueue(
+    responsesBacked && meta.accountBinding
+      ? readOwnedResponsesQueue(
+          eventStore,
+          getNativeResponsesStore(),
           meta.sessionId,
           meta.accountBinding,
-          registry.findBySessionId(meta.sessionId)?.session,
+          !!registry.findBySessionId(meta.sessionId)?.session.ordinaryRuntimeOwner,
         )
-      : undefined;
+      : codexBacked && meta.accountBinding
+        ? readCodexQueue(
+            meta.sessionId,
+            meta.accountBinding,
+            registry.findBySessionId(meta.sessionId)?.session,
+          )
+        : undefined;
   let modelSelection:
     | {
         model: string;
@@ -2789,7 +2806,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         }
       : {}),
     ...(modelSelection ? { modelSelection } : {}),
-    ...(codexBacked ? { codexQueue } : {}),
+    ...(codexBacked || responsesBacked ? { codexQueue } : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });
@@ -2802,6 +2819,8 @@ async function reattachCodexQueue(
   waitForReady = false,
   deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
 ): Promise<'ready' | 'reattaching' | 'unavailable'> {
+  if (eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses')
+    return 'unavailable';
   const existing = registry.findBySessionId(id)?.session;
   // Bound cold continuation must reacquire its original owning route through runtime admission.
   if (eventStore.getSessionRuntimeBinding(id) && !existing?.ordinaryRuntimeOwner)
@@ -2850,6 +2869,11 @@ function assertQueueOperator(id: string, authorization?: import('./auth.js').Aut
       runtimeBinding: (sessionId) => eventStore.getSessionRuntimeBinding(sessionId),
       accountBinding: (sessionId) => eventStore.getSession(sessionId)?.accountBinding,
       custody: (sessionId, account, binding) => {
+        if (
+          binding.harness.implementation === 'responses' &&
+          binding.execution.location === 'local'
+        )
+          return getNativeResponsesStore().readOrdinaryCustody(sessionId, account);
         if (binding.harness.implementation !== 'codex') throw Error('Queue owner unavailable');
         const native = getCodexConversationStore();
         return binding.execution.location === 'local'
@@ -2870,14 +2894,27 @@ app.use(
       const meta = eventStore.getSession(sessionId);
       const binding = meta?.accountBinding;
       return binding &&
-        (binding.provider === 'openai-codex' ||
+        (eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation === 'responses' ||
+          binding.provider === 'openai-codex' ||
           (binding.provider === 'openai' && !!meta?.cwd?.startsWith('/sandbox/workspaces/')))
         ? binding
         : undefined;
     },
-    overview: readCodexQueueOverview,
-    cancel: (id, binding, commandId) =>
-      cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
+    overview: (id, binding) =>
+      eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses'
+        ? readOwnedResponsesQueueOverview(eventStore, getNativeResponsesStore(), id, binding)
+        : readCodexQueueOverview(id, binding),
+    cancel: (id, binding, commandId, authorization) =>
+      eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses'
+        ? cancelOwnedResponsesQueuedCommand(
+            eventStore,
+            getNativeResponsesStore(),
+            id,
+            binding,
+            commandId,
+            authorization,
+          )
+        : cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
     retry: async (id, _binding, confirmAmbiguous) => {
       const session = registry.findBySessionId(id)?.session;
       const runtime = session ? getCodexRuntime(session) : undefined;
@@ -2920,6 +2957,18 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
     res
       .status(403)
       .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
+    return;
+  }
+  if (eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation === 'responses') {
+    try {
+      continueOwnedLocalResponsesQueue(sessionId, res.locals.authSession);
+      res.json({ ok: true });
+    } catch {
+      res.status(409).json({
+        error:
+          'Send a message using the original sign-in to reconnect this task before continuing saved work.',
+      });
+    }
     return;
   }
   const live = registry.findBySessionId(sessionId);

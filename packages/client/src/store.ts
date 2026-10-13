@@ -10,10 +10,10 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
 import {
   splitContextPrompt,
-  OrdinaryCodexFirstCommandSchema,
-  OrdinaryCodexContinuationCommandSchema,
-  type OrdinaryCodexContinuationCommand,
-  type OrdinaryCodexFirstCommand,
+  OrdinaryRuntimeFirstCommandSchema,
+  OrdinaryRuntimeContinuationCommandSchema,
+  type OrdinaryRuntimeContinuationCommand,
+  type OrdinaryRuntimeFirstCommand,
 } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
@@ -125,13 +125,13 @@ export interface MitzoStoreState {
   /** Dedicated first-command delivery intent; never a runtime readiness receipt. */
   localFirstCommandTransportAvailable: boolean;
   localCommand: {
-    request?: OrdinaryCodexFirstCommand | OrdinaryCodexContinuationCommand;
+    request?: OrdinaryRuntimeFirstCommand | OrdinaryRuntimeContinuationCommand;
     state: string;
     sessionId?: string;
     originDraftId?: string;
   } | null;
   sendLocalFirstCommand(
-    request: OrdinaryCodexFirstCommand | OrdinaryCodexContinuationCommand,
+    request: OrdinaryRuntimeFirstCommand | OrdinaryRuntimeContinuationCommand,
     observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
   ): boolean;
   recoverLocalCommand(): boolean;
@@ -344,8 +344,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           headers: () => ({ 'X-Connection-ID': connection.getConnectionId() ?? '' }),
           notify(event) {
             if (event.type !== '_local_command_state') return;
-            const parsed = OrdinaryCodexFirstCommandSchema.or(
-              OrdinaryCodexContinuationCommandSchema,
+            const parsed = OrdinaryRuntimeFirstCommandSchema.or(
+              OrdinaryRuntimeContinuationCommandSchema,
             ).safeParse(event.request);
             const request = parsed.success ? parsed.data : undefined;
             const state = String(event.state);
@@ -955,11 +955,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     localCommand: null,
     localFirstCommandTransportAvailable: !!localOutbox,
     sendLocalFirstCommand(
-      request: OrdinaryCodexFirstCommand | OrdinaryCodexContinuationCommand,
+      request: OrdinaryRuntimeFirstCommand | OrdinaryRuntimeContinuationCommand,
       opts = {},
     ) {
-      const parsed = OrdinaryCodexFirstCommandSchema.or(
-        OrdinaryCodexContinuationCommandSchema,
+      const parsed = OrdinaryRuntimeFirstCommandSchema.or(
+        OrdinaryRuntimeContinuationCommandSchema,
       ).safeParse(request);
       if (
         !parsed.success ||

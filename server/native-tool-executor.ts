@@ -120,6 +120,8 @@ async function canonicalPath(path: string): Promise<string> {
 export interface NativeToolOptions {
   /** Optional enrolled-route owner fence, rechecked after approval and at effects. */
   assertRuntimeCurrent?: () => void;
+  /** Enrolled source/credential owners may need asynchronous grant reconciliation. */
+  assertRuntimeCurrentAsync?: () => Promise<void>;
   /** Explicit child environment. The executor never inherits process.env or API credentials. */
   env: Record<string, string>;
   forcePrompt?: boolean;
@@ -146,6 +148,7 @@ export function createNativeToolExecutor(
     });
     try {
       signal.throwIfAborted();
+      await options.assertRuntimeCurrentAsync?.();
       options.assertRuntimeCurrent?.();
       const session = registry.get(clientId);
       if (!session?.cwd) return result('Session workspace is unavailable', true);
@@ -184,6 +187,7 @@ export function createNativeToolExecutor(
           checkSkillPolicy(registry, clientId, block.name) === 'deny'
         )
           return result('Session permissions changed; retry the tool', true);
+        await options.assertRuntimeCurrentAsync?.();
         options.assertRuntimeCurrent?.();
         return result(
           await executeTrustedGitHubRead(
@@ -255,6 +259,7 @@ export function createNativeToolExecutor(
         const task = repositoryTask
           ? await getRepositoryWorkspaces(true).validateHostTask(session.sessionId!, root)
           : undefined;
+        await options.assertRuntimeCurrentAsync?.();
         options.assertRuntimeCurrent?.();
         return result(
           await executeTrustedGitCommit(
@@ -317,6 +322,8 @@ export function createNativeToolExecutor(
           );
         if (writableRoots.some((p) => privatePathSnapshot()(p)))
           return result('Private provider storage is unavailable', true);
+        await options.assertRuntimeCurrentAsync?.();
+        options.assertRuntimeCurrent?.();
         const output = await executeSandboxedCommand({
           command: input.command,
           cwd: await realpath(session.cwd),
@@ -406,6 +413,7 @@ export function createNativeToolExecutor(
         checkSkillPolicy(registry, clientId, block.name) === 'deny'
       )
         return result('Session permissions changed before file execution; retry the tool', true);
+      await options.assertRuntimeCurrentAsync?.();
       options.assertRuntimeCurrent?.();
       const operation = await executeNativeFileOperation(
         {
