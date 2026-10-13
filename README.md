@@ -719,7 +719,9 @@ Session metadata, list/search, counters and ordinary runtime-binding persistence
 are isolated in `packages/protocol/src/session-metadata-store.ts`. It borrows the
 same connection and prepared statements; EventStore retains schema, migrations,
 backup and close. Existing public methods, immutable account/workspace/profile
-bindings, search filters and transaction boundaries are preserved.
+bindings, search filters and transaction boundaries are preserved. Runtime
+enrollment takes the existing immediate write lock before calling the public
+upsert hook, so a competing connection cannot claim the same session first.
 
 ### Frontend (`frontend/`) — React 19 + Vite
 
