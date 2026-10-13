@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const span = vi.hoisted(() => ({ end: vi.fn(), setStatus: vi.fn(), setAttribute: vi.fn() }));
 const initialization = vi.hoisted(() => ({ ready: undefined as Promise<void> | undefined }));
 const startSpan = vi.hoisted(() => vi.fn());
+vi.mock('@capacitor/core', () => ({ Capacitor: { getPlatform: () => 'ios' } }));
 vi.mock('../tracing', () => ({
   tracer: {
     startSpan: (...args: unknown[]) => {
@@ -40,9 +41,13 @@ describe('phone authentication tracing', () => {
     expect(await result).toBe(true);
     expect(startSpan).toHaveBeenCalledWith(
       'http.auth.check',
-      expect.objectContaining({ startTime: startedAt }),
+      expect.objectContaining({
+        startTime: startedAt,
+        attributes: expect.objectContaining({ 'mitzo.client.platform': 'ios' }),
+      }),
     );
     expect(check.mock.calls[0][1].traceparent).toContain('0af7651916cd43dd8448eb211c80319c');
+    expect(span.setAttribute).toHaveBeenCalledWith('mitzo.auth.tracing_initialization_ms', 500);
   });
 
   it('passes the trace context into the request and waits until the check finishes', async () => {
