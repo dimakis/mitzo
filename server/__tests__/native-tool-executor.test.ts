@@ -11,7 +11,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
@@ -32,6 +32,10 @@ vi.mock('../trusted-native-operation.js', async (importOriginal) => ({
   executeTrustedGitCommit: vi.fn().mockResolvedValue('[branch abc] approved'),
 }));
 import { createNativeToolExecutor } from '../native-tool-executor.js';
+import {
+  OrdinaryLocalCodexHostRuntime,
+  ordinaryLocalCodexHostContractRevision,
+} from '../ordinary-local-codex-host-runtime.js';
 
 describe('native tool execution through session permissions', () => {
   let root: string;
@@ -72,6 +76,54 @@ describe('native tool execution through session permissions', () => {
   });
   const executor = () =>
     createNativeToolExecutor('client', registry, { env: { PATH: '/usr/bin:/bin' } });
+
+  it.each(['Write', 'GitHubRead'] as const)(
+    'rechecks owned runtime revocation after %s approval before host effects',
+    async (name) => {
+      let revoked = false;
+      const execute = createNativeToolExecutor('client', registry, {
+        env: { PATH: '/usr/bin:/bin' },
+        assertRuntimeCurrent: () => {
+          if (revoked) throw new Error('Owned runtime unavailable');
+        },
+      });
+      const beforeReads = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+      const input =
+        name === 'Write'
+          ? { file_path: 'owned-write', content: 'forbidden', require_approval: true }
+          : { endpoint: '/user' };
+      const pending = execute(call(name, input), abort.signal);
+      await vi.waitFor(() =>
+        expect(sent.some((event) => event.type === 'permission_request')).toBe(true),
+      );
+      revoked = true;
+      resolvePending(
+        sent.find((event) => event.type === 'permission_request')!.permId as string,
+        'once',
+      );
+      expect(await pending).toMatchObject({ is_error: true, content: 'Owned runtime unavailable' });
+      await expect(readFile(join(root, 'worktree/owned-write'))).rejects.toThrow();
+      expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(beforeReads);
+    },
+  );
+  it('rechecks owned runtime revocation at the final Bash spawn boundary', async () => {
+    registry.setMode('client', 'auto');
+    let revoked = false;
+    const execute = createNativeToolExecutor('client', registry, {
+      env: { PATH: '/usr/bin:/bin' },
+      assertRuntimeCurrent: () => {
+        if (revoked) throw new Error('Owned runtime unavailable');
+      },
+    });
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      revoked = true;
+      options.beforeSpawn!();
+      return { content: 'should never execute', isError: false };
+    });
+    expect(await execute(call('Bash', { command: 'touch forbidden' }), abort.signal)).toMatchObject(
+      { is_error: true, content: 'Owned runtime unavailable' },
+    );
+  });
 
   it('honors an explicit approval request before a normally allowed write', async () => {
     const pending = executor()(
@@ -303,6 +355,75 @@ describe('native tool execution through session permissions', () => {
     expect(
       await executor()(call('Write', { file_path: 'report.md', content: 'report' }), abort.signal),
     ).toMatchObject({ is_error: false });
+  });
+  it('protects qualified local Codex selectors and native bytes from task writes, aliases and Bash', async () => {
+    const workspace = await realpath(join(root, 'worktree'));
+    const nativeFile = join(workspace, 'native-selection.json');
+    const targetFile = join(workspace, 'target-selection.json');
+    const executable = join(workspace, 'selected-codex');
+    const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    await writeFile(executable, bytes, { mode: 0o755 });
+    await writeFile(
+      nativeFile,
+      JSON.stringify({ version: 1, executablePath: executable, executableSha256: sha256 }),
+      { mode: 0o600 },
+    );
+    await writeFile(
+      targetFile,
+      JSON.stringify({
+        version: 1,
+        targetId: 'fixture-mac',
+        label: 'Fixture Mac',
+        hostId: hostname(),
+        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+      }),
+      { mode: 0o600 },
+    );
+    const runtime = new OrdinaryLocalCodexHostRuntime({
+      MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE: nativeFile,
+      MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE: targetFile,
+    });
+    await runtime.observe();
+    const aliases: string[] = [];
+    for (const [index, target] of [nativeFile, targetFile, executable].entries()) {
+      const alias = join(workspace, `selection-alias-${index}`);
+      await symlink(target, alias);
+      aliases.push(alias);
+    }
+    const snapshots = await Promise.all(
+      [nativeFile, targetFile, executable].map((path) => readFile(path)),
+    );
+    for (const file_path of [nativeFile, targetFile, executable, ...aliases])
+      expect(
+        await executor()(call('Write', { file_path, content: 'model replacement' }), abort.signal),
+      ).toMatchObject({ is_error: true });
+    for (const file_path of [nativeFile, targetFile, ...aliases.slice(0, 2)])
+      expect(await executor()(call('Read', { file_path }), abort.signal)).toMatchObject({
+        is_error: true,
+      });
+    registry.setMode('client', 'auto');
+    vi.mocked(executeSandboxedCommand).mockClear();
+    expect(
+      await executor()(
+        call('Bash', { command: 'mv native-selection.json replacement.json' }),
+        abort.signal,
+      ),
+    ).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('overlaps workspace runtime authority'),
+    });
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+    expect(
+      await Promise.all([nativeFile, targetFile, executable].map((path) => readFile(path))),
+    ).toEqual(snapshots);
+    expect(
+      await executor()(
+        call('Write', { file_path: 'task-note.md', content: 'editable task data' }),
+        abort.signal,
+      ),
+    ).toMatchObject({ is_error: false });
+    expect(await readFile(join(workspace, 'task-note.md'), 'utf8')).toBe('editable task data');
   });
   it('rejects shell writable roots containing enrolled authority instead of relying on exact-file deny rules', async () => {
     const workspace = await realpath(join(root, 'worktree'));

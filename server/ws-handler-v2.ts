@@ -1,4 +1,6 @@
 import { clearPublicationControllerSessionGrants } from './symposium-publication-approval.js';
+import { ownedLocalControlStatus } from './owned-local-codex-control.js';
+import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import {
   isTransportConnectionOwnedBy,
   liveTransportAuthSessionId,
@@ -298,6 +300,29 @@ export function handleHello(
   return connectionId;
 }
 
+/** Attachment can change; the retained owned-local subject cannot. */
+function allowOwnedLocalControl(
+  connectionId: string,
+  sessionId: string,
+  ctx: V2HandlerContext,
+): boolean {
+  if (
+    ownedLocalControlStatus(
+      connectionId,
+      sessionId,
+      ctx.connRegistry.get(connectionId)?.transport,
+      ctx,
+    ) !== 'denied'
+  )
+    return true;
+  ctx.connRegistry.get(connectionId)?.transport.send({
+    type: 'error',
+    sessionId,
+    error: 'Owned local session belongs to another login',
+  });
+  return false;
+}
+
 export function handleReconnect(
   connectionId: string,
   msg: {
@@ -314,6 +339,7 @@ export function handleReconnect(
       const summaries: Array<{ sessionId: string; replayed: number }> = [];
 
       for (const entry of msg.sessions) {
+        if (!allowOwnedLocalControl(connectionId, entry.sessionId, ctx)) continue;
         ctx.connRegistry.watch(connectionId, entry.sessionId);
 
         // Set cursor to client's lastSeq BEFORE replay, so periodic sync
@@ -546,6 +572,7 @@ export async function handleSwitchSession(
         return;
       }
 
+      if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return;
       const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
 
       if (!sessionMeta) {
@@ -717,6 +744,7 @@ export function handleSendV2(
           }
         };
         const startupTransport: SessionTransport = {
+          attachmentIdentity: getTransportAttachmentIdentity(transport),
           isOpen: () => transport.isOpen(),
           send: (event) => {
             if (event.type === 'user_message' && event.messageId === msg.clientMsgId)
@@ -833,6 +861,7 @@ export function handleSendV2(
             : undefined;
           const commandTransport: SessionTransport = paidReasoning
             ? {
+                attachmentIdentity: getTransportAttachmentIdentity(transport),
                 isOpen: () => transport.isOpen(),
                 send(data) {
                   const event = { ...data, v: 2, sessionId: commandSessionId };
@@ -1246,7 +1275,8 @@ export function handleSendV2(
   );
 }
 
-export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): void {
+export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): boolean {
+  if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return false;
   withSpan('ws.stop', { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId }, () => {
     assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'stop');
     if (
@@ -1260,6 +1290,7 @@ export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerC
       log.info('stop', { connectionId, sessionId: msg.sessionId });
     }
   });
+  return true;
 }
 
 export function handleInterruptV2(
@@ -1280,12 +1311,40 @@ export function handleInterruptV2(
         if (delivery?.awaitStartupAdmission) throw error;
         return;
       }
+      if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return;
       if (
         cancelDeliberation(ctx.eventStore, msg.sessionId) ||
         cancelFusion(ctx.eventStore, msg.sessionId)
       )
         return;
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+      if (ctx.eventStore.getSessionRuntimeBinding?.(msg.sessionId)) {
+        // A bound runtime can be interrupted without enrolling replacement input,
+        // taking over transport ownership or cold-starting a provider.
+        if (found) {
+          const interrupted = await interruptChat(found.clientId, '');
+          if (
+            !interrupted ||
+            msg.prompt.trim() ||
+            msg.images?.length ||
+            msg.contextBlocks?.length ||
+            msg.sourceSnapshots?.length ||
+            msg.model !== undefined ||
+            msg.reasoningEffort !== undefined
+          )
+            transport.send({
+              type: 'error',
+              sessionId: msg.sessionId,
+              error: `${interrupted ? 'Execution interrupted. ' : ''}Runtime-bound commands require guarded admission`,
+            });
+        } else
+          transport.send({
+            type: 'error',
+            sessionId: msg.sessionId,
+            error: 'Runtime-bound commands require guarded admission',
+          });
+        return;
+      }
       if (!found) return;
 
       const activeClientId = found.clientId;
@@ -1517,6 +1576,9 @@ export function handlePermissionResponseV2(
         return false;
       }
       const pendingSessionId = getPendingSessionId(msg.permId);
+      const ownedSessionId = pendingSessionId ?? msg.sessionId;
+      if (ownedSessionId && !allowOwnedLocalControl(connectionId, ownedSessionId, ctx))
+        return false;
       if (pendingSessionId) {
         const found = ctx.sessionRegistry.findBySessionId(pendingSessionId, true);
         const ownerConnection =
@@ -1604,6 +1666,28 @@ export function handleSetModeV2(
   msg: SetModeMsg,
   ctx: V2HandlerContext,
 ): Promise<ModeChangeResult> {
+  if (ctx.eventStore.getSessionRuntimeBinding?.(msg.sessionId)) {
+    const error = 'Runtime-bound settings require guarded admission';
+    try {
+      ctx.connRegistry.get(connectionId)?.transport.send({
+        type: 'error',
+        sessionId: msg.sessionId,
+        error,
+      });
+    } catch (sendError) {
+      log.warn('runtime-bound set_mode refusal delivery failed', {
+        sessionId: msg.sessionId,
+        err: sendError,
+      });
+    }
+    return Promise.resolve({
+      ok: false,
+      applied: false,
+      persisted: false,
+      code: 'provider',
+      error,
+    });
+  }
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
   if (!found) {
     // Historical sessions have no runtime to update. Commit their next-launch
@@ -1851,6 +1935,7 @@ export function handleSessionClose(
     'ws.session_close',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     () => {
+      if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return;
       assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'close');
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       const conn = ctx.connRegistry.get(connectionId);
