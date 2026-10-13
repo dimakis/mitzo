@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.109';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.110';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -49,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '5cd36a5da90b590fdcf6d603266f7eb553e29720827a602f9d52a2dcfbda67c1',
   '../../frontend/src/components/ChatInput.tsx':
-    'f11d4201f1ac6d3e7d9b3f6782d0127e5f582c065e40fac69c1a8b069629ccaa',
+    'c8671cc96b3e5678016b4a8041c0205012443b9ce2b3b59fa2e759ef2d1964b9',
   '../../frontend/src/components/ComposerTools.tsx':
     '4da4ec4fd9f95a6b12a9b79a66f9fedc2f8c00e076459097e395121ca9a94864',
   '../../frontend/src/components/ContextPanel.tsx':
