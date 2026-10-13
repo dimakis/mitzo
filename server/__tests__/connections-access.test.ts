@@ -520,3 +520,20 @@ it.each(['rotating', 'needs_attention'] as const)(
     });
   },
 );
+
+it.each([true, false])(
+  'reports verified Google Docs editing in the inventory (%s)',
+  async (documentsEditing) => {
+    const inventory = await readConnectionsAccess({
+      google: async () => ({
+        health: 'ready',
+        expiresAt: Date.now() + 3600000,
+        slidesEditing: true,
+        documentsEditing,
+      }),
+    });
+    const google = inventory.resources.find((row) => row.kind === 'google-workspace')!;
+    expect(google.details.permissions?.includes('Docs editing')).toBe(documentsEditing);
+    expect(google.access.summary.includes('Docs')).toBe(documentsEditing);
+  },
+);
