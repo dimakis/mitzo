@@ -317,12 +317,20 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(page.getByText('Run on: Local · first command only')).toBeVisible();
     await expect(page.getByText('Repository helper · r1', { exact: true })).toBeVisible();
     await emitLocalState(page, 'running');
+    await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Keep this follow-up draft');
+    await page.getByRole('textbox', { name: 'Message Mitzo' }).press('Enter');
+    await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+      'Keep this follow-up draft',
+    );
     await expect(page.getByRole('button', { name: 'Stop generation' })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Interrupt and send now' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Queue message' })).toHaveCount(0);
     await emitLocalState(page, 'idle');
     await expect(page.getByRole('button', { name: 'Stop generation' })).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+      'Keep this follow-up draft',
+    );
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
     await page.screenshot({
       path: testInfo.outputPath(`local-bound-${appearance}.png`),
@@ -426,6 +434,51 @@ test('Local first command: metadata failure stays blocked and Retry restores the
     path: testInfo.outputPath('local-metadata-recovered.png'),
     fullPage: true,
   });
+  expect(fixture.requests).toEqual([]);
+  expect(fixture.forbidden).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('Local first command: oversized complete command retains its image and enables Send only after removal', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offline(page, false, true);
+  await page.addInitScript(() => {
+    const key = 'mitzo-chat-draft:local-restored';
+    const draft = JSON.parse(localStorage.getItem(key)!);
+    draft.images = [
+      {
+        data: 'AAAA'.repeat(270000),
+        mediaType: 'image/png',
+        preview:
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+      },
+    ];
+    localStorage.setItem(key, JSON.stringify(draft));
+  });
+  if (testInfo.project.name.startsWith('mobile'))
+    await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto('/chat?draft=local-restored');
+  await page.getByRole('button', { name: 'Add repository' }).click();
+  await page
+    .getByRole('combobox', { name: 'GitHub repository' })
+    .selectOption('github:owner/repository');
+  await page.getByRole('button', { name: 'Preview repository' }).click();
+  await page.getByRole('button', { name: 'Prepare repository' }).click();
+  await expect(page.getByText(/Local commands must fit within 1 MiB/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Message Mitzo' }).press('Enter');
+  expect(fixture.requests).toEqual([]);
+  await page.screenshot({
+    path: testInfo.outputPath('local-oversized-attachment.png'),
+    fullPage: true,
+  });
+  await page.getByRole('button', { name: 'Remove attachment 1' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+    'Inspect the repository',
+  );
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
   expect(fixture.requests).toEqual([]);
   expect(fixture.forbidden).toEqual([]);
   expect(fixture.errors).toEqual([]);

@@ -356,6 +356,12 @@ without inferring account readiness. On phones the status uses a shrinking grid 
 and an 8ch structural cap beside the always-reachable Access action; its full text stays
 in the accessible description and tooltip. Readonly findings, history and safe Stop
 remain available; review action controls stay disabled.
+Persisted account/model/thinking hydration remains separate from user edits, so
+metadata arriving before the runtime check still supplies the actual conversation
+settings without replacing device defaults. Running Local conversations expose Stop
+and retain follow-up drafts and existing queues, while queue creation and draining
+remain blocked. The composer validates the complete command envelope, including
+UTF8 metadata and attachments, and explains removal/resizing when it exceeds 1 MiB.
 Recovery shows the original command tuple and resends its retained envelope only
 on a deliberate operator action. Authentication restoration does not replay it.
 

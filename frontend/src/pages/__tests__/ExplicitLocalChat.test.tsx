@@ -340,6 +340,67 @@ for (const [name, Screen] of [
     expect(workspace).toHaveAccessibleDescription('First command');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
   });
+  it(`${name}: hydrates authoritative model and thinking before the runtime metadata request resolves, then sends those settings`, async () => {
+    localStorage.setItem('mitzo-preferred-model', 'old-browser-default');
+    const metadata = {
+      sessionType: 'chat',
+      accountBinding: { accountId: 'work', accountLabel: 'Work', model: 'persisted-model' },
+      modelSelection: {
+        model: 'persisted-model',
+        reasoningEffort: 'high',
+        models: [
+          { id: 'persisted-model', label: 'Persisted model', reasoningEfforts: ['low', 'high'] },
+        ],
+      },
+    };
+    let metadataCalls = 0;
+    let release!: (response: Response) => void;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/meta')) {
+        if (init?.signal) metadataCalls++;
+        if (init?.signal && metadataCalls === 2)
+          return new Promise<Response>((resolve) => {
+            release = resolve;
+          });
+        return new Response(JSON.stringify(metadata));
+      }
+      if (url === '/api/chat/local-codex/capabilities')
+        return new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 });
+      if (String(url).endsWith('/symposium/status'))
+        return new Response(JSON.stringify({ sessionId: 'existing', config: null, seats: [] }));
+      return new Response('[]');
+    });
+    const store = createTestStore();
+    const sent = vi.fn(() => true);
+    store.setState({
+      sendMessage: sent,
+      sessions: { ...store.getState().sessions, active: 'existing' },
+      modeChangeReady: true,
+    });
+    render(
+      <MitzoStoreProvider value={store}>
+        <MemoryRouter initialEntries={['/chat/existing']}>
+          <Routes>
+            <Route path="/chat/:sessionId" element={<Screen />} />
+          </Routes>
+        </MemoryRouter>
+      </MitzoStoreProvider>,
+    );
+    await waitFor(() => expect(metadataCalls).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(store.getState().config.modelId).toBe('persisted-model'));
+    expect(localStorage.getItem('mitzo-preferred-model')).toBe('old-browser-default');
+    release(new Response(JSON.stringify(metadata)));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(sent).toHaveBeenCalledWith(
+      'hello',
+      expect.objectContaining({
+        accountId: 'work',
+        model: 'persisted-model',
+        reasoningEffort: 'high',
+      }),
+    );
+  });
   it(`${name}: immutable Local metadata disables follow-up, mode and web settings on reload`, async () => {
     const { legacySend } = setup(Screen, false, false, true);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });

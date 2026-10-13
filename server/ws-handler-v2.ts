@@ -1,5 +1,6 @@
 import { clearPublicationControllerSessionGrants } from './symposium-publication-approval.js';
 import { ownedLocalControlStatus } from './owned-local-codex-control.js';
+import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import {
   isTransportConnectionOwnedBy,
   liveTransportAuthSessionId,
@@ -743,6 +744,7 @@ export function handleSendV2(
           }
         };
         const startupTransport: SessionTransport = {
+          attachmentIdentity: getTransportAttachmentIdentity(transport),
           isOpen: () => transport.isOpen(),
           send: (event) => {
             if (event.type === 'user_message' && event.messageId === msg.clientMsgId)

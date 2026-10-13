@@ -109,7 +109,7 @@ export function normalizeLocalInventory(data: ExplicitLocalInventory): ChatRunti
     }),
   };
 }
-export function buildLocalFirstCommand(
+export function prepareLocalFirstCommand(
   selection: ChatRuntimeSelection,
   inventory: ExplicitLocalInventory | null,
   input: {
@@ -127,7 +127,7 @@ export function buildLocalFirstCommand(
     ('kind' in selection.agentProfile && selection.agentProfile.kind !== undefined) ||
     !evaluateChatRuntimeSelection(selection, normalizeLocalInventory(inventory)).ready
   )
-    return null;
+    return { request: null, reason: 'Review the selected Local execution choices before sending.' };
   const configured = inventory.accounts.find(
     (a) => a.account.accountId === selection.account?.accountId,
   );
@@ -136,7 +136,8 @@ export function buildLocalFirstCommand(
       r.account.accountId === configured?.account.accountId &&
       r.targetId === selection.execution.targetId,
   );
-  if (!configured || !route?.modes.includes(input.mode)) return null;
+  if (!configured || !route?.modes.includes(input.mode))
+    return { request: null, reason: 'Review the selected Local execution choices before sending.' };
   const parsed = LocalCodexFirstCommandSchema.safeParse({
     runOn: 'local',
     repositoryWorkspaceId: input.repositoryWorkspaceId,
@@ -161,5 +162,17 @@ export function buildLocalFirstCommand(
     },
     payload: { text: input.text, ...(input.images?.length ? { images: input.images } : {}) },
   });
-  return parsed.success ? parsed.data : null;
+  if (parsed.success) return { request: parsed.data, reason: undefined };
+  const reason = parsed.error.issues.some((issue) => issue.message === 'Command exceeds bound')
+    ? 'Local commands must fit within 1 MiB. Remove or resize attachments, or shorten the message.'
+    : parsed.error.issues.some((issue) => issue.path[0] === 'payload' && issue.path[1] === 'images')
+      ? 'Remove unsupported or malformed attachments before sending the Local command.'
+      : parsed.error.issues.some((issue) => issue.path[0] === 'payload' && issue.path[1] === 'text')
+        ? 'Shorten the message before sending the Local command.'
+        : 'Review the selected Local execution choices before sending.';
+  return { request: null, reason };
+}
+
+export function buildLocalFirstCommand(...args: Parameters<typeof prepareLocalFirstCommand>) {
+  return prepareLocalFirstCommand(...args).request;
 }

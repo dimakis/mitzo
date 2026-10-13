@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest';
-import { buildLocalFirstCommand, normalizeLocalInventory } from '../explicit-local-chat';
+import {
+  buildLocalFirstCommand,
+  normalizeLocalInventory,
+  prepareLocalFirstCommand,
+} from '../explicit-local-chat';
 import { createChatRuntimeSelection } from '../chat-runtime-selection';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 it('keeps OpenShell unavailable rather than choosing the configured Local route', () => {
@@ -74,4 +78,30 @@ it('refuses builtin selection before request construction even when the user-lib
     }),
   ).toBeNull();
   expect(selection.agentProfile).toHaveProperty('kind', 'builtin');
+});
+
+it('bounds the entire UTF8 Local envelope and exposes a recovery reason without dropping attachments', () => {
+  const data = localInventoryFixture();
+  const intent = {
+    ...createChatRuntimeSelection(),
+    execution: { location: 'local' as const, targetId: 'mac' },
+    capabilityRevision: data.capabilityRevision,
+    account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+    agentProfile: { profileId: 'agent', revision: 1 },
+  };
+  const input = {
+    clientMsgId: '11111111-1111-4111-8111-111111111111',
+    repositoryWorkspaceId: '22222222-2222-4222-8222-222222222222',
+    mode: 'agent' as const,
+    text: 'é'.repeat(300000),
+    images: [{ data: 'AAAA'.repeat(120000), mediaType: 'image/jpeg' }],
+  };
+  expect(input.text.length + input.images[0].data.length).toBeLessThan(1048576);
+  const result = prepareLocalFirstCommand(intent, data, input);
+  expect(result.request).toBeNull();
+  expect(result.reason).toMatch(/Remove or resize attachments, or shorten/);
+  expect(input.images).toHaveLength(1);
+  expect(
+    prepareLocalFirstCommand(intent, data, { ...input, text: 'Shortened prompt' }).request,
+  ).not.toBeNull();
 });

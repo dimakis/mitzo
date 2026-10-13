@@ -4,6 +4,7 @@ const channel = vi.hoisted(() => ({
   listener: (_event: Record<string, unknown>) => {},
   id: null as string | null,
   send: vi.fn(),
+  cursors: new Map<string, number>(),
 }));
 vi.mock('../sse-connection.js', () => ({
   SseConnection: class {
@@ -18,10 +19,13 @@ vi.mock('../sse-connection.js', () => ({
       return !!channel.id;
     }
     send = channel.send;
-    getLastSeq() {
-      return 0;
+    getLastSeq(id: string) {
+      return channel.cursors.get(id) ?? 0;
     }
     trackSeq() {}
+    commitTranscriptCursor(id: string, cursor: number) {
+      channel.cursors.set(id, cursor);
+    }
     getTrackedSessions() {
       return [];
     }
@@ -56,10 +60,11 @@ const request = {
   },
   payload: { text: 'Inspect' },
 };
-function setup() {
-  let raw: string | null = null;
+function setup(saved: string | null = null) {
+  let raw: string | null = saved;
   channel.id = null;
-  channel.send.mockClear();
+  channel.send.mockReset();
+  channel.cursors.clear();
   const fetch = vi.fn().mockImplementation((path: string) =>
     Promise.resolve(
       path === '/local/send'
@@ -289,5 +294,450 @@ it.each(['reserved', 'uncertain'])(
     expect(delivered).toHaveBeenCalledWith('uncertain');
     expect(delivered).not.toHaveBeenCalledWith('accepted');
     expect(readStorage()[0]).toMatchObject({ body: request, localDraftId: 'original-draft' });
+  },
+);
+
+it.each([true, false])(
+  'keeps Local draft unassigned through early SSE (correlated=%s) and retained409 until exact202 recovery',
+  async (correlated) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live-sse';
+    let complete!: (response: Response) => void;
+    fetch.mockImplementation((path) =>
+      path === '/local/send'
+        ? new Promise<Response>((resolve) => {
+            complete = resolve;
+          })
+        : Promise.resolve(new Response('[]')),
+    );
+    const assigned = vi.fn();
+    const delivered = vi.fn();
+    expect(
+      store.getState().sendLocalFirstCommand(request, {
+        draftId: 'original-draft',
+        onSessionAssigned: assigned,
+        onDelivery: delivered,
+      }),
+    ).toBe(true);
+    channel.listener({
+      type: 'session_id',
+      sessionId: 'owned-session',
+      ...(correlated ? { clientMsgId: request.clientMsgId } : {}),
+    });
+    channel.listener({
+      type: 'user_message',
+      sessionId: 'owned-session',
+      messageId: request.clientMsgId,
+      text: request.payload.text,
+    });
+    expect(assigned).not.toHaveBeenCalled();
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(store.getState().sessions.active).toBeNull();
+    expect(readStorage()[0]).toMatchObject({ body: request, localDraftId: 'original-draft' });
+    complete(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          code: 'retained_command',
+          error: 'Local Codex entry unavailable',
+          clientMsgId: request.clientMsgId,
+          sessionId: 'owned-session',
+          state: 'uncertain',
+        }),
+        { status: 409 },
+      ),
+    );
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('retained'));
+    expect(assigned).not.toHaveBeenCalled();
+    expect(delivered).toHaveBeenCalledWith('uncertain');
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(store.getState().sessions.active).toBeNull();
+    expect(store.getState().localCommand?.originDraftId).toBe('original-draft');
+    expect(store.getState().messages.messages).toEqual([
+      expect.objectContaining({ messageId: request.clientMsgId, role: 'user' }),
+    ]);
+    expect(store.getState().recoverLocalCommand()).toBe(true);
+    complete(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          clientMsgId: request.clientMsgId,
+          sessionId: 'owned-session',
+          dispatched: true,
+          state: 'consumed',
+        }),
+        { status: 202 },
+      ),
+    );
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+    expect(assigned).toHaveBeenCalledExactlyOnceWith('owned-session');
+    expect(delivered.mock.calls.filter(([state]) => state === 'accepted')).toHaveLength(1);
+    expect(store.getState().sessions.active).toBe('owned-session');
+    expect(readStorage()).toEqual([]);
+    expect(
+      fetch.mock.calls
+        .filter(([path]) => path === '/local/send')
+        .map(([, init]) => JSON.parse(init.body)),
+    ).toEqual([request, request]);
+    expect(channel.send.mock.calls.some(([body]) => body.type === 'send')).toBe(false);
+  },
+);
+
+it('keeps validated202 uncertain delivery recoverable despite its persisted SSE echo', async () => {
+  const { store, fetch, readStorage } = setup();
+  channel.id = 'live-sse';
+  fetch.mockImplementation((path) =>
+    Promise.resolve(
+      path === '/local/send'
+        ? new Response(
+            JSON.stringify({
+              ok: true,
+              clientMsgId: request.clientMsgId,
+              sessionId: 'owned-session',
+              dispatched: false,
+              state: 'uncertain',
+            }),
+            { status: 202 },
+          )
+        : new Response('[]'),
+    ),
+  );
+  const assigned = vi.fn();
+  const delivered = vi.fn();
+  store
+    .getState()
+    .sendLocalFirstCommand(request, { onSessionAssigned: assigned, onDelivery: delivered });
+  await vi.waitFor(() => expect(assigned).toHaveBeenCalledWith('owned-session'));
+  channel.listener({
+    type: 'session_id',
+    sessionId: 'owned-session',
+    clientMsgId: request.clientMsgId,
+  });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'owned-session',
+    messageId: request.clientMsgId,
+    text: request.payload.text,
+  });
+  expect(assigned).toHaveBeenCalledTimes(1);
+  expect(delivered).toHaveBeenCalledWith('uncertain');
+  expect(delivered).not.toHaveBeenCalledWith('accepted');
+  expect(readStorage()[0].body).toEqual(request);
+  expect(store.getState().localCommand?.state).toBe('uncertain');
+});
+
+it('hydrates fast successful output after the validated202 without accepting its earlier SSE echo', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live-sse';
+  let complete!: (response: Response) => void;
+  const output = {
+    messageId: 'fast-answer',
+    role: 'assistant',
+    blocks: [{ blockId: 'answer-text', blockType: 'text', content: 'Finished before HTTP.' }],
+    timestamp: 2,
+  };
+  fetch.mockImplementation((path) =>
+    path === '/local/send'
+      ? new Promise<Response>((resolve) => {
+          complete = resolve;
+        })
+      : Promise.resolve(
+          path === '/api/sessions/owned-session/messages?transcript=1'
+            ? new Response(JSON.stringify({ messages: [output], current: null, cursor: 5 }))
+            : new Response('[]'),
+        ),
+  );
+  // The existing switch handler emits current durable state even after completion.
+  channel.send.mockImplementation((body) => {
+    if (body.type === 'switch_session')
+      channel.listener({ type: 'session_state_changed', sessionId: body.sessionId, state: 'idle' });
+    return true;
+  });
+  const assigned = vi.fn();
+  const delivered = vi.fn();
+  store
+    .getState()
+    .sendLocalFirstCommand(request, { onSessionAssigned: assigned, onDelivery: delivered });
+  channel.listener({
+    type: 'session_id',
+    sessionId: 'owned-session',
+    clientMsgId: request.clientMsgId,
+  });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'owned-session',
+    messageId: request.clientMsgId,
+    text: request.payload.text,
+  });
+  channel.listener({
+    type: 'message_end',
+    sessionId: 'owned-session',
+    messageId: output.messageId,
+  });
+  expect(
+    channel.listener({ type: 'session_state_changed', sessionId: 'owned-session', state: 'idle' }),
+  ).toBe(true);
+  expect(delivered).not.toHaveBeenCalledWith('accepted');
+  expect(assigned).not.toHaveBeenCalled();
+  complete(
+    new Response(
+      JSON.stringify({
+        ok: true,
+        clientMsgId: request.clientMsgId,
+        sessionId: 'owned-session',
+        dispatched: true,
+        state: 'consumed',
+      }),
+      { status: 202 },
+    ),
+  );
+  await vi.waitFor(() => expect(store.getState().messages.messages).toContainEqual(output));
+  expect(store.getState().messages.running).toBe(false);
+  expect(assigned).toHaveBeenCalledExactlyOnceWith('owned-session');
+  expect(delivered.mock.calls.filter(([state]) => state === 'accepted')).toHaveLength(1);
+  expect(channel.send).toHaveBeenCalledWith({
+    type: 'switch_session',
+    sessionId: 'owned-session',
+    historyCursor: 5,
+  });
+});
+
+it('preserves generic uncorrelated assignment and echo acceptance without a pending Local launch', () => {
+  const { store } = setup();
+  channel.id = 'live-sse';
+  channel.send.mockReturnValue(true);
+  const assigned = vi.fn();
+  const delivered = vi.fn();
+  store
+    .getState()
+    .sendMessage('Ordinary draft', { onSessionAssigned: assigned, onDelivery: delivered });
+  const send = channel.send.mock.calls.find(([body]) => body.type === 'send')![0];
+  channel.listener({ type: 'session_id', sessionId: 'ordinary-session' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'ordinary-session',
+    messageId: send.clientMsgId,
+    text: 'Ordinary draft',
+  });
+  expect(assigned).toHaveBeenCalledExactlyOnceWith('ordinary-session');
+  expect(delivered).toHaveBeenCalledExactlyOnceWith('accepted');
+  expect(store.getState().sessions.active).toBe('ordinary-session');
+});
+
+it('does not import late receipt-driven history into a newer conversation draft', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live-sse';
+  let restore!: (response: Response) => void;
+  fetch.mockImplementation((path) =>
+    path === '/api/sessions/owned-session/messages?transcript=1'
+      ? new Promise<Response>((resolve) => {
+          restore = resolve;
+        })
+      : Promise.resolve(
+          path === '/local/send'
+            ? new Response(
+                JSON.stringify({
+                  ok: true,
+                  clientMsgId: request.clientMsgId,
+                  sessionId: 'owned-session',
+                  dispatched: true,
+                  state: 'consumed',
+                }),
+                { status: 202 },
+              )
+            : new Response('[]'),
+        ),
+  );
+  const assigned = vi.fn();
+  store
+    .getState()
+    .sendLocalFirstCommand(request, { draftId: 'original-draft', onSessionAssigned: assigned });
+  await vi.waitFor(() => expect(restore).toBeDefined());
+  store.getState().newSession();
+  restore(
+    new Response(
+      JSON.stringify({
+        messages: [{ messageId: 'late-answer', role: 'assistant', blocks: [], timestamp: 2 }],
+        current: null,
+        cursor: 5,
+      }),
+    ),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(store.getState().sessions.active).toBeNull();
+  expect(store.getState().messages.messages).toEqual([]);
+  expect(channel.cursors.has('owned-session')).toBe(false);
+  expect(assigned).toHaveBeenCalledExactlyOnceWith('owned-session');
+  expect(store.getState().localCommand?.originDraftId).toBe('original-draft');
+});
+
+it('does not let an offscreen pending Local launch block a newer ordinary uncorrelated assignment', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live-sse';
+  fetch.mockRejectedValueOnce(Error('Local response lost'));
+  store.getState().sendLocalFirstCommand(request);
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('uncertain'));
+  store.getState().newSession();
+  channel.send.mockReturnValue(true);
+  const assigned = vi.fn();
+  const delivered = vi.fn();
+  store
+    .getState()
+    .sendMessage('New ordinary draft', { onSessionAssigned: assigned, onDelivery: delivered });
+  const send = channel.send.mock.calls.find(([body]) => body.type === 'send')![0];
+  channel.listener({ type: 'session_id', sessionId: 'new-ordinary' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'new-ordinary',
+    messageId: send.clientMsgId,
+    text: 'New ordinary draft',
+  });
+  expect(assigned).toHaveBeenCalledExactlyOnceWith('new-ordinary');
+  expect(delivered).toHaveBeenCalledExactlyOnceWith('accepted');
+  expect(store.getState().sessions.active).toBe('new-ordinary');
+  expect(store.getState().localCommand?.request).toEqual(request);
+});
+
+it('keeps cold restored Local observation unassigned when uncorrelated SSE arrives before recovery202', () => {
+  const { store, fetch } = setup(
+    JSON.stringify([
+      {
+        body: request,
+        scope: 1,
+        uncertain: true,
+        localDraftId: 'original-draft',
+        localReceipt: { sessionId: 'old-local', state: 'uncertain' },
+      },
+    ]),
+  );
+  channel.id = 'live-sse';
+  channel.listener({ type: 'session_id', sessionId: 'old-local' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'old-local',
+    messageId: request.clientMsgId,
+    text: request.payload.text,
+  });
+  expect(store.getState().sessions.active).toBeNull();
+  expect(store.getState().localCommand?.state).toBe('uncertain');
+  expect(fetch.mock.calls.some(([path]) => path === '/local/send')).toBe(false);
+});
+
+it.each(['session_id', 'user_message'])(
+  'defers the exact Local %s stream after stale uncorrelated observations until validated202 recovery',
+  async (correlatedType) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live-sse';
+    let complete!: (response: Response) => void;
+    const output = {
+      messageId: 'fast-recovered-answer',
+      role: 'assistant',
+      blocks: [{ blockId: 'answer-text', blockType: 'text', content: 'Completed before receipt.' }],
+      timestamp: 2,
+    };
+    fetch.mockImplementation((path) =>
+      path === '/local/send'
+        ? new Promise<Response>((resolve) => {
+            complete = resolve;
+          })
+        : Promise.resolve(
+            path === '/api/sessions/actual-local/messages?transcript=1'
+              ? new Response(JSON.stringify({ messages: [output], current: null, cursor: 7 }))
+              : new Response('[]'),
+          ),
+    );
+    const assigned = vi.fn();
+    const delivered = vi.fn();
+    store.getState().sendLocalFirstCommand(request, {
+      draftId: 'original-draft',
+      onSessionAssigned: assigned,
+      onDelivery: delivered,
+    });
+    expect(channel.listener({ type: 'session_id', sessionId: 'stale-old-session' })).toBe(true);
+    expect(
+      channel.listener(
+        correlatedType === 'session_id'
+          ? { type: correlatedType, sessionId: 'actual-local', clientMsgId: request.clientMsgId }
+          : {
+              type: correlatedType,
+              sessionId: 'actual-local',
+              messageId: request.clientMsgId,
+              text: request.payload.text,
+            },
+      ),
+    ).toBe(true);
+    // A later uncorrelated ID must not displace the exact command observation.
+    expect(channel.listener({ type: 'session_id', sessionId: 'later-unrelated-session' })).toBe(
+      true,
+    );
+    expect(
+      channel.listener({
+        type: 'message_start',
+        sessionId: 'actual-local',
+        messageId: output.messageId,
+      }),
+    ).toBe(true);
+    expect(
+      channel.listener({
+        type: 'message_end',
+        sessionId: 'actual-local',
+        messageId: output.messageId,
+      }),
+    ).toBe(true);
+    expect(
+      channel.listener({ type: 'session_state_changed', sessionId: 'actual-local', state: 'idle' }),
+    ).toBe(true);
+    expect(assigned).not.toHaveBeenCalled();
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(store.getState().sessions.active).toBeNull();
+    complete(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          code: 'retained_command',
+          error: 'Local Codex entry unavailable',
+          clientMsgId: request.clientMsgId,
+          sessionId: 'actual-local',
+          state: 'uncertain',
+        }),
+        { status: 409 },
+      ),
+    );
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('retained'));
+    expect(assigned).not.toHaveBeenCalled();
+    expect(store.getState().recoverLocalCommand()).toBe(true);
+    complete(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          clientMsgId: request.clientMsgId,
+          sessionId: 'actual-local',
+          dispatched: true,
+          state: 'consumed',
+        }),
+        { status: 202 },
+      ),
+    );
+    await vi.waitFor(() => expect(store.getState().messages.messages).toContainEqual(output));
+    expect(assigned).toHaveBeenCalledExactlyOnceWith('actual-local');
+    expect(delivered.mock.calls.filter(([state]) => state === 'accepted')).toHaveLength(1);
+    expect(store.getState().sessions.active).toBe('actual-local');
+    expect(readStorage()).toEqual([]);
+    expect(channel.send).toHaveBeenCalledWith({
+      type: 'switch_session',
+      sessionId: 'actual-local',
+      historyCursor: 7,
+    });
+    expect(
+      fetch.mock.calls.some(
+        ([path]) =>
+          path.includes('/stale-old-session/') || path.includes('/later-unrelated-session/'),
+      ),
+    ).toBe(false);
+    expect(
+      fetch.mock.calls
+        .filter(([path]) => path === '/local/send')
+        .map(([, init]) => JSON.parse(init.body)),
+    ).toEqual([request, request]);
   },
 );

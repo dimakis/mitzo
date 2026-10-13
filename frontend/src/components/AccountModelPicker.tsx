@@ -98,6 +98,7 @@ function SessionAccountModelPicker({
   sessionId: requestedSessionId,
   preferredModel,
   onChange,
+  onSessionHydrated,
   onUnavailable,
   onSummaryChange,
   disabled = false,
@@ -125,6 +126,8 @@ function SessionAccountModelPicker({
   sessionId: string | null;
   preferredModel: string;
   onChange: (selection: AccountSelection | null) => void;
+  /** Persisted session metadata is hydration, independent of editable controls. */
+  onSessionHydrated?: (selection: AccountSelection, sessionId: string) => void;
   onUnavailable?: () => void;
   /** Editable controls may have a choice before explicit send confirmation. */
   onDraftSelectionChange?: (selection: AccountSelection) => void;
@@ -156,8 +159,20 @@ function SessionAccountModelPicker({
   const [fixedSession, setFixedSession] = useState(false);
   const [empty, setEmpty] = useState(false);
   const [draftUnavailable, setDraftUnavailable] = useState(false);
-  const callbacks = useRef({ onChange, onUnavailable, onSummaryChange, onDraftSelectionChange });
-  callbacks.current = { onChange, onUnavailable, onSummaryChange, onDraftSelectionChange };
+  const callbacks = useRef({
+    onChange,
+    onSessionHydrated,
+    onUnavailable,
+    onSummaryChange,
+    onDraftSelectionChange,
+  });
+  callbacks.current = {
+    onChange,
+    onSessionHydrated,
+    onUnavailable,
+    onSummaryChange,
+    onDraftSelectionChange,
+  };
   useEffect(() => {
     if (selection) callbacks.current.onDraftSelectionChange?.(selection);
   }, [selection]);
@@ -298,7 +313,9 @@ function SessionAccountModelPicker({
             if (modelSelection.data.reasoningEffort !== undefined)
               next.reasoningEffort = modelSelection.data.reasoningEffort;
             setSelection(next);
-            callbacks.current.onChange(explicitSelection ? null : next);
+            if (callbacks.current.onSessionHydrated)
+              callbacks.current.onSessionHydrated(next, sessionId);
+            else callbacks.current.onChange(explicitSelection ? null : next);
           } else {
             const next = data.accountBinding
               ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
@@ -310,7 +327,14 @@ function SessionAccountModelPicker({
               model: 'Model unknown',
               thinking: 'Thinking: unknown',
             });
-            callbacks.current.onChange(explicitSelection ? null : next);
+            if (
+              callbacks.current.onSessionHydrated &&
+              typeof next.accountId === 'string' &&
+              next.accountId &&
+              next.model
+            )
+              callbacks.current.onSessionHydrated(next, sessionId);
+            else callbacks.current.onChange(explicitSelection ? null : next);
           }
           setBindingLabel(
             data.accountBinding

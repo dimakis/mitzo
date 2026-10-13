@@ -1,6 +1,6 @@
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
-import { buildLocalFirstCommand } from '../lib/explicit-local-chat';
+import { buildLocalFirstCommand, prepareLocalFirstCommand } from '../lib/explicit-local-chat';
 import { createBrowserId } from '../lib/browser-crypto';
 import { useNewChatDraft, useChatDraftSearch } from '../hooks/useNewChatDraft';
 import { CHAT_DRAFTS_CHANGED, getChatDraft, chatDraftStorageKey } from '../lib/chat-drafts';
@@ -244,6 +244,28 @@ export function DesktopChatView() {
   );
 
   const restoredRepositoryBinding = useRef<string | null>(null);
+  const hydrateAccount = useCallback(
+    (selection: AccountSelection, hydratedSessionId: string) => {
+      if (
+        repositoryHandoff.present ||
+        hydratedSessionId !== activeSessionId ||
+        (sessionId && sessionId !== hydratedSessionId)
+      )
+        return;
+      if (hydratedSessionId === repositoryHandoff.lastAssignedConversationId)
+        restoredRepositoryBinding.current = hydratedSessionId;
+      setAccountChoice({ scope: hydratedSessionId, selection });
+      setModelState(selection.model);
+      storeSetModel(selection.model);
+    },
+    [
+      activeSessionId,
+      sessionId,
+      storeSetModel,
+      repositoryHandoff.present,
+      repositoryHandoff.lastAssignedConversationId,
+    ],
+  );
   const selectAccount = useCallback(
     (selection: AccountSelection | null) => {
       if (controlsBlocked || (repositoryHandoff.present && activeSessionId)) return;
@@ -777,6 +799,7 @@ export function DesktopChatView() {
                   preferredModel={modelState}
                   onDraftSelectionChange={draftEnabled ? saveStagedAccount : undefined}
                   onChange={selectAccount}
+                  onSessionHydrated={hydrateAccount}
                   onSummaryChange={setWorkspaceSummary}
                   disabled={
                     messages.running ||
@@ -1021,6 +1044,18 @@ export function DesktopChatView() {
                 {!controlsBlocked && <CodexQueueStatus sessionId={activeSessionId} />}
                 <ChatInput
                   boundedFirstCommand={localFirstCommand || controlsBlocked}
+                  validateSend={
+                    localFirstCommand && repositorySelection?.repositoryWorkspaceId
+                      ? (text, images) =>
+                          prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
+                            clientMsgId: createBrowserId(),
+                            repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
+                            mode,
+                            text,
+                            images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+                          }).reason
+                      : undefined
+                  }
                   savedChatDraft={savedChatDraft}
                   composerGeneration={chatDraftRevision}
                   key={
