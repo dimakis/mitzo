@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { custodianControllerMode } from './symposium-custodian-mode.js';
 import type { AccountProfiles } from './account-profiles.js';
+import type { CodexAccountProfile } from './codex-account.js';
 import { CodexAppServerClient, type CodexLifecycleTransport } from './codex-app-server-client.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
@@ -24,6 +26,7 @@ const Runtime = z.strictObject({
 });
 export type FrozenHostCodexRuntimeObservation = z.infer<typeof Runtime>;
 export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease<FrozenHostCodexClient> {
+  profile: CodexAccountProfile;
   /** Private server-owned custody reference, never public inventory. */
   privateHome: string;
   executableSha256: string;
@@ -44,6 +47,9 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
     private readonly owners: {
       loadProfiles(): AccountProfiles;
       observeRuntime(): Promise<FrozenHostCodexRuntimeObservation>;
+      /** Independent actual target/native configuration fence; declarations and
+       * cached catalog metadata cannot supply this synchronous authority. */
+      assertRuntimeCurrentSync(): void;
       assertSelectionCurrent(expected: Readonly<Expected>): Promise<void>;
       assertSelectionCurrentSync(expected: Readonly<Expected>): void;
       signal: AbortSignal;
@@ -84,6 +90,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
     executable?: FrozenHostCodexExecutable,
   ): void {
     this.owners.signal.throwIfAborted();
+    this.owners.assertRuntimeCurrentSync();
     this.profile(expected);
     this.owners.assertSelectionCurrentSync(structuredClone(expected));
     login?.assertCurrentSync();
@@ -116,6 +123,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
   ): Promise<T | undefined> {
     let loginLease: FrozenHostCodexLoginLease<FrozenHostCodexClient> | undefined;
     try {
+      if (custodianControllerMode) throw unavailable();
       const expected = structuredClone(expectedInput);
       if (
         !expected.bootstrapId ||
@@ -132,7 +140,8 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       if (!claimBeforeBootstrap()) return undefined;
       this.#attempted = true;
       this.assertSync(expected);
-      const login = FrozenHostCodexLogin.capture(this.profile(expected), {
+      const ownedProfile = this.profile(expected);
+      const login = FrozenHostCodexLogin.capture(ownedProfile, {
         privateRoot: this.owners.privateRoot,
         signal: this.owners.signal,
         bootstrapId: expected.bootstrapId,
@@ -170,7 +179,10 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           await ownedLogin.assertCurrent();
           assertCurrentSync();
           const config = await ownedLogin.client.request('config/read', {
-            cwd: expected.workspace.cwd,
+            // Bootstrap does not create the reserved checkout. Inspect only
+            // this real private home; CodexConversation separately validates
+            // actual workspace config before its guarded thread/turn effects.
+            cwd: login.privateHome,
             includeLayers: false,
           });
           assertCurrentSync();
@@ -209,8 +221,13 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         }
       };
       this.#lease = {
+        get profile() {
+          return structuredClone(ownedProfile);
+        },
         client: ownedLogin.client,
-        binding: ownedLogin.binding,
+        get binding() {
+          return structuredClone(ownedLogin.binding);
+        },
         privateHome: login.privateHome,
         executableSha256: executable.sha256,
         close: ownedLogin.close,

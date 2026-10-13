@@ -8,7 +8,17 @@ import { EventStore } from '../event-store.js';
 import { FrozenHostCodexBootstrapAuthority } from '../frozen-host-codex-bootstrap.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 const roots: string[] = [];
+const deployment = vi.hoisted(() => ({ controller: false }));
+vi.mock('../symposium-custodian-mode.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../symposium-custodian-mode.js')>()),
+  get custodianControllerMode() {
+    return deployment.controller;
+  },
+}));
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+afterEach(() => {
+  deployment.controller = false;
+});
 function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'host-bootstrap-')));
   roots.push(root);
@@ -100,7 +110,7 @@ function fixture() {
   };
   const rpc = {
     initialize: vi.fn(async () => {}),
-    request: vi.fn(async (method: string) => {
+    request: vi.fn(async (method: string, _params: Record<string, unknown>) => {
       if (method === 'account/read')
         return { account: { type: 'chatgpt', email: configuration[0].email, planType: 'plus' } };
       if (method === 'config/read') return { config: {} };
@@ -126,6 +136,7 @@ function fixture() {
   const options = {
     loadProfiles,
     observeRuntime: vi.fn(async () => runtime),
+    assertRuntimeCurrentSync: vi.fn(() => {}),
     assertSelectionCurrent: vi.fn(async () => {}),
     assertSelectionCurrentSync: vi.fn(() => {}),
     privateRoot,
@@ -153,7 +164,16 @@ it('claims SQLite uncertainty before custody/launch and supplies the same verifi
     await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
       expect(lease.client).toBe(f.rpc);
       expect(f.authority.currentLease()).toBe(lease);
+      const exposedProfile = lease.profile;
+      exposedProfile.credentialRef = '/mutated/public-profile';
+      const exposedBinding = lease.binding;
+      exposedBinding.profileRevision = 'mutated-public-binding';
+      expect(lease.profile.credentialRef).toBe(f.configuration[0].credentialRef);
+      expect(lease.binding.profileRevision).toBe(f.expected.binding.account.profileRevision);
       await lease.assertCurrent();
+      for (const [method, params] of f.rpc.request.mock.calls) {
+        if (method === 'config/read') expect(params.cwd).toBe(lease.privateHome);
+      }
       lease.assertCurrentSync();
       f.store.completeOrdinaryLocalCommand('command');
     });
@@ -175,6 +195,24 @@ it('a consumed/uncertain claim creates no private home or native connection', as
     expect(readdirSync(f.privateRoot)).toEqual([]);
     expect(f.launch).not.toHaveBeenCalled();
     expect(operation).not.toHaveBeenCalled();
+  } finally {
+    f.store.close();
+  }
+});
+it('refuses custodian controller bootstrap before claim, observations or custody effects', async () => {
+  const f = fixture();
+  deployment.controller = true;
+  try {
+    const claim = vi.fn(f.claim),
+      operation = vi.fn();
+    await expect(f.authority.withBootstrap(f.expected, claim, operation)).rejects.toThrow(
+      'Host Codex bootstrap unavailable',
+    );
+    expect(claim).not.toHaveBeenCalled();
+    expect(f.options.observeRuntime).not.toHaveBeenCalled();
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(operation).not.toHaveBeenCalled();
+    expect(readdirSync(f.privateRoot)).toEqual([]);
   } finally {
     f.store.close();
   }
@@ -236,7 +274,7 @@ it('revocation while provider discovery awaits blocks the next effect boundary',
   try {
     const original = f.rpc.request.getMockImplementation()!;
     f.rpc.request.mockImplementation(async (method) => {
-      const response = await original(method);
+      const response = await original(method, {});
       if (method === 'model/list')
         f.options.assertSelectionCurrentSync.mockImplementation(() => {
           throw new Error('owner-revoked');
@@ -248,6 +286,32 @@ it('revocation while provider discovery awaits blocks the next effect boundary',
       'Host Codex bootstrap unavailable',
     );
     expect(operation).not.toHaveBeenCalled();
+    expect(f.rpc.close).toHaveBeenCalledTimes(1);
+    expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
+  } finally {
+    f.store.close();
+  }
+});
+
+it('rechecks actual runtime configuration drift at the final synchronous effect fence', async () => {
+  const f = fixture();
+  f.options.assertRuntimeCurrentSync.mockImplementation(() => {
+    if (f.runtime.targetRevision !== f.expected.binding.execution.targetRevision)
+      throw new Error('actual-target-config-changed');
+  });
+  let dispatched = false;
+  try {
+    await expect(
+      f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+        const observations = f.options.observeRuntime.mock.calls.length;
+        f.runtime.targetRevision = 'changed-after-async-qualification';
+        lease.assertCurrentSync();
+        // This represents an existing native effect callback after async admission.
+        dispatched = true;
+        expect(f.options.observeRuntime).toHaveBeenCalledTimes(observations);
+      }),
+    ).rejects.toThrow('Host Codex bootstrap unavailable');
+    expect(dispatched).toBe(false);
     expect(f.rpc.close).toHaveBeenCalledTimes(1);
     expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
   } finally {
