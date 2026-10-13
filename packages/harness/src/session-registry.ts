@@ -34,6 +34,8 @@ export interface ManagedSession {
   symposiumPublicationUsers?: number;
   /** Current event connection; the registry key remains stable for the query lifetime. */
   ownerConnectionId?: string;
+  /** Trusted owned-local driver subject; attachment/takeover never replaces it. */
+  ownedLocalAuthSessionId?: string;
   transport: SessionTransport;
   abortController: AbortController;
   sessionId?: string;

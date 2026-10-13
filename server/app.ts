@@ -1,3 +1,4 @@
+import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
 import { createTelemetryRelay } from './telemetry-relay.js';
 import { traceAuthCheck } from './auth-check-tracing.js';
 import type {
@@ -2737,6 +2738,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.status(404).json({ error: 'Session not found' });
     return;
   }
+  const runtimeMetadata = ownedLocalCodexMetadata(eventStore, meta.sessionId);
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
   const symposiumConfigured = Boolean(meta.symposiumConfig);
@@ -2789,6 +2791,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   res.json({
     sessionId: meta.sessionId,
+    ...runtimeMetadata,
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,

@@ -1,3 +1,5 @@
+import { claimTransportConnection } from '../transport-auth-ownership.js';
+import { reserveRepositoryStartup } from '../ordinary-repository-startup.js';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -54,6 +56,23 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
+it('legacy repository startup shares the guarded route exclusion before any query', async () => {
+  const workspaceId = '87a4c93e-0a31-4ee7-a2a7-e179ed7469dd';
+  const sessionId = chat.nativeStartupSessionId(`repository:${workspaceId}`);
+  const release = reserveRepositoryStartup(sessionId);
+  try {
+    await expect(
+      chat.startChat({ send: vi.fn(), isOpen: () => true }, 'legacy-overlap', 'Offline', {
+        repositoryWorkspaceId: workspaceId,
+      }),
+    ).rejects.toThrow('Repository conversation startup is already in progress');
+    expect(chat.registry.get('legacy-overlap')).toBeUndefined();
+    expect(chat.eventStore.getSession(sessionId)).toBeNull();
+  } finally {
+    release();
+  }
+});
+
 function fixture(bound = true, live = true) {
   vi.clearAllMocks();
   const id = `runtime-controls-${++sequence}`;
@@ -106,6 +125,7 @@ function fixture(bound = true, live = true) {
       cwd: root,
       accountBinding,
       ownerConnectionId: 'browser',
+      ownedLocalAuthSessionId: bound ? 'runtime-controls-login' : undefined,
     });
     const session = chat.registry.get(id)!;
     session.inputQueue = queue;
@@ -114,6 +134,7 @@ function fixture(bound = true, live = true) {
   }
   const connections = new ConnectionRegistry();
   connections.register('browser', transport);
+  claimTransportConnection('browser', 'runtime-controls-login');
   const context = {
     connRegistry: connections,
     sessionRegistry: chat.registry,
@@ -203,6 +224,8 @@ it('allows a plain runtime-bound interrupt and ordinary Stop', async () => {
 it('routes bound WS interruption directly to cancellation without takeover or new input', async () => {
   const f = fixture();
   const requester = { send: vi.fn(), isOpen: () => true };
+  f.context.connRegistry.register('another-browser', requester);
+  claimTransportConnection('another-browser', 'runtime-controls-login');
   await ws.handleInterruptV2(
     'another-browser',
     requester,

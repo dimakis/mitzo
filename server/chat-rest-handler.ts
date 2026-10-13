@@ -1,3 +1,4 @@
+import { createOwnedLocalCodexEntryRouter } from './ordinary-local-codex-entry.js';
 import { operatorAuthMiddleware } from './auth.js';
 import { getPendingRequestsBySession } from './permissions.js';
 import {
@@ -185,6 +186,8 @@ export function createChatRestRouter(
     }
     next();
   });
+
+  router.use('/local-codex', createOwnedLocalCodexEntryRouter(sseRegistry, ctx));
 
   router.post('/send', async (req, res) => {
     const msg = validateBody(V2SendMessage, req.body, res);
@@ -378,7 +381,10 @@ export function createChatRestRouter(
     const msg = validateBody(V2StopMessage, req.body, res);
     if (!msg) return;
     try {
-      handleStopV2(connectionId, msg, ctx);
+      if (handleStopV2(connectionId, msg, ctx) === false) {
+        res.status(403).json({ ok: false, error: 'Owned local session belongs to another login' });
+        return;
+      }
       res.json({ ok: true });
     } catch (err) {
       log.error('POST /chat/stop failed', { connectionId, error: String(err) });

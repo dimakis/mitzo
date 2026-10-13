@@ -3,8 +3,8 @@
 Status: incremental implementation. Versioned EventStore bindings, local account
 projection, V2 configured-target persistence and workspace reservations are
 accepted foundations. The owned local first-command composition and chat consumer
-are implemented behind an explicit server gate and await live qualification. No endpoint or
-visible execution picker is enrolled; this document does not establish staged or
+and a dormant authenticated REST/SSE entry are implemented behind an explicit server
+gate and await live qualification. No visible execution picker is enrolled; this document does not establish staged or
 deployed support for a selectable route.
 
 ## Guarded local Codex first-command contract
@@ -102,7 +102,7 @@ returns a prepared handle. Only after coordinator admission settles as `consumed
 may the caller run the existing query loop to translate its buffered events.
 The server-internal `startOwnedLocalCodexCommand` entry joins those steps and
 requires `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` before opening the lazy existing
-Library/workspace owners. Transport enrollment remains separate. Consumer cleanup
+Library/workspace owners. The dormant transport entry below composes that same wrapper. Consumer cleanup
 must release the retained driver's operator authority as well as the native query.
 Cancellation closes transport and query ownership while retaining workspace,
 login-home and command evidence. A successful receipt means first-command dispatch
@@ -119,6 +119,63 @@ choices. OpenShell remains the unresolved default, invalid choices retain a reas
 and no target is silently substituted. Draft intent and capability revisions are
 selection metadata, never runtime authority. General picker activation still requires
 qualification of both the local and OpenShell routes.
+
+## Dormant authenticated Local entry
+
+`GET /api/chat/local-codex/capabilities` returns configuration-only account routing
+references, model/thinking metadata, configured targets and published Agent Library
+versions without context recipes. Workspace-bound and sandbox-native accounts are
+excluded. It performs no native account probe, launch or model execution and keeps
+OpenShell as the default location; configured compatibility does not establish readiness.
+Both endpoints are disabled unless `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and refuse
+custodian modes before loading lazy owners. Their presence does not enroll a deployed
+route or authorize activation.
+
+`POST /api/chat/local-codex/send` requires interactive operator authentication,
+same-origin JSON and a live `X-Connection-ID` SSE stream belonging to that exact login.
+Its shared strict `LocalCodexFirstCommandSchema` carries `runOn: local`, the prepared
+repository UUID, command/capability revisions, exact public account routing tuple,
+Codex target ID, model/thinking, published agent ID/revision, context `none`, original
+permission revision `0`, and raw `text`/optional `intent`/supported images. Native paths,
+credentials, session IDs, provider launchers, caller system prompts, context recipes
+and skill ceilings are refused. It never falls back to the ordinary send route.
+
+The server derives the stable `repository:<UUID>` startup identity and the task root
+`<REPO_PATH>/.claude/repository-tasks`. The latter must already exist as a canonical
+host-owned directory; sends do not create or replace it. Source preview and prepare
+remain explicit operations under the existing repository-workspace API and gate.
+The entry checks configured model/thinking/profile compatibility before reserving
+source, then uses `reserveHostTask` and the real owned command wrapper. The shared
+repository startup exclusion is held before asynchronous account/source operations
+on both guarded and legacy entry paths. The guarded coordinator still records
+uncertainty before native bootstrap, checkout materialization and the first turn.
+
+A successful HTTP 202 returns `{ok, clientMsgId, sessionId, dispatched, state}` from
+the original guarded receipt. A finite 409 with `code: retained_command` and `state`
+retains that receipt; `entry_unavailable` has no matching guarded receipt but may
+retain source reservation evidence. Exact retries requalify current authority and
+cannot replace identity or replay uncertain effects. No generic send acceptance,
+completion or failure helper rewrites these receipts. Consumers require a separate
+frozen local outbox; the legacy `{type: send}` outbox is incompatible.
+
+Preparation retains the admitted login through HTTP completion or SSE detach and
+requests cancellation after two minutes. Owner settlement can outlast that deadline;
+no forced cleanup or ownership reset follows. Logout/expiry abort it. Once admission
+returns, the timer is cleared and the driver owns the retained login lifetime.
+Existing Stop operates once the query is registered; cancellation before that point
+is the bounded startup deadline or login revocation, not an advertised Stop ACK.
+Workspace, login-home and receipt evidence survive cancellation/failure.
+
+The existing ManagedSession stores the original authenticated login ID as trusted
+control metadata. Stop, interrupt, permission response, reconnect, switch, suspend
+and close refuse foreign live operators before execution/takeover effects. Same-login
+reattach changes attachment only, preserving the original driver's authority. Cold
+replay never creates a native client or enrolls a new operator. Session metadata
+exposes only the immutable logical `runtimeBinding` and `runtimeCommandScope:
+first-command-only`, so reload/ended views must keep later sends/settings disabled.
+No later-turn admission, cold resume, default-runtime switch or general picker is
+implemented by this entry. Offline fixtures provide source evidence only; no live
+host/account/model qualification or activation was performed.
 
 ## Host workspace reservation before checkout creation
 

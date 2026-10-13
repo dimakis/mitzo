@@ -1,3 +1,4 @@
+import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-repository-startup.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
 import {
@@ -1091,14 +1092,7 @@ function makeUserMessage(
   };
 }
 
-/** Stable server-side conversation identity for retrying an initial native WS frame. */
-export function nativeStartupSessionId(clientMsgId: string): string {
-  const hex = createHash('sha256').update(`mitzo-native-startup\0${clientMsgId}`).digest('hex');
-  const variant = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
-const repositoryStartups = new Set<string>();
+export { nativeStartupSessionId } from './ordinary-repository-startup.js';
 
 export async function startChat(
   transport: SessionTransport,
@@ -1172,9 +1166,8 @@ export async function startChat(
     options.onStartupAdmission?.(error);
     throw error;
   }
+  let releaseRepositoryStartup: (() => void) | undefined;
   if (repositoryStartupId) {
-    if (repositoryStartups.has(repositoryStartupId))
-      throw new Error('Repository conversation startup is already in progress');
     if (
       eventStore.getSessionState(repositoryStartupId) ||
       registry.findBySessionId(repositoryStartupId)
@@ -1183,7 +1176,7 @@ export async function startChat(
         'This repository already has a conversation. Resume its original conversation.',
       );
     options = { ...options, initialSessionId: repositoryStartupId };
-    repositoryStartups.add(repositoryStartupId);
+    releaseRepositoryStartup = reserveRepositoryStartup(repositoryStartupId);
   }
   const startupGuard: { admission?: ProviderDispatchAdmission; releaseContext?: () => void } = {};
   let releaseOrdinaryStartup: (() => void) | undefined;
@@ -1223,7 +1216,7 @@ export async function startChat(
       } finally {
         releaseOrdinaryStartup?.();
         startupGuard.releaseContext?.();
-        if (repositoryStartupId) repositoryStartups.delete(repositoryStartupId);
+        releaseRepositoryStartup?.();
       }
     });
 }
@@ -2632,6 +2625,8 @@ export async function startOwnedLocalCodexCommand(
     reservation: Omit<HostRepositoryReservationInput, 'signal'>;
     commandId: string;
     operatorConnectionId: string;
+    /** Actual event stream, distinct from a retained server-only auth binding. */
+    ownerConnectionId?: string;
     signal: AbortSignal;
   },
 ): Promise<{ dispatched: boolean; sessionId: string }> {
@@ -2656,7 +2651,10 @@ export async function startOwnedLocalCodexCommand(
     const operatorConnectionId = input.operatorConnectionId;
     const signal = input.signal;
     signal.throwIfAborted();
-    captureAgentLibraryAuthorization(operatorConnectionId).assertCurrent();
+    const captured = captureAgentLibraryAuthorization(operatorConnectionId);
+    captured.assertCurrent();
+    const ownerConnectionId = input.ownerConnectionId ?? operatorConnectionId;
+    const ownerAuthSessionId = captured.auth.id;
     const reservation = structuredClone(input.reservation);
     const command = structuredClone(input.command);
     const sessionId = reservation.conversationId;
@@ -2672,7 +2670,8 @@ export async function startOwnedLocalCodexCommand(
       dispatch: async (dispatch) => {
         if (prepared || released || !driver) throw unavailable();
         prepared = await prepareOwnedLocalCodexChat(transport, clientId, dispatch, {
-          ownerConnectionId: operatorConnectionId,
+          ownerConnectionId,
+          ownerAuthSessionId,
           onEnded: release,
         });
       },
@@ -2732,6 +2731,7 @@ export async function prepareOwnedLocalCodexChat(
   input: OrdinaryLocalCodexOwnedDispatch,
   options: {
     ownerConnectionId?: string;
+    ownerAuthSessionId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
@@ -2859,6 +2859,7 @@ export async function prepareOwnedLocalCodexChat(
       accountBinding: structuredClone(input.lease.binding),
       sessionAllowList: new Set(),
       ownerConnectionId: options.ownerConnectionId,
+      ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
     // Existing public stop/interrupt controls expect this lifecycle marker.
