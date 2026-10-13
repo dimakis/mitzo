@@ -107,21 +107,28 @@ export class SseConnection implements ChatConnection {
       headers: (): Record<string, string> =>
         this._connectionId ? { 'X-Connection-ID': this._connectionId } : {},
       notify: (event) => {
+        // The store synchronously tracks an accepted session while selecting it.
+        // Capture transport ownership first: local selection does not attach a
+        // headerless send to the stream that welcomed during HTTP delivery.
+        const acceptedSessionId =
+          event.type === '_send_accepted' && typeof event.sessionId === 'string'
+            ? event.sessionId
+            : undefined;
+        const needsReplay =
+          acceptedSessionId !== undefined && !this.seqBySession.has(acceptedSessionId);
         this.listener?.(event);
-        if (event.type === '_send_accepted' && typeof event.sessionId === 'string') {
-          const sessionId = event.sessionId as string;
-          if (!this.seqBySession.has(sessionId)) {
-            this.seqBySession.set(sessionId, 0);
-            // Include acknowledgements arriving during the welcome replay too.
-            if (
-              this.es &&
-              this._connectionId &&
-              (this._connected ||
-                (this.replayRequest?.es === this.es &&
-                  this.replayRequest.connectionId === this._connectionId))
-            )
-              void this.doReconnectPost(this._connectionId, this.es);
-          }
+        if (acceptedSessionId !== undefined && needsReplay) {
+          if (!this.seqBySession.has(acceptedSessionId))
+            this.seqBySession.set(acceptedSessionId, 0);
+          // Include acknowledgements arriving during the welcome replay too.
+          if (
+            this.es &&
+            this._connectionId &&
+            (this._connected ||
+              (this.replayRequest?.es === this.es &&
+                this.replayRequest.connectionId === this._connectionId))
+          )
+            void this.doReconnectPost(this._connectionId, this.es);
         }
       },
     });
