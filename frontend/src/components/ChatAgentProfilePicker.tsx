@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  profileBuilderDefinition,
   AgentProfileSelectionSchema,
   agentProfileLabel,
   type AgentLibraryVersion,
@@ -9,6 +12,13 @@ import {
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import './ChatAgentProfilePicker.css';
+
+type ProfileOption = Pick<AgentLibraryVersion, 'kind' | 'profileId' | 'revision' | 'definition'>;
+
+const optionKey = (selection: AgentProfileSelection) =>
+  JSON.stringify([selection.kind ?? 'saved', selection.profileId, selection.revision]);
+const identityKey = (selection: AgentProfileSelection) =>
+  JSON.stringify([selection.kind ?? 'saved', selection.profileId]);
 
 export function ChatAgentProfilePicker({
   sessionId,
@@ -27,7 +37,7 @@ export function ChatAgentProfilePicker({
   onChange(selection: AgentProfileSelection | null, blockedReason?: string): void;
 }) {
   const [, setSearchParams] = useSearchParams();
-  const [versions, setVersions] = useState<AgentLibraryVersion[]>([]);
+  const [versions, setVersions] = useState<ProfileOption[]>([]);
   const [selected, setSelected] = useState<AgentProfileSelection | null>(null);
   const [pinned, setPinned] = useState<AgentLibraryVersion | null>(null);
   const [error, setError] = useState('');
@@ -39,13 +49,15 @@ export function ChatAgentProfilePicker({
   const params = new URLSearchParams(search);
   const requiredId = params.get('agentProfile');
   const requiredRevision = params.get('profileRevision');
+  const requiredKind = params.get('agentProfileKind');
   useEffect(() => {
     let live = true;
-    const required = requiredId !== null || requiredRevision !== null;
+    const required = requiredId !== null || requiredRevision !== null || requiredKind !== null;
     const parsed = required
       ? AgentProfileSelectionSchema.safeParse({
           profileId: requiredId,
           revision: Number(requiredRevision),
+          ...(requiredKind !== null ? { kind: requiredKind } : {}),
         })
       : null;
     const requested = parsed?.success ? parsed.data : null;
@@ -77,11 +89,24 @@ export function ChatAgentProfilePicker({
         }
         const catalog = body as AgentLibraryCatalog;
         if (!Array.isArray(catalog.versions)) throw Error('Agent Library response is invalid');
-        setVersions(catalog.versions);
+        const available =
+          requested?.kind === 'builtin' && requested.profileId === PROFILE_BUILDER_ID
+            ? [
+                ...catalog.versions,
+                {
+                  kind: 'builtin' as const,
+                  profileId: PROFILE_BUILDER_ID,
+                  revision: PROFILE_BUILDER_REVISION,
+                  definition: profileBuilderDefinition,
+                },
+              ]
+            : catalog.versions;
+        setVersions(available);
         if (
           requested &&
-          !catalog.versions.some(
+          !available.some(
             (v) =>
+              v.kind === requested.kind &&
               v.profileId === requested.profileId &&
               v.revision === requested.revision &&
               (!allowedRoles || allowedRoles.includes(v.definition.role)),
@@ -102,7 +127,7 @@ export function ChatAgentProfilePicker({
     return () => {
       live = false;
     };
-  }, [sessionId, requiredId, requiredRevision, allowedRoles]);
+  }, [sessionId, requiredId, requiredRevision, requiredKind, allowedRoles]);
   if (sessionId)
     return pinned ? (
       <div className="chat-agent-profile">
@@ -112,18 +137,21 @@ export function ChatAgentProfilePicker({
         <Link to="/agent-library">Library</Link>
       </div>
     ) : null;
-  const latest = new Map<string, AgentLibraryVersion>();
+  const latest = new Map<string, ProfileOption>();
   for (const version of versions)
     if (
-      !latest.has(version.profileId) ||
-      latest.get(version.profileId)!.revision < version.revision
+      !latest.has(identityKey(version)) ||
+      latest.get(identityKey(version))!.revision < version.revision
     )
-      latest.set(version.profileId, version);
+      latest.set(identityKey(version), version);
   const eligible = [...latest.values()].filter(
     (version) => !allowedRoles || allowedRoles.includes(version.definition.role),
   );
   const historical = versions.find(
-    (v) => v.profileId === selected?.profileId && v.revision === selected?.revision,
+    (v) =>
+      v.kind === selected?.kind &&
+      v.profileId === selected?.profileId &&
+      v.revision === selected?.revision,
   );
   if (
     historical &&
@@ -137,11 +165,15 @@ export function ChatAgentProfilePicker({
         Agent profile
         <select
           disabled={disabled || loading}
-          value={selected ? `${selected.profileId}:${selected.revision}` : ''}
+          value={selected ? optionKey(selected) : ''}
           onChange={(e) => {
-            const version = eligible.find((v) => `${v.profileId}:${v.revision}` === e.target.value);
+            const version = eligible.find((v) => optionKey(v) === e.target.value);
             const selection = version
-              ? { profileId: version.profileId, revision: version.revision }
+              ? {
+                  profileId: version.profileId,
+                  revision: version.revision,
+                  ...(version.kind ? { kind: version.kind } : {}),
+                }
               : null;
             setSelected(selection);
             setError('');
@@ -153,9 +185,12 @@ export function ChatAgentProfilePicker({
                   if (selection) {
                     next.set('agentProfile', selection.profileId);
                     next.set('profileRevision', String(selection.revision));
+                    if (selection.kind) next.set('agentProfileKind', selection.kind);
+                    else next.delete('agentProfileKind');
                   } else {
                     next.delete('agentProfile');
                     next.delete('profileRevision');
+                    next.delete('agentProfileKind');
                   }
                   return next;
                 },
@@ -165,7 +200,7 @@ export function ChatAgentProfilePicker({
         >
           <option value="">Default Mitzo</option>
           {eligible.map((v) => (
-            <option key={`${v.profileId}:${v.revision}`} value={`${v.profileId}:${v.revision}`}>
+            <option key={optionKey(v)} value={optionKey(v)}>
               {agentProfileLabel(v.definition)} · r{v.revision}
             </option>
           ))}

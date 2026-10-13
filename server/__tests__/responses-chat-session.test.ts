@@ -130,6 +130,8 @@ it('runs successive user turns with a private credential and closes its input qu
       expect.objectContaining({ name: 'AskUserQuestion' }),
       expect.objectContaining({ name: 'RequestWebAccess' }),
       expect.objectContaining({ name: 'RequestGithubPublish' }),
+      expect.objectContaining({ name: 'SymposiumProposeProfile' }),
+      expect.objectContaining({ name: 'SymposiumReadProfiles' }),
     ]),
   );
   registry.dispose();
@@ -1567,3 +1569,77 @@ it.each([
     }
   },
 );
+
+it('API tool dispatch persists profile proposals with the provider call identity', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { SymposiumProfileProposalStore } = await import('../symposium-profile-proposals.js');
+  const root = mkdtempSync(join(tmpdir(), 'profile-api-'));
+  vi.stubEnv('REPO_PATH', root);
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    transport: { send() {}, isOpen: () => true },
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId: 'profile-chat',
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  const input = new AsyncQueue<{ message: { content: string } }>();
+  input.close();
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'profile-chat',
+      binding: {
+        accountId: 'fixture',
+        accountLabel: 'Offline fixture',
+        provider: 'openai',
+        model: 'fixture',
+        profileRevision: 'r1',
+      },
+      apiKey: 'offline-fixture',
+      session: registry.get('client')!,
+      registry,
+      input,
+      systemPrompt: '',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    const execute = calls.options.at(-1)!.executeTool as (
+      block: unknown,
+      signal: AbortSignal,
+    ) => Promise<{ content: string; is_error: boolean }>;
+    const block = {
+      id: 'provider-call',
+      name: 'SymposiumProposeProfile',
+      input: {
+        definition: {
+          name: 'Trace',
+          role: 'agent',
+          instructions: 'Diagnose',
+          expectedOutput: 'Diagnosis',
+          acceptanceCriteria: ['Evidence'],
+          modelPolicyRole: 'agent',
+        },
+      },
+    };
+    const first = await execute(block, new AbortController().signal);
+    expect(first.is_error).toBe(false);
+    expect(await execute(block, new AbortController().signal)).toEqual(first);
+    const store = new SymposiumProfileProposalStore(join(root, '.mitzo', 'events.db'));
+    try {
+      expect(store.listPending('user', 'profile-chat')).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+    for await (const event of chat) {
+      expect(event).toBeDefined();
+    }
+  } finally {
+    registry.dispose();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

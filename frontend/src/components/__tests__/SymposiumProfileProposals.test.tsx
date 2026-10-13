@@ -64,3 +64,46 @@ it('shows fetch errors instead of claiming there are no drafts', async () => {
   expect(screen.queryByText('No profile drafts in this chat yet.')).toBeNull();
   expect(screen.queryByRole('status')).toBeNull();
 });
+
+it('surfaces pending drafts without setup fields or manual profile identifiers', async () => {
+  const definition = {
+    name: 'Trace',
+    role: 'agent',
+    instructions: 'Diagnose',
+    expectedOutput: 'Diagnosis',
+    acceptanceCriteria: ['Evidence'],
+    modelPolicyRole: 'agent',
+  };
+  vi.mocked(apiFetch).mockImplementation(
+    async (path, init) =>
+      ({
+        ok: true,
+        json: async () =>
+          init?.method
+            ? { profileId: 'generated', revision: 1 }
+            : path.includes('profile-proposals')
+              ? [{ proposalId: 'new-draft', suggestedProfileId: null, definition }]
+              : [],
+      }) as Response,
+  );
+  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  await screen.findByDisplayValue('Trace');
+  expect(screen.getByText('Advanced profile settings').parentElement!.hasAttribute('open')).toBe(
+    false,
+  );
+  const save = screen.getByRole('button', { name: 'Save reusable profile' });
+  await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(save);
+  await screen.findByText(/Saved Trace/);
+  const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(JSON.parse(call[1]!.body as string).profileId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(screen.getByRole('link', { name: 'Open Agent Library' }).getAttribute('href')).toBe(
+    '/agent-library',
+  );
+});
+it('keeps ordinary chats quiet when there are no pending proposals', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify([])));
+  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  await waitFor(() => expect(screen.queryByRole('complementary')).toBeNull());
+});
