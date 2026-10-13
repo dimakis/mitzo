@@ -575,6 +575,14 @@ Authentication checks use a shared W3C trace context between the phone and
 server, with separate `http.auth.check` spans for network wait and server
 verification. These spans record the static route, HTTP method and response
 status; they exclude cookies, tokens, query strings and request contents.
+Frontend spans also record `mitzo.client.platform` (`ios`, `android` or `web`)
+and `mitzo.auth.tracing_initialization_ms`, so tracer startup is distinguishable
+from the request wait. The server records `http.auth.preflight` for the
+authentication OPTIONS request before CORS responds. Preflights do not carry
+the GET request's trace context and are separate traces.
+Allowed origins cache CORS preflight permission for up to 600 seconds, subject
+to browser limits; the actual API requests still require authentication. This
+reduces repeated cross-origin round trips after the first approved preflight.
 
 Unavailable authentication makes up to three automatic retries with backoff.
 The existing Retry action remains available; native foreground, browser
