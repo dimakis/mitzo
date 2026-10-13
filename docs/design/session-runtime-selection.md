@@ -133,7 +133,8 @@ route or authorize activation.
 
 `POST /api/chat/local-codex/send` requires interactive operator authentication,
 same-origin JSON and a live `X-Connection-ID` SSE stream belonging to that exact login.
-Its shared strict `LocalCodexFirstCommandSchema` carries `runOn: local`, the prepared
+Builtin namespace keys are refused, including IDs/revisions that collide with saved
+user profiles. Its shared strict `LocalCodexFirstCommandSchema` carries `runOn: local`, the prepared
 repository UUID, command/capability revisions, exact public account routing tuple,
 Codex target ID, model/thinking, published agent ID/revision, context `none`, original
 permission revision `0`, and raw `text`/optional `intent`/supported images. Native paths,

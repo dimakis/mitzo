@@ -6,6 +6,7 @@ export const AgentProfileSelectionSchema = z.strictObject({
   // Shared catalog IDs are opaque, bounded strings; names and IDs remain separate.
   profileId: z.string().trim().min(1).max(128),
   revision: z.number().int().positive(),
+  kind: z.literal('builtin').optional(),
 });
 export type AgentProfileSelection = z.infer<typeof AgentProfileSelectionSchema>;
 export const AgentLibraryVersionSchema = AgentProfileSelectionSchema.extend({
@@ -20,6 +21,7 @@ export interface AgentLibraryDraft {
   definition: SymposiumProfileDefinition;
 }
 export interface AgentLibraryVersion {
+  kind?: 'builtin';
   profileId: string;
   revision: number;
   definition: SymposiumProfileDefinition;

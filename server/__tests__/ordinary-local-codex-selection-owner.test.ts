@@ -170,6 +170,14 @@ it('rejects another profile snapshot even with a self-consistent client hash', (
     .digest('hex');
   expect(() => f.owner.assertCurrentSync(changed)).toThrow('selection unavailable');
 });
+it('refuses a builtin selection colliding with a published user profile before Library lookup', () => {
+  const f = fixture();
+  f.expected.selection.agent = { ...f.expected.selection.agent, kind: 'builtin' };
+  const version = vi.spyOn(f.library, 'version');
+  expect(() => f.owner.assertCurrentSync(f.expected)).toThrow('selection unavailable');
+  expect(version).not.toHaveBeenCalled();
+  expect(f.workspace.reserveHostTask).not.toHaveBeenCalled();
+});
 it.each(['operator', 'permission', 'workspace', 'root', 'context'] as const)(
   'refuses %s drift before a following effect',
   async (kind) => {

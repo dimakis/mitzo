@@ -52,6 +52,41 @@ it('bootstraps a fresh storage directory before opening its durable catalog', ()
     fresh.close();
   }
 });
+it.each(['save', 'import'])(
+  'retains user-owned revisions sharing the built-in ID through %s',
+  (method) => {
+    const profileId = 'mitzo-profile-builder';
+    const saved =
+      method === 'import'
+        ? library.importDraft('user', {
+            profileId,
+            artifact: { definition },
+            idempotencyKey: 'collision-import',
+          })
+        : draft({ profileId });
+    const first = library.publish('user', {
+      profileId,
+      expectedVersion: saved.version,
+      idempotencyKey: 'collision-publish-1',
+    });
+    const revised = library.saveDraft('user', {
+      profileId,
+      expectedVersion: 0,
+      expectedRevision: first.revision,
+      definition: { ...definition, instructions: 'My revised saved instructions.' },
+      idempotencyKey: 'collision-revise',
+    });
+    const second = library.publish('user', {
+      profileId,
+      expectedVersion: revised.version,
+      idempotencyKey: 'collision-publish-2',
+    });
+    expect(library.version('user', profileId, 1)).toEqual(first);
+    expect(library.version('user', profileId, 2)).toEqual(second);
+    expect(first.definition).toEqual(definition);
+    expect(second.definition.instructions).toBe('My revised saved instructions.');
+  },
+);
 it('keeps drafts out of the published catalog and retains them across restart', () => {
   const saved = draft();
   expect(library.list('user')).toEqual({ drafts: [saved], versions: [] });

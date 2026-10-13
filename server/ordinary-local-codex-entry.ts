@@ -79,7 +79,9 @@ export function createOwnedLocalCodexEntryRouter(
       const { result } = inventory();
       const agentProfiles = getAgentLibrary()
         .list('user')
-        .versions.filter((profile) => profile.definition.contextRecipe === undefined);
+        .versions.filter(
+          (profile) => profile.kind === undefined && profile.definition.contextRecipe === undefined,
+        );
       const response = { ...result, agentProfiles };
       if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576) throw Error(unavailable);
       return res.json(response);
@@ -175,7 +177,12 @@ export function createOwnedLocalCodexEntryRouter(
         input.selection.agent.profileId,
         input.selection.agent.revision,
       );
-      if (!profile || profile.definition.contextRecipe !== undefined) throw Error(unavailable);
+      if (
+        !profile ||
+        ('kind' in profile && profile.kind !== undefined) ||
+        profile.definition.contextRecipe !== undefined
+      )
+        throw Error(unavailable);
       if (!BASE_REPO || !isAbsolute(BASE_REPO)) throw Error(unavailable);
       const reservation = {
         id: input.repositoryWorkspaceId,

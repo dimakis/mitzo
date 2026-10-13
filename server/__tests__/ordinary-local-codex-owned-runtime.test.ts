@@ -50,6 +50,34 @@ it('composes real owners, freezes the published prompt before launch and materia
   await expect(f.dispatch.mock.calls[0][0].lease.assertCurrent()).rejects.toThrow();
 });
 
+it('refuses a builtin namespace collision before looking up its matching published user profile', async () => {
+  const f = await fixture(),
+    driver = f.create();
+  expect(
+    f.library.version(
+      'user',
+      f.request.selection.agent.profileId,
+      f.request.selection.agent.revision,
+    ),
+  ).toEqual(f.agentProfile);
+  const version = vi.spyOn(f.library, 'version');
+  const request = structuredClone(f.request);
+  const input = {
+    ...request,
+    selection: {
+      ...request.selection,
+      agent: { ...request.selection.agent, kind: 'builtin' as const },
+    },
+  };
+  await expect(driver.admit(input)).rejects.toThrow('Owned local Codex runtime unavailable');
+  expect(version).not.toHaveBeenCalled();
+  expect(f.events.getSendCommand(f.request.clientMsgId)).toBeUndefined();
+  expect(f.events.getSession(f.reservation.conversationId)).toBeNull();
+  expect(f.launch).not.toHaveBeenCalled();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(existsSync(f.reserved.directory)).toBe(false);
+});
+
 it.each(['systemPrompt', 'metadata', 'command', 'profile', 'permission', 'context'] as const)(
   'refuses caller %s forgery before a ledger or native effect',
   async (kind) => {

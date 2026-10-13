@@ -121,6 +121,7 @@ const operations = {
   'profile.import': ['POST', '/api/symposium/profiles/import'],
   'profile.export': ['GET', '/api/symposium/profiles/:resourceId/:revision/export'],
   'profile.read': ['GET', '/api/symposium/profiles/:resourceId/:revision'],
+  'proposal.create': ['POST', '/api/symposium/profile-proposals'],
   'proposal.list': ['GET', '/api/symposium/profile-proposals'],
   'proposal.save': ['POST', '/api/symposium/profile-proposals/:resourceId/save'],
   'proposal.discard': ['POST', '/api/symposium/profile-proposals/:resourceId/discard'],

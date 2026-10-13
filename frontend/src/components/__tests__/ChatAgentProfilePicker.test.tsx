@@ -73,7 +73,9 @@ it('keeps contributor guidance selection local to the dialog without changing th
       <Screen />
     </MemoryRouter>,
   );
-  fireEvent.change(await screen.findByLabelText('Agent profile'), { target: { value: 'bob:3' } });
+  fireEvent.change(await screen.findByLabelText('Agent profile'), {
+    target: { value: JSON.stringify(['saved', 'bob', 3]) },
+  });
   expect(change).toHaveBeenLastCalledWith({ profileId: 'bob', revision: 3 }, undefined);
   expect(screen.getByLabelText('Source chat route').textContent).toBe('?prompt=Keep+this');
 });
@@ -131,14 +133,16 @@ it('allows an explicit return to ordinary Mitzo behavior for a new chat', async 
       <ChatAgentProfilePicker sessionId={null} search="" onChange={change} />
     </MemoryRouter>,
   );
-  fireEvent.change(await screen.findByLabelText('Agent profile'), { target: { value: 'bob:3' } });
+  fireEvent.change(await screen.findByLabelText('Agent profile'), {
+    target: { value: JSON.stringify(['saved', 'bob', 3]) },
+  });
   expect(change).toHaveBeenLastCalledWith({ profileId: 'bob', revision: 3 }, undefined);
   fireEvent.change(screen.getByLabelText('Agent profile'), { target: { value: '' } });
   expect(change).toHaveBeenLastCalledWith(null, undefined);
 });
 
 it.each([
-  ['', 'bob:3', { profileId: 'bob', revision: 3 }],
+  ['', JSON.stringify(['saved', 'bob', 3]), { profileId: 'bob', revision: 3 }],
   ['agentProfile=bob&profileRevision=3', '', null],
 ] as const)(
   'retains a manual choice across responsive screen replacement (%s)',
@@ -178,5 +182,63 @@ it.each([
     );
     expect(change).toHaveBeenLastCalledWith(expected, undefined);
     expect(screen.getByLabelText('Chat route').textContent).toContain('prompt=Keep+this');
+  },
+);
+
+it('selects the built-in profile builder without a user-created catalog entry', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [] }));
+  const change = vi.fn();
+  render(
+    <MemoryRouter>
+      <ChatAgentProfilePicker
+        sessionId={null}
+        search="?agentProfile=mitzo-profile-builder&profileRevision=1&agentProfileKind=builtin"
+        onChange={change}
+      />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('option', { name: 'Agent Builder · Creates reusable agents · r1' });
+  await waitFor(() =>
+    expect(change).toHaveBeenLastCalledWith(
+      { profileId: 'mitzo-profile-builder', revision: 1, kind: 'builtin' },
+      undefined,
+    ),
+  );
+});
+
+it.each(['mitzo-profile-builder', 'builtin:mitzo-profile-builder'])(
+  'keeps saved ID %s independently selectable from built-in guidance',
+  async (profileId) => {
+    const saved = {
+      ...version,
+      profileId,
+      revision: 2,
+      definition: { ...version.definition, name: 'My saved builder' },
+    };
+    vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [saved] }));
+    const change = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatAgentProfilePicker
+          sessionId={null}
+          search="?agentProfile=mitzo-profile-builder&profileRevision=1&agentProfileKind=builtin"
+          onChange={change}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('option', { name: 'Agent Builder · Creates reusable agents · r1' });
+    expect(
+      screen.getByRole('option', { name: 'My saved builder · The architect · r2' }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(change).toHaveBeenLastCalledWith(
+        { profileId: 'mitzo-profile-builder', revision: 1, kind: 'builtin' },
+        undefined,
+      ),
+    );
+    fireEvent.change(screen.getByLabelText('Agent profile'), {
+      target: { value: JSON.stringify(['saved', profileId, 2]) },
+    });
+    expect(change).toHaveBeenLastCalledWith({ profileId, revision: 2 }, undefined);
   },
 );

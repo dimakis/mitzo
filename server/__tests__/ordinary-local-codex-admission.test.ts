@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionRuntimeBindingV2Schema, type OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
+import { PROFILE_BUILDER_ID, profileBuilderDefinition } from '@mitzo/protocol';
 import type {
   OrdinaryLocalCodexAdmissionExpectation,
   OrdinaryLocalCodexAdmissionLease,
@@ -229,27 +230,65 @@ describe('guarded local Codex coordinator', () => {
       reasoningEffort: 'low',
     });
   });
-  it('passes a supplied canonical profile snapshot to owning authority', async () => {
-    const f = fixture();
-    const definition = {
-      name: 'Agent',
-      descriptor: 'Test',
-      role: 'agent',
-      instructions: 'Offline',
-      expectedOutput: 'Evidence',
-      acceptanceCriteria: ['Use evidence'],
-      modelPolicyRole: 'agent',
-    };
-    const profile = {
-      profileId: 'agent',
-      revision: 1,
-      definition,
-      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
-    };
-    Object.assign(f.meta, { agentProfile: profile });
-    await f.coordinator.admit(f.meta, f.request, f.effects);
-    expect(f.authority.withAdmission.mock.calls[0][0].agentProfile).toEqual(profile);
-  });
+  it.each([true, false])(
+    'refuses a different profile namespace before local authority admission (%s)',
+    async (requestedBuiltin) => {
+      const f = fixture();
+      Object.assign(f.request.selection.agent, {
+        profileId: PROFILE_BUILDER_ID,
+        ...(requestedBuiltin ? { kind: 'builtin' } : {}),
+      });
+      Object.assign(f.meta, {
+        agentProfile: {
+          profileId: PROFILE_BUILDER_ID,
+          revision: 1,
+          ...(!requestedBuiltin ? { kind: 'builtin' } : {}),
+          definition: profileBuilderDefinition,
+          contentHash: createHash('sha256')
+            .update(JSON.stringify(profileBuilderDefinition))
+            .digest('hex'),
+        },
+      });
+      await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+        /metadata_agent_mismatch/,
+      );
+      expect(f.authority.withAdmission).not.toHaveBeenCalled();
+      expect(f.effects.prepareWorkspace).not.toHaveBeenCalled();
+      expect(f.effects.dispatch).not.toHaveBeenCalled();
+    },
+  );
+  it.each([false, true])(
+    'passes a matching profile namespace to owning authority (%s)',
+    async (builtin) => {
+      const f = fixture();
+      Object.assign(f.request.selection.agent, {
+        profileId: builtin ? PROFILE_BUILDER_ID : 'agent',
+        ...(builtin ? { kind: 'builtin' } : {}),
+      });
+      const definition = {
+        name: 'Agent',
+        descriptor: 'Test',
+        role: 'agent',
+        instructions: 'Offline',
+        expectedOutput: 'Evidence',
+        acceptanceCriteria: ['Use evidence'],
+        modelPolicyRole: 'agent',
+      };
+      const profile = {
+        profileId: f.request.selection.agent.profileId,
+        revision: 1,
+        ...(builtin ? { kind: 'builtin' } : {}),
+        definition,
+        contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+      };
+      Object.assign(f.meta, { agentProfile: profile });
+      await f.coordinator.admit(f.meta, f.request, f.effects);
+      expect(f.authority.withAdmission.mock.calls[0][0].agentProfile).toEqual(profile);
+      expect(f.authority.withAdmission.mock.calls[0][0].selection.agent).toEqual(
+        f.request.selection.agent,
+      );
+    },
+  );
   it('passes exact supplied recipe and profile snapshots to authority and persistence', async () => {
     const f = fixture();
     const { profile, snapshot } = recipeMetadata();

@@ -27,6 +27,20 @@ it('preserves the exact bounded first-command choice', () => {
 it.each([
   { ...localCommand, sessionId: 'caller-session' },
   { ...localCommand, cwd: '/caller' },
+  {
+    ...localCommand,
+    selection: {
+      ...localCommand.selection,
+      agent: { ...localCommand.selection.agent, kind: 'builtin' },
+    },
+  },
+  {
+    ...localCommand,
+    selection: {
+      ...localCommand.selection,
+      agent: { ...localCommand.selection.agent, kind: 'user' },
+    },
+  },
   { ...localCommand, payload: { text: 'x', systemPrompt: 'forged' } },
   {
     ...localCommand,

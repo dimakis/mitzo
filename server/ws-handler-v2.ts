@@ -317,13 +317,11 @@ function allowOwnedLocalControl(
     ctx.connRegistry.get(connectionId)?.transport.isOpen()
   )
     return true;
-  ctx.connRegistry
-    .get(connectionId)
-    ?.transport.send({
-      type: 'error',
-      sessionId,
-      error: 'Owned local session belongs to another login',
-    });
+  ctx.connRegistry.get(connectionId)?.transport.send({
+    type: 'error',
+    sessionId,
+    error: 'Owned local session belongs to another login',
+  });
   return false;
 }
 
@@ -716,6 +714,7 @@ export function handleSendV2(
           const pinned = ctx.eventStore.getSession(msg.sessionId)?.agentProfile;
           if (
             !pinned ||
+            pinned.kind !== msg.agentProfile.kind ||
             pinned.profileId !== msg.agentProfile.profileId ||
             pinned.revision !== msg.agentProfile.revision
           )

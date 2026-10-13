@@ -634,11 +634,12 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'ListRepositories' }),
     expect.objectContaining({ name: 'PrepareRepositoryChat' }),
     expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
+    expect.objectContaining({ name: 'SymposiumProposeProfile' }),
+    expect.objectContaining({ name: 'SymposiumReadProfiles' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
     expect.objectContaining({ name: 'TelosSaveArtifact' }),
     expect.objectContaining({ name: 'TelosFindArtifacts' }),
     expect.objectContaining({ name: 'TelosReadArtifact' }),
-    expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'RequestWebAccess' }),
     expect.objectContaining({ name: 'RequestGithubPublish' }),
   ]);
@@ -827,11 +828,12 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'ListRepositories' }),
       expect.objectContaining({ name: 'PrepareRepositoryChat' }),
       expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
+      expect.objectContaining({ name: 'SymposiumProposeProfile' }),
+      expect.objectContaining({ name: 'SymposiumReadProfiles' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({ name: 'TelosSaveArtifact' }),
       expect.objectContaining({ name: 'TelosFindArtifacts' }),
       expect.objectContaining({ name: 'TelosReadArtifact' }),
-      expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({
         name: 'GrantIntegrationAccess',
         input_schema: expect.objectContaining({
@@ -2232,6 +2234,11 @@ it('persists a fake provider profile proposal without saving a reusable profile'
   vi.stubEnv('REPO_PATH', root);
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
   const base = options(new AbortController());
+  base.session.sessionId = 'conversation';
+  base.registry = {
+    findBySessionId: () => ({ clientId: 'client', session: base.session }),
+    get: () => base.session,
+  } as never;
   const chat = await openCodexChat({
     ...base,
     conversationId: 'conversation',
@@ -2983,13 +2990,14 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
     displayName: (name: string) => name,
   });
   const credentialModule = await import('../session-credential-tools.js');
+  const { profileToolDefinitions } = await import('../session-profile-tools.js');
   const connectionExecute = vi.fn(async () => ({
     content: 'Unexpected helper effect',
     isError: false,
   }));
   const connectionFactory = vi
     .spyOn(credentialModule, 'sessionCredentialTools')
-    .mockReturnValue({ definitions: [], execute: connectionExecute });
+    .mockReturnValue({ definitions: profileToolDefinitions, execute: connectionExecute });
   const native = await import('../native-tool-executor.js');
   const nativeExecute = vi.fn(async () => ({ content: 'Native result', is_error: false }));
   const nativeFactory = vi
@@ -3016,6 +3024,7 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
     vi.mocked(f.lease.assertCurrent).mockClear();
     for (const name of [
       'ListConnections',
+      'SymposiumReadProfiles',
       'PrepareRepositoryChat',
       'RequestWebAccess',
       'RequestGithubPublish',

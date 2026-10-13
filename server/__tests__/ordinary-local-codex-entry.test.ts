@@ -430,7 +430,11 @@ it('projects configuration-only eligible account tuples and published profiles w
   };
   fixtures.library.mockReturnValue({
     list: () => ({
-      versions: [eligible, { ...eligible, profileId: 'recipe', definition: { contextRecipe: {} } }],
+      versions: [
+        eligible,
+        { ...eligible, kind: 'builtin' },
+        { ...eligible, profileId: 'recipe', definition: { contextRecipe: {} } },
+      ],
     }),
   });
   const response = await invoke('GET', '/capabilities', undefined);
@@ -447,5 +451,29 @@ it('projects configuration-only eligible account tuples and published profiles w
   expect(inventory.accounts.map(({ account }) => account.accountId)).toEqual(['personal']);
   expect(inventory.routes.every(({ account }) => account.accountId === 'personal')).toBe(true);
   expect(fixtures.workspace).not.toHaveBeenCalled();
+  expect(fixtures.start).not.toHaveBeenCalled();
+});
+
+it.each(['builtin', 'user'])(
+  'refuses caller agent namespace %s before any lazy/source owner',
+  async (kind) => {
+    const response = await send({
+      ...input(),
+      selection: { ...input().selection, agent: { ...input().selection.agent, kind } },
+    });
+    expect(response.status).toBe(400);
+    expect(fixtures.profiles).not.toHaveBeenCalled();
+    expect(fixtures.library).not.toHaveBeenCalled();
+    expect(fixtures.reserve).not.toHaveBeenCalled();
+    expect(fixtures.start).not.toHaveBeenCalled();
+  },
+);
+
+it('refuses a builtin catalog result before reserving the published user-profile task', async () => {
+  fixtures.library.mockReturnValue({
+    version: () => ({ kind: 'builtin', definition: { name: 'Published' } }),
+  });
+  expect((await send()).status).toBe(409);
+  expect(fixtures.reserve).not.toHaveBeenCalled();
   expect(fixtures.start).not.toHaveBeenCalled();
 });

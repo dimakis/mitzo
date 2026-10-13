@@ -68,3 +68,19 @@ it('only interactive auth can list or save proposals for an existing conversatio
     ).body,
   ).toEqual([]);
 });
+
+it('accepts bounded draft creation for remote ordinary chats and refuses unknown sessions or identity fields', async () => {
+  const body = { sessionId: 'chat', idempotencyKey: 'tool-call', definition };
+  expect((await request(app).post('/proposals').send(body)).status).toBe(403);
+  const post = (input: object) =>
+    request(app).post('/proposals').set('Authorization', 'Bearer interactive').send(input);
+  expect((await post({ ...body, sessionId: 'missing' })).status).toBe(404);
+  expect((await post({ ...body, owner: 'forged' })).status).toBe(400);
+  const created = await post(body);
+  expect(created.status).toBe(200);
+  expect(created.body.state).toBe('pending');
+  expect((await post(body)).body.proposalId).toBe(created.body.proposalId);
+  expect((await post({ ...body, definition: { ...definition, name: 'Changed' } })).status).toBe(
+    409,
+  );
+});

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { profileToolSchemas, profileToolDefinitions } from './session-profile-tools.js';
 import { repositoryChatSchemas, repositoryChatToolDefinitions } from './repository-chat-tools.js';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import {
@@ -13,8 +15,12 @@ import {
 import { sessionCredentialTools } from './session-credential-tools.js';
 
 const prefix = 'mcp__mitzo-connections__';
-const schemas = { ...credentialConnectionSchemas, ...repositoryChatSchemas };
-const definitions = [...credentialConnectionToolDefinitions, ...repositoryChatToolDefinitions];
+const schemas = { ...credentialConnectionSchemas, ...repositoryChatSchemas, ...profileToolSchemas };
+const definitions = [
+  ...credentialConnectionToolDefinitions,
+  ...repositoryChatToolDefinitions,
+  ...profileToolDefinitions,
+];
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
 export function credentialSdkPermission(
   name: string,
@@ -53,6 +59,7 @@ export function createCredentialSdkServer(
   session: ManagedSession,
   registry: SessionRegistry,
 ) {
+  const runtimeId = randomUUID();
   let current: { id: string; tools: ReturnType<typeof sessionCredentialTools> } | undefined;
   return createSdkMcpServer({
     name: 'mitzo-connections',
@@ -81,7 +88,12 @@ export function createCredentialSdkServer(
           const signal = callSignal
             ? AbortSignal.any([session.abortController.signal, callSignal])
             : session.abortController.signal;
-          const result = await current.tools.execute(definition.name, input, signal);
+          const result = await current.tools.execute(definition.name, input, signal, {
+            turnId: runtimeId,
+            callId: String(
+              (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+            ),
+          });
           return {
             content: [{ type: 'text', text: result?.content ?? 'Connection tool unavailable' }],
             isError: result?.isError ?? true,

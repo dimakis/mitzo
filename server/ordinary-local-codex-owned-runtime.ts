@@ -120,6 +120,9 @@ export class OrdinaryLocalCodexOwnedRuntime {
       if (custodianControllerMode || custodianOwnerMode) throw unavailable();
       const request = OrdinaryLocalCodexCommandRequestSchema.parse(raw);
       if (request.clientMsgId !== this.owners.commandId) throw unavailable();
+      // This owner qualifies published user profiles only. The shared catalog
+      // supports builtins, but a matching Library ID never changes its namespace.
+      if (request.selection.agent.kind !== undefined) throw unavailable();
       const rawPayload = RawPayload.parse(request.payload);
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
