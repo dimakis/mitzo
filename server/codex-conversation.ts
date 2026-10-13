@@ -202,6 +202,8 @@ export interface CodexConversationOptions {
   loadConversationHistory?: () => ConversationHistoryEntry[];
   loadSourceSnapshots?: () => SourceSnapshot[];
   onClosed?: () => void;
+  /** An owned first-command transport cannot recover or acquire another lease. */
+  readonly transportClosure?: 'terminal';
   onError?: (error: Error) => void;
   onTransportClosed?: (diagnostic: {
     activeTurn: boolean;
@@ -392,6 +394,16 @@ export class CodexConversation {
   }
   private transportClosed(generation: number, error: Error) {
     if (this.closed || generation !== this.transportGeneration) return;
+    if (this.opts.transportClosure === 'terminal') {
+      try {
+        this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed' });
+      } finally {
+        // Use the existing terminal owner: cancel host work, retain ambiguous
+        // provider state, and notify the adapter so its stream and MCPs close.
+        this.close();
+      }
+      return;
+    }
     // Invalidate every in-flight request owned by this transport. Its rejection
     // is recovery fallout, not a second fatal send failure.
     this.transportGeneration += 1;
@@ -2480,7 +2492,10 @@ export class CodexConversation {
     this.paused = true;
     const active = this.active;
     const closeStatus =
-      active?.accepted && this.opts.deferToolSurfaceReplacement ? 'interrupted' : 'failed';
+      active?.accepted &&
+      (this.opts.deferToolSurfaceReplacement || this.opts.transportClosure === 'terminal')
+        ? 'interrupted'
+        : 'failed';
     let failed = false;
     let failure: unknown;
     const attempt = (operation: () => void) => {
