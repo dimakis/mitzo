@@ -1675,6 +1675,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
+    // Explicit view selection owns rendering and controls, independently of
+    // the originating Local draft's pending HTTP acknowledgement.
+    const selectedEventSession =
+      typeof eventSessionId === 'string' &&
+      eventSessionId === parserState.currentSessionId &&
+      eventSessionId === store.getState().sessions.active;
     // SSE can expose a retained session before native startup is admitted.
     // Observe/defer its stream without adopting the session, settling the draft,
     // or refusing transport application (which would force reconnect/replay).
@@ -1702,11 +1708,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             origin.observedSessionId = eventSessionId;
           else origin.observedSessionId ??= eventSessionId;
         }
-        if (msg.type === 'session_id' || !origin?.sessionId) return true;
+        if (msg.type === 'session_id' || (!origin?.sessionId && !selectedEventSession)) return true;
       }
     }
     if (
       typeof eventSessionId === 'string' &&
+      !selectedEventSession &&
       [...deliveryOrigins.values()].some(
         (origin) =>
           origin.delivery === 'local' &&
@@ -1795,7 +1802,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     // Delivery receipts settle their original launch even when its chat is no longer visible.
     // Transcript updates below remain scoped to the current chat.
-    if (msg.type === 'user_message' && typeof msg.messageId === 'string') {
+    if (
+      msg.type === 'user_message' &&
+      typeof msg.messageId === 'string' &&
+      !isLocalDelivery(msg.messageId)
+    ) {
       const origin = deliveryOrigins.get(msg.messageId);
       // A saved first input may arrive before session_id on legacy/startup
       // routes. Its exact command establishes the previously unassigned owner.

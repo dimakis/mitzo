@@ -741,3 +741,156 @@ it.each(['session_id', 'user_message'])(
     ).toEqual([request, request]);
   },
 );
+
+it.each(['session_id', 'user_message'])(
+  'shows retained Local live events after explicit switchSession without adopting the early %s draft',
+  async (earlyType) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live-sse';
+    channel.send.mockReturnValue(true);
+    let complete!: (response: Response) => void;
+    fetch.mockImplementation((path) =>
+      path === '/local/send'
+        ? new Promise<Response>((resolve) => {
+            complete = resolve;
+          })
+        : Promise.resolve(
+            path === '/api/sessions/retained-local/messages?transcript=1'
+              ? new Response(JSON.stringify({ messages: [], current: null, cursor: 0 }))
+              : new Response('[]'),
+          ),
+    );
+    const assigned = vi.fn();
+    const delivered = vi.fn();
+    store.getState().sendLocalFirstCommand(request, {
+      draftId: 'original-draft',
+      onSessionAssigned: assigned,
+      onDelivery: delivered,
+    });
+    channel.listener(
+      earlyType === 'session_id'
+        ? { type: earlyType, sessionId: 'retained-local', clientMsgId: request.clientMsgId }
+        : {
+            type: earlyType,
+            sessionId: 'retained-local',
+            messageId: request.clientMsgId,
+            text: request.payload.text,
+          },
+    );
+    complete(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          code: 'retained_command',
+          error: 'Local Codex entry unavailable',
+          clientMsgId: request.clientMsgId,
+          sessionId: 'retained-local',
+          state: 'uncertain',
+        }),
+        { status: 409 },
+      ),
+    );
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('retained'));
+    expect(store.getState().sessions.active).toBeNull();
+    await store.getState().switchSession('retained-local');
+    expect(store.getState().sessions.active).toBe('retained-local');
+    // Selecting the view must not assign its retained originating composer.
+    channel.listener({
+      type: 'session_id',
+      sessionId: 'retained-local',
+      clientMsgId: request.clientMsgId,
+    });
+    channel.listener({
+      type: 'user_message',
+      sessionId: 'retained-local',
+      messageId: request.clientMsgId,
+      text: request.payload.text,
+    });
+    channel.listener({
+      type: 'session_state_changed',
+      sessionId: 'retained-local',
+      state: 'running',
+    });
+    channel.listener({
+      type: 'message_start',
+      sessionId: 'retained-local',
+      messageId: 'live-answer',
+    });
+    channel.listener({
+      type: 'block_start',
+      sessionId: 'retained-local',
+      messageId: 'live-answer',
+      blockId: 'live-text',
+      blockType: 'text',
+    });
+    channel.listener({
+      type: 'block_delta',
+      sessionId: 'retained-local',
+      messageId: 'live-answer',
+      blockId: 'live-text',
+      blockType: 'text',
+      delta: 'Visible retained output.',
+    });
+    channel.listener({
+      type: 'permission_request',
+      sessionId: 'retained-local',
+      permId: 'retained-permission',
+      toolName: 'Bash',
+      toolInput: 'fixture-only',
+      tier: 'elevated',
+    });
+    expect(store.getState().messages.running).toBe(true);
+    expect(store.getState().messages.current?.blocks.get('live-text')?.content).toBe(
+      'Visible retained output.',
+    );
+    expect(store.getState().messages.permission?.permId).toBe('retained-permission');
+    expect(store.getState().messages.messages).toContainEqual(
+      expect.objectContaining({ messageId: request.clientMsgId, role: 'user' }),
+    );
+    store.getState().stopGeneration();
+    expect(channel.send).toHaveBeenCalledWith({ type: 'stop', sessionId: 'retained-local' });
+    expect(assigned).not.toHaveBeenCalled();
+    expect(delivered).toHaveBeenCalledWith('uncertain');
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(store.getState().localCommand?.originDraftId).toBe('original-draft');
+    expect(readStorage()[0].body).toEqual(request);
+    channel.listener({
+      type: 'block_end',
+      sessionId: 'retained-local',
+      messageId: 'live-answer',
+      blockId: 'live-text',
+      blockType: 'text',
+    });
+    channel.listener({
+      type: 'message_end',
+      sessionId: 'retained-local',
+      messageId: 'live-answer',
+    });
+    channel.listener({ type: 'session_state_changed', sessionId: 'retained-local', state: 'idle' });
+    expect(store.getState().messages.running).toBe(false);
+    expect(store.getState().messages.messages).toContainEqual(
+      expect.objectContaining({
+        messageId: 'live-answer',
+        blocks: [expect.objectContaining({ content: 'Visible retained output.' })],
+      }),
+    );
+    expect(store.getState().recoverLocalCommand()).toBe(true);
+    complete(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          clientMsgId: request.clientMsgId,
+          sessionId: 'retained-local',
+          dispatched: true,
+          state: 'consumed',
+        }),
+        { status: 202 },
+      ),
+    );
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+    expect(assigned).toHaveBeenCalledExactlyOnceWith('retained-local');
+    expect(delivered.mock.calls.filter(([state]) => state === 'accepted')).toHaveLength(1);
+    expect(readStorage()).toEqual([]);
+    expect(store.getState().sessions.active).toBe('retained-local');
+  },
+);
