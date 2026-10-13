@@ -861,6 +861,7 @@ export function handleSendV2(
             : undefined;
           const commandTransport: SessionTransport = paidReasoning
             ? {
+                attachmentIdentity: getTransportAttachmentIdentity(transport),
                 isOpen: () => transport.isOpen(),
                 send(data) {
                   const event = { ...data, v: 2, sessionId: commandSessionId };
