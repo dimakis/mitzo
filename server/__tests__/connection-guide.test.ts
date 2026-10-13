@@ -10,6 +10,15 @@ describe('runtime-owned connection guidance', () => {
     expect(CONNECTION_TOOL_INSTRUCTIONS).not.toContain('direct the user to Connections');
   });
 
+  it('separates Google session approval, OAuth consent and enforced endpoint policy', () => {
+    const guide = connectionGuide('use', credentialConnectionToolDefinitions);
+    expect(guide.instructions).toContain('gws docs documents create');
+    expect(guide.instructions).toContain('gws docs documents batchUpdate');
+    expect(guide.instructions).toContain('does not change OAuth consent or provider policy');
+    const repair = connectionGuide('troubleshoot', credentialConnectionToolDefinitions);
+    expect(repair.instructions).toContain('Do not retry through Drive');
+    expect(repair.instructions).toContain('no write-access toggle');
+  });
   it('returns only the requested guidance and derives available tools from the runtime registry', () => {
     const guide = connectionGuide('connect', credentialConnectionToolDefinitions);
     expect(guide.topic).toBe('connect');

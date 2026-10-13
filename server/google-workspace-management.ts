@@ -4,7 +4,7 @@ import type { CommandRunner } from './connections-gateway.js';
 const provider = 'google-workspace';
 const credentialKey = 'GOOGLE_WORKSPACE_CLI_TOKEN';
 // Existing Drive consent authorizes Docs, Sheets and Slides. Enforcement in
-// the reviewed provider profile permits writing only through the Slides API.
+// the reviewed provider profile bounds writing to Docs and Slides API methods.
 const scopes = [
   'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/calendar.readonly',
@@ -26,25 +26,46 @@ const ReadonlyEndpoint = z
     tls: z.literal('terminate'),
   })
   .strict();
-const SlidesRule = z.union([
-  z
+function authoringEndpoint(host: string, collection: string) {
+  const Rule = z.union([
+    z
+      .object({
+        allow: z
+          .object({
+            method: z.literal('GET'),
+            path: z.literal(`/v1/${collection}/**`),
+          })
+          .strict(),
+      })
+      .strict(),
+    z
+      .object({
+        allow: z
+          .object({
+            method: z.literal('POST'),
+            path: z.enum([`/v1/${collection}`, `/v1/${collection}/*:batchUpdate`]),
+          })
+          .strict(),
+      })
+      .strict(),
+  ]);
+  return z
     .object({
-      allow: z
-        .object({ method: z.literal('GET'), path: z.literal('/v1/presentations/**') })
-        .strict(),
+      host: z.literal(host),
+      port: z.literal(443),
+      protocol: z.literal('rest'),
+      enforcement: z.literal('enforce'),
+      tls: z.literal('terminate'),
+      rules: z
+        .array(Rule)
+        .length(3)
+        .refine(
+          (rules) =>
+            new Set(rules.map((rule) => `${rule.allow.method}:${rule.allow.path}`)).size === 3,
+        ),
     })
-    .strict(),
-  z
-    .object({
-      allow: z
-        .object({
-          method: z.literal('POST'),
-          path: z.enum(['/v1/presentations', '/v1/presentations/*:batchUpdate']),
-        })
-        .strict(),
-    })
-    .strict(),
-]);
+    .strict();
+}
 const ReviewedGoogleProfile = z
   .object({
     id: z.literal('mitzo-google-workspace-spike'),
@@ -73,6 +94,7 @@ const ReviewedGoogleProfile = z
                     z.enum([
                       'https://www.googleapis.com/auth/drive.readonly',
                       'https://www.googleapis.com/auth/documents.readonly',
+                      'https://www.googleapis.com/auth/documents',
                       'https://www.googleapis.com/auth/calendar.readonly',
                       'https://www.googleapis.com/auth/gmail.readonly',
                       'https://www.googleapis.com/auth/spreadsheets.readonly',
@@ -110,23 +132,8 @@ const ReviewedGoogleProfile = z
       .array(
         z.union([
           ReadonlyEndpoint,
-          z
-            .object({
-              host: z.literal('slides.googleapis.com'),
-              port: z.literal(443),
-              protocol: z.literal('rest'),
-              enforcement: z.literal('enforce'),
-              tls: z.literal('terminate'),
-              rules: z
-                .array(SlidesRule)
-                .length(3)
-                .refine(
-                  (rules) =>
-                    new Set(rules.map((rule) => `${rule.allow.method}:${rule.allow.path}`)).size ===
-                    3,
-                ),
-            })
-            .strict(),
+          authoringEndpoint('docs.googleapis.com', 'documents'),
+          authoringEndpoint('slides.googleapis.com', 'presentations'),
         ]),
       )
       .length(5)
@@ -138,7 +145,17 @@ const ReviewedGoogleProfile = z
     source: z.string().max(256).optional(),
     scope: z.string().max(256).optional(),
   })
-  .strict();
+  .strict()
+  .refine((profile) => {
+    const docs = profile.endpoints.find((endpoint) => endpoint.host === 'docs.googleapis.com');
+    const consent = profile.credentials[0].refresh.scopes;
+    const editing = !!docs && 'rules' in docs;
+    return editing
+      ? consent.includes('https://www.googleapis.com/auth/documents') &&
+          !consent.includes('https://www.googleapis.com/auth/documents.readonly')
+      : consent.includes('https://www.googleapis.com/auth/documents.readonly') &&
+          !consent.includes('https://www.googleapis.com/auth/documents');
+  });
 const Credentials = z.object({
   type: z.literal('authorized_user'),
   client_id: z.string().min(1).max(1024),
@@ -179,6 +196,8 @@ export interface GoogleWorkspaceHealth {
   health: 'ready' | 'needs_sign_in' | 'unavailable' | 'not_configured';
   expiresAt: number | null;
   slidesEditing: boolean;
+  /** Omitted when effective policy could not be checked. */
+  documentsEditing?: boolean;
   /** The stable provider whose policy was checked by this observation. */
   providerIdentity?: { id: string; workspace: string };
 }
@@ -213,18 +232,22 @@ export class GoogleWorkspaceManagement {
       found.workspace !== (this.options.workspace ?? 'default')
     )
       throw new Error('Google provider is not configured');
+    let documentsEditing: boolean;
     try {
-      ReviewedGoogleProfile.parse(
+      const profile = ReviewedGoogleProfile.parse(
         JSON.parse(
           await this.command(['provider', 'profile', 'export', found.type, '-o', 'json'], signal),
         ),
+      );
+      documentsEditing = profile.endpoints.some(
+        (endpoint) => endpoint.host === 'docs.googleapis.com' && 'rules' in endpoint,
       );
     } catch {
       throw new Error(
         'Effective Google provider differs from reviewed policy. Restore its reviewed profile and retry.',
       );
     }
-    return found;
+    return { ...found, documentsEditing };
   }
   private async refreshCredential(signal: AbortSignal) {
     const refresh = Refresh.parse(
@@ -272,8 +295,9 @@ export class GoogleWorkspaceManagement {
               ? 'ready'
               : 'unavailable',
         expiresAt: current?.expires_at_ms ?? null,
-        // Both observations verified all read boundaries and bounded Slides rules.
+        // Both observations verified the complete endpoint and consent policy.
         slidesEditing: true,
+        documentsEditing: before.documentsEditing && after.documentsEditing,
         ...(before.id === after.id && before.resource_version === after.resource_version
           ? { providerIdentity: { id: after.id, workspace: after.workspace } }
           : {}),

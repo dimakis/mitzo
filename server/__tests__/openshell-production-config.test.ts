@@ -305,7 +305,7 @@ describe('OpenShell production bundle validation', () => {
     expect(profile).not.toContain('protocol: websocket');
   });
 
-  it('permits Slides authoring while keeping other Google endpoints read-only', () => {
+  it('permits Docs and Slides authoring while keeping other Google endpoints read-only', () => {
     const profile = load(
       readFileSync(
         new URL(
@@ -327,24 +327,31 @@ describe('OpenShell production bundle validation', () => {
     };
     expect(profile.credentials[0].refresh.scopes).toEqual([
       'https://www.googleapis.com/auth/drive.readonly',
-      'https://www.googleapis.com/auth/documents.readonly',
+      'https://www.googleapis.com/auth/documents',
       'https://www.googleapis.com/auth/calendar.readonly',
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/spreadsheets.readonly',
       'https://www.googleapis.com/auth/presentations',
     ]);
-    for (const host of [
-      'www.googleapis.com',
-      'docs.googleapis.com',
-      'gmail.googleapis.com',
-      'sheets.googleapis.com',
-    ])
+    for (const host of ['www.googleapis.com', 'gmail.googleapis.com', 'sheets.googleapis.com'])
       expect(profile.endpoints.find((endpoint) => endpoint.host === host)).toMatchObject({
         access: 'read-only',
         protocol: 'rest',
         tls: 'terminate',
         enforcement: 'enforce',
       });
+    expect(profile.endpoints.find((endpoint) => endpoint.host === 'docs.googleapis.com')).toEqual({
+      host: 'docs.googleapis.com',
+      port: 443,
+      protocol: 'rest',
+      tls: 'terminate',
+      enforcement: 'enforce',
+      rules: [
+        { allow: { method: 'GET', path: '/v1/documents/**' } },
+        { allow: { method: 'POST', path: '/v1/documents' } },
+        { allow: { method: 'POST', path: '/v1/documents/*:batchUpdate' } },
+      ],
+    });
     expect(profile.endpoints.find((endpoint) => endpoint.host === 'slides.googleapis.com')).toEqual(
       {
         host: 'slides.googleapis.com',

@@ -189,7 +189,7 @@ function attestEffectiveRuntimePolicyUnchecked(
         provider.type,
         provider.profile,
         provider.connectionPolicy,
-      ) ?? reviewedRuntimeProfile(provider.type);
+      ) ?? reviewedRuntimeProfile(provider.type, provider.profile);
     const profile = structuredClone(provider.profile);
     if (!object(reviewed) || !object(profile))
       throw new Error('Runtime provider profile is unavailable');
@@ -255,7 +255,7 @@ function attestEffectiveRuntimePolicyUnchecked(
   };
 }
 
-export function reviewedRuntimeProfile(type: string): unknown {
+export function reviewedRuntimeProfile(type: string, observed?: unknown): unknown {
   if (type === 'github') return reviewedGithubRuntimeProfile();
   const pins: Record<string, [string, string]> = {
     'mitzo-openai-keychain-spike': [
@@ -264,7 +264,7 @@ export function reviewedRuntimeProfile(type: string): unknown {
     ],
     'mitzo-google-workspace-spike': [
       '../docs/spikes/openshell-codex/google-workspace-spike-profile.yaml',
-      '91a1f93fa405bdddecc4efa00d114d037448dd9443b33ed82522dd011cec42ce',
+      '17644b5a6aff22f76fb19d7f1cbc295fb4ab82c39c92d174e3d41e80d3f6dbeb',
     ],
     'openai-codex-oauth': [
       '../infra/openshell/providers/openai-codex-oauth-reviewed-profile.json',
@@ -273,6 +273,28 @@ export function reviewedRuntimeProfile(type: string): unknown {
   };
   const pin = pins[type];
   if (!pin) throw new Error('Runtime provider profile is not reviewed');
+  if (type === 'mitzo-google-workspace-spike' && object(observed)) {
+    const legacy = loadPinnedRuntimeProfile([
+      '../infra/openshell/providers/google-workspace-readonly-reviewed-profile.yaml',
+      '91a1f93fa405bdddecc4efa00d114d037448dd9443b33ed82522dd011cec42ce',
+    ]);
+    const definition = (value: unknown) => {
+      const copy = structuredClone(value);
+      if (!object(copy)) throw new Error('Runtime provider profile is unavailable');
+      delete copy.source;
+      delete copy.scope;
+      delete copy.resource_version;
+      return normalized(copy, true);
+    };
+    // Retain the exact accepted read-only contract during rollout. Never derive
+    // an approved policy from an export or accept a mixture of the two grants.
+    if (runtimePolicyHash(definition(observed)) === runtimePolicyHash(definition(legacy)))
+      return legacy;
+  }
+  return loadPinnedRuntimeProfile(pin);
+}
+
+function loadPinnedRuntimeProfile(pin: [string, string]): unknown {
   const path = new URL(pin[0], import.meta.url);
   const st = lstatSync(path);
   if (

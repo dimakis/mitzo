@@ -391,7 +391,7 @@ export async function readConnectionsAccess(
         'Reviewed provider and credential refresh status; account identity and conversation attachments not checked.',
     };
     row.access.summary = google.slidesEditing
-      ? 'Reviewed Google reads and bounded Slides editing'
+      ? `Reviewed Google reads and bounded ${google.documentsEditing ? 'Docs and Slides' : 'Slides'} editing`
       : 'Google permissions could not be checked';
     row.access.appliesTo = 'New conversations only';
     row.details = {
@@ -399,7 +399,11 @@ export async function readConnectionsAccess(
       expiresAt: google.expiresAt,
       permissions:
         google.health === 'ready'
-          ? ['Google reads', ...(google.slidesEditing ? ['Slides editing'] : [])]
+          ? [
+              'Google reads',
+              ...(google.documentsEditing ? ['Docs editing'] : []),
+              ...(google.slidesEditing ? ['Slides editing'] : []),
+            ]
           : [],
     };
     row.actions = [
