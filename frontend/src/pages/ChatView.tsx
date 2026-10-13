@@ -766,7 +766,7 @@ export function ChatView() {
           }
           attention={!!launch || repositoryHandoff.present}
           summary={
-            explicitNew
+            explicitNew || localRuntime.continuation
               ? {
                   profile:
                     localRuntime.inventory?.accounts.find(

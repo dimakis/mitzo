@@ -512,6 +512,8 @@ it('admits a follow-up only through the original live authenticated owner withou
     ownedLocalAuthSessionId: auth.id,
   });
   fixtures.continue.mockImplementation(async (args) => {
+    const resolution = catalog.resolve(args.command.runtime);
+    if (resolution.status !== 'compatible') throw new Error('Expected a compatible runtime');
     store.admitOrdinaryLocalContinuation(
       {
         sessionId,
@@ -519,7 +521,7 @@ it('admits a follow-up only through the original live authenticated owner withou
         repositoryWorkspaceId: workspaceId,
         accountBinding: binding,
       },
-      catalog.resolve(args.command.runtime).binding,
+      resolution.binding,
       {
         clientMsgId: args.command.clientMsgId,
         requestFingerprint: 'next-command',

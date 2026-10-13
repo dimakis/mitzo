@@ -365,3 +365,26 @@ it('retains copied account routing identity when the same ID changes billing unt
   expect(result.current.intent.accountReference).toEqual(changed.accounts[0].account);
   expect(result.current.reason).toBeUndefined();
 });
+
+it('leaves legacy Agent-only launches on their existing picker when runtime enrollment is off', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 }),
+  );
+  const { result } = renderHook(() =>
+    useExplicitLocalChat(
+      'legacy',
+      undefined,
+      null,
+      true,
+      'agentProfile=mitzo-profile-builder&profileRevision=1&agentProfileKind=builtin',
+    ),
+  );
+  await waitFor(() => expect(result.current.reason).toBeUndefined());
+  expect(result.current.visible).toBe(false);
+  expect(result.current.intent.agentProfile).toMatchObject({
+    profileId: 'mitzo-profile-builder',
+    revision: 1,
+    kind: 'builtin',
+  });
+  expect(result.current.intent.execution.location).toBe('openshell');
+});

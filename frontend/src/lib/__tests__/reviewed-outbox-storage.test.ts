@@ -124,3 +124,93 @@ it('does not retain a new command when its durable write fails after an existing
     ),
   ).toEqual([command('existing')]);
 });
+
+it.each([
+  ['local', false],
+  ['local', true],
+  ['openshell', false],
+  ['openshell', true],
+] as const)(
+  'persists and reloads exact %s command (continuation=%s) through the real adapter without automatic replay',
+  async (runOn, continuation) => {
+    const { SendOutbox } = await import('../../../../packages/client/src/send-outbox');
+    const disk = memory();
+    const url = 'https://one.test/api/chat/local-codex/send';
+    const body = {
+      runOn,
+      ...(continuation ? { sessionId: 'original-session' } : {}),
+      repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
+      clientMsgId: 'retained-command',
+      capabilityRevision: 'caps-r1',
+      runtime: {
+        account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'routing-r1' },
+        harness: 'codex',
+        targetId: runOn === 'local' ? 'mac' : 'sandbox',
+        mode: 'agent',
+      },
+      selection: {
+        version: 1,
+        agent: { profileId: 'agent', revision: 1 },
+        model: 'luna-fixture',
+        thinking: 'low',
+        context: { source: 'none', revision: null },
+        permission: { mode: 'agent', revision: 0 },
+      },
+      payload: { text: 'Original prompt' },
+    };
+    const expected = structuredClone(body);
+    const notify = vi.fn();
+    const fetch = vi.fn().mockRejectedValue(Error('Lost acknowledgement'));
+    const outbox = new SendOutbox({
+      url,
+      storage: createReviewedOutboxStorage(disk, url, 'local'),
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    expect(outbox.enqueue(body, 1)).toBe(true);
+    body.selection.thinking = 'high';
+    body.payload.text = 'Edited draft';
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' })),
+    );
+    outbox.stop();
+    const resumedFetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          clientMsgId: expected.clientMsgId,
+          sessionId: 'original-session',
+          dispatched: true,
+          state: 'consumed',
+        }),
+        { status: 202 },
+      ),
+    );
+    const resumed = new SendOutbox({
+      url,
+      storage: createReviewedOutboxStorage(disk, url, 'local'),
+      fetch: resumedFetch,
+      notify,
+      localFirstCommand: true,
+    });
+    resumed.start();
+    expect(resumedFetch).not.toHaveBeenCalled();
+    expect(resumed.retryLocalCommand()).toBe(true);
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({ acknowledged: true, sessionId: 'original-session' }),
+      ),
+    );
+    const endpoint =
+      runOn === 'openshell'
+        ? `/api/chat/runtime/${continuation ? 'continue' : 'send'}`
+        : `https://one.test/api/chat/local-codex/${continuation ? 'continue' : 'send'}`;
+    expect(resumedFetch.mock.calls[0][0]).toBe(endpoint);
+    expect(JSON.parse(resumedFetch.mock.calls[0][1].body)).toEqual(expected);
+    expect(JSON.parse(createReviewedOutboxStorage(disk, url, 'local').getItem('queue')!)).toEqual(
+      [],
+    );
+  },
+);

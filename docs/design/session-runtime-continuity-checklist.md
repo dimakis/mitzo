@@ -35,6 +35,10 @@ Subsequent sends carry a session reference, command ID, exact settings snapshot 
 route-native capability revision under server validation. Admission freezes those values before
 queue/provider effects; exact retry returns its original receipt. Session account,
 profile, runtime, target and workspace cannot be replaced by future settings.
+The existing durable browser outbox validates both first and continuation commands
+for Local and OpenShell, retaining the complete frozen request across reload and
+lost acknowledgements. Recovery requires an explicit retry; it does not replay
+automatically or reconstruct a command from the current draft.
 Supported cold resume reuses existing provider and workspace owners and native
 conversation custody fields. It requires persistent login revocation authority.
 Local login source/home and executable identity changes refuse continuation;

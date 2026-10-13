@@ -410,12 +410,16 @@ for (const [name, Screen] of [
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
     await screen.findByText('Run on: Local Mac · fixed for this conversation');
+    expect(workspace).toHaveAccessibleName(/Personal ChatGPT, luna-fixture, low, local/);
+    expect(workspace.querySelector('.conversation-state')).toHaveTextContent('Conversation');
+    expect(workspace).toHaveAccessibleDescription('Conversation');
     expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Thinking' })).toBeEnabled();
     fireEvent.change(screen.getByRole('combobox', { name: 'Thinking' }), {
       target: { value: 'high' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Use these conversation choices' }));
+    expect(workspace).toHaveAccessibleName(/Personal ChatGPT, luna-fixture, high, local/);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
     expect(localSend).toHaveBeenCalledWith(

@@ -561,6 +561,17 @@ test('OpenShell conversation: default route starts and continues without legacy 
     .getByRole('combobox', { name: 'Agent', exact: true })
     .selectOption(JSON.stringify(['saved', 'agent', 1]));
   await expect(page.getByText('Runs with Codex')).toBeVisible();
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
+  ).not.toHaveCount(0);
+  await page.getByRole('button', { name: 'Use these OpenShell choices' }).click();
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: 'Add repository' }).click();
   await page
     .getByRole('combobox', { name: 'GitHub repository' })

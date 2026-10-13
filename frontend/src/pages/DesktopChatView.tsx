@@ -740,7 +740,7 @@ export function DesktopChatView() {
             }
             attention={!!launch || repositoryHandoff.present}
             summary={
-              explicitNew
+              explicitNew || localRuntime.continuation
                 ? {
                     profile:
                       localRuntime.inventory?.accounts.find(
@@ -758,7 +758,9 @@ export function DesktopChatView() {
                   ? 'Needs review'
                   : 'First command'
                 : localBound
-                  ? 'First command'
+                  ? localRuntime.continuation
+                    ? 'Conversation'
+                    : 'First command'
                   : localRuntime.metadataPending
                     ? localRuntime.metadataUnavailable
                       ? 'Needs review'

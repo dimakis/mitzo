@@ -67,7 +67,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
     '4c009cd0b30ef5c507c47310a535c5f94be85f553d6224eac04db37383db73d7',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    '62d9d455e69e31afdcbd673094af29c5b90d0888eabb0f6c26c6268139280b4c',
+    'b802923285f97ad1951c1198ddda8f46d3ddc19f33e602f8bafb79c82a742f82',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '63427b971465eab55442c1f38cf99e9cf546cb0853ec552a45fc1191758150ae',
   '../../frontend/src/lib/chat-drafts.ts':
@@ -77,11 +77,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/explicit-local-chat.ts':
     '9a780efaa43f07567e5eef8d90b5cfb9429b91a15e2ccda598e3bca66304c088',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
-    '1ac6cbc52f97f890cbb2f35f9d16d1a072bfe1e1bcd91487d896436152a81da3',
+    'a21650ab2b6040e2def00d422f30b00174d1c4885ef0af93350356922527331c',
   '../../frontend/src/pages/ChatView.tsx':
-    '5366d7f4eec1dbcc265616c75ab7834c309c0c8c4e4bceeb0f148a476c26aff7',
+    'a314e232910e46c3fd612c667eda15cf3362836e41507b98cde693dacfd723b5',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '4b86243f71594b4dad6ea25586cc396fea5790644f1ed3f05eca2af328e81cde',
+    '9657bdd960eaab966f1fbd43806fe0d467eba0eb2706c15002bd27b9cc07e545',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':

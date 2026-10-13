@@ -2,9 +2,11 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { AccountProviderSchema } from '@mitzo/protocol';
 import { AccountProfiles } from '../account-profiles.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { OwnedOpenShellCodexChatAdmission } from '../owned-openshell-codex-chat-admission.js';
+import type { OrdinaryOpenShellCodexExpectation } from '../owned-openshell-codex-chat-admission.js';
 import {
   ordinaryOpenShellCodexTarget,
   projectOrdinaryOpenShellCodexCapabilities,
@@ -127,12 +129,12 @@ function fixture() {
       modelPolicyRole: 'agent' as const,
     },
   };
-  const expected = {
+  const expected: OrdinaryOpenShellCodexExpectation = {
     binding: {
       version: 2 as const,
       account: {
         accountId: account.accountId,
-        provider: account.provider,
+        provider: AccountProviderSchema.parse(account.provider),
         profileRevision: account.profileRevision,
       },
       harness: { implementation: 'codex' as const },
@@ -204,6 +206,7 @@ function fixture() {
   };
   native.create('session', account, config.workdir);
   const workspace = {
+    seed: '/offline/repository-seed',
     id: 'workspace',
     connectionId: 'github',
     connectionRevision: 1,
@@ -301,7 +304,12 @@ function mockedProvider(f: ReturnType<typeof fixture>) {
       close: closed,
       interrupt: vi.fn(async () => {}),
       setPermissionMode: vi.fn(async () => {}),
-      stopTask: vi.fn(async () => {}),
+      stopTask: vi.fn(async () => {
+        throw new Error('Native task stop is unsupported');
+      }),
+      setWebSearchGrant: (revision: number, grant: 'allowed' | 'denied') =>
+        Promise.resolve(native.setWebSearchGrant('session', f.account, revision, grant)),
+      getWebSearchGrant: () => native.readWebSearchGrant('session', f.account),
     };
   });
   return closed;

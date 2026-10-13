@@ -239,11 +239,7 @@ export function useExplicitLocalChat(
       : intent;
   const selectedLocal = selectedIntent.execution.location === 'local';
   const retainedExplicitIntent =
-    selectedLocal ||
-    !!saved ||
-    !!selectedIntent.account ||
-    !!selectedIntent.agentProfile ||
-    !!selectedIntent.execution.targetId;
+    selectedLocal || !!saved || !!selectedIntent.account || !!selectedIntent.execution.targetId;
   const visible =
     bound ||
     metadataUnavailable ||
