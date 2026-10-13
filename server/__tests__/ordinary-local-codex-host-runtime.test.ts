@@ -8,11 +8,42 @@ import {
   OrdinaryLocalCodexHostRuntime,
   ordinaryLocalCodexHostContractRevision,
 } from '../ordinary-local-codex-host-runtime.js';
+const manifest = vi.hoisted(() => ({ artifacts: undefined as Record<string, string> | undefined }));
+vi.mock('../connections/reviewed-handler-artifacts.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../connections/reviewed-handler-artifacts.js')>();
+  return {
+    ...actual,
+    get reviewedHandlerSourceArtifacts() {
+      return manifest.artifacts ?? actual.reviewedHandlerSourceArtifacts;
+    },
+  };
+});
 const roots: string[] = [];
 vi.mock('../bounded-file-read.js', { spy: true });
 afterEach(() => {
+  manifest.artifacts = undefined;
   vi.restoreAllMocks();
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+});
+it('binds the target contract to the exact sorted code closure with unchanged nominal revision, CLI and native bytes', async () => {
+  const f = fixture();
+  const runtime = new OrdinaryLocalCodexHostRuntime(f.env);
+  const original = ordinaryLocalCodexHostContractRevision(f.sha256);
+  const actual = await vi.importActual<
+    typeof import('../connections/reviewed-handler-artifacts.js')
+  >('../connections/reviewed-handler-artifacts.js');
+  manifest.artifacts = Object.fromEntries(
+    Object.entries(actual.reviewedHandlerSourceArtifacts).reverse(),
+  );
+  expect(ordinaryLocalCodexHostContractRevision(f.sha256)).toBe(original);
+  const path = Object.keys(manifest.artifacts)[0];
+  manifest.artifacts[path] = 'f'.repeat(64);
+  expect(ordinaryLocalCodexHostContractRevision(f.sha256)).not.toBe(original);
+  expect(() => runtime.assertCurrentSync()).toThrow('Host Codex runtime observation unavailable');
+  expect(() => new OrdinaryLocalCodexHostRuntime(f.env)).toThrow(
+    'Host Codex runtime observation unavailable',
+  );
 });
 function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-host-runtime-')));

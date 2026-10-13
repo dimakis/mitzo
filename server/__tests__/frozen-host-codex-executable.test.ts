@@ -9,6 +9,8 @@ import {
   chmodSync,
   renameSync,
   rmSync,
+  linkSync,
+  existsSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -22,6 +24,25 @@ import {
   FrozenHostCodexExecutable,
   measureHostCodexExecutable,
 } from '../frozen-host-codex-executable.js';
+it('refuses a multiply linked native source before reading or creating an owned copy', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-hardlink-')));
+  try {
+    const home = join(root, 'home'),
+      source = join(root, 'codex');
+    mkdirSync(home, { mode: 0o700 });
+    writeFileSync(source, Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]), { mode: 0o755 });
+    linkSync(source, join(root, 'unprotected-alias'));
+    reads.readSync.mockClear();
+    expect(() => measureHostCodexExecutable(source)).toThrow('Host Codex runtime unavailable');
+    expect(() => FrozenHostCodexExecutable.capture(source, home)).toThrow(
+      'Host Codex runtime unavailable',
+    );
+    expect(reads.readSync).not.toHaveBeenCalled();
+    expect(existsSync(join(home, 'codex-runtime'))).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 it('uses retained immutable native executable bytes and refuses source replacement', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-runtime-')));
   try {

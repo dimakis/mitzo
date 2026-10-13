@@ -36,6 +36,7 @@ function metadata(path: string): Metadata {
   const stat = lstatSync(path, { bigint: true });
   if (
     !stat.isFile() ||
+    stat.nlink !== 1n ||
     stat.size > 256n * 1024n * 1024n ||
     stat.mode & 0o022n ||
     !(stat.mode & 0o111n)
@@ -137,6 +138,8 @@ export class FrozenHostCodexExecutable {
       const home = directory(privateHome),
         parent = directory(dirname(source));
       if (home.uid !== BigInt(process.getuid!()) || home.mode & 0o077n) throw unavailable();
+      // Reject untracked hardlink aliases before creating any owned artifact.
+      metadata(source);
       const path = join(privateHome, 'codex-runtime');
       fd = openSync(
         path,
