@@ -137,6 +137,8 @@ export function ChatView() {
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew && localRuntime.selectedLocal;
+  const controlsBlocked =
+    localBound || localRuntime.metadataPending || (!!sessionId && sessionId !== activeSessionId);
 
   const missingDraftReason = newChatDraft.missing
     ? 'This draft is unavailable. Open Drafts or start a new chat.'
@@ -254,7 +256,7 @@ export function ChatView() {
   const restoredRepositoryBinding = useRef<string | null>(null);
   const selectAccount = useCallback(
     (selection: AccountSelection | null) => {
-      if (repositoryHandoff.present && activeSessionId) return;
+      if (controlsBlocked || (repositoryHandoff.present && activeSessionId)) return;
       const binding = repositoryAccountSelection ?? newChatDraft.draft.settings.selection;
       if (
         draftEnabled &&
@@ -289,6 +291,7 @@ export function ChatView() {
       }
     },
     [
+      controlsBlocked,
       accountScope,
       repositoryAccountSelection,
       draftEnabled,
@@ -508,7 +511,7 @@ export function ChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
-    if (localBound) return false;
+    if (controlsBlocked) return false;
     if (explicitNew) {
       if (
         !localFirstCommand ||
@@ -622,7 +625,7 @@ export function ChatView() {
     ctxBlocks?: string[],
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
   ): void {
-    if (localBound || explicitNew) {
+    if (controlsBlocked || explicitNew) {
       onDelivery?.('failed');
       return;
     }
@@ -656,6 +659,7 @@ export function ChatView() {
   }
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
+    if (controlsBlocked) return;
     if (draftEnabled) setDraftOptions({ id: newChatDraft.draft.id, mode: newMode, isolation });
     storeSetMode(newMode);
   }
@@ -731,15 +735,19 @@ export function ChatView() {
               ? localRuntime.reason
                 ? 'Needs review'
                 : 'First command'
-              : isSymposium
-                ? 'Agent chat'
-                : activeSessionId && !ordinaryControls
-                  ? 'Loading conversation settings'
-                  : !connected
-                    ? 'Reconnecting'
-                    : messages.running
-                      ? 'Working'
-                      : 'Ready'
+              : localRuntime.metadataPending
+                ? localRuntime.metadataUnavailable
+                  ? 'Needs review'
+                  : 'Loading conversation settings'
+                : isSymposium
+                  ? 'Agent chat'
+                  : activeSessionId && !ordinaryControls
+                    ? 'Loading conversation settings'
+                    : !connected
+                      ? 'Reconnecting'
+                      : messages.running
+                        ? 'Working'
+                        : 'Ready'
           }
         >
           <div className="chat-account-bar">
@@ -779,7 +787,7 @@ export function ChatView() {
                 }
                 disabled={
                   messages.running ||
-                  localBound ||
+                  controlsBlocked ||
                   repositoryHandoff.loading ||
                   briefingChat.selectionLocked
                 }
@@ -811,7 +819,7 @@ export function ChatView() {
               sessionId={activeSessionId}
               search={searchParams.toString()}
               onChange={onAgentProfileChange}
-              disabled={messages.running || localBound}
+              disabled={messages.running || controlsBlocked}
             />
             <ChatExecutionPicker
               runtime={localRuntime}
@@ -871,7 +879,7 @@ export function ChatView() {
                 <PermissionModePicker
                   mode={mode}
                   onChange={handleModeChange}
-                  disabled={localBound || modeChangeReady === false}
+                  disabled={controlsBlocked || modeChangeReady === false}
                 />
                 {activeSessionId && (
                   <button
@@ -906,7 +914,7 @@ export function ChatView() {
           )}
 
           <div className="workspace-session-settings">
-            {ordinaryControls && !explicitNew && !localBound && (
+            {ordinaryControls && !explicitNew && !controlsBlocked && (
               <WebSearchConsent
                 key={activeSessionId ?? 'new'}
                 sessionId={activeSessionId}
@@ -917,12 +925,16 @@ export function ChatView() {
               />
             )}
             <div className="workspace-session-actions">
-              {activeSessionId && !localBound && <AddAgentSheet sessionId={activeSessionId} />}
-              {activeSessionId && !localBound && (
-                <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
+              {activeSessionId && !controlsBlocked && <AddAgentSheet sessionId={activeSessionId} />}
+              {activeSessionId && (
+                <SymposiumReviewEntry
+                  key={activeSessionId}
+                  sessionId={activeSessionId}
+                  readOnly={controlsBlocked}
+                />
               )}
             </div>
-            {activeSessionId && !localBound && (
+            {activeSessionId && !controlsBlocked && (
               <SymposiumDirectorPanel sessionId={activeSessionId} />
             )}
             <div ref={setProfileToolsTarget} />
@@ -959,6 +971,7 @@ export function ChatView() {
       )}
       <SymposiumConversation
         profileToolsTarget={profileToolsTarget}
+        readOnly={controlsBlocked}
         sessionId={activeSessionId}
         chat={{
           sessionId: sessionId || activeSessionId || undefined,
@@ -1033,9 +1046,9 @@ export function ChatView() {
                   }}
                 />
               )}
-            {!localBound && <CodexQueueStatus sessionId={activeSessionId} />}
+            {!controlsBlocked && <CodexQueueStatus sessionId={activeSessionId} />}
             <ChatInput
-              boundedFirstCommand={localFirstCommand || localBound}
+              boundedFirstCommand={localFirstCommand || controlsBlocked}
               savedChatDraft={savedChatDraft}
               composerGeneration={chatDraftRevision}
               key={
@@ -1060,6 +1073,7 @@ export function ChatView() {
               }
               sendDisabledReason={
                 localRuntime.reason ??
+                (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
                 (explicitNew && localCommand && localCommand.state !== 'consumed'
                   ? 'Review the retained Local command before sending.'
                   : undefined) ??

@@ -338,7 +338,8 @@ page theme. An untouched enrolled draft retains OpenShell; unavailable choices
 retain their labels and reasons. Explicit Local uses a separate strict first-command
 HTTP route while existing event-stream transcript and permission handling stay shared.
 Configuration metadata never establishes runtime readiness. The shared settings
-disclosure scrolls within a viewport cap on desktop. Its mobile overlay stops before
+disclosure scrolls within the remaining space after repository and composer controls
+on desktop, with a viewport cap. Its mobile overlay stops before
 the first repository or launch action and updates when that action appears, retaining
 keyboard focus and the existing disclosure motion.
 
@@ -349,6 +350,9 @@ original permission policy. It disables unsupported context additions, command
 pickers, worktree toggles, web grants and subsequent sends; attached context remains
 removable without deleting draft text or images. Bound conversations display the
 Local first-command limit on reload and keep account/profile/runtime choices fixed.
+Unknown conversation metadata also blocks helper starts and context/model/mode/profile
+mutations until Retry resolves its binding. Readonly findings, history and safe Stop
+remain available; review action controls stay disabled.
 Recovery shows the original command tuple and resends its retained envelope only
 on a deliberate operator action. Authentication restoration does not replay it.
 

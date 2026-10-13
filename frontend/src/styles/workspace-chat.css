@@ -236,7 +236,7 @@
   border-bottom: 1px solid var(--workspace-line);
 }
 .workspace-chat .workspace-controls > .motion-disclosure:not([hidden]) {
-  max-height: 45dvh;
+  max-height: min(var(--workspace-disclosure-space, 45dvh), 45dvh);
   overflow-y: auto;
 }
 .workspace-controls-toggle {

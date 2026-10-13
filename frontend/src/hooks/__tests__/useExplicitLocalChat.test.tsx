@@ -127,7 +127,9 @@ it('keeps unknown session metadata fail-closed with visible retry, then recovers
     return new Response(JSON.stringify(localInventoryFixture()));
   });
   const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'known-session', true));
+  expect(result.current.metadataPending).toBe(true);
   await waitFor(() => expect(result.current.metadataUnavailable).toBe(true));
+  expect(result.current.metadataPending).toBe(true);
   expect(result.current.visible).toBe(true);
   expect(result.current.bound).toBe(false);
   expect(result.current.reason).toBe('Conversation settings are unavailable. Retry to continue.');
@@ -135,6 +137,7 @@ it('keeps unknown session metadata fail-closed with visible retry, then recovers
   act(() => result.current.refresh());
   await waitFor(() => expect(result.current.bound).toBe(true));
   expect(result.current.binding!.execution.location).toBe('local');
+  expect(result.current.metadataPending).toBe(false);
 });
 
 it('preserves a builtin launch namespace when switching to Local despite a matching user profile', async () => {

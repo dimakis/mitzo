@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
 import { LocalCodexFirstCommandSchema } from '../../packages/protocol/src/local-codex-first-command';
+import { SwitchSessionMessage } from '../../packages/protocol/src/ws-schemas-v2';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const preparationId = '11111111-1111-4111-8111-111111111111';
 const sessionId = 'local-fixture';
@@ -105,6 +106,13 @@ async function offline(page: Page, gateOff = false, restore = false) {
       });
       return;
     }
+    if (url.pathname === '/api/chat/switch') {
+      expect(method).toBe('POST');
+      expect(route.request().headers()['x-connection-id']).toBe('local-offline-sse');
+      const selection = SwitchSessionMessage.strict().parse(route.request().postDataJSON());
+      expect(selection.sessionId).toBe(sessionId);
+      return route.fulfill({ json: { ok: true } });
+    }
     if (url.pathname === '/api/chat/send') {
       forbidden.push(url.pathname);
       return route.fulfill({ status: 409, json: { error: 'Legacy route prohibited in fixture' } });
@@ -148,6 +156,7 @@ async function offline(page: Page, gateOff = false, restore = false) {
           mode: 'agent',
           runtimeBinding: binding,
           runtimeCommandScope: 'first-command-only',
+          agentProfile: localInventoryFixture().agentProfiles[0],
           accountBinding: {
             ...binding.account,
             accountLabel: 'Personal ChatGPT',
@@ -164,7 +173,6 @@ async function offline(page: Page, gateOff = false, restore = false) {
       if (method !== 'GET') {
         if (
           ![
-            '/api/chat/switch-session',
             '/api/chat/reconnect',
             '/api/chat/session-event-applied',
             '/api/chat/reconnect-snapshot-applied',
@@ -281,6 +289,7 @@ for (const appearance of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Use these Local choices' }).scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: 'Use these Local choices' })).toBeInViewport();
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+    await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeInViewport();
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
@@ -306,6 +315,7 @@ for (const appearance of ['light', 'dark'] as const) {
     });
     await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}`));
     await expect(page.getByText('Run on: Local · first command only')).toBeVisible();
+    await expect(page.getByText('Repository helper · r1', { exact: true })).toBeVisible();
     await emitLocalState(page, 'running');
     await expect(page.getByRole('button', { name: 'Stop generation' })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toHaveCount(0);
@@ -370,6 +380,13 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
   await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Add agent', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Reusable profile drafts' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open review findings' })).toBeEnabled();
+  for (const mode of ['Ask', 'Agent', 'Auto']) {
+    const control = page.getByRole('button', { name: mode, exact: true });
+    if (await control.count()) await expect(control).toBeDisabled();
+  }
   await page.getByRole('button', { name: 'Retry conversation settings' }).focus();
   await expect(page.getByRole('button', { name: 'Retry conversation settings' })).toBeFocused();
   await page.screenshot({ path: testInfo.outputPath('local-metadata-error.png'), fullPage: true });

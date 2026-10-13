@@ -306,11 +306,29 @@ for (const [name, Screen] of [
     expect(legacySend).not.toHaveBeenCalled();
   });
   it(`${name}: metadata failure blocks sending and exposes retry without an inferred execution choice`, async () => {
-    const { localSend, legacySend, recoverMetadata } = setup(Screen, false, false, true, true);
+    const { localSend, legacySend, recoverMetadata, store } = setup(
+      Screen,
+      false,
+      false,
+      true,
+      true,
+    );
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
     const retry = await screen.findByRole('button', { name: 'Retry conversation settings' });
     expect(screen.queryByRole('combobox', { name: 'Run on' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reusable profile drafts' })).toBeNull();
+    expect(screen.queryByTestId('web-search-connection')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open review findings' })).toBeEnabled();
+    const setMode = vi.spyOn(store.getState(), 'setMode');
+    const agentMode = screen.queryByRole('button', { name: /^Agent$/ });
+    if (agentMode) {
+      expect(agentMode).toBeDisabled();
+      fireEvent.click(agentMode);
+    }
+    expect(setMode).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
     expect(localSend).not.toHaveBeenCalled();

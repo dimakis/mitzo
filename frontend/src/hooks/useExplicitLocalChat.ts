@@ -182,6 +182,7 @@ export function useExplicitLocalChat(
     reason,
     error,
     metadataUnavailable,
+    metadataPending: !!sessionId && !currentMeta,
     refresh: () => setAttempt((value) => value + 1),
     update,
     review: () => update({ ...intent, capabilityRevision: inventory?.capabilityRevision ?? null }),

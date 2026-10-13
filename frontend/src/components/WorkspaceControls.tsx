@@ -38,6 +38,7 @@ export function WorkspaceControls({
     const observed = new Set<Element>();
     const measure = () => {
       const composer = chat.querySelector<HTMLElement>('.chat-input');
+      const messages = chat.querySelector<HTMLElement>('.chat-messages');
       const boundary =
         chat.querySelector<HTMLElement>('.chat-launch-prompt')?.parentElement ??
         chat.querySelector<HTMLElement>('.repository-chat-picker') ??
@@ -46,7 +47,7 @@ export function WorkspaceControls({
       const next = new Set<Element>([
         owner,
         chat,
-        ...[boundary, composer].filter((node): node is HTMLElement => !!node),
+        ...[boundary, composer, messages].filter((node): node is HTMLElement => !!node),
       ]);
       for (const node of observed)
         if (!next.has(node)) {
@@ -59,17 +60,36 @@ export function WorkspaceControls({
           observed.add(node);
         }
       if (!boundary) return;
-      if (getComputedStyle(panel).position !== 'absolute') {
-        panel.style.removeProperty('--workspace-disclosure-space');
-        return;
+      let space: number;
+      if (getComputedStyle(panel).position === 'absolute') {
+        const heading = owner.querySelector<HTMLElement>('.workspace-controls-heading');
+        const gap = heading ? Number.parseFloat(getComputedStyle(heading).gap) || 0 : 0;
+        space = boundary.getBoundingClientRect().top - owner.getBoundingClientRect().bottom - gap;
+      } else {
+        if (!composer) return;
+        const style = messages ? getComputedStyle(messages) : null;
+        const minimumMessages = style
+          ? ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce(
+              (height, property) =>
+                height +
+                (Number.parseFloat(style[property as keyof CSSStyleDeclaration] as string) || 0),
+              0,
+            )
+          : 0;
+        const freeMessages = messages
+          ? Math.max(0, messages.getBoundingClientRect().height - minimumMessages)
+          : 0;
+        // Reserve the actual repository/composer flow, even when a hidden ancestor
+        // has been scrolled by textarea focus. Flexible transcript space can shrink.
+        space =
+          chat.clientHeight -
+          (composer.getBoundingClientRect().bottom -
+            chat.getBoundingClientRect().top +
+            chat.scrollTop -
+            panel.getBoundingClientRect().height -
+            freeMessages);
       }
-      const heading = owner.querySelector<HTMLElement>('.workspace-controls-heading');
-      const gap = heading ? Number.parseFloat(getComputedStyle(heading).gap) || 0 : 0;
-      const space = Math.max(
-        0,
-        boundary.getBoundingClientRect().top - owner.getBoundingClientRect().bottom - gap,
-      );
-      panel.style.setProperty('--workspace-disclosure-space', `${space}px`);
+      panel.style.setProperty('--workspace-disclosure-space', `${Math.max(0, space)}px`);
     };
     const observer = new ResizeObserver(measure);
     // Account selection and repository preparation can add a new launch surface

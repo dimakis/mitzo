@@ -7,6 +7,7 @@ export function disabledLocalChat() {
     visible: false,
     selectedLocal: false,
     bound: false,
+    metadataPending: false,
     binding: null,
     reason: undefined,
     error: '',
