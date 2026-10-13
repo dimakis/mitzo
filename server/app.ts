@@ -418,6 +418,7 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
       res.vary('Origin');
       res.setHeader(
         'Access-Control-Allow-Headers',

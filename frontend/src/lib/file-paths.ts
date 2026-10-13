@@ -1,6 +1,11 @@
 /** Internal scheme for file path links — intercepted by the custom renderer. */
 export const FILE_SCHEME = 'file-path://';
 
+/** Only durable Telos downloads are eligible for the authenticated sharing flow. */
+export function isTelosArtifactUrl(url: string): boolean {
+  return /^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url);
+}
+
 /** Build an authenticated API URL scoped to the session that created an artifact. */
 export function artifactApiUrl(
   endpoint: 'read' | 'download',
@@ -34,8 +39,10 @@ export function relativeArtifactPath(href: string): string | null {
 
 /** Recognize explicit local Markdown destinations, leaving application URLs alone. */
 export function absoluteMarkdownArtifactPath(href: string): string | null {
-  const explicitFileUri = /^file:\/\/(?:localhost)?(?=\/)/i.test(href);
-  const local = href.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
+  const sandboxUri = /^sandbox:\/(?=\/|[^/])/i.test(href);
+  const source = sandboxUri ? href.replace(/^sandbox:/i, '') : href;
+  const explicitFileUri = /^file:\/\/(?:localhost)?(?=\/)/i.test(source);
+  const local = source.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
   if ((!local.startsWith('/') && !local.startsWith('~/')) || local.startsWith('//')) return null;
   try {
     const path = decodeURIComponent(local.split(/[?#]/, 1)[0]).replace(/:\d+(?::\d+)?$/, '');
@@ -52,7 +59,9 @@ export function absoluteMarkdownArtifactPath(href: string): string | null {
       [...path].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
     )
       return null;
-    return /\.mdx?$/i.test(path) ? path : null;
+    return explicitFileUri || sandboxUri || /(?:^|\/)[^/]+\.[a-z\d][a-z\d._-]*$/i.test(path)
+      ? path
+      : null;
   } catch {
     return null;
   }
@@ -209,15 +218,27 @@ export function detectFilePaths(text: string): FilePathMatch[] {
     match.index + match[0].length,
   ]);
   const matches: FilePathMatch[] = [];
+  let telosEnd = 0;
 
   for (const match of text.matchAll(pathPattern)) {
     const raw = match[0];
     const start = match.index;
 
-    if (urlRanges.some(([from, to]) => start >= from && start < to)) continue;
+    if (start < telosEnd || urlRanges.some(([from, to]) => start >= from && start < to)) continue;
 
     // Strip trailing punctuation that's likely sentence-end
-    const cleaned = raw.replace(/[.,;:!?)]+$/, '');
+    let cleaned = raw.replace(/[.,;:!?)]+$/, '');
+
+    // A bare Telos URL names a stored revision, not a workspace path. Consume
+    // the whole suffix so an invalid query can never become a latest-file link.
+    if (isTelosArtifactUrl(cleaned)) {
+      const suffix = text.slice(start + cleaned.length).match(/^[?#][^\s<>"`]+/)?.[0];
+      if (suffix) {
+        telosEnd = start + cleaned.length + suffix.length;
+        cleaned += suffix.replace(/[.,;:!)\]]+$/, '');
+        if (!isTelosArtifactUrl(cleaned)) continue;
+      }
+    }
 
     if (isFilePath(cleaned)) {
       matches.push({ path: cleaned, start, end: start + cleaned.length });

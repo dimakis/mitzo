@@ -1,4 +1,5 @@
 import React from 'react';
+import { FileShareLink } from '../components/ShareButton';
 import { MarkdownCodeBlock } from '../components/MarkdownCodeBlock';
 import { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -12,6 +13,7 @@ import {
   FILE_SCHEME,
   linkedArtifactPath,
   remarkLocalMarkdownLinks,
+  isTelosArtifactUrl,
 } from './file-paths';
 
 const sanitizeSchema = {
@@ -53,6 +55,14 @@ export function artifactMarkdownComponents(
   return {
     ...markdownComponents,
     a: ({ href, children, title }) => {
+      if (!href) return <span>{children}</span>;
+      if (href && isTelosArtifactUrl(href)) {
+        return (
+          <FileShareLink filePath={href} onOpen={() => onOpen(artifactViewerUrl(href, from))}>
+            {children}
+          </FileShareLink>
+        );
+      }
       const filePath = href?.startsWith(FILE_SCHEME)
         ? decodeFilePathUrl(href)
         : href
@@ -66,6 +76,8 @@ export function artifactMarkdownComponents(
           </a>
         );
 
+      // A durable attachment has no filesystem directory or live workspace authority.
+      if (isTelosArtifactUrl(containingFile)) return <span>{children}</span>;
       const viewerUrl = artifactViewerUrl(filePath, from, sessionId);
       return (
         <a
