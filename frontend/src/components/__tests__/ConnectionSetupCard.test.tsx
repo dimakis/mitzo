@@ -24,6 +24,28 @@ const block = {
   toolResult: JSON.stringify({ setup }),
 };
 afterEach(cleanup);
+it('renders the Jira secure token action from a native API tool result', () => {
+  const jiraBlock = {
+    ...block,
+    toolName: 'PrepareConnectionSetup',
+    toolResult: JSON.stringify({
+      setup: {
+        ...setup,
+        profile: 'jira',
+        connection: { label: 'Jira', endpoint: 'https://api.atlassian.com' },
+        credential: { label: 'Jira API token' },
+      },
+    }),
+  };
+  render(
+    <MemoryRouter>
+      <ConnectionSetupCard block={jiraBlock} sessionId="chat-a" />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'Add Jira API token' }).getAttribute('href')).toBe(
+    '/connections/setup/draft-a',
+  );
+});
 it('renders the prepared credential action without protocol configuration', () => {
   render(
     <MemoryRouter>
