@@ -161,3 +161,8 @@ for (const Page of [ChatView, DesktopChatView]) {
     },
   );
 }
+
+vi.mock('../../hooks/useExplicitLocalChat', async () => {
+  const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
+  return { useExplicitLocalChat: disabledLocalChat };
+});

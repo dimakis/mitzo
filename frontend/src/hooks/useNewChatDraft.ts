@@ -38,10 +38,12 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
       if (!enabled || owner.missing) return;
       const saved = getChatDraft(owner.draft.id);
       if (!saved) return; // Untyped empty composers are not drafts.
-      const selection = settings.selection ?? saved.settings.selection;
+      const selection = settings.runtimeSelection
+        ? settings.runtimeSelection.account
+        : (settings.selection ?? saved.settings.selection);
       const previousSearch = new URLSearchParams(saved.settings.search);
       const nextSearch = new URLSearchParams(settings.search);
-      const profileChanged = ['agentProfile', 'profileRevision'].some(
+      const profileChanged = ['agentProfile', 'profileRevision', 'agentProfileKind'].some(
         (key) => previousSearch.get(key) !== nextSearch.get(key),
       );
       const runtimeSelection = retainChatRuntimeSelection(

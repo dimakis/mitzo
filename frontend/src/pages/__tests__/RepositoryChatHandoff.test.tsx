@@ -730,3 +730,8 @@ for (const [layout, View] of [
     );
   });
 }
+
+vi.mock('../../hooks/useExplicitLocalChat', async () => {
+  const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
+  return { useExplicitLocalChat: disabledLocalChat };
+});

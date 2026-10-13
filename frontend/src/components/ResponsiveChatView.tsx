@@ -1,3 +1,4 @@
+import { ChatRuntimeDraftProvider } from '../hooks/ChatRuntimeDraftProvider';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { ReviewerSheetHost } from './AddReviewerSheet';
 import { useIsDesktop } from '../hooks/useMediaQuery';
@@ -17,15 +18,29 @@ function RoutedChatProfile() {
     profileId: search.get('reviewerProfile'),
     revision: Number(search.get('reviewerRevision')),
   });
-  return <ResponsiveChatBody initialProfile={initial.success ? initial.data : undefined} />;
+  return (
+    <ResponsiveChatBody
+      initialProfile={initial.success ? initial.data : undefined}
+      requestedDraftId={search.get('draft')}
+    />
+  );
 }
-function ResponsiveChatBody({ initialProfile }: { initialProfile?: AgentProfileSelection }) {
+function ResponsiveChatBody({
+  initialProfile,
+  requestedDraftId,
+}: {
+  initialProfile?: AgentProfileSelection;
+  requestedDraftId?: string | null;
+}) {
   const desktop = useIsDesktop();
   const sessionId = useMitzoStore((state) => state.sessions.active);
+  const generation = useMitzoStore((state) => state.chatDraftRevision);
   const screen = desktop ? <DesktopChatView /> : <ChatView />;
   return (
-    <ReviewerSheetHost sessionId={sessionId} initialProfile={initialProfile}>
-      {screen}
-    </ReviewerSheetHost>
+    <ChatRuntimeDraftProvider owner={`${sessionId ?? requestedDraftId ?? 'new'}:${generation}`}>
+      <ReviewerSheetHost sessionId={sessionId} initialProfile={initialProfile}>
+        {screen}
+      </ReviewerSheetHost>
+    </ChatRuntimeDraftProvider>
   );
 }

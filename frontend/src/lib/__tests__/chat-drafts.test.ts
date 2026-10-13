@@ -97,6 +97,29 @@ describe('saved new-chat drafts', () => {
     });
   });
 
+  it('retains the builtin namespace on restored Local drafts and invalidates a user-profile review', () => {
+    const draft = { ...createChatDraft(), text: 'Keep the selected profile' };
+    const runtimeSelection = {
+      ...createChatRuntimeSelection(),
+      agentProfile: { profileId: 'agent', revision: 1 },
+      execution: { location: 'local' as const, targetId: 'mac' },
+      capabilityRevision: 'caps-r1',
+    };
+    saveChatDraft({
+      ...draft,
+      settings: {
+        ...draft.settings,
+        runtimeSelection,
+        search: 'agentProfile=agent&profileRevision=1&agentProfileKind=builtin',
+      },
+    });
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection).toEqual({
+      ...runtimeSelection,
+      agentProfile: { kind: 'builtin', profileId: 'agent', revision: 1 },
+      capabilityRevision: null,
+    });
+  });
+
   it('rejects unbounded execution references and private/unknown runtime fields on restore', () => {
     const draft = { ...createChatDraft(), text: 'Saved content' };
     for (const runtimeSelection of [

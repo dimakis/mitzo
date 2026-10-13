@@ -25,6 +25,25 @@ Ordinary OpenShell Codex chats reserve their account-bound native ledger before 
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
+## Explicit Local first command
+
+The independently gated Local entry reuses Workspace's Agent, Account, Model,
+Thinking and Run on fields. Untouched enrolled drafts start with OpenShell;
+OpenShell remains unavailable until its explicit selection route is enrolled.
+Choose Local deliberately, select an exact published agent revision and supported
+thinking level, and prepare a repository before sending. The current Local route
+uses a configured host ChatGPT sign-in; API billing, brokered subscriptions and
+workspace-scoped accounts require separate routes.
+
+Configuration inventory describes choices and cached model metadata; actual
+account and native runtime admission happens on send. Changed or unavailable
+choices stay visible and block dispatch. A retained Local draft stays blocked when
+the entry gate is disabled. Failed or uncertain delivery retains the original
+request for explicit recovery through the dedicated endpoint, without rebuilding
+its account, target, profile or command ID. Local conversations support one first
+command; following commands, model/thinking changes, project hooks, extra context,
+web grants and general connection helpers are not enabled by this entry.
+
 ## Conversation activity
 
 Mobile and desktop share **Agents at work**, a collapsible section for thoughts,

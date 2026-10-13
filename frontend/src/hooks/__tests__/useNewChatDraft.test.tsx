@@ -238,3 +238,13 @@ it('clears a pending restored draft into a reloadable context URL without anothe
   expect(result.current.search.get('cwd')).toBe('/workspace');
   expect(replace).toHaveBeenCalledTimes(2);
 });
+it('does not borrow an older account after a controlled runtime explicitly requires account selection', () => {
+  const draft = { ...createChatDraft(), text: 'Task' };
+  draft.settings.selection = { accountId: 'legacy', model: 'old' };
+  saveChatDraft(draft);
+  const { result } = renderHook(() => useNewChatDraft(draft.id, 0, true));
+  const runtimeSelection = createChatRuntimeSelection();
+  act(() => result.current.saveSettings({ ...draft.settings, selection: null, runtimeSelection }));
+  expect(getChatDraft(draft.id)?.settings.selection).toBeNull();
+  expect(getChatDraft(draft.id)?.settings.runtimeSelection?.account).toBeNull();
+});

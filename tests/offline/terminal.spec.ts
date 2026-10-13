@@ -1,3 +1,4 @@
+import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
@@ -76,6 +77,7 @@ test.beforeEach(async ({ page }) => {
     const request = route.request(),
       url = new URL(request.url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
       if (request.method() !== 'GET')
         mutations.push({ path: url.pathname, body: request.postDataJSON() ?? {} });
