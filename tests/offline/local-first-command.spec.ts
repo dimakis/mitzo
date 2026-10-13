@@ -362,19 +362,44 @@ test('Local first command: restored Local remains visible and blocked with gate 
   expect(fixture.errors).toEqual([]);
 });
 
+async function assertWorkspaceHeadingFits(page: Page) {
+  const toggle = page.getByRole('button', { name: /^Workspace controls/ });
+  const [heading, status, arrow, access] = await Promise.all([
+    toggle.boundingBox(),
+    toggle.locator('.conversation-state').boundingBox(),
+    toggle.locator(':scope > svg:last-child').boundingBox(),
+    page.getByRole('button', { name: 'Access', exact: true }).boundingBox(),
+  ]);
+  expect(heading).not.toBeNull();
+  expect(status).not.toBeNull();
+  expect(arrow).not.toBeNull();
+  expect(access).not.toBeNull();
+  expect(status!.x + status!.width).toBeLessThanOrEqual(heading!.x + heading!.width + 1);
+  expect(arrow!.x + arrow!.width).toBeLessThanOrEqual(heading!.x + heading!.width + 1);
+  expect(heading!.x + heading!.width).toBeLessThanOrEqual(access!.x);
+}
+
 test('Local first command: metadata failure stays blocked and Retry restores the bound controls', async ({
   page,
 }, testInfo) => {
   const fixture = await offline(page);
   let recovered = false;
-  await page.route(`**/api/sessions/${sessionId}/meta`, (route) =>
-    recovered
-      ? route.fallback()
-      : route.fulfill({ status: 503, json: { error: 'Metadata unavailable' } }),
-  );
+  let releaseInitialMetadata!: () => void;
+  const initialMetadata = new Promise<void>((resolve) => (releaseInitialMetadata = resolve));
+  await page.route(`**/api/sessions/${sessionId}/meta`, async (route) => {
+    if (recovered) return route.fallback();
+    await initialMetadata;
+    return route.fulfill({ status: 503, json: { error: 'Metadata unavailable' } });
+  });
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 320, height: 740 });
   await page.goto(`/chat/${sessionId}`);
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  await expect(workspace.locator('.conversation-state')).toHaveText(
+    'Loading conversation settings',
+  );
+  await assertWorkspaceHeadingFits(page);
+  releaseInitialMetadata();
   await expect(
     page.getByRole('alert').filter({ hasText: 'Conversation settings are unavailable' }),
   ).toBeVisible();
@@ -389,10 +414,13 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   }
   await page.getByRole('button', { name: 'Retry conversation settings' }).focus();
   await expect(page.getByRole('button', { name: 'Retry conversation settings' })).toBeFocused();
+  await assertWorkspaceHeadingFits(page);
   await page.screenshot({ path: testInfo.outputPath('local-metadata-error.png'), fullPage: true });
   recovered = true;
   await page.getByRole('button', { name: 'Retry conversation settings' }).press('Enter');
   await expect(page.getByText('Run on: Local · first command only')).toBeVisible();
+  await expect(workspace.locator('.conversation-state')).toHaveText('First command');
+  await assertWorkspaceHeadingFits(page);
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
   await page.screenshot({
     path: testInfo.outputPath('local-metadata-recovered.png'),

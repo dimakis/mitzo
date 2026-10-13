@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.96';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.97';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-artifact-route-composition.ts':
     '8d9e87e2a2873f0dc841429a5b9a43b93aa194237e4f9594b572e87bff27142b',
   '../../frontend/src/styles/workspace-chat.css':
-    '7312f4d7599a013782036a3b3dad66ac1b70d5b63fc838082bd84b5b26e0cb6f',
+    '1d631fb2ea64f7afb75a8b4007023f9b256deb9ddd9ee105cdbf9fffffdde1f2',
   // Explicit Local draft selection, exact-request delivery and bound conversation controls.
   '../../frontend/src/client-store.ts':
     '74b4fb663607649429a29639ab1a7c5ad8f5a35d5564e1e475e965f13121d974',
@@ -53,7 +53,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionTray.tsx':
     '03fb5961c34c45dbff98fa06083cf8c6693bcdf95cdb3dea6755c47178a5ea01',
   '../../frontend/src/components/WorkspaceControls.tsx':
-    '0b8b21d2aee6119e08e17147228100c258104441f3c3570ee21c9201f5651590',
+    'f6a07e90a2fbb37bf5fc782c82b9662cad2f00435195a967aca6f7f65588059b',
   '../../frontend/src/hooks/ChatRuntimeDraftProvider.tsx':
     'fcebbeefa5ff14bd074515519a0c4e1d6774ecd7177921ca2264328239cc9720',
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
@@ -71,9 +71,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '1ac6cbc52f97f890cbb2f35f9d16d1a072bfe1e1bcd91487d896436152a81da3',
   '../../frontend/src/pages/ChatView.tsx':
-    '4179c16ca6573ac9904e95ac7b38e3c17f5536a10174fcdbb1caa57fe0dbeb53',
+    '9397bb665f239c998f2b5733475d9804904ea1e28f358dc2c9b382cde38a0932',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'fd0024f5e9cfc4b0737ea17ff7b0e8b9c904affdac5493b764e5475b29748342',
+    '7001355dd9d076a7519e7293cdf569ba96afb97f798b25566c57c5fbe9b6c03f',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':

@@ -705,21 +705,27 @@ export function DesktopChatView() {
                 : workspaceSummary
             }
             status={
-              localRuntime.metadataPending
-                ? localRuntime.metadataUnavailable
+              explicitNew
+                ? localRuntime.reason
                   ? 'Needs review'
-                  : 'Loading conversation settings'
-                : isSymposium
-                  ? 'Agent chat'
-                  : activeSessionId && !ordinaryControls
-                    ? 'Loading conversation settings'
-                    : !connected
-                      ? 'Reconnecting'
-                      : messages.running
-                        ? 'Working'
-                        : activeSessionId
-                          ? 'Ready'
-                          : 'New chat'
+                  : 'First command'
+                : localBound
+                  ? 'First command'
+                  : localRuntime.metadataPending
+                    ? localRuntime.metadataUnavailable
+                      ? 'Needs review'
+                      : 'Loading conversation settings'
+                    : isSymposium
+                      ? 'Agent chat'
+                      : activeSessionId && !ordinaryControls
+                        ? 'Loading conversation settings'
+                        : !connected
+                          ? 'Reconnecting'
+                          : messages.running
+                            ? 'Working'
+                            : activeSessionId
+                              ? 'Ready'
+                              : 'New chat'
             }
           >
             <header className="desktop-chat-header">

@@ -351,7 +351,10 @@ pickers, worktree toggles, web grants and subsequent sends; attached context rem
 removable without deleting draft text or images. Bound conversations display the
 Local first-command limit on reload and keep account/profile/runtime choices fixed.
 Unknown conversation metadata also blocks helper starts and context/model/mode/profile
-mutations until Retry resolves its binding. Readonly findings, history and safe Stop
+mutations until Retry resolves its binding. A recovered Local binding shows First command
+without inferring account readiness. On phones the status uses a shrinking grid column
+and an 8ch structural cap beside the always-reachable Access action; its full text stays
+in the accessible name and tooltip. Readonly findings, history and safe Stop
 remain available; review action controls stay disabled.
 Recovery shows the original command tuple and resends its retained envelope only
 on a deliberate operator action. Authentication restoration does not replay it.

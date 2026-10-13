@@ -735,19 +735,21 @@ export function ChatView() {
               ? localRuntime.reason
                 ? 'Needs review'
                 : 'First command'
-              : localRuntime.metadataPending
-                ? localRuntime.metadataUnavailable
-                  ? 'Needs review'
-                  : 'Loading conversation settings'
-                : isSymposium
-                  ? 'Agent chat'
-                  : activeSessionId && !ordinaryControls
-                    ? 'Loading conversation settings'
-                    : !connected
-                      ? 'Reconnecting'
-                      : messages.running
-                        ? 'Working'
-                        : 'Ready'
+              : localBound
+                ? 'First command'
+                : localRuntime.metadataPending
+                  ? localRuntime.metadataUnavailable
+                    ? 'Needs review'
+                    : 'Loading conversation settings'
+                  : isSymposium
+                    ? 'Agent chat'
+                    : activeSessionId && !ordinaryControls
+                      ? 'Loading conversation settings'
+                      : !connected
+                        ? 'Reconnecting'
+                        : messages.running
+                          ? 'Working'
+                          : 'Ready'
           }
         >
           <div className="chat-account-bar">
