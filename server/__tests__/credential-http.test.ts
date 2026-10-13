@@ -48,7 +48,7 @@ it('uses HTTPS with no redirect following, cookies, proxy or user-supplied heade
       new AbortController().signal,
       outgoing,
     ),
-  ).rejects.toThrow('Redirects are unavailable');
+  ).rejects.toMatchObject({ code: 'redirect' });
   expect(outgoing).toHaveBeenCalled();
 });
 
@@ -127,7 +127,7 @@ it('refuses redirects before attaching body readers or forwarding authentication
   const pending = sendConnectionRequest(input(), new AbortController().signal);
   const stream = response(302);
   mock.respond(stream);
-  await expect(pending).rejects.toThrow('Redirects are unavailable');
+  await expect(pending).rejects.toMatchObject({ code: 'redirect' });
   expect(stream.destroy).toHaveBeenCalled();
   expect(stream.listenerCount('data')).toBe(0);
   expect(network.request).toHaveBeenCalledTimes(1);
@@ -236,7 +236,7 @@ it('blocks unsafe literal destinations before HTTPS dispatch even for private en
         { ...input(), url: new URL(`https://${host}/api/`), allowPrivateNetwork: true },
         new AbortController().signal,
       ),
-    ).rejects.toThrow('Destination is unavailable');
+    ).rejects.toMatchObject({ code: 'destination_blocked' });
   }
   expect(network.request).not.toHaveBeenCalled();
 });
@@ -264,7 +264,7 @@ it('permits enrolled private DNS answers and blocks the same answers without enr
     } else {
       expect(callback.mock.calls[0][0]).toBeInstanceOf(Error);
       mock.request.emit('error', callback.mock.calls[0][0]);
-      await expect(pending).rejects.toThrow('Destination is unavailable');
+      await expect(pending).rejects.toMatchObject({ code: 'destination_blocked' });
     }
   }
 });

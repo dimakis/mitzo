@@ -58,6 +58,29 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+it.each([undefined, '', 'Unlock Apple Keychain on the Mac, then retry'])(
+  'preserves submission errors after status refresh unless a durable failure supersedes them: %s',
+  async (durableError) => {
+    vi.mocked(api.getCachedCredentialAuthorization).mockReturnValue({
+      csrf: 'csrf',
+      expiresAt: Date.now() + 60000,
+    });
+    vi.mocked(api.completeConnectionSetup).mockRejectedValue(
+      new Error('The originating chat is unavailable. Return to that chat and retry.'),
+    );
+    open();
+    await screen.findByLabelText('Home Assistant key');
+    vi.mocked(api.getConnectionSetup).mockResolvedValue({ ...setup, error: durableError });
+    fireEvent.change(screen.getByLabelText('Home Assistant key'), {
+      target: { value: 'fixture-key' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Home Assistant' }));
+    await screen.findByRole('alert');
+    expect(screen.getByRole('alert').textContent).toContain(
+      durableError || 'The originating chat is unavailable',
+    );
+  },
+);
 it('presents only the prepared credential and plain access scope, then returns to the original chat', async () => {
   open();
   await screen.findByLabelText('Home Assistant key');

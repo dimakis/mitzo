@@ -5,6 +5,7 @@ import {
   type ConnectionSender,
 } from '../credential-connections.js';
 import { PrepareConnectionSetupSchema } from '../credential-setup.js';
+import { KeychainUnavailableError } from '../keychain-vault.js';
 
 const stores: CredentialConnectionStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
@@ -30,6 +31,113 @@ const input = {
   endpoint: 'https://ha.example.com',
   access: 'read-write',
 };
+it('accepts surrounding paste whitespace for HA tokens without changing internal token bytes', async () => {
+  const { service, send, vault } = fixture();
+  const setup = service.setups.prepare('chat-a', input);
+  const ready = await service.setups.complete(
+    setup.id,
+    1,
+    ' \nprivate-key\r\n ',
+    new AbortController().signal,
+  );
+  expect(ready.status).toBe('ready');
+  expect(send.mock.calls[1][0].headers.Authorization).toBe('Bearer private-key');
+  expect(vault.save).toHaveBeenCalledWith(expect.any(String), 'private-key');
+  const other = service.setups.prepare('chat-b', input);
+  await expect(
+    service.setups.complete(other.id, 1, 'private\nkey', new AbortController().signal),
+  ).rejects.toThrow('Invalid credential');
+});
+it.each([
+  [401, 'credential_rejected', 'rejected this key'],
+  [403, 'access_denied', 'permission'],
+  [503, 'service_unavailable', 'temporarily unavailable'],
+  [200, 'unexpected_response', 'expected API response'],
+])(
+  'reports authenticated HTTP %s without exposing the response or credential',
+  async (status, errorCode, message) => {
+    const { service, send, vault } = fixture();
+    const setup = service.setups.prepare('chat-a', input);
+    send
+      .mockResolvedValueOnce({ status: 401, body: '' })
+      .mockResolvedValueOnce({ status, body: 'private-key upstream details' });
+    const failed = await service.setups.complete(
+      setup.id,
+      1,
+      'private-key',
+      new AbortController().signal,
+    );
+    expect(failed).toMatchObject({
+      status: 'pending',
+      errorCode,
+      error: expect.stringContaining(message),
+    });
+    expect(JSON.stringify(failed)).not.toMatch(/private-key|upstream details/);
+    expect(vault.save).not.toHaveBeenCalled();
+  },
+);
+it.each([
+  ['ENOTFOUND', 'service_unreachable', 'reach the service'],
+  ['CERT_HAS_EXPIRED', 'tls_failed', 'secure connection'],
+  ['ETIMEDOUT', 'timeout', 'timed out'],
+])('reports %s as a transport failure before saving a key', async (code, errorCode, message) => {
+  const { service, send, vault } = fixture();
+  const setup = service.setups.prepare('chat-a', input);
+  send.mockRejectedValueOnce(Object.assign(new Error('private-key'), { code }));
+  const failed = await service.setups.complete(
+    setup.id,
+    1,
+    'private-key',
+    new AbortController().signal,
+  );
+  expect(failed).toMatchObject({ errorCode, error: expect.stringContaining(message) });
+  expect(JSON.stringify(failed)).not.toContain('private-key');
+  expect(vault.save).not.toHaveBeenCalled();
+});
+it('reports public endpoints separately and does not transmit the submitted key', async () => {
+  const { service, send } = fixture();
+  const setup = service.setups.prepare('chat-a', input);
+  send.mockResolvedValueOnce({ status: 200, body: 'public' });
+  const failed = await service.setups.complete(
+    setup.id,
+    1,
+    'private-key',
+    new AbortController().signal,
+  );
+  expect(failed).toMatchObject({
+    errorCode: 'verification_endpoint',
+    error: expect.stringContaining('protected API endpoint'),
+  });
+  expect(send).toHaveBeenCalledTimes(1);
+});
+it.each(['unlock_on_mac', 'unavailable'] as const)(
+  'retains %s Keychain recovery after the API accepts the key',
+  async (code) => {
+    const { service, vault } = fixture();
+    const setup = service.setups.prepare('chat-a', input);
+    vault.save.mockRejectedValueOnce(new KeychainUnavailableError(code));
+    const failed = await service.setups.complete(
+      setup.id,
+      1,
+      'private-key',
+      new AbortController().signal,
+    );
+    expect(failed).toMatchObject({
+      errorCode: code === 'unlock_on_mac' ? 'keychain_locked' : 'storage_unavailable',
+      error: expect.stringContaining('Keychain'),
+    });
+    expect(service.catalog()).toEqual([]);
+    const ready = await service.setups.complete(
+      setup.id,
+      failed.revision,
+      'private-key',
+      new AbortController().signal,
+    );
+    expect(ready.status).toBe('ready');
+    expect(ready.error).toBeUndefined();
+    expect(ready.errorCode).toBeUndefined();
+  },
+);
 it('prepares durable secret-free Home Assistant setup scoped to the exact originating session', () => {
   const { service, store, vault, send } = fixture();
   const setup = service.setups.prepare('chat-a', input);

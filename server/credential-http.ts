@@ -3,6 +3,7 @@ import { request as httpsRequest, type RequestOptions } from 'node:https';
 import { lookup } from 'node:dns';
 import { isIP } from 'node:net';
 import type { AuthenticatedRequest, ConnectionSender } from './credential-connections.js';
+import { CredentialVerificationError } from './credential-verification-error.js';
 
 /** Enrollment may permit LAN services, but never local controller or metadata endpoints. */
 export function isAllowedConnectionAddress(address: string, allowPrivate: boolean): boolean {
@@ -34,7 +35,11 @@ export function connectionDnsLookup(
             !isAllowedConnectionAddress(a.address, allowPrivateNetwork),
         )
       )
-        return callback(error ?? new Error('Destination is unavailable'), [], undefined);
+        return callback(
+          error ?? new CredentialVerificationError('destination_blocked'),
+          [],
+          undefined,
+        );
       if (options.all) callback(null, addresses);
       else callback(null, addresses[0].address, addresses[0].family);
     });
@@ -44,7 +49,7 @@ const httpsSend: ConnectionSender = (input, signal) =>
   new Promise((resolve, reject) => {
     const hostname = input.url.hostname.replace(/^\[|\]$/g, '');
     if (isIP(hostname) && !isAllowedConnectionAddress(hostname, input.allowPrivateNetwork))
-      return reject(new Error('Destination is unavailable'));
+      return reject(new CredentialVerificationError('destination_blocked'));
     const request = httpsRequest(
       input.url,
       {
@@ -66,7 +71,7 @@ const httpsSend: ConnectionSender = (input, signal) =>
         // Refuse redirects before reading their body; never resend authentication to another URL.
         if (status >= 300 && status < 400) {
           response.destroy();
-          reject(new Error('Redirects are unavailable'));
+          reject(new CredentialVerificationError('redirect'));
           return;
         }
         const parts: Buffer[] = [];
@@ -96,6 +101,7 @@ export async function sendConnectionRequest(
   signal.throwIfAborted();
   const response = await send(input, signal);
   signal.throwIfAborted();
-  if (response.status >= 300 && response.status < 400) throw new Error('Redirects are unavailable');
+  if (response.status >= 300 && response.status < 400)
+    throw new CredentialVerificationError('redirect');
   return response;
 }
