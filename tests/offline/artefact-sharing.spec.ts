@@ -112,6 +112,7 @@ for (const appearance of ['dark', 'light'] as const) {
     expect(requests).toEqual(['?revision=2']);
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(page).toHaveURL(/\/chat\/sharing$/);
+    await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
     const telosOptions = link
       .locator('..')
       .getByRole('button', { name: 'File options', exact: true });

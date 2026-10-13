@@ -292,7 +292,8 @@ trigger. Telos filenames open their read-only saved revision inside Files and re
 quiet options trigger, following the same pattern as ordinary files. Choices appear only on request using `HomeDialog`, its focus/scroll
 ownership, shared control-height targets and motion-presence helper. The action
 state stays with the trigger so closing/reopening cannot duplicate a pending
-operation. Successful actions dismiss the options and restore focus. On iOS, the system Share sheet also offers Save to Files. The offline
+operation. Successful actions dismiss the options and restore focus. A returning composer
+only takes initial focus when no other control owns it. On iOS, the system Share sheet also offers Save to Files. The offline
 artefact fixture checks compact closed controls, revealed choices, Escape/focus
 restoration, exact revision and original bytes across mobile/desktop appearances.
 
