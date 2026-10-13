@@ -28,11 +28,9 @@ export const LocalCodexFirstCommandSchema = z
       mode: z.enum(['ask', 'agent', 'auto']),
     }),
     selection: OrdinaryLocalCommandSelectionSchema.extend({
-      // This first route pins published user profiles; builtin namespaces are not enrolled.
-      agent: z.strictObject(
-        AgentProfileSelectionSchema.pick({ profileId: true, revision: true }).shape,
-      ),
-      context: z.strictObject({ source: z.literal('none'), revision: z.null() }),
+      // Namespace/recipe intent is frozen here; owning admission verifies its source and delivery.
+      agent: AgentProfileSelectionSchema,
+      context: OrdinaryLocalCommandSelectionSchema.shape.context,
       permission: z.strictObject({
         mode: z.enum(['ask', 'agent', 'auto']),
         revision: z.literal(0),

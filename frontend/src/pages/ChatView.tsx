@@ -555,6 +555,8 @@ export function ChatView() {
         clientMsgId: createBrowserId(),
         repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
         mode: localRuntime.mode ?? 'agent',
+        retainedAgentProfile: localRuntime.agentProfile,
+        retainedAgentContext: localRuntime.agentContext,
         text,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
@@ -1127,6 +1129,8 @@ export function ChatView() {
                         clientMsgId: createBrowserId(),
                         repositoryWorkspaceId: localRuntime.repositoryWorkspaceId!,
                         mode: localRuntime.mode ?? 'agent',
+                        retainedAgentProfile: localRuntime.agentProfile,
+                        retainedAgentContext: localRuntime.agentContext,
                         text,
                         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
                       }).reason

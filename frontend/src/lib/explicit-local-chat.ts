@@ -1,6 +1,10 @@
+import { sha256Hex } from './browser-crypto';
 import { z } from 'zod';
 import {
   AgentLibraryVersionSchema,
+  AgentProfileSelectionSchema,
+  type AgentLibraryVersion,
+  type AgentContextSnapshot,
   OrdinaryCodexContinuationCommandSchema,
   OrdinaryCodexFirstCommandSchema,
   SessionRuntimeBindingV1Schema,
@@ -61,6 +65,21 @@ export const ExplicitLocalInventorySchema = z
           modes: z.array(z.enum(['ask', 'agent', 'auto'])).max(3),
           skillCeiling: z.literal('unsupported').optional(),
           capabilityRevision: ref.optional(),
+          agentProfiles: z.array(AgentProfileSelectionSchema).max(256).optional(),
+          agentProfileRejections: z
+            .array(
+              z.strictObject({
+                agent: AgentProfileSelectionSchema,
+                reason: z.enum([
+                  'provider_incompatible',
+                  'sandbox_context_preset_unconfigured',
+                  'native_pack_context_unavailable',
+                  'native_context_unavailable',
+                ]),
+              }),
+            )
+            .max(256)
+            .optional(),
         }),
       )
       .max(128),
@@ -81,7 +100,9 @@ export const ExplicitLocalInventorySchema = z
       new Set(data.accounts.map((a) => a.account.accountId)).size !== data.accounts.length ||
       data.accounts.some((a) => new Set(a.models.map((m) => m.id)).size !== a.models.length) ||
       data.agentProfiles.some(
-        (p) => p.definition.contextRecipe !== undefined || ('kind' in p && p.kind !== undefined),
+        (p) =>
+          p.definition.contextRecipe?.source === 'packs' ||
+          p.contentHash !== sha256Hex(JSON.stringify(p.definition)),
       )
     )
       ctx.addIssue({ code: 'custom', message: 'Invalid Local configuration inventory' });
@@ -131,6 +152,8 @@ export function normalizeLocalInventory(data: ExplicitLocalInventory): ChatRunti
             ? 'The configured target identity is ambiguous. Refresh execution choices.'
             : 'Refresh the selected account and model before sending.',
         models: configured?.models ?? [],
+        agentProfiles: route.agentProfiles,
+        agentProfileRejections: route.agentProfileRejections,
       };
     }),
   };
@@ -144,15 +167,70 @@ export function prepareLocalFirstCommand(
     mode: 'ask' | 'agent' | 'auto';
     text: string;
     images?: { data: string; mediaType: string }[];
+    retainedAgentProfile?: AgentLibraryVersion;
+    retainedAgentContext?: AgentContextSnapshot;
   },
 ) {
-  if (
-    !inventory ||
-    !selection.agentProfile ||
-    ('kind' in selection.agentProfile && selection.agentProfile.kind !== undefined) ||
-    !evaluateChatRuntimeSelection(selection, normalizeLocalInventory(inventory)).ready
-  )
+  if (!inventory || !selection.agentProfile)
     return { request: null, reason: 'Review the selected execution choices before sending.' };
+  const readiness = evaluateChatRuntimeSelection(selection, normalizeLocalInventory(inventory));
+  if (!readiness.ready)
+    return {
+      request: null,
+      reason:
+        readiness.issues[0]?.message ?? 'Review the selected execution choices before sending.',
+    };
+  const selectedProfile = inventory.agentProfiles.find(
+    (profile) =>
+      profile.profileId === selection.agentProfile!.profileId &&
+      profile.revision === selection.agentProfile!.revision &&
+      profile.kind === selection.agentProfile!.kind,
+  );
+  if (
+    !selectedProfile ||
+    selectedProfile.contentHash !== sha256Hex(JSON.stringify(selectedProfile.definition))
+  )
+    return {
+      request: null,
+      reason: 'The selected agent snapshot is unavailable. Refresh to retry.',
+    };
+  const profile = input.retainedAgentProfile ?? selectedProfile;
+  if (
+    profile.profileId !== selectedProfile.profileId ||
+    profile.revision !== selectedProfile.revision ||
+    profile.kind !== selectedProfile.kind ||
+    profile.contentHash !== selectedProfile.contentHash ||
+    profile.contentHash !== sha256Hex(JSON.stringify(profile.definition))
+  )
+    return {
+      request: null,
+      reason:
+        'The pinned agent snapshot changed. Preserve this conversation and review its original settings.',
+    };
+  const recipe = profile.definition.contextRecipe;
+  if (recipe?.source === 'packs')
+    return {
+      request: null,
+      reason:
+        'Reusable context packs require a trusted native continuation barrier; native Codex context admission is unavailable.',
+    };
+  const context = recipe
+    ? { source: recipe.source, revision: sha256Hex(JSON.stringify(recipe)) }
+    : { source: 'none' as const, revision: null };
+  const retained = input.retainedAgentContext;
+  if (
+    retained &&
+    (retained.profileId !== profile.profileId ||
+      retained.revision !== profile.revision ||
+      retained.profileHash !== profile.contentHash ||
+      retained.source !== context.source ||
+      retained.recipeHash !== context.revision)
+  )
+    return {
+      request: null,
+      reason:
+        'The pinned context snapshot changed. Preserve this conversation and review its original settings.',
+    };
   const configured = inventory.accounts.find(
     (a) => a.account.accountId === selection.account?.accountId,
   );
@@ -181,10 +259,11 @@ export function prepareLocalFirstCommand(
       agent: {
         profileId: selection.agentProfile.profileId,
         revision: selection.agentProfile.revision,
+        ...(selection.agentProfile.kind ? { kind: selection.agentProfile.kind } : {}),
       },
       model: selection.account!.model,
       thinking: selection.account!.reasoningEffort ?? null,
-      context: { source: 'none', revision: null },
+      context,
       permission: { mode: input.mode, revision: 0 },
     },
     payload: { text: input.text, ...(input.images?.length ? { images: input.images } : {}) },

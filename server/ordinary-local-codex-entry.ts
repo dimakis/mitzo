@@ -1,3 +1,9 @@
+import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
+import {
+  readOrdinaryCodexAgentProfile,
+  ordinaryCodexAgentProfiles,
+  ordinaryCodexAgentProfileRouteProjection,
+} from './ordinary-codex-agent-profile.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { join, isAbsolute } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -216,12 +222,29 @@ export function createOwnedLocalCodexEntryRouter(
           .status(401)
           .json({ ok: false, code: 'interactive_auth_required', error: unavailable });
       const result = general ? ordinaryCodexCapabilities() : inventory().result;
-      const agentProfiles = getAgentLibrary()
-        .list('user')
-        .versions.filter(
-          (profile) => profile.kind === undefined && profile.definition.contextRecipe === undefined,
-        );
-      const response = { ...result, agentProfiles };
+      const agentProfiles = ordinaryCodexAgentProfiles(getAgentLibrary().list('user').versions);
+      const shell = general ? loadOrdinaryOpenShellCodexTarget() : undefined;
+      const response = {
+        ...result,
+        agentProfiles,
+        routes: result.routes.map((route) => {
+          const target = result.targets.find((target) => target.targetId === route.targetId);
+          const presets =
+            target?.location === 'openshell' &&
+            shell?.target.targetRevision === target.targetRevision
+              ? shell.config.agentContextPresets
+              : undefined;
+          return {
+            ...route,
+            ...ordinaryCodexAgentProfileRouteProjection(
+              agentProfiles,
+              route.account.provider,
+              target?.location ?? 'local',
+              presets,
+            ),
+          };
+        }),
+      };
       if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576) throw Error(unavailable);
       return res.json(response);
     } catch {
@@ -267,6 +290,13 @@ export function createOwnedLocalCodexEntryRouter(
           error: general ? 'Invalid conversation command' : 'Invalid local first command',
         });
       const input = structuredClone(parsed.data);
+      if (input.selection.context.source === 'packs')
+        return res.status(409).json({
+          ok: false,
+          code: 'native_context_unavailable',
+          error:
+            'Reusable context packs require a trusted native continuation barrier; native Codex context admission is unavailable.',
+        });
       if (
         (input.runOn === 'local'
           ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
@@ -359,17 +389,10 @@ export function createOwnedLocalCodexEntryRouter(
           if (selected.nativeAuth !== undefined || selected.workspaceId !== undefined)
             throw Error(unavailable);
         }
-        const profile = getAgentLibrary().version(
-          'user',
-          input.selection.agent.profileId,
-          input.selection.agent.revision,
-        );
-        if (
-          !profile ||
-          ('kind' in profile && profile.kind !== undefined) ||
-          profile.definition.contextRecipe !== undefined
-        )
+        const profile = readOrdinaryCodexAgentProfile(getAgentLibrary(), input.selection.agent);
+        if (!profile || profile.definition.contextRecipe?.source === 'packs')
           throw Error(unavailable);
+        assertOrdinaryCodexContextIdentity(profile, input.selection, undefined, binding.provider);
         if (!BASE_REPO || !isAbsolute(BASE_REPO)) throw Error(unavailable);
         const reservation = {
           id: input.repositoryWorkspaceId,

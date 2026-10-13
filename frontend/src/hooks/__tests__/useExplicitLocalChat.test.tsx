@@ -5,8 +5,92 @@ import { useExplicitLocalChat } from '../useExplicitLocalChat';
 import { apiFetch } from '../../lib/api-fetch';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
+import { prepareLocalContinuationCommand } from '../../lib/explicit-local-chat';
+import { sha256Hex } from '../../lib/browser-crypto';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(cleanup);
+
+it('hydrates the original recipe snapshot on cold resume and changes only future thinking intent', async () => {
+  const data = localInventoryFixture();
+  const definition = {
+    ...data.agentProfiles[0].definition,
+    contextRecipe: { version: 1 as const, source: 'contexgin' as const, agentName: 'original' },
+  };
+  const profile = {
+    ...data.agentProfiles[0],
+    definition,
+    contentHash: sha256Hex(JSON.stringify(definition)),
+  };
+  const context = {
+    type: 'boot_context' as const,
+    source: 'contexgin' as const,
+    sourceCount: 1,
+    tokenCount: 5,
+    tokenBudget: 1000,
+    sources: [{ path: 'source.md', kind: 'reference' }],
+    included: [],
+    trimmed: [],
+    fullMarkdown: 'Original pinned context',
+  };
+  const snapshot = {
+    profileId: profile.profileId,
+    revision: profile.revision,
+    profileHash: profile.contentHash,
+    source: 'contexgin' as const,
+    recipeHash: sha256Hex(JSON.stringify(definition.contextRecipe)),
+    compilerRevision: 'offline-compiler',
+    payloadHash: sha256Hex(JSON.stringify(context)),
+    context,
+  };
+  const catalog = { ...data, agentProfiles: [profile] };
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).includes('/meta')
+            ? {
+                runtimeBinding: {
+                  version: 2,
+                  account: data.accounts[0].account,
+                  harness: { implementation: 'codex' },
+                  execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+                },
+                runtimeCommandScope: 'conversation',
+                repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
+                mode: 'agent',
+                agentProfile: profile,
+                agentContext: snapshot,
+                modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
+              }
+            : catalog,
+        ),
+      ),
+  );
+  const { result } = renderHook(() =>
+    useExplicitLocalChat('draft', null, 'original-session', true),
+  );
+  await waitFor(() => expect(result.current.continuation).toBe(true));
+  expect(result.current.agentProfile).toEqual(profile);
+  expect(result.current.agentContext).toEqual(snapshot);
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      account: { ...result.current.intent.account!, reasoningEffort: 'high' },
+    }),
+  );
+  const next = prepareLocalContinuationCommand(result.current.intent, result.current.inventory, {
+    sessionId: 'original-session',
+    clientMsgId: 'next',
+    repositoryWorkspaceId: result.current.repositoryWorkspaceId!,
+    mode: 'agent',
+    text: 'Continue',
+    retainedAgentProfile: result.current.agentProfile,
+    retainedAgentContext: result.current.agentContext,
+  }).request!;
+  expect(next.selection.context).toEqual({ source: 'contexgin', revision: snapshot.recipeHash });
+  expect(next.selection.thinking).toBe('high');
+  expect(result.current.agentContext).toEqual(snapshot);
+});
 it('keeps OpenShell default blocked after receiving only Local configuration', async () => {
   vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(localInventoryFixture())));
   const { result } = renderHook(() => useExplicitLocalChat('draft', null, null, true));

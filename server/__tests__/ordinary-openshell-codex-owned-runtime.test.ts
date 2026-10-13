@@ -1,3 +1,4 @@
+import { contextDigest } from '../agent-context-compiler.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -89,6 +90,7 @@ function fixture() {
       modelPolicyRole: 'agent' as const,
     },
   };
+  agentProfile.contentHash = contextDigest(agentProfile.definition);
   const meta = {
     sessionId: 'session',
     repositoryWorkspaceId: 'repo',

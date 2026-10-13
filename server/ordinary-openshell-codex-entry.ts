@@ -127,6 +127,7 @@ export async function startOwnedOpenShellCodexCommand(
     };
     const meta = {
       ...structuredClone(input.meta),
+      agentContext: eventStore.getSession(sessionId)?.agentContext ?? input.meta.agentContext,
       selectedModel: request.selection.model,
       reasoningEffort: request.selection.thinking,
       mode: request.selection.permission.mode,

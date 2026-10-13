@@ -1,5 +1,6 @@
+import { sha256Hex } from '../lib/browser-crypto';
 export function localInventoryFixture() {
-  return {
+  const result = {
     version: 1 as const,
     authority: 'configuration-only' as const,
     defaultLocation: 'openshell' as const,
@@ -62,4 +63,8 @@ export function localInventoryFixture() {
       },
     ],
   };
+  result.agentProfiles[0].contentHash = sha256Hex(
+    JSON.stringify(result.agentProfiles[0].definition),
+  );
+  return result;
 }

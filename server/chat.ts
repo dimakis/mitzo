@@ -3056,6 +3056,14 @@ export async function prepareOwnedCodexChat(
       'user',
       false,
     );
+    if (expected.agentContext) {
+      const context = bootContextWithRetainedReceipt(
+        expected.agentContext,
+        eventStore.getSession(sessionId)?.bootContext ?? undefined,
+      );
+      eventStore.upsertSession({ sessionId, bootContext: JSON.stringify(context) });
+      send(transport, { ...context, sessionId });
+    }
     const env = buildSdkChildEnvironment();
     env.MITZO_SESSION_ID = sessionId;
     env.MITZO_AGENT_NAME = expected.agentProfile?.definition.name ?? '';
@@ -3072,6 +3080,29 @@ export async function prepareOwnedCodexChat(
       repositoryWorkspace: workspace,
       agentProfile: expected.agentProfile,
       agentContext: expected.agentContext,
+      prepareAgentContext: async (signal) => {
+        signal.throwIfAborted();
+        await admission.assertCurrent();
+        signal.throwIfAborted();
+        admission.assertCurrentSync();
+      },
+      assertAgentContextAuthorization: () => admission.assertCurrentSync(),
+      onBootContext: (context) => send(transport, { ...context, sessionId }),
+      onAgentContextAccepted: (acceptedCommandId, threadId, turnId, contextSha256) => {
+        admission.assertCurrentSync();
+        const snapshot = eventStore.getSession(sessionId)?.agentContext;
+        if (!snapshot) throw unavailable();
+        const context = recordAgentContextAcceptance({
+          store: eventStore,
+          sessionId,
+          snapshot,
+          commandId: acceptedCommandId,
+          providerThreadId: threadId,
+          providerTurnId: turnId,
+          contextSha256,
+        });
+        send(transport, { ...context, sessionId });
+      },
       prompt: payload.text,
       intent: payload.intent,
       systemPrompt: payload.systemPrompt,

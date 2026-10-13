@@ -1,3 +1,7 @@
+import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
+import { resolveChatAgentContext } from './agent-context-binding.js';
+import type { AgentContextSnapshot } from '@mitzo/protocol';
+import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { lstatSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -17,13 +21,14 @@ const unavailable = () => new Error('Ordinary local Codex selection unavailable'
 
 /** Current selection fence backed by the existing operator, published Library,
  * permission and repository owners. It does not confer host/login readiness.
- * This bounded first route supports profiles without reusable context recipes;
- * recipe delivery requires its independently qualified source/context owner.
+ * Supported recipes retain the existing compiler's exact snapshot after the
+ * original checkout is claimed; source grants never originate in a profile.
  */
 export class OrdinaryLocalCodexSelectionOwner {
   readonly #reservation: Omit<HostRepositoryReservationInput, 'signal'>;
   readonly #permission: symbol | undefined;
   #snapshot?: OrdinaryLocalCodexAdmissionExpectation;
+  #context?: AgentContextSnapshot;
   constructor(
     private readonly owners: {
       events: EventStore;
@@ -47,16 +52,22 @@ export class OrdinaryLocalCodexSelectionOwner {
       this.owners.operator.assertCurrent();
       const expected = structuredClone(input),
         reservation = this.#reservation;
-      if (this.#snapshot && !isDeepStrictEqual(expected, this.#snapshot)) throw unavailable();
+      const identity = { ...expected, agentContext: undefined };
+      if (this.#snapshot && !isDeepStrictEqual(identity, this.#snapshot)) throw unavailable();
+      assertOrdinaryCodexContextIdentity(
+        expected.agentProfile,
+        expected.selection,
+        expected.agentContext ?? this.#context,
+      );
       if (
-        expected.selection.agent.kind !== undefined ||
-        expected.agentProfile?.kind !== undefined ||
+        expected.agentContext &&
+        this.#context &&
+        !isDeepStrictEqual(expected.agentContext, this.#context)
+      )
+        throw unavailable();
+      if (
         expected.selection.permission.revision !== 0 ||
         permissionRevision(this.owners.events, reservation.conversationId) !== this.#permission ||
-        expected.selection.context.source !== 'none' ||
-        expected.selection.context.revision !== null ||
-        expected.agentContext !== undefined ||
-        expected.agentProfile?.definition.contextRecipe !== undefined ||
         expected.workspace.workspaceId !== reservation.id ||
         expected.binding.account.accountId !== reservation.binding.accountId ||
         expected.binding.account.provider !== reservation.binding.provider ||
@@ -64,10 +75,9 @@ export class OrdinaryLocalCodexSelectionOwner {
         (!this.owners.continuation && expected.selection.model !== reservation.binding.model)
       )
         throw unavailable();
-      const published = this.owners.library.version(
-        'user',
-        expected.selection.agent.profileId,
-        expected.selection.agent.revision,
+      const published = readOrdinaryCodexAgentProfile(
+        this.owners.library,
+        expected.selection.agent,
       );
       if (!published || !isDeepStrictEqual(published, expected.agentProfile)) throw unavailable();
       const descriptor = this.owners.workspace.getHostReservation(reservation);
@@ -142,14 +152,45 @@ export class OrdinaryLocalCodexSelectionOwner {
           session.mode !== expected.selection.permission.mode ||
           !isDeepStrictEqual(session.accountBinding, reservation.binding) ||
           !isDeepStrictEqual(session.agentProfile, expected.agentProfile) ||
-          session.agentContext !== undefined
+          !isDeepStrictEqual(
+            session.agentContext ?? undefined,
+            expected.agentContext ?? this.#context,
+          )
         )
           throw unavailable();
       }
-      this.#snapshot ??= expected;
+      this.#snapshot ??= identity;
     } catch {
       throw unavailable();
     }
+  }
+  /** Only after the original checkout is claimed, under the uncertain command's lease. */
+  async prepareContext(
+    expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    resume: boolean,
+  ): Promise<AgentContextSnapshot | undefined> {
+    this.#context ??= expected.agentContext && structuredClone(expected.agentContext);
+    this.assertCurrentSync(expected);
+    const saved = this.owners.events.getSession(this.#reservation.conversationId)?.agentContext;
+    if (resume && expected.agentProfile?.definition.contextRecipe && !saved) throw unavailable();
+    const context = await resolveChatAgentContext({
+      profile: expected.agentProfile,
+      stored: saved,
+      workspaceRoot: expected.workspace.cwd,
+      signal: this.owners.signal,
+    });
+    this.assertCurrentSync(expected);
+    if (context) {
+      assertOrdinaryCodexContextIdentity(expected.agentProfile, expected.selection, context);
+      if (this.#context && !isDeepStrictEqual(this.#context, context)) throw unavailable();
+      this.#context = structuredClone(context);
+      this.owners.events.upsertSession({
+        sessionId: this.#reservation.conversationId,
+        agentContext: context,
+      });
+    }
+    this.assertCurrentSync({ ...expected, agentContext: context });
+    return context;
   }
   async assertCurrent(expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>): Promise<void> {
     this.assertCurrentSync(expected);

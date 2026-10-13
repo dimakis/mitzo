@@ -1,3 +1,5 @@
+import { contextDigest } from '../agent-context-compiler.js';
+import { PROFILE_BUILDER_ID } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import { AccountProfiles } from '../account-profiles.js';
@@ -89,6 +91,20 @@ vi.mock('../ordinary-local-codex-capabilities.js', async (original) => ({
   loadOrdinaryLocalCodexTarget: () => target,
 }));
 
+const publishedDefinition = {
+  name: 'Published',
+  role: 'agent',
+  instructions: 'Use the original checkout.',
+  expectedOutput: 'Evidence',
+  acceptanceCriteria: ['Preserve ownership'],
+  modelPolicyRole: 'agent',
+};
+const publishedProfile = {
+  profileId: 'published',
+  revision: 1,
+  definition: publishedDefinition,
+  contentHash: contextDigest(publishedDefinition),
+};
 const target = new OrdinaryLocalCodexTarget({
   version: 1,
   targetId: 'host',
@@ -151,7 +167,7 @@ beforeEach(() => {
   fixtures.controller = fixtures.owner = false;
   auth = { id: `owned-entry-login-${++sequence}`, expiresAt: Date.now() + 600_000 };
   fixtures.profiles.mockReturnValue(profiles);
-  fixtures.library.mockReturnValue({ version: () => ({ definition: { name: 'Published' } }) });
+  fixtures.library.mockReturnValue({ version: () => publishedProfile });
   fixtures.workspace.mockReturnValue({ reserveHostTask: fixtures.reserve });
   fixtures.reserve.mockResolvedValue({ state: 'reserved' });
   fixtures.start.mockImplementation(async (_transport, _client, args) => {
@@ -444,12 +460,7 @@ it('projects configuration-only eligible account tuples and published profiles w
       { codexEnabled: true },
     ),
   );
-  const eligible = {
-    profileId: 'published',
-    revision: 1,
-    contentHash: 'a'.repeat(64),
-    definition: { name: 'Published' },
-  };
+  const eligible = publishedProfile;
   fixtures.library.mockReturnValue({
     list: () => ({
       versions: [
@@ -464,7 +475,10 @@ it('projects configuration-only eligible account tuples and published profiles w
   expect(response.body).toMatchObject({
     authority: 'configuration-only',
     defaultLocation: 'openshell',
-    agentProfiles: [eligible],
+    agentProfiles: [
+      expect.objectContaining({ kind: 'builtin', profileId: PROFILE_BUILDER_ID }),
+      eligible,
+    ],
   });
   const inventory = response.body as {
     accounts: Array<{ account: { accountId: string } }>;
@@ -476,7 +490,7 @@ it('projects configuration-only eligible account tuples and published profiles w
   expect(fixtures.start).not.toHaveBeenCalled();
 });
 
-it.each(['builtin', 'user'])(
+it.each(['user'])(
   'refuses caller agent namespace %s before any lazy/source owner',
   async (kind) => {
     const response = await send({
@@ -490,6 +504,33 @@ it.each(['builtin', 'user'])(
     expect(fixtures.start).not.toHaveBeenCalled();
   },
 );
+
+it('admits the exact builtin namespace through the same entry and reservation owners', async () => {
+  const response = await send({
+    ...input(),
+    selection: {
+      ...input().selection,
+      agent: { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 },
+    },
+  });
+  expect(response.status).toBe(202);
+  expect(fixtures.reserve).toHaveBeenCalledOnce();
+  expect(fixtures.start).toHaveBeenCalledOnce();
+});
+
+it('explains the unavailable native pack continuation barrier before source or native effects', async () => {
+  const response = await send({
+    ...input(),
+    selection: { ...input().selection, context: { source: 'packs', revision: 'pack-recipe' } },
+  });
+  expect(response.status).toBe(409);
+  expect(response.body).toMatchObject({
+    code: 'native_context_unavailable',
+    error: expect.stringContaining('trusted native continuation barrier'),
+  });
+  expect(fixtures.reserve).not.toHaveBeenCalled();
+  expect(fixtures.start).not.toHaveBeenCalled();
+});
 
 it('refuses a builtin catalog result before reserving the published user-profile task', async () => {
   fixtures.library.mockReturnValue({
@@ -654,19 +695,7 @@ function configuredShell() {
   fixtures.shellTarget.mockReturnValue({ target, config });
   fixtures.profiles.mockReturnValue(shellProfiles);
   fixtures.library.mockReturnValue({
-    version: () => ({
-      profileId: 'published',
-      revision: 1,
-      contentHash: 'a'.repeat(64),
-      definition: {
-        name: 'Published',
-        role: 'developer',
-        instructions: 'Use this task workspace.',
-        expectedOutput: 'Tested changes',
-        acceptanceCriteria: ['Offline tests pass'],
-        modelPolicyRole: 'worker',
-      },
-    }),
+    version: () => publishedProfile,
     list: () => ({ versions: [] }),
   });
   router = createOwnedLocalCodexEntryRouter(

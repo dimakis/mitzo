@@ -50,12 +50,8 @@ export async function withAgentLibraryRecoveryAuthorization<T>(
     release();
   }
 }
-export async function readAgentLibraryProfile(
-  selection: AgentProfileSelection,
-  connectionId?: string,
-) {
-  const captured = captureAgentLibraryAuthorization(connectionId);
-  const auth = captured.auth;
+/** Builtin identity is code-owned and never resolved through the user Library. */
+export function readBuiltinAgentLibraryProfile(selection: AgentProfileSelection) {
   if (selection.kind === 'builtin') {
     if (selection.profileId !== PROFILE_BUILDER_ID) return null;
     if (selection.revision !== PROFILE_BUILDER_REVISION) return null;
@@ -69,6 +65,15 @@ export async function readAgentLibraryProfile(
         .digest('hex'),
     };
   }
+  return null;
+}
+export async function readAgentLibraryProfile(
+  selection: AgentProfileSelection,
+  connectionId?: string,
+) {
+  const captured = captureAgentLibraryAuthorization(connectionId);
+  const auth = captured.auth;
+  if (selection.kind === 'builtin') return readBuiltinAgentLibraryProfile(selection);
   if (!custodianControllerClient)
     return getAgentLibrary().version('user', selection.profileId, selection.revision);
   const response = await custodianControllerClient.request(

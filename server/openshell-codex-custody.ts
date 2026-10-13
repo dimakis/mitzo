@@ -9,6 +9,14 @@ export const OpenShellCodexCustodySchema = z.strictObject({
   binding: OrdinaryOpenShellCommandAdmissionSchema.shape.binding,
   workspace: OrdinaryOpenShellCommandAdmissionSchema.shape.workspace,
   physicalIdentitySha256: z.string().regex(/^[a-f0-9]{64}$/),
+  agentProfileSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  agentContextSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
 });
 export type OpenShellCodexCustody = z.infer<typeof OpenShellCodexCustodySchema>;
 export function openShellPhysicalCustodyFingerprint(artifact: ArtifactRuntime) {
