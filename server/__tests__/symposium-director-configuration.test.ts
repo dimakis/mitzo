@@ -3,6 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SymposiumConfigSchema } from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
@@ -24,13 +25,10 @@ vi.mock('../app.js', () => {
 vi.mock('../chat.js', () => {
   throw Error('Chat bootstrap imported');
 });
-const cleanups: Array<() => void> = [];
-afterEach(() =>
-  cleanups
-    .splice(0)
-    .reverse()
-    .forEach((close) => close()),
-);
+const cleanups: Array<() => void | Promise<void>> = [];
+afterEach(async () => {
+  for (const close of cleanups.splice(0).reverse()) await close();
+});
 const binding = {
   accountId: 'approved',
   accountLabel: 'Approved',
@@ -119,14 +117,30 @@ function fixture(before: boolean) {
     next();
   });
   app.use('/api/sessions/:id/symposium', router);
-  const send = (
+  // Keep one listener for the fixture; await its closure before closing SQLite.
+  const server = createServer(app);
+  const listening = new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  cleanups.push(async () => {
+    await listening;
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  });
+  const send = async (
     method: 'post' | 'put' | 'get',
     suffix: string,
     body = {},
     actor = 'original',
     id = 'session',
   ) => {
-    const sent = request(app)
+    await listening;
+    const sent = request(server)
       [method](`/api/sessions/${id}/symposium/${suffix}`)
       .set('x-test-actor', actor);
     return method === 'get' ? sent : sent.send(body);
@@ -138,9 +152,11 @@ function fixture(before: boolean) {
     SymposiumConfigSchema.parse(JSON.parse(store.getSession('session')!.symposiumConfig!));
   const seedActive = async () => {
     expect((await post('draft', { expectedRevision: 0 })).status).toBe(200);
-    expect(
-      (await post('activate', { expectedRevision: 1, sharedBoundaryAcknowledged: true })).status,
-    ).toBe(200);
+    const activated = await post('activate', {
+      expectedRevision: 1,
+      sharedBoundaryAcknowledged: true,
+    });
+    expect({ status: activated.status, body: activated.body }).toMatchObject({ status: 200 });
   };
   return {
     app,
@@ -442,13 +458,15 @@ it('pins the owner and retains the full Director route order with direct handler
   const f = fixture(false);
   const router = createSymposiumDirectorRouter({
     ...f.deps,
+    store: f.store,
     getSafetyOrchestrator: () => ({}) as never,
     getPerspective: () => ({ items: [], nextSeq: null }),
     getQueuedInputs: () => [],
   });
-  const routes = router.stack
-    .filter((layer) => layer.route)
-    .map((layer) => ({ method: Object.keys(layer.route.methods)[0], path: layer.route.path }));
+  const routes = router.stack.flatMap((layer) => {
+    const route = layer.route;
+    return route ? [{ method: route.stack[0].method, path: route.path }] : [];
+  });
   expect(routes).toEqual(order.routes);
   const source = readFileSync(
     new URL('../symposium-director-configuration.ts', import.meta.url),
