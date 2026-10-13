@@ -18,7 +18,8 @@ export async function resolveChatAgentProfile(input: {
     input.requested &&
     (!input.stored ||
       input.requested.profileId !== input.stored.profileId ||
-      input.requested.revision !== input.stored.revision)
+      input.requested.revision !== input.stored.revision ||
+      input.requested.kind !== input.stored.kind)
   )
     throw Error('Choose a new chat to change its agent profile');
   const raw = input.stored ?? (input.requested ? await input.lookup(input.requested) : undefined);
@@ -31,7 +32,8 @@ export async function resolveChatAgentProfile(input: {
   if (
     input.requested &&
     (snapshot.profileId !== input.requested.profileId ||
-      snapshot.revision !== input.requested.revision)
+      snapshot.revision !== input.requested.revision ||
+      snapshot.kind !== input.requested.kind)
   )
     throw Error('Agent profile identity mismatch');
   if (

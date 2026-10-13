@@ -5,6 +5,7 @@ it('launches a pinned builder profile and keeps system guidance out of the user 
   const url = new URL(agentAdvisorHref, 'https://mitzo.example');
   expect(url.searchParams.get('agentProfile')).toBe('mitzo-profile-builder');
   expect(url.searchParams.get('profileRevision')).toBe('1');
+  expect(url.searchParams.get('agentProfileKind')).toBe('builtin');
   expect(url.searchParams.get('prompt')).toBe('Help me create an agent.');
   expect(agentAdvisorPrompt.length).toBeLessThan(100);
   expect(profileBuilderDefinition.instructions).toContain('SymposiumProposeProfile');

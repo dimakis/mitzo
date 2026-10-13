@@ -141,3 +141,36 @@ it('carries an exact profile selection on the wire without accepting a client-pr
   expect(message.agentProfile).toEqual({ profileId: 'bob', revision: 3 });
   expect(V2SendMessage.safeParse({ ...message, agentProfile: snapshot }).success).toBe(false);
 });
+
+it('includes the selection namespace in wire identity, startup validation and resume fences', async () => {
+  const saved = { ...snapshot, profileId: 'mitzo-profile-builder' };
+  const builtin = { ...saved, kind: 'builtin' as const };
+  const selected = {
+    profileId: saved.profileId,
+    revision: saved.revision,
+    kind: 'builtin' as const,
+  };
+  expect(
+    V2SendMessage.parse({
+      type: 'send',
+      sessionId: null,
+      clientMsgId: 'namespace-message',
+      prompt: 'hello',
+      agentProfile: selected,
+    }).agentProfile,
+  ).toEqual(selected);
+  expect(
+    await resolveChatAgentProfile({ requested: selected, lookup: async () => builtin }),
+  ).toEqual(builtin);
+  await expect(
+    resolveChatAgentProfile({ requested: selected, lookup: async () => saved }),
+  ).rejects.toThrow(/identity mismatch/);
+  await expect(
+    resolveChatAgentProfile({
+      stored: builtin,
+      resume: true,
+      requested: { profileId: saved.profileId, revision: saved.revision },
+      lookup: vi.fn(),
+    }),
+  ).rejects.toThrow(/new chat/);
+});

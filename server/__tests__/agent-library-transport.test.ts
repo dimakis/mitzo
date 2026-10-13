@@ -111,7 +111,7 @@ it('resolves the authenticated built-in builder as a pinned profile without cata
     bindAgentLibraryTransport('builder', { id: 'login', expiresAt: Date.now() + 10000 }),
   );
   const builder = await readAgentLibraryProfile(
-    { profileId: 'mitzo-profile-builder', revision: 1 },
+    { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 1 },
     'builder',
   );
   expect(builder?.definition.name).toBe('Agent Builder');
@@ -120,6 +120,42 @@ it('resolves the authenticated built-in builder as a pinned profile without cata
   );
   expect(mocks.request).not.toHaveBeenCalled();
   expect(
-    await readAgentLibraryProfile({ profileId: 'mitzo-profile-builder', revision: 2 }, 'builder'),
+    await readAgentLibraryProfile(
+      { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 2 },
+      'builder',
+    ),
   ).toBeNull();
 });
+
+it.each([1, 2])(
+  'keeps catalog revision %s selectable when its ID matches the built-in',
+  async (revision) => {
+    cleanups.push(
+      bindAgentLibraryTransport('collision', { id: 'login', expiresAt: Date.now() + 10000 }),
+    );
+    const definition = {
+      ...profileBuilderDefinition,
+      name: 'My saved builder',
+      instructions: 'My own saved instructions.',
+    };
+    const saved = {
+      profileId: 'mitzo-profile-builder',
+      revision,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    mocks.request.mockResolvedValue({ status: 200, body: saved });
+    expect(
+      await readAgentLibraryProfile({ profileId: saved.profileId, revision }, 'collision'),
+    ).toEqual(saved);
+    expect(mocks.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'library.read',
+        resourceId: saved.profileId,
+        revision: String(revision),
+      }),
+      undefined,
+      expect.any(AbortSignal),
+    );
+  },
+);

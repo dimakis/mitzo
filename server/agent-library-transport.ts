@@ -56,9 +56,11 @@ export async function readAgentLibraryProfile(
 ) {
   const captured = captureAgentLibraryAuthorization(connectionId);
   const auth = captured.auth;
-  if (selection.profileId === PROFILE_BUILDER_ID) {
+  if (selection.kind === 'builtin') {
+    if (selection.profileId !== PROFILE_BUILDER_ID) return null;
     if (selection.revision !== PROFILE_BUILDER_REVISION) return null;
     return {
+      kind: 'builtin' as const,
       profileId: PROFILE_BUILDER_ID,
       revision: PROFILE_BUILDER_REVISION,
       definition: structuredClone(profileBuilderDefinition),

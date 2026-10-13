@@ -229,6 +229,7 @@ it('launches the named profile builder with a short user request', async () => {
   expect(url.pathname).toBe('/chat');
   expect(url.searchParams.get('agentProfile')).toBe('mitzo-profile-builder');
   expect(url.searchParams.get('profileRevision')).toBe('1');
+  expect(url.searchParams.get('agentProfileKind')).toBe('builtin');
   expect(url.searchParams.get('prompt')).toBe('Help me create an agent.');
 });
 

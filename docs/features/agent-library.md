@@ -92,7 +92,7 @@ The source contract is verified against OpenAI's exact `79b1b666f2e8551f8abbbca3
 
 ## Agent advisor
 
-**Create with advisor** selects the built-in **Agent Builder** profile at revision 1 on the ordinary chat route, with the short request “Help me create an agent.” Its guidance is resolved through authenticated profile selection, hashed and pinned in session metadata like a user profile; no setup prompt or schema is pasted into the transcript. Account and model selection remain explicit.
+**Create with advisor** selects the built-in **Agent Builder** profile at revision 1 on the ordinary chat route, with the short request “Help me create an agent.” Built-in selections carry an explicit `kind: "builtin"` namespace; selections without that marker always resolve saved catalog content, including an identical profile ID. Its guidance is resolved through authenticated profile selection, hashed and pinned in session metadata like a user profile; no setup prompt or schema is pasted into the transcript. Account and model selection remain explicit.
 
 The builder inspects saved profiles with `SymposiumReadProfiles` and creates one complete, portable draft per `SymposiumProposeProfile` call. These tools are registered on ordinary OpenAI Responses, Gemini/Vertex, Claude SDK and Codex chats. Host-bound session and call identities fence draft creation, retry keys deduplicate tool retries, and current skill policy and cancellation remain enforced. In custodian mode, reads and draft creation go to the retained catalog owner using middleware-verified operator authentication, with no local fallback.
 

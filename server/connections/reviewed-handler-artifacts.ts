@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.76';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.77';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -124,7 +124,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
   '../symposium-production-review-composition.ts':
     '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
-  '../ws-handler-v2.ts': 'bf3c303b78cadcda945ce45532fd1185aff34159e3e73b71b24cc4db26217b73',
+  '../ws-handler-v2.ts': '48bfbd8b1621a3c266932bba21ebb951552a5e9232d1baa3633b4301839edd5d',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
@@ -148,9 +148,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
-  '../agent-library-binding.ts': '21fccbe6ee53ec292f93be9de3f678b3e1d4e8a8d6e83798678e9da44fadf7fb',
+  '../agent-library-binding.ts': 'c674ceed550400f9dbe04c34544f9739520ebb8d222887489d988fc38493bb53',
   '../agent-library-transport.ts':
-    'e6e0ddd331f23eda6e0df768929432fff38b0352b328ce91c01ee6013f6c580d',
+    'd2c11b5c05741a02a102db5a228b74d2bb5696fa5b2781005e42eed12ed22f31',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
   '../agent-library-router.ts': '0b34aeca9c7894a3dd4cfa9ad9b930c20e5b54c30010b18c0553dd7dd1b6cc61',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',
@@ -163,7 +163,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-custodian-proxy.ts':
     '59f78245236ef2c05f5f2e9c610629c1f513fedb32b4dae753c6275bd434b3a9',
   '../../packages/protocol/src/agent-library.ts':
-    'e5c0e87a605c4f7664d5b9c69411bafc8059301a8c37a8057d3bdf14f604900e',
+    'c9c5fadf380fc72edc81ec7b762d1f69620d06dff5ca40a949568ee61a2a068c',
   '../../packages/protocol/src/symposium.ts':
     '19e2192db110e0fdc3c4c47a2c8424c1614dab48dcbd92161ff2730896cd2c79',
   '../repository-chat-tools.ts': '2b3c9c950c38fe2b94bac06d69fff2560eacf2d43b2240e31232f351b9c7d441',

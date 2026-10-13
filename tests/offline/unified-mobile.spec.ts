@@ -2643,6 +2643,65 @@ test('saved chat identity failures lock model controls until an explicit success
   }
 });
 
+test('builder launcher distinguishes built-in guidance from a saved profile with the same ID', async ({
+  page,
+}) => {
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname === '/api/agent-library')
+      return route.fulfill({
+        json: {
+          drafts: [],
+          versions: [
+            {
+              profileId: 'mitzo-profile-builder',
+              revision: 2,
+              contentHash: 'a'.repeat(64),
+              definition: {
+                name: 'My saved builder',
+                descriptor: 'My own guidance',
+                description: 'Saved profile',
+                role: 'agent',
+                instructions: 'Use my own instructions.',
+                expectedOutput: 'A report',
+                acceptanceCriteria: ['Cites evidence'],
+                modelPolicyRole: 'agent',
+              },
+            },
+          ],
+        },
+      });
+    if (url.pathname === '/api/accounts')
+      return route.fulfill({
+        json: [
+          {
+            id: 'work-account',
+            label: 'Work OpenAI',
+            models: [{ id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low'] }],
+          },
+        ],
+      });
+    return route.fallback();
+  });
+  await page.goto('https://mitzo-ui.test/agent-library');
+  await page.getByRole('link', { name: 'Create with advisor', exact: true }).click();
+  await expect(page).toHaveURL(/agentProfileKind=builtin/);
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Use selection', exact: true })
+    .click();
+  const picker = page.getByRole('combobox', { name: 'Agent profile', exact: true });
+  await expect(picker).toHaveValue(JSON.stringify(['builtin', 'mitzo-profile-builder', 1]));
+  await expect(picker.getByRole('option', { name: /My saved builder/ })).toHaveCount(1);
+  await picker.selectOption(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));
+  await expect(page).toHaveURL(/profileRevision=2/);
+  expect(new URL(page.url()).searchParams.has('agentProfileKind')).toBe(false);
+  await expect(picker).toHaveValue(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));
+  await picker.selectOption('');
+  expect(new URL(page.url()).searchParams.has('agentProfile')).toBe(false);
+});
+
 test('profile draft cards appear in conversation and save without opening Workspace', async ({
   page,
   isMobile,

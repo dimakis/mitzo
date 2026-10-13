@@ -5,6 +5,7 @@ import { symposiumProfileTemplates } from './symposium-profile-templates';
 export const agentAdvisorPrompt = 'Help me create an agent.';
 export const agentAdvisorHref = `/chat?${new URLSearchParams({
   agentProfile: PROFILE_BUILDER_ID,
+  agentProfileKind: 'builtin',
   profileRevision: String(PROFILE_BUILDER_REVISION),
   prompt: agentAdvisorPrompt,
 })}`;
