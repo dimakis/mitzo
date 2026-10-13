@@ -209,6 +209,85 @@ describe('Google Workspace management', () => {
       });
     },
   );
+  it('ships only bounded Docs creation and batch updates', () => {
+    const profile = reviewedProfile();
+    const docs = profile.endpoints.find((endpoint) => endpoint.host === 'docs.googleapis.com')!;
+    expect(docs.access).toBeUndefined();
+    expect(docs.rules).toEqual([
+      { allow: { method: 'GET', path: '/v1/documents/**' } },
+      { allow: { method: 'POST', path: '/v1/documents' } },
+      { allow: { method: 'POST', path: '/v1/documents/*:batchUpdate' } },
+    ]);
+    expect(profile.endpoints[0].access).toBe('read-only');
+    expect(JSON.stringify(profile.credentials)).toContain(
+      'https://www.googleapis.com/auth/documents"',
+    );
+  });
+  it('advertises Docs authoring only after verifying its installed policy', async () => {
+    const { service } = fixture();
+    expect(await service.status(AbortSignal.timeout(1000))).toMatchObject({
+      health: 'ready',
+      documentsEditing: true,
+    });
+  });
+  it('keeps the legacy read-only Docs profile healthy without advertising Docs editing', async () => {
+    const { service, run } = fixture();
+    const original = run.getMockImplementation()!;
+    run.mockImplementation(async (args, options) => {
+      if (args[1] === 'profile') {
+        const profile = reviewedProfile();
+        profile.endpoints[1] = {
+          host: 'docs.googleapis.com',
+          port: 443,
+          protocol: 'rest',
+          access: 'read-only',
+          enforcement: 'enforce',
+          tls: 'terminate',
+        };
+        return JSON.stringify(profile).replace(
+          'https://www.googleapis.com/auth/documents"',
+          'https://www.googleapis.com/auth/documents.readonly"',
+        );
+      }
+      return original(args, options);
+    });
+    expect(await service.status(AbortSignal.timeout(1000))).toMatchObject({
+      health: 'ready',
+      slidesEditing: true,
+      documentsEditing: false,
+    });
+  });
+  it.each(['missing update', 'broad write', 'duplicate rule', 'read-only scope', 'broad scope'])(
+    'refuses Docs policy drift before reconnect: %s',
+    async (drift) => {
+      const { service, run, request, exportCredentials } = fixture();
+      const original = run.getMockImplementation()!;
+      run.mockImplementation(async (args, options) => {
+        if (args[1] === 'profile') {
+          const profile = reviewedProfile();
+          const docs = profile.endpoints[1];
+          if (drift === 'missing update') docs.rules?.pop();
+          if (drift === 'broad write') docs.access = 'read-write';
+          if (drift === 'duplicate rule' && docs.rules) docs.rules[2] = docs.rules[1];
+          const json = JSON.stringify(profile);
+          return drift === 'read-only scope' || drift === 'broad scope'
+            ? json.replace(
+                'https://www.googleapis.com/auth/documents"',
+                drift === 'read-only scope'
+                  ? 'https://www.googleapis.com/auth/documents.readonly"'
+                  : 'https://www.googleapis.com/auth/drive"',
+              )
+            : json;
+        }
+        return original(args, options);
+      });
+      await expect(
+        service.reconnect('user@example.com', AbortSignal.timeout(1000)),
+      ).rejects.toThrow('reviewed policy');
+      expect(exportCredentials).not.toHaveBeenCalled();
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
   it('accepts reviewed policy with normal export metadata and reordered semantic sets', async () => {
     const { service, run } = fixture();
     const original = run.getMockImplementation()!;

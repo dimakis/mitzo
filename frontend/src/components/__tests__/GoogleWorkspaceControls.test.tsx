@@ -29,6 +29,36 @@ afterEach(() => {
   });
 });
 describe('Google Workspace controls', () => {
+  it.each([true, false])(
+    'reports the verified Docs editing policy (%s)',
+    async (documentsEditing) => {
+      (
+        globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = true;
+      vi.mocked(api.getGoogleWorkspaceStatus).mockResolvedValueOnce({
+        health: 'ready',
+        expiresAt: Date.now() + 3600000,
+        slidesEditing: true,
+        documentsEditing,
+      });
+      const node = document.createElement('div');
+      const root = createRoot(node);
+      try {
+        await act(async () =>
+          root.render(
+            <GoogleWorkspaceControls csrf="csrf" authorized onReauthorizationNeeded={vi.fn()} />,
+          ),
+        );
+        expect(node.textContent).toContain(
+          documentsEditing ? 'Docs creation and editing are enabled.' : 'Docs access is read-only.',
+        );
+        expect(node.textContent).toContain('Drive, Sheets and Calendar access is read-only.');
+        expect(node.textContent).not.toContain('Drive, Docs, Sheets');
+      } finally {
+        await act(async () => root.unmount());
+      }
+    },
+  );
   it('stops displaying ready at expiry even while the status check is pending', async () => {
     (
       globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
