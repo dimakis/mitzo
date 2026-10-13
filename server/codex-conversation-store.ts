@@ -2023,6 +2023,17 @@ export class CodexConversationStore {
       return recovery;
     })();
   }
+  /** Observe active work without hydrating retained prompts/images. */
+  hasRunningCommand(id: string, binding: AccountBinding): boolean {
+    this.read(id, binding);
+    return (
+      this.db
+        .prepare(
+          "SELECT 1 FROM codex_commands WHERE conversation_id=? AND status='running' LIMIT 1",
+        )
+        .get(id) !== undefined
+    );
+  }
   /** Bounded native status observation without hydrating retained prompts/images. */
   commandStatus(
     id: string,

@@ -2648,7 +2648,8 @@ export function canResumeOwnedLocalCodexDriver(sessionId: string, authSessionId:
     const native = getCodexConversationStore();
     return (
       native.readHostCustody(sessionId, meta.accountBinding)?.authSessionId === authSessionId &&
-      Boolean(native.read(sessionId, meta.accountBinding).threadId)
+      Boolean(native.read(sessionId, meta.accountBinding).threadId) &&
+      !native.hasRunningCommand(sessionId, meta.accountBinding)
     );
   } catch {
     return false;

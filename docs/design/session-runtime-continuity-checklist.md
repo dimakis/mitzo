@@ -51,3 +51,13 @@ rendered evidence is pending hosted CI. Focused local verification uses one work
 builds and rendered offline browser evidence belong in hosted CI. No local backend,
 browser, model test, staging dispatch or production activation is authorized by
 this checklist.
+
+The initial PR #922 source snapshot passed 646 affected offline tests, server and
+frontend source type checks, affected lint, commit hooks and secret scanning.
+The development fixture used real temporary Git, esbuild and node:test, with
+native transport and publication simulated. Resume availability now checks for a
+running native command with a bounded query; it does not hydrate completed
+prompt/image history during metadata refresh. The regression deliberately makes
+completed payloads unreadable and verifies running/completed and binding checks.
+Fresh current-head hosted checks and Centaur/MGMT source acceptance remain
+required. No live account, tool or publication qualification is claimed here.

@@ -206,7 +206,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': '16b92436a77e442a363542987457922b878729e12e9ee690a6d73947cce20dff',
+  '../chat.ts': '41cd5341b7b0da7b15e0d95b2f99f52ff0cd023305099e48c4145d361283ff74',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     'bccd81b31e6a1444a2b53c67f8ef11524c08bb4f4d95fa3f76c6b79ab4e443f8',
@@ -245,7 +245,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': '2eaa6323a9c8772647125ed30cc6e2d5db0c50edeffb364168ac26706e37b1da',
   '../codex-conversation-store.ts':
-    '59bd4c7b51a7a958de5d6ee52da4c50e9bced0baaf61136750608cebef0889e3',
+    'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     '71fa6b5d798815b452b26f7df5c58733abb793222bfa21ec71926b8bba2d8e74',
@@ -470,7 +470,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-lifecycle-controller.ts': '28461779f5af5ffe1c1e3fdcb3567eb126888debc7ecc9d42c059d6434dab699',
   '../ordinary-codex-continuation-status.ts': '74a66778c1265dce2ae43ba6b512a11d93902ddf037776dc963155c9915d7b92',
   '../ordinary-openshell-codex-entry-owner.ts': 'b1f611e782fe8e21003e1546d3db87e2a2341663bf7a1785996beef25e0bce88',
-  '../ordinary-openshell-codex-entry.ts': '96124c02037a7afa39d4fc009d14611dc6f60437dac48f2c03659b929a5fb616',
+  '../ordinary-openshell-codex-entry.ts': '9a28e2c77f5ff7aa845dca7141286d2a72346a4c89f51580a32ba14bd0347d01',
   '../ordinary-openshell-codex-owned-runtime.ts': '6d14ec7ad04aa6f5b3b70992e6f169c8e81a8f7b8b68c77d96af01eb9b3ff8dd',
   '../ordinary-openshell-codex-route.ts': 'f0bfd42b4dd663d2577d77ca857fddb9a1ac67d6a894f440b08764b7b33191d2',
   '../owned-openshell-codex-chat-admission.ts': '5ceacabb9affccfa83eb754e47885945ae50586685db5c886fd8a4e6dc967169',

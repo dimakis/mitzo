@@ -43,9 +43,7 @@ export function canResumeOwnedOpenShellCodexDriver(
       custody?.authSessionId === authSessionId &&
       isDeepStrictEqual(custody.binding, binding) &&
       Boolean(native.read(sessionId, meta.accountBinding).threadId) &&
-      !native
-        .commands(sessionId, meta.accountBinding)
-        .some((command) => command.status === 'running')
+      !native.hasRunningCommand(sessionId, meta.accountBinding)
     );
   } catch {
     return false;
