@@ -291,6 +291,6 @@ it('pins the extracted owner and installs it in the existing application slot', 
   const app = readFileSync(new URL('../app.ts', import.meta.url), 'utf8');
   const mount = app.indexOf('mountSymposiumArtifactRoutes(app,');
   expect(mount).toBeGreaterThan(app.indexOf("'/api/sessions/:id/github-publication'"));
-  expect(mount).toBeLessThan(app.indexOf("'/api/sessions/:id/symposium',"));
+  expect(mount).toBeLessThan(app.indexOf('mountSymposiumDirectorRoutes(app,'));
   expect(app.match(/mountSymposiumArtifactRoutes\(app,/g)).toHaveLength(1);
 });
