@@ -69,7 +69,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sandboxed-command.ts': 'c11012fbceda32ab6104b791ec598ba9b6c82a2d21d8571f393c3d61f87bdf67',
   // Shared approval scopes, transport custody and provider environment delivery.
   '../../packages/client/src/sse-connection.ts':
-    'df641e4ef93a4018d6ceb968b84b76df51921760c2907b8ec45592f3414baa31',
+    '148417de5b239c23cbb518ed01746d4f87eea4a6095f897cc2df2bcc87b98857',
   '../../packages/client/src/store.ts':
     'b1847d1777b7411be8d7446ff5a2c6cdc7c0735e4768470ed5b85f7722539060',
   '../../packages/harness/src/permission-handler.ts':

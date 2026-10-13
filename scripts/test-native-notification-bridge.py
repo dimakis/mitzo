@@ -18,8 +18,26 @@ ORIGIN = "https://mitzo-notification-test.invalid"
 LOG_LIMIT = 64 * 1024
 
 
-def simctl(*args: str) -> str:
-    return subprocess.check_output(["xcrun", "simctl", *args], text=True, timeout=180).strip()
+def simctl(*args: str, timeout: int = 180) -> str:
+    return subprocess.check_output(["xcrun", "simctl", *args], text=True, timeout=timeout).strip()
+
+
+def launch_app(device: str, bundle_id: str) -> str:
+    # First launch can still wait on cold LaunchServices after bootstatus returns.
+    # Issue one command for this owned fixture; a timeout remains a failure.
+    return simctl("launch", device, bundle_id, timeout=600)
+
+
+def wait_for_bridge(preferences: Path) -> None:
+    # WebKit processes start separately from the native app on a cold simulator.
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        if preferences.exists():
+            with preferences.open("rb") as source:
+                if plistlib.load(source).get("mitzo_notification_server_url") == ORIGIN:
+                    return
+        time.sleep(0.5)
+    raise RuntimeError("Web-to-native notification bridge did not configure its server origin")
 
 
 def wait_for_boot(device: str) -> None:
@@ -158,21 +176,15 @@ window.addEventListener('load', async () => {{
             stage = "install"
             simctl("install", device, str(copied))
             stage = "launch"
-            launch = simctl("launch", device, bundle_id)
+            launch = launch_app(device, bundle_id)
             pid = launch.rsplit(":", 1)[-1].strip()
             process_id = int(pid) if pid.isdecimal() else None
             container = Path(simctl("get_app_container", device, bundle_id, "data"))
             preferences = container / "Library" / "Preferences" / f"{bundle_id}.plist"
             stage = "bridge"
-            deadline = time.monotonic() + 30
-            while time.monotonic() < deadline:
-                if preferences.exists():
-                    with preferences.open("rb") as source:
-                        if plistlib.load(source).get("mitzo_notification_server_url") == ORIGIN:
-                            print("Real web-to-native notification configuration succeeded.")
-                            return
-                time.sleep(0.5)
-            raise RuntimeError("Web-to-native notification bridge did not configure its server origin")
+            wait_for_bridge(preferences)
+            print("Real web-to-native notification configuration succeeded.")
+            return
     except BaseException as error:
         failed = True
         try:
