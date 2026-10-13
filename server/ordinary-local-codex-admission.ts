@@ -58,6 +58,18 @@ export interface OrdinaryLocalCodexAdmissionAuthority {
     operation: (lease: OrdinaryLocalCodexAdmissionLease) => Promise<T>,
   ): Promise<T>;
 }
+/** An owned runtime may need native account/read to qualify. Its bootstrap is
+ * an external effect too: first freeze intent and claim durable uncertainty.
+ * The owner validates server configuration before claim, then retains the same
+ * isolated login/client through qualification and dispatch. A false claim must
+ * return without any bootstrap effects; it never recovers an uncertain launch. */
+export interface OrdinaryLocalCodexBootstrapAuthority {
+  withBootstrap<T>(
+    expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    claimBeforeBootstrap: () => boolean,
+    operation: (lease: OrdinaryLocalCodexAdmissionLease) => Promise<T>,
+  ): Promise<T | undefined>;
+}
 export interface OrdinaryLocalCodexAdmissionEffects {
   /** Owning workspace authority creates/reuses the already reserved exact workspace. */
   prepareWorkspace(expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>): Promise<void>;
@@ -169,6 +181,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       catalog: Pick<OrdinaryLocalCodexCapabilityCatalog, 'inventory' | 'resolve'>;
       declaration: ReturnType<OrdinaryLocalCodexTarget['admissionDeclaration']>;
       authority?: OrdinaryLocalCodexAdmissionAuthority;
+      bootstrapAuthority?: OrdinaryLocalCodexBootstrapAuthority;
     },
   ) {
     this.dependencies = {
@@ -181,6 +194,13 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       authority: dependencies.authority
         ? {
             withAdmission: dependencies.authority.withAdmission.bind(dependencies.authority),
+          }
+        : undefined,
+      bootstrapAuthority: dependencies.bootstrapAuthority
+        ? {
+            withBootstrap: dependencies.bootstrapAuthority.withBootstrap.bind(
+              dependencies.bootstrapAuthority,
+            ),
           }
         : undefined,
       store: {
@@ -202,7 +222,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     effects: OrdinaryLocalCodexAdmissionEffects,
   ): Promise<{ dispatched: boolean }> {
     const d = this.dependencies;
-    if (!d.enabled || !d.authority) fail('unavailable');
+    if (!d.enabled || (!d.authority && !d.bootstrapAuthority)) fail('unavailable');
+    if (d.authority && d.bootstrapAuthority) fail('authority_ambiguous');
     const parsed = Request.safeParse(input);
     if (!parsed.success) fail('invalid_request');
     const request = structuredClone(parsed.data);
@@ -253,45 +274,51 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     const dispatch = effects.dispatch.bind(effects);
     let entered = false;
     let claimed = false;
+    let claimAttempted = false;
+    const claim = () => {
+      if (claimAttempted) fail('authority_reentry');
+      claimAttempted = true;
+      const fingerprint = `ordinary-local-codex-v1:${createHash('sha256')
+        .update(
+          JSON.stringify(
+            canonical({
+              request,
+              workspace: snapshot.workspace,
+              agentProfile: snapshot.agentProfile,
+              agentContext: snapshot.agentContext,
+            }),
+          ),
+        )
+        .digest('hex')}`;
+      try {
+        d.store.admitOrdinaryLocalCommand(
+          structuredClone(admittedMeta),
+          structuredClone(snapshot.binding),
+          {
+            clientMsgId: request.clientMsgId,
+            requestFingerprint: fingerprint,
+            selection: structuredClone(snapshot.selection),
+            payload: structuredClone(request.payload),
+          },
+        );
+      } catch {
+        fail('identity_conflict');
+      }
+      claimed = d.store.claimOrdinaryLocalCommandDispatch(request.clientMsgId);
+      return claimed;
+    };
     try {
-      const result = await d.authority.withAdmission(structuredClone(snapshot), async (lease) => {
+      const operation = async (lease: OrdinaryLocalCodexAdmissionLease) => {
         if (!lease || typeof lease.assertCurrent !== 'function') fail('authority_unavailable');
+        if (d.bootstrapAuthority && !claimed) fail('authority_unavailable');
         if (entered) fail('authority_reentry');
         entered = true;
         try {
           await lease.assertCurrent();
         } catch {
-          fail('authority_unavailable');
+          fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
         }
-        const fingerprint = `ordinary-local-codex-v1:${createHash('sha256')
-          .update(
-            JSON.stringify(
-              canonical({
-                request,
-                workspace: snapshot.workspace,
-                agentProfile: snapshot.agentProfile,
-                agentContext: snapshot.agentContext,
-              }),
-            ),
-          )
-          .digest('hex')}`;
-        try {
-          d.store.admitOrdinaryLocalCommand(
-            structuredClone(admittedMeta),
-            structuredClone(snapshot.binding),
-            {
-              clientMsgId: request.clientMsgId,
-              requestFingerprint: fingerprint,
-              selection: structuredClone(snapshot.selection),
-              payload: structuredClone(request.payload),
-            },
-          );
-        } catch {
-          fail('identity_conflict');
-        }
-        if (!d.store.claimOrdinaryLocalCommandDispatch(request.clientMsgId))
-          return { dispatched: false };
-        claimed = true;
+        if (!d.bootstrapAuthority && !claim()) return { dispatched: false };
         try {
           await lease.assertCurrent();
           await prepareWorkspace(structuredClone(snapshot));
@@ -302,8 +329,14 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           fail('dispatch_uncertain');
         }
         return { dispatched: true };
-      });
+      };
+      const result = d.bootstrapAuthority
+        ? await d.bootstrapAuthority.withBootstrap(structuredClone(snapshot), claim, operation)
+        : await d.authority!.withAdmission(structuredClone(snapshot), operation);
+      if (d.bootstrapAuthority && claimAttempted && !claimed && !entered && result === undefined)
+        return { dispatched: false };
       if (!entered) fail('authority_unavailable');
+      if (!result) fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
       return result;
     } catch (error) {
       if (error instanceof OrdinaryLocalCodexAdmissionError) throw error;
