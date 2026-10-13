@@ -111,7 +111,16 @@ export class OwnedLocalCodexChatAdmission {
       binding.model === this.#expected.selection.model
     );
   }
-  assertOptions(options: OwnedLocalCodexChatOptions): void {
+  assertConsumerOwner(eventStore: EventStore, sessionId: string, commandId: string): void {
+    if (
+      eventStore !== this.owner.eventStore ||
+      sessionId !== this.owner.sessionId ||
+      commandId !== this.owner.commandId
+    )
+      throw unavailable();
+    this.assertCurrentSync();
+  }
+  assertPreparedOptions(options: OwnedLocalCodexChatOptions): void {
     try {
       if (this.#opened) throw unavailable();
       this.assertReceipt(true);
@@ -154,12 +163,15 @@ export class OwnedLocalCodexChatAdmission {
         options.repositoryWorkspace.sandbox === true
       )
         throw unavailable();
-      // Retain the actual session mode/CWD observer but freeze all supplied data.
-      this.#session = options.session;
-      this.#opened = true;
     } catch {
       throw unavailable();
     }
+  }
+  assertOptions(options: OwnedLocalCodexChatOptions): void {
+    this.assertPreparedOptions(options);
+    // Retain the actual session mode/CWD observer but freeze all supplied data.
+    this.#session = options.session;
+    this.#opened = true;
   }
   assertCurrentSync(): void {
     try {

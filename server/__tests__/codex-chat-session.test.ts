@@ -2861,9 +2861,9 @@ it('uses the already verified owned client locally regardless of global OpenShel
       onRequest: vi.fn(async () => ({})),
       onClose: vi.fn(),
     };
-    expect((config.createClient as (callbacks: typeof callbacks) => unknown)(callbacks)).toBe(
-      f.lease.client,
-    );
+    expect(
+      (config.createClient as (transportCallbacks: typeof callbacks) => unknown)(callbacks),
+    ).toBe(f.lease.client);
     await (config.verifyBinding as () => Promise<unknown>)();
     expect(f.lease.assertCurrent).toHaveBeenCalled();
     (config.beforeEnqueue as (input: unknown) => void)({
@@ -3128,9 +3128,9 @@ it('keeps owned native web search disabled despite a live runtime preference and
     chat = await openCodexChat(f.opts);
     const config = mocks.conversationOptions!;
     expect(config.webSearchDeploymentRevision).toBeUndefined();
-    expect(() => chat!.setWebSearchGrant(0, 'allowed')).toThrow(
-      'Owned local Codex chat unavailable',
-    );
+    const setWebSearchGrant = chat.setWebSearchGrant;
+    expect(setWebSearchGrant).toBeTypeOf('function');
+    expect(() => setWebSearchGrant!(0, 'allowed')).toThrow('Owned local Codex chat unavailable');
     expect(mocks.setWebSearchGrant).not.toHaveBeenCalled();
     const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
     vi.mocked(f.lease.client.request).mockImplementation(async (method, params) => {
