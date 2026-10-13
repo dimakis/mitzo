@@ -41,7 +41,7 @@ and [batchUpdate](https://developers.google.com/workspace/docs/api/reference/res
 contracts.
 
 Management accepts the complete revision-8 read-only Docs contract during rollout
-and reports `documentsEditing: false`. It reports true only after checking the
+and reports `documentsEditing: false`. Runtime attestation retains a byte-pinned copy of the accepted revision-8 profile and compares its complete normalized definition, so existing read-only providers remain admissible; mixed or broadened profiles remain blocked. It reports true only after checking the
 complete authoring policy and matching profile consent schema. Mixed read-only
 scopes/write rules, missing rules, extra write methods, and broader scopes fail
 closed. The field describes verified endpoint policy; ready credential installation
