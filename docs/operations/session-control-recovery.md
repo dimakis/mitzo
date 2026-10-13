@@ -41,13 +41,22 @@ failure boundary in place.
 
 ## Repair contract
 
-Control POSTs have a ten-second bound. Expired transport or network failure
+Control POSTs have a ten-second bound covering response headers and any required
+JSON body consumption. A stalled error response or snapshot-ACK body remains
+inside the same deadline and abort signal. Expired transport or network failure
 replaces the current stream after the existing reconnect delay. A hidden page
 waits for foreground. The latest selected chat is rehydrated after replay
 readiness; no provider start/send is part of that operation. Explicit navigation,
 logout and disconnect clear the old switch intent. Legacy servers are supported
 only for the two exact historical expired-connection response texts, not arbitrary
 404s. Unrelated HTTP failures remain visible without claiming the provider ended.
+
+Automatic selection hydration sends only the session ID, never a saved
+`historyCursor`. Reconnect owns that cursor and its pending snapshot offer;
+resetting it before the delayed transcript ACK would invalidate the offer and
+repeat recovery. A foreground first-prompt assignment updates the recovery
+selection, replacing the previous blank-chat intent. Correlated assignments
+from an offscreen draft do not change the foreground selection.
 
 Destructive controls and permission decisions retain their nonterminal rejection
 feedback and require deliberate retry. A lost cancellation response never
@@ -65,7 +74,9 @@ through their existing error path.
 Offline regressions first reproduced terminal switch/suspend errors, obsolete
 response delivery, absent selected-chat rehydration, an indefinitely stalled POST
 and an unnecessary background reconnect. Tests cover the repaired behavior,
-legacy and unrelated 404s, no automatic cancellation/permission replay,
+legacy and unrelated 404s, stalled JSON bodies, new-chat background/resume,
+actual server snapshot offers with deliberately delayed ACKs, no automatic
+cancellation/permission replay,
 preserved streamed content, authentication ownership and original transport
 cleanup. All provider calls are mocked; no live model test was made.
 

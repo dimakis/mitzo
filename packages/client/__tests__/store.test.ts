@@ -226,6 +226,81 @@ describe('createMitzoStore', () => {
 });
 
 describe('switchSession', () => {
+  it('recovers the assigned new chat on a surviving foreground stream', async () => {
+    vi.useFakeTimers();
+    let visibility = 'visible';
+    const browserListeners = new Map<string, () => void>();
+    vi.stubGlobal('document', {
+      get visibilityState() {
+        return visibility;
+      },
+      addEventListener: (type: string, listener: () => void) =>
+        browserListeners.set(type, listener),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    let welcome!: (event: MessageEvent) => void;
+    const source = {
+      addEventListener: (type: string, listener: (event: MessageEvent) => void) => {
+        if (type === 'welcome') welcome = listener;
+      },
+      removeEventListener: vi.fn(),
+      close: vi.fn(),
+      onmessage: null as ((event: MessageEvent) => void) | null,
+      onerror: null,
+    };
+    const emit = (message: Record<string, unknown>) =>
+      source.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }));
+    const fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/probe'))
+        emit({ type: '_probe', nonce: JSON.parse(String(init?.body)).nonce });
+      if (url.endsWith('/send')) {
+        const body = JSON.parse(String(init?.body));
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            accepted: true,
+            clientMsgId: body.clientMsgId,
+            sessionId: 'assigned',
+          }),
+        };
+      }
+      return { ok: true };
+    });
+    const store = createMitzoStore({
+      ...makeOptions(),
+      sseConfig: {
+        baseUrl: '',
+        fetch,
+        createEventSource: () => source as unknown as EventSource,
+      },
+    });
+    try {
+      welcome(new MessageEvent('welcome', { data: JSON.stringify({ connectionId: 'surviving' }) }));
+      store.getState().newSession();
+      store.getState().sendMessage('Start this chat');
+      await vi.advanceTimersByTimeAsync(0);
+      emit({ type: 'session_id', sessionId: 'assigned' });
+      expect(store.getState().sessions.active).toBe('assigned');
+      visibility = 'hidden';
+      browserListeners.get('visibilitychange')?.();
+      await vi.advanceTimersByTimeAsync(0);
+      fetch.mockClear();
+      visibility = 'visible';
+      browserListeners.get('visibilitychange')?.();
+      await vi.advanceTimersByTimeAsync(0);
+      const switches = fetch.mock.calls.filter(([url]) => String(url).endsWith('/switch'));
+      expect(switches).toHaveLength(1);
+      expect(JSON.parse(String(switches[0][1]?.body))).toMatchObject({ sessionId: 'assigned' });
+    } finally {
+      store.getState().invalidateAuthentication();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps a streaming response intact when an HTTP control fails', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('selected');

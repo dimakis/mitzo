@@ -1317,6 +1317,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   const callbacks: ProtocolCallbacks = {
     onSessionAssigned(sessionId: string) {
       parserState.currentSessionId = sessionId;
+      connection.setRecoverySession?.(sessionId);
       for (const id of pendingOptimisticMessageIds) {
         if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
         const origin = deliveryOrigins.get(id);

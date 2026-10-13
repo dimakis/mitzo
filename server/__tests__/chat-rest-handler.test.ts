@@ -21,6 +21,7 @@ import { SessionSseRegistry } from '../session-sse-registry.js';
 import { SseTransport } from '../sse-transport.js';
 import { createChatRestRouter } from '../chat-rest-handler.js';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
+import { SseConnection } from '@mitzo/client';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
 import { SessionControlRejected } from '../ordinary-contributor-execution.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
@@ -147,6 +148,88 @@ describe('chat-rest-handler', () => {
     await new Promise<void>((resolve, reject) => {
       testServer.close((error) => (error ? reject(error) : resolve()));
     });
+  });
+
+  it('preserves the actual reconnect snapshot offer while recovering selection before its delayed ACK', async () => {
+    const actual =
+      await vi.importActual<typeof import('../ws-handler-v2.js')>('../ws-handler-v2.js');
+    vi.mocked(handleSwitchSession).mockImplementation(actual.handleSwitchSession);
+    vi.mocked(handleReconnect).mockImplementation(actual.handleReconnect);
+    handlerContext.sessionRegistry = new SessionRegistry();
+    eventStore.upsertSession({ sessionId: 'selected', mode: 'ask' });
+    eventStore.setSessionState('selected', 'READY', { reason: 'offline_fixture' });
+    type Source = {
+      onmessage: ((event: MessageEvent) => void) | null;
+      welcome?: (event: MessageEvent) => void;
+      addEventListener: (type: string, listener: (event: MessageEvent) => void) => void;
+      close: () => void;
+    };
+    const sources: Source[] = [];
+    let snapshot!: { sessionId: string; cursor: number; offerId: string };
+    const replies: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
+    const conn = new SseConnection({
+      baseUrl: 'https://offline.invalid',
+      createEventSource: () => {
+        const source: Source = {
+          onmessage: null,
+          addEventListener(type, listener) {
+            if (type === 'welcome') this.welcome = listener;
+          },
+          close: vi.fn(),
+        };
+        sources.push(source);
+        return source as unknown as EventSource;
+      },
+      fetch: async (url, init) => {
+        const endpoint = new URL(url).pathname;
+        const response = await request(testServer)
+          .post(endpoint)
+          .set('X-Connection-ID', CONNECTION_ID)
+          .send(JSON.parse(String(init?.body)));
+        replies.push({ endpoint, body: response.body });
+        return new Response(JSON.stringify(response.body), { status: response.status });
+      },
+    });
+    vi.spyOn(connRegistry.get(CONNECTION_ID)!.transport, 'send').mockImplementation((message) => {
+      sources.at(-1)?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }));
+    });
+    conn.onMessage((message) => {
+      if (message.type === 'session_reconnect_snapshot') snapshot = message as typeof snapshot;
+      return true;
+    });
+    try {
+      conn.connect();
+      sources[0].welcome?.(
+        new MessageEvent('welcome', { data: JSON.stringify({ connectionId: CONNECTION_ID }) }),
+      );
+      conn.send({ type: 'switch_session', sessionId: 'selected', historyCursor: 0 });
+      await vi.waitFor(() =>
+        expect(replies.some(({ endpoint }) => endpoint.endsWith('/switch'))).toBe(true),
+      );
+      conn.trackSeq('selected', 0);
+      conn.checkAndReconnect(true);
+      sources[1].welcome?.(
+        new MessageEvent('welcome', { data: JSON.stringify({ connectionId: CONNECTION_ID }) }),
+      );
+      await vi.waitFor(() =>
+        expect(replies.filter(({ endpoint }) => endpoint.endsWith('/switch'))).toHaveLength(2),
+      );
+      expect(snapshot.offerId).toBeTruthy();
+      // Transcript application is deliberately delayed until after reconnect readiness.
+      conn.acknowledgeReconnectSnapshot(snapshot.sessionId, snapshot.cursor, snapshot.offerId);
+      await vi.waitFor(() =>
+        expect(
+          replies.find(({ endpoint }) => endpoint.endsWith('/reconnect-snapshot-applied'))?.body
+            .applied,
+        ).toBe(true),
+      );
+      expect(sources).toHaveLength(2);
+      expect(conn.isConnected()).toBe(true);
+    } finally {
+      conn.disconnect();
+      vi.mocked(handleSwitchSession).mockResolvedValue(undefined);
+      vi.mocked(handleReconnect).mockReset();
+    }
   });
 
   // ─── Header validation ──────────────────────────────────────────────────

@@ -1026,9 +1026,9 @@ describe('SseConnection', () => {
     await vi.advanceTimersByTimeAsync(0);
     const switches = fetch.mock.calls.filter(([url]) => url.endsWith('/switch'));
     expect(switches).toHaveLength(1);
-    expect(JSON.parse(switches[0][1].body)).toMatchObject({
+    expect(JSON.parse(switches[0][1].body)).toEqual({
+      type: 'switch_session',
       sessionId: 'latest',
-      historyCursor: 12,
     });
     conn.disconnect();
   });
@@ -1193,6 +1193,28 @@ describe('SseConnection', () => {
     expect(fetch.mock.calls.filter(([url]) => url.endsWith('/switch'))).toHaveLength(0);
     conn.disconnect();
   });
+
+  it.each(['switch_session', 'session_suspend'])(
+    'bounds a stalled error response body for %s',
+    async (type) => {
+      let signal!: AbortSignal;
+      const fetch = vi
+        .fn()
+        .mockImplementationOnce((_url, init) => {
+          signal = init.signal;
+          return Promise.resolve({ ok: false, status: 404, json: () => new Promise(() => {}) });
+        })
+        .mockResolvedValue({ ok: true });
+      const conn = new SseConnection(createConfig({ fetch }));
+      conn.connect();
+      lastES()._emit('welcome', { connectionId: 'old' });
+      conn.send({ type, sessionId: 'selected', sessions: [{ sessionId: 'selected', lastSeq: 0 }] });
+      await vi.advanceTimersByTimeAsync(10_500);
+      expect(signal.aborted).toBe(true);
+      expect(MockEventSource.instances).toHaveLength(2);
+      conn.disconnect();
+    },
+  );
 
   // ─── Message sending (client → server) ─────────────────────────────────
 
