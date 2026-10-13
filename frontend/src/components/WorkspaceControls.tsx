@@ -117,10 +117,10 @@ export function WorkspaceControls({
             summary?.model,
             summary?.thinking,
             summary?.location,
-            status,
           ]
             .filter(Boolean)
             .join(', ')}
+          aria-describedby={`${id}-status`}
           aria-expanded={open}
           aria-controls={id}
           onClick={() => {
@@ -153,7 +153,7 @@ export function WorkspaceControls({
               <span>Loading profile…</span>
             )}
           </span>
-          <span className="conversation-state" title={status}>
+          <span id={`${id}-status`} className="conversation-state" title={status}>
             {status}
           </span>
           <UiIcon name={open ? 'up' : 'down'} />

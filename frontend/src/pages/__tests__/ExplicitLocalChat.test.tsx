@@ -337,6 +337,7 @@ for (const [name, Screen] of [
     fireEvent.click(retry);
     await screen.findByText('Run on: Local · first command only');
     expect(workspace.querySelector('.conversation-state')).toHaveTextContent('First command');
+    expect(workspace).toHaveAccessibleDescription('First command');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
   });
   it(`${name}: immutable Local metadata disables follow-up, mode and web settings on reload`, async () => {
@@ -345,6 +346,7 @@ for (const [name, Screen] of [
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
     await screen.findByText('Run on: Local · first command only');
     expect(workspace.querySelector('.conversation-state')).toHaveTextContent('First command');
+    expect(workspace).toHaveAccessibleDescription('First command');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     await waitFor(() => expect(screen.getByRole('button', { name: /^Agent$/ })).toBeDisabled());
     expect(screen.queryByTestId('web-search-connection')).toBeNull();
