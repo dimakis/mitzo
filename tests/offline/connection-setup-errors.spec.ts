@@ -16,6 +16,7 @@ for (const theme of ['light', 'dark'] as const) {
     }, theme);
     await page.routeWebSocket('**/*', (socket) => socket.close());
     let attempt = 0;
+    let failRecovery = false;
     let setup = {
       id: 'fixture-ha',
       sessionId: 'fixture-chat',
@@ -46,7 +47,10 @@ for (const theme of ['light', 'dark'] as const) {
       if (url.pathname === '/api/credential-connections/setups/fixture-ha/complete') {
         expect(route.request().postDataJSON().secret).toBe('synthetic-token');
         attempt++;
-        if (attempt === 1) return route.fulfill({ status: 409, json: { error: submissionError } });
+        if (attempt === 1) {
+          failRecovery = true;
+          return route.fulfill({ status: 409, json: { error: submissionError } });
+        }
         setup = {
           ...setup,
           revision: setup.revision + 2,
@@ -54,6 +58,13 @@ for (const theme of ['light', 'dark'] as const) {
           error: attempt === 2 ? storageError : '',
         };
         return route.fulfill({ json: { setup } });
+      }
+      if (url.pathname === '/api/credential-connections/setups/fixture-ha' && failRecovery) {
+        failRecovery = false;
+        return route.fulfill({
+          status: 500,
+          json: { error: 'Status refresh temporarily unavailable.' },
+        });
       }
       if (url.pathname === '/api/credential-connections/setups/fixture-ha')
         return route.fulfill({ json: { setup } });
@@ -87,6 +98,7 @@ for (const theme of ['light', 'dark'] as const) {
       await connect.click();
     };
     await submit();
+    await page.getByRole('button', { name: 'Check setup status' }).click();
     await expect(page.getByRole('alert')).toHaveText(submissionError);
     await expect(key).toHaveValue('');
     await submit();

@@ -71,32 +71,36 @@ export function ConnectionSetupView() {
   const inFlight = useRef<number | undefined>(undefined);
   const routeGeneration = useRef(0);
   const requestGeneration = useRef(0);
+  const submissionError = useRef('');
   const alive = useRef(false);
   const currentSetupId = useRef(setupId);
   currentSetupId.current = setupId;
-  const load = useCallback(
-    async (submissionError = '') => {
-      const route = routeGeneration.current;
-      const request = ++requestGeneration.current;
-      const current = () =>
-        alive.current &&
-        currentSetupId.current === setupId &&
-        routeGeneration.current === route &&
-        requestGeneration.current === request;
-      try {
-        const next = await getConnectionSetup(setupId);
-        if (current()) {
-          setSetup(next);
-          setError(next.error || (next.status === 'pending' ? submissionError : ''));
-          setUncertain(false);
-        }
-      } catch (reason) {
-        if (current()) setError(reason instanceof Error ? reason.message : 'Unable to load setup.');
-        throw reason;
+  const load = useCallback(async () => {
+    const route = routeGeneration.current;
+    const request = ++requestGeneration.current;
+    const current = () =>
+      alive.current &&
+      currentSetupId.current === setupId &&
+      routeGeneration.current === route &&
+      requestGeneration.current === request;
+    try {
+      const next = await getConnectionSetup(setupId);
+      if (current()) {
+        if (next.error || ['ready', 'cancelled', 'expired'].includes(next.status))
+          submissionError.current = '';
+        setSetup(next);
+        setError(next.error || (next.status === 'pending' ? submissionError.current : ''));
+        setUncertain(false);
       }
-    },
-    [setupId],
-  );
+    } catch (reason) {
+      if (current())
+        setError(
+          submissionError.current ||
+            (reason instanceof Error ? reason.message : 'Unable to load setup.'),
+        );
+      throw reason;
+    }
+  }, [setupId]);
   useEffect(() => {
     routeGeneration.current += 1;
     alive.current = true;
@@ -104,6 +108,7 @@ export function ConnectionSetupView() {
     setSecret('');
     setPassphrase('');
     setError('');
+    submissionError.current = '';
     setBusy(false);
     setUncertain(false);
     setAuthorization(getCachedCredentialAuthorization());
@@ -165,6 +170,7 @@ export function ConnectionSetupView() {
       requestGeneration.current === request;
     const credential = secret;
     const unlock = passphrase;
+    submissionError.current = '';
     setSecret('');
     setPassphrase('');
     setError('');
@@ -191,10 +197,10 @@ export function ConnectionSetupView() {
       if (mutationStarted) {
         setAuthorization(undefined);
         setUncertain(true);
+        submissionError.current =
+          reason instanceof Error ? reason.message : 'Unable to complete setup.';
         // A lost response may follow a successful save. Check before accepting another key.
-        await load(reason instanceof Error ? reason.message : 'Unable to complete setup.').catch(
-          () => undefined,
-        );
+        await load().catch(() => undefined);
       } else setAuthorization(undefined);
       if (current() && !mutationStarted)
         setError(reason instanceof Error ? reason.message : 'Unable to authorize setup.');

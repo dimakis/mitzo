@@ -58,6 +58,46 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+it.each(['pending', 'durable-failure', 'ready'] as const)(
+  'retains submission guidance after failed status recovery until %s status is confirmed',
+  async (result) => {
+    const submissionError = 'The originating chat is unavailable. Return to that chat and retry.';
+    vi.mocked(api.getCachedCredentialAuthorization).mockReturnValue({
+      csrf: 'csrf',
+      expiresAt: Date.now() + 60000,
+    });
+    vi.mocked(api.completeConnectionSetup).mockRejectedValue(new Error(submissionError));
+    vi.mocked(api.getConnectionSetup)
+      .mockResolvedValueOnce(setup)
+      .mockRejectedValueOnce(new Error('Status refresh unavailable'))
+      .mockResolvedValueOnce({
+        ...setup,
+        status: result === 'ready' ? 'ready' : 'pending',
+        error:
+          result === 'durable-failure' ? 'Unlock Apple Keychain on the Mac, then retry' : undefined,
+      });
+    open();
+    await screen.findByLabelText('Home Assistant key');
+    fireEvent.change(screen.getByLabelText('Home Assistant key'), {
+      target: { value: 'fixture-key' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Home Assistant' }));
+    const refresh = await screen.findByRole('button', { name: 'Check setup status' });
+    fireEvent.click(refresh);
+    if (result === 'ready') {
+      await screen.findByRole('heading', { name: 'Home Assistant is connected' });
+      expect(screen.queryByRole('alert')).toBeNull();
+    } else {
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: 'Check setup status' })).toBeNull(),
+      );
+      expect(screen.getByRole('alert').textContent).toContain(
+        result === 'durable-failure' ? 'Unlock Apple Keychain' : submissionError,
+      );
+    }
+    expect(api.completeConnectionSetup).toHaveBeenCalledTimes(1);
+  },
+);
 it.each([undefined, '', 'Unlock Apple Keychain on the Mac, then retry'])(
   'preserves submission errors after status refresh unless a durable failure supersedes them: %s',
   async (durableError) => {
