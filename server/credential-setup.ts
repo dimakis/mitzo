@@ -6,6 +6,10 @@ import {
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
+  CredentialVerificationError,
+  type VerificationErrorCode,
+} from './credential-verification-error.js';
+import {
   requestTarget,
   type CredentialConnectionStore,
   type PublicCredentialConnection,
@@ -124,6 +128,7 @@ export interface ConnectionSetup {
   connectionId?: string;
   connectionRevision?: number;
   error?: string;
+  errorCode?: VerificationErrorCode;
   delivery?: 'pending' | 'delivered';
 }
 type CreateVerified = (
@@ -135,8 +140,6 @@ type CreateVerified = (
   stillAllowed: () => boolean,
   persistReady: (connection: PublicCredentialConnection) => void,
 ) => Promise<PublicCredentialConnection>;
-const retryMessage =
-  'Could not verify this key. Check the key, service address and access, then try again.';
 
 /** Secret-free persistent setup; browser submission is the sole credential boundary. */
 export class CredentialConnectionSetups {
@@ -286,7 +289,8 @@ export class CredentialConnectionSetups {
         ...setup,
         status: 'pending' as const,
         revision: setup.revision + 1,
-        error: retryMessage,
+        error: new CredentialVerificationError('interrupted').message,
+        errorCode: 'interrupted' as const,
       };
       this.store.putSetup(retry);
       return retry;
@@ -314,8 +318,9 @@ export class CredentialConnectionSetups {
       throw new Error('Setup changed');
     if (setup.status === 'ready') return setup;
     if (setup.status !== 'pending') throw new Error('Setup unavailable');
-    if (!secret || secret.length > 16_384 || /[\r\n]/.test(secret))
-      throw new Error('Invalid credential');
+    if (secret.length > 16_384) throw new Error('Invalid credential');
+    if (setup.profile === 'home-assistant') secret = secret.trim();
+    if (!secret || /[\r\n]/.test(secret)) throw new Error('Invalid credential');
     const verifying = { ...setup, status: 'verifying' as const, revision: revision + 1 };
     if (!this.store.replaceSetupAtRevision(verifying, revision)) throw new Error('Setup changed');
     this.active.add(id);
@@ -358,17 +363,23 @@ export class CredentialConnectionSetups {
             delivery: 'pending',
           };
           delete ready.error;
+          delete ready.errorCode;
           if (!this.store.replaceSetupAtRevision(ready, verifying.revision))
             throw new Error('Setup changed');
         },
       );
       return ready;
-    } catch {
+    } catch (error) {
+      const failure =
+        error instanceof CredentialVerificationError
+          ? error
+          : new CredentialVerificationError(signal.aborted ? 'timeout' : 'save_failed');
       const retry: ConnectionSetup = {
         ...verifying,
         status: setup.expiresAt <= Date.now() ? 'expired' : 'pending',
         revision: verifying.revision + 1,
-        error: retryMessage,
+        error: failure.message,
+        errorCode: failure.code,
       };
       this.store.replaceSetupAtRevision(retry, verifying.revision);
       return this.store.getSetup(id)!;

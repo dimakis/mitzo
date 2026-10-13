@@ -198,6 +198,8 @@ For ordinary ChatGPT accounts, **Sign-in** is separate from effective access. An
 
 If an ordinary OpenShell ChatGPT chat rejects an expired, revoked or unverified subscription grant during startup, the error asks for a fresh sign-in to the selected account. Reconnect that account before retrying; changing the model does not repair its sign-in grant.
 
+Chat-prepared service connections report token rejection, service/network failures and Apple Keychain storage failures separately. Home Assistant token entry ignores surrounding paste whitespace. A failed submission keeps its recovery message visible after checking saved setup status; a confirmed successful save clears the error without submitting the key again. Diagnostic setup records retain only a fixed failure code and message, never keys or upstream error details.
+
 Ordinary OpenShell chats validate reviewed Jira, GitHub and custom REST connection policies at runtime as well as during setup. Current account assignments, exact provider bindings and explicit on-demand approvals remain required; changed permissions or an altered sandbox policy block admission.
 
 OpenAI API chats read Jira through Mitzo's approved Keychain connection tools; their Bash sandbox has no network or credentials. Reuse a saved Jira connection, or ask the chat to prepare its secure Jira read-only setup card with your public account email and site information. Enter the API token only in that card. Both tenant URLs and scoped-token cloud IDs are supported. Each chat approves access separately; an OpenShell-only Jira enrollment does not supply host API access. See [Jira reads in API chats](docs/operations/api-jira-access.md) for setup and query details.
