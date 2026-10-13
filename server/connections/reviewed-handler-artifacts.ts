@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.95';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.99';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '3f61aef73d4cb8afddd29e019e3e76b164fb0f84392ce28860db2ff54b07d799',
   '../ordinary-local-codex-entry.ts':
-    '9f1fa3bf0630e92233bdb7fdef595a927645b3013dfc943d5ad37ff1c9c7b1c2',
+    '3efb3cdaf8fbc7a6dccb5bc6c8e7e33f11683137ffdb035ce2c7f445db1b91d0',
   '../ordinary-local-codex-metadata.ts':
     'c48dca9525bd9eb926b918a89d5838a6be86ee198dcedcaf63c0e49c06b17e76',
   '../ordinary-repository-startup.ts':
@@ -111,7 +111,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14',
   '../url-access-tool.ts': '4eea0e50346fe1e61acb1668ea33499651ad9a7441bf763a83544ac7a50a510b',
   '../web-access-tool.ts': '3b0d11abd05a3f86a2dead25caf92343ca7a7d9e402480633482bbbfa0be655a',
-  '../index.ts': 'e0a81ca883c51e6414763f5e249564b2e5e5bc45b822453118de151719b3c9db',
+  '../index.ts': 'fb9363dd5b611fbbc6cb2efbcf7df68af41b12ac3c80d66b7bff134a58a622c6',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
 
@@ -144,7 +144,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': 'b1e0d210661f410bc93fbdc11337fc0e45ae2d91309e2a34e39290b255174266',
+  '../chat.ts': '2c2654aef01168bc89deda5790b51da5376f1a357646146b21c6bb1c62efcfef',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     'e975b5bf611a99fe5dbf692253ec53bd7c5d549cfe773cd0736fe5dd7c18c867',

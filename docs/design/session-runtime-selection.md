@@ -185,6 +185,11 @@ responses resolve their actual pending-session owner before permission effects,
 including direct answers without reattachment. Legacy owned Send and mode changes
 are refused before native command or skill routing. Socket teardown detaches only
 the exact current transport, so an old socket cannot detach its replacement.
+The same identity check applies to SSE and v2 socket cleanup. If the original
+stream disappears during preparation, the admitted query reconciles attachment
+before consuming buffered events or issuing completion notifications. The login,
+native query and consumed receipt remain owned; suspension keeps its existing grace
+and buffering policy. Preparation cleanup never replays the admitted command.
 
 ## Host workspace reservation before checkout creation
 
