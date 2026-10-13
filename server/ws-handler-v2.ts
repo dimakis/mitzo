@@ -298,6 +298,33 @@ export function handleHello(
   return connectionId;
 }
 
+/** Attachment can change; the retained owned-local subject cannot. */
+function allowOwnedLocalControl(
+  connectionId: string,
+  sessionId: string,
+  ctx: V2HandlerContext,
+): boolean {
+  const found = ctx.sessionRegistry.findBySessionId(sessionId, true);
+  const owner = found?.session?.ownedLocalAuthSessionId;
+  const binding = ctx.eventStore.getSessionRuntimeBinding?.(sessionId);
+  const boundLocal =
+    binding?.execution?.location === 'local' && binding.harness.implementation === 'codex';
+  // Cold replay has no execution to take over. It never opens a native client.
+  if (!found || (!owner && !boundLocal)) return true;
+  if (
+    owner &&
+    liveTransportAuthSessionId(connectionId) === owner &&
+    ctx.connRegistry.get(connectionId)?.transport.isOpen()
+  )
+    return true;
+  ctx.connRegistry.get(connectionId)?.transport.send({
+    type: 'error',
+    sessionId,
+    error: 'Owned local session belongs to another login',
+  });
+  return false;
+}
+
 export function handleReconnect(
   connectionId: string,
   msg: {
@@ -314,6 +341,7 @@ export function handleReconnect(
       const summaries: Array<{ sessionId: string; replayed: number }> = [];
 
       for (const entry of msg.sessions) {
+        if (!allowOwnedLocalControl(connectionId, entry.sessionId, ctx)) continue;
         ctx.connRegistry.watch(connectionId, entry.sessionId);
 
         // Set cursor to client's lastSeq BEFORE replay, so periodic sync
@@ -546,6 +574,7 @@ export async function handleSwitchSession(
         return;
       }
 
+      if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return;
       const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
 
       if (!sessionMeta) {
@@ -685,6 +714,7 @@ export function handleSendV2(
           const pinned = ctx.eventStore.getSession(msg.sessionId)?.agentProfile;
           if (
             !pinned ||
+            pinned.kind !== msg.agentProfile.kind ||
             pinned.profileId !== msg.agentProfile.profileId ||
             pinned.revision !== msg.agentProfile.revision
           )
@@ -1245,7 +1275,8 @@ export function handleSendV2(
   );
 }
 
-export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): void {
+export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): boolean {
+  if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return false;
   withSpan('ws.stop', { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId }, () => {
     assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'stop');
     if (
@@ -1259,6 +1290,7 @@ export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerC
       log.info('stop', { connectionId, sessionId: msg.sessionId });
     }
   });
+  return true;
 }
 
 export function handleInterruptV2(
@@ -1279,6 +1311,7 @@ export function handleInterruptV2(
         if (delivery?.awaitStartupAdmission) throw error;
         return;
       }
+      if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return;
       if (
         cancelDeliberation(ctx.eventStore, msg.sessionId) ||
         cancelFusion(ctx.eventStore, msg.sessionId)
@@ -1543,6 +1576,9 @@ export function handlePermissionResponseV2(
         return false;
       }
       const pendingSessionId = getPendingSessionId(msg.permId);
+      const ownedSessionId = pendingSessionId ?? msg.sessionId;
+      if (ownedSessionId && !allowOwnedLocalControl(connectionId, ownedSessionId, ctx))
+        return false;
       if (pendingSessionId) {
         const found = ctx.sessionRegistry.findBySessionId(pendingSessionId, true);
         const ownerConnection =
@@ -1899,6 +1935,7 @@ export function handleSessionClose(
     'ws.session_close',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     () => {
+      if (!allowOwnedLocalControl(connectionId, msg.sessionId, ctx)) return;
       assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'close');
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       const conn = ctx.connRegistry.get(connectionId);

@@ -1,4 +1,8 @@
-import { LocalCodexFirstCommandSchema, LocalCodexFirstCommandReceiptSchema, LocalCodexRetainedCommandObservationSchema } from '@mitzo/protocol';
+import {
+  LocalCodexFirstCommandSchema,
+  LocalCodexFirstCommandReceiptSchema,
+  LocalCodexRetainedCommandObservationSchema,
+} from '@mitzo/protocol';
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
 interface Entry {
   body: Record<string, unknown>;

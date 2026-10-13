@@ -545,6 +545,19 @@ export function SymposiumConversation({
     [items, selected],
   );
 
+  const profileDrafts =
+    sessionId && status?.sessionId === sessionId ? (
+      <SymposiumProfileProposals
+        key={sessionId}
+        id={profilesPanelId}
+        sessionId={sessionId}
+        pendingOnly={!profilesOpen}
+        refreshKey={chat.messages.length}
+        seatSeed={seatSeed}
+        onSeatSeedDone={() => setSeatSeed(null)}
+      />
+    ) : null;
+
   const profileTools =
     sessionId && profileToolsTarget && status?.sessionId === sessionId
       ? createPortal(
@@ -573,13 +586,6 @@ export function SymposiumConversation({
                     Draft reusable profile from this seat
                   </button>
                 )}
-                <SymposiumProfileProposals
-                  key={sessionId}
-                  id={profilesPanelId}
-                  sessionId={sessionId}
-                  seatSeed={seatSeed}
-                  onSeatSeedDone={() => setSeatSeed(null)}
-                />
               </>
             )}
           </div>,
@@ -590,7 +596,15 @@ export function SymposiumConversation({
   if (base && (!status || status.sessionId !== sessionId))
     return (
       <>
-        <ChatArea {...chat} />
+        <ChatArea
+          {...chat}
+          afterMessages={
+            <>
+              {chat.afterMessages}
+              {profileDrafts}
+            </>
+          }
+        />
         {/* Keep the input area visible without mounting queue/send effects. */}
         <div className="chat-input" aria-busy="true">
           <div className="chat-input-row">
@@ -628,6 +642,7 @@ export function SymposiumConversation({
               <>
                 {chat.afterMessages}
                 {ordinaryAfterMessages}
+                {profileDrafts}
               </>
             }
           />
@@ -725,6 +740,7 @@ export function SymposiumConversation({
         running={chat.running && (selected === 'all' || Object.keys(live ?? {}).length > 0)}
         afterMessages={
           <>
+            {profileDrafts}
             {visiblePage.queued.filter(
               (item) => selected === 'all' || item.recipientSeatId === selected,
             ).length > 0 && (

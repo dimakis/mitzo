@@ -283,6 +283,19 @@ Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromiu
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
 
+## Agent profile draft cards
+
+Pending profile proposals appear after the transcript inside the existing ChatArea
+scroll surface, even with Workspace closed. Empty drafts and manual seat drafting
+remain available through Workspace. The cards reuse SymposiumProfileProposals, its
+labelled controls, shared profile styles and semantic tokens. New proposals receive
+an opaque generated ID; users edit the agent's name and guidance. Internal role and reviewer recipe controls
+are available under the native **Advanced profile settings** disclosure. Explicit Save
+confirms the profile is in the Agent Library and provides a Library link. Editing
+never saves automatically. Offline fixtures cover direct save, empty/error states,
+long instructions, keyboard activation, 320px/390px mobile and desktop, dark/light
+themes and alternate accent/font preferences.
+
 ## Google Workspace policy status
 
 `GoogleWorkspaceControls` retains the existing Connections surface and controls,

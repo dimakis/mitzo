@@ -150,7 +150,13 @@ afterEach(() => {
 });
 
 const readyId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
-function setup(Screen: typeof ChatView, savedLocal = false, disabled = false, bound = false) {
+function setup(
+  Screen: typeof ChatView,
+  savedLocal = false,
+  disabled = false,
+  bound = false,
+  metadataFailed = false,
+) {
   const fixture = localInventoryFixture();
   const draft = createChatDraft();
   draft.text = 'hello';
@@ -172,28 +178,30 @@ function setup(Screen: typeof ChatView, savedLocal = false, disabled = false, bo
         ? new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 })
         : new Response(JSON.stringify(fixture));
     if (String(url).endsWith('/meta'))
-      return new Response(
-        JSON.stringify({
-          sessionType: 'chat',
-          accountBinding: {
-            accountId: 'personal',
-            accountLabel: 'Personal ChatGPT',
-            model: 'luna-fixture',
-          },
-          modelSelection: {
-            model: 'luna-fixture',
-            models: fixture.accounts[0].models,
-            reasoningEffort: 'low',
-          },
-          runtimeCommandScope: 'first-command-only',
-          runtimeBinding: {
-            version: 2,
-            account: fixture.accounts[0].account,
-            harness: { implementation: 'codex' },
-            execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
-          },
-        }),
-      );
+      return metadataFailed
+        ? new Response('{}', { status: 503 })
+        : new Response(
+            JSON.stringify({
+              sessionType: 'chat',
+              accountBinding: {
+                accountId: 'personal',
+                accountLabel: 'Personal ChatGPT',
+                model: 'luna-fixture',
+              },
+              modelSelection: {
+                model: 'luna-fixture',
+                models: fixture.accounts[0].models,
+                reasoningEffort: 'low',
+              },
+              runtimeCommandScope: 'first-command-only',
+              runtimeBinding: {
+                version: 2,
+                account: fixture.accounts[0].account,
+                harness: { implementation: 'codex' },
+                execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+              },
+            }),
+          );
     if (String(url).endsWith('/symposium/status'))
       return new Response(JSON.stringify({ sessionId: 'bound-session', config: null, seats: [] }));
     return new Response('[]');
@@ -220,7 +228,16 @@ function setup(Screen: typeof ChatView, savedLocal = false, disabled = false, bo
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
-  return { store, localSend, legacySend, draft, fixture };
+  return {
+    store,
+    localSend,
+    legacySend,
+    draft,
+    fixture,
+    recoverMetadata: () => {
+      metadataFailed = false;
+    },
+  };
 }
 for (const [name, Screen] of [
   ['mobile', ChatView],
@@ -287,6 +304,21 @@ for (const [name, Screen] of [
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
     expect(localSend).not.toHaveBeenCalled();
     expect(legacySend).not.toHaveBeenCalled();
+  });
+  it(`${name}: metadata failure blocks sending and exposes retry without an inferred execution choice`, async () => {
+    const { localSend, legacySend, recoverMetadata } = setup(Screen, false, false, true, true);
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    const retry = await screen.findByRole('button', { name: 'Retry conversation settings' });
+    expect(screen.queryByRole('combobox', { name: 'Run on' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    recoverMetadata();
+    fireEvent.click(retry);
+    await screen.findByText('Run on: Local · first command only');
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
   });
   it(`${name}: immutable Local metadata disables follow-up, mode and web settings on reload`, async () => {
     const { legacySend } = setup(Screen, false, false, true);

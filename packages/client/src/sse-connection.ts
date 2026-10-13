@@ -325,7 +325,9 @@ export class SseConnection implements ChatConnection {
 
   /**
    * Signal the server that this client is about to be backgrounded.
-   * Uses fetch POST first; falls back to sendBeacon.
+   * Uses an authenticated keepalive POST while connected, or sendBeacon
+   * when the stream is disconnected. Suspend is a best-effort lifecycle hint;
+   * foreground reconnect restores sessions even if the hint was not delivered.
    */
   sendSuspend(): void {
     if (this.seqBySession.size === 0) return;
@@ -335,7 +337,7 @@ export class SseConnection implements ChatConnection {
       lastSeq,
     }));
 
-    // Try POST first
+    // Keep authentication headers on native iOS, where beacon cannot add them.
     if (this._connected && this._connectionId) {
       this.doPost('suspend', { type: 'session_suspend', sessions });
       return;
@@ -738,8 +740,12 @@ export class SseConnection implements ChatConnection {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Connection-ID': this._connectionId },
         body: JSON.stringify(body),
+        ...(endpoint === 'suspend' ? { keepalive: true } : {}),
       });
       if (!res.ok) {
+        // Background hints are not user actions. A stale connection or an iOS
+        // teardown must not inject an unscoped error into the active chat.
+        if (endpoint === 'suspend') return;
         if (control && scope.sessionId) {
           let error = `Could not ${endpoint} (${res.status}). Please retry.`;
           let code: string | undefined;
@@ -801,6 +807,9 @@ export class SseConnection implements ChatConnection {
         });
       }
     } catch {
+      // Do not retry with a beacon after an async failure: the client may have
+      // resumed already, and a late suspend would race foreground recovery.
+      if (endpoint === 'suspend') return;
       if (controlFailure(`Could not ${endpoint}. Please retry.`)) return;
       if (endpoint === 'permission' && typeof body.permId === 'string')
         this.listener?.({

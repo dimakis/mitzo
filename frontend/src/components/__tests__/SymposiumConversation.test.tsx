@@ -431,7 +431,7 @@ describe('SymposiumConversation', () => {
     expect(screen.queryByRole('button', { name: 'Reusable profile drafts' })).toBeNull();
     expect(
       vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/profile-proposals')),
-    ).toBe(false);
+    ).toBe(true);
     expect(screen.queryByText(/Codex-backed agent/)).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Reusable profile drafts' })).toBeNull();
   });

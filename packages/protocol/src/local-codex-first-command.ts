@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
+import { AgentProfileSelectionSchema } from './agent-library.js';
 import { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
 const reference = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
 /** Client intent only. The server derives workspace, prompt and owning authority. */
@@ -18,6 +19,10 @@ export const LocalCodexFirstCommandSchema = z
       mode: z.enum(['ask', 'agent', 'auto']),
     }),
     selection: OrdinaryLocalCommandSelectionSchema.extend({
+      // This first route pins published user profiles; builtin namespaces are not enrolled.
+      agent: z.strictObject(
+        AgentProfileSelectionSchema.pick({ profileId: true, revision: true }).shape,
+      ),
       context: z.strictObject({ source: z.literal('none'), revision: z.null() }),
       permission: z.strictObject({
         mode: z.enum(['ask', 'agent', 'auto']),

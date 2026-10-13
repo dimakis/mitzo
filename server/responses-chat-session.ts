@@ -213,7 +213,10 @@ export async function openResponsesChat(options: Options) {
         block.input,
         signal,
         async (input, forcePrompt) => {
-          const keychainResult = await connectionTools.execute(block.name, input, signal);
+          const keychainResult = await connectionTools.execute(block.name, input, signal, {
+            turnId: publishingTurnId,
+            callId: block.id,
+          });
           if (keychainResult) return keychainResult;
           if (block.name === REQUEST_GITHUB_PUBLISH)
             return githubPublishing(input, signal, { turnId: publishingTurnId, callId: block.id });

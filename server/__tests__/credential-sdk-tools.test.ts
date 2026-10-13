@@ -37,6 +37,8 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'ListRepositories',
     'PrepareRepositoryChat',
     'GetRepositoryChatPreparation',
+    'SymposiumProposeProfile',
+    'SymposiumReadProfiles',
   ]);
   const result = await mocked.tools[0].handler({});
   expect(JSON.stringify(result)).toContain('connections');
@@ -261,4 +263,66 @@ it('registers repository preparation with the shared prefixed permission boundar
       session,
     )?.behavior,
   ).toBe('allow');
+});
+
+it('SDK profile calls create one durable proposal per verified request and retain their permission ceiling', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { SymposiumProfileProposalStore } = await import('../symposium-profile-proposals.js');
+  const root = mkdtempSync(join(tmpdir(), 'profile-sdk-'));
+  vi.stubEnv('REPO_PATH', root);
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    sessionId: 'chat',
+    mode: 'agent',
+    abortController: new AbortController(),
+  } as never);
+  const session = registry.get('client')!;
+  const input = {
+    definition: {
+      name: 'Trace',
+      role: 'agent',
+      instructions: 'Diagnose',
+      expectedOutput: 'Diagnosis',
+      acceptanceCriteria: ['Evidence'],
+      modelPolicyRole: 'agent',
+    },
+  };
+  try {
+    createCredentialSdkServer(() => 'chat', session, registry);
+    const handler = mocked.tools.find((t) => t.name === 'SymposiumProposeProfile')!.handler;
+    expect(
+      credentialSdkPermission(
+        'mcp__mitzo-connections__SymposiumProposeProfile',
+        input,
+        'client',
+        registry,
+        session,
+      )?.behavior,
+    ).toBe('allow');
+    const first = await handler(input, { requestId: 4 });
+    expect(await handler(input, { requestId: 4 })).toEqual(first);
+    const store = new SymposiumProfileProposalStore(join(root, '.mitzo', 'events.db'));
+    try {
+      expect(store.listPending('user', 'chat')).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+    session.activeSkillPolicy = new Set(['Read']);
+    expect(
+      credentialSdkPermission(
+        'mcp__mitzo-connections__SymposiumProposeProfile',
+        input,
+        'client',
+        registry,
+        session,
+      )?.behavior,
+    ).toBe('deny');
+    expect(JSON.stringify(await handler(input, { requestId: 5 }))).toContain('"isError":true');
+  } finally {
+    registry.dispose();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

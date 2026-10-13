@@ -2645,18 +2645,82 @@ test('saved chat identity failures lock model controls until an explicit success
   }
 });
 
-test('profile drafts stay behind Workspace and remain readable on mobile and desktop', async ({
+test('builder launcher distinguishes built-in guidance from a saved profile with the same ID', async ({
+  page,
+}) => {
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname === '/api/agent-library')
+      return route.fulfill({
+        json: {
+          drafts: [],
+          versions: [
+            {
+              profileId: 'mitzo-profile-builder',
+              revision: 2,
+              contentHash: 'a'.repeat(64),
+              definition: {
+                name: 'My saved builder',
+                descriptor: 'My own guidance',
+                description: 'Saved profile',
+                role: 'agent',
+                instructions: 'Use my own instructions.',
+                expectedOutput: 'A report',
+                acceptanceCriteria: ['Cites evidence'],
+                modelPolicyRole: 'agent',
+              },
+            },
+          ],
+        },
+      });
+    if (url.pathname === '/api/accounts')
+      return route.fulfill({
+        json: [
+          {
+            id: 'work-account',
+            label: 'Work OpenAI',
+            models: [{ id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low'] }],
+          },
+        ],
+      });
+    return route.fallback();
+  });
+  await page.goto('https://mitzo-ui.test/agent-library');
+  await page.getByRole('link', { name: 'Create with advisor', exact: true }).click();
+  await expect(page).toHaveURL(/agentProfileKind=builtin/);
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
+    'Help me create an agent.',
+  );
+  await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await expect(page.locator('.workspace-controls > .motion-disclosure')).not.toHaveAttribute(
+    'data-motion-active',
+    'true',
+  );
+  const picker = page.getByRole('combobox', { name: 'Agent profile', exact: true });
+  await expect(picker).toHaveValue(JSON.stringify(['builtin', 'mitzo-profile-builder', 1]));
+  await expect(picker.getByRole('option', { name: /My saved builder/ })).toHaveCount(1);
+  await picker.selectOption(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));
+  await expect(page).toHaveURL(/profileRevision=2/);
+  expect(new URL(page.url()).searchParams.has('agentProfileKind')).toBe(false);
+  await expect(picker).toHaveValue(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));
+  await picker.selectOption('');
+  expect(new URL(page.url()).searchParams.has('agentProfile')).toBe(false);
+});
+
+test('profile draft cards appear in conversation and save without opening Workspace', async ({
   page,
   isMobile,
 }, testInfo) => {
-  let state: 'empty' | 'error' | 'populated' = 'empty';
-  let draftReads = 0;
+  let state: 'empty' | 'error' | 'populated' = 'populated';
+  let writes = 0;
   const proposal = {
     proposalId: 'offline-draft',
-    suggestedProfileId: 'reviewer',
+    suggestedProfileId: null,
     state: 'pending',
     definition: {
       name: 'Reusable reviewer for planning decisions and their supporting evidence',
+      descriptor: 'The challenger',
       role: 'reviewer',
       instructions: 'Review the selected changes and explain each finding with evidence. '.repeat(
         12,
@@ -2670,6 +2734,15 @@ test('profile drafts stay behind Workspace and remain readable on mobile and des
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (
+      url.pathname === '/api/symposium/profile-proposals/offline-draft/save' &&
+      route.request().method() === 'POST'
+    ) {
+      writes++;
+      expect(route.request().postDataJSON().profileId).toMatch(/^[0-9a-f-]{36}$/);
+      state = 'empty';
+      return route.fulfill({ json: { profileId: 'saved-reviewer', revision: 1 } });
+    }
     if (route.request().method() !== 'GET')
       return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
     if (url.pathname === '/api/sessions/ui-drafts/messages') return route.fulfill({ json: [] });
@@ -2678,76 +2751,67 @@ test('profile drafts stay behind Workspace and remain readable on mobile and des
     if (url.pathname === '/api/sessions/ui-drafts/symposium/status')
       return route.fulfill({ json: { sessionId: 'ui-drafts', config: null, seats: [] } });
     if (url.pathname === '/api/symposium/profiles') return route.fulfill({ json: [] });
-    if (url.pathname === '/api/symposium/profile-proposals') {
-      draftReads += 1;
-      if (state === 'error')
-        return route.fulfill({ status: 503, json: { error: 'Draft service unavailable' } });
-      return route.fulfill({ json: state === 'populated' ? [proposal] : [] });
-    }
+    if (url.pathname === '/api/symposium/profile-proposals')
+      return state === 'error'
+        ? route.fulfill({ status: 503, json: { error: 'Draft service unavailable' } })
+        : route.fulfill({ json: state === 'populated' ? [proposal] : [] });
     return route.fallback();
   });
-  for (const width of isMobile ? [320, 390] : [1280]) {
-    await page.setViewportSize({ width, height: 900 });
+  for (const width of isMobile ? [320, 390] : [1280])
     for (const theme of ['dark', 'light']) {
-      state = 'empty';
-      const readsBefore = draftReads;
+      await page.setViewportSize({ width, height: 900 });
+      state = 'populated';
       await page.goto('https://mitzo-ui.test/chat/ui-drafts');
-      await expect(page.getByPlaceholder('Message Mitzo...')).toBeVisible();
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
         document.documentElement.dataset.accent = 'teal';
         document.documentElement.dataset.font = 'georgia';
       }, theme);
-      const workspace = page.getByRole('button', { name: /^Workspace controls/ });
-      const drafts = page.getByRole('button', { name: 'Reusable profile drafts', exact: true });
-      await expect(drafts).toBeHidden();
-      expect(draftReads).toBe(readsBefore);
-      await page.screenshot({
-        path: testInfo.outputPath(`drafts-collapsed-${width}-${theme}.png`),
-      });
-      await workspace.click();
-      await expect(drafts).toBeVisible();
-      expect(draftReads).toBe(readsBefore);
-      const touch = await drafts.boundingBox();
-      expect(touch!.height).toBeGreaterThanOrEqual(44);
-      for (const next of ['empty', 'error', 'populated'] as const) {
+      const panel = page.getByRole('complementary', { name: 'Reusable profile drafts' });
+      await expect(panel).toBeVisible();
+      await expect(panel.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
+        proposal.definition.name,
+      );
+      await expect(panel.getByRole('textbox', { name: 'Profile ID', exact: true })).toHaveCount(0);
+      await expect(
+        page.getByRole('button', { name: 'Reusable profile drafts', exact: true }),
+      ).toBeHidden();
+      await expect(
+        panel.getByRole('textbox', { name: 'Model policy role', exact: true }),
+      ).toBeHidden();
+      await panel.getByRole('textbox', { name: 'Name', exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`draft-profile-${width}-${theme}.png`) });
+      const save = panel.getByRole('button', { name: 'Save reusable profile' });
+      await save.scrollIntoViewIfNeeded();
+      await expect(save).toBeEnabled();
+      expect((await save.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await save.focus();
+      await expect(save).toBeFocused();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({ path: testInfo.outputPath(`draft-ready-${width}-${theme}.png`) });
+      const before = writes;
+      await page.keyboard.press('Enter');
+      await expect(panel.getByRole('status')).toContainText('Saved Reusable reviewer');
+      await expect(panel.getByRole('link', { name: 'Open Agent Library' })).toBeVisible();
+      expect(writes).toBe(before + 1);
+      await page.screenshot({ path: testInfo.outputPath(`draft-saved-${width}-${theme}.png`) });
+      for (const next of ['empty', 'error'] as const) {
         state = next;
-        await drafts.focus();
-        await expect(drafts).toBeFocused();
-        await page.keyboard.press('Enter');
-        const panel = page.getByRole('complementary', { name: 'Reusable profile drafts' });
-        await expect(panel).toBeVisible();
+        await page.goto('https://mitzo-ui.test/chat/ui-drafts');
+        await page.getByRole('button', { name: /^Workspace controls/ }).click();
+        await expect(page.locator('.workspace-controls > .motion-disclosure')).not.toHaveAttribute(
+          'data-motion-active',
+          'true',
+        );
+        await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
         if (next === 'empty')
           await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
-        if (next === 'error')
-          await expect(panel.getByRole('alert')).toHaveText('Draft service unavailable');
-        if (next === 'populated') {
-          await expect(panel.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
-            proposal.definition.name,
-          );
-          await panel
-            .getByRole('button', { name: 'Save reusable profile' })
-            .scrollIntoViewIfNeeded();
-          await expect(panel.getByRole('button', { name: 'Save reusable profile' })).toBeVisible();
-          const saveTarget = await panel
-            .getByRole('button', { name: 'Save reusable profile' })
-            .boundingBox();
-          expect(saveTarget!.height).toBeGreaterThanOrEqual(44);
-        }
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-          true,
-        );
-        await page.screenshot({
-          path: testInfo.outputPath(`drafts-${next}-${width}-${theme}.png`),
-        });
-        await drafts.click();
-        await expect(panel).toBeHidden();
+        else await expect(panel.getByRole('alert')).toHaveText('Draft service unavailable');
+        await expect(page.getByPlaceholder('Message Mitzo...')).toBeVisible();
       }
-      await workspace.click();
-      await expect(drafts).toBeHidden();
-      await expect(page.getByPlaceholder('Message Mitzo...')).toBeVisible();
     }
-  }
 });
 
 const iconTasks = (

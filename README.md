@@ -80,7 +80,7 @@ Initial support covers regular-file GitHub projects up to 10,000 files and 64 Mi
 
 Experimental [Symposium conversations](docs/features/symposium.md) combine independently configured contributors with selected context, attributed results and explicit Stop controls. The current direction puts artifacts first and reuses ordinary account/session execution; that integration is not yet accepted. The [current acceptance checklist](docs/features/symposium-integrated-acceptance.md) distinguishes the next conversation slice from historical review/publication work. Provider sign-in, physical runtime admission and live acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
 
-In a chat on desktop or mobile, expand **Workspace** and select **Reusable profile drafts** to review, edit and explicitly save proposed agent profiles. The drafts control stays inside Workspace, leaving the conversation and composer clear. When no drafts exist, it explains how to request one; loading and connection errors remain visible. Saving a profile does not apply it to an agent. See [reusable profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes).
+Choose **Create with advisor** in Agent Library to open **Agent Builder**, then describe the agent you need. The builder can inspect existing profiles and create editable draft cards in ordinary OpenAI API, Gemini/Vertex, Claude SDK and Codex chats. Pending drafts appear directly in the conversation on mobile and desktop, with **Save reusable profile** and a confirmation linking to the Library. New profiles receive an ID automatically. **Workspace → Reusable profile drafts** retains manual drafting and loading/empty/error feedback. Saving makes the profile available for new chats; existing chats keep their selected revision. See [reusable profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes).
 
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
 
@@ -157,7 +157,7 @@ Open **Knowledge** for curated documents from the host-enrolled accepted Git sou
 
 Opening Knowledge starts at the Library tree, including when a working copy was recovered. Choose **Resume editing** to continue that copy; recovery preserves its text, folders and saved review state.
 
-**Knowledge → Context** curates reusable context packs from accepted document revisions. Save recoverable drafts, inspect history and affected profiles, compile a preview, and explicitly publish a pack revision. Agent Library profiles compose exact pack revisions under one context budget. The advisor can propose a portable draft for review and import. See [context packs](docs/features/context-packs.md).
+**Knowledge → Context** curates reusable context packs from accepted document revisions. Save recoverable drafts, inspect history and affected profiles, compile a preview, and explicitly publish a pack revision. Agent Library profiles compose exact pack revisions under one context budget. Agent Builder creates editable draft cards for direct review and save in chat. See [context packs](docs/features/context-packs.md).
 
 Per-message context blocks selected in **Sources** appear beside your sent message immediately. Their injected reference text is collapsed by default and can be inspected or copied separately; editing, copying or reading aloud the message uses your prompt. Live echoes and restored history show the same disclosure. Selecting context does not switch the agent profile. Older prompts with ambiguous reference-delimiter examples stay intact so their source text cannot be mistaken for your question.
 
@@ -228,6 +228,11 @@ only after acceptance. An explicit `mitzo:transport=ws` localStorage preference
 retains WebSocket for diagnostics. Existing overrides are preserved; remove that
 preference to use SSE. Installed iOS apps need an updated bundle to adopt this default.
 
+SSE background suspension uses an authenticated keepalive POST. A failed suspend
+hint does not add an error to the conversation; foreground probe/reconnect restores
+tracked sessions from their last applied cursor. Prompt delivery, control and
+permission failures retain their existing feedback.
+
 ```
 Phone (Tailscale) ──┬── HTTP: REST API
                     └── SSE: v2 streaming protocol (WS diagnostic override)
@@ -247,7 +252,7 @@ SDK query failures after input acceptance are recorded under the current convers
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
-The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in immutable metadata. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 pins the exact configured target and revision, while V1 remains readable without inference or automatic upgrade. Configuration-only local account/target capabilities perform no authentication. OpenShell remains the unresolved default until its projection is qualified.
+The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in immutable metadata. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 pins the exact configured target and revision, while V1 remains readable without inference or automatic upgrade. Configuration-only local account/target capabilities perform no authentication. OpenShell remains the unresolved default until its projection is qualified. The dormant authenticated SSE entry exposes `GET /api/chat/local-codex/capabilities` and `POST /api/chat/local-codex/send` only with `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1`; it requires an explicit Local first-command envelope, a published profile without a context recipe and an already prepared repository source. The server owns its session identity, existing canonical task root and reservation. Login-bound Stop/reconnect preserve the original driver; later sends/settings and cold resume remain unavailable. Receipt and workspace evidence survive failures. This source implementation has no live account/model qualification or deployed picker enrollment.
 
 The bounded local coordinator atomically freezes the published profile, context, permission, model/thinking, runtime and workspace in the existing command receipt. It records uncertainty before login copying, native launch or checkout materialization. Exact retries preserve their choices; uncertain effects never replay automatically. Existing-session adoption, later commands and cold resume are refused. The existing repository ledger reserves the destination before copying and retains interrupted materialization for explicit recovery.
 

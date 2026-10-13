@@ -1,3 +1,8 @@
+import {
+  sessionProfileTools,
+  profileToolDefinitions,
+  type ProfileToolCall,
+} from './session-profile-tools.js';
 import { sessionRepositoryTools, REPOSITORY_CHAT_INSTRUCTIONS } from './repository-chat-tools.js';
 import {
   buildPermissionHandler,
@@ -37,6 +42,7 @@ export function sessionCredentialTools(
     ) => Promise<{ content: string; isError: boolean }>;
   },
 ) {
+  const profileTools = sessionProfileTools(sessionId, session, registry, toolPrefix);
   const repositoryTools = sessionRepositoryTools(sessionId, session, registry, toolPrefix);
   const currentService = getCredentialConnectionsRuntime();
   const owner = () => registry.findBySessionId(sessionId);
@@ -77,8 +83,19 @@ export function sessionCredentialTools(
       )
     : undefined;
   return {
-    definitions: [...credentialConnectionToolDefinitions, ...repositoryTools.definitions],
-    async execute(name: string, input: Record<string, unknown>, signal: AbortSignal) {
+    definitions: [
+      ...credentialConnectionToolDefinitions,
+      ...repositoryTools.definitions,
+      ...profileToolDefinitions,
+    ],
+    async execute(
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      call?: ProfileToolCall,
+    ) {
+      const profileResult = await profileTools.execute(name, input, signal, call);
+      if (profileResult) return profileResult;
       const repositoryResult = await repositoryTools.execute(name, input, signal);
       if (repositoryResult) return repositoryResult;
       if (!credentialConnectionToolDefinitions.some((t) => t.name === name)) return undefined;

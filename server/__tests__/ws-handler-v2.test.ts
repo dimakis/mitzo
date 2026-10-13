@@ -162,6 +162,78 @@ function createContext(overrides?: Partial<V2HandlerContext>): V2HandlerContext 
   };
 }
 
+describe('owned Local operator controls', () => {
+  function ownedFixture() {
+    vi.clearAllMocks();
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('owned-local-viewer', transport);
+    claimTransportConnection('owned-local-viewer', 'foreign-local-login');
+    const session = {
+      sessionId: 'owned-local-session',
+      ownerConnectionId: 'original-owner',
+      ownedLocalAuthSessionId: 'original-local-login',
+      transport: mockTransport(),
+      mode: 'ask',
+      sessionAllowList: new Set(),
+    };
+    vi.mocked(ctx.sessionRegistry.findBySessionId).mockReturnValue({
+      clientId: 'original-client',
+      session,
+    } as never);
+    vi.mocked(ctx.sessionRegistry.isActive).mockReturnValue(true);
+    vi.mocked(ctx.sessionRegistry.isSuspended).mockReturnValue(true);
+    vi.mocked(ctx.eventStore.getSession).mockReturnValue({
+      sessionId: session.sessionId,
+      mode: 'ask',
+    } as never);
+    vi.mocked(ctx.eventStore.getSessionState).mockReturnValue('SUSPENDED');
+    return { ctx, transport, session };
+  }
+  it('refuses foreign Stop without cancelling the live owner', () => {
+    const { ctx, transport, session } = ownedFixture();
+    handleStopV2('owned-local-viewer', { type: 'stop', sessionId: session.sessionId }, ctx);
+    expect(stopChat).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: 'Owned local session belongs to another login',
+      }),
+    );
+  });
+  it('refuses foreign reconnect before watch, replay or ownership changes', () => {
+    const { ctx, session } = ownedFixture();
+    handleReconnect(
+      'owned-local-viewer',
+      { type: 'reconnect', sessions: [{ sessionId: session.sessionId, lastSeq: 0 }] },
+      ctx,
+    );
+    expect(ctx.connRegistry.get('owned-local-viewer')!.watchedSessions.has(session.sessionId)).toBe(
+      false,
+    );
+    expect(reattachChat).not.toHaveBeenCalled();
+    expect(ctx.eventStore.captureReconnectState).not.toHaveBeenCalled();
+    expect(session.ownerConnectionId).toBe('original-owner');
+  });
+  it('refuses foreign switch before making the session active or reattaching', async () => {
+    const { ctx, session } = ownedFixture();
+    await handleSwitchSession(
+      'owned-local-viewer',
+      { type: 'switch_session', sessionId: session.sessionId },
+      ctx,
+    );
+    expect(ctx.connRegistry.get('owned-local-viewer')!.activeSession).toBeNull();
+    expect(reattachChat).not.toHaveBeenCalled();
+    expect(session.ownerConnectionId).toBe('original-owner');
+  });
+  it('retains same-login Stop even after the original connection is gone', () => {
+    const { ctx, session } = ownedFixture();
+    claimTransportConnection('owned-local-viewer', session.ownedLocalAuthSessionId);
+    handleStopV2('owned-local-viewer', { type: 'stop', sessionId: session.sessionId }, ctx);
+    expect(stopChat).toHaveBeenCalledWith('original-client');
+  });
+});
+
 // ─── isHelloHandshake ────────────────────────────────────────────────────────
 
 describe('isHelloHandshake', () => {
@@ -2316,6 +2388,40 @@ describe('handleReconnect reconnected summary (P1)', () => {
 // ─── handleSendV2 — routing paths ──────────────────────────────────────────
 
 describe('handleSendV2 routing', () => {
+  it('refuses switching between saved and built-in profiles with the same ID and revision', async () => {
+    vi.mocked(startChat).mockClear();
+    vi.mocked(sendToChat).mockClear();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      agentProfile: { profileId: 'mitzo-profile-builder', revision: 1 },
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    await handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'hello',
+        clientMsgId: 'namespace-switch',
+        agentProfile: { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 1 },
+      },
+      ctx,
+    );
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: 'Choose a new chat to change its agent profile',
+      }),
+    );
+    expect(startChat).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
   it('waits for active-driver admission on the active path', async () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     let admit!: (accepted: boolean) => void;

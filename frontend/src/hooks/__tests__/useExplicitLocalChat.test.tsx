@@ -136,3 +136,34 @@ it('keeps unknown session metadata fail-closed with visible retry, then recovers
   await waitFor(() => expect(result.current.bound).toBe(true));
   expect(result.current.binding!.execution.location).toBe('local');
 });
+
+it('preserves a builtin launch namespace when switching to Local despite a matching user profile', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async () => new Response(JSON.stringify(localInventoryFixture())),
+  );
+  const { result } = renderHook(() =>
+    useExplicitLocalChat(
+      'draft',
+      null,
+      null,
+      true,
+      'agentProfile=agent&profileRevision=1&agentProfileKind=builtin',
+    ),
+  );
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      execution: { location: 'local', targetId: 'mac' },
+      account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+      capabilityRevision: 'caps-r1',
+    }),
+  );
+  expect(result.current.intent.agentProfile).toEqual({
+    kind: 'builtin',
+    profileId: 'agent',
+    revision: 1,
+  });
+  expect(result.current.reason).toBeDefined();
+  expect(result.current.intent.execution.location).toBe('local');
+});

@@ -47,7 +47,10 @@ vi.mock('../ordinary-local-codex-owned-runtime.js', () => ({
   },
 }));
 vi.mock('../agent-library-transport.js', () => ({
-  captureAgentLibraryAuthorization: vi.fn(() => ({ auth: {}, assertCurrent: vi.fn() })),
+  captureAgentLibraryAuthorization: vi.fn(() => ({
+    auth: { id: 'fixture-owner-login' },
+    assertCurrent: vi.fn(),
+  })),
   readAgentLibraryProfile: vi.fn(),
 }));
 vi.mock('../symposium-custodian-mode.js', async (original) => ({
@@ -377,6 +380,20 @@ it('retains the captured operator and command identity if caller arguments chang
   expect(vi.mocked(openCodexChat).mock.calls.at(-1)![0].session.ownerConnectionId).toBe(
     'authenticated-browser',
   );
+});
+
+it('separates retained auth from the visible stream and pins its original login', async () => {
+  const f = request();
+  const args = { ...f.args, ownerConnectionId: 'actual-visible-stream' };
+  runtime.beforeDispatch = () => {
+    args.ownerConnectionId = 'replacement-stream';
+  };
+  await chat.startOwnedLocalCodexCommand(f.transport, f.clientId, args);
+  await vi.waitFor(() => expect(runtime.instances[0].close).toHaveBeenCalledOnce());
+  expect(vi.mocked(openCodexChat).mock.calls.at(-1)![0].session).toMatchObject({
+    ownerConnectionId: 'actual-visible-stream',
+    ownedLocalAuthSessionId: 'fixture-owner-login',
+  });
 });
 
 it('releases a new idle driver for an exact duplicate without preparing a query or starting a loop', async () => {
