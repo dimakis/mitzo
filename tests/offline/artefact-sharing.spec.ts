@@ -105,8 +105,7 @@ for (const appearance of ['dark', 'light'] as const) {
     await expect(page.getByRole('button', { name: 'Share file' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Download file' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'File options', exact: true })).toHaveCount(4);
-    await link.focus();
-    await page.keyboard.press('Enter');
+    await link.press('Enter');
     await expect(page).toHaveURL(/\/files\?/);
     await expect(page.getByText('Résumé.docx', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
@@ -116,8 +115,9 @@ for (const appearance of ['dark', 'light'] as const) {
     const telosOptions = link
       .locator('..')
       .getByRole('button', { name: 'File options', exact: true });
-    await telosOptions.focus();
-    await page.keyboard.press('Enter');
+    // Target keyboard activation at the control while the returning chat settles.
+    // A separate page-level keypress can land in the newly mounted composer.
+    await telosOptions.press('Enter');
     const options = page.getByRole('dialog', { name: 'File options' });
     await expect(options).toBeVisible();
     expect((await options.boundingBox())!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
