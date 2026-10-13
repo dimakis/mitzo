@@ -255,6 +255,8 @@ describe('switchSession', () => {
     const fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/probe'))
         emit({ type: '_probe', nonce: JSON.parse(String(init?.body)).nonce });
+      if (url.endsWith('/reconnect'))
+        emit({ type: 'mode_changed', sessionId: 'assigned', mode: 'ask' });
       if (url.endsWith('/send')) {
         const body = JSON.parse(String(init?.body));
         return {
@@ -282,8 +284,8 @@ describe('switchSession', () => {
       store.getState().newSession();
       store.getState().sendMessage('Start this chat');
       await vi.advanceTimersByTimeAsync(0);
-      emit({ type: 'session_id', sessionId: 'assigned' });
       expect(store.getState().sessions.active).toBe('assigned');
+      expect(store.getState().modeChangeReady).toBe(false);
       visibility = 'hidden';
       browserListeners.get('visibilitychange')?.();
       await vi.advanceTimersByTimeAsync(0);
@@ -294,6 +296,7 @@ describe('switchSession', () => {
       const switches = fetch.mock.calls.filter(([url]) => String(url).endsWith('/switch'));
       expect(switches).toHaveLength(1);
       expect(JSON.parse(String(switches[0][1]?.body))).toMatchObject({ sessionId: 'assigned' });
+      expect(store.getState().modeChangeReady).toBe(true);
     } finally {
       store.getState().invalidateAuthentication();
       vi.unstubAllGlobals();

@@ -56,7 +56,9 @@ Automatic selection hydration sends only the session ID, never a saved
 resetting it before the delayed transcript ACK would invalidate the offer and
 repeat recovery. A foreground first-prompt assignment updates the recovery
 selection, replacing the previous blank-chat intent. Correlated assignments
-from an offscreen draft do not change the foreground selection.
+from an offscreen draft do not change the foreground selection. A confirmed
+HTTP assignment releases the assignment wait even if the streaming `session_id`
+event was lost; controls still wait for authoritative permission-mode hydration.
 
 Destructive controls and permission decisions retain their nonterminal rejection
 feedback and require deliberate retry. A lost cancellation response never
