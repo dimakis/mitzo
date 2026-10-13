@@ -252,10 +252,13 @@ describe('switchSession', () => {
     };
     const emit = (message: Record<string, unknown>) =>
       source.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }));
+    // Keep mode hydration delayed until foreground recovery. Initial send
+    // acceptance now attaches immediately, before that lifecycle transition.
+    let recovering = false;
     const fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/probe'))
         emit({ type: '_probe', nonce: JSON.parse(String(init?.body)).nonce });
-      if (url.endsWith('/reconnect'))
+      if (url.endsWith('/reconnect') && recovering)
         emit({ type: 'mode_changed', sessionId: 'assigned', mode: 'ask' });
       if (url.endsWith('/send')) {
         const body = JSON.parse(String(init?.body));
@@ -290,6 +293,7 @@ describe('switchSession', () => {
       browserListeners.get('visibilitychange')?.();
       await vi.advanceTimersByTimeAsync(0);
       fetch.mockClear();
+      recovering = true;
       visibility = 'visible';
       browserListeners.get('visibilitychange')?.();
       await vi.advanceTimersByTimeAsync(0);
