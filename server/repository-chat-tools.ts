@@ -92,7 +92,8 @@ export function sessionRepositoryTools(
       !session.abortController.signal.aborted &&
       !registry.isClosingOut(owner.clientId) &&
       !registry.isUserClose(owner.clientId) &&
-      !registry.isSuspended(owner.clientId) &&
+      // iOS suspension buffers transport events; it does not revoke the running
+      // turn's authority to prepare a draft. Starting that draft still needs Send.
       checkSkillPolicy(registry, owner.clientId, toolPrefix + name) !== 'deny'
     );
   };
