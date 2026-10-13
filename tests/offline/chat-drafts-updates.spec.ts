@@ -550,6 +550,45 @@ test('drafts: Chats hides the shortcut with no saved drafts', async ({ page }, t
   expect(fixture.errors).toEqual([]);
 });
 
+test('drafts: save status describes confirmed device storage and disappears when empty', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const fixture = await offline(page);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  for (const theme of ['dark', 'light']) {
+    await seed(page, {
+      'mitzo-theme': theme,
+      'mitzo-accent': 'mint',
+      'mitzo-font': 'georgia',
+    });
+    await page.goto('/chat');
+    await page.evaluate((theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+    }, theme);
+    const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+    await expect(input).toHaveValue('');
+    await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
+    await input.fill('Just a test.');
+    await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.keys(localStorage)
+            .filter((key) => key.startsWith('mitzo-chat-draft:'))
+            .some((key) => JSON.parse(localStorage.getItem(key)!).text === 'Just a test.'),
+        ),
+      )
+      .toBe(true);
+    await expect(input).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`draft-save-status-${theme}.png`) });
+    await input.fill('');
+    await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
+  }
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 test('drafts: Chats has a dedicated Drafts destination and New chat opens blank', async ({
   page,
 }, testInfo) => {
