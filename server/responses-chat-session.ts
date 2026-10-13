@@ -1,6 +1,7 @@
 import {
   sessionCredentialTools,
   CONNECTION_TOOL_INSTRUCTIONS,
+  API_CONNECTION_INSTRUCTIONS,
 } from './session-credential-tools.js';
 import {
   createGithubPublishingTool,
@@ -184,6 +185,7 @@ export async function openResponsesChat(options: Options) {
   const systemPrompt =
     options.systemPrompt +
     CONNECTION_TOOL_INSTRUCTIONS +
+    API_CONNECTION_INSTRUCTIONS +
     HOST_TOOL_INSTRUCTIONS +
     WEB_ACCESS_INSTRUCTIONS +
     GITHUB_PUBLISHING_INSTRUCTIONS +

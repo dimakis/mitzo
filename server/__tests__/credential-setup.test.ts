@@ -30,6 +30,107 @@ const input = {
   endpoint: 'https://ha.example.com',
   access: 'read-write',
 };
+const jiraInput = {
+  profile: 'jira',
+  endpoint: 'https://api.atlassian.com',
+  jira: { email: 'reader@example.com', cloudId: '2b9e35e3-6bd3-4cec-b838-f4249ee02432' },
+};
+it('prepares scoped Jira reads with no Python runtime or agent-supplied authentication policy', async () => {
+  const { service, send, vault } = fixture();
+  const setup = service.setups.prepare('api-chat', jiraInput);
+  const prefix = `/ex/jira/${jiraInput.jira.cloudId}/rest/api/3/`;
+  expect(setup).toMatchObject({
+    profile: 'jira',
+    connection: {
+      label: 'Jira',
+      auth: { kind: 'basic', username: jiraInput.jira.email },
+      methods: ['GET', 'HEAD'],
+      paths: [prefix],
+      allowPrivateNetwork: false,
+      homeAssistantDashboards: 'disabled',
+      websocket: null,
+    },
+    verificationPath: `${prefix}myself`,
+    verificationSuccess: { field: 'accountId', type: 'string' },
+    credential: { label: 'Jira API token' },
+  });
+  send.mockResolvedValueOnce({ status: 401, body: '' }).mockResolvedValueOnce({
+    status: 200,
+    body: '{"accountId":"reader","displayName":"Reader"}',
+  });
+  const ready = await service.setups.complete(
+    setup.id,
+    1,
+    'private-key',
+    new AbortController().signal,
+  );
+  expect(ready.status).toBe('ready');
+  expect(vault.save).toHaveBeenCalledOnce();
+  expect(service.catalog('api-chat')[0].access).toBe('approval_required');
+  expect(JSON.stringify(ready)).not.toContain('private-key');
+  service.grant('api-chat', ready.connectionId!, ready.connectionRevision!);
+  send.mockResolvedValueOnce({ status: 200, body: '{"issues":[],"isLast":true}' });
+  await service.request(
+    'api-chat',
+    ready.connectionId!,
+    {
+      path: `${prefix}search/jql?jql=assignee%3DcurrentUser()`,
+      method: 'GET',
+    },
+    new AbortController().signal,
+  );
+  expect(send.mock.calls.at(-1)![0].headers.Authorization).toBe(
+    `Basic ${Buffer.from('reader@example.com:private-key').toString('base64')}`,
+  );
+  await expect(
+    service.request(
+      'api-chat',
+      ready.connectionId!,
+      {
+        path: `${prefix}issue`,
+        method: 'POST',
+        body: '{}',
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow();
+  await expect(
+    service.request(
+      'other-chat',
+      ready.connectionId!,
+      {
+        path: `${prefix}myself`,
+        method: 'GET',
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow();
+});
+it('supports ordinary Jira tenant tokens and refuses mismatched destinations, write scope and policy overrides', () => {
+  const { service } = fixture();
+  const tenant = {
+    profile: 'jira',
+    endpoint: 'https://team.atlassian.net',
+    jira: { email: 'reader@example.com' },
+  };
+  expect(service.setups.prepare('chat', tenant).verificationPath).toBe('/rest/api/3/myself');
+  for (const invalid of [
+    { ...tenant, endpoint: 'not a URL' },
+    { ...tenant, endpoint: 'https://attacker.example.com' },
+    { ...tenant, endpoint: 'https://team.atlassian.net.evil.example.com' },
+    { ...tenant, endpoint: 'https://team.atlassian.net:8443' },
+    { ...tenant, access: 'read-write' },
+    { ...tenant, allowPrivateNetwork: true },
+    { ...tenant, jira: { ...tenant.jira, cloudId: jiraInput.jira.cloudId } },
+    { ...jiraInput, jira: { email: 'reader@example.com' } },
+    { ...jiraInput, jira: { ...jiraInput.jira, cloudId: '../other' } },
+    { ...tenant, custom: { auth: { kind: 'bearer' } } },
+    { ...input, jira: tenant.jira },
+  ]) {
+    expect(PrepareConnectionSetupSchema.safeParse(invalid).success).toBe(false);
+    expect(() => service.setups.prepare('chat', invalid)).toThrow();
+  }
+});
 it('prepares durable secret-free Home Assistant setup scoped to the exact originating session', () => {
   const { service, store, vault, send } = fixture();
   const setup = service.setups.prepare('chat-a', input);
