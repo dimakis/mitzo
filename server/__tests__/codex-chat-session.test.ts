@@ -505,11 +505,12 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'ListRepositories' }),
     expect.objectContaining({ name: 'PrepareRepositoryChat' }),
     expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
+    expect.objectContaining({ name: 'SymposiumProposeProfile' }),
+    expect.objectContaining({ name: 'SymposiumReadProfiles' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
     expect.objectContaining({ name: 'TelosSaveArtifact' }),
     expect.objectContaining({ name: 'TelosFindArtifacts' }),
     expect.objectContaining({ name: 'TelosReadArtifact' }),
-    expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'RequestWebAccess' }),
     expect.objectContaining({ name: 'RequestGithubPublish' }),
   ]);
@@ -698,11 +699,12 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'ListRepositories' }),
       expect.objectContaining({ name: 'PrepareRepositoryChat' }),
       expect.objectContaining({ name: 'GetRepositoryChatPreparation' }),
+      expect.objectContaining({ name: 'SymposiumProposeProfile' }),
+      expect.objectContaining({ name: 'SymposiumReadProfiles' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({ name: 'TelosSaveArtifact' }),
       expect.objectContaining({ name: 'TelosFindArtifacts' }),
       expect.objectContaining({ name: 'TelosReadArtifact' }),
-      expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({
         name: 'GrantIntegrationAccess',
         input_schema: expect.objectContaining({
@@ -2103,6 +2105,11 @@ it('persists a fake provider profile proposal without saving a reusable profile'
   vi.stubEnv('REPO_PATH', root);
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
   const base = options(new AbortController());
+  base.session.sessionId = 'conversation';
+  base.registry = {
+    findBySessionId: () => ({ clientId: 'client', session: base.session }),
+    get: () => base.session,
+  } as never;
   const chat = await openCodexChat({
     ...base,
     conversationId: 'conversation',
