@@ -95,6 +95,16 @@ runtime. `app.ts` retains construction, installation and teardown of all borrowe
 stores, grants, registry, hosts and runtimes. Unbound Director selections retain
 their existing validation behavior; host grant construction still requires a binding.
 
+The configuration family is owned by `server/symposium-director-configuration.ts`:
+draft, selection, activation, seat revision, configuration updates and operation
+receipts. The Director router registers these handlers directly in their existing
+positions. Operator-bound receipt replay precedes current runtime/account/revision
+checks, preserves exact canonical requests and returns the original committed
+configuration without minting new grants. The legacy identical-config retry remains
+separate from keyed operation proof. Mutation-started flags retain their existing
+uncertainty semantics. Membership uses the same cross-account predicate; safety,
+recovery, perspectives and dispatch remain in the Director router.
+
 ## Reference map
 
 | Question                                                    | Read                                                                                                                                                                   |

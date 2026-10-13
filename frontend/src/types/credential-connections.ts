@@ -71,5 +71,6 @@ export interface ConnectionSetup {
   delivery?: 'pending' | 'delivered';
   connectionRevision?: number;
   error?: string;
+  errorCode?: string;
   setupUrl: string;
 }

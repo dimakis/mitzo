@@ -63,6 +63,7 @@ async function offline(page: Page, sessions: unknown[] = []) {
   let configured = true;
   let release: (() => void) | undefined;
   let checkFailed = false;
+  let sessionsFailed = false;
   let connections = 0;
   let authChecks = 0;
   const authTraceparents: string[] = [];
@@ -122,6 +123,8 @@ async function offline(page: Page, sessions: unknown[] = []) {
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
     if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/sessions' && sessionsFailed)
+        return fulfill({ status: 503, json: { error: 'Offline refresh failed' } });
       if (url.pathname === '/api/auth/check') {
         authChecks++;
         const parent = route.request().headers().traceparent;
@@ -260,6 +263,9 @@ async function offline(page: Page, sessions: unknown[] = []) {
     },
     failCheck: () => {
       checkFailed = true;
+    },
+    failSessions: (failed: boolean) => {
+      sessionsFailed = failed;
     },
     release: () => release,
   };
@@ -496,6 +502,40 @@ test('chats: retained conversations stay usable while auxiliary requests and rev
   expect(fixture.errors).toEqual([]);
 });
 
+test('chats: a failed refresh retains the loaded list and retry restores it', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const fixture = await offline(page, [
+    { id: 'loaded-chat', summary: 'Already loaded conversation', lastModified: Date.now() },
+  ]);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  for (const theme of ['dark', 'light']) {
+    await seed(page, {
+      'mitzo-theme': theme,
+      'mitzo-accent': 'mint',
+      'mitzo-font': 'georgia',
+    });
+    await page.goto('/sessions');
+    await page.evaluate((theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+    }, theme);
+    await expect(page.getByText('Already loaded conversation', { exact: true })).toBeVisible();
+    fixture.failSessions(true);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(page.getByRole('alert')).toContainText(
+      'Couldn’t refresh chats. Showing the last loaded list.',
+    );
+    await expect(page.getByText('Already loaded conversation', { exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`chat-refresh-${theme}.png`) });
+    fixture.failSessions(false);
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  }
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 test('drafts: Chats hides the shortcut with no saved drafts', async ({ page }, testInfo) => {
   const fixture = await offline(page);
   await page.goto('/sessions');
@@ -506,6 +546,45 @@ test('drafts: Chats hides the shortcut with no saved drafts', async ({ page }, t
     path: testInfo.outputPath('chats-no-drafts.png'),
     animations: 'disabled',
   });
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('drafts: save status describes confirmed device storage and disappears when empty', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const fixture = await offline(page);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  for (const theme of ['dark', 'light']) {
+    await seed(page, {
+      'mitzo-theme': theme,
+      'mitzo-accent': 'mint',
+      'mitzo-font': 'georgia',
+    });
+    await page.goto('/chat');
+    await page.evaluate((theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+    }, theme);
+    const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+    await expect(input).toHaveValue('');
+    await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
+    await input.fill('Just a test.');
+    await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.keys(localStorage)
+            .filter((key) => key.startsWith('mitzo-chat-draft:'))
+            .some((key) => JSON.parse(localStorage.getItem(key)!).text === 'Just a test.'),
+        ),
+      )
+      .toBe(true);
+    await expect(input).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`draft-save-status-${theme}.png`) });
+    await input.fill('');
+    await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
+  }
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

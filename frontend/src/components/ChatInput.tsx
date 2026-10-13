@@ -200,20 +200,35 @@ export function ChatInput({
     setImages(savedChatDraft?.images ?? []);
     if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
   }, [savedChatDraft, savedOwnerChanging, useExternal]);
-  const [saveFailed, setSaveFailed] = useState(false);
+  const [saveResult, setSaveResult] = useState<{
+    draft: ChatDraft;
+    failed: boolean;
+    stored: boolean;
+  } | null>(null);
   useEffect(() => {
     if (!savedChatDraft || savedOwnerChanging) return;
     const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
-    setSaveFailed(
-      !saveChatDraft({
-        ...current,
-        settings: savedChatDraft.settings,
-        text,
-        images,
-        contextBlocks: activeContextBlocks,
-      }),
-    );
+    const draft = {
+      ...current,
+      settings: savedChatDraft.settings,
+      text,
+      images,
+      contextBlocks: activeContextBlocks,
+    };
+    const saved = saveChatDraft(draft);
+    setSaveResult({ draft, failed: !saved, stored: saved && getChatDraft(draft.id) !== null });
   }, [savedChatDraft, savedOwnerChanging, text, images, activeContextBlocks]);
+  // A prior revision's successful write cannot confirm current edits or a new owner.
+  const currentSave =
+    savedChatDraft &&
+    !savedOwnerChanging &&
+    saveResult?.draft.id === savedChatDraft.id &&
+    saveResult.draft.settings === savedChatDraft.settings &&
+    saveResult.draft.text === text &&
+    saveResult.draft.images === images &&
+    saveResult.draft.contextBlocks === activeContextBlocks
+      ? saveResult
+      : null;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
@@ -731,11 +746,11 @@ export function ChatInput({
 
   return (
     <div className="chat-input chat-input--compact">
-      {savedChatDraft && (
-        <p className="chat-draft-save-status" role={saveFailed ? 'alert' : 'status'}>
-          {saveFailed
+      {currentSave && (currentSave.failed || currentSave.stored) && (
+        <p className="chat-draft-save-status" role={currentSave.failed ? 'alert' : 'status'}>
+          {currentSave.failed
             ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
-            : 'Saved to Drafts · message and settings stay editable'}
+            : 'Draft saved on this device'}
         </p>
       )}
       {images.length > 0 && (

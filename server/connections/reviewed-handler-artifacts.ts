@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.107';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.111';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -33,6 +33,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../owned-local-codex-control.ts':
     'c96a60d72a69955c516614d5677d25c6a303c66ef0b47910be03cdb49e5598d8',
   '../permissions.ts': 'f4c54aaa6d5d118ad08b7dcedb2e566ce12d2853c370bbeea89a7b50079a9bec',
+  '../symposium-director-configuration.ts':
+    '2fb41b14d1bf19af75f4b6a3dde81e65ad58e4aeab773612f8819b7d6b70c3ca',
   '../symposium-director-route-composition.ts':
     '6978b9c8ebbaaf7ae50a7086e096e94542654c40f2005d944651426226b9dabe',
   '../symposium-artifact-route-composition.ts':
@@ -49,7 +51,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '5cd36a5da90b590fdcf6d603266f7eb553e29720827a602f9d52a2dcfbda67c1',
   '../../frontend/src/components/ChatInput.tsx':
-    'f11d4201f1ac6d3e7d9b3f6782d0127e5f582c065e40fac69c1a8b069629ccaa',
+    'c8671cc96b3e5678016b4a8041c0205012443b9ce2b3b59fa2e759ef2d1964b9',
   '../../frontend/src/components/ComposerTools.tsx':
     '4da4ec4fd9f95a6b12a9b79a66f9fedc2f8c00e076459097e395121ca9a94864',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -141,7 +143,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sandboxed-command.ts': 'c11012fbceda32ab6104b791ec598ba9b6c82a2d21d8571f393c3d61f87bdf67',
   // Shared approval scopes, transport custody and provider environment delivery.
   '../../packages/client/src/sse-connection.ts':
-    'ca9bc2157f0695fbdff9208e8a067f3613820e8bfcecc3e4f9ea5f970e256fac',
+    'a8e6f572e9de9ac4fef778b039d5fa1af44ebc2a5268944a7833574103e7bc3c',
   '../../packages/client/src/store.ts':
     '6aff8b53a97ffd3ca47b1e3324c78e912ae2dec5f4403abbf68cfa23c33a58a6',
   '../../packages/harness/src/permission-handler.ts':
@@ -246,7 +248,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '76ef29aa2d6861db49ef3afa8c41464c9f6f4da1fd556fa949e2286fede0a216',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
-    'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
+    '71fa6b5d798815b452b26f7df5c58733abb793222bfa21ec71926b8bba2d8e74',
   '../agent-library-binding.ts': 'c674ceed550400f9dbe04c34544f9739520ebb8d222887489d988fc38493bb53',
   '../agent-library-transport.ts':
     'd2c11b5c05741a02a102db5a228b74d2bb5696fa5b2781005e42eed12ed22f31',
@@ -269,7 +271,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-task-copy.ts': 'cd15f77cfa45883556d10536296a28f7451d2259a5a3eb2a9aeb807d24c54d6d',
   '../credential-connection-schema.ts':
     '3489ff131cd0bc28de23d85e1ed7cd4749fcb12f062bdc76407bedc0efe28f47',
-  '../credential-setup.ts': '25d86eaef64d7a558c1c733ae215f87e068dca5c40ad82a01c119f5f4f0038d7',
+  '../credential-verification-error.ts':
+    '1adcaa9d47b413796b94f6aeb44bf152e2daa27ec30759d1ffd9ce5e1240ebea',
+  '../credential-setup.ts': '8dfd54d1b4cb4408d52c9ca09f5cc220ba69adf6dc6181bc7de6803fee38f69c',
   '../connection-guide.ts': 'd0fed6560d2c2b4d99c74af278b3490ac66b3cb5b161bdeb686c57e99208c0dc',
   '../credential-setup-continuation.ts':
     '6cb81428bb08fa2cf6b79e762573e34dc87f281cfc5d0be70b5316ce66fdd493',
@@ -283,14 +287,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../home-assistant-dashboard.ts':
     '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
-    'bbdc3c9cb04e298c5f26bc705ce06348ce206fd8b72d83738dd6aef98bd0df5f',
+    '3517eff1758ec46d65db209b4c143eafd7402e54711d6474e3302149eb0cf866',
   '../credential-connections-router.ts':
     '6d7b779ff5ba148b6aea43483f4003da0d9ed4908e551a273de5906140c7b96b',
   '../credential-connection-tools.ts':
     'bead199d0a69079a83b7acd7fd9eeb111718e310a07419bcf2e02e92f25826fb',
   '../credential-connections-runtime.ts':
     '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
-  '../credential-http.ts': 'fb584d92840e2ee34167fd354d7249cfb3144b321f0d3a0a4aad3015231fa22d',
+  '../credential-http.ts': 'd99c0d1a71b90c07626b0d07459bdc9af936ae64895079f8471b3253a563ff62',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-tools.ts': 'de3a110d32b4a831b25c07918b9f35409cbb4ccf75ec0d5dd0667b55e3d55685',
   '../session-credential-tools.ts':
