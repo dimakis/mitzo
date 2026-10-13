@@ -1,0 +1,50 @@
+import { z } from 'zod';
+import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
+import { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
+const reference = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
+/** Client intent only. The server derives workspace, prompt and owning authority. */
+export const LocalCodexFirstCommandSchema = z
+  .strictObject({
+    runOn: z.literal('local'),
+    repositoryWorkspaceId: z.uuid(),
+    clientMsgId: reference,
+    capabilityRevision: reference,
+    runtime: z.strictObject({
+      account: SessionRuntimeBindingV1Schema.shape.account
+        .extend({ provider: z.literal('openai-codex') })
+        .strict(),
+      harness: z.literal('codex'),
+      targetId: reference,
+      mode: z.enum(['ask', 'agent', 'auto']),
+    }),
+    selection: OrdinaryLocalCommandSelectionSchema.extend({
+      context: z.strictObject({ source: z.literal('none'), revision: z.null() }),
+      permission: z.strictObject({
+        mode: z.enum(['ask', 'agent', 'auto']),
+        revision: z.literal(0),
+      }),
+    }).strict(),
+    payload: z.strictObject({
+      text: z.string().min(1).max(1_000_000),
+      intent: z.string().max(1_000_000).optional(),
+      images: z
+        .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
+        .max(16)
+        .optional(),
+    }),
+  })
+  .superRefine((request, ctx) => {
+    if (request.runtime.mode !== request.selection.permission.mode)
+      ctx.addIssue({ code: 'custom', message: 'Permission selection mismatch' });
+    if (new TextEncoder().encode(JSON.stringify(request)).length > 1048576)
+      ctx.addIssue({ code: 'custom', message: 'Command exceeds bound' });
+  });
+export type LocalCodexFirstCommand = z.infer<typeof LocalCodexFirstCommandSchema>;
+export const LocalCodexFirstCommandReceiptSchema = z.strictObject({
+  ok: z.literal(true),
+  clientMsgId: reference,
+  sessionId: reference,
+  dispatched: z.boolean(),
+  state: z.enum(['reserved', 'uncertain', 'consumed']),
+});
+export type LocalCodexFirstCommandReceipt = z.infer<typeof LocalCodexFirstCommandReceiptSchema>;
