@@ -282,3 +282,21 @@ Cancel and direct answers to the full iPhone form.
 Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromium,
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
+
+## Google Workspace policy status
+
+`GoogleWorkspaceControls` retains the existing Connections surface and controls,
+shared tokens and focus behavior. Copy distinguishes Docs authoring, legacy
+read-only Docs access, and unavailable Docs policy evidence; credential readiness
+remains a separate status. It exposes no new write toggle. The inventory lists
+Docs editing only when the effective policy was checked.
+
+Isolated, fully intercepted component views were inspected on 320px mobile WebKit
+with Dark/Mint/Georgia and 1280px desktop Chromium with Light/Teal/System for
+enabled, legacy and unknown Docs policy. They preserve keyboard focus without
+horizontal overflow. Captures show [mobile Docs authoring](assets/google-docs-mobile-dark.png)
+and [desktop legacy Docs access](assets/google-docs-desktop-light.png). These
+component checks use no backend, credential, or model. The full-app offline fixture
+also covers enabled and legacy policy on mobile WebKit/Chromium and desktop
+Chromium; broad build/browser acceptance runs in CI when local memory pressure
+prevents the full suite.
