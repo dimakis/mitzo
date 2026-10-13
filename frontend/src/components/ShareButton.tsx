@@ -160,6 +160,7 @@ export function ShareButton({
         <HomeDialog
           title="File options"
           className="file-actions-dialog"
+          inactive={!open}
           onClose={() => setOpen(false)}
         >
           <div
