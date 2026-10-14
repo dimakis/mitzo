@@ -180,17 +180,22 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   return response;
 }
 
+/** Existing, bounded server proof for a synchronous route render in this login. */
+export function hasVerifiedCookieAuthentication(): boolean {
+  return Boolean(
+    !isLogoutPending() &&
+    verifiedCookieAuth?.generation === authGeneration &&
+    verifiedCookieAuth.token === getStoredAuthToken() &&
+    Date.now() < verifiedCookieAuth.expiresAt,
+  );
+}
+
 /** Verify cookie authorization; briefly reuse proof across route changes in the same login. */
 export function restoreCookieAuthentication(): Promise<boolean> {
   const restoreGeneration = authGeneration;
   const restoreToken = getStoredAuthToken();
   if (isLogoutPending()) return Promise.resolve(false);
-  if (
-    verifiedCookieAuth?.generation === restoreGeneration &&
-    verifiedCookieAuth.token === restoreToken &&
-    Date.now() < verifiedCookieAuth.expiresAt
-  )
-    return Promise.resolve(true);
+  if (hasVerifiedCookieAuthentication()) return Promise.resolve(true);
   if (
     cookieRestoreInFlight?.generation === restoreGeneration &&
     cookieRestoreInFlight.token === restoreToken
@@ -200,7 +205,7 @@ export function restoreCookieAuthentication(): Promise<boolean> {
   const attempt = (async () => {
     const controller = new AbortController();
     let timeout!: ReturnType<typeof setTimeout>;
-    // Include tracing initialization in the same bounded authentication budget.
+    // Bound the network check even when the browser does not settle an aborted fetch.
     const deadline = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
         reject(new Error('Authentication check timed out'));

@@ -25,36 +25,30 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-describe('bounded authentication tracing readiness', () => {
-  it('keeps the five-second deadline when tracing initialization hangs and never sends a late check', async () => {
-    let initialize!: () => void;
-    init.ready = new Promise<void>((resolve) => {
-      initialize = resolve;
-    });
+describe('authentication independent of tracing readiness', () => {
+  it('sends and completes the check even when tracing initialization hangs', async () => {
+    init.ready = new Promise(() => {});
     const { restoreCookieAuthentication } = await import('../api-fetch');
-    const result = restoreCookieAuthentication().catch((error: Error) => error);
-    expect(fetchMock).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect((await result) as Error).toHaveProperty('message', 'Authentication check timed out');
-    expect(localStorage.getItem('mitzo_auth_token')).toBe('current-token');
-    initialize();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(await restoreCookieAuthentication()).toBe(true);
+    const result = restoreCookieAuthentication();
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(await result).toBe(true);
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('current-token');
   });
-  it('does not send an obsolete check after credentials change during initialization', async () => {
-    let initialize!: () => void;
-    init.ready = new Promise<void>((resolve) => {
-      initialize = resolve;
-    });
+  it('rejects an obsolete response when credentials change during the request', async () => {
+    init.ready = new Promise(() => {});
+    let finish!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+    );
     const { restoreCookieAuthentication, loginSucceeded } = await import('../api-fetch');
     const old = restoreCookieAuthentication();
-    loginSucceeded('new-token');
-    initialize();
-    expect(await old).toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(await restoreCookieAuthentication()).toBe(true);
     expect(fetchMock).toHaveBeenCalledOnce();
+    loginSucceeded('new-token');
+    finish(new Response('{}'));
+    expect(await old).toBe(false);
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -50,6 +50,42 @@ afterEach(() => {
 });
 
 describe('ProtectedRoute authentication recovery', () => {
+  it('renders a verified route immediately when navigating back within the existing proof lifetime', async () => {
+    const first = mountRoute();
+    await act(async () => {});
+    expect(screen.getByText('Chats ready')).toBeTruthy();
+    first.unmount();
+    mountRoute();
+    expect(screen.getByText('Chats ready')).toBeTruthy();
+    expect(screen.queryByText('Checking authentication…')).toBeNull();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('requires a fresh check after the existing proof expires', async () => {
+    const first = mountRoute();
+    await act(async () => {});
+    first.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    fetchMock.mockReturnValueOnce(new Promise(() => {}));
+    mountRoute();
+    expect(screen.getByText('Checking authentication…')).toBeTruthy();
+    expect(screen.queryByText('Chats ready')).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not render from a cached proof once logout is pending', async () => {
+    const first = mountRoute();
+    await act(async () => {});
+    first.unmount();
+    localStorage.setItem('mitzo_logout_pending', '1');
+    mountRoute();
+    expect(screen.queryByText('Chats ready')).toBeNull();
+    expect(screen.getByText(/Login/)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('automatically recovers a transient server failure without a Retry click', async () => {
     fetchMock.mockResolvedValueOnce(new Response('{}', { status: 503 }));
     mountRoute();
