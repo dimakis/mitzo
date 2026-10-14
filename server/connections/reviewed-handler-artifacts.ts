@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Explicit web-search budgets and inert readable-page extraction.
-  '../web-page-content.ts': '1d5b949f85e043cc415d7a9e5e383d9a1f652461b38888ec7eb864d5ce1dcfd9',
+  '../web-page-content.ts': 'f006bf833fa5977fe73693eee44e4d73924104b6a7add1dd5ddf9364b53241c5',
   '../request-web-access.ts': '592474d722988313871b11141c9d53fbd7a683ecea63afb586c4482d772cad42',
   '../web-search-adapters.ts': 'a1033a174a8015776b583e2dbb624e67966ab2eefc62de42a019cddfdc750018',
   '../../packages/harness/src/index.ts':

@@ -77,3 +77,14 @@ it('keeps invalid, embedded-credential and non-web links as text without fetchin
   expect(output).not.toContain('password');
   expect(output).not.toContain('javascript:');
 });
+
+it('separates table cells and preserves preformatted code indentation', () => {
+  const output = webPageContent(
+    '<main><table><tr><th>Version</th><th>Status</th></tr><tr><td>2026.10</td><td>Released</td></tr></table><pre>def example():\n    if ready:\n        return True\n</pre></main>',
+    'text/html',
+    target.url,
+  );
+  expect(output).toMatch(/Version\s+Status/);
+  expect(output).toMatch(/2026\.10\s+Released/);
+  expect(output).toContain('def example():\n    if ready:\n        return True');
+});

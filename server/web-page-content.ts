@@ -24,6 +24,8 @@ const blocks = new Set([
   'ol',
   'br',
   'tr',
+  'td',
+  'th',
   'h1',
   'h2',
   'h3',
@@ -49,21 +51,34 @@ export function webPageContent(body: string, contentType: string, sourceUrl: str
       for (let i = node.childNodes.length - 1; i >= 0; i--) candidates.push(node.childNodes[i]!);
   }
   const parts: string[] = [];
-  const pending: (Node | string)[] = [root];
+  const pending: ({ node: Node; preformatted: boolean } | string)[] = [
+    { node: root, preformatted: false },
+  ];
+  const lineBreak = () => {
+    if (!parts.at(-1)?.endsWith('\n')) parts.push('\n');
+  };
   while (pending.length) {
-    const node = pending.pop()!;
-    if (typeof node === 'string') {
-      parts.push(node);
+    const entry = pending.pop()!;
+    if (typeof entry === 'string') {
+      if (entry === '\n') lineBreak();
+      else parts.push(entry);
       continue;
     }
+    const { node } = entry;
+    let preformatted = entry.preformatted;
     if (tree.isTextNode(node)) {
-      parts.push(node.value);
+      const text = preformatted ? node.value : node.value.replace(/\s+/g, ' ');
+      if (text !== ' ' || !parts.at(-1)?.endsWith('\n')) parts.push(text);
       continue;
     }
     if (tree.isElementNode(node)) {
       if (omitted.has(node.tagName)) continue;
-      if (blocks.has(node.tagName)) {
-        parts.push('\n');
+      if (node.tagName === 'pre') {
+        preformatted = true;
+        parts.push('\n~~~\n');
+        pending.push('\n~~~\n');
+      } else if (blocks.has(node.tagName)) {
+        lineBreak();
         pending.push('\n');
       }
       if (node.tagName === 'a') {
@@ -80,12 +95,8 @@ export function webPageContent(body: string, contentType: string, sourceUrl: str
       }
     }
     if ('childNodes' in node)
-      for (let i = node.childNodes.length - 1; i >= 0; i--) pending.push(node.childNodes[i]!);
+      for (let i = node.childNodes.length - 1; i >= 0; i--)
+        pending.push({ node: node.childNodes[i]!, preformatted });
   }
-  return parts
-    .join('')
-    .replace(/[\t \f\v]+/g, ' ')
-    .replace(/ *\n */g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return parts.join('').trim();
 }
