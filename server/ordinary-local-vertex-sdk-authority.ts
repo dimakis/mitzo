@@ -13,6 +13,7 @@ export class OrdinaryLocalVertexSdkAuthority {
       store: EventStore;
       custody: OrdinaryLocalVertexCustody;
       commandId: string;
+      signal?: AbortSignal;
       /** Existing exact AccountProfiles.sdkEnv projection, re-resolved every effect. */
       environment(): Record<string, string | undefined>;
       /** Original operator, published profile, permission and workspace owners. */
@@ -27,6 +28,17 @@ export class OrdinaryLocalVertexSdkAuthority {
       owners.environment(),
     );
     this.assertStartup(this.#custody.sessionId, owners.commandId);
+  }
+  /** Connect native setup and context waits to the original owner's lifetime. */
+  bindAbortController(controller: AbortController) {
+    const signal = this.owners.signal;
+    if (!signal) return;
+    signal.throwIfAborted();
+    const abort = () => controller.abort(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    controller.signal.addEventListener('abort', () => signal.removeEventListener('abort', abort), {
+      once: true,
+    });
   }
   sdkSessionId(): string {
     return this.#custody.sdkSessionId;

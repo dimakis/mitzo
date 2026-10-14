@@ -118,3 +118,54 @@ it('rejects foreign result identity before changing running settings', async () 
   expect(query.setModel).toHaveBeenCalledTimes(1);
   expect(query.abort).toHaveBeenCalled();
 });
+
+it.each([false, true])(
+  'preserves old active and queued SDK work on request cancellation unless original authority is lost (%s)',
+  async (revoked) => {
+    const { store, owner, query, calls, assertCurrent } = setup();
+    await owner.enqueue('first');
+    store.admitOrdinaryLocalVertexContinuation(
+      { ...meta, accountBinding: { ...meta.accountBinding, model: 'second' } },
+      binding,
+      command('accepted', 'second'),
+    );
+    await owner.enqueue('accepted');
+    store.admitOrdinaryLocalVertexContinuation(meta, binding, command('expired'));
+    let release!: () => void,
+      waiting = false;
+    const deferred = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    assertCurrent.mockImplementationOnce(async () => {
+      waiting = true;
+      await deferred;
+    });
+    const controller = new AbortController();
+    const pending = owner.enqueue('expired', controller.signal);
+    const observed = pending.then(
+      () => 'accepted',
+      () => 'refused',
+    );
+    await vi.waitFor(() => expect(waiting).toBe(true));
+    controller.abort(new Error('Incoming admission deadline'));
+    if (revoked)
+      assertCurrent.mockImplementation(() => {
+        throw Error('Original ADC authority revoked');
+      });
+    release();
+    expect(await observed).toBe('refused');
+    expect(store.getExecutionAdmission('session', 'expired')).toBeUndefined();
+    expect(store.getOrdinaryLocalVertexCommandAdmission('expired')?.state).toBe('reserved');
+    expect(calls).toEqual(['model:first', 'thinking:null', 'push:first']);
+    if (revoked) {
+      expect(query.abort).toHaveBeenCalledOnce();
+      await expect(owner.complete('first')).rejects.toThrow();
+    } else {
+      expect(query.abort).not.toHaveBeenCalled();
+      await owner.complete('first');
+      expect(query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'accepted']);
+      await owner.complete('accepted');
+      expect(query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'accepted']);
+    }
+  },
+);

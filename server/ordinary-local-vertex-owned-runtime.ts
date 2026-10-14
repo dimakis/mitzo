@@ -38,6 +38,7 @@ export interface OrdinaryLocalVertexOwnedDispatch {
   sessionId: string;
   commandId: string;
   resume: boolean;
+  preparationSignal?: AbortSignal;
 }
 interface Owners {
   enabled: boolean;
@@ -241,15 +242,20 @@ export class OrdinaryLocalVertexOwnedRuntime {
   admitResume(input: unknown) {
     return this.admitCommand(input, true, true);
   }
-  admitContinuation(input: unknown) {
-    return this.admitCommand(input, true, false);
+  admitContinuation(input: unknown, preparationSignal?: AbortSignal) {
+    return this.admitCommand(input, true, false, preparationSignal);
   }
   private async admitCommand(
     raw: unknown,
     continuation: boolean,
     resume: boolean,
+    preparationSignal?: AbortSignal,
   ): Promise<{ dispatched: boolean }> {
-    this.assertOwner();
+    const assertAdmissionCurrent = () => {
+      preparationSignal?.throwIfAborted();
+      this.assertOwner();
+    };
+    assertAdmissionCurrent();
     this.credentialAuthority();
     const request = OrdinaryLocalVertexCommandRequestSchema.parse(raw);
     if ((!continuation || resume) && request.clientMsgId !== this.owners.commandId)
@@ -295,7 +301,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       )
         throw unavailable();
       await assertOrdinaryLocalVertexHistory(custody.sdkSessionId, custody.cwd);
-      this.assertOwner();
+      assertAdmissionCurrent();
       this.credentialAuthority();
     } else if (!continuation && descriptor.state === 'claimed') {
       const receipt = this.owners.eventStore.getOrdinaryLocalVertexCommandAdmission(
@@ -334,7 +340,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       ) =>
         operation({
           assertCurrent: async () => {
-            this.assertOwner();
+            assertAdmissionCurrent();
             this.credentialAuthority();
             loadAccountProfiles().validateModelSelection(
               original,
@@ -342,7 +348,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
               expected.selection.thinking,
             );
             await selected.assertCurrent(expected);
-            this.assertOwner();
+            assertAdmissionCurrent();
           },
         }),
     };
@@ -359,11 +365,30 @@ export class OrdinaryLocalVertexOwnedRuntime {
       declaration: this.#target.admissionDeclaration(),
       authority,
       store: {
-        admitOrdinaryLocalCommand: events.admitOrdinaryLocalVertexCommand.bind(events),
-        admitOrdinaryLocalContinuation: events.admitOrdinaryLocalVertexContinuation.bind(events),
-        claimOrdinaryLocalCommandDispatch:
-          events.claimOrdinaryLocalVertexCommandDispatch.bind(events),
-        completeOrdinaryLocalCommand: events.completeOrdinaryLocalVertexCommand.bind(events),
+        admitOrdinaryLocalCommand: (
+          ...args: Parameters<typeof events.admitOrdinaryLocalVertexCommand>
+        ) => {
+          assertAdmissionCurrent();
+          return events.admitOrdinaryLocalVertexCommand(...args);
+        },
+        admitOrdinaryLocalContinuation: (
+          ...args: Parameters<typeof events.admitOrdinaryLocalVertexContinuation>
+        ) => {
+          assertAdmissionCurrent();
+          return events.admitOrdinaryLocalVertexContinuation(...args);
+        },
+        claimOrdinaryLocalCommandDispatch: (
+          ...args: Parameters<typeof events.claimOrdinaryLocalVertexCommandDispatch>
+        ) => {
+          assertAdmissionCurrent();
+          return events.claimOrdinaryLocalVertexCommandDispatch(...args);
+        },
+        completeOrdinaryLocalCommand: (
+          ...args: Parameters<typeof events.completeOrdinaryLocalVertexCommand>
+        ) => {
+          assertAdmissionCurrent();
+          return events.completeOrdinaryLocalVertexCommand(...args);
+        },
       },
     });
     const meta = {
@@ -383,7 +408,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
         : coordinator.admit.bind(coordinator)
     )(meta, admittedRequest, {
       prepareWorkspace: async (expected) => {
-        this.assertOwner();
+        assertAdmissionCurrent();
         if (continuation) {
           await this.owners.workspace.validateHostTask(meta.sessionId, expected.workspace.cwd);
           workspace = this.owners.workspace.getForConversation(meta.sessionId);
@@ -392,7 +417,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
             ...this.owners.reservation,
             signal: this.#signal,
           });
-        this.assertOwner();
+        assertAdmissionCurrent();
         if (
           !workspace ||
           workspace.state !== 'claimed' ||
@@ -402,7 +427,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
           throw unavailable();
       },
       dispatch: async (expected, commandId) => {
-        this.assertOwner();
+        assertAdmissionCurrent();
         const previousCustody = this.owners.eventStore.getOrdinaryLocalVertexCustody(
           meta.sessionId,
         );
@@ -432,7 +457,9 @@ export class OrdinaryLocalVertexOwnedRuntime {
           sessionId: meta.sessionId,
           commandId,
           resume,
+          preparationSignal,
         });
+        assertAdmissionCurrent();
       },
     });
     if (result.dispatched) this.#initialized = true;

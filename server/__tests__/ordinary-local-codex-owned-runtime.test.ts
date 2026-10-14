@@ -976,3 +976,50 @@ it.each(['completed', 'queued', 'running'] as const)(
     }
   },
 );
+
+it('refuses a timed-out warm model admission while preserving the original retained native owner', async () => {
+  const f = await fixture();
+  const dispatch = vi.fn(async () => {});
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    dispatchContinuation: dispatch,
+  });
+  cleanups.push(() => driver.close());
+  await driver.admit(f.request);
+  const originalRequest = f.rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  let waiting = false;
+  const deferred = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.rpc.request.mockImplementation(async (method) => {
+    if (method === 'model/list') {
+      waiting = true;
+      await deferred;
+    }
+    return originalRequest(method);
+  });
+  const controller = new AbortController();
+  const next = {
+    ...f.request,
+    clientMsgId: randomUUID(),
+    payload: { text: 'Expired future command' },
+  };
+  const pending = driver.admitContinuation(next, controller.signal).then(
+    () => 'accepted',
+    () => 'refused',
+  );
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  controller.abort(new Error('Incoming preparation deadline'));
+  release();
+  expect(await pending).toBe('refused');
+  expect(f.events.getSendCommand(next.clientMsgId)).toBeUndefined();
+  expect(dispatch).not.toHaveBeenCalled();
+  f.dispatch.mock.calls[0][0].admission.assertCurrentSync();
+  f.rpc.request.mockImplementation(originalRequest);
+  await expect(driver.admitContinuation({ ...next, clientMsgId: randomUUID() })).resolves.toEqual({
+    dispatched: true,
+  });
+  expect(dispatch).toHaveBeenCalledOnce();
+  expect(f.launch).toHaveBeenCalledOnce();
+});

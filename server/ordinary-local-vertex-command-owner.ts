@@ -40,34 +40,40 @@ export class OrdinaryLocalVertexCommandOwner {
   activeCommandId(): string | undefined {
     return this.#active?.commandId ?? this.#dispatchingCommandId;
   }
-  enqueue(commandId: string): Promise<void> {
-    return this.#serialize(async () => {
-      await this.#fence();
-      const command = this.owners.store.getSendCommand(commandId);
-      const admission = this.owners.store.getOrdinaryLocalVertexCommandAdmission(commandId);
-      if (command?.sessionId !== this.owners.sessionId || !admission)
-        throw Error('Original SDK command unavailable');
-      if (this.#active?.commandId === commandId || this.#pending.includes(commandId)) return;
-      if (
-        admission.state !== 'reserved' &&
-        !(
-          this.owners.ownsClaim?.(commandId) &&
-          !this.owners.store.getExecutionAdmission(this.owners.sessionId, commandId)
+  enqueue(commandId: string, preparationSignal?: AbortSignal): Promise<void> {
+    return this.#serialize(
+      async () => {
+        preparationSignal?.throwIfAborted();
+        await this.#fence();
+        preparationSignal?.throwIfAborted();
+        const command = this.owners.store.getSendCommand(commandId);
+        const admission = this.owners.store.getOrdinaryLocalVertexCommandAdmission(commandId);
+        if (command?.sessionId !== this.owners.sessionId || !admission)
+          throw Error('Original SDK command unavailable');
+        if (this.#active?.commandId === commandId || this.#pending.includes(commandId)) return;
+        if (
+          admission.state !== 'reserved' &&
+          !(
+            this.owners.ownsClaim?.(commandId) &&
+            !this.owners.store.getExecutionAdmission(this.owners.sessionId, commandId)
+          )
         )
-      )
-        throw Error('Original SDK command cannot be replayed');
-      this.#pending = this.owners.store.getPendingOrdinaryLocalVertexCommandIds(
-        this.owners.sessionId,
-      );
-      if (
-        (admission.state === 'reserved' ||
-          (admission.state === 'uncertain' && this.owners.ownsClaim?.(commandId))) &&
-        !this.#pending.includes(commandId)
-      )
-        this.#pending.push(commandId);
-      this.#paused = false;
-      await this.#dispatch();
-    });
+          throw Error('Original SDK command cannot be replayed');
+        this.#pending = this.owners.store.getPendingOrdinaryLocalVertexCommandIds(
+          this.owners.sessionId,
+        );
+        if (
+          (admission.state === 'reserved' ||
+            (admission.state === 'uncertain' && this.owners.ownsClaim?.(commandId))) &&
+          !this.#pending.includes(commandId)
+        )
+          this.#pending.push(commandId);
+        this.#paused = false;
+        await this.#dispatch(preparationSignal, commandId);
+      },
+      preparationSignal,
+      commandId,
+    );
   }
   complete(commandId: string, failed = false): Promise<void> {
     return this.#serialize(async () => {
@@ -109,24 +115,51 @@ export class OrdinaryLocalVertexCommandOwner {
     if (this.#failed) throw Error('Original SDK owner unavailable');
     await this.owners.assertCurrent();
   }
-  #serialize(effect: () => Promise<void>): Promise<void> {
-    const next = this.#serial.then(effect).catch((error) => {
-      this.#failed = true;
-      this.owners.query.abort();
+  #serialize(
+    effect: () => Promise<void>,
+    preparationSignal?: AbortSignal,
+    incomingCommandId?: string,
+  ): Promise<void> {
+    const next = this.#serial.then(effect).catch(async (error) => {
+      if (preparationSignal?.aborted && error === preparationSignal.reason) {
+        try {
+          await this.owners.assertCurrent();
+        } catch (authorityError) {
+          this.#failed = true;
+          this.owners.query.abort();
+          throw authorityError;
+        }
+        if (
+          incomingCommandId &&
+          !this.owners.store.getExecutionAdmission(this.owners.sessionId, incomingCommandId)
+        ) {
+          this.#pending = this.#pending.filter((id) => id !== incomingCommandId);
+          if (this.#dispatchingCommandId === incomingCommandId)
+            this.#dispatchingCommandId = undefined;
+        }
+      } else {
+        this.#failed = true;
+        this.owners.query.abort();
+      }
       throw error;
     });
     this.#serial = next.catch(() => {});
     return next;
   }
-  async #dispatch() {
+  async #dispatch(preparationSignal?: AbortSignal, admittingCommandId?: string) {
     while (this.#pending.length && this.owners.store.getSendCommand(this.#pending[0]!)?.error)
       this.#pending.shift();
     if (this.#active || this.#paused || !this.#pending.length) return;
     const commandId = this.#pending[0]!;
+    const assertPreparation = () => {
+      if (commandId === admittingCommandId) preparationSignal?.throwIfAborted();
+    };
+    assertPreparation();
     this.#dispatchingCommandId = commandId;
     const admission = this.owners.store.getOrdinaryLocalVertexCommandAdmission(commandId)!;
     const settings = this.owners.settings(structuredClone(admission.selection));
     await this.#fence();
+    assertPreparation();
     if (
       admission.state === 'reserved'
         ? !this.owners.store.claimOrdinaryLocalVertexCommandDispatch(commandId)
@@ -145,15 +178,19 @@ export class OrdinaryLocalVertexCommandOwner {
     if (this.owners.query.applySettings) {
       await this.owners.query.applySettings(structuredClone(admission.selection));
       await this.#fence();
+      assertPreparation();
     } else {
       await this.owners.query.setModel(settings.model);
       await this.#fence();
+      assertPreparation();
       await this.owners.query.setMaxThinkingTokens(settings.thinkingTokens);
       await this.#fence();
+      assertPreparation();
     }
     const payload = this.owners.store.getSendCommand(commandId)!.payload;
     await this.owners.query.push(commandId, structuredClone(admission), structuredClone(payload));
     await this.#fence();
+    assertPreparation();
     this.owners.store.completeOrdinaryLocalVertexCommand(commandId);
     this.#pending.shift();
   }

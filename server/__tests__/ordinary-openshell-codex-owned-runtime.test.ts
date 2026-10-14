@@ -453,3 +453,37 @@ describe('bound ordinary OpenShell owner (offline)', () => {
     },
   );
 });
+
+it('refuses an expired incoming warm authority wait without changing the original queue or owner', async () => {
+  const f = fixture();
+  await f.driver.admit(f.meta, f.command('first'));
+  const queued = f.native.commands('session', f.account);
+  let waiting = false,
+    release!: () => void;
+  const deferred = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.assertCurrent.mockImplementation(async () => {
+    waiting = true;
+    await deferred;
+  });
+  const controller = new AbortController();
+  const next = f.command('expired', 'next', 'high');
+  const nextMeta = { ...f.meta, selectedModel: 'next', reasoningEffort: 'high' };
+  const pending = f.driver.admit(nextMeta, next, controller.signal).then(
+    () => 'accepted',
+    () => 'refused',
+  );
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  controller.abort(new Error('Incoming preparation deadline'));
+  release();
+  expect(await pending).toBe('refused');
+  expect(f.events.getSendCommand('expired')).toBeUndefined();
+  expect(f.native.commands('session', f.account)).toEqual(queued);
+  expect(f.dispatch).toHaveBeenCalledOnce();
+  f.assertCurrent.mockImplementation(async () => {});
+  await expect(
+    f.driver.admit(nextMeta, f.command('accepted-next', 'next', 'high')),
+  ).resolves.toMatchObject({ dispatched: true });
+  expect(f.dispatch).toHaveBeenCalledTimes(2);
+});

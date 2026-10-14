@@ -66,6 +66,7 @@ export async function sendOwnedLocalVertexCommand(input: {
   sessionId: string;
   command: unknown;
   operatorConnectionId: string;
+  signal?: AbortSignal;
 }) {
   const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
   captured.assertCurrent();
@@ -76,7 +77,7 @@ export async function sendOwnedLocalVertexCommand(input: {
     eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation !== 'claude-sdk'
   )
     throw unavailable();
-  return { ...(await owner.admit(input.command)), sessionId: input.sessionId };
+  return { ...(await owner.admit(input.command, input.signal)), sessionId: input.sessionId };
 }
 export async function startOwnedLocalVertexCommand(
   transport: SessionTransport,
@@ -88,8 +89,10 @@ export async function startOwnedLocalVertexCommand(
     ownerConnectionId?: string;
     ownerAuthSessionId: string;
     resume?: boolean;
+    signal?: AbortSignal;
   },
 ) {
+  options.signal?.throwIfAborted();
   const command = options.command as { clientMsgId: string },
     sessionId = options.reservation.conversationId;
   const live = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
@@ -118,7 +121,7 @@ export async function startOwnedLocalVertexCommand(
     await selected.owner.assertSetup(selected.commandId);
     if (started) {
       if (!queue) throw unavailable();
-      await queue.enqueue(selected.commandId);
+      await queue.enqueue(selected.commandId, selected.preparationSignal);
       return;
     }
     if (selected.resume) await owner.restoreAcknowledgedQueue();
@@ -131,6 +134,7 @@ export async function startOwnedLocalVertexCommand(
       throw unavailable();
     const authority = new OrdinaryLocalVertexSdkAuthority({
       store: eventStore,
+      signal: owner.signal,
       custody,
       commandId: selected.commandId,
       environment: () => owner.environment(),
@@ -196,7 +200,7 @@ export async function startOwnedLocalVertexCommand(
             authSessionId: owner.authSessionId,
             identity: owner,
             initialCommandId: command.clientMsgId,
-            admit: (input) => owner.admitContinuation(input),
+            admit: (input, signal) => owner.admitContinuation(input, signal),
             retryInitial: (input) => owner.admit(input),
             close: () => {
               session.abortController.abort();
@@ -228,6 +232,11 @@ export async function startOwnedLocalVertexCommand(
     () => registry.findBySessionId(sessionId)?.session.abortController.abort(),
     { once: true },
   );
+  // Entry cancellation governs preparation only; the admitted owner retains its
+  // existing lifetime after a successful HTTP acknowledgement.
+  const abortPreparation = () => controller.abort(options.signal?.reason);
+  options.signal?.addEventListener('abort', abortPreparation, { once: true });
+  if (options.signal?.aborted) abortPreparation();
   let release: (() => void) | undefined;
   try {
     release = eventStore.reserveOrdinaryStartup([sessionId]);
@@ -240,6 +249,7 @@ export async function startOwnedLocalVertexCommand(
     owner.close();
     throw unavailable();
   } finally {
+    options.signal?.removeEventListener('abort', abortPreparation);
     release?.();
   }
 }

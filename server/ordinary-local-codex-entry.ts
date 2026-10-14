@@ -578,7 +578,12 @@ export function createOwnedLocalCodexEntryRouter(
         const resultCommand =
           input.runtime.harness === 'claude-sdk'
             ? continuation && existingOwner
-              ? await sendOwnedLocalVertexCommand({ sessionId, command, operatorConnectionId })
+              ? await sendOwnedLocalVertexCommand({
+                  sessionId,
+                  command,
+                  operatorConnectionId,
+                  signal: controller.signal,
+                })
               : await startOwnedLocalVertexCommand(transport, `${connectionId}:${sessionId}`, {
                   command,
                   reservation,
@@ -603,6 +608,7 @@ export function createOwnedLocalCodexEntryRouter(
               : input.runOn === 'openshell'
                 ? continuation && existingOwner
                   ? await sendOwnedOpenShellCodexCommand({
+                      signal: controller.signal,
                       sessionId,
                       command,
                       operatorConnectionId,
@@ -630,7 +636,12 @@ export function createOwnedLocalCodexEntryRouter(
                       },
                     )
                 : continuation && existingOwner
-                  ? await sendOwnedLocalCodexCommand({ sessionId, command, operatorConnectionId })
+                  ? await sendOwnedLocalCodexCommand({
+                      sessionId,
+                      command,
+                      operatorConnectionId,
+                      signal: controller.signal,
+                    })
                   : await startOwnedLocalCodexCommand(transport, `${connectionId}:${sessionId}`, {
                       command,
                       reservation,

@@ -51,7 +51,10 @@ and Run on stay fixed. The same checkout admits the selected first-message model
 the original preparation model, branch and source digest remain recorded. The
 atomic first reservation freezes the complete command and effective model, so
 retries, uncertain reservations and later ownership checks cannot reinterpret it.
-Legacy preparations keep their original full-selection guard. Catalogue and label
+Entry preparation deadlines fence awaited checkout, native setup and live
+admission before receipts or queue effects. An expired incoming command keeps
+prior admitted work healthy; its request signal is never retained as conversation
+lifetime or frozen command data. Legacy preparations keep their original full-selection guard. Catalogue and label
 updates do not change retained routing or credential authority; the native owner
 still validates each future command. These are source and offline-fixture checks,
 with hosted visual evidence pending and live credential renewal or orphan process

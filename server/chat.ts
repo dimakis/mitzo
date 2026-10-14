@@ -1505,6 +1505,7 @@ async function _startChatInner(
       : process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
     : undefined;
   const abortController = new AbortController();
+  options.ordinarySdkAuthority?.bindAbortController(abortController);
   const resumedSession = options.resume
     ? registry.findBySessionId(options.resume)?.session
     : undefined;
@@ -2879,6 +2880,7 @@ export async function sendOwnedLocalCodexCommand(input: {
   sessionId: string;
   command: unknown;
   operatorConnectionId: string;
+  signal?: AbortSignal;
 }): Promise<{ dispatched: boolean; sessionId: string }> {
   const unavailable = () => new Error('Owned local Codex chat unavailable');
   try {
@@ -2893,7 +2895,7 @@ export async function sendOwnedLocalCodexCommand(input: {
     const retained = registry.findBySessionId(input.sessionId)?.session.ordinaryRuntimeOwner;
     if (!retained || retained.location !== 'local' || retained.authSessionId !== captured.auth.id)
       throw unavailable();
-    const result = await retained.admit(structuredClone(input.command));
+    const result = await retained.admit(structuredClone(input.command), input.signal);
     captured.assertCurrent();
     if (result.dispatched) {
       const current = registry.findBySessionId(input.sessionId);
@@ -3000,8 +3002,11 @@ export async function startOwnedLocalCodexCommand(
             model: dispatch.expected.selection.model,
             reasoningEffort: dispatch.expected.selection.thinking,
           },
-          session.abortController.signal,
+          dispatch.preparationSignal
+            ? AbortSignal.any([session.abortController.signal, dispatch.preparationSignal])
+            : session.abortController.signal,
         );
+        dispatch.preparationSignal?.throwIfAborted();
         storeAndEchoIfNew(
           sessionId,
           dispatch.commandId,
@@ -3040,7 +3045,7 @@ export async function startOwnedLocalCodexCommand(
       authSessionId: ownerAuthSessionId,
       identity: retainedDriver,
       initialCommandId: commandId,
-      admit: (command) => retainedDriver.admitContinuation(command),
+      admit: (command, signal) => retainedDriver.admitContinuation(command, signal),
       retryInitial: (command) => retainedDriver.admit(command),
       close: release,
     };

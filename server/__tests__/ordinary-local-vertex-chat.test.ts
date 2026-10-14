@@ -140,6 +140,7 @@ it('routes first, queued future and cold commands through the actual SDK owner w
     chat.eventStore.close();
   });
   const transport = { send: vi.fn(), isOpen: () => true };
+  const preparationTimers = vi.spyOn(globalThis, 'setTimeout');
   const { createOwnedLocalCodexEntryRouter } = await import('../ordinary-local-codex-entry.js');
   const router = createOwnedLocalCodexEntryRouter(
     { isOpen: () => true, isOwnedBy: () => true } as never,
@@ -184,7 +185,54 @@ it('routes first, queued future and cold commands through the actual SDK owner w
     status: 202,
     body: { dispatched: true, state: 'consumed' },
   });
+  // HTTP preparation has finished. A late deadline callback cannot abort the
+  // admitted conversation or its subsequent frozen followup.
+  const deadline = preparationTimers.mock.calls.find(([, delay]) => delay === 120000)?.[0];
+  expect(deadline).toBeTypeOf('function');
+  if (typeof deadline === 'function') deadline();
   await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
+  const { OrdinaryLocalCodexSelectionOwner } =
+    await import('../ordinary-local-codex-selection-owner.js');
+  const assertSelection = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;
+  let releaseAdmission!: () => void;
+  let admissionWaiting = false;
+  const pendingAuthority = new Promise<void>((resolve) => {
+    releaseAdmission = resolve;
+  });
+  const selectionSpy = vi
+    .spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrent')
+    .mockImplementation(async function (
+      this: InstanceType<typeof OrdinaryLocalCodexSelectionOwner>,
+      expected,
+    ) {
+      if (expected.selection.model === 'next-model') {
+        admissionWaiting = true;
+        await pendingAuthority;
+      }
+      return assertSelection.call(this, expected);
+    });
+  const expired = invoke('/continue', {
+    ...wire,
+    sessionId: f.reservation.conversationId,
+    clientMsgId: 'expired-followup',
+    selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
+    payload: { text: 'Never admitted' },
+  });
+  await vi.waitFor(() => expect(admissionWaiting).toBe(true));
+  const followupDeadline = preparationTimers.mock.calls
+    .filter(([, delay]) => delay === 120000)
+    .at(-1)?.[0];
+  expect(followupDeadline).toBeTypeOf('function');
+  if (typeof followupDeadline === 'function') followupDeadline();
+  releaseAdmission();
+  expect((await expired).status).toBe(409);
+  expect(chat.eventStore.getSendCommand('expired-followup')).toBeUndefined();
+  expect(
+    chat.registry.findBySessionId(f.reservation.conversationId)?.session.abortController.signal
+      .aborted,
+  ).toBe(false);
+  expect(services.requests).toHaveLength(1);
+  selectionSpy.mockRestore();
   await expect(
     invoke('/continue', {
       ...wire,
@@ -528,3 +576,83 @@ it('a qualified preparation A starts model B on its original checkout and exact 
   expect(f.workspace.get(ready.id).ordinaryPreparation).toEqual(claimed.ordinaryPreparation);
   expect(claim).toHaveBeenCalledTimes(1);
 }, 20000);
+
+it.each(['checkout', 'SDK setup'] as const)(
+  'holds an aborted entry preparation without dispatching after deferred %s returns',
+  async (stage) => {
+    vi.resetModules();
+    const { ownedVertexRuntimeFixture } = await import('./fixtures/owned-local-vertex-runtime.js');
+    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true });
+    services.workspace = f.workspace;
+    services.library = f.library;
+    services.authId = f.auth.id;
+    const chat = await import('../chat.js');
+    cleanups.push(() => chat.eventStore.close());
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw Error('Offline test has no network');
+      }),
+    );
+    const controller = new AbortController();
+    let release!: () => void;
+    const deferred = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let checkoutSignal: AbortSignal | undefined;
+    if (stage === 'checkout') {
+      const original = f.workspace.claimReservedHostTask.bind(f.workspace);
+      vi.spyOn(f.workspace, 'claimReservedHostTask').mockImplementation(async (input) => {
+        checkoutSignal = input.signal;
+        await deferred;
+        return original(input);
+      });
+    } else {
+      const { OrdinaryLocalVertexSdkAuthority } =
+        await import('../ordinary-local-vertex-sdk-authority.js');
+      const original = OrdinaryLocalVertexSdkAuthority.prototype.assertCurrent;
+      let calls = 0;
+      vi.spyOn(OrdinaryLocalVertexSdkAuthority.prototype, 'assertCurrent').mockImplementation(
+        async function (this: InstanceType<typeof OrdinaryLocalVertexSdkAuthority>, signal) {
+          if (++calls === 2) {
+            checkoutSignal = signal;
+            await deferred;
+          }
+          return original.call(this, signal);
+        },
+      );
+    }
+    const { startOwnedLocalVertexCommand } = await import('../ordinary-local-vertex-entry.js');
+    const pending = startOwnedLocalVertexCommand(
+      { send: vi.fn(), isOpen: () => true },
+      'offline-client',
+      {
+        command: f.request,
+        reservation: f.reservation,
+        operatorConnectionId: f.dependencies.operatorConnectionId,
+        ownerAuthSessionId: f.auth.id,
+        ownerConnectionId: f.dependencies.operatorConnectionId,
+        signal: controller.signal,
+      },
+    );
+    const observed = pending.then(
+      () => 'accepted',
+      () => 'refused',
+    );
+    await vi.waitFor(() => expect(checkoutSignal).toBeDefined());
+    controller.abort(new Error('Entry preparation deadline'));
+    const aborted = checkoutSignal!.aborted;
+    release();
+    expect(aborted).toBe(true);
+    expect(await observed).toBe('refused');
+    expect(services.query).not.toHaveBeenCalled();
+    expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull();
+    expect(
+      chat.eventStore.getOrdinaryLocalVertexCommandAdmission(f.request.clientMsgId)?.state,
+    ).toBe('uncertain');
+    expect(
+      chat.eventStore.getExecutionAdmission(f.reservation.conversationId, f.request.clientMsgId),
+    ).toBeUndefined();
+  },
+);
