@@ -281,6 +281,7 @@ import {
   type ConnectionsRuntime,
 } from './connections-runtime.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
+import { requestPerformance } from './request-performance.js';
 import { resolvePending, getPendingRequestsBySession } from './permissions.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { createLogger } from './logger.js';
@@ -399,6 +400,7 @@ export function invalidateSkillRegistries(): void {
 }
 
 const app = express();
+app.use(requestPerformance((message, fields) => log.warn(message, fields)));
 
 const codexReattachments = new Map<string, Promise<void>>();
 
