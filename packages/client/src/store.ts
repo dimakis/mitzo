@@ -752,7 +752,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (typeof console !== 'undefined') {
           console.warn('[mitzo] message recovery fetch failed', err);
         }
-        if (replace && request === historyRequest)
+        if (
+          (replace || throughSeq !== undefined) &&
+          request === historyRequest &&
+          store.getState().sessions.active === sessionId
+        )
           store.setState({ historyError: 'Could not restore this conversation. Please retry.' });
       })
       .finally(() => {

@@ -141,27 +141,55 @@ export class MitzoApiClient {
   async getReconnectTranscript(
     sessionId: string,
     throughSeq: number,
+    signal?: AbortSignal,
   ): Promise<ReconnectTranscript> {
-    const res = await this.assertOk(
-      await this.fetch(`/api/sessions/${sessionId}/messages?throughSeq=${throughSeq}`, {
-        credentials: 'include',
-      }),
+    return this.readTranscript(
+      `/api/sessions/${sessionId}/messages?throughSeq=${throughSeq}`,
+      signal,
     );
-    const body: unknown = await res.json();
-    return this.normalizeTranscript(body);
   }
 
   async getSessionTranscript(
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<ReconnectTranscript> {
-    const res = await this.assertOk(
-      await this.fetch(`/api/sessions/${sessionId}/messages?transcript=1`, {
-        credentials: 'include',
-        signal,
-      }),
-    );
-    return this.normalizeTranscript((await res.json()) as unknown);
+    return this.readTranscript(`/api/sessions/${sessionId}/messages?transcript=1`, signal);
+  }
+
+  /** Bound fetch, error bodies and JSON parsing even for transports ignoring AbortSignal. */
+  private async readTranscript(url: string, signal?: AbortSignal): Promise<ReconnectTranscript> {
+    if (signal?.aborted) throw new DOMException('Transcript request cancelled', 'AbortError');
+    const controller = new AbortController();
+    let rejectRead!: (error: Error) => void;
+    const stopped = new Promise<never>((_, reject) => {
+      rejectRead = reject;
+    });
+    const cancel = () => {
+      controller.abort();
+      rejectRead(new DOMException('Transcript request cancelled', 'AbortError'));
+    };
+    signal?.addEventListener('abort', cancel, { once: true });
+    const timeout = setTimeout(() => {
+      controller.abort();
+      rejectRead(new Error('Transcript request timed out'));
+    }, 30_000);
+    try {
+      return await Promise.race([
+        (async () => {
+          const response = await this.assertOk(
+            await this.fetch(url, {
+              credentials: 'include',
+              signal: controller.signal,
+            }),
+          );
+          return this.normalizeTranscript(await response.json());
+        })(),
+        stopped,
+      ]);
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', cancel);
+    }
   }
 
   private normalizeTranscript(body: unknown): ReconnectTranscript {

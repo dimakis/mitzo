@@ -2808,6 +2808,37 @@ describe('task CRUD actions', () => {
 });
 
 describe('foreground recovery', () => {
+  it('surfaces a failed valid-cursor reconnect transcript instead of silently ending recovery', async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = mockTransport();
+      const store = createReadyStore(transport);
+      const socket = lastWs;
+      await store.getState().switchSession('sess-1');
+      (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(() => {}));
+      socket.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 1,
+        cursorValid: true,
+        state: 'idle',
+        pendingPermissions: [],
+        offerId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(store.getState().historyLoading).toBe(true);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(store.getState().historyLoading).toBe(false);
+      expect(store.getState().historyError).toBe(
+        'Could not restore this conversation. Please retry.',
+      );
+      expect(
+        socket.parsedSent().some((message) => message.type === 'reconnect_snapshot_applied'),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps a pending session switch as the single history owner on foreground', async () => {
     const transport = mockTransport();
     let finish!: (value: unknown) => void;
