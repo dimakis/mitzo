@@ -108,6 +108,10 @@ for (const appearance of ['dark', 'light'] as const) {
       const footerBox = (await panel.locator('.workspace-controls-footer').boundingBox())!;
       expect(localBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
       expect(localBox.y + localBox.height).toBeLessThanOrEqual(footerBox.y + 1);
+      await local.click();
+      await expect(panel.getByRole('button', { name: 'Close agent settings' })).toBeInViewport();
+      await expect(panel.getByText('Chat settings', { exact: true })).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath(`short-chat-settings-${appearance}.png`) });
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
