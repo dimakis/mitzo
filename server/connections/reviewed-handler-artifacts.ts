@@ -497,5 +497,5 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '4348e00569955b6b6ed5b342f56d14def1de1e2a56cbb930232a2384389a580d',
   // Ordinary Codex continuation, persistent login revocation and physical custody.
   '../../frontend/src/components/ShareButton.tsx':
-    'f23bcba4e2d84b3368148e5a44883ba302487148fc6262f63a8d6e4ed0ab39b8',
+    '09b59817a6877cb6d28ecd7b3a83169780a5ce39a420c720561cd4106c045f64',
 });

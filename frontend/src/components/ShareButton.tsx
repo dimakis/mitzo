@@ -67,7 +67,7 @@ export function ShareButton({ filePath, sessionId, className, onOpen }: ShareBut
     [filePath, sessionId],
   );
 
-  const trigger = (e: React.MouseEvent) => {
+  const trigger = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.focus({ preventScroll: true });
