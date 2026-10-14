@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.119';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.120';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,15 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Bounded Vertex response transport for complete approved website reads.
+  '../symposium-host-tool-bus.py':
+    '0a214810f54fd435ffb56adf80f917062c60e3cdf334f88e5aaf429c1f6eb44c',
+  '../symposium-host-tool-mcp.py':
+    '2cb79bc6ae7f3f02fa0156100c3cbc74524a0523279d873d1851d085a6b19cb5',
+  // Explicit web-search budgets and inert readable-page extraction.
+  '../web-page-content.ts': '9458f1d3d38a9e637a69edb0f38b727f93b7ed63db231bf382334e0f4c684d9d',
+  '../request-web-access.ts': '592474d722988313871b11141c9d53fbd7a683ecea63afb586c4482d772cad42',
+  '../web-search-adapters.ts': 'a1033a174a8015776b583e2dbb624e67966ab2eefc62de42a019cddfdc750018',
   '../../packages/harness/src/index.ts':
     '2741b93d5b35a7542d87757caf6ea9e359d019e74be0dd506188df1a98dffe33',
   '../../packages/harness/src/session-transport.ts':
@@ -487,10 +496,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Ordinary Codex continuation, persistent login revocation and physical custody.
   '../session-registry.ts': 'd91b89354926d0ec7355e73fcae4f41066008d63097ca00077f37022fc554ccf',
   // Ordinary Codex continuation, persistent login revocation and physical custody.
-  '../approved-url-fetch.ts': '86e9a5200a452c3f43ed4578e5553c1595e479ded11359c7a2a8fc2838cad2ad',
+  '../approved-url-fetch.ts': 'c6c1d8bc1b678a1cafd0a63f52b0344664f9ee5e33fb66f9b99a10d0b491539f',
   '../owned-codex-queue-control.ts':
     '00c6dbf8ada1f6da8b519600380470a1a42090e125877b79a6149fd7d9667e9c',
-  '../public-web-fetch.ts': '805cfe93e5d8511920ec615334354afa23bac14561d6b7aff8c9117f8281c5d7',
+  '../public-web-fetch.ts': 'c5fc6be1b97cc0049fc645bdb102e44408cbf9bd61c55f63ee55bc96d52b31fd',
   '../ordinary-codex-agent-context.ts':
     'fcf7bc0b5c5942913671ee9c0212b7122d0cdf769ce49806a1047f14158a841c',
   '../ordinary-codex-agent-profile.ts':

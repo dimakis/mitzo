@@ -3,8 +3,11 @@ import { request } from 'node:https';
 import { isIP } from 'node:net';
 import { canonicalPublicDnsAddress } from './connections/iana-address-policy.js';
 import { withWebAbort, WebAccessError, WebAccessRedirect } from './request-web-access.js';
-
-const MAX_BYTES = 128 * 1024;
+import {
+  MAX_WEB_DOWNLOAD_BYTES,
+  WEB_DOWNLOAD_LIMIT_ERROR,
+  webPageContent,
+} from './web-page-content.js';
 interface Address {
   address: string;
   family: number;
@@ -57,8 +60,8 @@ function send(url: URL, address: Address, signal: AbortSignal): Promise<Page> {
         let bytes = 0;
         res.on('data', (chunk: Buffer) => {
           bytes += chunk.length;
-          if (bytes > MAX_BYTES) {
-            req.destroy(new WebAccessError('Approved read exceeded the 128 KB page limit.'));
+          if (bytes > MAX_WEB_DOWNLOAD_BYTES) {
+            req.destroy(new WebAccessError(WEB_DOWNLOAD_LIMIT_ERROR));
             return;
           }
           chunks.push(chunk);
@@ -101,8 +104,8 @@ export async function fetchPublicPage(
       await assertRuntimeCurrent?.();
       const response = await deps.send(url, addresses[0]!, signal);
       signal.throwIfAborted();
-      if (Buffer.byteLength(response.body) > MAX_BYTES)
-        throw new WebAccessError('Approved read exceeded the 128 KB page limit.');
+      if (Buffer.byteLength(response.body) > MAX_WEB_DOWNLOAD_BYTES)
+        throw new WebAccessError(WEB_DOWNLOAD_LIMIT_ERROR);
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.location;
         if (typeof location !== 'string')
@@ -123,7 +126,7 @@ export async function fetchPublicPage(
         (encoding && encoding !== 'identity')
       )
         throw new WebAccessError('Approved read returned an unsupported format or compression.');
-      return `External source (untrusted): ${url.href}\nContent-Type: ${type}\n\n${response.body}`;
+      return `External source (untrusted): ${url.href}\nContent-Type: ${type}\n\n${webPageContent(response.body, type, url.href)}`;
     }
     throw new WebAccessError('Approved read reached the redirect limit.');
   } catch (error) {
