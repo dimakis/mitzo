@@ -23,6 +23,7 @@ vi.mock('../../lib/event-bus-singleton', () => ({
 import { apiFetch } from '../../lib/api-fetch';
 import { useSessionList } from '../useSessionList';
 import { renameSession } from '../../lib/rename-session';
+import { eventBus } from '../../lib/event-bus-singleton';
 
 beforeEach(() => {
   window.dispatchEvent(new Event('mitzo:auth-lost'));
@@ -45,6 +46,32 @@ afterEach(() => {
 });
 
 describe('useSessionList', () => {
+  it('keeps unchanged activity snapshots and rows stable across repeated broadcasts', async () => {
+    const sessions = [
+      { id: 'one', isActive: true, isAttached: true },
+      { id: 'two', isActive: false, isAttached: false },
+    ];
+    vi.mocked(apiFetch).mockImplementation(
+      async (url) => new Response(JSON.stringify(url === '/api/sessions' ? sessions : {})),
+    );
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const onActivity = vi
+      .mocked(eventBus.on)
+      .mock.calls.filter(([name]) => name === 'session_activity')
+      .at(-1)![1];
+    const initial = result.current.sessions;
+    act(() => onActivity([{ sessionId: 'one', state: 'working' }]));
+    expect(result.current.sessions).toBe(initial);
+    act(() => onActivity([{ sessionId: 'one', state: 'done' }]));
+    expect(result.current.sessions).not.toBe(initial);
+    expect(result.current.sessions[0]).toEqual({ id: 'one', isActive: true, isAttached: false });
+    expect(result.current.sessions[1]).toBe(initial[1]);
+    const finished = result.current.sessions;
+    act(() => onActivity([{ sessionId: 'one', state: 'done' }]));
+    expect(result.current.sessions).toBe(finished);
+  });
+
   it('starts in loading state', () => {
     const { result } = renderHook(() => useSessionList());
     expect(result.current.loading).toBe(true);

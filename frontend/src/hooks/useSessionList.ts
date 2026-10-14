@@ -132,15 +132,20 @@ export function useSessionList(): UseSessionListReturn {
     const unsubActivity = eventBus.on('session_activity', (data) => {
       const activities = data as SessionActivity[];
       const activeIds = new Set(activities.map((a) => a.sessionId));
-      setSessions((prev) =>
-        prev.map((s) => ({
-          ...s,
-          isActive: activeIds.has(s.id),
-          isAttached: activities.some(
-            (a) => a.sessionId === s.id && a.state !== 'idle' && a.state !== 'done',
-          ),
-        })),
+      const attachedIds = new Set(
+        activities.filter((a) => a.state !== 'idle' && a.state !== 'done').map((a) => a.sessionId),
       );
+      setSessions((prev) => {
+        let changed = false;
+        const next = prev.map((session) => {
+          const isActive = activeIds.has(session.id);
+          const isAttached = attachedIds.has(session.id);
+          if (session.isActive === isActive && session.isAttached === isAttached) return session;
+          changed = true;
+          return { ...session, isActive, isAttached };
+        });
+        return changed ? next : prev;
+      });
     });
 
     return () => {
