@@ -1435,9 +1435,17 @@ test('a rejected outcome swipe restores its row and shows the unconfirmed change
   await page.goto('/todos');
   const card = page.locator('.todo-card').first();
   await expect(card).toBeVisible();
-  await card.dispatchEvent('touchstart', { touches: [{ clientX: 0, clientY: 20 }] });
-  await card.dispatchEvent('touchmove', { touches: [{ clientX: 150, clientY: 20 }] });
-  await card.dispatchEvent('touchend');
+  await card.evaluate((element) => {
+    for (const [type, clientX] of [
+      ['touchstart', 0],
+      ['touchmove', 150],
+      ['touchend', 150],
+    ] as const) {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, 'touches', { value: [{ clientX, clientY: 20 }] });
+      element.dispatchEvent(event);
+    }
+  });
   await expect(
     page.getByText('Couldn’t confirm this change. Refresh to check its status.', { exact: true }),
   ).toBeVisible();
