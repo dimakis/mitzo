@@ -1,3 +1,4 @@
+import { resolveRuntimeTarget } from '../lib/chat-runtime-route';
 import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
@@ -122,18 +123,26 @@ export function useExplicitLocalChat(
         const next = ExplicitLocalInventorySchema.parse(body);
         setInventory(next);
         const pendingIntent = latestIntent.current;
-        const targets = next.targets.filter(
-          (target) => target.location === pendingIntent.execution.location,
+        const pendingReference =
+          pendingIntent.accountReference ??
+          next.accounts.find(
+            (entry) => entry.account.accountId === pendingIntent.account?.accountId,
+          )?.account ??
+          null;
+        const targetId = resolveRuntimeTarget(
+          { ...pendingIntent, accountReference: pendingReference },
+          next,
         );
         if (
           !scope.current.sessionId &&
           pendingIntent.capabilityRevision === null &&
           pendingIntent.execution.targetId === null &&
-          targets.length === 1
+          targetId !== null
         ) {
           const resolved = {
             ...pendingIntent,
-            execution: { ...pendingIntent.execution, targetId: targets[0].targetId },
+            accountReference: pendingReference,
+            execution: { ...pendingIntent.execution, targetId },
             capabilityRevision: next.capabilityRevision,
           };
           setChoice({ draftId: scope.current.draftId, intent: resolved });
@@ -235,7 +244,9 @@ export function useExplicitLocalChat(
   const continuation =
     bound &&
     !currentMeta?.firstCommand &&
-    ['codex', 'responses'].includes(currentMeta?.binding?.harness.implementation ?? '');
+    ['codex', 'responses', 'claude-sdk'].includes(
+      currentMeta?.binding?.harness.implementation ?? '',
+    );
   const [future, setFuture] = useState<{ sessionId: string; intent: ChatRuntimeSelection } | null>(
     null,
   );
@@ -293,10 +304,37 @@ export function useExplicitLocalChat(
                 evaluation.issues[0]?.message)
               : !selectedIntent.agentProfile
                 ? 'Choose a published agent revision before sending.'
-                : evaluation.issues[0]?.message;
+                : selectedIntent.accountReference &&
+                    inventory?.accounts.some(
+                      (entry) =>
+                        entry.account.accountId === selectedIntent.accountReference!.accountId &&
+                        (entry.account.provider !== selectedIntent.accountReference!.provider ||
+                          entry.account.profileRevision !==
+                            selectedIntent.accountReference!.profileRevision),
+                    )
+                  ? inventory.accounts.find(
+                      (entry) =>
+                        entry.account.accountId === selectedIntent.accountReference!.accountId,
+                    )?.account.provider !== selectedIntent.accountReference.provider
+                    ? 'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.'
+                    : 'The selected account configuration changed. Choose the account again before sending.'
+                  : evaluation.issues[0]?.message;
   const update = (next: ChatRuntimeSelection, explicitAccountChoice = false) => {
-    const targets =
-      inventory?.targets.filter((target) => target.location === next.execution.location) ?? [];
+    const identityChanged =
+      explicitAccountChoice ||
+      next.account?.accountId !== selectedIntent.account?.accountId ||
+      next.execution.location !== selectedIntent.execution.location;
+    const referenced = {
+      ...next,
+      accountReference:
+        explicitAccountChoice ||
+        !next.accountReference ||
+        next.accountReference.accountId !== next.account?.accountId
+          ? (inventory?.accounts.find(
+              (entry) => entry.account.accountId === next.account?.accountId,
+            )?.account ?? next.accountReference)
+          : next.accountReference,
+    };
     const reviewed = inventory
       ? {
           ...next,
@@ -312,7 +350,9 @@ export function useExplicitLocalChat(
           execution: {
             ...next.execution,
             targetId:
-              next.execution.targetId ?? (targets.length === 1 ? targets[0].targetId : null),
+              identityChanged || next.execution.targetId === null
+                ? resolveRuntimeTarget(referenced, inventory)
+                : next.execution.targetId,
           },
           capabilityRevision: inventory.capabilityRevision,
         }
@@ -348,17 +388,12 @@ export function useExplicitLocalChat(
     refresh: () => setAttempt((value) => value + 1),
     update,
     review: () => {
-      const targets =
-        inventory?.targets.filter(
-          (target) => target.location === selectedIntent.execution.location,
-        ) ?? [];
       update({
         ...selectedIntent,
         execution: {
           ...selectedIntent.execution,
           targetId:
-            selectedIntent.execution.targetId ??
-            (targets.length === 1 ? targets[0].targetId : null),
+            selectedIntent.execution.targetId ?? resolveRuntimeTarget(selectedIntent, inventory),
         },
         capabilityRevision: inventory?.capabilityRevision ?? null,
       });

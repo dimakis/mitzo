@@ -58,13 +58,18 @@ export function createCredentialSdkServer(
   sessionId: () => string | undefined,
   session: ManagedSession,
   registry: SessionRegistry,
+  boundary?: {
+    profilesOnly: true;
+    assertCurrent(signal: AbortSignal): Promise<void>;
+    assertCurrentSync(signal: AbortSignal): void;
+  },
 ) {
   const runtimeId = randomUUID();
   let current: { id: string; tools: ReturnType<typeof sessionCredentialTools> } | undefined;
   return createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
-    tools: definitions.map((definition) =>
+    tools: (boundary?.profilesOnly ? profileToolDefinitions : definitions).map((definition) =>
       tool(
         definition.name,
         definition.description,
@@ -77,7 +82,20 @@ export function createCredentialSdkServer(
               isError: true,
             };
           if (current?.id !== id)
-            current = { id, tools: sessionCredentialTools(id, session, registry, prefix) };
+            current = {
+              id,
+              tools: sessionCredentialTools(
+                id,
+                session,
+                registry,
+                prefix,
+                undefined,
+                boundary ? () => boundary.assertCurrent(session.abortController.signal) : undefined,
+                boundary
+                  ? () => boundary.assertCurrentSync(session.abortController.signal)
+                  : undefined,
+              ),
+            };
           const callSignal =
             extra !== null &&
             typeof extra === 'object' &&
@@ -88,12 +106,14 @@ export function createCredentialSdkServer(
           const signal = callSignal
             ? AbortSignal.any([session.abortController.signal, callSignal])
             : session.abortController.signal;
+          await boundary?.assertCurrent(signal);
           const result = await current.tools.execute(definition.name, input, signal, {
             turnId: runtimeId,
             callId: String(
               (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
             ),
           });
+          await boundary?.assertCurrent(signal);
           return {
             content: [{ type: 'text', text: result?.content ?? 'Connection tool unavailable' }],
             isError: result?.isError ?? true,

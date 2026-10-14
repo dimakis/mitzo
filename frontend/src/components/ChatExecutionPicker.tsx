@@ -1,3 +1,4 @@
+import { selectedRuntimeRoute } from '../lib/chat-runtime-route';
 import { Link, useNavigate } from 'react-router-dom';
 import { createChatDraft, saveChatDraft } from '../lib/chat-drafts';
 import { useState } from 'react';
@@ -33,22 +34,7 @@ export function ChatExecutionPicker({
     navigate(`/chat?draft=${encodeURIComponent(draft.id)}`);
   };
   if (!runtime.visible) return null;
-  const selectedRoute = runtime.inventory?.routes.find(
-    (route) =>
-      route.account.accountId === runtime.intent.account?.accountId &&
-      route.targetId === runtime.intent.execution.targetId &&
-      (() => {
-        const candidates = runtime.inventory!.targets.filter(
-          (target) =>
-            target.targetId === route.targetId &&
-            target.harness === route.harness &&
-            (!route.location || target.location === route.location),
-        );
-        return (
-          candidates.length === 1 && candidates[0].location === runtime.intent.execution.location
-        );
-      })(),
-  );
+  const selectedRoute = selectedRuntimeRoute(runtime.intent, runtime.inventory);
   const harness = runtime.bound ? runtime.binding?.harness.implementation : selectedRoute?.harness;
   const software =
     harness === 'codex'
@@ -102,12 +88,6 @@ export function ChatExecutionPicker({
         )}
       </div>
     );
-  const target = runtime.inventory?.targets.find(
-    (t) => t.targetId === runtime.intent.execution.targetId,
-  );
-  const runOn = runtime.intent.execution.targetId
-    ? `${runtime.intent.execution.location}:${runtime.intent.execution.targetId}`
-    : runtime.intent.execution.location;
   return (
     <div className="chat-agent-profile">
       <label>
@@ -115,38 +95,20 @@ export function ChatExecutionPicker({
         <select
           aria-label="Run on"
           disabled={disabled || !runtime.inventory}
-          value={runOn}
+          value={runtime.intent.execution.location}
           onChange={(e) => {
-            const selected = runtime.inventory?.targets.find(
-              (t) => `${t.location}:${t.targetId}` === e.target.value,
-            );
             runtime.update({
               ...runtime.intent,
               execution: {
-                location: selected?.location ?? 'openshell',
-                targetId: selected?.targetId ?? null,
+                location: e.target.value === 'local' ? 'local' : 'openshell',
+                targetId: null,
               },
               capabilityRevision: null,
             });
           }}
         >
           <option value="openshell">OpenShell</option>
-          {runtime.intent.execution.targetId && !target && (
-            <option value={runOn} disabled>
-              {runtime.selectedLocal ? 'Local Mac' : 'OpenShell'} · unavailable
-            </option>
-          )}
-          {runtime.inventory?.targets.map((t) => (
-            <option key={t.targetId} value={`${t.location}:${t.targetId}`}>
-              {t.location === 'local' ? 'Local' : 'OpenShell'} · {t.label}
-            </option>
-          ))}
-          {!runtime.selectedLocal &&
-            !runtime.inventory?.targets.some((target) => target.location === 'local') && (
-              <option value="local" disabled>
-                Local · unavailable
-              </option>
-            )}
+          <option value="local">Local Mac</option>
         </select>
       </label>
       {software && <p>Runs with {software}</p>}

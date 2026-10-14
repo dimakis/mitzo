@@ -296,7 +296,7 @@ for (const appearance of ['light', 'dark'] as const) {
     const runOnBounds = await page.getByRole('combobox', { name: 'Run on' }).boundingBox();
     expect(runOnBounds?.height).toBeGreaterThanOrEqual(44);
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
-    await page.getByRole('combobox', { name: 'Run on' }).selectOption('local:mac');
+    await page.getByRole('combobox', { name: 'Run on' }).selectOption('local');
     await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
     await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('low');
     await page
@@ -382,7 +382,7 @@ test('Local first command: restored Local remains visible and blocked with gate 
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 320, height: 740 });
   await page.goto('/chat?draft=local-restored');
-  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('local:mac');
+  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('local');
   await expect(page.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
     JSON.stringify(['saved', 'agent', 1]),
   );
@@ -559,7 +559,7 @@ test('OpenShell conversation: default route starts and continues without legacy 
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/chat');
-  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('openshell:sandbox');
+  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('openshell');
   await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
   await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('low');
   await page
@@ -604,7 +604,7 @@ test('OpenShell conversation: default route starts and continues without legacy 
   ]);
   await page.getByRole('button', { name: 'New session on Local Mac' }).click();
   await expect.poll(() => fixture.attachments.at(-1)).toBe(null);
-  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('local:mac');
+  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('local');
   await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
     'personal',
   );

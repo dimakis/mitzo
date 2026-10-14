@@ -111,12 +111,45 @@ export const LocalResponsesFirstCommandSchema = z
 export const LocalResponsesContinuationCommandSchema = LocalResponsesFirstCommandSchema.safeExtend({
   sessionId: reference,
 });
+/** Ordinary Local SDK intent only; ADC, SDK history and physical paths remain server-private. */
+export const LocalVertexClaudeFirstCommandSchema = z
+  .strictObject({
+    ...LocalCodexFirstCommandSchema.shape,
+    selection: LocalCodexFirstCommandSchema.shape.selection
+      .extend({
+        agent: AgentProfileSelectionSchema,
+        context: z.strictObject({ source: z.literal('none'), revision: z.null() }),
+      })
+      .strict(),
+    runtime: z.strictObject({
+      ...LocalCodexFirstCommandSchema.shape.runtime.shape,
+      account: LocalCodexFirstCommandSchema.shape.runtime.shape.account
+        .extend({ provider: z.literal('anthropic-vertex') })
+        .strict(),
+      harness: z.literal('claude-sdk'),
+    }),
+  })
+  .superRefine((request, ctx) => {
+    if (request.runtime.mode !== request.selection.permission.mode)
+      ctx.addIssue({ code: 'custom', message: 'Permission selection mismatch' });
+    if (new TextEncoder().encode(JSON.stringify(request)).length > 1048576)
+      ctx.addIssue({ code: 'custom', message: 'Command exceeds bound' });
+  });
+export const LocalVertexClaudeContinuationCommandSchema =
+  LocalVertexClaudeFirstCommandSchema.safeExtend({
+    sessionId: z.string().min(1).max(200).regex(/^\S+$/),
+  });
+export type LocalVertexClaudeFirstCommand = z.infer<typeof LocalVertexClaudeFirstCommandSchema>;
+export type LocalVertexClaudeContinuationCommand = z.infer<
+  typeof LocalVertexClaudeContinuationCommandSchema
+>;
+
 export const OrdinaryRuntimeFirstCommandSchema = OrdinaryCodexFirstCommandSchema.or(
   LocalResponsesFirstCommandSchema,
-);
+).or(LocalVertexClaudeFirstCommandSchema);
 export const OrdinaryRuntimeContinuationCommandSchema = OrdinaryCodexContinuationCommandSchema.or(
   LocalResponsesContinuationCommandSchema,
-);
+).or(LocalVertexClaudeContinuationCommandSchema);
 export type OrdinaryRuntimeFirstCommand = z.infer<typeof OrdinaryRuntimeFirstCommandSchema>;
 export type OrdinaryRuntimeContinuationCommand = z.infer<
   typeof OrdinaryRuntimeContinuationCommandSchema

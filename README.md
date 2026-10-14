@@ -25,7 +25,7 @@ Ordinary OpenShell Codex chats reserve their account-bound native ledger before 
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
-## Explicit ordinary Codex conversations
+## Explicit ordinary conversations
 
 The existing Agent, Account, Model, Thinking and Run on picker supports gated
 Local Mac and ordinary OpenShell Codex source routes. OpenShell is the new-chat
@@ -62,6 +62,22 @@ profiles and the canonical Agent Builder namespace are supported; reusable
 context recipes remain explicitly unavailable. An unfinished provider execution
 after restart remains held for outcome recovery. No live account qualification or
 activation is claimed by this source increment.
+
+Local Anthropic Vertex accounts have a separately gated [Claude SDK source route](docs/design/ordinary-local-vertex-source-status.md)
+through the same picker and generic runtime endpoints. Run on has exactly two
+choices, OpenShell and Local Mac; software and model catalogs derive from the
+selected account's native route. The Claude route supports plain compatible
+Library profiles and canonical builtin identity, frozen FIFO model/effort choices,
+original SDK thread/workspace custody and completed-turn cold continuation.
+Original signed login custody also guards cold queue cancellation. It requires
+`MITZO_ORDINARY_LOCAL_VERTEX_ENABLED=1`, a separately reviewed private
+`MITZO_ORDINARY_LOCAL_VERTEX_TARGET_FILE`, and explicit account configuration with
+project, region and selected ADC. Inherited Google project/quota controls are not
+adopted. ADC identity/content changes refuse continuation; credential renewal,
+native process isolation and live provider behavior remain unqualified. Active
+Stop without a native terminal result retains unconfirmed work and refuses cold
+replay. Context recipes, packs, Vertex OpenShell and ordinary Gemini adoption
+remain outside this Claude checkpoint.
 
 Configuration remains operator-owned and disabled by default. Local requires
 `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and separately reviewed target/native files.

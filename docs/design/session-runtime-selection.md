@@ -1,25 +1,25 @@
 # Session runtime selection
 
 Status: gated source implementation with offline continuity evidence. Ordinary
-Local Codex and OpenShell Codex share the existing picker, durable command receipts
+Local Codex, OpenShell Codex, Local Responses and plain Local Claude share the existing picker, durable command receipts
 and immutable conversation binding. Configuration gates remain off by default;
 source support and offline tests do not establish live account, provider, native
 runtime or deployment qualification. Staging is stood down. Production activation
 requires a separate explicit user action.
 
-## Current ordinary Codex conversation contract
+## Current ordinary conversation contract
 
 The existing Agent, Account, Model, Thinking level and Run on controls retain their
 separate responsibilities. OpenShell stays the new-chat default; Local Mac requires
 an explicit choice. A pristine unselected target resolves from the first trusted
 inventory within its chosen environment. Previously selected unavailable/stale
 choices remain visible with a reason and are never replaced on refresh. Software
-is derived as Runs with Codex; there is no independent runtime selector.
+is derived as Runs with Codex, Mitzo Responses or Claude from the exact selected route; there is no independent runtime selector.
 
 `GET /api/chat/runtime/capabilities` projects a bounded combined configuration-only
 inventory. Its composite capability revision covers draft review; each route can
 carry its own native capability revision for frozen admission. The generic
-`POST /api/chat/runtime/send` and `/continue` use strict ordinary Codex envelopes.
+`POST /api/chat/runtime/send` and `/continue` use strict adapter-specific ordinary runtime envelopes.
 The original Local capability/send/continue endpoints retain compatibility. A
 continuation includes the original session and repository preparation IDs, an exact
 command ID and model/thinking snapshot. Clients cannot provide paths, credentials,
@@ -36,9 +36,15 @@ profiles use the existing Library namespaces. Supported workspace and ContexGin
 recipes compile once under the original workspace/runtime authority; each route
 advertises eligible profile references and reasons for incompatible selections.
 OpenShell ContexGin recipes require an explicit configured sandbox preset.
-Pinned packs, Local API billing, Vertex, Local workspace/brokered
-authentication, native sandbox subscriptions and additional harnesses require
-separate reviewed enrollment.
+Separately gated plain Local Responses and Claude SDK source routes use the same
+strict endpoints, picker and existing owners. Their specific qualifications and
+limits are documented in [Responses continuity](local-responses-continuity.md) and
+[Claude source status](ordinary-local-vertex-source-status.md). Original ADC
+identity, project/region and signed login are pinned for Claude; terminal-only
+SDK query reopening resumes its original thread with frozen model/effort options.
+Unconfirmed native outcomes remain retained and refuse cold replay. Pinned packs,
+Local workspace/brokered authentication, native sandbox subscriptions, Vertex
+OpenShell and ordinary Gemini adoption require separate reviewed enrollment.
 Legacy conversations keep their legacy ownership and are not implicitly converted.
 
 Prepared context is saved with the original profile and recipe identity. Provider

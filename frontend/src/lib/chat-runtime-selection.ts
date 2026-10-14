@@ -106,7 +106,12 @@ export function evaluateChatRuntimeSelection(
           : 'The selected location is unavailable. Choose an available location explicitly.',
       );
     if (!selection.execution.targetId)
-      add('target_required', 'Choose an execution target before sending.');
+      add(
+        'target_required',
+        selection.account?.accountId
+          ? 'The selected account has no unique supported route in this environment. Choose an account or environment explicitly.'
+          : 'Choose an account before sending.',
+      );
     if (!selection.account?.accountId) add('account_required', 'Choose an account before sending.');
     if (
       selection.agentProfile &&

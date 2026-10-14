@@ -1,4 +1,12 @@
 import {
+  createOrdinaryLocalVertexSdkQuery,
+  SdkHookLifetime,
+} from './ordinary-local-vertex-sdk-query.js';
+import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
+import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
+import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
+import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
+import {
   OrdinaryLocalResponsesOwnedRuntime,
   type OrdinaryLocalResponsesOwnedDispatch,
 } from './ordinary-local-responses-owned-runtime.js';
@@ -1148,6 +1156,17 @@ export async function startChat(
     operatorConnectionId?: string;
     userIntent?: string;
     reattachOnly?: boolean;
+    /** Sealed backend-owned SDK authority; never read from a client request. */
+    ordinarySdkAuthority?: OrdinaryLocalVertexSdkAuthority;
+    ordinarySdkCommandOwner?: (
+      query: Query,
+      push: (
+        id: string,
+        admission: Readonly<OrdinaryLocalCommandAdmission>,
+        payload: Readonly<Record<string, unknown>>,
+      ) => void,
+      reopen: (selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>,
+    ) => OrdinaryLocalVertexCommandOwner;
   },
 ) {
   // Resolve every identity the legacy startup path may derive before account,
@@ -1156,7 +1175,7 @@ export async function startChat(
   const initialMessageId = options.clientMsgId ?? randomUUID();
   options = { ...options, clientMsgId: initialMessageId };
   const repositoryStartupId =
-    options.repositoryWorkspaceId && !options.resume
+    options.repositoryWorkspaceId && !options.resume && !options.ordinarySdkAuthority
       ? nativeStartupSessionId(`repository:${options.repositoryWorkspaceId}`)
       : undefined;
   const commandStartupId =
@@ -1164,14 +1183,25 @@ export async function startChat(
       ? nativeStartupSessionId(initialMessageId)
       : undefined;
   try {
+    if (options.ordinarySdkAuthority) {
+      if (
+        !(options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority) ||
+        !options.ordinarySdkCommandOwner
+      )
+        throw Error('Original SDK authority unavailable');
+      await options.ordinarySdkAuthority.assertCurrent(new AbortController().signal);
+    }
     for (const sessionId of [
       options.resume,
       options.initialSessionId,
       repositoryStartupId,
       commandStartupId,
     ]) {
-      if (sessionId && eventStore.getSessionRuntimeBinding(sessionId))
-        throw new Error('Runtime-bound commands require guarded admission');
+      if (sessionId && eventStore.getSessionRuntimeBinding(sessionId)) {
+        if (!(options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority))
+          throw new Error('Runtime-bound commands require guarded admission');
+        options.ordinarySdkAuthority.assertStartup(sessionId, initialMessageId);
+      }
     }
   } catch (error) {
     options.onStartupAdmission?.(error);
@@ -1211,9 +1241,10 @@ export async function startChat(
           options.contributorExecution,
         );
       }
-      releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
-        [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
-      );
+      if (!options.ordinarySdkAuthority)
+        releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
+          [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
+        );
       return _startChatInner(transport, clientId, prompt, options, startupGuard);
     },
   )
@@ -1275,6 +1306,17 @@ async function _startChatInner(
     operatorConnectionId?: string;
     userIntent?: string;
     reattachOnly?: boolean;
+    /** Sealed backend-owned SDK authority; never read from a client request. */
+    ordinarySdkAuthority?: OrdinaryLocalVertexSdkAuthority;
+    ordinarySdkCommandOwner?: (
+      query: Query,
+      push: (
+        id: string,
+        admission: Readonly<OrdinaryLocalCommandAdmission>,
+        payload: Readonly<Record<string, unknown>>,
+      ) => void,
+      reopen: (selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>,
+    ) => OrdinaryLocalVertexCommandOwner;
   },
   startupGuard: { admission?: ProviderDispatchAdmission; releaseContext?: () => void },
 ) {
@@ -1296,7 +1338,13 @@ async function _startChatInner(
     const profiles =
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
-    accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    if (options.ordinarySdkAuthority && storedBinding) {
+      if (!profiles || options.accountId !== storedBinding.accountId)
+        throw Error('Original SDK account unavailable');
+      profiles.resumeRouting(storedBinding);
+      accountBinding = storedBinding;
+    } else
+      accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
     options = {
       ...options,
       contributorGuidance: resolveOrdinaryContributorGuidance(
@@ -1472,7 +1520,19 @@ async function _startChatInner(
     : (options.mode ?? 'agent');
 
   let repositoryWorkspace: RepositoryChatWorkspace | undefined;
-  if (options.repositoryWorkspaceId) {
+  if (options.ordinarySdkAuthority) {
+    const identity = options.resume ?? options.initialSessionId!;
+    const ownedWorkspace = getRepositoryWorkspaces(true).getForConversation(identity);
+    repositoryWorkspace = ownedWorkspace;
+    if (
+      !ownedWorkspace ||
+      ownedWorkspace.id !== options.repositoryWorkspaceId ||
+      ownedWorkspace.state !== 'claimed' ||
+      ownedWorkspace.directory !== options.cwd
+    )
+      throw Error('Original SDK repository workspace unavailable');
+    await options.ordinarySdkAuthority.assertCurrent(abortController.signal);
+  } else if (options.repositoryWorkspaceId) {
     if (
       options.resume ||
       !accountBinding ||
@@ -1755,7 +1815,7 @@ async function _startChatInner(
 
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
-  if (!options.reattachOnly && !initialProviderAdmission)
+  if (!options.reattachOnly && !initialProviderAdmission && !options.ordinarySdkAuthority)
     inputQueue.push(
       makeUserMessage(fullPrompt, 'now', apiKey || gemini ? initialMessageId : undefined),
     );
@@ -1879,7 +1939,10 @@ async function _startChatInner(
   const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
 
   const sdkCredentialBoundary =
-    !codexProfile && !apiCredentialRef && !gemini ? credentialSdkBoundary() : undefined;
+    !codexProfile && !apiCredentialRef && !gemini
+      ? credentialSdkBoundary(process.platform, options.ordinarySdkAuthority?.writeRoots())
+      : undefined;
+  options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
 
   const sdkCredentialIsolation = sdkCredentialBoundary?.credentialIsolation ?? false;
   const projectCommandRunner = sdkCredentialIsolation
@@ -1981,15 +2044,17 @@ async function _startChatInner(
             : undefined,
         )
       : undefined) ??
-    (openShellSelected
-      ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
-      : await fetchBootContext(
-          agentName,
-          undefined,
-          undefined,
-          !sdkCredentialIsolation,
-          projectCommandRunner,
-        ));
+    (options.ordinarySdkAuthority
+      ? { ...FALLBACK_BOOT_CONTEXT }
+      : openShellSelected
+        ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
+        : await fetchBootContext(
+            agentName,
+            undefined,
+            undefined,
+            !sdkCredentialIsolation,
+            projectCommandRunner,
+          ));
   const bootContextAppend = bootContextMsg.fullMarkdown
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
     : '';
@@ -2063,7 +2128,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
 
   // Recipe-bound chats already have their exact Library definition and context.
   // Loading the legacy definition would compile another, unrelated default bundle.
-  if (!agentContext && !agentProfile?.definition.contextRecipe)
+  if (!options.ordinarySdkAuthority && !agentContext && !agentProfile?.definition.contextRecipe)
     loadAgentDef(agentName, cwd)
       .then((loaded) => {
         const s = registry.get(clientId);
@@ -2094,18 +2159,23 @@ This is an independent checkout with its own Git storage, not a linked worktree.
   }
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
+  let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
   let resolvedResume: string | undefined;
   if (options.resume && !codexProfile && !apiKey && !gemini) {
     if (!BASE_REPO) {
       log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
     }
     resolvedResume =
-      (BASE_REPO ? getSessionSdkId(BASE_REPO, options.resume) : undefined) ?? options.resume;
+      options.ordinarySdkAuthority?.sdkSessionId() ??
+      (BASE_REPO ? getSessionSdkId(BASE_REPO, options.resume) : undefined) ??
+      options.resume;
   }
 
   // Bound sessions have durable routing before the SDK can create history or side effects.
   const newSdkSessionId =
-    !resolvedResume && !options.resume ? (options.initialSessionId ?? randomUUID()) : undefined;
+    !resolvedResume && !options.resume
+      ? (options.ordinarySdkAuthority?.sdkSessionId() ?? options.initialSessionId ?? randomUUID())
+      : undefined;
   try {
     if (newSdkSessionId) {
       eventStore.upsertSession({
@@ -2279,24 +2349,47 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         () => session.sessionId ?? options.resume ?? newSdkSessionId,
         session,
         registry,
+        options.ordinarySdkAuthority
+          ? {
+              profilesOnly: true,
+              assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
+              assertCurrentSync: (signal) =>
+                options.ordinarySdkAuthority!.assertCurrentSync(signal),
+            }
+          : undefined,
       );
-      const packBoundSdk = agentContext?.source === 'packs';
+      const packBoundSdk = agentContext?.source === 'packs' || !!options.ordinarySdkAuthority;
       const contextStopReason = 'Accepted agent context is no longer authorized; start a new chat.';
+      const sdkHookLifetime = new SdkHookLifetime();
       const authorizeSdkContext = async (signal: AbortSignal) => {
         const joined = AbortSignal.any([abortController.signal, signal]);
         try {
           joined.throwIfAborted();
           await prepareAgentContext?.(joined);
+          await options.ordinarySdkAuthority?.assertCurrent(joined);
           joined.throwIfAborted();
         } catch (error) {
           // SDK hook failures can be recoverable diagnostics. Abort the owning
           // provider process too, so a denied continuation cannot be retried.
-          if (packBoundSdk) abortController.abort(new Error(contextStopReason));
+          if (packBoundSdk && !sdkHookLifetime.retired(signal))
+            abortController.abort(new Error(contextStopReason));
           throw error;
         }
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
         if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        if (
+          options.ordinarySdkAuthority &&
+          name.startsWith('mcp__mitzo-connections__') &&
+          ![
+            'mcp__mitzo-connections__SymposiumReadProfiles',
+            'mcp__mitzo-connections__SymposiumProposeProfile',
+          ].includes(name)
+        )
+          return {
+            behavior: 'deny',
+            message: 'This helper is unavailable for the selected conversation route.',
+          };
         try {
           const keychain = credentialSdkPermission(name, input, clientId, registry, session);
           return keychain && !opts.forcePrompt
@@ -2311,7 +2404,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       if (packBoundSdk) {
         const fence: (hook: HookCallback) => HookCallback = (hook) => async (input, id, opts) => {
           const signal = AbortSignal.any([abortController.signal, opts.signal]);
-          const abortOwner = () => abortController.abort(new Error(contextStopReason));
+          sdkHookLifetime.propagate(opts.signal, signal);
+          const abortOwner = () => {
+            if (!sdkHookLifetime.retired(signal))
+              abortController.abort(new Error(contextStopReason));
+          };
           signal.addEventListener('abort', abortOwner, { once: true });
           try {
             await authorizeSdkContext(signal);
@@ -2362,14 +2459,19 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const githubPublishing = createGithubPublishingTool(
         () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
         registry,
-        () =>
-          hostGithubPublishingSource(
+        () => {
+          options.ordinarySdkAuthority?.assertCurrentSync(abortController.signal);
+          return hostGithubPublishingSource(
             session,
             [BASE_REPO, ...Object.values(getRepoConfig().repos)]
               .filter(Boolean)
               .map((root) => join(root, '.git')),
-          ),
+          );
+        },
         session,
+        options.ordinarySdkAuthority
+          ? () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal)
+          : undefined,
       );
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,
@@ -2385,66 +2487,164 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               env: sessionEnv,
               model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
             }),
+          options.ordinarySdkAuthority
+            ? () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal)
+            : undefined,
         ),
         abortController.signal,
         githubPublishing,
       );
       await authorizeSdkContext(abortController.signal);
-      const authorizedSdkInput = async function* () {
-        for await (const message of inputQueue) {
-          await authorizeSdkContext(abortController.signal);
-          yield message;
-        }
-      };
-      q = adaptSdkQuery(
-        query({
-          prompt: authorizedSdkInput(),
-          options: {
-            cwd,
-            env: sessionEnv,
-            abortController,
-            includePartialMessages: true,
-            settingSources:
-              sdkCredentialIsolation || agentContext?.source === 'packs' ? [] : ['project'],
-            ...(sdkCredentialBoundary
-              ? {
-                  spawnClaudeCodeProcess: sdkCredentialBoundary.spawnClaudeCodeProcess,
-                }
-              : {}),
-            ...(sdkCredentialIsolation ? { strictMcpConfig: true } : {}),
-            systemPrompt: {
-              type: 'preset',
-              preset: 'claude_code',
-              append:
-                systemPromptAppend +
-                WEB_ACCESS_INSTRUCTIONS +
+      const sdkOptions: NonNullable<Parameters<typeof query>[0]['options']> = {
+        cwd,
+        env: sessionEnv,
+        abortController,
+        includePartialMessages: true,
+        settingSources:
+          sdkCredentialIsolation || agentContext?.source === 'packs' || options.ordinarySdkAuthority
+            ? []
+            : ['project'],
+        ...(sdkCredentialBoundary
+          ? {
+              spawnClaudeCodeProcess: sdkCredentialBoundary.spawnClaudeCodeProcess,
+            }
+          : {}),
+        ...(sdkCredentialIsolation || options.ordinarySdkAuthority
+          ? { strictMcpConfig: true }
+          : {}),
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append:
+            systemPromptAppend +
+            (options.ordinarySdkAuthority
+              ? ''
+              : WEB_ACCESS_INSTRUCTIONS +
                 GITHUB_PUBLISHING_INSTRUCTIONS +
-                CONNECTION_TOOL_INSTRUCTIONS,
-            },
-            permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
-            allowedTools: [
+                CONNECTION_TOOL_INSTRUCTIONS),
+        },
+        permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
+        allowedTools: options.ordinarySdkAuthority
+          ? [
+              'mcp__mitzo-connections__SymposiumReadProfiles',
+              'mcp__mitzo-connections__SymposiumProposeProfile',
+            ]
+          : [
               ...(sdkCredentialIsolation ? [] : mcpAllowed),
               ...extraTools,
               WEB_ACCESS_SDK_TOOL,
               GITHUB_PUBLISH_SDK_TOOL,
               'mcp__mitzo-connections__*',
             ],
-            disallowedTools: ['WebSearch', 'WebFetch'],
-            thinking: resolveThinking(options.model),
-            effort: resolveClaudeEffort(options.model, options.reasoningEffort),
-            ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
-            ...(resolvedResume ? { resume: resolvedResume } : {}),
-            ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-            mcpServers: {
+        disallowedTools: [
+          'WebSearch',
+          'WebFetch',
+          ...(options.ordinarySdkAuthority
+            ? ['mcp__mitzo-web-access__*', GITHUB_PUBLISH_SDK_TOOL]
+            : []),
+        ],
+        thinking: resolveThinking(options.model),
+        effort: resolveClaudeEffort(options.model, options.reasoningEffort),
+        ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
+        ...(resolvedResume ? { resume: resolvedResume } : {}),
+        ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
+        mcpServers: options.ordinarySdkAuthority
+          ? { 'mitzo-connections': connectionServer }
+          : {
               ...(sdkCredentialIsolation ? {} : allMcpServers),
               'mitzo-web-access': webAccess,
               'mitzo-connections': connectionServer,
             },
-            hooks: sdkHooks,
-            canUseTool: decide,
+        hooks: sdkHooks,
+        canUseTool: decide,
+      };
+      if (options.ordinarySdkAuthority) {
+        const ownedQuery = createOrdinaryLocalVertexSdkQuery({
+          options: sdkOptions,
+          input: inputQueue,
+          lifetime: sdkHookLifetime,
+          sdkSessionId: options.ordinarySdkAuthority.sdkSessionId(),
+          cwd,
+          controller: abortController,
+          authorize: authorizeSdkContext,
+          authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
+          adapt: adaptSdkQuery,
+          settings: (selection) => ({
+            model: parseModelSpec(selection.model).model,
+            thinking: resolveThinking(selection.model),
+            effort: resolveClaudeEffort(selection.model, selection.thinking),
+          }),
+          inputChanged: (queue) => {
+            session.inputQueue = queue as { push(message: unknown): void; close(): void };
           },
-        }),
-      );
+          mcpServers: (state) => ({
+            'mitzo-connections': createCredentialSdkServer(
+              () => session.sessionId,
+              session,
+              registry,
+              {
+                profilesOnly: true,
+                assertCurrentSync: (signal) => {
+                  if (state.retired) throw Error('Completed SDK query retired');
+                  options.ordinarySdkAuthority!.assertCurrentSync(signal);
+                },
+                assertCurrent: async (signal) => {
+                  if (state.retired) throw Error('Completed SDK query retired');
+                  await options.ordinarySdkAuthority!.assertCurrent(signal);
+                  if (state.retired) throw Error('Completed SDK query retired');
+                },
+              },
+            ),
+          }),
+        });
+        q = ownedQuery.query;
+        liveOrdinarySdkOwner = options.ordinarySdkCommandOwner!(
+          ownedQuery.firstQuery,
+          (id, _admission, payload) => {
+            const { systemPrompt, ...commandPayload } = payload;
+            const profile = eventStore.getSession(session.sessionId!)?.agentProfile;
+            if (!profile || systemPrompt !== buildAgentProfilePrompt(profile.definition))
+              throw Error('Original SDK profile prompt changed');
+            const frozenPayload =
+              LocalVertexClaudeFirstCommandSchema.shape.payload.parse(commandPayload);
+            const message =
+              id === initialMessageId
+                ? fullPrompt
+                : assemblePrompt(
+                    repositoryChatContext(repositoryWorkspace) + frozenPayload.text,
+                    cwd,
+                    frozenPayload.images,
+                  );
+            session.model = _admission.selection.model;
+            storeAndEchoIfNew(
+              session.sessionId!,
+              id,
+              frozenPayload.text,
+              clientId,
+              session.transport,
+              session.observers,
+              imagePreviews(frozenPayload.images),
+              undefined,
+              undefined,
+              'user',
+              false,
+            );
+            ownedQuery.push(
+              makeUserMessage(message, 'now', id, undefined, undefined, frozenPayload.images),
+            );
+          },
+          ownedQuery.apply,
+        );
+        await liveOrdinarySdkOwner.enqueue(initialMessageId);
+      } else {
+        const authorizedSdkInput = async function* () {
+          for await (const message of inputQueue) {
+            await authorizeSdkContext(abortController.signal);
+            yield message;
+          }
+        };
+        q = adaptSdkQuery(query({ prompt: authorizedSdkInput(), options: sdkOptions }));
+      }
     }
 
     session.queryInstance = q;
@@ -2470,7 +2670,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     // For resumed sessions the prompt is sent to the SDK but was never stored
     // in the event store — making user messages invisible after WS reconnect.
     // Store and echo it here so the frontend can replay it.
-    if (options.resume && !codexProfile && !apiKey && !gemini) {
+    if (options.resume && !codexProfile && !apiKey && !gemini && !options.ordinarySdkAuthority) {
       const messageId =
         options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
       storeAndEchoIfNew(
@@ -2555,9 +2755,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.onSessionResolved?.(sessionId);
         },
         onInitialPrompt: (sessionId: string) => {
-          tryAutoRename(sessionId, clientId).catch(() => {
-            /* errors logged internally */
-          });
+          if (!options.ordinarySdkAuthority)
+            tryAutoRename(sessionId, clientId).catch(() => {
+              /* errors logged internally */
+            });
         },
         onTurnEnd: (cId: string) => {
           _onSessionChange?.(cId, 'turn_end');
@@ -2565,6 +2766,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         onUserInput: (cId, inputUuid) => {
           const active = registry.get(cId);
           if (active) markFallbackCloseoutInputObserved(active, inputUuid);
+          liveOrdinarySdkOwner?.inputObserved(inputUuid);
         },
         onResult: (cId, result, inputUuid) => {
           const active = registry.get(cId);
@@ -2574,6 +2776,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               result.is_error === true ? 'failed' : 'completed',
               inputUuid,
             );
+          if (liveOrdinarySdkOwner)
+            void liveOrdinarySdkOwner
+              .resultObserved(inputUuid, result.is_error === true)
+              .catch(() =>
+                abortController.abort(Error('Original SDK result authority unavailable')),
+              );
           options.onTurnResult?.(result, inputUuid);
         },
         onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
@@ -2582,7 +2790,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     const native =
-      accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai';
+      accountBinding?.provider === 'openai-codex' ||
+      accountBinding?.provider === 'openai' ||
+      options.ordinarySdkAuthority instanceof OrdinaryLocalVertexSdkAuthority;
     const publicMessage = native
       ? publicCodexStartupError(err instanceof Error ? err : new Error(message))
       : message;

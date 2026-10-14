@@ -1,3 +1,12 @@
+import {
+  OrdinaryLocalVertexTarget,
+  localVertexCapabilities,
+} from './ordinary-local-vertex-capabilities.js';
+import {
+  startOwnedLocalVertexCommand,
+  sendOwnedLocalVertexCommand,
+  canResumeOwnedLocalVertexDriver,
+} from './ordinary-local-vertex-entry.js';
 import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
 import {
   readOrdinaryCodexAgentProfile,
@@ -68,9 +77,23 @@ const log = createLogger('local-codex-entry');
 /** Pure configured projection. Every dispatch still qualifies the actual host/account. */
 function inventory(
   location: 'local' | 'openshell' = 'local',
-  harness: 'codex' | 'responses' = 'codex',
+  harness: 'codex' | 'responses' | 'claude-sdk' = 'codex',
 ) {
   const profiles = loadAccountProfiles();
+  if (harness === 'claude-sdk') {
+    if (
+      location !== 'local' ||
+      process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED !== '1' ||
+      !process.env.MITZO_ACCOUNT_PROFILES_FILE
+    )
+      throw Error(unavailable);
+    const catalog = localVertexCapabilities(
+      profiles,
+      new OrdinaryLocalVertexTarget(),
+      getAgentLibrary().list('user').versions,
+    );
+    return { profiles, catalog, result: catalog.inventory() };
+  }
   if (harness === 'responses') {
     if (location !== 'local' || process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED !== '1')
       throw Error(unavailable);
@@ -143,7 +166,7 @@ function inventory(
 export function ordinaryCodexCapabilities() {
   const availableInventory = (
     location: 'local' | 'openshell',
-    harness: 'codex' | 'responses' = 'codex',
+    harness: 'codex' | 'responses' | 'claude-sdk' = 'codex',
   ) => {
     try {
       return inventory(location, harness).result;
@@ -160,12 +183,16 @@ export function ordinaryCodexCapabilities() {
     process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED === '1'
       ? availableInventory('local', 'responses')
       : undefined;
+  const vertex =
+    process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1'
+      ? availableInventory('local', 'claude-sdk')
+      : undefined;
   const shell =
     process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED === '1'
       ? availableInventory('openshell')
       : undefined;
   const { accounts, routes } = composeOrdinaryRuntimeCapabilities(
-    [local, shell, responses].map(
+    [local, shell, responses, vertex].map(
       (source) =>
         source && {
           ...source,
@@ -189,14 +216,20 @@ export function ordinaryCodexCapabilities() {
           local?.capabilityRevision ?? null,
           shell?.capabilityRevision ?? null,
           responses?.capabilityRevision ?? null,
+          vertex?.capabilityRevision ?? null,
         ]),
       )
       .digest('hex'),
     accounts,
-    targets: [...(local?.targets ?? []), ...(shell?.targets ?? []), ...(responses?.targets ?? [])],
+    targets: [
+      ...(local?.targets ?? []),
+      ...(shell?.targets ?? []),
+      ...(responses?.targets ?? []),
+      ...(vertex?.targets ?? []),
+    ],
     routes,
     locations: [
-      [local, responses]
+      [local, responses, vertex]
         .find((source) =>
           source?.locations.some(
             (entry) => entry.location === 'local' && entry.status === 'configured',
@@ -204,13 +237,17 @@ export function ordinaryCodexCapabilities() {
         )
         ?.locations.find((entry) => entry.location === 'local') ??
         local?.locations.find((entry) => entry.location === 'local') ??
-        responses?.locations[0] ?? {
+        responses?.locations[0] ??
+        vertex?.locations[0] ?? {
           location: 'local',
           status: 'unavailable',
-          reason:
-            process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED === '1'
-              ? 'The configured Local Mac route is unavailable.'
-              : 'Local Mac is not enabled.',
+          reason: [
+            process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED,
+            process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED,
+            process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED,
+          ].includes('1')
+            ? 'The configured Local Mac route is unavailable.'
+            : 'Local Mac is not enabled.',
         },
       shell?.locations[0] ?? {
         location: 'openshell',
@@ -243,7 +280,8 @@ export function createOwnedLocalCodexEntryRouter(
       (process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' &&
         (!general ||
           (process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED !== '1' &&
-            process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED !== '1'))) ||
+            process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED !== '1' &&
+            process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED !== '1'))) ||
       custodianControllerMode ||
       custodianOwnerMode
     )
@@ -344,9 +382,11 @@ export function createOwnedLocalCodexEntryRouter(
         });
       if (
         (input.runOn === 'local'
-          ? input.runtime.harness === 'responses'
-            ? process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED
-            : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
+          ? input.runtime.harness === 'claude-sdk'
+            ? process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED
+            : input.runtime.harness === 'responses'
+              ? process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED
+              : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
           : process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED) !== '1'
       )
         return res.status(503).json({ ok: false, code: 'entry_disabled', error: unavailable });
@@ -367,9 +407,11 @@ export function createOwnedLocalCodexEntryRouter(
         if (
           (!existingOwner &&
             !(input.runOn === 'local'
-              ? input.runtime.harness === 'responses'
-                ? canResumeOwnedLocalResponsesDriver(sessionId, auth.id)
-                : canResumeOwnedLocalCodexDriver(sessionId, auth.id)
+              ? input.runtime.harness === 'claude-sdk'
+                ? canResumeOwnedLocalVertexDriver(sessionId, auth.id)
+                : input.runtime.harness === 'responses'
+                  ? canResumeOwnedLocalResponsesDriver(sessionId, auth.id)
+                  : canResumeOwnedLocalCodexDriver(sessionId, auth.id)
               : canResumeOwnedOpenShellCodexDriver(sessionId, auth.id))) ||
           !meta ||
           !binding ||
@@ -468,10 +510,10 @@ export function createOwnedLocalCodexEntryRouter(
           payload: input.payload,
         };
         const resultCommand =
-          input.runtime.harness === 'responses'
+          input.runtime.harness === 'claude-sdk'
             ? continuation && existingOwner
-              ? await sendOwnedLocalResponsesCommand({ sessionId, command, operatorConnectionId })
-              : await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
+              ? await sendOwnedLocalVertexCommand({ sessionId, command, operatorConnectionId })
+              : await startOwnedLocalVertexCommand(transport, `${connectionId}:${sessionId}`, {
                   command,
                   reservation,
                   operatorConnectionId,
@@ -479,38 +521,57 @@ export function createOwnedLocalCodexEntryRouter(
                   ownerAuthSessionId: auth.id,
                   resume: continuation,
                 })
-            : input.runOn === 'openshell'
+            : input.runtime.harness === 'responses'
               ? continuation && existingOwner
-                ? await sendOwnedOpenShellCodexCommand({ sessionId, command, operatorConnectionId })
-                : await startOwnedOpenShellCodexCommand(transport, `${connectionId}:${sessionId}`, {
-                    command,
-                    meta: {
-                      sessionId,
-                      repositoryWorkspaceId: input.repositoryWorkspaceId,
-                      accountBinding: reservation.binding,
-                      agentProfile: profile,
-                      cwd: loadOrdinaryOpenShellCodexTarget()!.config.workdir,
-                      selectedModel: input.selection.model,
-                      reasoningEffort: input.selection.thinking,
-                      mode: input.selection.permission.mode,
-                    },
-                    taskRoot: reservation.taskRoot,
-                    operatorConnectionId,
-                    ownerConnectionId: connectionId,
-                    signal: controller.signal,
-                    resume: continuation,
-                  })
-              : continuation && existingOwner
-                ? await sendOwnedLocalCodexCommand({ sessionId, command, operatorConnectionId })
-                : await startOwnedLocalCodexCommand(transport, `${connectionId}:${sessionId}`, {
+                ? await sendOwnedLocalResponsesCommand({ sessionId, command, operatorConnectionId })
+                : await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
                     command,
                     reservation,
-                    commandId: input.clientMsgId,
                     operatorConnectionId,
                     ownerConnectionId: connectionId,
-                    signal: controller.signal,
+                    ownerAuthSessionId: auth.id,
                     resume: continuation,
-                  });
+                  })
+              : input.runOn === 'openshell'
+                ? continuation && existingOwner
+                  ? await sendOwnedOpenShellCodexCommand({
+                      sessionId,
+                      command,
+                      operatorConnectionId,
+                    })
+                  : await startOwnedOpenShellCodexCommand(
+                      transport,
+                      `${connectionId}:${sessionId}`,
+                      {
+                        command,
+                        meta: {
+                          sessionId,
+                          repositoryWorkspaceId: input.repositoryWorkspaceId,
+                          accountBinding: reservation.binding,
+                          agentProfile: profile,
+                          cwd: loadOrdinaryOpenShellCodexTarget()!.config.workdir,
+                          selectedModel: input.selection.model,
+                          reasoningEffort: input.selection.thinking,
+                          mode: input.selection.permission.mode,
+                        },
+                        taskRoot: reservation.taskRoot,
+                        operatorConnectionId,
+                        ownerConnectionId: connectionId,
+                        signal: controller.signal,
+                        resume: continuation,
+                      },
+                    )
+                : continuation && existingOwner
+                  ? await sendOwnedLocalCodexCommand({ sessionId, command, operatorConnectionId })
+                  : await startOwnedLocalCodexCommand(transport, `${connectionId}:${sessionId}`, {
+                      command,
+                      reservation,
+                      commandId: input.clientMsgId,
+                      operatorConnectionId,
+                      ownerConnectionId: connectionId,
+                      signal: controller.signal,
+                      resume: continuation,
+                    });
         authority.assertCurrent();
         const receipt = ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId);
         if (!receipt || ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId !== sessionId)

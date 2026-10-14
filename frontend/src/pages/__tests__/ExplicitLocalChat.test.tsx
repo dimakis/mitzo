@@ -101,6 +101,7 @@ vi.mock('../../components/ChatArea', () => ({
 vi.mock('../../components/ChatInput', () => ({
   ChatInput: ({
     initialText,
+    savedChatDraft,
     onSend,
     onStop,
     running,
@@ -108,6 +109,7 @@ vi.mock('../../components/ChatInput', () => ({
     composerGeneration,
   }: {
     initialText?: string;
+    savedChatDraft?: import('../../lib/chat-drafts').ChatDraft;
     onStop: () => void;
     running: boolean;
     onSend?: (
@@ -121,7 +123,7 @@ vi.mock('../../components/ChatInput', () => ({
     composerGeneration?: number;
   }) => (
     <>
-      <div data-testid="draft">{initialText}</div>
+      <div data-testid="draft">{initialText ?? savedChatDraft?.text}</div>
       <span data-testid="composer-running">{String(running)}</span>
       <span data-testid="composer-generation">{composerGeneration}</span>
       <button onClick={onStop}>Test Stop</button>
@@ -157,10 +159,21 @@ function setup(
   bound = false,
   metadataFailed = false,
   continuation = false,
+  suppliedFixture?: import('../../lib/explicit-local-chat').ExplicitLocalInventory,
 ) {
-  const fixture = localInventoryFixture();
+  const fixture = suppliedFixture ?? localInventoryFixture();
   const draft = createChatDraft();
   draft.text = 'hello';
+  if (suppliedFixture) {
+    draft.images = [
+      {
+        data: 'b2ZmbGluZQ==',
+        preview: 'data:image/png;base64,b2ZmbGluZQ==',
+        mediaType: 'image/png',
+      },
+    ];
+    draft.contextBlocks = ['Retained context'];
+  }
   const intent = {
     ...createChatRuntimeSelection(),
     account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
@@ -251,11 +264,11 @@ for (const [name, Screen] of [
     const { localSend, legacySend } = setup(Screen);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    await screen.findByRole('option', { name: 'Local · This Mac' });
+    await screen.findByRole('option', { name: 'Local Mac' });
     expect(screen.getByRole('combobox', { name: 'Run on' })).toHaveValue('openshell');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     fireEvent.change(screen.getByRole('combobox', { name: 'Run on' }), {
-      target: { value: 'local:mac' },
+      target: { value: 'local' },
     });
     fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
       target: { value: 'personal' },
@@ -293,7 +306,7 @@ for (const [name, Screen] of [
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
     await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Run on' })).toHaveValue('local:mac'),
+      expect(screen.getByRole('combobox', { name: 'Run on' })).toHaveValue('local'),
     );
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Agent' })).toHaveValue(
@@ -445,5 +458,92 @@ for (const [name, Screen] of [
     expect(screen.queryByTestId('web-search-connection')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
     expect(legacySend).not.toHaveBeenCalled();
+  });
+}
+
+for (const [name, Screen] of [
+  ['mobile', ChatView],
+  ['desktop', DesktopChatView],
+] as const) {
+  it(`${name}: environment changes derive API Responses or Claude without losing draft or adopting another billing account`, async () => {
+    const { multiRuntimeInventoryFixture } =
+      await import('../../test-utils/multi-runtime-inventory-fixture');
+    const { store, localSend, legacySend, draft } = setup(
+      Screen,
+      false,
+      false,
+      false,
+      false,
+      false,
+      multiRuntimeInventoryFixture(),
+    );
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    await screen.findByRole('option', { name: 'API billing' });
+    expect(
+      screen
+        .getAllByRole('option')
+        .filter((option) => option.parentElement?.getAttribute('aria-label') === 'Run on')
+        .map((option) => option.textContent),
+    ).toEqual(['OpenShell', 'Local Mac']);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+      target: { value: 'api' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'shell-model' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking' }), {
+      target: { value: 'high' },
+    });
+    expect(screen.getByText('Runs with Codex')).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Local model' })).toBeNull();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Run on' }), {
+      target: { value: 'local' },
+    });
+    expect(screen.getByText('Runs with Mitzo Responses')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('api');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveValue('high');
+    expect(
+      screen.getByRole('option', { name: 'Unavailable model: shell-model' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Local model' })).toBeInTheDocument();
+    expect(screen.getByTestId('draft')).toHaveTextContent('hello');
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+      target: { value: 'vertex' },
+    });
+    expect(screen.getByText('Runs with Claude')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveValue('high');
+    expect(screen.getByRole('option', { name: 'Claude model' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Local model' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Run on' }), {
+      target: { value: 'openshell' },
+    });
+    expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('vertex');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveValue('high');
+    expect(screen.queryByRole('option', { name: 'Shell model' })).toBeNull();
+    expect(screen.queryByText('Runs with Codex')).toBeNull();
+    expect(screen.getByTestId('draft')).toHaveTextContent('hello');
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection).toMatchObject({
+      account: { accountId: 'vertex', model: 'shell-model', reasoningEffort: 'high' },
+      accountReference: {
+        accountId: 'vertex',
+        provider: 'anthropic-vertex',
+        profileRevision: 'vertex-r1',
+      },
+      execution: { location: 'openshell', targetId: null },
+    });
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: 'hello',
+      images: draft.images,
+      contextBlocks: draft.contextBlocks,
+    });
+    expect(store.getState().sessions.active).toBeNull();
   });
 }

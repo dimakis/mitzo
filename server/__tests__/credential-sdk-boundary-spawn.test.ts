@@ -1,7 +1,16 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import type { SandboxWorkerPayload } from '../sandboxed-command-worker.js';
 import { credentialSdkBoundary } from '../credential-sdk-boundary.js';
 const mocked = vi.hoisted(() => ({ spawn: vi.fn(), dependencies: vi.fn() }));
@@ -109,4 +118,33 @@ it('fails closed on unsupported platforms before exposing any SDK process', () =
     }),
   ).toThrow(/requires macOS/);
   expect(mocked.spawn).not.toHaveBeenCalled();
+});
+
+it('permits selected ADC reads while OS policy denies authority writes in arbitrary descendants', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-selected-adc-')));
+  const adc = join(directory, 'adc.json');
+  writeFileSync(adc, '{"type":"authorized_user"}', { mode: 0o600 });
+  const handle = child();
+  mocked.spawn.mockReturnValue(handle);
+  vi.spyOn(process, 'kill').mockReturnValue(true);
+  try {
+    const boundary = credentialSdkBoundary('darwin', [directory])!;
+    boundary.spawnClaudeCodeProcess({
+      command: '/usr/bin/true',
+      args: [],
+      env: { GOOGLE_APPLICATION_CREDENTIALS: adc },
+      signal: new AbortController().signal,
+    });
+    const payload = JSON.parse(
+      readFileSync(mocked.spawn.mock.calls[0][1].at(-1), 'utf8'),
+    ) as SandboxWorkerPayload;
+    expect(payload.config.filesystem.denyWrite).toContain(directory);
+    expect(payload.config.filesystem.denyRead).not.toContain(directory);
+    expect(payload.config.filesystem.denyRead).not.toContain(adc);
+    expect(payload.env.GOOGLE_APPLICATION_CREDENTIALS).toBe(adc);
+    expect(payload.authority).toBeDefined();
+  } finally {
+    handle.emit('close', 0, null);
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

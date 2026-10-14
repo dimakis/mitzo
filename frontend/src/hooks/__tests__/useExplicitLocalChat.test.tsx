@@ -424,7 +424,8 @@ it('retains copied account routing identity when the same ID changes billing unt
   };
   vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(changed)));
   const { result } = renderHook(() => useExplicitLocalChat('elsewhere', saved, null, true));
-  await waitFor(() => expect(result.current.intent.execution.targetId).toBe('sandbox'));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.intent.execution.targetId).toBeNull();
   expect(result.current.intent.accountReference).toEqual(original);
   expect(result.current.reason).toBe(
     'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.',
@@ -471,4 +472,40 @@ it('leaves legacy Agent-only launches on their existing picker when runtime enro
     kind: 'builtin',
   });
   expect(result.current.intent.execution.location).toBe('openshell');
+});
+it('resolves an account native tuple per environment without changing billing or invalid model intent', async () => {
+  const { multiRuntimeInventoryFixture } =
+    await import('../../test-utils/multi-runtime-inventory-fixture');
+  const data = multiRuntimeInventoryFixture();
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(data)));
+  const saved = {
+    ...createChatRuntimeSelection(),
+    agentProfile: { profileId: 'agent', revision: 1 },
+    account: { accountId: 'api', model: 'shell-model', reasoningEffort: null },
+    accountReference: data.accounts[1].account,
+  };
+  const { result } = renderHook(() => useExplicitLocalChat('multi', saved, null, true));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.intent.execution.targetId).toBe('shell');
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      execution: { location: 'local', targetId: null },
+    }),
+  );
+  expect(result.current.intent.execution.targetId).toBe('responses');
+  expect(result.current.intent.account).toEqual(saved.account);
+  expect(result.current.intent.accountReference).toEqual(saved.accountReference);
+  expect(result.current.reason).toMatch(/model/i);
+  act(() =>
+    result.current.update(
+      {
+        ...result.current.intent,
+        account: { accountId: 'vertex', model: 'claude-model', reasoningEffort: null },
+      },
+      true,
+    ),
+  );
+  expect(result.current.intent.execution.targetId).toBe('claude');
+  expect(result.current.intent.accountReference).toEqual(data.accounts[2].account);
 });
