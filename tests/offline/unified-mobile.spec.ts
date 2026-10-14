@@ -1400,77 +1400,128 @@ test('accent-filled controls retain their paired foreground on hover and in user
   }
 });
 
-test('Attention exposes an unavailable read and retries without claiming all clear', async ({
-  page,
-}, testInfo) => {
-  let available = false;
-  await page.route('**/api/todos*', (route) =>
-    route.fulfill({
-      status: available ? 200 : 503,
-      json: available ? fixtures['/api/todos'] : { error: 'Unavailable' },
-    }),
-  );
-  await page.goto('/focus');
-  const section = page.locator('.attention-section');
-  await expect(section.getByRole('alert')).toContainText(
-    'Couldn’t load attention items. Try again.',
-  );
-  await expect(section.getByText('all clear', { exact: true })).toHaveCount(0);
-  await section.screenshot({
-    path: testInfo.outputPath('attention-unavailable.png'),
-    animations: 'disabled',
-  });
-  available = true;
-  await section.getByRole('button', { name: 'Retry attention items' }).click();
-  await expect(section.getByRole('alert')).toHaveCount(0);
-  await expect(section.locator('.attention-card').first()).toBeVisible();
-});
+async function applyResponsivenessAppearance(
+  page: Page,
+  appearance: { theme: string; accent: string; font: string },
+) {
+  await page.evaluate(async (selection) => {
+    const root = document.documentElement;
+    root.dataset.theme = selection.theme;
+    root.dataset.accent = selection.accent;
+    root.dataset.font = selection.font;
+    localStorage.setItem('mitzo-theme', selection.theme);
+    localStorage.setItem('mitzo-accent', selection.accent);
+    localStorage.setItem('mitzo-font', selection.font);
+    await document.fonts.ready;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  }, appearance);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', appearance.theme);
+  await expect(page.locator('html')).toHaveAttribute('data-accent', appearance.accent);
+  await expect(page.locator('html')).toHaveAttribute('data-font', appearance.font);
+}
 
-test('a rejected outcome swipe restores its row and shows the unconfirmed change', async ({
-  page,
-}, testInfo) => {
-  await page.route('**/api/todos/*/action', (route) =>
-    route.fulfill({ status: 503, json: { error: 'Unavailable' } }),
-  );
-  await page.goto('/todos');
-  const card = page.locator('.todo-card').first();
-  await expect(card).toBeVisible();
-  await card.evaluate((element) => {
-    for (const [type, clientX] of [
-      ['touchstart', 0],
-      ['touchmove', 150],
-      ['touchend', 150],
-    ] as const) {
-      const event = new Event(type, { bubbles: true });
-      Object.defineProperty(event, 'touches', { value: [{ clientX, clientY: 20 }] });
-      element.dispatchEvent(event);
-    }
+for (const appearance of [
+  { theme: 'dark', accent: 'mint', font: 'georgia' },
+  { theme: 'light', accent: 'teal', font: 'verdana' },
+]) {
+  test(`Attention exposes an unavailable read and retries without claiming all clear (${appearance.theme})`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+    let available = false;
+    await page.route('**/api/todos*', (route) =>
+      route.fulfill({
+        status: available ? 200 : 503,
+        json: available ? fixtures['/api/todos'] : { error: 'Unavailable' },
+      }),
+    );
+    await page.goto('/focus');
+    await applyResponsivenessAppearance(page, appearance);
+    const section = page.locator('.attention-section');
+    await expect(section.getByRole('alert')).toContainText(
+      'Couldn’t load attention items. Try again.',
+    );
+    await expect(section.getByText('all clear', { exact: true })).toHaveCount(0);
+    await section.screenshot({
+      path: testInfo.outputPath(
+        `responsiveness-attention-unavailable-${appearance.theme}-${appearance.accent}-${appearance.font}.png`,
+      ),
+      animations: 'disabled',
+    });
+    available = true;
+    await section.getByRole('button', { name: 'Retry attention items' }).click();
+    await expect(section.getByRole('alert')).toHaveCount(0);
+    await expect(section.locator('.attention-card').first()).toBeVisible();
   });
-  await expect(
-    page.getByText('Couldn’t confirm this change. Refresh to check its status.', { exact: true }),
-  ).toBeVisible();
-  await expect(card).toHaveCSS('opacity', '1');
-  await expect(card).toBeVisible();
-  await card.screenshot({
-    path: testInfo.outputPath('outcome-failed-swipe.png'),
-    animations: 'disabled',
-  });
-});
 
-test('Calendar exposes temporary API failure on mobile and desktop', async ({ page }) => {
-  await page.route('**/api/calendar?**', (route) =>
-    route.fulfill({
-      status: 503,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: 'Unavailable' }),
-    }),
-  );
-  await page.goto('/calendar');
-  await expect(page.getByRole('alert')).toHaveText(
-    'Couldn’t load calendar. Check the connection and try again.',
-  );
-  await expect(page.getByRole('heading', { name: 'Calendar', exact: true })).toBeVisible();
-});
+  test(`a rejected outcome swipe restores its row and shows the unconfirmed change (${appearance.theme})`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+    await page.route('**/api/todos/*/action', (route) =>
+      route.fulfill({ status: 503, json: { error: 'Unavailable' } }),
+    );
+    await page.goto('/todos');
+    await applyResponsivenessAppearance(page, appearance);
+    const card = page.locator('.todo-card').first();
+    await expect(card).toBeVisible();
+    await card.evaluate((element) => {
+      for (const [type, clientX] of [
+        ['touchstart', 0],
+        ['touchmove', 150],
+        ['touchend', 150],
+      ] as const) {
+        const event = new Event(type, { bubbles: true });
+        Object.defineProperty(event, 'touches', { value: [{ clientX, clientY: 20 }] });
+        element.dispatchEvent(event);
+      }
+    });
+    const error = page.getByText('Couldn’t confirm this change. Refresh to check its status.', {
+      exact: true,
+    });
+    await expect(error).toBeVisible();
+    await expect(error).toBeInViewport();
+    await expect(card).toHaveCSS('opacity', '1');
+    await expect(card).toBeVisible();
+    await expect(card.locator('.todo-card-title')).toBeInViewport();
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `responsiveness-outcome-failed-swipe-${appearance.theme}-${appearance.accent}-${appearance.font}.png`,
+      ),
+      animations: 'disabled',
+    });
+  });
+
+  test(`Calendar exposes temporary API failure on mobile and desktop (${appearance.theme})`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+    await page.route('**/api/calendar?**', (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Unavailable' }),
+      }),
+    );
+    await page.goto('/calendar');
+    await applyResponsivenessAppearance(page, appearance);
+    await expect(page.getByRole('alert')).toHaveText(
+      'Couldn’t load calendar. Check the connection and try again.',
+    );
+    await expect(page.getByRole('heading', { name: 'Calendar', exact: true })).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `responsiveness-calendar-unavailable-${appearance.theme}-${appearance.accent}-${appearance.font}.png`,
+      ),
+      animations: 'disabled',
+    });
+  });
+}
 
 test('desktop Calendar uses the week canvas and dismissible event details', async ({
   page,
