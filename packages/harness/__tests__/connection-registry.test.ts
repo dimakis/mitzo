@@ -342,6 +342,32 @@ describe('ConnectionRegistry', () => {
       expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 8, 'new')).toBe(false);
     });
 
+    it('continues bounded reconnect catch-up when the previous batch is applied', () => {
+      const transport = mockTransport();
+      const events = Array.from({ length: 110 }, (_, i) => ({
+        seq: i + 1,
+        payload: { type: 'block_delta', delta: String(i) },
+      }));
+      const store = mockEventStore(events);
+      registry.setEventStore({ ...store, isSessionActive: () => false });
+      registry.register('conn-1', transport);
+      registry.watch('conn-1', 'sess-a');
+      registry.enableAppliedCursor('conn-1', 'sess-a', 0);
+      registry.offerSnapshot('conn-1', 'sess-a', 0, 'offer-1');
+      expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 0, 'offer-1')).toBe(true);
+      expect(transport.send).toHaveBeenCalledTimes(50);
+      for (let seq = 1; seq <= 49; seq++)
+        expect(registry.ackAppliedEvent('conn-1', 'sess-a', seq)).toBe(true);
+      expect(transport.send).toHaveBeenCalledTimes(50);
+      expect(registry.ackAppliedEvent('conn-1', 'sess-a', 50)).toBe(true);
+      expect(transport.send).toHaveBeenCalledTimes(100);
+      for (let seq = 51; seq <= 100; seq++)
+        expect(registry.ackAppliedEvent('conn-1', 'sess-a', seq)).toBe(true);
+      expect(transport.send).toHaveBeenCalledTimes(110);
+      expect(registry.ackAppliedEvent('conn-1', 'sess-a', 100)).toBe(false);
+      expect(transport.send).toHaveBeenCalledTimes(110);
+    });
+
     it('withholds live and periodic backlog until the snapshot offer is confirmed', async () => {
       vi.useFakeTimers();
       try {
