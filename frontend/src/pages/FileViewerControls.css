@@ -159,6 +159,13 @@
   white-space: nowrap;
 }
 
+@media (max-width: 767px) {
+  /* MobileShell's masthead already owns the top safe area. */
+  .mobile-workspace-body .viewer-page .viewer-header {
+    padding-top: var(--space-2);
+  }
+}
+
 @media (max-width: 480px) {
   .viewer-header-actions {
     flex-basis: 100%;
