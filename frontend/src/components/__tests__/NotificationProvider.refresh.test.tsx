@@ -17,7 +17,9 @@ vi.mock('../../lib/event-bus-singleton', () => ({
       return () => events.delete(name);
     },
     onConnectionChange: (callback: (connected: boolean) => void) => {
-      events.set('connected', callback);
+      events.set('connected', (value) => {
+        if (typeof value === 'boolean') callback(value);
+      });
       return () => events.delete('connected');
     },
   },
