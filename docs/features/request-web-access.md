@@ -73,6 +73,12 @@ Codex/API/subscription seats use their fenced dynamic host tools. Vertex seats u
 
 ## Validation
 
+OpenAI search omits a Mitzo output-token ceiling. Supported GPT-5/6 reasoning searches request
+`return_token_budget: unlimited`; other models keep the provider's supported web-search schema.
+Approved searches have no Mitzo duration cutoff and stop on caller/session cancellation.
+Provider context, output and rate limits still apply. No extra request or model/account fallback is
+made when a provider limit is reached.
+
 OpenAI search failures retain server-authored reasons through the approval boundary: HTTP rejection,
 authentication/access refusal, rate/quota limits, provider availability, transport failure, invalid
 responses, incomplete output (including the output-token limit), missing completed search receipts,

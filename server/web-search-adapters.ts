@@ -62,9 +62,15 @@ export async function searchOpenAI(
       model,
       instructions: SEARCH_INSTRUCTIONS,
       input: queryText,
-      max_output_tokens: 4096,
       store: false,
-      tools: [{ type: 'web_search' }],
+      tools: [
+        {
+          type: 'web_search',
+          ...(/^(?:gpt-[56](?:[.-]|$))/.test(model) && !/(?:^|-)chat(?:-|$)/.test(model)
+            ? { return_token_budget: 'unlimited' }
+            : {}),
+        },
+      ],
       tool_choice: { type: 'web_search' },
     }),
   }).catch(() => {

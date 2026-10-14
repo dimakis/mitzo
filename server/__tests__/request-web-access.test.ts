@@ -8,6 +8,37 @@ import {
 } from '../request-web-access.js';
 
 describe('account-independent web access boundary', () => {
+  it('lets an approved search finish after 90 seconds', async () => {
+    vi.useFakeTimers();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), ms);
+      return controller.signal;
+    });
+    try {
+      const input = { operation: 'search', query: 'query', reason: 'Verify sources' };
+      let operationSignal!: AbortSignal;
+      let finish!: (content: string) => void;
+      const result = executeWebAccess(input, new AbortController().signal, {
+        isCurrent: () => true,
+        approve: async () => ({ behavior: 'allow', updatedInput: input }),
+        search: (_query, signal) => {
+          operationSignal = signal;
+          return new Promise<string>((resolve) => {
+            finish = resolve;
+          });
+        },
+        fetchPage: vi.fn(),
+      });
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(operationSignal.aborted).toBe(false);
+      finish('Answer [source](https://example.com)');
+      expect(await result).toMatchObject({ isError: false });
+    } finally {
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
+  });
   it('publishes an object parameter schema accepted by function-tool providers', () => {
     expect(webAccessDefinition.input_schema).toMatchObject({
       type: 'object',
