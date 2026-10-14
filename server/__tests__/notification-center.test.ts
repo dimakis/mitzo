@@ -33,6 +33,56 @@ function setup(
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
+  it.each(['closed', 'failed'])('keeps deferred approval refresh safe when %s', async (state) => {
+    const { store, center, changed } = setup();
+    const permId = `refresh-${state}`;
+    try {
+      registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+        ...request,
+        permId,
+      });
+      changed.mockClear();
+      expect(resolvePending(permId, 'deny')).toBe(true);
+      if (state === 'closed') center.close();
+      else
+        changed.mockImplementation(() => {
+          throw new Error('subscriber failed');
+        });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(changed).toHaveBeenCalledTimes(state === 'closed' ? 0 : 1);
+      expect(store.get(`permission:${permId}`)?.resolution).toBe('denied');
+    } finally {
+      removePending(permId);
+      center.close();
+      store.close();
+    }
+  });
+
+  it('persists approval resolution immediately and coalesces auxiliary refresh after the response', async () => {
+    const { store, center, changed } = setup();
+    const ids = ['deferred-one', 'deferred-two'];
+    try {
+      for (const permId of ids)
+        registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+          ...request,
+          permId,
+        });
+      changed.mockClear();
+      const feed = vi.spyOn(store, 'feed');
+      for (const id of ids) expect(resolvePending(id, 'once')).toBe(true);
+      expect(changed).not.toHaveBeenCalled();
+      expect(feed).not.toHaveBeenCalled();
+      expect(store.get(`permission:${ids[0]}`)?.resolution).toBe('allowed');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(changed).toHaveBeenCalledOnce();
+      expect(feed).toHaveBeenCalledOnce();
+    } finally {
+      ids.forEach(removePending);
+      center.close();
+      store.close();
+    }
+  });
+
   it.each([false, true])(
     'binds notification retention to the displayed scope and removes oversized details (%s)',
     async (oversized) => {
