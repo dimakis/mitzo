@@ -265,6 +265,7 @@ export class ConnectionRegistry {
     if (!offer || offer.cursor !== cursor || offer.offerId !== offerId) return false;
     this.cursors.get(connectionId)?.set(sessionId, cursor);
     this.snapshotOffers.get(connectionId)?.delete(sessionId);
+    this.retryDelivery(connectionId, sessionId);
     return true;
   }
 
@@ -298,84 +299,68 @@ export class ConnectionRegistry {
     log.info('starting periodic sync', { intervalMs: SYNC_INTERVAL_MS });
 
     this.syncTimer = setInterval(() => {
-      if (!this.eventStore) return;
-
-      for (const [connectionId, conn] of this.connections.entries()) {
-        if (!conn.transport.isOpen()) continue;
-
-        const connCursors = this.cursors.get(connectionId);
-        if (!connCursors) continue;
-
-        for (const sessionId of conn.watchedSessions) {
-          if (this.snapshotOffers.get(connectionId)?.has(sessionId)) continue;
-          // Skip ended sessions to avoid unnecessary EventStore queries
-          if (
-            this.eventStore.isSessionActive &&
-            !this.eventStore.isSessionActive(sessionId) &&
-            !this.appliedSessions.get(connectionId)?.has(sessionId)
-          ) {
-            continue;
-          }
-
-          const cursor = connCursors.get(sessionId) ?? 0;
-
-          // Fetch missed events from EventStore
-          let missedEvents: ReturnType<EventStoreAdapter['getEventsAfter']>;
-          try {
-            missedEvents = this.eventStore.getEventsAfter(sessionId, cursor, SYNC_BATCH_LIMIT);
-          } catch (err) {
-            log.warn('periodic sync: EventStore fetch failed', {
-              connectionId,
-              sessionId,
-              error: err instanceof Error ? err.message : String(err),
-            });
-            continue;
-          }
-
-          if (missedEvents.length === 0) continue;
-
-          log.info('periodic sync: retrying missed events', {
-            connectionId,
-            sessionId,
-            cursor,
-            missedCount: missedEvents.length,
-          });
-
-          // Retry delivery
-          for (const evt of missedEvents) {
-            try {
-              conn.transport.send(
-                storedEventToClientMessage({
-                  ...evt,
-                  sessionId: evt.sessionId ?? sessionId,
-                  ...(this.eventStore.getSessionPredecessorSeq
-                    ? {
-                        prevSessionSeq: this.eventStore.getSessionPredecessorSeq(
-                          sessionId,
-                          evt.seq,
-                        ),
-                      }
-                    : {}),
-                }),
-              );
-              // Update cursor on success
-              const current = connCursors.get(sessionId) ?? 0;
-              if (evt.seq > current && !this.appliedSessions.get(connectionId)?.has(sessionId)) {
-                connCursors.set(sessionId, evt.seq);
-              }
-            } catch {
-              // Still failing — stop here, retry next sync round
-              log.warn('periodic sync: retry failed, stopping batch', {
-                connectionId,
-                sessionId,
-                failedSeq: evt.seq,
-              });
-              break;
-            }
-          }
-        }
+      for (const [connectionId, conn] of this.connections) {
+        for (const sessionId of conn.watchedSessions) this.retryDelivery(connectionId, sessionId);
       }
     }, SYNC_INTERVAL_MS);
+  }
+
+  /** Retry a bounded suffix, including events withheld during transcript restore. */
+  private retryDelivery(connectionId: string, sessionId: string): void {
+    const conn = this.connections.get(connectionId);
+    const connCursors = this.cursors.get(connectionId);
+    if (!this.eventStore || !conn || !conn.transport.isOpen() || !connCursors) return;
+    if (this.snapshotOffers.get(connectionId)?.has(sessionId)) return;
+    if (
+      this.eventStore.isSessionActive &&
+      !this.eventStore.isSessionActive(sessionId) &&
+      !this.appliedSessions.get(connectionId)?.has(sessionId)
+    )
+      return;
+    const cursor = connCursors.get(sessionId) ?? 0;
+    let missedEvents: ReturnType<EventStoreAdapter['getEventsAfter']>;
+    try {
+      missedEvents = this.eventStore.getEventsAfter(sessionId, cursor, SYNC_BATCH_LIMIT);
+    } catch (err) {
+      log.warn('delivery retry: EventStore fetch failed', {
+        connectionId,
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    if (missedEvents.length === 0) return;
+    log.info('delivery retry: retrying missed events', {
+      connectionId,
+      sessionId,
+      cursor,
+      missedCount: missedEvents.length,
+    });
+    for (const evt of missedEvents) {
+      try {
+        conn.transport.send(
+          storedEventToClientMessage({
+            ...evt,
+            sessionId: evt.sessionId ?? sessionId,
+            ...(this.eventStore.getSessionPredecessorSeq
+              ? {
+                  prevSessionSeq: this.eventStore.getSessionPredecessorSeq(sessionId, evt.seq),
+                }
+              : {}),
+          }),
+        );
+        const current = connCursors.get(sessionId) ?? 0;
+        if (evt.seq > current && !this.appliedSessions.get(connectionId)?.has(sessionId))
+          connCursors.set(sessionId, evt.seq);
+      } catch {
+        log.warn('delivery retry failed, stopping batch', {
+          connectionId,
+          sessionId,
+          failedSeq: evt.seq,
+        });
+        break;
+      }
+    }
   }
 
   /**

@@ -363,7 +363,7 @@ describe('ConnectionRegistry', () => {
         expect(store.getEventsAfter).not.toHaveBeenCalled();
 
         expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 2, 'offer-1')).toBe(true);
-        await vi.advanceTimersByTimeAsync(5000);
+        // The withheld suffix must arrive now, without another 5-second tick.
         expect(store.getEventsAfter).toHaveBeenCalledWith('sess-a', 2, 50);
         expect(transport.send).toHaveBeenCalledTimes(1);
         expect(transport.send).toHaveBeenCalledWith(
