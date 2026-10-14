@@ -86,6 +86,9 @@ for (const appearance of ['dark', 'light'] as const) {
         window.visualViewport!.dispatchEvent(new Event('resize'));
       });
       await expect(page.getByRole('navigation')).toBeHidden();
+      await page.getByRole('button', { name: 'Start session', exact: true }).click();
+      await expect(page.getByTestId('sent-count')).toHaveText('1');
+      await expect(page.getByRole('navigation')).toBeHidden();
       await page.evaluate(() => {
         Reflect.deleteProperty(window.visualViewport!, 'height');
         window.visualViewport!.dispatchEvent(new Event('resize'));

@@ -7,7 +7,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('distinguishes an actual shrunken keyboard viewport from ordinary input focus', () => {
+it('distinguishes an actual shrunken keyboard viewport from ordinary input focus', async () => {
   const viewport = Object.assign(new EventTarget(), { height: 844, scale: 1 });
   vi.stubGlobal('visualViewport', viewport);
   vi.stubGlobal('innerHeight', 844);
@@ -20,6 +20,9 @@ it('distinguishes an actual shrunken keyboard viewport from ordinary input focus
   expect(changed).toHaveBeenLastCalledWith(false);
   viewport.height = 544;
   viewport.dispatchEvent(new Event('resize'));
+  expect(changed).toHaveBeenLastCalledWith(true);
+  input.blur();
+  await Promise.resolve();
   expect(changed).toHaveBeenLastCalledWith(true);
   viewport.height = 844;
   viewport.dispatchEvent(new Event('resize'));

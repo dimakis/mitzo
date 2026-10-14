@@ -20,6 +20,7 @@ const field = (label: string, values: string[]) => (
 );
 function Surface() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [sends, setSends] = useState(0);
   useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
   return (
     <>
@@ -83,7 +84,12 @@ function Surface() {
                 <button type="button" aria-label="Add attachment">
                   +
                 </button>
-                <button type="button">Start session</button>
+                <button type="button" onClick={() => setSends((count) => count + 1)}>
+                  Start session
+                </button>
+                <output data-testid="sent-count" hidden>
+                  {sends}
+                </output>
               </div>
             </div>
           </div>

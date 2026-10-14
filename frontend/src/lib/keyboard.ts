@@ -23,7 +23,7 @@ export function onKeyboardToggle(callback: (visible: boolean) => void): () => vo
       const editable = document.activeElement?.matches('textarea, input, [contenteditable="true"]');
       // Ordinary browser chrome and pinch zoom must not move the chat/navigation.
       const visible =
-        !!editable &&
+        (previous === true || !!editable) &&
         viewport.scale === 1 &&
         layoutHeight - viewport.height > Math.max(100, layoutHeight * 0.15);
       if (visible !== previous) {

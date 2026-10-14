@@ -62,7 +62,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     'd857eabe124ac2ae9bdf9d40c7aedfd06e9d0a9b50ae26b83d58f56e7da7317a',
   '../../frontend/src/lib/keyboard.ts':
-    'e381be95aa3388afc2e179455aa8ea6ffce5632668e1736d5b0903d08164dbf5',
+    '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
     '2e859b30e540dea4cb54e1270ce644953f9a9c2792b1c4c1cf39853e0bf38bb2',
   '../../frontend/src/components/ComposerTools.tsx':
