@@ -70,6 +70,7 @@ export function ShareButton({ filePath, sessionId, className, onOpen }: ShareBut
   const trigger = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    e.currentTarget.focus({ preventScroll: true });
     setOpen(true);
   };
   const button = (choice: 'share' | 'download') => {

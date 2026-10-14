@@ -44,6 +44,22 @@ describe('ShareButton', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('restores the actual file control after a touch click leaves another control focused', () => {
+    render(
+      <>
+        <input aria-label="Composer" />
+        <ShareButton filePath="report.pdf" />
+      </>,
+    );
+    screen.getByRole('textbox', { name: 'Composer' }).focus();
+    const trigger = screen.getByRole('button', { name: 'File options' });
+    // Touch click events need not focus their target before the dialog opens.
+    fireEvent.click(trigger);
+    fireEvent(screen.getByRole('dialog'), new Event('cancel', { bubbles: true, cancelable: true }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('keeps a pending action fenced when its options are closed and reopened', async () => {
     let complete!: (value: boolean) => void;
     mockShareFile.mockImplementation(
