@@ -74,7 +74,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/OrdinaryCollaborationEntry.tsx':
     '1b68de5e380aac6d53629f542e0cf3ea25044f696c899767b707bcd6b45b75a6',
   '../../frontend/src/components/HomeDialog.tsx':
-    'f4de10bee354ff2bff8db2117bf11a24d7c7d43c4ffd8fa3addc418d7c2769bf',
+    '5ddf9438ff1afea9e7171195969b775981adf243b5116bd6759ab3875378177f',
   '../../frontend/src/components/SessionTray.tsx':
     '03fb5961c34c45dbff98fa06083cf8c6693bcdf95cdb3dea6755c47178a5ea01',
   '../../frontend/src/components/WorkspaceControls.tsx':

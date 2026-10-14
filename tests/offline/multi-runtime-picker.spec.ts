@@ -237,7 +237,7 @@ test('Approved composer clean saved-design reference aligns Agent and Account fi
   await expect(panel.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
     'high',
   );
-  const body = panel;
+  const body = panel.locator('.workspace-controls-content');
   await body.evaluate((element) => {
     element.scrollTop = 0;
   });
@@ -462,7 +462,7 @@ for (const appearance of ['light', 'dark'] as const) {
       expect(bounds.y).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
       expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-      const body = panel;
+      const body = panel.locator('.workspace-controls-content');
       if (mobile) {
         await expect
           .poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))

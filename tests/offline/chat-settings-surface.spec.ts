@@ -57,12 +57,20 @@ for (const appearance of ['dark', 'light'] as const) {
     await model.selectOption('Low');
     await page.getByText('More options', { exact: true }).click();
     await expect(page.getByRole('button', { name: 'Collaborate' })).toBeVisible();
-    await panel.evaluate((element) => {
+    await panel.locator('.workspace-controls-content').evaluate((element) => {
       element.scrollTop = 0;
     });
     await page.screenshot({
       path: testInfo.outputPath(`single-chat-settings-${appearance}-open.png`),
     });
+    await panel.getByRole('button', { name: 'Review findings', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Review findings', exact: true });
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(panel).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await trigger.click();
     await page.getByRole('button', { name: 'Access', exact: true }).click();
     await expect(panel).toBeHidden();
     await trigger.click();

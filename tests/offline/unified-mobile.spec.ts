@@ -4097,7 +4097,8 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   await expect(action).toBeVisible();
   await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
   expect(workReads).toHaveLength(0);
-  await action.click();
+  await action.focus();
+  await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Collaborate on selected work' });
   await expect(
     dialog.getByRole('heading', { name: 'Selected decision draft', exact: true }),
@@ -4164,9 +4165,13 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   expect(catalogScopes).toContain('chat');
   expect(forbidden).toEqual([]);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await expect(action).toBeFocused();
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  await expect(workspace).toBeFocused();
+  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
   failReads = true;
+  await workspace.click();
+  await action.focus();
   await action.click();
   await expect(dialog.getByRole('alert')).toContainText('Work is temporarily unavailable');
   failReads = false;
@@ -4176,6 +4181,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   empty = false;
+  await workspace.click();
   await action.click();
   await dialog.getByRole('button', { name: 'Add contributor', exact: true }).click();
   await expect(add).toBeVisible();

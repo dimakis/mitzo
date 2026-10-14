@@ -3,6 +3,7 @@ import { onKeyboardToggle } from '../../frontend/src/lib/keyboard';
 import { createRoot } from 'react-dom/client';
 import { WorkspaceControls } from '../../frontend/src/components/WorkspaceControls';
 import { AgentSettingsFields } from '../../frontend/src/components/AgentSettingsPicker';
+import { HomeDialog } from '../../frontend/src/components/HomeDialog';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/workspace.css';
@@ -21,6 +22,7 @@ const field = (label: string, values: string[]) => (
 function Surface() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [sends, setSends] = useState(0);
+  const [reviewOpen, setReviewOpen] = useState(false);
   useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
   return (
     <>
@@ -66,7 +68,9 @@ function Surface() {
         >
           <div className="workspace-session-actions">
             <button type="button">Collaborate</button>
-            <button type="button">Review findings</button>
+            <button type="button" onClick={() => setReviewOpen(true)}>
+              Review findings
+            </button>
           </div>
         </WorkspaceControls>
         <main className="chat-messages">
@@ -95,6 +99,11 @@ function Surface() {
           </div>
         </div>
       </div>
+      {reviewOpen && (
+        <HomeDialog title="Review findings" onClose={() => setReviewOpen(false)}>
+          Review details
+        </HomeDialog>
+      )}
       <nav className="workspace-tabs" aria-label="Main navigation">
         Today · Chats · Inbox · Work · More
       </nav>
