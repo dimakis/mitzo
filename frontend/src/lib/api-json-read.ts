@@ -21,8 +21,14 @@ export async function readApiJson<T>(path: string, owner?: AbortSignal): Promise
     if (controller.signal.aborted) return await interruption;
     const request = (async () => {
       const response = await apiFetch(path, { signal: controller.signal });
-      if (!response.ok) throw new Error(`Read request failed (${response.status})`);
-      return response.json() as Promise<T>;
+      const body: unknown = await response.json();
+      if (!response.ok) {
+        const detail = body && typeof body === 'object' && 'error' in body ? body.error : null;
+        throw new Error(
+          typeof detail === 'string' ? detail : `Read request failed (${response.status})`,
+        );
+      }
+      return body as T;
     })();
     return await Promise.race([request, interruption]);
   } finally {
