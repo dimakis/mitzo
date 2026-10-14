@@ -444,6 +444,10 @@ export class SseConnection implements ChatConnection {
       this.appliedAckChain = Promise.resolve();
       this.appliedDelivery.clearPending();
 
+      // A delivered welcome proves connectivity, even while replay is pending.
+      // Saved prompts retain their independent, acknowledged HTTP delivery.
+      this.outbox.wake();
+
       // Control messages wait for replay readiness. Prompt delivery uses
       // its independent HTTP outbox and never waits for this handshake.
       // Capture both connectionId and ES instance for the staleness guard.
@@ -479,6 +483,7 @@ export class SseConnection implements ChatConnection {
         if (this.foregroundProbe && msg.nonce === this.foregroundProbe.nonce) {
           const resumeSessions = this.foregroundProbe.resumeSessions;
           this.foregroundProbe.cancel();
+          this.outbox.wake();
           // Backgrounding suspended the sessions even if the stream survived.
           if (resumeSessions && this._connectionId && this.seqBySession.size)
             void this.doReconnectPost(this._connectionId, es);

@@ -40,6 +40,7 @@ export class SendOutbox {
   private active = false;
   private busyGeneration: number | null = null;
   private timer?: ReturnType<typeof setTimeout>;
+  private retryWakeable = false;
   private failures = 0;
   private generation = 0;
   private activeAbort?: AbortController;
@@ -104,6 +105,22 @@ export class SendOutbox {
       else if (this.entries[0]) this.notifyLocal(this.entries[0], 'uncertain');
       return;
     }
+    void this.pump();
+  }
+
+  /** Verified connectivity supersedes offline backoff, never an in-flight
+   * request or a guarded command's deliberate recovery decision. */
+  wake(): void {
+    if (
+      !this.active ||
+      this.config.localFirstCommand ||
+      this.busyGeneration !== null ||
+      !this.retryWakeable ||
+      !this.timer
+    )
+      return;
+    clearTimeout(this.timer);
+    this.timer = undefined;
     void this.pump();
   }
 
@@ -307,6 +324,7 @@ export class SendOutbox {
     this.busyGeneration = generation;
     this.activeAbort = abort;
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let receivedResponse = false;
     try {
       if (reviewedBriefing(entry.body) && !entry.uncertain) {
         // Persist possible acceptance before admission, not only while fetch is
@@ -326,6 +344,7 @@ export class SendOutbox {
             signal: abort.signal,
           })
           .then(async (response) => {
+            receivedResponse = true;
             if (response.status === 429 || response.status >= 500)
               throw new Error('Server temporarily unavailable');
             // A definitive HTTP rejection remains definitive even when an
@@ -398,6 +417,9 @@ export class SendOutbox {
       this.persist();
     } catch {
       if (this.active && generation === this.generation) {
+        // SSE connectivity cannot cure server backpressure, malformed receipts
+        // or a failed durable handoff. Only pre-response transport loss wakes.
+        this.retryWakeable = !receivedResponse;
         this.config.notify({
           type: '_send_pending',
           clientMsgId: entry.body.clientMsgId,
