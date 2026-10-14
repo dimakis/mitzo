@@ -140,15 +140,15 @@ export async function startOwnedLocalVertexCommand(
       environment: () => owner.environment(),
       assertCurrent: async (signal) => {
         signal.throwIfAborted();
-        await owner.assertEffect(
-          queue?.activeCommandId() ?? owner.activeCommandId() ?? selected.commandId,
-        );
+        const active = queue?.activeCommandId();
+        if (active || !queue) await owner.assertEffect(active ?? selected.commandId);
+        else await owner.assertIdle(owner.activeCommandId() ?? selected.commandId);
       },
       assertCurrentSync: (signal) => {
         signal.throwIfAborted();
-        owner.assertStart(
-          queue?.activeCommandId() ?? owner.activeCommandId() ?? selected.commandId,
-        );
+        const active = queue?.activeCommandId();
+        if (active || !queue) owner.assertStart(active ?? selected.commandId);
+        else owner.assertIdleSync(owner.activeCommandId() ?? selected.commandId);
       },
       sourceWriteRoots: process.env.MITZO_ACCOUNT_PROFILES_FILE
         ? [dirname(process.env.MITZO_ACCOUNT_PROFILES_FILE)]

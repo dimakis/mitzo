@@ -40,6 +40,8 @@ function setup() {
   const calls: string[] = [];
   const assertCurrent = vi.fn();
   const query = {
+    applySettings: undefined as
+      ((selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>) | undefined,
     setModel: vi.fn(async (model: string) => {
       calls.push(`model:${model}`);
     }),
@@ -61,6 +63,7 @@ function setup() {
     store,
     sessionId: 'session',
     assertCurrent,
+    ownsClaim: (id) => store.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed',
     query,
     settings: (selection) => ({
       model: selection.model,
@@ -167,5 +170,139 @@ it.each([false, true])(
       await owner.complete('accepted');
       expect(query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'accepted']);
     }
+  },
+);
+
+it('settles an idle incoming deadline after settings allocation without stranding future commands', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  await f.owner.complete('first');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('expired'));
+  let release!: () => void;
+  let waiting = false;
+  const deferred = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.query.applySettings = vi.fn(async () => {
+    waiting = true;
+    await deferred;
+  });
+  const controller = new AbortController();
+  const pending = f.owner.enqueue('expired', controller.signal);
+  const observed = pending.then(
+    () => 'accepted',
+    () => 'refused',
+  );
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  expect(f.owner.activeCommandId()).toBe('expired');
+  controller.abort(new Error('Incoming admission deadline'));
+  release();
+  expect(await observed).toBe('refused');
+  expect(f.owner.activeCommandId()).toBeUndefined();
+  expect(f.store.getSession('session')?.executionPhase).toBe('TERMINAL');
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+  expect(f.query.abort).not.toHaveBeenCalled();
+  expect(f.store.getSendCommand('expired')?.error).toBe('Cancelled before SDK dispatch');
+  expect(f.store.getOrdinaryLocalVertexCommandAdmission('expired')?.state).toBe('consumed');
+  expect(
+    f.store.getExecutionTerminalReason(f.store.getExecutionAdmission('session', 'expired')!.token),
+  ).toBe('abandoned');
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('future'));
+  await f.owner.enqueue('future');
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'future']);
+  await f.owner.complete('future');
+});
+
+it('skips a consumed queued head cancelled during awaited authority and preserves its accepted tail', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  for (const id of ['cancelled-head', 'accepted-tail']) {
+    const model = id === 'cancelled-head' ? 'second' : 'third';
+    f.store.admitOrdinaryLocalVertexContinuation(
+      { ...meta, accountBinding: { ...meta.accountBinding, model } },
+      binding,
+      command(id, model),
+    );
+    await f.owner.enqueue(id);
+    f.store.claimOrdinaryLocalVertexCommandDispatch(id);
+    f.store.completeOrdinaryLocalVertexCommand(id);
+  }
+  let release!: () => void;
+  let waiting = false;
+  const deferred = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.assertCurrent.mockImplementationOnce(() => {});
+  f.assertCurrent.mockImplementationOnce(async () => {
+    waiting = true;
+    await deferred;
+  });
+  const pending = f.owner.complete('first');
+  const observed = pending.then(
+    () => 'completed',
+    () => 'refused',
+  );
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  expect(f.store.cancelOrdinaryLocalVertexQueuedCommand('session', 'cancelled-head')).toBe(
+    'cancelled',
+  );
+  release();
+  expect(await observed).toBe('completed');
+  expect(f.store.getExecutionAdmission('session', 'cancelled-head')).toBeUndefined();
+  expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first', 'accepted-tail']);
+  expect(f.query.push.mock.calls[1][1].selection).toEqual(
+    command('accepted-tail', 'third').selection,
+  );
+  expect(f.store.getSendCommand('cancelled-head')?.error).toBe('Cancelled before SDK dispatch');
+  expect(f.store.getOrdinaryLocalVertexCommandAdmission('cancelled-head')?.state).toBe('consumed');
+  expect(f.query.abort).not.toHaveBeenCalled();
+  await f.owner.complete('accepted-tail');
+});
+
+it.each([
+  ['push', false],
+  ['settings', true],
+] as const)(
+  'retains uncertainty after %s when input may be yielded or original authority is lost (%s)',
+  async (phase, revoked) => {
+    const f = setup();
+    await f.owner.enqueue('first');
+    await f.owner.complete('first');
+    f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command('expired'));
+    let release!: () => void;
+    let waiting = false;
+    const deferred = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    if (phase === 'settings')
+      f.query.applySettings = vi.fn(async () => {
+        waiting = true;
+        await deferred;
+      });
+    else
+      f.query.push.mockImplementationOnce(async () => {
+        waiting = true;
+        await deferred;
+      });
+    const controller = new AbortController();
+    const pending = f.owner.enqueue('expired', controller.signal);
+    const observed = pending.then(
+      () => 'accepted',
+      () => 'refused',
+    );
+    await vi.waitFor(() => expect(waiting).toBe(true));
+    controller.abort(new Error('Incoming deadline'));
+    if (revoked)
+      f.assertCurrent.mockImplementation(() => {
+        throw Error('Original ADC revoked');
+      });
+    release();
+    expect(await observed).toBe('refused');
+    expect(f.owner.activeCommandId()).toBe('expired');
+    expect(f.store.getSession('session')?.executionPhase).toBe('RUNNING');
+    expect(f.store.getOrdinaryLocalVertexCommandAdmission('expired')?.state).toBe('uncertain');
+    expect(f.store.getSendCommand('expired')?.error).toBeNull();
+    if (revoked) expect(f.query.abort).toHaveBeenCalledOnce();
+    else expect(f.query.abort).not.toHaveBeenCalled();
   },
 );

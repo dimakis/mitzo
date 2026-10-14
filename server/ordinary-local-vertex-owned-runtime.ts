@@ -144,16 +144,25 @@ export class OrdinaryLocalVertexOwnedRuntime {
     this.assertOwner();
     this.credentialAuthority();
   }
-  assertStart(commandId: string) {
+  /** Idle custody remains current without revalidating a completed inference setting. */
+  assertIdleSync(commandId: string) {
     this.assertOwner();
     const command = this.#commands.get(commandId);
-    if (
-      !command ||
-      this.owners.eventStore.getOrdinaryLocalVertexCommandAdmission(commandId)?.state === 'reserved'
-    )
+    const receipt = this.owners.eventStore.getOrdinaryLocalVertexCommandAdmission(commandId);
+    if (!command || !receipt || !['uncertain', 'consumed'].includes(receipt.state))
       throw unavailable();
     command.selection.assertCurrentSync(command.expected);
     this.credentialAuthority();
+  }
+  async assertIdle(commandId: string) {
+    this.assertIdleSync(commandId);
+    const command = this.#commands.get(commandId)!;
+    await command.selection.assertCurrent(command.expected);
+    this.assertIdleSync(commandId);
+  }
+  assertStart(commandId: string) {
+    this.assertIdleSync(commandId);
+    const command = this.#commands.get(commandId)!;
     loadAccountProfiles().validateModelSelection(
       this.owners.reservation.binding,
       command.expected.selection.model,

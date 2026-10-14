@@ -404,6 +404,10 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     /credentialDigest|sourceIdentity|adc.json|refresh_token/,
   );
   const claim = vi.spyOn(f.workspace, 'claimReservedHostTask');
+  let deferSettingsClose = false;
+  let settingsCloseWaiting = false;
+  let releaseSettingsClose!: () => void;
+  const observedInputs: string[] = [];
   services.query.mockImplementation((request) => {
     services.requests.push(request);
     const id = request.options.sessionId ?? request.options.resume;
@@ -411,10 +415,16 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       signal: request.options.abortController.signal,
     });
     return {
-      close: () => process.emit('close', 0, null),
+      close: () => {
+        if (deferSettingsClose) {
+          settingsCloseWaiting = true;
+          releaseSettingsClose = () => process.emit('close', 0, null);
+        } else process.emit('close', 0, null);
+      },
       interrupt: vi.fn(),
       async *[Symbol.asyncIterator]() {
         for await (const message of request.prompt) {
+          observedInputs.push(message.mitzoMessageId);
           yield {
             type: 'user',
             uuid: `input-${message.mitzoMessageId}`,
@@ -535,8 +545,8 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     ).status,
   ).toBe(409);
   expect(services.requests).toHaveLength(1);
-  chat.registry.findBySessionId(sessionId)!.session.ordinaryRuntimeOwner!.close();
-  await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+  const originalRuntime = chat.eventStore.getSessionRuntimeBinding(sessionId);
+  const originalHistory = chat.eventStore.getSessionEvents(sessionId);
   const revision = claimed.binding.profileRevision;
   f.configuration[0].models = [
     { id: 'future-C', label: 'Current supported C', reasoningEfforts: ['low'] },
@@ -567,6 +577,61 @@ it('a qualified preparation A starts model B on its original checkout and exact 
   const current = localVertexCapabilities(loadAccountProfiles(), new OrdinaryLocalVertexTarget(), [
     f.agentProfile,
   ]).inventory();
+  expect(
+    (
+      await invoke(
+        {
+          ...wire,
+          sessionId,
+          clientMsgId: 'unavailable-D',
+          capabilityRevision: current.capabilityRevision,
+          selection: { ...wire.selection, model: 'unavailable-D', thinking: 'low' },
+        },
+        '/continue',
+      )
+    ).status,
+  ).toBe(409);
+  expect(chat.eventStore.getOrdinaryLocalVertexCommandAdmission('unavailable-D')).toBeUndefined();
+  expect(services.requests).toHaveLength(1);
+  // Expire a real idle SDK settings reopen while the original process-close
+  // acknowledgement is pending. No user input exists for this allocated turn.
+  deferSettingsClose = true;
+  let expireSettings!: () => void;
+  const originalTimer = globalThis.setTimeout;
+  const timerProbe = vi
+    .spyOn(globalThis, 'setTimeout')
+    .mockImplementation((handler, ms, ...args) => {
+      if (ms === 120000 && typeof handler === 'function') expireSettings = () => handler(...args);
+      return originalTimer(handler, ms, ...args);
+    });
+  const expiredSettings = invoke(
+    {
+      ...wire,
+      sessionId,
+      clientMsgId: 'expired-settings',
+      capabilityRevision: current.capabilityRevision,
+      selection: { ...wire.selection, model: 'future-C', thinking: 'low' },
+    },
+    '/continue',
+  );
+  await vi.waitFor(() => expect(settingsCloseWaiting).toBe(true));
+  expect(chat.eventStore.getSession(sessionId)?.executionPhase).toBe('RUNNING');
+  expireSettings();
+  deferSettingsClose = false;
+  releaseSettingsClose();
+  expect(await expiredSettings).toMatchObject({ status: 409 });
+  timerProbe.mockRestore();
+  expect(
+    chat.eventStore.getExecutionTerminalReason(
+      chat.eventStore.getExecutionAdmission(sessionId, 'expired-settings')!.token,
+    ),
+  ).toBe('abandoned');
+  expect(chat.eventStore.getSendCommand('expired-settings')?.error).toBe(
+    'Cancelled before SDK dispatch',
+  );
+  expect(chat.eventStore.hasUncertainOrdinaryCommand(sessionId)).toBe(false);
+  expect(observedInputs).toEqual(['prepared-first-B']);
+  expect(chat.registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner).toBeDefined();
   const continued = await invoke(
     {
       ...wire,
@@ -578,7 +643,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     '/continue',
   );
   expect(continued).toMatchObject({ status: 202, body: { state: 'consumed', sessionId } });
-  await vi.waitFor(() => expect(services.requests).toHaveLength(2));
+  await vi.waitFor(() => expect(services.requests).toHaveLength(3));
   await vi.waitFor(() =>
     expect(
       chat.eventStore.getExecutionTerminalReason(
@@ -586,13 +651,18 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       ),
     ).toBe('completed'),
   );
-  expect(services.requests[1].options.resume).toBe(sessionId);
-  expect(services.requests[1].options.model).toBe('future-C');
+  expect(services.requests[2].options.resume).toBe(sessionId);
+  expect(services.requests[2].options.model).toBe('future-C');
+  expect(chat.eventStore.getSessionRuntimeBinding(sessionId)).toEqual(originalRuntime);
+  expect(chat.eventStore.getSession(sessionId)?.accountBinding?.model).toBe('next-model');
+  expect(chat.eventStore.getSessionEvents(sessionId).slice(0, originalHistory.length)).toEqual(
+    originalHistory,
+  );
   expect(await invoke(wire)).toMatchObject({
     status: 202,
     body: { state: 'consumed', dispatched: false, sessionId },
   });
-  expect(services.requests).toHaveLength(2);
+  expect(services.requests).toHaveLength(3);
   expect(chat.eventStore.getOrdinaryLocalVertexCommandAdmission(wire.clientMsgId)).toEqual(
     originalReceipt,
   );
@@ -607,11 +677,36 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       })
     ).status,
   ).toBe(409);
-  expect(services.requests).toHaveLength(2);
+  expect(services.requests).toHaveLength(3);
   expect(f.workspace.get(ready.id).binding.model).toBe('next-model');
   expect(f.workspace.get(ready.id).directory).toBe(claimed.directory);
   expect(f.workspace.get(ready.id).ordinaryPreparation).toEqual(claimed.ordinaryPreparation);
   expect(claim).toHaveBeenCalledTimes(1);
+  chat.registry.findBySessionId(sessionId)!.session.ordinaryRuntimeOwner!.close();
+  await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+  expect(
+    await invoke(
+      {
+        ...wire,
+        clientMsgId: 'cold-future-C',
+        sessionId,
+        capabilityRevision: current.capabilityRevision,
+        selection: { ...wire.selection, model: 'future-C', thinking: 'low' },
+      },
+      '/continue',
+    ),
+  ).toMatchObject({ status: 202, body: { state: 'consumed', sessionId } });
+  await vi.waitFor(() => expect(services.requests).toHaveLength(4));
+  await vi.waitFor(() =>
+    expect(
+      chat.eventStore.getExecutionTerminalReason(
+        chat.eventStore.getExecutionAdmission(sessionId, 'cold-future-C')!.token,
+      ),
+    ).toBe('completed'),
+  );
+  expect(services.requests[3].options.resume).toBe(sessionId);
+  expect(observedInputs).toEqual(['prepared-first-B', 'future-C', 'cold-future-C']);
+  expect(f.workspace.get(ready.id).directory).toBe(claimed.directory);
 }, 20000);
 
 it.each(['checkout', 'SDK setup'] as const)(

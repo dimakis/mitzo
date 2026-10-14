@@ -10,6 +10,7 @@ export class OrdinaryLocalVertexCommandOwner {
   #serial: Promise<void> = Promise.resolve();
   #failed = false;
   #inputUuid?: string;
+  #inputDispatched?: string;
   #dispatchingCommandId?: string;
   #paused = false;
   constructor(
@@ -89,6 +90,7 @@ export class OrdinaryLocalVertexCommandOwner {
       );
       this.#paused = stopping;
       this.#active = undefined;
+      this.#inputDispatched = undefined;
       this.owners.onTerminal?.(commandId);
       await this.#dispatch();
     });
@@ -129,7 +131,27 @@ export class OrdinaryLocalVertexCommandOwner {
           this.owners.query.abort();
           throw authorityError;
         }
+        // Settings allocation is not provider input. A known pre-input deadline
+        // can settle its execution without awaiting an SDK result that cannot exist.
         if (
+          incomingCommandId &&
+          this.#active?.commandId === incomingCommandId &&
+          this.#inputDispatched !== incomingCommandId
+        ) {
+          try {
+            this.owners.store.transitionExecution(this.#active.execution, 'TERMINAL', 'abandoned');
+            this.owners.store.completeOrdinaryLocalVertexCommand(incomingCommandId);
+            this.owners.store.failSendCommand(incomingCommandId, 'Cancelled before SDK dispatch');
+            this.#active = undefined;
+            this.#pending = this.#pending.filter((id) => id !== incomingCommandId);
+            this.owners.onTerminal?.(incomingCommandId);
+            await this.#dispatch();
+          } catch (settlementError) {
+            this.#failed = true;
+            this.owners.query.abort();
+            throw settlementError;
+          }
+        } else if (
           incomingCommandId &&
           !this.owners.store.getExecutionAdmission(this.owners.sessionId, incomingCommandId)
         ) {
@@ -146,7 +168,7 @@ export class OrdinaryLocalVertexCommandOwner {
     this.#serial = next.catch(() => {});
     return next;
   }
-  async #dispatch(preparationSignal?: AbortSignal, admittingCommandId?: string) {
+  async #dispatch(preparationSignal?: AbortSignal, admittingCommandId?: string): Promise<void> {
     while (this.#pending.length && this.owners.store.getSendCommand(this.#pending[0]!)?.error)
       this.#pending.shift();
     if (this.#active || this.#paused || !this.#pending.length) return;
@@ -160,6 +182,18 @@ export class OrdinaryLocalVertexCommandOwner {
     const settings = this.owners.settings(structuredClone(admission.selection));
     await this.#fence();
     assertPreparation();
+    // A signed queue control may cancel this consumed head during authority I/O.
+    // Observe that exact cancellation before allocating an execution generation.
+    if (
+      this.owners.store.getSendCommand(commandId)?.error === 'Cancelled before SDK dispatch' &&
+      admission.state === 'consumed' &&
+      !this.owners.store.getExecutionAdmission(this.owners.sessionId, commandId)
+    ) {
+      this.#pending.shift();
+      this.#dispatchingCommandId = undefined;
+      this.owners.onTerminal?.(commandId);
+      return this.#dispatch(preparationSignal, admittingCommandId);
+    }
     if (
       admission.state === 'reserved'
         ? !this.owners.store.claimOrdinaryLocalVertexCommandDispatch(commandId)
@@ -188,6 +222,7 @@ export class OrdinaryLocalVertexCommandOwner {
       assertPreparation();
     }
     const payload = this.owners.store.getSendCommand(commandId)!.payload;
+    this.#inputDispatched = commandId;
     await this.owners.query.push(commandId, structuredClone(admission), structuredClone(payload));
     await this.#fence();
     assertPreparation();
