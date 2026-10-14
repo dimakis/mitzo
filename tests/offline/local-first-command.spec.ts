@@ -511,6 +511,8 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add agent', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reusable profile drafts' })).toHaveCount(0);
+  await workspace.click();
+  await page.getByText('More options', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Open review findings' })).toBeEnabled();
   for (const mode of ['Ask', 'Agent', 'Auto']) {
     const control = page.getByRole('button', { name: mode, exact: true });

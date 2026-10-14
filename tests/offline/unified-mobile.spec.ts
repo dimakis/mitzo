@@ -4087,6 +4087,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   });
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: /Workspace controls/ }).click();
+  await page.getByText('More options', { exact: true }).click();
   const action = page.getByRole('button', { name: 'Collaborate', exact: true });
   const originalOverflow = await page.evaluate(() => document.body.style.overflow);
   await expect(action).toBeVisible();
