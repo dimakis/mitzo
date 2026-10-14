@@ -1,6 +1,7 @@
 import { ChatRuntimeDraftProvider } from '../hooks/ChatRuntimeDraftProvider';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { ReviewerSheetHost } from './AddReviewerSheet';
+import { OrdinaryCollaborationHost } from './OrdinaryCollaborationEntry';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { ChatView } from '../pages/ChatView';
 import { DesktopChatView } from '../pages/DesktopChatView';
@@ -35,12 +36,17 @@ function ResponsiveChatBody({
   const desktop = useIsDesktop();
   const sessionId = useMitzoStore((state) => state.sessions.active);
   const generation = useMitzoStore((state) => state.chatDraftRevision);
+  const refreshKey = useMitzoStore(
+    (state) => `${state.messages.messages.length}:${state.messages.running}`,
+  );
   const screen = desktop ? <DesktopChatView /> : <ChatView />;
   return (
     <ChatRuntimeDraftProvider owner={`${sessionId ?? requestedDraftId ?? 'new'}:${generation}`}>
-      <ReviewerSheetHost sessionId={sessionId} initialProfile={initialProfile}>
-        {screen}
-      </ReviewerSheetHost>
+      <OrdinaryCollaborationHost sessionId={sessionId} refreshKey={refreshKey}>
+        <ReviewerSheetHost sessionId={sessionId} initialProfile={initialProfile}>
+          {screen}
+        </ReviewerSheetHost>
+      </OrdinaryCollaborationHost>
     </ChatRuntimeDraftProvider>
   );
 }

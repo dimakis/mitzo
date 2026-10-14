@@ -3917,3 +3917,206 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   await expect(page.locator('.chat-input-queued')).toHaveCount(0);
   await expect(draft).toHaveValue('Newer untouched ordinary draft');
 });
+
+test('ordinary collaboration opens selected work explicitly and preserves the quiet conversation', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const sessionId = 'ordinary-collaboration';
+  const outputId = '00000000-0000-4000-8000-000000000099';
+  const source = {
+    sessionId,
+    messageId: 'draft',
+    blockId: 'text',
+    messageEndSeq: 7,
+    sha256: 'a'.repeat(64),
+  };
+  const output = {
+    outputId,
+    sessionId,
+    title: 'Selected decision draft',
+    revision: 1,
+    kind: 'inline_draft',
+    durability: 'reference_registered',
+    label: 'In conversation',
+    sourceAvailability: 'available',
+    source,
+    provenance: null,
+    createdAt: 1,
+  };
+  const workReads: string[] = [];
+  const forbidden: string[] = [];
+  const additions: Record<string, unknown>[] = [];
+  const contributors: Record<string, unknown>[] = [];
+  const catalogScopes: string[] = [];
+  let releaseAddition!: () => void;
+  const additionReady = new Promise<void>((resolve) => {
+    releaseAddition = resolve;
+  });
+  let failReads = false;
+  let empty = false;
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (
+      path.startsWith('/api/symposium/personal/') ||
+      (route.request().method() !== 'GET' && path.includes('/symposium/'))
+    ) {
+      forbidden.push(path);
+      return route.fulfill({
+        status: 409,
+        json: { error: 'Dedicated setup is unavailable in this fixture' },
+      });
+    }
+    if (path === '/api/accounts') catalogScopes.push(url.searchParams.get('scope') ?? 'chat');
+    if (path === `/api/sessions/${sessionId}/meta`)
+      return route.fulfill({ json: { sessionType: 'chat' } });
+    if (path === `/api/sessions/${sessionId}/messages`)
+      return route.fulfill({
+        json: [
+          {
+            messageId: 'draft',
+            role: 'assistant',
+            blocks: [{ blockId: 'text', blockType: 'text', content: 'Selected exact draft' }],
+          },
+        ],
+      });
+    if (path === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    if (path === `/api/sessions/${sessionId}/outputs`) {
+      workReads.push(path);
+      return failReads
+        ? route.fulfill({ status: 503, json: { error: 'Work is temporarily unavailable' } })
+        : route.fulfill({ json: { outputs: empty ? [] : [output], candidates: [] } });
+    }
+    if (path === `/api/sessions/${sessionId}/outputs/${outputId}`)
+      return route.fulfill({
+        json: { output, content: 'Selected exact draft', contextPackageDigest: 'b'.repeat(64) },
+      });
+    if (path === `/api/sessions/${sessionId}/contributors` && route.request().method() === 'POST') {
+      const input = route.request().postDataJSON();
+      additions.push(input);
+      await additionReady;
+      const contributor = {
+        id: 'ordinary-independent',
+        label: input.label,
+        accountLabel: 'Work OpenAI',
+        model: input.model,
+        sessionId: null,
+        outputId,
+        outputRevision: 1,
+        status: 'idle',
+        messages: [],
+      };
+      contributors.push(contributor);
+      return route.fulfill({ json: { contributor } });
+    }
+    if (path === `/api/sessions/${sessionId}/contributors`)
+      return route.fulfill({
+        json: {
+          contributors,
+          eligibility: {
+            available: true,
+            accountIds: ['work-account'],
+            reason: 'Uses the existing ordinary account.',
+          },
+        },
+      });
+    return route.fallback();
+  });
+  await page.goto(`/chat/${sessionId}`);
+  await page.getByRole('button', { name: /Workspace controls/ }).click();
+  const action = page.getByRole('button', { name: 'Collaborate', exact: true });
+  const originalOverflow = await page.evaluate(() => document.body.style.overflow);
+  await expect(action).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
+  expect(workReads).toHaveLength(0);
+  await action.click();
+  const dialog = page.getByRole('dialog', { name: 'Collaborate on selected work' });
+  await expect(
+    dialog.getByRole('heading', { name: 'Selected decision draft', exact: true }),
+  ).toBeVisible();
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'dark' ? 'mint' : 'teal';
+      document.documentElement.dataset.font = theme === 'dark' ? 'system' : 'georgia';
+    }, theme);
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await dialog.screenshot({
+      path: testInfo.outputPath(
+        `ordinary-collaboration-${theme}-${isMobile ? 'mobile' : 'desktop'}.png`,
+      ),
+      animations: 'disabled',
+    });
+  }
+  await dialog.getByRole('button', { name: 'Add contributor', exact: true }).click();
+  const add = page.getByRole('dialog', { name: 'Add contributor', exact: true });
+  await expect(add).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(add).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Add contributor', exact: true })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Add contributor', exact: true }).click();
+  await expect(
+    add.getByText('Start an independent conversation using one of your existing accounts.'),
+  ).toBeVisible();
+  await expect(add.getByText('Use a writing profile here.', { exact: false })).toBeVisible();
+  await expect(add.getByLabel('Account', { exact: true })).toBeVisible();
+  const widths = await add.getByLabel('Account', { exact: true }).evaluate((element) => ({
+    control: element.getBoundingClientRect().width,
+    field: element.closest('label')!.getBoundingClientRect().width,
+  }));
+  expect(widths.control).toBeGreaterThanOrEqual(widths.field - 1);
+  await add.getByLabel('Contributor name').fill('Independent writer');
+  await add.getByRole('button', { name: /^Use Work OpenAI/ }).click();
+  await add.getByLabel('Session mode').selectOption('agent');
+  await add.getByRole('button', { name: 'Add to this output', exact: true }).click();
+  await expect.poll(() => additions.length).toBe(1);
+  await page.keyboard.press('Escape');
+  await expect(add).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(
+    add.getByRole('button', { name: 'Adding contributor…', exact: true }),
+  ).toBeDisabled();
+  releaseAddition();
+  await expect(add).toHaveCount(0);
+  await expect(dialog.getByText('Independent writer', { exact: true })).toBeVisible();
+  expect(additions).toEqual([
+    expect.objectContaining({
+      accountId: 'work-account',
+      model: 'luna-fixture',
+      mode: 'agent',
+      outputId,
+      outputRevision: 1,
+      contextPackageDigest: 'b'.repeat(64),
+      label: 'Independent writer',
+    }),
+  ]);
+  expect(catalogScopes).toContain('chat');
+  expect(forbidden).toEqual([]);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(action).toBeFocused();
+  await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
+  failReads = true;
+  await action.click();
+  await expect(dialog.getByRole('alert')).toContainText('Work is temporarily unavailable');
+  failReads = false;
+  empty = true;
+  await dialog.getByRole('button', { name: 'Retry outputs' }).click();
+  await expect(dialog.getByText('No finalized drafts yet')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  empty = false;
+  await action.click();
+  await dialog.getByRole('button', { name: 'Add contributor', exact: true }).click();
+  await expect(add).toBeVisible();
+  await page.evaluate(() => {
+    window.history.pushState({}, '', '/chats');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe(originalOverflow);
+});

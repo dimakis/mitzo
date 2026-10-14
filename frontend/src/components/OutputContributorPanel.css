@@ -104,3 +104,13 @@
     font-size: var(--text-base);
   }
 }
+
+/* The requested work dialog owns its gutter; do not nest a second page gutter. */
+.home-dialog .output-contributor-panel {
+  margin-inline: 0;
+}
+
+/* Staged account/model choices use the complete field rather than inline-chat geometry. */
+.output-contributor-form .chat-model-select {
+  max-width: 100%;
+}

@@ -585,7 +585,24 @@ it('shows reconnecting in collapsed workspace settings when disconnected', () =>
   expect(toggle.textContent).toContain('Reconnecting');
 });
 
-it('offers the shared agent entry for an active desktop conversation', () => {
+it('offers explicit collaboration for an ordinary desktop conversation without automatic work reads', async () => {
+  const requests: string[] = [];
+  vi.mocked(fetch).mockImplementation(async (url) => {
+    requests.push(String(url));
+    return new Response(
+      JSON.stringify(
+        String(url).endsWith('/meta')
+          ? {
+              sessionType: 'chat',
+              accountBinding: { accountId: 'test', accountLabel: 'Test account', model: 'luna' },
+              modelSelection: { model: 'luna', models: [{ id: 'luna', label: 'Luna' }] },
+            }
+          : String(url).endsWith('/symposium/status')
+            ? { sessionId: 'active-session', config: null, seats: [] }
+            : [{ id: 'test', label: 'Test account', models: [{ id: 'luna', label: 'Luna' }] }],
+      ),
+    );
+  });
   const store = createMockStore();
   store.setState((state) => ({ sessions: { ...state.sessions, active: 'active-session' } }));
   render(
@@ -597,7 +614,9 @@ it('offers the shared agent entry for an active desktop conversation', () => {
   );
   expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
-  expect(screen.getByRole('button', { name: 'Add agent' })).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Collaborate' })).toBeTruthy());
+  expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
+  expect(requests.some((url) => /\/(outputs|contributors)(?:\?|$)/.test(url))).toBe(false);
 });
 
 it('shows the profile, model and thinking in the collapsed composer Agent settings summary', async () => {

@@ -38,8 +38,18 @@ async function openProfileTools() {
 
 const navigation = vi.hoisted(() => ({ active: 'session' }));
 vi.mock('@mitzo/client/hooks', () => ({
-  useMitzoStore: (select: (state: { sessions: { active: string } }) => unknown) =>
-    select({ sessions: { active: navigation.active } }),
+  useMitzoStore: (
+    select: (state: {
+      sessions: { active: string };
+      chatDraftRevision: number;
+      messages: { messages: unknown[]; running: boolean };
+    }) => unknown,
+  ) =>
+    select({
+      sessions: { active: navigation.active },
+      chatDraftRevision: 0,
+      messages: { messages: [], running: false },
+    }),
 }));
 vi.mock('../../hooks/useMediaQuery', () => ({ useIsDesktop: () => false }));
 vi.mock('../../pages/ChatView', () => ({
