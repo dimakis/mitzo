@@ -57,6 +57,7 @@ export function nextDeliveryAt(prefs: NotificationPreferences, now: number): num
 export class NotificationCenter {
   private unsubscribe: () => void;
   private timer?: ReturnType<typeof setInterval>;
+  private resolutionRefresh?: ReturnType<typeof setImmediate>;
   private flushing = false;
   private lastBadge = -1;
   private badgeQueue = Promise.resolve();
@@ -74,7 +75,17 @@ export class NotificationCenter {
       if (event.type === 'requested') this.permission(event.request);
       else {
         store.resolvePermission(event.permId, event.resolution);
-        this.changed();
+        // Persist authority immediately, but keep feed scans and notification
+        // delivery off the approval response stack. Concurrent resolutions need
+        // only one refresh of the final durable state.
+        this.resolutionRefresh ??= setImmediate(() => {
+          this.resolutionRefresh = undefined;
+          try {
+            this.changed();
+          } catch {
+            log.warn('approval notification refresh failed; durable resolution retained');
+          }
+        });
       }
     });
   }
@@ -113,6 +124,8 @@ export class NotificationCenter {
   }
   close(): void {
     clearInterval(this.timer);
+    clearImmediate(this.resolutionRefresh);
+    this.resolutionRefresh = undefined;
     this.unsubscribe();
   }
   private publish(input: Parameters<NotificationStore['record']>[0], notify = true): void {

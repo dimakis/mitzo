@@ -5,6 +5,7 @@ import {
   AUTH_RESTORED_EVENT,
   isCrossTabAuthEvent,
   isLogoutPending,
+  hasVerifiedCookieAuthentication,
   restoreCookieAuthentication,
 } from '../lib/api-fetch';
 import { hideSplash } from '../lib/splash';
@@ -15,7 +16,9 @@ const AUTH_RECOVERY_DELAYS_MS = [1_000, 2_000, 4_000] as const;
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const [auth, setAuth] = useState<'loading' | 'ok' | 'denied' | 'unavailable'>('loading');
+  const [auth, setAuth] = useState<'loading' | 'ok' | 'denied' | 'unavailable'>(() =>
+    hasVerifiedCookieAuthentication() ? 'ok' : 'loading',
+  );
   const [attempt, setAttempt] = useState(0);
   const automaticRetries = useRef(0);
   const recoveryRequested = useRef(false);

@@ -112,7 +112,10 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
     return true;
   }
 
-  async function authenticateToken(token: string): Promise<AuthSession | null> {
+  /** Signed, unexpired identity for revocation only. This never grants access:
+   * even an already revoked token must remain retryable after a durable write fails.
+   */
+  async function verifyLogoutToken(token: string): Promise<AuthSession | null> {
     try {
       const { payload } = await jwtVerify(
         token,
@@ -131,9 +134,16 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
         return null;
       }
       const id = payload.jti ?? createHash('sha256').update(token).digest('base64url');
-      const session = { id, expiresAt: payload.exp * 1000 };
-      if (isSessionRevoked(session)) return null;
-      return session;
+      return { id, expiresAt: payload.exp * 1000 };
+    } catch {
+      return null;
+    }
+  }
+
+  async function authenticateToken(token: string): Promise<AuthSession | null> {
+    try {
+      const session = await verifyLogoutToken(token);
+      return session && !isSessionRevoked(session) ? session : null;
     } catch {
       return null;
     }
@@ -311,6 +321,7 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
     login,
     verifyPassphrase,
     authenticateToken,
+    verifyLogoutToken,
     verifyToken,
     authenticateRequest,
     verifyWsAuth,

@@ -2808,6 +2808,74 @@ describe('task CRUD actions', () => {
 });
 
 describe('foreground recovery', () => {
+  it('surfaces a failed valid-cursor reconnect transcript instead of silently ending recovery', async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = mockTransport();
+      const store = createReadyStore(transport);
+      const socket = lastWs;
+      await store.getState().switchSession('sess-1');
+      (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(() => {}));
+      socket.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 1,
+        cursorValid: true,
+        state: 'idle',
+        pendingPermissions: [],
+        offerId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(store.getState().historyLoading).toBe(true);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(store.getState().historyLoading).toBe(false);
+      expect(store.getState().historyError).toBe(
+        'Could not restore this conversation. Please retry.',
+      );
+      expect(
+        socket.parsedSent().some((message) => message.type === 'reconnect_snapshot_applied'),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a pending session switch as the single history owner on foreground', async () => {
+    const transport = mockTransport();
+    let finish!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url.includes('/messages')
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ ok: true, json: async () => [] }),
+    );
+    const store = createReadyStore(transport);
+    const opening = store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({ type: '_foreground' });
+    expect(
+      (transport.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) =>
+        String(url).includes('/messages'),
+      ),
+    ).toHaveLength(1);
+    finish({
+      ok: true,
+      json: async () => ({
+        messages: [{ messageId: 'saved', role: 'assistant', blocks: [], isStreaming: false }],
+        current: null,
+        cursor: 12,
+      }),
+    });
+    await opening;
+    expect(store.getState().historyLoading).toBe(false);
+    expect(store.getState().historyError).toBeNull();
+    expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual(['saved']);
+    expect(lastWs.parsedSent()).toContainEqual({
+      type: 'switch_session',
+      sessionId: 'sess-1',
+      historyCursor: 12,
+    });
+  });
+
   it('keeps loaded messages visible without history loading while foreground recovery is pending', async () => {
     const transport = mockTransport();
     let finish!: (value: unknown) => void;

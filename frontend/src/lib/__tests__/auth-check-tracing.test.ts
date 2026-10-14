@@ -13,9 +13,12 @@ vi.mock('../tracing', () => ({
   get tracingReady() {
     return initialization.ready;
   },
-  injectTraceparent: () => ({
-    traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
-  }),
+  injectTraceparent: () =>
+    initialization.ready
+      ? {}
+      : {
+          traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+        },
 }));
 import { traceAuthenticationCheck } from '../auth-check-tracing';
 afterEach(() => {
@@ -24,7 +27,7 @@ afterEach(() => {
 });
 
 describe('phone authentication tracing', () => {
-  it('waits for delayed provider initialization before starting and correlating a cold check', async () => {
+  it('starts authentication immediately while telemetry initialization is still pending', async () => {
     vi.useFakeTimers();
     startSpan.mockClear();
     let initialize!: () => void;
@@ -34,20 +37,23 @@ describe('phone authentication tracing', () => {
     const check = vi.fn().mockResolvedValue(true);
     const startedAt = Date.now();
     const result = traceAuthenticationCheck(check);
-    await vi.advanceTimersByTimeAsync(500);
-    expect(startSpan).not.toHaveBeenCalled();
-    expect(check).not.toHaveBeenCalled();
-    initialize();
+    expect(check).toHaveBeenCalledOnce();
     expect(await result).toBe(true);
+    await vi.advanceTimersByTimeAsync(500);
+    initialize();
+    await vi.advanceTimersByTimeAsync(0);
     expect(startSpan).toHaveBeenCalledWith(
       'http.auth.check',
-      expect.objectContaining({
-        startTime: startedAt,
-        attributes: expect.objectContaining({ 'mitzo.client.platform': 'ios' }),
-      }),
+      expect.objectContaining({ startTime: startedAt }),
     );
-    expect(check.mock.calls[0][1].traceparent).toContain('0af7651916cd43dd8448eb211c80319c');
-    expect(span.setAttribute).toHaveBeenCalledWith('mitzo.auth.tracing_initialization_ms', 500);
+    expect(check).toHaveBeenCalledOnce();
+  });
+
+  it('does not wait for a telemetry provider that never initializes', async () => {
+    initialization.ready = new Promise(() => {});
+    const check = vi.fn().mockResolvedValue(true);
+    expect(await traceAuthenticationCheck(check)).toBe(true);
+    expect(check).toHaveBeenCalledOnce();
   });
 
   it('passes the trace context into the request and waits until the check finishes', async () => {

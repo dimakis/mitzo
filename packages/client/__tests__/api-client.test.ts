@@ -318,3 +318,80 @@ describe('MitzoApiClient', () => {
     await expect(errorClient.checkAuth()).rejects.toThrow('API 500: Internal Server Error');
   });
 });
+
+describe('transcript read deadlines', () => {
+  it.each(['open', 'reconnect'] as const)(
+    'bounds a stalled %s response body even when abort is ignored',
+    async (kind) => {
+      vi.useFakeTimers();
+      try {
+        let receivedSignal: AbortSignal | undefined;
+        const fetch = vi.fn((_url: string, init?: RequestInit) => {
+          receivedSignal = init?.signal ?? undefined;
+          return Promise.resolve({
+            ok: true,
+            json: () => new Promise(() => {}),
+          } as unknown as Response);
+        });
+        const api = new MitzoApiClient(fetch);
+        let failure: unknown;
+        const read =
+          kind === 'open' ? api.getSessionTranscript('s') : api.getReconnectTranscript('s', 9);
+        void read.catch((error) => {
+          failure = error;
+        });
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toContain('timed out');
+        expect(receivedSignal?.aborted).toBe(true);
+        expect(fetch).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('settles caller cancellation even when the transport ignores abort', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetch = vi.fn(() => new Promise<Response>(() => {}));
+      const api = new MitzoApiClient(fetch);
+      const controller = new AbortController();
+      let failure: unknown;
+      void api.getSessionTranscript('s', controller.signal).catch((error) => {
+        failure = error;
+      });
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(0);
+      expect((failure as Error)?.name).toBe('AbortError');
+      expect(vi.getTimerCount()).toBe(0);
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cleans up the deadline and caller listener after a successful read', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const remove = vi.spyOn(controller.signal, 'removeEventListener');
+      let receivedSignal: AbortSignal | undefined;
+      const api = new MitzoApiClient(
+        vi.fn(async (_url: string, init?: RequestInit) => {
+          receivedSignal = init?.signal ?? undefined;
+          return Response.json({ messages: [], current: null, cursor: 9 });
+        }),
+      );
+      await expect(api.getSessionTranscript('s', controller.signal)).resolves.toMatchObject({
+        cursor: 9,
+      });
+      expect(vi.getTimerCount()).toBe(0);
+      expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+      controller.abort();
+      expect(receivedSignal?.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

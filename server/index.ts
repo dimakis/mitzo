@@ -32,6 +32,8 @@ const terminalPlanAdviserHost = createTerminalPlanAdviserHost(process.env);
 setTerminalPlanAdviserHost(terminalPlanAdviserHost);
 
 import './tracing.js';
+import { startRuntimePerformanceMonitor } from './runtime-performance.js';
+let stopRuntimePerformanceMonitor: (() => void) | undefined;
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { createServer } from 'http';
 import { createServer as createHttpsServer } from 'https';
@@ -749,6 +751,7 @@ app.get('/api/chat/events', (req, res) => {
     type: 'welcome',
     protocolVersion: 2,
     connectionId,
+    eventAckBatchSize: 50,
   });
 
   // Reconnect is handled via POST /api/chat/reconnect — the client sends
@@ -1413,6 +1416,7 @@ const drainOwnedSymposium = createSymposiumShutdown({
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopRuntimePerformanceMonitor?.();
   log.info(`${signal} received — shutting down gracefully`);
 
   terminalService.detachAll();
@@ -1497,6 +1501,9 @@ checkPort(PORT).then(async (inUse) => {
   }
 
   server.listen(PORT, BIND_HOST, () => {
+    stopRuntimePerformanceMonitor = startRuntimePerformanceMonitor((message, fields) =>
+      log.warn(message, fields),
+    );
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
 

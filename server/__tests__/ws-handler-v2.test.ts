@@ -283,6 +283,7 @@ describe('handleHello', () => {
         connectionId: 'conn-new',
       }),
     ]);
+    expect(transport.sent.find((event) => event.type === 'welcome')?.eventAckBatchSize).toBe(50);
   });
 });
 
@@ -1835,6 +1836,92 @@ describe('handleSendV2 auto-watch', () => {
     expect(callArgs[1]).toBe('c1:sess-resume');
   });
 
+  it('preserves a pending launch selection when an unrelated background watch is removed', async () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.watch('c1', 'unrelated');
+    await handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send',
+        sessionId: null,
+        prompt: 'pending launch',
+        clientMsgId: 'pending-view',
+      },
+      ctx,
+    );
+    const options = (startChat as ReturnType<typeof vi.fn>).mock.calls[0][3];
+    handleUnwatch('c1', { type: 'unwatch', sessionId: 'unrelated' }, ctx);
+    options.onSessionResolved('intended-session');
+    expect(ctx.connRegistry.get('c1')!.activeSession).toBe('intended-session');
+  });
+
+  it.each(['sess-selected', null])(
+    'keeps explicit selection %s after an older launch resolves',
+    async (selection) => {
+      (startChat as ReturnType<typeof vi.fn>).mockClear();
+      const eventStore = mockEventStore();
+      eventStore.getSession.mockImplementation((sessionId: string) => ({
+        sessionId,
+        mode: 'agent',
+      }));
+      const ctx = createContext({
+        eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+      });
+      const transport = mockTransport();
+      ctx.connRegistry.register('c1', transport);
+      await handleSendV2(
+        'c1',
+        transport,
+        {
+          type: 'send',
+          sessionId: null,
+          prompt: 'original launch',
+          clientMsgId: 'late-launch',
+        },
+        ctx,
+      );
+      const options = (startChat as ReturnType<typeof vi.fn>).mock.calls[0][3];
+      await handleSwitchSession('c1', { type: 'switch_session', sessionId: selection }, ctx);
+      options.onSessionResolved('original-session');
+      expect(ctx.connRegistry.get('c1')!.activeSession).toBe(selection);
+      // Disconnect cleanup enumerates this watch even though the view moved away.
+      expect(ctx.connRegistry.get('c1')!.watchedSessions.has('original-session')).toBe(true);
+      expect(startChat).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['removed', 'replaced'] as const)(
+    'does not attach a late resolved launch to a %s connection lifecycle',
+    async (lifecycle) => {
+      (startChat as ReturnType<typeof vi.fn>).mockClear();
+      const ctx = createContext();
+      const transport = mockTransport();
+      ctx.connRegistry.register('c1', transport);
+      await handleSendV2(
+        'c1',
+        transport,
+        {
+          type: 'send',
+          sessionId: null,
+          prompt: 'late resolution',
+          clientMsgId: 'gone-launch',
+        },
+        ctx,
+      );
+      const options = (startChat as ReturnType<typeof vi.fn>).mock.calls[0][3];
+      ctx.connRegistry.remove('c1');
+      if (lifecycle === 'replaced') ctx.connRegistry.register('c1', mockTransport());
+      options.onSessionResolved('late-session');
+      expect(ctx.connRegistry.get('c1')?.watchedSessions.has('late-session') ?? false).toBe(false);
+      expect(ctx.connRegistry.get('c1')?.activeSession ?? null).toBeNull();
+      expect(startChat).toHaveBeenCalledOnce();
+    },
+  );
+
   it('passes onSessionResolved callback and uses unique composite clientId on create path', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     const ctx = createContext();
@@ -2957,6 +3044,140 @@ describe('dispatchV2Message', () => {
     expect(stopChat).toHaveBeenCalledWith('driver-1');
   });
 
+  it('records receive-to-dispatch wait on the existing send span', async () => {
+    vi.useFakeTimers({ toFake: ['performance'] });
+    const tracing = await import('../tracing.js');
+    const spans = vi.spyOn(tracing, 'withSpanAsync');
+    try {
+      const ctx = createContext();
+      const transport = mockTransport();
+      ctx.connRegistry.register('c1', transport);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const queued = scheduleV2Message(
+        gate,
+        'c1',
+        transport,
+        JSON.stringify({
+          type: 'send',
+          sessionId: null,
+          prompt: 'queued',
+          clientMsgId: 'trace-queue',
+        }),
+        ctx,
+        (error) => {
+          throw error;
+        },
+      );
+      vi.advanceTimersByTime(123);
+      release();
+      await queued;
+      expect(spans).toHaveBeenCalledWith(
+        'ws.send',
+        expect.objectContaining({
+          'ws.dispatch_wait_ms': 123,
+        }),
+        expect.any(Function),
+      );
+    } finally {
+      spans.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps navigation newer than a queued send when that send eventually launches', async () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'selected', mode: 'agent' });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    let release!: () => void;
+    const stalled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = scheduleV2Message(
+      stalled,
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'send',
+        sessionId: null,
+        prompt: 'queued launch',
+        clientMsgId: 'queued-launch',
+      }),
+      ctx,
+      (error) => {
+        throw error;
+      },
+    );
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'selected' }, ctx);
+    release();
+    await queued;
+    const options = (startChat as ReturnType<typeof vi.fn>).mock.calls[0][3];
+    options.onSessionResolved('queued-original');
+    expect(ctx.connRegistry.get('c1')!.activeSession).toBe('selected');
+    expect(startChat).toHaveBeenCalledOnce();
+  });
+
+  it('applies navigation and subscription controls while provider admission is pending', () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'selected', mode: 'agent' });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    const stalled = new Promise<void>(() => {});
+    const errors: unknown[] = [];
+    const schedule = (message: Record<string, unknown>) =>
+      scheduleV2Message(stalled, 'c1', transport, JSON.stringify(message), ctx, (error) =>
+        errors.push(error),
+      );
+    expect(schedule({ type: 'switch_session', sessionId: 'selected' })).toBe(stalled);
+    expect(ctx.connRegistry.get('c1')!.activeSession).toBe('selected');
+    expect(schedule({ type: 'watch', sessionId: 'watched' })).toBe(stalled);
+    expect(ctx.connRegistry.get('c1')!.watchedSessions.has('watched')).toBe(true);
+    expect(schedule({ type: 'unwatch', sessionId: 'watched' })).toBe(stalled);
+    expect(ctx.connRegistry.get('c1')!.watchedSessions.has('watched')).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  it.each([
+    { type: 'session_event_applied', sessionId: 'sess-1', seq: 6 },
+    {
+      type: 'reconnect_snapshot_applied',
+      sessionId: 'sess-1',
+      cursor: 5,
+      offerId: '12345678-1234-4123-8123-123456789abc',
+    },
+  ])('does not queue $type behind provider admission', async (message) => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    const ack =
+      message.type === 'session_event_applied'
+        ? vi.spyOn(ctx.connRegistry, 'ackAppliedEvent').mockReturnValue(true)
+        : vi.spyOn(ctx.connRegistry, 'ackAppliedSnapshot').mockReturnValue(true);
+    const stalledAdmission = new Promise<void>(() => {});
+    const errors: unknown[] = [];
+    const result = scheduleV2Message(
+      stalledAdmission,
+      'c1',
+      transport,
+      JSON.stringify(message),
+      ctx,
+      (error) => errors.push(error),
+    );
+    expect(ack).toHaveBeenCalledOnce();
+    expect(result).toBe(stalledAdmission);
+    expect(errors).toEqual([]);
+  });
+
   it('lets stop bypass a pending send while ordinary messages remain FIFO', async () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
@@ -2969,7 +3190,7 @@ describe('dispatchV2Message', () => {
     );
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
-    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
     });
@@ -3009,19 +3230,21 @@ describe('dispatchV2Message', () => {
       sendChain,
       'c1',
       transport,
-      JSON.stringify({ type: 'watch', sessionId: 'later-session' }),
+      JSON.stringify({
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'next ordinary input',
+        clientMsgId: 'later-send',
+      }),
       ctx,
       (error) => errors.push(error),
     );
-    expect(transport.sent).not.toContainEqual(
-      expect.objectContaining({ type: 'watched', sessionId: 'later-session' }),
-    );
+    expect(sendToChat).toHaveBeenCalledOnce();
 
     admit(true);
     await ordinaryChain;
-    expect(transport.sent).toContainEqual(
-      expect.objectContaining({ type: 'watched', sessionId: 'later-session' }),
-    );
+    expect(sendToChat).toHaveBeenCalledTimes(2);
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
   it('routes reconnect messages and produces reconnected summary', async () => {

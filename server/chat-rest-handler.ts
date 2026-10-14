@@ -642,7 +642,12 @@ export function createChatRestRouter(
     if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(SessionEventAppliedMessage, req.body, res);
     if (!msg) return;
-    res.json({ applied: ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq) });
+    res.json({
+      applied: msg.seqs
+        ? ctx.connRegistry.ackAppliedEvents(connectionId, msg.sessionId, msg.seqs)
+        : msg.seq !== undefined &&
+          ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq),
+    });
   });
 
   return router;

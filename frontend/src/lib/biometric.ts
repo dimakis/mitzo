@@ -109,14 +109,33 @@ export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
     if (!token) return null;
     if (!authContextIsCurrent()) return null;
 
-    // Validate the token with the server before accepting it
-    const res = await fetch(`${apiBaseUrl}/api/sessions`, {
-      headers: { Authorization: `Bearer ${token}` },
-      credentials: 'include',
-    });
+    // Authorization checks must not load every provider's session catalog.
+    const controller = new AbortController();
+    let timeout!: ReturnType<typeof setTimeout>;
+    let res: Response;
+    try {
+      res = await Promise.race([
+        fetch(`${apiBaseUrl}/api/auth/check`, {
+          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
+          signal: controller.signal,
+        }),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            reject(new Error('Authentication check timed out'));
+            controller.abort();
+          }, 5_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!authContextIsCurrent()) return null;
     if (!res.ok) {
-      if (authTokenAtStart === null || authTokenAtStart === token) {
+      if (
+        (res.status === 401 || res.status === 403) &&
+        (authTokenAtStart === null || authTokenAtStart === token)
+      ) {
         markAuthLost();
         await deleteCredentials();
       }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   HelloMessage,
+  SessionEventAppliedMessage,
   ReconnectMessage,
   WatchMessage,
   UnwatchMessage,
@@ -264,5 +265,48 @@ describe('IncomingWsMessageV2 discriminated union', () => {
     expect(IncomingWsMessageV2.safeParse({ type: 'subscribe', sessionId: 's1' }).success).toBe(
       false,
     );
+  });
+});
+
+describe('bounded applied event acknowledgements', () => {
+  it('supports legacy single events and exact ordered batches', () => {
+    expect(
+      SessionEventAppliedMessage.safeParse({
+        type: 'session_event_applied',
+        sessionId: 's',
+        seq: 3,
+      }).success,
+    ).toBe(true);
+    expect(
+      IncomingWsMessageV2.safeParse({ type: 'session_event_applied', sessionId: 's', seqs: [3, 7] })
+        .success,
+    ).toBe(true);
+  });
+  it.each([
+    [],
+    [3, 3],
+    [7, 3],
+    [0],
+    [Number.MAX_SAFE_INTEGER + 1],
+    Array.from({ length: 51 }, (_, i) => i + 1),
+  ])('rejects unsafe batch %j', (seqs) => {
+    expect(
+      SessionEventAppliedMessage.safeParse({ type: 'session_event_applied', sessionId: 's', seqs })
+        .success,
+    ).toBe(false);
+  });
+  it('requires exactly one acknowledgement variant', () => {
+    expect(
+      SessionEventAppliedMessage.safeParse({
+        type: 'session_event_applied',
+        sessionId: 's',
+        seq: 3,
+        seqs: [3],
+      }).success,
+    ).toBe(false);
+    expect(
+      SessionEventAppliedMessage.safeParse({ type: 'session_event_applied', sessionId: 's' })
+        .success,
+    ).toBe(false);
   });
 });

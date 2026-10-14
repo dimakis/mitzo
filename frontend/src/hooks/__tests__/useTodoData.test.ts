@@ -74,6 +74,41 @@ afterEach(() => {
 });
 
 describe('useTodoData', () => {
+  it.each(['rejected', 'network'])(
+    'reports an unconfirmed star after %s without retrying the mutation',
+    async (failure) => {
+      const { result } = renderHook(() => useTodoData());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      if (failure === 'rejected')
+        vi.mocked(apiFetch).mockResolvedValueOnce(new Response('{}', { status: 503 }));
+      else vi.mocked(apiFetch).mockRejectedValueOnce(Error('network unavailable'));
+      await act(async () => {
+        await result.current.star('abc123');
+      });
+      expect(result.current.error).toBe(
+        'Couldn’t confirm this change. Refresh to check its status.',
+      );
+      expect(apiFetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(['rejected', 'network'])(
+    'rejects unconfirmed creation after %s so the form can retain its draft',
+    async (failure) => {
+      const { result } = renderHook(() => useTodoData());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      if (failure === 'rejected')
+        vi.mocked(apiFetch).mockResolvedValueOnce(new Response('{}', { status: 503 }));
+      else vi.mocked(apiFetch).mockRejectedValueOnce(Error('network unavailable'));
+      await act(async () => {
+        await expect(result.current.create('Retained draft', 'work', 'parent')).rejects.toThrow(
+          'Couldn’t confirm creation. Refresh to check its status.',
+        );
+      });
+      expect(apiFetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it('fetches todo items on mount', async () => {
     const { result } = renderHook(() => useTodoData());
 
@@ -202,9 +237,26 @@ describe('useTodoData', () => {
       await result.current.ack('abc123');
     });
 
+    expect(result.current.error).toBe('Couldn’t confirm this change. Refresh to check its status.');
     // Item should still be in the list since action failed
     expect(result.current.items).toHaveLength(1);
   });
+
+  it.each(['ack', 'done', 'snooze'] as const)(
+    'reports rejected %s without removing the outcome',
+    async (action) => {
+      const { result } = renderHook(() => useTodoData());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      vi.mocked(apiFetch).mockResolvedValueOnce(new Response('{}', { status: 503 }));
+      await act(async () => {
+        await result.current[action]('abc123');
+      });
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.error).toBe(
+        'Couldn’t confirm this change. Refresh to check its status.',
+      );
+    },
+  );
 
   it('create posts to /api/todos and triggers refresh', async () => {
     const { result } = renderHook(() => useTodoData());
@@ -279,7 +331,7 @@ describe('useTodoData', () => {
     expect(created).toEqual({ id: 'created' });
   });
 
-  it('create handles network error gracefully', async () => {
+  it('create rejects a network failure while keeping existing items', async () => {
     const { result } = renderHook(() => useTodoData());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -287,10 +339,12 @@ describe('useTodoData', () => {
     vi.mocked(apiFetch).mockRejectedValueOnce(new Error('Network error'));
 
     await act(async () => {
-      await result.current.create('New task', 'work');
+      await expect(result.current.create('New task', 'work')).rejects.toThrow(
+        'Couldn’t confirm creation. Refresh to check its status.',
+      );
     });
 
-    // Should not throw — items unchanged
+    // The form retains its draft when this operation rejects.
     expect(result.current.items).toHaveLength(1);
   });
 

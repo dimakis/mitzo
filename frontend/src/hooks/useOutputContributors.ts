@@ -6,6 +6,8 @@ import type {
   OutputContributorPanelProps,
 } from '../types/output-contributors';
 import { apiFetch } from '../lib/api-fetch';
+import { readApiJson } from '../lib/api-json-read';
+import { APP_FOREGROUND_EVENT } from '../lib/app-lifecycle-events';
 import { createBrowserId, sha256Hex } from '../lib/browser-crypto';
 
 type View = Pick<
@@ -64,10 +66,7 @@ function validCandidate(value: unknown): value is SessionOutputCandidate {
   );
 }
 async function read(url: string, signal?: AbortSignal) {
-  const response = await apiFetch(url, { signal });
-  const body = await response.json();
-  if (!response.ok) throw Error(body?.error || `Request failed (${response.status})`);
-  return body;
+  return readApiJson<Awaited<ReturnType<Response['json']>>>(url, signal);
 }
 function stablePayload(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stablePayload).join(',')}]`;
@@ -220,10 +219,25 @@ export function useOutputContributors(
   }, [scope, attempt, refreshKey, selectedId]);
   const current = view?.sessionId === scope ? view : null;
   const hasOutputs = !!current?.outputs.length;
+  const loadingRef = useRef(false);
+  loadingRef.current = !!current?.loading;
   useEffect(() => {
     if (!scope || !hasOutputs) return;
-    const timer = window.setInterval(refresh, 5000);
-    return () => clearInterval(timer);
+    const poll = (event?: Event) => {
+      if (
+        !loadingRef.current &&
+        (event?.type === APP_FOREGROUND_EVENT || document.visibilityState === 'visible')
+      )
+        refresh();
+    };
+    const timer = window.setInterval(poll, 5000);
+    document.addEventListener('visibilitychange', poll);
+    window.addEventListener(APP_FOREGROUND_EVENT, poll);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', poll);
+      window.removeEventListener(APP_FOREGROUND_EVENT, poll);
+    };
   }, [scope, hasOutputs, refresh]);
   const mutate = useCallback(
     async (

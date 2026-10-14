@@ -4,6 +4,8 @@ export interface AppliedDeliveryOptions {
   setCursor(sessionId: string, seq: number): void;
   deliver(event: Record<string, unknown>): boolean | void;
   ackEvent(sessionId: string, seq: number): void;
+  /** REST cursors are authoritative prefixes, not individual streamed events. */
+  ackTranscript?(sessionId: string, cursor: number): void;
   ackSnapshot(
     sessionId: string,
     cursor: number,
@@ -74,7 +76,10 @@ export class AppliedDelivery {
       state.bytes -= JSON.stringify(event).length;
     }
     this.options.setCursor(sessionId, committed);
-    if (committed > 0) this.options.ackEvent(sessionId, committed);
+    if (committed > 0) {
+      if (this.options.ackTranscript) this.options.ackTranscript(sessionId, committed);
+      else this.options.ackEvent(sessionId, committed);
+    }
     this.clearGapTimer(state);
     this.drain(sessionId, state);
   }

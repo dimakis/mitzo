@@ -226,6 +226,7 @@ import {
   operatorAuthMiddleware,
   registerAuthSession,
   revokeOperatorSessions,
+  verifyLogoutToken,
   COOKIE_NAME,
   MAX_AGE_HOURS,
   type AuthSession,
@@ -281,6 +282,8 @@ import {
   type ConnectionsRuntime,
 } from './connections-runtime.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
+import { requestPerformance } from './request-performance.js';
+import { authenticationRoute } from './auth-route-boundary.js';
 import { resolvePending, getPendingRequestsBySession } from './permissions.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { createLogger } from './logger.js';
@@ -399,6 +402,7 @@ export function invalidateSkillRegistries(): void {
 }
 
 const app = express();
+app.use(requestPerformance((message, fields) => log.warn(message, fields)));
 
 const codexReattachments = new Map<string, Promise<void>>();
 
@@ -715,9 +719,10 @@ export function broadcastInboxUpdate() {
   onInboxUpdated?.();
 }
 
-export function runUpdateCheck() {
+export async function runUpdateCheck() {
+  const available = await isUpdateAvailable();
   const wasAvailable = updateAvailable;
-  updateAvailable = isUpdateAvailable();
+  updateAvailable = available;
   if (updateAvailable && !wasAvailable) {
     log.info('update available — broadcasting to clients');
     onUpdateAvailable?.();
@@ -730,8 +735,8 @@ app.get('/api/version', (_req, res) =>
   res.json({ hash: buildHash, commit: startupCommit, updateAvailable }),
 );
 
-app.post('/api/version/check', authMiddleware, (_req, res) => {
-  runUpdateCheck();
+app.post('/api/version/check', authMiddleware, async (_req, res) => {
+  await runUpdateCheck();
   res.json({ updateAvailable });
 });
 
@@ -1015,17 +1020,25 @@ app.post('/api/sessions/suspend', (req, res) => {
 // Logout must always reach cookie clearing, even when an explicit stale bearer
 // would otherwise be rejected before the handler. Revoke every valid presented
 // browser/native credential; invalid credentials do not prevent cookie removal.
-app.post('/api/auth/logout', async (req, res) => {
-  const bearer = req.headers.authorization?.startsWith('Bearer ')
-    ? req.headers.authorization.slice(7).trim()
-    : undefined;
-  const cookie = req.cookies?.[COOKIE_NAME] as string | undefined;
-  const tokens = [...new Set([bearer, cookie].filter((token): token is string => Boolean(token)))];
-  const sessions = await Promise.all(tokens.map((token) => authenticateToken(token)));
-  revokeOperatorSessions(sessions, (id) => custodianControllerClient?.invalidate(id));
-  res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
-  res.json({ ok: true });
-});
+app.post(
+  '/api/auth/logout',
+  authenticationRoute(
+    async (req, res) => {
+      const bearer = req.headers.authorization?.startsWith('Bearer ')
+        ? req.headers.authorization.slice(7).trim()
+        : undefined;
+      const cookie = req.cookies?.[COOKIE_NAME] as string | undefined;
+      const tokens = [
+        ...new Set([bearer, cookie].filter((token): token is string => Boolean(token))),
+      ];
+      const sessions = await Promise.all(tokens.map((token) => verifyLogoutToken(token)));
+      revokeOperatorSessions(sessions, (id) => custodianControllerClient?.invalidate(id));
+      res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
+      res.json({ ok: true });
+    },
+    { warn: (message) => log.warn(message), logoutCookie: COOKIE_NAME },
+  ),
+);
 
 app.use('/api', authMiddleware);
 if (custodianControllerClient)
@@ -2295,24 +2308,31 @@ app.post('/api/signals/resolve', (req, res) => {
   }
 });
 
-app.post('/api/auth/login', loginLimiter, async (req, res) => {
-  const body = LoginBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: 'passphrase is required' });
-    return;
-  }
-  const token = await login(body.data.passphrase);
-  if (!token) {
-    res.status(401).json({ error: 'Invalid passphrase' });
-    return;
-  }
-  res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'strict',
-    maxAge: MAX_AGE_HOURS * 60 * 60 * 1000,
-  });
-  res.json({ ok: true, token });
-});
+app.post(
+  '/api/auth/login',
+  loginLimiter,
+  authenticationRoute(
+    async (req, res) => {
+      const body = LoginBody.safeParse(req.body);
+      if (!body.success) {
+        res.status(400).json({ error: 'passphrase is required' });
+        return;
+      }
+      const token = await login(body.data.passphrase);
+      if (!token) {
+        res.status(401).json({ error: 'Invalid passphrase' });
+        return;
+      }
+      res.cookie(COOKIE_NAME, token, {
+        httpOnly: true,
+        sameSite: 'strict',
+        maxAge: MAX_AGE_HOURS * 60 * 60 * 1000,
+      });
+      res.json({ ok: true, token });
+    },
+    { warn: (message) => log.warn(message) },
+  ),
+);
 
 app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
 

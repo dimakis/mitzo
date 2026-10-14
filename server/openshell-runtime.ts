@@ -1453,8 +1453,20 @@ export class OpenShellRuntimeManager {
     });
     const tail = previous.catch(() => undefined).then(() => gate);
     PROVIDER_POLICY_QUEUES.set(sandboxName, tail);
-    await previous.catch(() => undefined);
     try {
+      // Cancellation retires this reservation, but the tail still waits for
+      // its predecessor. A later caller must never bypass the active owner.
+      signal.throwIfAborted();
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => reject(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+        previous
+          .catch(() => undefined)
+          .then(() => {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+          });
+      });
       signal.throwIfAborted();
       return await operation(() => {
         if (PROVIDER_POLICY_QUEUES.get(sandboxName) !== tail)
@@ -1462,8 +1474,11 @@ export class OpenShellRuntimeManager {
       });
     } finally {
       release();
-      if (PROVIDER_POLICY_QUEUES.get(sandboxName) === tail)
-        PROVIDER_POLICY_QUEUES.delete(sandboxName);
+      // Keep cancelled reservations linked until the predecessor has settled.
+      void tail.then(() => {
+        if (PROVIDER_POLICY_QUEUES.get(sandboxName) === tail)
+          PROVIDER_POLICY_QUEUES.delete(sandboxName);
+      });
     }
   }
 
@@ -1780,10 +1795,18 @@ export class OpenShellRuntimeManager {
 
   private async waitForReady(name: string, owner: string, signal: AbortSignal) {
     const deadline = Date.now() + this.readiness.timeoutMs;
+    const timeout = AbortSignal.timeout(this.readiness.timeoutMs);
+    const boundedSignal = AbortSignal.any([signal, timeout]);
     let phase = 'unavailable';
     while (Date.now() <= deadline) {
       signal.throwIfAborted();
-      const sandbox = await this.get(name, signal);
+      let sandbox: z.infer<typeof Sandbox> | undefined;
+      try {
+        sandbox = await this.get(name, boundedSignal);
+      } catch (error) {
+        if (signal.aborted || !timeout.aborted) throw error;
+        break;
+      }
       phase = sandbox?.phase ?? 'unavailable';
       if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
         throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
@@ -1791,7 +1814,12 @@ export class OpenShellRuntimeManager {
         throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
       if (sandbox?.phase === 'Ready') return sandbox;
       if (sandbox?.phase === 'Error') throw new Error(`OpenShell sandbox ${name} is Error`);
-      await this.delay(signal);
+      try {
+        await this.delay(boundedSignal);
+      } catch (error) {
+        if (signal.aborted || !timeout.aborted) throw error;
+        break;
+      }
     }
     throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }

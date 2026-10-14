@@ -1133,6 +1133,38 @@ describe('OpenShell runtime lifecycle', () => {
     expect(run).toHaveBeenCalledTimes(6);
   });
 
+  it.each(['inspection', 'delay'])('enforces the readiness deadline during %s', async (stage) => {
+    let gets = 0;
+    const run = vi.fn(async (_args: readonly string[], signal: AbortSignal) => {
+      gets++;
+      if (stage === 'inspection' && gets > 1)
+        return new Promise<string>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      return ready('Creating');
+    });
+    const manager = new OpenShellRuntimeManager(config, run, {
+      pollIntervalMs: 10_000,
+      timeoutMs: 20,
+    });
+    const controller = new AbortController();
+    const outcome = manager.ensure('conversation', controller.signal).then(
+      () => 'unexpected success',
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    try {
+      await expect(
+        Promise.race([
+          outcome,
+          new Promise<string>((resolve) => setTimeout(() => resolve('deadline exceeded'), 250)),
+        ]),
+      ).resolves.toContain('did not become Ready');
+    } finally {
+      controller.abort();
+      await outcome;
+    }
+  });
+
   it('bounds and aborts readiness polling', async () => {
     const creating = vi.fn().mockResolvedValue(ready('Creating'));
     await expect(
@@ -1150,6 +1182,49 @@ describe('OpenShell runtime lifecycle', () => {
     await vi.waitFor(() => expect(creating).toHaveBeenCalled());
     controller.abort();
     await expect(pending).rejects.toThrow(/abort/i);
+  });
+
+  it('cancels queued provider-policy admission without releasing the active owner', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (run.mock.calls.length === 1) {
+        entered();
+        await held;
+      }
+      if (args.includes('list')) return providerList('sandbox', ['github']);
+      return ready();
+    });
+    const manager = new OpenShellRuntimeManager(config, run);
+    const first = manager.ensure('conversation', new AbortController().signal);
+    await started;
+    const controller = new AbortController();
+    const second = manager.ensure('conversation', controller.signal);
+    const third = manager.ensure('conversation', new AbortController().signal);
+    controller.abort(new Error('queued admission aborted'));
+    const outcome = second.then(
+      () => 'unexpected success',
+      (error: Error) => error.message,
+    );
+    try {
+      await expect(
+        Promise.race([
+          outcome,
+          new Promise<string>((resolve) => setTimeout(() => resolve('still queued'), 100)),
+        ]),
+      ).resolves.toBe('queued admission aborted');
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+    }
+    await Promise.all([first, outcome, third]);
+    expect(run).toHaveBeenCalledTimes(4);
   });
 
   it('reuses Ready and starts Stopped sandboxes without recreating them', async () => {

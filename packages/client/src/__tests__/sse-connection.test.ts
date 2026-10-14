@@ -418,6 +418,124 @@ describe('SseConnection', () => {
     conn.disconnect();
   });
 
+  it.each(['request', 'response body'] as const)(
+    'recovers a negotiated batch with a stalled %s',
+    async (stall) => {
+      let signal: AbortSignal | undefined;
+      const fetch = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+        signal = init?.signal ?? undefined;
+        return stall === 'request'
+          ? new Promise<Response>(() => {})
+          : Promise.resolve({ ok: true, json: () => new Promise(() => {}) } as unknown as Response);
+      });
+      const conn = new SseConnection(createConfig({ fetch }));
+      conn.onMessage(() => true);
+      try {
+        conn.connect();
+        const es = lastES();
+        es._emit('welcome', { connectionId: 'conn-1', eventAckBatchSize: 50 });
+        es._emit('message', {
+          type: 'block_delta',
+          sessionId: 's',
+          seq: 1,
+          prevSessionSeq: 0,
+          delta: 'text',
+        });
+        await vi.waitFor(() => expect(signal).toBeDefined());
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(signal?.aborted).toBe(true);
+        expect(lastES()).not.toBe(es);
+        expect(conn.getLastSeq('s')).toBe(1);
+      } finally {
+        conn.disconnect();
+      }
+    },
+  );
+
+  it('negotiates bounded event ACK batches and reconnects after a rejected prefix', async () => {
+    const fetch = vi.fn().mockImplementation(async () => Response.json({ applied: true }));
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.onMessage(() => true);
+    try {
+      conn.connect();
+      const es = lastES();
+      es._emit('welcome', { connectionId: 'conn-1', eventAckBatchSize: 50 });
+      conn.trackSeq('sess-1', 0);
+      for (let seq = 1; seq <= 100; seq++)
+        es._emit('message', {
+          type: 'block_delta',
+          sessionId: 'sess-1',
+          seq,
+          prevSessionSeq: seq - 1,
+          delta: 'text',
+        });
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      expect(fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).seqs)).toEqual([
+        Array.from({ length: 50 }, (_, i) => i + 1),
+        Array.from({ length: 50 }, (_, i) => i + 51),
+      ]);
+      fetch.mockResolvedValueOnce(Response.json({ applied: false }));
+      es._emit('message', {
+        type: 'block_delta',
+        sessionId: 'sess-1',
+        seq: 101,
+        prevSessionSeq: 100,
+        delta: 'more',
+      });
+      await vi.waitFor(() => expect(lastES()).not.toBe(es));
+      expect(conn.getLastSeq('sess-1')).toBe(101);
+    } finally {
+      conn.disconnect();
+    }
+  });
+
+  it('confirms reconnect snapshots without waiting for a stalled event ACK', async () => {
+    let resolveEventAck!: (response: Response) => void;
+    const fetch = vi.fn((url: RequestInfo | URL) => {
+      if (String(url).endsWith('/session-event-applied'))
+        return new Promise<Response>((resolve) => {
+          resolveEventAck = resolve;
+        });
+      return Promise.resolve(Response.json({ applied: true }));
+    });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn(() => true);
+    conn.onMessage(listener);
+    try {
+      conn.connect();
+      const es = lastES();
+      es._emit('welcome', { connectionId: 'conn-1' });
+      conn.commitTranscriptCursor('other-session', 3);
+      await vi.waitFor(() => expect(resolveEventAck).toBeDefined());
+      es._emit('message', {
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 5,
+        offerId: 'offer-1',
+      });
+      es._emit('message', {
+        type: 'block_delta',
+        sessionId: 'sess-1',
+        seq: 6,
+        prevSessionSeq: 5,
+        delta: 'live',
+      });
+      expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ seq: 6 }));
+      conn.acknowledgeReconnectSnapshot('sess-1', 5, 'offer-1');
+      await vi.waitFor(() =>
+        expect(fetch).toHaveBeenCalledWith(
+          expect.stringContaining('/reconnect-snapshot-applied'),
+          expect.anything(),
+        ),
+      );
+      await vi.waitFor(() => expect(conn.getLastSeq('sess-1')).toBe(6));
+      expect(listener).toHaveBeenCalledWith(expect.objectContaining({ seq: 6, delta: 'live' }));
+      resolveEventAck(Response.json({ applied: true }));
+    } finally {
+      conn.disconnect();
+    }
+  });
+
   it('drains buffered events only after the applied snapshot POST confirms the offer', async () => {
     let resolveAck!: (value: Response) => void;
     const fetch = vi.fn(

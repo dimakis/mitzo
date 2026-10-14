@@ -66,6 +66,8 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
   dataRef.current = data;
+  const urlRef = useRef(url);
+  urlRef.current = url;
 
   useEffect(() => {
     let cancelled = false;
@@ -120,6 +122,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   }, []);
 
   const performAction = useCallback(async (id: string, action: string, days?: number) => {
+    const actionUrl = urlRef.current;
     const body: Record<string, unknown> = { action };
     if (days !== undefined) body.days = days;
 
@@ -130,13 +133,19 @@ export function useTodoData(profile?: string): UseTodoDataResult {
         body: JSON.stringify(body),
       });
 
-      if (res.ok) {
-        invalidateTodoReads();
-        todoCache.update((data) => ({ ...data, items: removeFromTree(data.items, id) }));
-        setData((prev) => (prev ? { ...prev, items: removeFromTree(prev.items, id) } : prev));
-      }
+      if (!res.ok) throw new Error('Outcome change rejected');
+      if (urlRef.current === actionUrl)
+        setError((previous) =>
+          previous === 'Couldn’t confirm this change. Refresh to check its status.'
+            ? null
+            : previous,
+        );
+      invalidateTodoReads();
+      todoCache.update((data) => ({ ...data, items: removeFromTree(data.items, id) }));
+      setData((prev) => (prev ? { ...prev, items: removeFromTree(prev.items, id) } : prev));
     } catch {
-      // Network error — leave item in list
+      if (urlRef.current === actionUrl)
+        setError('Couldn’t confirm this change. Refresh to check its status.');
     }
   }, []);
 
@@ -152,6 +161,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   }, []);
 
   const star = useCallback(async (id: string) => {
+    const actionUrl = urlRef.current;
     // Read current starred state from the ref before toggling,
     // so rapid clicks always see the latest state (avoids stale closure).
     const currentItem = dataRef.current ? findInTree(dataRef.current.items, id) : undefined;
@@ -166,13 +176,17 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     });
 
     try {
-      await apiFetch(`/api/todos/${id}/action`, {
+      const response = await apiFetch(`/api/todos/${id}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
+      if (!response.ok) throw Error('Star change rejected');
     } catch {
-      // Optimistic update stays; next refresh will reconcile
+      // A lost response may follow a completed write. Keep the visible state
+      // uncertain until an explicit refresh reconciles it; never replay a write.
+      if (urlRef.current === actionUrl)
+        setError('Couldn’t confirm this change. Refresh to check its status.');
     }
   }, []);
 
@@ -187,11 +201,11 @@ export function useTodoData(profile?: string): UseTodoDataResult {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (res.ok) {
-          refresh();
-        }
+        if (!res.ok) throw Error('Creation rejected');
+        refresh();
       } catch {
-        // Network error
+        // The form already retains its fields when onCreate rejects.
+        throw Error('Couldn’t confirm creation. Refresh to check its status.');
       }
     },
     [refresh],

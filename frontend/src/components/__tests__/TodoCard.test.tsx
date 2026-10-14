@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { TodoCard } from '../TodoCard';
 import type { TodoItem } from '../../types/todo';
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const mockItem: TodoItem = {
   id: 'abc123',
@@ -272,6 +277,42 @@ describe('TodoCard', () => {
       />,
     );
     expect(container.querySelector('.todo-card-icon svg')?.getAttribute('data-icon')).toBe('eye');
+  });
+
+  it('restores a retained card when its asynchronous swipe action cannot complete', async () => {
+    vi.useFakeTimers();
+    let reject!: (error: Error) => void;
+    const onAck = vi.fn(
+      () =>
+        new Promise<void>((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    const { container } = render(
+      <TodoCard
+        item={mockItem}
+        onAck={onAck}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+        onStar={vi.fn()}
+        onStartSession={vi.fn()}
+      />,
+    );
+    const card = container.querySelector('.todo-card') as HTMLElement;
+    fireEvent.touchStart(card, { touches: [{ clientX: 0 }] });
+    fireEvent.touchMove(card, { touches: [{ clientX: 150 }] });
+    fireEvent.touchEnd(card);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(onAck).toHaveBeenCalledOnce();
+    expect(card.style.opacity).toBe('0');
+    await act(async () => {
+      reject(new Error('offline'));
+    });
+    expect(card.style.opacity).toBe('1');
+    expect(card.style.transform).toBe('translateX(0)');
   });
 
   it('triggers onAck on swipe right past threshold', () => {

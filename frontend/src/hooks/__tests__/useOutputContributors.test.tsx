@@ -13,6 +13,8 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 const source = {
   messageId: 'draft-message',
@@ -53,6 +55,28 @@ it('starts no work on an empty or disabled chat', () => {
   expect(result.current).toBeNull();
   expect(apiFetch).not.toHaveBeenCalled();
 });
+it('pauses output polling while hidden and refreshes immediately on return', async () => {
+  vi.useFakeTimers();
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  vi.mocked(apiFetch).mockImplementation(async (url) => reads(String(url)));
+  const hook = renderHook(() => useOutputContributors('source', true));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(hook.result.current?.selected).toBeTruthy();
+  const initialReads = vi.mocked(apiFetch).mock.calls.length;
+  visibility.mockReturnValue('hidden');
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(15_000);
+  });
+  expect(apiFetch).toHaveBeenCalledTimes(initialReads);
+  visibility.mockReturnValue('visible');
+  await act(async () => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  expect(vi.mocked(apiFetch).mock.calls.length).toBeGreaterThan(initialReads);
+});
+
 it('loads the exact registered reference and trusted contributor eligibility without a mutation', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) => reads(String(url)));
   const { result } = renderHook(() => useOutputContributors('source', true));

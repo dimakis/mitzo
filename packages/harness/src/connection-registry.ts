@@ -56,6 +56,7 @@ export class ConnectionRegistry {
   private connections = new Map<string, Connection>();
   // Per-connection per-session cursors: last successfully delivered seq
   private cursors = new Map<string, Map<string, number>>();
+  private retryBoundaries = new Map<string, Map<string, number>>();
   private appliedSessions = new Map<string, Set<string>>();
   private snapshotOffers = new Map<string, Map<string, { cursor: number; offerId: string }>>();
   private syncTimer: ReturnType<typeof setInterval> | null = null;
@@ -79,6 +80,7 @@ export class ConnectionRegistry {
     });
     // Initialize cursor map for this connection
     this.cursors.set(connectionId, new Map());
+    this.retryBoundaries.set(connectionId, new Map());
     this.appliedSessions.set(connectionId, new Set());
     this.snapshotOffers.set(connectionId, new Map());
     this.notifyWatchChange();
@@ -92,6 +94,7 @@ export class ConnectionRegistry {
     this.connections.delete(connectionId);
     // Clean up cursors for this connection
     this.cursors.delete(connectionId);
+    this.retryBoundaries.delete(connectionId);
     this.appliedSessions.delete(connectionId);
     this.snapshotOffers.delete(connectionId);
     this.notifyWatchChange();
@@ -116,6 +119,7 @@ export class ConnectionRegistry {
     const conn = this.connections.get(connectionId);
     if (!conn) return;
     conn.watchedSessions.delete(sessionId);
+    this.retryBoundaries.get(connectionId)?.delete(sessionId);
     this.appliedSessions.get(connectionId)?.delete(sessionId);
     this.snapshotOffers.get(connectionId)?.delete(sessionId);
     if (conn.activeSession === sessionId) {
@@ -220,6 +224,7 @@ export class ConnectionRegistry {
   resetCursor(connectionId: string, sessionId: string, clientLastSeq: number): void {
     const connCursors = this.cursors.get(connectionId);
     if (!connCursors) return;
+    this.retryBoundaries.get(connectionId)?.delete(sessionId);
     connCursors.set(sessionId, clientLastSeq);
     log.info('cursor reset on reconnect', { connectionId, sessionId, cursor: clientLastSeq });
   }
@@ -265,6 +270,40 @@ export class ConnectionRegistry {
     if (!offer || offer.cursor !== cursor || offer.offerId !== offerId) return false;
     this.cursors.get(connectionId)?.set(sessionId, cursor);
     this.snapshotOffers.get(connectionId)?.delete(sessionId);
+    this.retryDelivery(connectionId, sessionId);
+    return true;
+  }
+
+  /** Atomically acknowledge an exact durable prefix; duplicates only reassert an applied prefix. */
+  ackAppliedEvents(connectionId: string, sessionId: string, sequences: number[]): boolean {
+    if (!this.appliedSessions.get(connectionId)?.has(sessionId)) return false;
+    if (!this.connections.get(connectionId)?.watchedSessions.has(sessionId)) return false;
+    if (this.snapshotOffers.get(connectionId)?.has(sessionId)) return false;
+    if (
+      !sequences.length ||
+      sequences.length > SYNC_BATCH_LIMIT ||
+      sequences.some(
+        (seq, i) => !Number.isSafeInteger(seq) || seq <= 0 || (i > 0 && seq <= sequences[i - 1]),
+      )
+    )
+      return false;
+    const cursor = this.cursors.get(connectionId)?.get(sessionId) ?? 0;
+    const unapplied = sequences.filter((seq) => seq > cursor);
+    if (!unapplied.length) return true;
+    const next = this.eventStore?.getEventsAfter(sessionId, cursor, unapplied.length);
+    if (
+      !next ||
+      next.length !== unapplied.length ||
+      next.some((event, i) => event.seq !== unapplied[i])
+    )
+      return false;
+    const last = unapplied[unapplied.length - 1];
+    this.cursors.get(connectionId)?.set(sessionId, last);
+    const boundary = this.retryBoundaries.get(connectionId)?.get(sessionId);
+    if (boundary !== undefined && last >= boundary) {
+      this.retryBoundaries.get(connectionId)?.delete(sessionId);
+      this.retryDelivery(connectionId, sessionId);
+    }
     return true;
   }
 
@@ -277,6 +316,10 @@ export class ConnectionRegistry {
     const next = this.eventStore?.getEventsAfter(sessionId, current, 1)[0];
     if (next?.seq !== seq) return false;
     this.cursors.get(connectionId)?.set(sessionId, seq);
+    if (this.retryBoundaries.get(connectionId)?.get(sessionId) === seq) {
+      this.retryBoundaries.get(connectionId)?.delete(sessionId);
+      this.retryDelivery(connectionId, sessionId);
+    }
     return true;
   }
 
@@ -298,84 +341,77 @@ export class ConnectionRegistry {
     log.info('starting periodic sync', { intervalMs: SYNC_INTERVAL_MS });
 
     this.syncTimer = setInterval(() => {
-      if (!this.eventStore) return;
-
-      for (const [connectionId, conn] of this.connections.entries()) {
-        if (!conn.transport.isOpen()) continue;
-
-        const connCursors = this.cursors.get(connectionId);
-        if (!connCursors) continue;
-
-        for (const sessionId of conn.watchedSessions) {
-          if (this.snapshotOffers.get(connectionId)?.has(sessionId)) continue;
-          // Skip ended sessions to avoid unnecessary EventStore queries
-          if (
-            this.eventStore.isSessionActive &&
-            !this.eventStore.isSessionActive(sessionId) &&
-            !this.appliedSessions.get(connectionId)?.has(sessionId)
-          ) {
-            continue;
-          }
-
-          const cursor = connCursors.get(sessionId) ?? 0;
-
-          // Fetch missed events from EventStore
-          let missedEvents: ReturnType<EventStoreAdapter['getEventsAfter']>;
-          try {
-            missedEvents = this.eventStore.getEventsAfter(sessionId, cursor, SYNC_BATCH_LIMIT);
-          } catch (err) {
-            log.warn('periodic sync: EventStore fetch failed', {
-              connectionId,
-              sessionId,
-              error: err instanceof Error ? err.message : String(err),
-            });
-            continue;
-          }
-
-          if (missedEvents.length === 0) continue;
-
-          log.info('periodic sync: retrying missed events', {
-            connectionId,
-            sessionId,
-            cursor,
-            missedCount: missedEvents.length,
-          });
-
-          // Retry delivery
-          for (const evt of missedEvents) {
-            try {
-              conn.transport.send(
-                storedEventToClientMessage({
-                  ...evt,
-                  sessionId: evt.sessionId ?? sessionId,
-                  ...(this.eventStore.getSessionPredecessorSeq
-                    ? {
-                        prevSessionSeq: this.eventStore.getSessionPredecessorSeq(
-                          sessionId,
-                          evt.seq,
-                        ),
-                      }
-                    : {}),
-                }),
-              );
-              // Update cursor on success
-              const current = connCursors.get(sessionId) ?? 0;
-              if (evt.seq > current && !this.appliedSessions.get(connectionId)?.has(sessionId)) {
-                connCursors.set(sessionId, evt.seq);
-              }
-            } catch {
-              // Still failing — stop here, retry next sync round
-              log.warn('periodic sync: retry failed, stopping batch', {
-                connectionId,
-                sessionId,
-                failedSeq: evt.seq,
-              });
-              break;
-            }
-          }
-        }
+      for (const [connectionId, conn] of this.connections) {
+        for (const sessionId of conn.watchedSessions) this.retryDelivery(connectionId, sessionId);
       }
     }, SYNC_INTERVAL_MS);
+  }
+
+  /** Retry a bounded suffix, including events withheld during transcript restore. */
+  private retryDelivery(connectionId: string, sessionId: string): void {
+    const conn = this.connections.get(connectionId);
+    const connCursors = this.cursors.get(connectionId);
+    if (!this.eventStore || !conn || !conn.transport.isOpen() || !connCursors) return;
+    if (this.snapshotOffers.get(connectionId)?.has(sessionId)) return;
+    if (
+      this.eventStore.isSessionActive &&
+      !this.eventStore.isSessionActive(sessionId) &&
+      !this.appliedSessions.get(connectionId)?.has(sessionId)
+    )
+      return;
+    const cursor = connCursors.get(sessionId) ?? 0;
+    let missedEvents: ReturnType<EventStoreAdapter['getEventsAfter']>;
+    try {
+      missedEvents = this.eventStore.getEventsAfter(sessionId, cursor, SYNC_BATCH_LIMIT);
+    } catch (err) {
+      log.warn('delivery retry: EventStore fetch failed', {
+        connectionId,
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    // Continue full catch-up batches only after their last event is applied.
+    // This bounds each delivery burst while avoiding another timer interval.
+    const boundary = this.retryBoundaries.get(connectionId);
+    boundary?.delete(sessionId);
+    if (
+      missedEvents.length === SYNC_BATCH_LIMIT &&
+      this.appliedSessions.get(connectionId)?.has(sessionId)
+    )
+      boundary?.set(sessionId, missedEvents[missedEvents.length - 1].seq);
+    if (missedEvents.length === 0) return;
+    log.info('delivery retry: retrying missed events', {
+      connectionId,
+      sessionId,
+      cursor,
+      missedCount: missedEvents.length,
+    });
+    for (const evt of missedEvents) {
+      try {
+        conn.transport.send(
+          storedEventToClientMessage({
+            ...evt,
+            sessionId: evt.sessionId ?? sessionId,
+            ...(this.eventStore.getSessionPredecessorSeq
+              ? {
+                  prevSessionSeq: this.eventStore.getSessionPredecessorSeq(sessionId, evt.seq),
+                }
+              : {}),
+          }),
+        );
+        const current = connCursors.get(sessionId) ?? 0;
+        if (evt.seq > current && !this.appliedSessions.get(connectionId)?.has(sessionId))
+          connCursors.set(sessionId, evt.seq);
+      } catch {
+        log.warn('delivery retry failed, stopping batch', {
+          connectionId,
+          sessionId,
+          failedSeq: evt.seq,
+        });
+        break;
+      }
+    }
   }
 
   /**
@@ -398,6 +434,7 @@ export class ConnectionRegistry {
     this.notifyWatchChange();
     this.watchListeners.clear();
     this.cursors.clear();
+    this.retryBoundaries.clear();
     this.appliedSessions.clear();
     this.snapshotOffers.clear();
   }

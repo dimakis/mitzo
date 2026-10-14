@@ -1,7 +1,20 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, act, cleanup } from '@testing-library/react';
+import { apiFetch } from '../../lib/api-fetch';
 import { useServiceHealth } from '../useServiceHealth';
+
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+  AUTH_LOST_EVENT: 'lost',
+  AUTH_RESTORED_EVENT: 'restored',
+}));
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 // Capture the listener registered via eventBus.on('health', ...)
 let healthListener: ((data: unknown) => void) | null = null;
@@ -22,6 +35,60 @@ describe('useServiceHealth', () => {
   beforeEach(() => {
     healthListener = null;
     mockUnsub.mockClear();
+  });
+
+  it('shares one fallback timer and GET across concurrent consumers', async () => {
+    vi.useFakeTimers();
+    vi.mocked(apiFetch)
+      .mockClear()
+      .mockImplementation(async () => new Response(JSON.stringify({ services: [], checkedAt: 1 })));
+    const first = renderHook(() => useServiceHealth());
+    const second = renderHook(() => useServiceHealth());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(apiFetch).toHaveBeenCalledOnce();
+    expect(first.result.current.checkedAt).toBe(1);
+    expect(second.result.current.checkedAt).toBe(1);
+    first.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops fallback requests after SSE delivers health', async () => {
+    vi.useFakeTimers();
+    vi.mocked(apiFetch)
+      .mockClear()
+      .mockImplementation(async () => new Response(JSON.stringify({ services: [], checkedAt: 1 })));
+    renderHook(() => useServiceHealth());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    act(() => healthListener?.({ services: [], checkedAt: 2 }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(apiFetch).toHaveBeenCalledOnce();
+  });
+
+  it('does not poll hidden pages and immediately resumes fallback when visible', async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    vi.mocked(apiFetch)
+      .mockClear()
+      .mockImplementation(async () => new Response(JSON.stringify({ services: [], checkedAt: 1 })));
+    renderHook(() => useServiceHealth());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(62_000);
+    });
+    expect(apiFetch).not.toHaveBeenCalled();
+    visibility.mockReturnValue('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(apiFetch).toHaveBeenCalledOnce();
   });
 
   it('starts with empty services and checkedAt=0', () => {

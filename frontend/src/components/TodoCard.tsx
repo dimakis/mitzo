@@ -90,6 +90,19 @@ export function TodoCard({
     ref.current.style.opacity = `${Math.max(0, 1 - Math.abs(dx) / 200)}`;
   }
 
+  async function finishSwipe(action: (id: string) => void) {
+    try {
+      await action(item.id);
+    } catch {
+      // The data hook reports the rejected change; keep this retained row visible.
+    } finally {
+      if (ref.current) {
+        ref.current.style.transform = 'translateX(0)';
+        ref.current.style.opacity = '1';
+      }
+    }
+  }
+
   function handleTouchEnd() {
     if (!swiping.current || !ref.current) return;
     swiping.current = false;
@@ -106,14 +119,14 @@ export function TodoCard({
       ref.current.style.transform = 'translateX(100%)';
       ref.current.style.opacity = '0';
       impactLight();
-      timers.current.push(setTimeout(() => onAck(item.id), 200));
+      timers.current.push(setTimeout(() => void finishSwipe(onAck), 200));
     } else if (dx < -100) {
       ref.current.style.transition =
         'transform var(--motion-duration-standard) var(--motion-ease), opacity var(--motion-duration-standard) var(--motion-ease)';
       ref.current.style.transform = 'translateX(-100%)';
       ref.current.style.opacity = '0';
       notifySuccess();
-      timers.current.push(setTimeout(() => onDone(item.id), 200));
+      timers.current.push(setTimeout(() => void finishSwipe(onDone), 200));
     } else {
       ref.current.style.transition =
         'transform var(--motion-duration-standard) var(--motion-ease), opacity var(--motion-duration-standard) var(--motion-ease)';

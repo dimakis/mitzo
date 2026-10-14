@@ -298,6 +298,24 @@ describe('ConnectionRegistry', () => {
   });
 
   describe('applied delivery', () => {
+    it('atomically accepts exact contiguous batch prefixes and harmless retries', () => {
+      registry.register('c', mockTransport());
+      registry.watch('c', 's');
+      registry.enableAppliedCursor('c', 's', 0);
+      registry.setEventStore(mockEventStore([1, 4, 9].map((seq) => ({ seq, payload: {} }))));
+      expect(registry.ackAppliedEvents('c', 's', [1, 9])).toBe(false);
+      expect(registry.ackAppliedEvents('c', 's', [1, 4])).toBe(true);
+      expect(registry.ackAppliedEvents('c', 's', [1, 4])).toBe(true);
+      expect(registry.ackAppliedEvents('c', 's', [4, 9])).toBe(true);
+      expect(registry.ackAppliedEvents('c', 's', [4, 4])).toBe(false);
+      expect(registry.ackAppliedEvents('c', 's', [10])).toBe(false);
+      registry.offerSnapshot('c', 's', 9, 'offer');
+      expect(registry.ackAppliedEvents('c', 's', [9])).toBe(false);
+      expect(registry.ackAppliedEvents('foreign', 's', [9])).toBe(false);
+      registry.unwatch('c', 's');
+      expect(registry.ackAppliedEvents('c', 's', [9])).toBe(false);
+    });
+
     it('retries a sent event until its session predecessor is acknowledged', async () => {
       vi.useFakeTimers();
       const transport = mockTransport();
@@ -342,6 +360,32 @@ describe('ConnectionRegistry', () => {
       expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 8, 'new')).toBe(false);
     });
 
+    it('continues bounded reconnect catch-up when the previous batch is applied', () => {
+      const transport = mockTransport();
+      const events = Array.from({ length: 110 }, (_, i) => ({
+        seq: i + 1,
+        payload: { type: 'block_delta', delta: String(i) },
+      }));
+      const store = mockEventStore(events);
+      registry.setEventStore({ ...store, isSessionActive: () => false });
+      registry.register('conn-1', transport);
+      registry.watch('conn-1', 'sess-a');
+      registry.enableAppliedCursor('conn-1', 'sess-a', 0);
+      registry.offerSnapshot('conn-1', 'sess-a', 0, 'offer-1');
+      expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 0, 'offer-1')).toBe(true);
+      expect(transport.send).toHaveBeenCalledTimes(50);
+      for (let seq = 1; seq <= 49; seq++)
+        expect(registry.ackAppliedEvent('conn-1', 'sess-a', seq)).toBe(true);
+      expect(transport.send).toHaveBeenCalledTimes(50);
+      expect(registry.ackAppliedEvent('conn-1', 'sess-a', 50)).toBe(true);
+      expect(transport.send).toHaveBeenCalledTimes(100);
+      for (let seq = 51; seq <= 100; seq++)
+        expect(registry.ackAppliedEvent('conn-1', 'sess-a', seq)).toBe(true);
+      expect(transport.send).toHaveBeenCalledTimes(110);
+      expect(registry.ackAppliedEvent('conn-1', 'sess-a', 100)).toBe(false);
+      expect(transport.send).toHaveBeenCalledTimes(110);
+    });
+
     it('withholds live and periodic backlog until the snapshot offer is confirmed', async () => {
       vi.useFakeTimers();
       try {
@@ -363,7 +407,7 @@ describe('ConnectionRegistry', () => {
         expect(store.getEventsAfter).not.toHaveBeenCalled();
 
         expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 2, 'offer-1')).toBe(true);
-        await vi.advanceTimersByTimeAsync(5000);
+        // The withheld suffix must arrive now, without another 5-second tick.
         expect(store.getEventsAfter).toHaveBeenCalledWith('sess-a', 2, 50);
         expect(transport.send).toHaveBeenCalledTimes(1);
         expect(transport.send).toHaveBeenCalledWith(

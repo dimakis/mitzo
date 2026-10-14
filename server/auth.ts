@@ -40,6 +40,7 @@ export const {
   login,
   verifyPassphrase,
   authenticateToken,
+  verifyLogoutToken,
   verifyToken,
   verifyWsAuth,
   authenticateWs,
