@@ -16,6 +16,8 @@ vi.mock('../auth.js', async (importOriginal) => ({
   hasPersistentRevocationAuthority: () => true,
 }));
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
+import { contextDigest } from '../agent-context-compiler.js';
+import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
 import {
   OrdinaryLocalCodexOwnedRuntime,
   type OrdinaryLocalCodexOwnedDispatch,
@@ -40,8 +42,280 @@ afterEach(async () => {
   deployment.controller = deployment.owner = false;
 });
 
-const fixture = (options?: { workspaceId?: string; contextRecipe?: boolean }) =>
+const fixture = (options?: { workspaceId?: string; contextRecipe?: boolean | 'workspace' }) =>
   ownedRuntimeFixture(cleanups, options);
+
+it('adopts the exact builtin namespace through the ordinary Local owner', async () => {
+  const f = await fixture();
+  const request = {
+    ...f.request,
+    selection: {
+      ...f.request.selection,
+      agent: {
+        kind: 'builtin' as const,
+        profileId: PROFILE_BUILDER_ID,
+        revision: PROFILE_BUILDER_REVISION,
+      },
+    },
+  };
+  await expect(f.create().admit(request)).resolves.toEqual({ dispatched: true });
+  expect(f.events.getSession(f.reservation.conversationId)?.agentProfile?.kind).toBe('builtin');
+});
+
+it('prepares ContexGin context once before native thread effects and retains the exact payload', async () => {
+  const f = await fixture({ contextRecipe: true });
+  const fetch = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          agent: 'fixture-agent',
+          boot: {
+            content: '# Pinned context\nOffline source',
+            tokens: 10,
+            tokenBudget: 1000,
+            sources: ['source.md'],
+          },
+        }),
+      ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const request = {
+    ...f.request,
+    selection: {
+      ...f.request.selection,
+      context: {
+        source: 'contexgin' as const,
+        revision: contextDigest(f.agentProfile.definition.contextRecipe),
+      },
+    },
+  };
+  await expect(f.create().admit(request)).resolves.toEqual({ dispatched: true });
+  const snapshot = f.events.getSession(f.reservation.conversationId)?.agentContext;
+  expect(snapshot?.context.fullMarkdown).toContain('Offline source');
+  expect(f.dispatch.mock.calls[0][0].expected.agentContext).toEqual(snapshot);
+  await f.dispatch.mock.calls[0][0].lease.assertCurrent();
+  expect(fetch).toHaveBeenCalledOnce();
+  vi.unstubAllGlobals();
+});
+
+it('revocation during compilation retains the uncertain command and never delivers context to a native thread', async () => {
+  const f = await fixture({ contextRecipe: true });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      revokeAuthSession(f.auth);
+      return new Response(
+        JSON.stringify({
+          agent: 'fixture-agent',
+          boot: {
+            content: '# Context\nMust not deliver',
+            tokens: 10,
+            tokenBudget: 1000,
+            sources: ['source.md'],
+          },
+        }),
+      );
+    }),
+  );
+  const request = {
+    ...f.request,
+    selection: {
+      ...f.request.selection,
+      context: {
+        source: 'contexgin' as const,
+        revision: contextDigest(f.agentProfile.definition.contextRecipe),
+      },
+    },
+  };
+  await expect(f.create().admit(request)).rejects.toThrow();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(f.events.getSession(f.reservation.conversationId)?.agentContext).toBeUndefined();
+  expect(f.events.getOrdinaryLocalCommandAdmission(request.clientMsgId)?.state).toBe('uncertain');
+  expect(existsSync(f.reserved.directory)).toBe(true);
+  vi.unstubAllGlobals();
+});
+
+it.each(['consumed', 'uncertain'] as const)(
+  'reconciles the original compiled recipe snapshot for an exact %s first-command retry',
+  async (state) => {
+    const f = await fixture({ contextRecipe: 'workspace' });
+    const request = {
+      ...f.request,
+      selection: {
+        ...f.request.selection,
+        context: {
+          source: 'workspace' as const,
+          revision: contextDigest(f.agentProfile.definition.contextRecipe),
+        },
+      },
+    };
+    if (state === 'uncertain') f.dispatch.mockRejectedValueOnce(Error('Lost native outcome'));
+    if (state === 'consumed') await f.create().admit(request);
+    else await expect(f.create().admit(request)).rejects.toThrow();
+    const saved = f.events.getSession(f.reservation.conversationId)?.agentContext;
+    const receipt = f.events.getOrdinaryLocalCommandAdmission(request.clientMsgId);
+    expect(saved?.source).toBe('workspace');
+    expect(receipt?.state).toBe(state);
+    f.launch.mockClear();
+    f.dispatch.mockClear();
+    await expect(f.create().admit(request)).resolves.toEqual({ dispatched: false });
+    expect(f.events.getOrdinaryLocalCommandAdmission(request.clientMsgId)).toEqual(receipt);
+    expect(f.events.getSession(f.reservation.conversationId)?.agentContext).toEqual(saved);
+    await expect(
+      f.create().admit({ ...request, payload: { text: 'Changed original input' } }),
+    ).rejects.toThrow();
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(f.dispatch).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['workspace', 'contexgin'] as const)(
+  'cold %s continuation keeps the original compiled snapshot without reading fresh source',
+  async (source) => {
+    const f = await fixture({ contextRecipe: source === 'workspace' ? 'workspace' : true });
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            agent: 'fixture-agent',
+            boot: {
+              content: '# Pinned context\nOriginal source',
+              tokens: 10,
+              tokenBudget: 1000,
+              sources: ['source.md'],
+            },
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const request = {
+      ...f.request,
+      selection: {
+        ...f.request.selection,
+        context: { source, revision: contextDigest(f.agentProfile.definition.contextRecipe) },
+      },
+    };
+    const first = f.create();
+    await first.admit(request);
+    const original = f.dispatch.mock.calls[0][0];
+    const snapshot = f.events.getSession(original.sessionId)?.agentContext;
+    expect(snapshot?.context.fullMarkdown).toContain(
+      source === 'workspace' ? 'Pinned original checkout' : 'Original source',
+    );
+    const native = new CodexConversationStore(join(f.root, 'native.db'));
+    cleanups.push(() => native.close());
+    native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+    original.admission.persistCustody(native);
+    native.bindThread(original.sessionId, original.lease.binding, 'retained-thread');
+    first.close();
+    writeFileSync(join(original.workspace.directory!, 'context.md'), '# Changed source');
+    fetch.mockImplementation(async () => {
+      throw Error('Cold resume must not refetch');
+    });
+    const next = {
+      ...request,
+      clientMsgId: randomUUID(),
+      payload: { text: 'Continue original context' },
+    };
+    const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
+      expect(value.expected.agentContext).toEqual(snapshot);
+      value.admission.assertOptions({
+        conversationId: value.sessionId,
+        messageId: value.commandId,
+        binding: value.lease.binding,
+        profile: value.profile,
+        session: { cwd: value.expected.workspace.cwd, mode: 'agent' },
+        prompt: value.payload.text,
+        systemPrompt: value.payload.systemPrompt,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+        agentProfile: value.expected.agentProfile,
+        agentContext: value.expected.agentContext,
+        repositoryWorkspace: value.workspace,
+        resume: true,
+      });
+    });
+    const cold = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      nativeStore: native,
+      commandId: next.clientMsgId,
+      launch: () => f.rpc,
+      dispatch,
+    });
+    cleanups.push(() => cold.close());
+    await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: true });
+    expect(f.events.getSession(original.sessionId)?.agentContext).toEqual(snapshot);
+    expect(native.read(original.sessionId, original.lease.binding).threadId).toBe(
+      'retained-thread',
+    );
+    expect(fetch).toHaveBeenCalledTimes(source === 'workspace' ? 0 : 1);
+    vi.unstubAllGlobals();
+  },
+);
+
+it('refuses cold context metadata that no longer matches the original native custody', async () => {
+  const f = await fixture({ contextRecipe: true });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            agent: 'fixture-agent',
+            boot: { content: 'Original context', tokens: 5, tokenBudget: 1000, sources: [] },
+          }),
+        ),
+    ),
+  );
+  const request = {
+    ...f.request,
+    selection: {
+      ...f.request.selection,
+      context: {
+        source: 'contexgin' as const,
+        revision: contextDigest(f.agentProfile.definition.contextRecipe),
+      },
+    },
+  };
+  const first = f.create();
+  await first.admit(request);
+  const original = f.dispatch.mock.calls[0][0];
+  const native = new CodexConversationStore(join(f.root, 'native.db'));
+  cleanups.push(() => native.close());
+  native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+  original.admission.persistCustody(native);
+  native.bindThread(original.sessionId, original.lease.binding, 'original-thread');
+  first.close();
+  const snapshot = f.events.getSession(original.sessionId)!.agentContext!;
+  const context = { ...snapshot.context, fullMarkdown: 'Replaced context' };
+  // A corrupted snapshot reader still cannot replace the independently retained native owner.
+  const retainedMeta = f.events.getSession(original.sessionId)!;
+  const readSession = f.events.getSession.bind(f.events);
+  vi.spyOn(f.events, 'getSession').mockImplementation((id) =>
+    id === original.sessionId
+      ? {
+          ...retainedMeta,
+          agentContext: { ...snapshot, context, payloadHash: contextDigest(context) },
+        }
+      : readSession(id),
+  );
+  const next = { ...request, clientMsgId: randomUUID(), payload: { text: 'Continue' } };
+  const launch = vi.fn(() => f.rpc),
+    dispatch = vi.fn();
+  const cold = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    nativeStore: native,
+    commandId: next.clientMsgId,
+    launch,
+    dispatch,
+  });
+  cleanups.push(() => cold.close());
+  await expect(cold.admitResume(next)).rejects.toThrow();
+  expect(launch).not.toHaveBeenCalled();
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(f.events.getSendCommand(next.clientMsgId)).toBeUndefined();
+  vi.unstubAllGlobals();
+});
 
 it('composes real owners, freezes the published prompt before launch and materializes only the admitted reservation', async () => {
   const f = await fixture(),

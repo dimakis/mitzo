@@ -46,6 +46,8 @@ export interface ChatRuntimeInventory {
     available: boolean;
     reason?: string;
     models: { id: string; reasoningEfforts?: string[] }[];
+    agentProfiles?: AgentProfileSelection[];
+    agentProfileRejections?: { agent: AgentProfileSelection; reason: string }[];
   }[];
 }
 
@@ -129,6 +131,30 @@ export function evaluateChatRuntimeSelection(
             : 'The selected account and target are unavailable together. Review the choices.',
         );
       if (routes.length === 1) {
+        if (
+          selection.agentProfile &&
+          routes[0].agentProfiles &&
+          !routes[0].agentProfiles.some((profile) => sameProfile(profile, selection.agentProfile))
+        ) {
+          const rejection = routes[0].agentProfileRejections?.find((rejection) =>
+            sameProfile(rejection.agent, selection.agentProfile),
+          );
+          const reasons: Record<string, string> = {
+            provider_incompatible:
+              'This agent excludes the selected account provider. Choose another agent or account explicitly.',
+            sandbox_context_preset_unconfigured:
+              'This agent’s ContexGin context preset is not configured for the selected OpenShell target. Choose another agent or location explicitly.',
+            native_pack_context_unavailable:
+              'Reusable context packs require a trusted native continuation barrier; native Codex context admission is unavailable.',
+            native_context_unavailable:
+              'Reusable context recipes are unavailable for the selected runtime. Choose an agent without a context recipe explicitly.',
+          };
+          add(
+            'agent_unavailable',
+            reasons[rejection?.reason ?? ''] ??
+              'This agent revision is unavailable for the selected account and target. Choose a replacement explicitly.',
+          );
+        }
         if (
           selection.accountReference &&
           routes[0].accountReference &&

@@ -1,3 +1,5 @@
+import { contextDigest } from '../agent-context-compiler.js';
+import { PROFILE_BUILDER_ID } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import { AccountProfiles } from '../account-profiles.js';
@@ -89,6 +91,20 @@ vi.mock('../ordinary-local-codex-capabilities.js', async (original) => ({
   loadOrdinaryLocalCodexTarget: () => target,
 }));
 
+const publishedDefinition = {
+  name: 'Published',
+  role: 'agent',
+  instructions: 'Use the original checkout.',
+  expectedOutput: 'Evidence',
+  acceptanceCriteria: ['Preserve ownership'],
+  modelPolicyRole: 'agent',
+};
+const publishedProfile = {
+  profileId: 'published',
+  revision: 1,
+  definition: publishedDefinition,
+  contentHash: contextDigest(publishedDefinition),
+};
 const target = new OrdinaryLocalCodexTarget({
   version: 1,
   targetId: 'host',
@@ -151,7 +167,7 @@ beforeEach(() => {
   fixtures.controller = fixtures.owner = false;
   auth = { id: `owned-entry-login-${++sequence}`, expiresAt: Date.now() + 600_000 };
   fixtures.profiles.mockReturnValue(profiles);
-  fixtures.library.mockReturnValue({ version: () => ({ definition: { name: 'Published' } }) });
+  fixtures.library.mockReturnValue({ version: () => publishedProfile });
   fixtures.workspace.mockReturnValue({ reserveHostTask: fixtures.reserve });
   fixtures.reserve.mockResolvedValue({ state: 'reserved' });
   fixtures.start.mockImplementation(async (_transport, _client, args) => {
@@ -444,12 +460,7 @@ it('projects configuration-only eligible account tuples and published profiles w
       { codexEnabled: true },
     ),
   );
-  const eligible = {
-    profileId: 'published',
-    revision: 1,
-    contentHash: 'a'.repeat(64),
-    definition: { name: 'Published' },
-  };
+  const eligible = publishedProfile;
   fixtures.library.mockReturnValue({
     list: () => ({
       versions: [
@@ -464,7 +475,10 @@ it('projects configuration-only eligible account tuples and published profiles w
   expect(response.body).toMatchObject({
     authority: 'configuration-only',
     defaultLocation: 'openshell',
-    agentProfiles: [eligible],
+    agentProfiles: [
+      expect.objectContaining({ kind: 'builtin', profileId: PROFILE_BUILDER_ID }),
+      eligible,
+    ],
   });
   const inventory = response.body as {
     accounts: Array<{ account: { accountId: string } }>;
@@ -476,7 +490,7 @@ it('projects configuration-only eligible account tuples and published profiles w
   expect(fixtures.start).not.toHaveBeenCalled();
 });
 
-it.each(['builtin', 'user'])(
+it.each(['user'])(
   'refuses caller agent namespace %s before any lazy/source owner',
   async (kind) => {
     const response = await send({
@@ -490,6 +504,33 @@ it.each(['builtin', 'user'])(
     expect(fixtures.start).not.toHaveBeenCalled();
   },
 );
+
+it('admits the exact builtin namespace through the same entry and reservation owners', async () => {
+  const response = await send({
+    ...input(),
+    selection: {
+      ...input().selection,
+      agent: { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 },
+    },
+  });
+  expect(response.status).toBe(202);
+  expect(fixtures.reserve).toHaveBeenCalledOnce();
+  expect(fixtures.start).toHaveBeenCalledOnce();
+});
+
+it('explains the unavailable native pack continuation barrier before source or native effects', async () => {
+  const response = await send({
+    ...input(),
+    selection: { ...input().selection, context: { source: 'packs', revision: 'pack-recipe' } },
+  });
+  expect(response.status).toBe(409);
+  expect(response.body).toMatchObject({
+    code: 'native_context_unavailable',
+    error: expect.stringContaining('trusted native continuation barrier'),
+  });
+  expect(fixtures.reserve).not.toHaveBeenCalled();
+  expect(fixtures.start).not.toHaveBeenCalled();
+});
 
 it('refuses a builtin catalog result before reserving the published user-profile task', async () => {
   fixtures.library.mockReturnValue({
@@ -606,7 +647,7 @@ it('combines trusted routes for the existing picker while retaining OpenShell as
   ).toBe(true);
 });
 
-function configuredShell() {
+function configuredShell(targetId = 'shell', includeLocal = false, presetConfigured = false) {
   const config = {
     cli: '/fixture/openshell',
     image: 'fixture-image',
@@ -621,9 +662,36 @@ function configuredShell() {
     createDetached: true,
     sandboxIdLength: 24,
     webSearch: 'disabled',
+    ...(presetConfigured
+      ? {
+          agentContextPresets: {
+            'fixture-agent': {
+              version: 1 as const,
+              source: 'workspace' as const,
+              files: ['README.md'],
+              tokenBudget: 1000,
+              required: [],
+              excluded: [],
+            },
+          },
+        }
+      : {}),
   } satisfies OpenShellRuntimeConfig;
   const shellProfiles = new AccountProfiles(
     [
+      ...(includeLocal
+        ? [
+            {
+              id: 'personal',
+              label: 'Personal',
+              provider: 'openai-codex' as const,
+              credentialRef: '/offline/login',
+              email: 'fixture@example.test',
+              planType: 'plus',
+              models: [{ id: 'fixture', label: 'Offline' }],
+            },
+          ]
+        : []),
       {
         id: 'brokered',
         label: 'Personal ChatGPT',
@@ -640,7 +708,7 @@ function configuredShell() {
     { codexEnabled: true },
   );
   const target = ordinaryOpenShellCodexTarget({
-    targetId: 'shell',
+    targetId,
     runtimeContractRevision: 'contract',
     config,
     openaiApi: 'disabled',
@@ -654,19 +722,7 @@ function configuredShell() {
   fixtures.shellTarget.mockReturnValue({ target, config });
   fixtures.profiles.mockReturnValue(shellProfiles);
   fixtures.library.mockReturnValue({
-    version: () => ({
-      profileId: 'published',
-      revision: 1,
-      contentHash: 'a'.repeat(64),
-      definition: {
-        name: 'Published',
-        role: 'developer',
-        instructions: 'Use this task workspace.',
-        expectedOutput: 'Tested changes',
-        acceptanceCriteria: ['Offline tests pass'],
-        modelPolicyRole: 'worker',
-      },
-    }),
+    version: () => publishedProfile,
     list: () => ({ versions: [] }),
   });
   router = createOwnedLocalCodexEntryRouter(
@@ -681,7 +737,7 @@ function configuredShell() {
     runtime: {
       account: projection.inventory.accounts[0].account,
       harness: 'codex',
-      targetId: 'shell',
+      targetId,
       mode: 'agent',
     },
     selection: { ...input().selection, permission: { mode: 'agent', revision: 0 } },
@@ -690,7 +746,7 @@ function configuredShell() {
     version: 2,
     account: request.runtime.account,
     harness: { implementation: 'codex' },
-    execution: { location: 'openshell', targetId: 'shell', targetRevision: target.targetRevision },
+    execution: { location: 'openshell', targetId, targetRevision: target.targetRevision },
   };
   fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
     const meta = { ...args.meta, cwd: config.workdir };
@@ -788,4 +844,115 @@ it('keeps usable Local choices visible when an enabled OpenShell target is unava
   });
   expect(fixtures.shellTarget).toHaveBeenCalled();
   expect(fixtures.startShell).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['1', 'malformed'],
+  ['1', 'stale'],
+  ['0', 'disabled'],
+] as const)(
+  'preserves Local capabilities with %s OpenShell and a %s declaration',
+  async (enabled, reason) => {
+    vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', enabled);
+    fixtures.shellTarget.mockImplementation(() => {
+      throw Error(reason);
+    });
+    fixtures.library.mockReturnValue({ list: () => ({ versions: [] }) });
+    router = createOwnedLocalCodexEntryRouter(
+      streams,
+      {
+        connRegistry: conns,
+        sessionRegistry: sessions,
+        eventStore: store,
+      },
+      true,
+    );
+    const response = await invoke('GET', '/capabilities', undefined);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      routes: expect.arrayContaining([
+        expect.objectContaining({ location: 'local', targetId: 'host' }),
+      ]),
+      locations: expect.arrayContaining([
+        expect.objectContaining({ location: 'openshell', status: 'unavailable' }),
+      ]),
+    });
+    expect(fixtures.shellTarget).toHaveBeenCalledTimes(enabled === '1' ? 1 : 0);
+    expect(fixtures.startShell).not.toHaveBeenCalled();
+  },
+);
+
+it.each([false, true])(
+  'isolates duplicate target IDs and requires the OpenShell preset before effects (configured=%s)',
+  async (configured) => {
+    const { request } = configuredShell('host', true, configured);
+    const definition = {
+      ...publishedDefinition,
+      contextRecipe: {
+        version: 1 as const,
+        source: 'contexgin' as const,
+        agentName: 'fixture-agent',
+      },
+    };
+    const profile = { ...publishedProfile, definition, contentHash: contextDigest(definition) };
+    fixtures.library.mockReturnValue({
+      version: () => profile,
+      list: () => ({ versions: [profile] }),
+    });
+    const response = await invoke('GET', '/capabilities', undefined);
+    expect(response.status).toBe(200);
+    const routes = (response.body as { routes: Array<Record<string, unknown>> }).routes;
+    expect(
+      routes.find((route) => route.targetId === 'host' && route.location === 'local'),
+    ).toMatchObject({
+      agentProfiles: expect.arrayContaining([{ profileId: 'published', revision: 1 }]),
+    });
+    expect(
+      routes.find((route) => route.targetId === 'host' && route.location === 'openshell'),
+    ).toMatchObject(
+      configured
+        ? {
+            agentProfiles: expect.arrayContaining([{ profileId: 'published', revision: 1 }]),
+          }
+        : {
+            agentProfileRejections: expect.arrayContaining([
+              {
+                agent: { profileId: 'published', revision: 1 },
+                reason: 'sandbox_context_preset_unconfigured',
+              },
+            ]),
+          },
+    );
+    expect(
+      (
+        await invoke('POST', '/send', {
+          ...request,
+          selection: {
+            ...request.selection,
+            context: { source: 'contexgin', revision: contextDigest(definition.contextRecipe) },
+          },
+        })
+      ).status,
+    ).toBe(configured ? 202 : 409);
+    expect(fixtures.startShell).toHaveBeenCalledTimes(configured ? 1 : 0);
+    expect(fixtures.reserve).not.toHaveBeenCalled();
+    if (!configured)
+      expect(store.getSession(nativeStartupSessionId(`repository:${workspaceId}`))).toBeNull();
+  },
+);
+
+it('keeps Local inventory when the qualified OpenShell preset declaration becomes unreadable', async () => {
+  configuredShell('shell', true);
+  const configured = fixtures.shellTarget.getMockImplementation()!;
+  fixtures.shellTarget.mockImplementationOnce(configured).mockImplementation(() => {
+    throw Error('Preset declaration changed');
+  });
+  const response = await invoke('GET', '/capabilities', undefined);
+  expect(response.status).toBe(200);
+  expect(response.body).toMatchObject({
+    routes: expect.arrayContaining([
+      expect.objectContaining({ location: 'local', targetId: 'host' }),
+    ]),
+  });
+  expect(fixtures.shellTarget).toHaveBeenCalledTimes(2);
 });

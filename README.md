@@ -31,14 +31,18 @@ The existing Agent, Account, Model, Thinking and Run on picker supports gated
 Local Mac and ordinary OpenShell Codex source routes. OpenShell is the new-chat
 default even when unavailable; Local is explicit. The picker derives Runs with
 Codex from the selected route and retains unavailable choices and drafts. Published
-user profiles must be plain guidance without a context recipe. Local uses a
-configured file-backed host ChatGPT account. OpenShell uses its exact existing
+provider-compatible user profiles and the canonical Agent Builder builtin retain
+their immutable namespaces. Qualified workspace and ContexGin recipes retain
+their compiler context snapshots; OpenShell ContexGin requires a configured named
+sandbox preset. Native packs and incompatible or unavailable recipes stay refused
+without replacing the selected choice. Local uses a configured file-backed host
+ChatGPT account. OpenShell uses its exact existing
 brokered OAuth provider/grant or explicitly enrolled OpenAI API profile. These
 account projections are disjoint: a Local credential profile is not automatically
 enrolled on OpenShell, and changing environment retains that choice with an
 unavailable reason when its original account has no compatible route. Local API,
-Vertex, built-ins, recipes, Local workspace/brokered authentication and native
-sandbox subscription routes are not advertised by this contract.
+Vertex, workspace-based or brokered Local authentication, and native sandbox
+subscription routes are not advertised by this Codex contract.
 
 Bound Codex queues require the original still-valid signed login for cancellation,
 continuation and recovery controls, including cold controls. Native retry helpers
@@ -307,7 +311,7 @@ authority. Each first command, later admission and cold continuation rechecks th
 original binding and custody before effects. Offline continuity evidence does not
 establish live qualification or activate staging/production.
 
-The bounded local coordinator atomically freezes the published profile, context, permission, model/thinking, runtime and workspace in the existing command receipt. It records uncertainty before login copying, native launch or checkout materialization. Exact retries preserve their choices; uncertain effects never replay automatically. Existing-session adoption, later commands and cold resume are refused. The existing repository ledger reserves the destination before copying and retains interrupted materialization for explicit recovery.
+The original dormant first-command coordinator atomically freezes the published profile, context, permission, model/thinking, runtime and workspace in the existing command receipt. It records uncertainty before login copying, native launch or checkout materialization. Exact retries preserve their choices; uncertain effects never replay automatically. Its original dormant slice refuses existing-session adoption, later commands and cold resume; the ordinary guarded owners described above add their independently qualified later-command and cold paths without adopting unenrolled legacy history. The existing repository ledger reserves the destination before copying and retains interrupted materialization for explicit recovery.
 
 The owned Local composition retains the original operator, published profile,
 physical host/native binary, private file-backed ChatGPT login and independent

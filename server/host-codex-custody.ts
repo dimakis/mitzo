@@ -44,6 +44,8 @@ export const HostCodexCustodySchema = z.strictObject({
   version: z.literal(1),
   authSessionId: z.string().min(1).max(200),
   bootstrapId: Hash,
+  agentProfileSha256: Hash.optional(),
+  agentContextSha256: Hash.optional(),
   login: HostCodexLoginCustodySchema,
   executable: HostCodexExecutableCustodySchema,
 });

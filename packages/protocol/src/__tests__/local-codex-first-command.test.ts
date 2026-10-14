@@ -25,15 +25,19 @@ it('preserves the exact bounded first-command choice', () => {
   expect(LocalCodexFirstCommandSchema.parse(localCommand)).toEqual(localCommand);
 });
 it.each([
+  {
+    ...localCommand.selection,
+    agent: { profileId: 'mitzo-profile-builder', revision: 1, kind: 'builtin' },
+  },
+  { ...localCommand.selection, context: { source: 'workspace', revision: 'recipe-r1' } },
+])('preserves namespace and recipe intent while server owners qualify authority', (selection) => {
+  expect(LocalCodexFirstCommandSchema.parse({ ...localCommand, selection }).selection).toEqual(
+    selection,
+  );
+});
+it.each([
   { ...localCommand, sessionId: 'caller-session' },
   { ...localCommand, cwd: '/caller' },
-  {
-    ...localCommand,
-    selection: {
-      ...localCommand.selection,
-      agent: { ...localCommand.selection.agent, kind: 'builtin' },
-    },
-  },
   {
     ...localCommand,
     selection: {
@@ -42,10 +46,6 @@ it.each([
     },
   },
   { ...localCommand, payload: { text: 'x', systemPrompt: 'forged' } },
-  {
-    ...localCommand,
-    selection: { ...localCommand.selection, context: { source: 'workspace', revision: 'r1' } },
-  },
   {
     ...localCommand,
     selection: { ...localCommand.selection, permission: { mode: 'agent', revision: 1 } },

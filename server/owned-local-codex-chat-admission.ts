@@ -1,3 +1,7 @@
+import {
+  assertOrdinaryCodexSnapshotCustody,
+  ordinaryCodexSnapshotCustody,
+} from './ordinary-codex-agent-context.js';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { AccountBinding, AgentLibraryVersion, AgentContextSnapshot } from '@mitzo/protocol';
@@ -102,6 +106,11 @@ export class OwnedLocalCodexChatAdmission {
         !owner.nativeStore.read(owner.sessionId, owner.lease.binding).threadId
       )
         throw unavailable();
+      assertOrdinaryCodexSnapshotCustody(
+        custody,
+        owner.expected.agentProfile,
+        owner.expected.agentContext,
+      );
       const admission = new OwnedLocalCodexChatAdmission(owner);
       admission.#resume = true;
       admission.#continuation = true;
@@ -412,6 +421,16 @@ export class OwnedLocalCodexChatAdmission {
       authSessionId: this.owner.authSessionId,
       bootstrapId: this.owner.custody?.bootstrapId ?? this.#expected.bootstrapId,
       ...this.owner.lease.custodySnapshot(),
+      ...(this.owner.custody
+        ? {
+            ...(this.owner.custody.agentProfileSha256
+              ? { agentProfileSha256: this.owner.custody.agentProfileSha256 }
+              : {}),
+            ...(this.owner.custody.agentContextSha256
+              ? { agentContextSha256: this.owner.custody.agentContextSha256 }
+              : {}),
+          }
+        : ordinaryCodexSnapshotCustody(this.#expected.agentProfile, this.#expected.agentContext)),
     });
     this.assertCurrentSync();
   }

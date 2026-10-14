@@ -1,3 +1,5 @@
+import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
+import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { closeSync, constants, fstatSync, lstatSync, openSync, realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -231,22 +233,20 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     )
       throw unavailable();
     if (
-      expected.agentProfile?.kind ||
       !expected.agentProfile ||
       !isDeepStrictEqual(
-        getAgentLibrary().version(
-          'user',
-          expected.agentProfile.profileId,
-          expected.agentProfile.revision,
-        ),
+        readOrdinaryCodexAgentProfile(getAgentLibrary(), expected.selection.agent),
         expected.agentProfile,
       ) ||
-      expected.agentProfile.definition.contextRecipe ||
-      expected.agentContext ||
-      expected.selection.context.source !== 'none' ||
-      expected.selection.context.revision !== null
+      expected.agentProfile.definition.contextRecipe?.source === 'packs'
     )
       throw unavailable();
+    assertOrdinaryCodexContextIdentity(
+      expected.agentProfile,
+      expected.selection,
+      expected.agentContext,
+      expected.binding.account.provider,
+    );
     const record = workspace.get(input.workspaceId);
     if (
       !isDeepStrictEqual(record.binding, input.account) ||

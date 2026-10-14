@@ -1,3 +1,9 @@
+import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import {
+  SANDBOX_AGENT_COMPILER_REVISION,
+  resolveSandboxAgentContext,
+} from '../agent-context-sandbox.js';
+import { contextDigest } from '../agent-context-compiler.js';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -66,7 +72,7 @@ afterAll(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
-function fixture() {
+function fixture(withContext = false) {
   const profiles = new AccountProfiles(
     [
       {
@@ -127,8 +133,21 @@ function fixture() {
       expectedOutput: 'Evidence',
       acceptanceCriteria: ['Evidence'],
       modelPolicyRole: 'agent' as const,
+      ...(withContext
+        ? {
+            contextRecipe: {
+              version: 1 as const,
+              source: 'workspace' as const,
+              files: ['context.md'],
+              tokenBudget: 1000,
+              required: [],
+              excluded: [],
+            },
+          }
+        : {}),
     },
   };
+  agentProfile.contentHash = contextDigest(agentProfile.definition);
   const expected: OrdinaryOpenShellCodexExpectation = {
     binding: {
       version: 2 as const,
@@ -148,7 +167,12 @@ function fixture() {
     selection: {
       version: 1 as const,
       agent: { profileId: 'agent', revision: 1 },
-      context: { source: 'none' as const, revision: null },
+      context: withContext
+        ? {
+            source: 'workspace' as const,
+            revision: contextDigest(agentProfile.definition.contextRecipe),
+          }
+        : { source: 'none' as const, revision: null },
       permission: { mode: 'agent' as const, revision: 0 },
       model: 'fixture-model',
       thinking: null,
@@ -221,6 +245,35 @@ function fixture() {
     state: 'claimed' as const,
     createdAt: 1,
   };
+  const manager = new OpenShellRuntimeManager({ ...config, account: artifact.route }, async () => {
+    throw Error('No OpenShell CLI calls allowed');
+  });
+  const scope = {
+    sandboxId: artifact.runtime.sandboxId,
+    sandboxName: artifact.runtime.sandboxName,
+    workspaceRoot: config.workdir,
+    runtimeContractImageDigest: 'sha256:' + 'a'.repeat(64),
+    compilerSha256: 'b'.repeat(64),
+    entrypointSha256: 'c'.repeat(64),
+    recipeSha256: 'd'.repeat(64),
+    runtimeInputsSha256: 'e'.repeat(64),
+  };
+  vi.spyOn(manager, 'verifyAgentContextRuntime').mockResolvedValue(scope);
+  const compile = vi.spyOn(manager, 'compileAgentContext').mockResolvedValue({
+    compilerRevision: SANDBOX_AGENT_COMPILER_REVISION,
+    workspaceIdentity: contextDigest(config.workdir),
+    context: {
+      type: 'boot_context',
+      source: 'contexgin',
+      sourceCount: 1,
+      tokenCount: 5,
+      tokenBudget: 1000,
+      sources: [{ path: 'context.md', kind: 'markdown' }],
+      included: [],
+      trimmed: [],
+      fullMarkdown: 'PINNED SANDBOX CONTEXT',
+    },
+  });
   const transport = { send: vi.fn(), isOpen: () => true };
   return {
     profiles,
@@ -233,6 +286,8 @@ function fixture() {
     owner,
     workspace,
     transport,
+    manager,
+    compile,
   };
 }
 function mockedProvider(f: ReturnType<typeof fixture>) {
@@ -243,6 +298,19 @@ function mockedProvider(f: ReturnType<typeof fixture>) {
     options.ownedOpenShell!.assertOptions(options);
     native.setArtifactRuntime('session', f.account, f.artifact);
     options.ownedOpenShell!.adoptPhysicalRuntime(f.artifact);
+    if (options.agentProfile?.definition.contextRecipe) {
+      options.assertAgentContextAuthorization?.();
+      const snapshot = await resolveSandboxAgentContext({
+        profile: options.agentProfile,
+        stored: options.agentContext,
+        conversationId: options.conversationId,
+        runtime: f.artifact.runtime,
+        manager: f.manager,
+        signal: options.session.abortController.signal,
+      });
+      options.assertAgentContextAuthorization?.();
+      options.ownedOpenShell!.adoptAgentContext(snapshot!);
+    }
     options.ownedOpenShell!.persistNativeCustody(native);
     if (!options.resume) native.bindThread('session', f.account, 'original-thread');
     options.ownedOpenShell!.assertBeforeEnqueue({
@@ -266,6 +334,13 @@ function mockedProvider(f: ReturnType<typeof fixture>) {
       'completed',
       `turn-${options.messageId}`,
     );
+    if (options.agentProfile?.definition.contextRecipe)
+      options.onAgentContextAccepted?.(
+        options.messageId,
+        'original-thread',
+        `turn-${options.messageId}`,
+        'f'.repeat(64),
+      );
     return {
       async *[Symbol.asyncIterator]() {
         yield { type: 'system', subtype: 'init', session_id: 'session' };
@@ -314,8 +389,8 @@ function mockedProvider(f: ReturnType<typeof fixture>) {
   });
   return closed;
 }
-it('uses the shared event consumer for first launch and exact cold continuation custody', async () => {
-  const f = fixture();
+it('uses the shared event consumer for first launch and exact cold continuation custody with pinned measured context', async () => {
+  const f = fixture(true);
   const payload = { text: 'First prompt', systemPrompt: 'Pinned instructions' };
   chat.eventStore.admitOrdinaryOpenShellCommand(f.meta, f.expected.binding, {
     clientMsgId: 'first',
@@ -356,6 +431,7 @@ it('uses the shared event consumer for first launch and exact cold continuation 
   };
   const nextMeta = {
     ...f.meta,
+    agentContext: f.expected.agentContext,
     accountBinding: { ...f.account, model: 'next-model' },
     selectedModel: 'next-model',
   };
@@ -405,6 +481,13 @@ it('uses the shared event consumer for first launch and exact cold continuation 
     'next-model',
   ]);
   expect(chat.eventStore.getSessionRuntimeBinding('session')).toEqual(f.expected.binding);
+  expect(f.compile).toHaveBeenCalledOnce();
+  expect(chat.eventStore.getSession('session')?.agentContext?.context.fullMarkdown).toBe(
+    'PINNED SANDBOX CONTEXT',
+  );
+  expect(JSON.parse(chat.eventStore.getSession('session')!.bootContext!).receipt.status).toBe(
+    'accepted',
+  );
   expect(
     f.transport.send.mock.calls.some(
       ([event]) => event.type === 'block_delta' || event.type === 'block_start',

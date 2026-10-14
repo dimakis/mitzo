@@ -1,3 +1,9 @@
+import { bootContextWithRetainedReceipt } from './agent-context-delivery.js';
+import {
+  assertOrdinaryCodexContextIdentity,
+  assertOrdinaryCodexSnapshotCustody,
+  ordinaryCodexSnapshotCustody,
+} from './ordinary-codex-agent-context.js';
 import { sameOpenShellRouteAuthority } from './openshell-route-authority.js';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -141,6 +147,11 @@ export class OwnedOpenShellCodexChatAdmission {
         .some((command) => command.status === 'running')
     )
       throw unavailable();
+    assertOrdinaryCodexSnapshotCustody(
+      custody,
+      owner.expected.agentProfile,
+      owner.expected.agentContext,
+    );
     owner.assertRetainedAuthority(artifact);
     const result = new OwnedOpenShellCodexChatAdmission(owner, commandId);
     result.#resume = true;
@@ -181,6 +192,19 @@ export class OwnedOpenShellCodexChatAdmission {
       binding: this.#expected.binding,
       workspace: this.#expected.workspace,
       physicalIdentitySha256: openShellPhysicalCustodyFingerprint(this.#retained),
+      ...(this.#resume
+        ? (() => {
+            const original = store.readOpenShellCustody(this.owner.sessionId, this.owner.account);
+            return {
+              ...(original?.agentProfileSha256
+                ? { agentProfileSha256: original.agentProfileSha256 }
+                : {}),
+              ...(original?.agentContextSha256
+                ? { agentContextSha256: original.agentContextSha256 }
+                : {}),
+            };
+          })()
+        : ordinaryCodexSnapshotCustody(this.#expected.agentProfile, this.#expected.agentContext)),
     });
     if (this.#resume) {
       if (
@@ -331,6 +355,42 @@ export class OwnedOpenShellCodexChatAdmission {
     )
       throw unavailable();
     this.#retained = structuredClone(artifact);
+    this.assertCurrentSync();
+  }
+  /** One measured startup preparation, before any native command is enqueued. */
+  adoptAgentContext(snapshot: AgentContextSnapshot) {
+    this.owner.assertCurrentSync();
+    const command = this.#commands.get(this.initialCommandId);
+    if (!command || command.enqueued || command.dispatched) throw unavailable();
+    if (
+      !snapshot.sandbox ||
+      !this.#retained ||
+      snapshot.sandbox.sandboxId !== this.#retained.runtime.sandboxId ||
+      snapshot.sandbox.sandboxName !== this.#retained.runtime.sandboxName ||
+      snapshot.sandbox.workspaceRoot !== this.#expected.workspace.cwd
+    )
+      throw unavailable();
+    assertOrdinaryCodexContextIdentity(
+      this.#expected.agentProfile,
+      this.#expected.selection,
+      snapshot,
+    );
+    if (this.#expected.agentContext && !isDeepStrictEqual(this.#expected.agentContext, snapshot))
+      throw unavailable();
+    const saved = this.owner.events.getSession(this.owner.sessionId)?.agentContext;
+    if (saved && !isDeepStrictEqual(saved, snapshot)) throw unavailable();
+    this.#expected.agentContext = structuredClone(snapshot);
+    this.owner.expected.agentContext = structuredClone(snapshot);
+    command.expected.agentContext = structuredClone(snapshot);
+    const context = bootContextWithRetainedReceipt(
+      snapshot,
+      this.owner.events.getSession(this.owner.sessionId)?.bootContext ?? undefined,
+    );
+    this.owner.events.upsertSession({
+      sessionId: this.owner.sessionId,
+      agentContext: snapshot,
+      bootContext: JSON.stringify(context),
+    });
     this.assertCurrentSync();
   }
   assertCurrentSync() {

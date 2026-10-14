@@ -31,12 +31,22 @@ OAuth provider/grant or explicitly enrolled OpenAI API profile. The current
 projections are disjoint: file-backed Local credentials do not confer OpenShell
 authority, and a brokered OpenShell account does not confer Local host-login
 authority. OpenShell OpenAI API support requires explicit operator declaration
-and existing provider policy. Only exact
-published user profiles without context recipes are advertised by this contract.
-Built-in profiles, recipes, Local API billing, Vertex, Local workspace/brokered
+and existing provider policy. Exact published user profiles and code-owned builtin
+profiles use the existing Library namespaces. Supported workspace and ContexGin
+recipes compile once under the original workspace/runtime authority; each route
+advertises eligible profile references and reasons for incompatible selections.
+OpenShell ContexGin recipes require an explicit configured sandbox preset.
+Pinned packs, Local API billing, Vertex, Local workspace/brokered
 authentication, native sandbox subscriptions and additional harnesses require
 separate reviewed enrollment.
 Legacy conversations keep their legacy ownership and are not implicitly converted.
+
+Prepared context is saved with the original profile and recipe identity. Provider
+acceptance records the exact delivered snapshot, command, native thread and turn.
+Cold resume verifies retained payload and native custody hashes without recompiling
+workspace files or fetching a newer ContexGin version. Missing original context
+custody refuses execution. Pinned packs retain the native continuation barrier;
+their compiler support alone does not establish supported Codex admission.
 
 Account, profile snapshot, runtime, target and workspace stay fixed after admission.
 Draft intent also retains the public account routing tuple (ID, provider and profile

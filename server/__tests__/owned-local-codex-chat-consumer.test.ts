@@ -1,3 +1,5 @@
+import { AgentContextSnapshotSchema } from '@mitzo/protocol';
+import { AGENT_CONTEXT_COMPILER_REVISION, contextDigest } from '../agent-context-compiler.js';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -65,7 +67,7 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
-function fixture(store?: EventStore) {
+function fixture(store?: EventStore, withContext = false) {
   vi.clearAllMocks();
   const events = store ?? chat.eventStore;
   const id = `owned-consumer-${++sequence}`;
@@ -93,6 +95,15 @@ function fixture(store?: EventStore) {
     expectedOutput: 'Evidence',
     acceptanceCriteria: ['Use evidence'],
     modelPolicyRole: 'agent' as const,
+    ...(withContext
+      ? {
+          contextRecipe: {
+            version: 1 as const,
+            source: 'contexgin' as const,
+            agentName: 'fixture-agent',
+          },
+        }
+      : {}),
   };
   const agentProfile = {
     profileId: 'agent',
@@ -100,6 +111,29 @@ function fixture(store?: EventStore) {
     definition,
     contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
   };
+  const context = {
+    type: 'boot_context' as const,
+    source: 'contexgin' as const,
+    sourceCount: 1,
+    tokenCount: 5,
+    tokenBudget: 1000,
+    sources: [{ path: 'source.md', kind: 'reference' as const }],
+    included: [],
+    trimmed: [],
+    fullMarkdown: 'PINNED CONTEXT',
+  };
+  const agentContext = withContext
+    ? AgentContextSnapshotSchema.parse({
+        profileId: agentProfile.profileId,
+        revision: agentProfile.revision,
+        profileHash: agentProfile.contentHash,
+        source: 'contexgin',
+        recipeHash: contextDigest(definition.contextRecipe),
+        compilerRevision: AGENT_CONTEXT_COMPILER_REVISION,
+        payloadHash: contextDigest(context),
+        context,
+      })
+    : undefined;
   const expected = {
     binding: {
       version: 2 as const,
@@ -118,12 +152,15 @@ function fixture(store?: EventStore) {
     selection: {
       version: 1 as const,
       agent: { profileId: 'agent', revision: 1 },
-      context: { source: 'none' as const, revision: null },
+      context: withContext
+        ? { source: 'contexgin' as const, revision: contextDigest(definition.contextRecipe) }
+        : { source: 'none' as const, revision: null },
       permission: { mode: 'agent' as const, revision: 0 },
       model: 'fixture-model',
       thinking: null,
     },
     agentProfile,
+    agentContext,
   };
   const payload = {
     text: 'Frozen provider input',
@@ -138,6 +175,7 @@ function fixture(store?: EventStore) {
       repositoryWorkspaceId: id,
       accountBinding: binding,
       agentProfile,
+      agentContext,
       mode: 'agent',
       selectedModel: 'fixture-model',
       reasoningEffort: null,
@@ -239,6 +277,15 @@ function fixture(store?: EventStore) {
       reasoningEffort: options.reasoningEffort,
     });
     options.ownedLocal!.assertBeforeDispatch(options.messageId);
+    if (withContext) {
+      await options.prepareAgentContext?.(options.session.abortController.signal);
+      options.onAgentContextAccepted?.(
+        options.messageId,
+        'retained-thread',
+        'accepted-turn',
+        'f'.repeat(64),
+      );
+    }
     return nativeQuery;
   });
   const ended = vi.fn();
@@ -615,4 +662,28 @@ it('never captures an unrelated replacement in the original client slot when the
     chat.setSessionChangeCallback(() => {});
     chat.registry.abort(f.id);
   }
+});
+
+it('delivers the pinned context through shared owned startup and records only provider-confirmed acceptance', async () => {
+  const f = fixture(undefined, true);
+  const prepared = await chat.prepareOwnedCodexChat(
+    f.transport,
+    `client-${f.id}`,
+    f.input,
+    f.serverOptions,
+  );
+  const options = vi.mocked(openCodexChat).mock.calls.at(-1)![0];
+  expect(options.agentContext).toEqual(f.input.expected.agentContext);
+  expect(JSON.parse(f.events.getSession(f.id)!.bootContext!).receipt.status).toBe('accepted');
+  expect(
+    f.events.getSessionEvents(f.id).find((event) => event.type === 'agent_context_accepted')
+      ?.payload,
+  ).toMatchObject({
+    commandId: f.commandId,
+    providerThreadId: 'retained-thread',
+    providerTurnId: 'accepted-turn',
+    payloadHash: f.input.expected.agentContext!.payloadHash,
+  });
+  f.events.completeOrdinaryLocalCommand(f.commandId);
+  await prepared.run();
 });
