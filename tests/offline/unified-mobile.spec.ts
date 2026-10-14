@@ -3961,12 +3961,10 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   ).toBeVisible();
   await expect(add.getByText('Use a writing profile here.', { exact: false })).toBeVisible();
   await expect(add.getByLabel('Account', { exact: true })).toBeVisible();
-  const widths = await add
-    .getByLabel('Account', { exact: true })
-    .evaluate((element) => ({
-      control: element.getBoundingClientRect().width,
-      field: element.closest('label')!.getBoundingClientRect().width,
-    }));
+  const widths = await add.getByLabel('Account', { exact: true }).evaluate((element) => ({
+    control: element.getBoundingClientRect().width,
+    field: element.closest('label')!.getBoundingClientRect().width,
+  }));
   expect(widths.control).toBeGreaterThanOrEqual(widths.field - 1);
   await add.getByLabel('Contributor name').fill('Independent writer');
   await add.getByRole('button', { name: /^Use Work OpenAI/ }).click();

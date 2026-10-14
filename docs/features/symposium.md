@@ -60,7 +60,9 @@ again before dispatch; no Symposium-specific account or target registry is added
 Offline tests cover startup, independent continuation, replay, attribution and
 uncertain Stop. These checks do not establish live provider enrollment or runtime
 adoption. Ordinary chat remains free of automatic output-workflow setup; this
-backend capability does not add that workflow to the composer.
+backend capability does not add that workflow to the composer. An explicit
+Workspace Collaborate action opens the bounded work view on request; it does not
+establish standard owned-driver parity or dedicated native setup retirement.
 
 PR #899 records the ordinary OpenAI API admission extension. The independent
 contributor extension must also pass its own exact-head CI and review before
