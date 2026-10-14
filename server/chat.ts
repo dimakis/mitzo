@@ -5888,6 +5888,8 @@ export async function continueOwnedLocalResponsesQueue(
   if (!head || !meta.repositoryWorkspaceId || !BASE_REPO || !isAbsolute(BASE_REPO))
     throw Error('Saved Responses queue unavailable');
   const releaseStartup = reserveRepositoryStartup(sessionId);
+  const preparation = new AbortController();
+  const timer = setTimeout(() => preparation.abort(), 120000);
   try {
     await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
       command: { clientMsgId: head },
@@ -5901,9 +5903,12 @@ export async function continueOwnedLocalResponsesQueue(
       ownerConnectionId: connectionId,
       ownerAuthSessionId: authorization.id,
       resume: true,
+      signal: preparation.signal,
       resumeQueue: true,
     });
   } finally {
+    clearTimeout(timer);
+    preparation.abort();
     releaseStartup();
   }
 }
@@ -5935,10 +5940,13 @@ export async function startOwnedLocalResponsesCommand(
     operatorConnectionId: string;
     ownerConnectionId?: string;
     ownerAuthSessionId: string;
+    /** Preparation deadline only; detached after successful startup. */
+    signal?: AbortSignal;
     resume?: boolean;
     resumeQueue?: boolean;
   },
 ) {
+  options.signal?.throwIfAborted();
   const sessionId = options.reservation.conversationId,
     command = options.command as { clientMsgId: string };
   const live = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
@@ -6037,6 +6045,7 @@ export async function startOwnedLocalResponsesCommand(
           .filter(Boolean)
           .map((root) => join(root, '.git')),
       });
+      owner.assertSetupSync(selected.commandId);
       session.queryInstance = query;
       session.ordinaryRuntimeOwner = {
         location: 'local',
@@ -6182,7 +6191,10 @@ export async function startOwnedLocalResponsesCommand(
       }
     }
   };
+  const onPreparationAbort = () => controller.abort(options.signal?.reason);
+  options.signal?.addEventListener('abort', onPreparationAbort, { once: true });
   try {
+    options.signal?.throwIfAborted();
     const result = options.resumeQueue
       ? await owner.reopenRetainedQueue()
       : options.resume
@@ -6197,6 +6209,7 @@ export async function startOwnedLocalResponsesCommand(
     close();
     throw error;
   } finally {
+    options.signal?.removeEventListener('abort', onPreparationAbort);
     releaseStartup();
   }
 }

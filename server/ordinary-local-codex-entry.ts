@@ -503,6 +503,7 @@ export function createOwnedLocalCodexEntryRouter(
                   operatorConnectionId,
                   ownerConnectionId: connectionId,
                   ownerAuthSessionId: auth.id,
+                  signal: controller.signal,
                   resume: continuation,
                 })
             : input.runOn === 'openshell'

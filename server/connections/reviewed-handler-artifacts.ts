@@ -91,7 +91,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9f3f6cc54fe2a0972949518e228fa008fdd4bb61b89c0706e0204dc776005265',
   '../ordinary-local-codex-entry.ts':
-    '91e83a9e4219f76157198b025644637a20dfd78e068d9e6df21d34f2b2327019',
+    '5a902cc670e59bc0deaebd498b52ec37644df5613871eddd6f8d35a2384ede91',
   '../ordinary-local-codex-metadata.ts':
     '95eeb702ef71016448c62d73649cdfa43f5265839509347775755e70cf608fa2',
   '../ordinary-repository-startup.ts':
@@ -206,7 +206,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': 'ff395518a7e44a8fbd4bbba6b0e8822c52bb8cada6336b9c16a09a5ab5444237',
+  '../chat.ts': 'a15d8cdcbf3fb016318916c1d2dc90796bce520bdd51a0ffa6753ee7851a4fba',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     'bccd81b31e6a1444a2b53c67f8ef11524c08bb4f4d95fa3f76c6b79ab4e443f8',
