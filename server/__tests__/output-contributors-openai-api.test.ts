@@ -128,6 +128,46 @@ function setup(sandboxProvider = 'offline-api') {
 }
 
 describe('ordinary OpenAI API contributors through Codex/OpenShell', () => {
+  it('admits two same-account contributors to one exact output with independent child history and directed replies', async () => {
+    const { service, store, port, input } = setup();
+    const parent = store.getSession('source');
+    const first = await service.add('source', input);
+    const secondInput = { ...input, requestId: 'add-second', label: 'Second writer' };
+    const second = await service.add('source', secondInput);
+    expect(second.id).not.toBe(first.id);
+    expect((await service.add('source', secondInput)).id).toBe(second.id);
+    expect(port.startChat).not.toHaveBeenCalled();
+    const firstTurn = await service.message('source', first.id, {
+      requestId: 'shared-id',
+      text: 'First task',
+    });
+    const secondTurn = await service.message('source', second.id, {
+      requestId: 'shared-id',
+      text: 'Second task',
+    });
+    expect(firstTurn.delivery.status).toBe('delivered');
+    expect(secondTurn.delivery.status).toBe('delivered');
+    expect(secondTurn.contributor.sessionId).not.toBe(firstTurn.contributor.sessionId);
+    await service.stop('source', first.id, { requestId: 'stop-first' });
+    const continued = await service.message('source', second.id, {
+      requestId: 'continue-second',
+      text: 'Continue second task',
+    });
+    expect(continued.contributor.sessionId).toBe(secondTurn.contributor.sessionId);
+    const calls = vi.mocked(port.startChat).mock.calls;
+    expect(calls).toHaveLength(3);
+    expect(calls[0][2]).toContain('First task');
+    expect(calls[1][2]).toContain('Second task');
+    expect(calls[1][2]).not.toContain('First task');
+    expect(calls[2][3].resume).toBe(secondTurn.contributor.sessionId);
+    expect(calls.every((call) => call[3].accountId === 'api')).toBe(true);
+    const listed = (await service.list('source')).contributors;
+    expect(listed).toHaveLength(2);
+    expect(listed.find((row) => row.id === first.id)?.messages).toHaveLength(1);
+    expect(listed.find((row) => row.id === second.id)?.messages).toHaveLength(2);
+    expect(store.getSession('source')).toEqual(parent);
+  });
+
   it('lists and allocates the selected API account, directs exact output, resumes its independent child and deduplicates replay', async () => {
     const { service, store, port, input, output } = setup();
     const parent = store.getSession('source');
@@ -228,14 +268,14 @@ describe('ordinary OpenAI API contributors through Codex/OpenShell', () => {
     },
   );
 
-  it('keeps an accepted API turn fenced after Stop while exact provider termination is uncertain', async () => {
+  it('fences an uncertain Stop to its contributor while another same-account contributor continues', async () => {
     const { service, store, port, input } = setup();
     const normalStart = vi.mocked(port.startChat).getMockImplementation()!;
     let close!: () => void;
     const closed = new Promise<void>((resolve) => {
       close = resolve;
     });
-    vi.mocked(port.startChat).mockImplementation(async (...args) => {
+    vi.mocked(port.startChat).mockImplementationOnce(async (...args) => {
       const options = args[3];
       // Record ordinary child ownership without supplying the terminal receipt.
       const lifecycle = options.ordinaryTurnLifecycle!;
@@ -263,6 +303,11 @@ describe('ordinary OpenAI API contributors through Codex/OpenShell', () => {
     );
     close();
     await running;
+    const independent = await service.add('source', {
+      ...input,
+      requestId: 'independent',
+      label: 'Independent',
+    });
     const stopped = await service.stop('source', contributor.id, { requestId: 'stop' });
     expect(stopped.status).toBe('stopping');
     expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toHaveLength(
@@ -272,5 +317,18 @@ describe('ordinary OpenAI API contributors through Codex/OpenShell', () => {
       service.message('source', contributor.id, { requestId: 'competing', text: 'Another' }),
     ).rejects.toThrow('active');
     expect(port.startChat).toHaveBeenCalledOnce();
+    const continued = await service.message('source', independent.id, {
+      requestId: 'independent-turn',
+      text: 'Continue independently',
+    });
+    expect(continued.delivery.status).toBe('delivered');
+    expect(continued.contributor.sessionId).not.toBe(stopped.sessionId);
+    expect(store.getUnsettledSymposiumSeatExecutions(independent.id, 'contributor')).toHaveLength(
+      0,
+    );
+    expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toHaveLength(
+      1,
+    );
+    expect(port.startChat).toHaveBeenCalledTimes(2);
   });
 });

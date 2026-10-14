@@ -1229,7 +1229,7 @@ describe('ordinary contributors to registered outputs', () => {
     expect(guidance).toContain('Respond briefly.');
   });
 
-  it('fences source loss and workspace loss, and checks uniqueness outside the bounded list projection', async () => {
+  it('fences source and workspace loss while keeping independent associations beyond the bounded list projection', async () => {
     const { service, deps, store, input, port } = setup();
     const contributor = await service.add('source', input);
     const db = new Database(deps.databasePath);
@@ -1244,9 +1244,10 @@ describe('ordinary contributors to registered outputs', () => {
         .getOutputContributorBindings('source')
         .some((value) => value.coordinatorSessionId === contributor.id),
     ).toBe(false);
-    await expect(service.add('source', { ...input, requestId: 'another' })).rejects.toThrow(
-      'already has',
-    );
+    const independent = await service.add('source', { ...input, requestId: 'another' });
+    expect(independent.id).not.toBe(contributor.id);
+    expect(store.getOutputContributorBinding(contributor.id)?.outputId).toBe(input.outputId);
+    expect(store.getOutputContributorBinding(independent.id)?.outputId).toBe(input.outputId);
     Object.assign(deps, { workspaceForSession: () => null });
     await expect(
       service.message('source', contributor.id, { requestId: 'lost-workspace', text: 'Write' }),

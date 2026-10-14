@@ -42,11 +42,14 @@ or artifact migration; preserve existing storage restrictions.
 ## Bounded candidate and next validation
 
 [PR #837](https://github.com/dimakis/mitzo/pull/837) records the bounded implementation
-for exact finalized transcript references and one additional
-ordinary Codex-backed contributor per selected output. Child-thread continuity,
+for exact finalized transcript references and independently admitted
+ordinary Codex-backed contributors per selected output. Child-thread continuity,
 attributed replies, optional durable guidance and Stop/recovery have offline test
-coverage. Independent content retention, output revision editing and Vertex
-contributor adapters remain outside this bounded slice.
+coverage. The shared service permits multiple contributors, including reuse of one eligible
+account, with separate allocation receipts, child conversations and directed messages.
+Each child still passes ordinary account, dispatch and runtime admission; output
+membership does not grant runtime capacity. Independent content retention, output
+revision editing and Vertex contributor adapters remain outside this bounded slice.
 
 The ordinary contributor adapter also admits existing OpenAI API accounts when
 the normal dedicated OpenShell Codex route is configured and the selected account
@@ -59,14 +62,17 @@ uncertain Stop. These checks do not establish live provider enrollment or runtim
 adoption. Ordinary chat remains free of automatic output-workflow setup; this
 backend capability does not add that workflow to the composer.
 
-Source acceptance and exact-head CI/review evidence are recorded on that PR.
+PR #899 records the ordinary OpenAI API admission extension. The independent
+contributor extension must also pass its own exact-head CI and review before
+source acceptance. Source acceptance and review evidence remain separate from live proof.
 Verify freshly accepted main before selecting a runtime candidate. The next work
 is validation against the actual runtime, followed by separately authorized live
 qualification; do not reimplement the already-written adapter.
 Canonical staging enrollment and live qualification remain unproven. Source
 acceptance, runtime adoption and live acceptance are separate; no deployment
 is established by this guide.
-Use the [current acceptance checklist](symposium-integrated-acceptance.md).
+Use the [current acceptance checklist](symposium-integrated-acceptance.md) and
+[ordinary entry-point map](symposium-ordinary-entry-map.md).
 The UI follows the [shared design contract](../design/ui-design-system.md): show
 the work prominently, with discussion, contributors and Access in supporting roles.
 
