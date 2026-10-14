@@ -1453,8 +1453,20 @@ export class OpenShellRuntimeManager {
     });
     const tail = previous.catch(() => undefined).then(() => gate);
     PROVIDER_POLICY_QUEUES.set(sandboxName, tail);
-    await previous.catch(() => undefined);
     try {
+      // Cancellation retires this reservation, but the tail still waits for
+      // its predecessor. A later caller must never bypass the active owner.
+      signal.throwIfAborted();
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => reject(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+        previous
+          .catch(() => undefined)
+          .then(() => {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+          });
+      });
       signal.throwIfAborted();
       return await operation(() => {
         if (PROVIDER_POLICY_QUEUES.get(sandboxName) !== tail)
@@ -1462,8 +1474,11 @@ export class OpenShellRuntimeManager {
       });
     } finally {
       release();
-      if (PROVIDER_POLICY_QUEUES.get(sandboxName) === tail)
-        PROVIDER_POLICY_QUEUES.delete(sandboxName);
+      // Keep cancelled reservations linked until the predecessor has settled.
+      void tail.then(() => {
+        if (PROVIDER_POLICY_QUEUES.get(sandboxName) === tail)
+          PROVIDER_POLICY_QUEUES.delete(sandboxName);
+      });
     }
   }
 
