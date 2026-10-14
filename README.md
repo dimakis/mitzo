@@ -56,7 +56,8 @@ remain unavailable on this bound route until their per-frame authority is suppor
 Local enrolled OpenAI API accounts also have a gated [Responses conversation route](docs/design/local-responses-continuity.md)
 through the same picker and runtime endpoints. It retains the exact API account,
 original private history and independent checkout across follow-up, FIFO queue,
-Stop and supported cold resume. Its per-command model/thinking snapshots stay
+Stop and supported cold resume. The original sign-in can reconnect and drain a full
+saved queue without adding a message or cancelling accepted work. Its per-command model/thinking snapshots stay
 separate from the original native binding. Plain provider-compatible Library
 profiles and the canonical Agent Builder namespace are supported; reusable
 context recipes remain explicitly unavailable. An unfinished provider execution

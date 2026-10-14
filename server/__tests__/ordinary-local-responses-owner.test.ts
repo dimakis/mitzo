@@ -6,6 +6,7 @@ import { AccountProfiles } from '../account-profiles.js';
 import { ownedResponsesRuntimeFixture } from './fixtures/owned-local-responses-runtime.js';
 import { OrdinaryLocalResponsesOwnedRuntime } from '../ordinary-local-responses-owned-runtime.js';
 import { NativeResponsesStore } from '../native-responses-store.js';
+import { OrdinaryLocalCodexSelectionOwner } from '../ordinary-local-codex-selection-owner.js';
 const manager = vi.hoisted(() => ({
   manages: vi.fn(() => true),
   resolveKey: vi.fn(async () => 'offline-exact-key'),
@@ -105,6 +106,143 @@ it('claims independent checkout and freezes future settings while retaining nati
   expect(native.readOrdinaryCustody(admitted.sessionId, admitted.binding)?.authSessionId).toBe(
     f.auth.id,
   );
+});
+
+it('claims the next accepted FIFO command when cancellation changes the head during its authority await', async () => {
+  const { f, native, create } = await fixture();
+  const owner = create();
+  await owner.admit(f.request);
+  await owner.admitContinuation({ ...f.request, clientMsgId: 'cancelled-head' });
+  await owner.admitContinuation({
+    ...f.request,
+    clientMsgId: 'retained-tail',
+    selection: { ...f.request.selection, model: 'next-model', thinking: 'high' },
+  });
+  owner.commandTerminal(f.request.clientMsgId);
+  let entered!: () => void, release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;
+  vi.spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrent').mockImplementationOnce(
+    async function (this: OrdinaryLocalCodexSelectionOwner, expected) {
+      entered();
+      await gate;
+      await original.call(this, expected);
+    },
+  );
+  const claim = owner.claimNextCommand();
+  await waiting;
+  expect(
+    native.cancelQueuedCommand(
+      f.reservation.conversationId,
+      f.reservation.binding,
+      'cancelled-head',
+    ),
+  ).toBe('cancelled');
+  release();
+  await expect(claim).resolves.toBe('retained-tail');
+  expect(owner.snapshot('retained-tail').expected.selection).toMatchObject({
+    model: 'next-model',
+    thinking: 'high',
+  });
+  expect(
+    f.events.getExecutionAdmission(f.reservation.conversationId, 'cancelled-head'),
+  ).toBeUndefined();
+});
+
+it('acknowledges the original consumed receipt at full queue capacity while refusing new unadmitted work', async () => {
+  const { f, native, create } = await fixture();
+  const owner = create();
+  await owner.admit(f.request);
+  let last: Omit<typeof f.request, 'clientMsgId'> & { clientMsgId: string } = f.request;
+  for (let i = 0; i < 32; i++) {
+    last = {
+      ...f.request,
+      clientMsgId: `full-${i}`,
+      payload: { ...f.request.payload, text: `Accepted ${i}` },
+    };
+    await owner.admitContinuation(last);
+  }
+  expect(native.queue(f.reservation.conversationId, f.reservation.binding).queued).toHaveLength(32);
+  const saved = f.events.getOrdinaryLocalResponsesCommandAdmission(last.clientMsgId);
+  await expect(owner.admitContinuation(last)).resolves.toEqual({ dispatched: false });
+  expect(f.events.getOrdinaryLocalResponsesCommandAdmission(last.clientMsgId)).toEqual(saved);
+  await expect(
+    owner.admitContinuation({ ...f.request, clientMsgId: 'overflow' }),
+  ).rejects.toThrow();
+  expect(f.events.getOrdinaryLocalResponsesCommandAdmission('overflow')).toBeUndefined();
+}, 15000);
+
+it('fences subsequent MCP startup connections when enrolled account authority changes during listTools', async () => {
+  const { f, native, create, dispatch } = await fixture();
+  const { SessionRegistry } = await import('@mitzo/harness');
+  const { AsyncQueue } = await import('../async-queue.js');
+  const { openResponsesChat } = await import('../responses-chat-session.js');
+  const mcp = await import('../codex-mcp-tools.js');
+  const actual = mcp.connectCodexMcpTools;
+  let entered!: () => void, release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const connects = vi.fn(async () => ({
+    listTools: async () => {
+      entered();
+      await gate;
+      return { tools: [] };
+    },
+    callTool: vi.fn(),
+    close: vi.fn(async () => {}),
+  }));
+  vi.spyOn(mcp, 'connectCodexMcpTools').mockImplementation((configs, options) =>
+    actual(configs, { ...options, connect: connects }),
+  );
+  const registry = new SessionRegistry();
+  const input = new AsyncQueue<{ message: { content: string } }>();
+  const owner = create();
+  dispatch.mockImplementation(async (selected) => {
+    registry.register('startup', {
+      transport: { send() {}, isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'ask',
+      sessionId: selected.sessionId,
+      cwd: selected.expected.workspace.cwd,
+      sessionAllowList: new Set(),
+    });
+    const query = await openResponsesChat({
+      commandAuthority: owner,
+      assertStartupCurrent: () => owner.assertSetupSync(selected.commandId),
+      conversationId: selected.sessionId,
+      binding: selected.binding,
+      session: registry.get('startup')!,
+      registry,
+      input,
+      store: native,
+      systemPrompt: selected.payload.systemPrompt,
+      env: {},
+      mcpServers: {
+        first: { command: 'offline-first', args: [] },
+        second: { command: 'must-not-start', args: [] },
+      },
+    });
+    cleanups.push(() => query.close());
+  });
+  const result = owner.admit(f.request);
+  await waiting;
+  manager.manages.mockReturnValue(false);
+  release();
+  await expect(result).rejects.toThrow();
+  expect(connects).toHaveBeenCalledOnce();
+  expect(f.events.getOrdinaryLocalResponsesCommandAdmission(f.request.clientMsgId)?.state).toBe(
+    'uncertain',
+  );
+  expect(manager.resolveKey).not.toHaveBeenCalled();
 });
 it('retains uncertainty and forbids provider preparation/credentials when dispatch fails', async () => {
   const { f, create, dispatch } = await fixture();

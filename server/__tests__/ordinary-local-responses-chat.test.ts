@@ -422,7 +422,135 @@ it('dispatches consumed API commands through the actual chat owner and retains t
   await vi.waitFor(() =>
     expect(native.status(f.reservation.conversationId, f.reservation.binding)).toBe('idle'),
   );
+  hangNext = true;
+  await expect(
+    invoke('/continue', {
+      ...wire,
+      sessionId: f.reservation.conversationId,
+      clientMsgId: 'full-active',
+      payload: { text: 'Stop with a full accepted queue' },
+    }),
+  ).resolves.toMatchObject({ status: 202 });
+  await vi.waitFor(() => expect(requests).toHaveLength(9));
+  const accepted: Array<{
+    clientMsgId: string;
+    selection: { model: string; thinking: string | null };
+    payload: { text: string };
+  }> = [];
+  for (let i = 0; i < 32; i++) {
+    const command = {
+      ...wire,
+      sessionId: f.reservation.conversationId,
+      clientMsgId: `full-saved-${i}`,
+      selection:
+        i % 2 === 0 ? { ...wire.selection, model: 'next-model', thinking: 'high' } : wire.selection,
+      payload: { text: `Preserve accepted FIFO work ${i}` },
+    };
+    accepted.push(command);
+    await expect(invoke('/continue', command)).resolves.toMatchObject({ status: 202 });
+  }
+  await expect(invoke('/continue', accepted[31])).resolves.toMatchObject({
+    status: 202,
+    body: { dispatched: false },
+  });
+  await expect(
+    invoke('/continue', {
+      ...wire,
+      sessionId: f.reservation.conversationId,
+      clientMsgId: 'full-overflow',
+    }),
+  ).resolves.toMatchObject({ status: 409 });
+  expect(
+    chat.eventStore.getOrdinaryLocalResponsesCommandAdmission('full-overflow'),
+  ).toBeUndefined();
+  const receipts = accepted.map((command) =>
+    chat.eventStore.getOrdinaryLocalResponsesCommandAdmission(command.clientMsgId),
+  );
+  await chat.registry.findBySessionId(f.reservation.conversationId)!.session.queryInstance!
+    .interrupt!();
   chat.registry
     .findBySessionId(f.reservation.conversationId)!
     .session.ordinaryRuntimeOwner!.close();
-}, 15000);
+  await vi.waitFor(() =>
+    expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
+  );
+  expect(native.queue(f.reservation.conversationId, f.reservation.binding).queued).toEqual(
+    accepted.map((command) => command.clientMsgId),
+  );
+  expect(
+    queues.readOwnedResponsesQueue(
+      chat.eventStore,
+      native,
+      f.reservation.conversationId,
+      f.reservation.binding,
+      false,
+      chat.canResumeOwnedLocalResponsesDriver(f.reservation.conversationId, f.auth.id),
+    ),
+  ).toMatchObject({ connected: false, paused: true, queued: 32, canContinue: true });
+  const { ConnectionRegistry } = await import('@mitzo/harness');
+  const controlRegistry = new ConnectionRegistry();
+  controlRegistry.register(f.dependencies.operatorConnectionId, transport);
+  chat.setConnectionRegistry(controlRegistry);
+  cleanups.push(() => {
+    chat.setConnectionRegistry(new ConnectionRegistry());
+  });
+  queueRouter.post('/:id/codex-queue/continue', async (req, res) => {
+    try {
+      await chat.continueOwnedLocalResponsesQueue(
+        req.params.id,
+        res.locals.authSession,
+        f.dependencies.operatorConnectionId,
+      );
+      res.json({ ok: true });
+    } catch {
+      res.status(409).json({ ok: false });
+    }
+  });
+  await expect(
+    Promise.resolve().then(() =>
+      chat.continueOwnedLocalResponsesQueue(
+        f.reservation.conversationId,
+        { ...f.auth, id: 'foreign-login' },
+        f.dependencies.operatorConnectionId,
+      ),
+    ),
+  ).rejects.toThrow();
+  await expect(
+    chat.continueOwnedLocalResponsesQueue(f.reservation.conversationId, f.auth),
+  ).rejects.toThrow();
+  services.authId = 'different-connection-owner';
+  await expect(
+    chat.continueOwnedLocalResponsesQueue(
+      f.reservation.conversationId,
+      f.auth,
+      f.dependencies.operatorConnectionId,
+    ),
+  ).rejects.toThrow();
+  services.authId = f.auth.id;
+  expect(native.queue(f.reservation.conversationId, f.reservation.binding).queued).toEqual(
+    accepted.map((command) => command.clientMsgId),
+  );
+  await expect(
+    invoke(`/${f.reservation.conversationId}/codex-queue/continue`, {}, queueRouter),
+  ).resolves.toMatchObject({ status: 200 });
+  await vi.waitFor(() => expect(requests).toHaveLength(41), { timeout: 15000 });
+  await vi.waitFor(() =>
+    expect(native.queue(f.reservation.conversationId, f.reservation.binding).active).toBeNull(),
+  );
+  for (let i = 0; i < 32; i++) {
+    expect(requests[9 + i].model).toBe(accepted[i].selection.model);
+    expect(JSON.stringify(requests[9 + i].input)).toContain(accepted[i].payload.text);
+    expect(
+      chat.eventStore.getOrdinaryLocalResponsesCommandAdmission(accepted[i].clientMsgId),
+    ).toEqual(receipts[i]);
+  }
+  expect(chat.eventStore.getLatestOrdinaryCommandAdmission(f.reservation.conversationId)).toEqual(
+    receipts[31],
+  );
+  expect(chat.eventStore.getSession(f.reservation.conversationId)?.accountBinding).toEqual(
+    f.reservation.binding,
+  );
+  chat.registry
+    .findBySessionId(f.reservation.conversationId)!
+    .session.ordinaryRuntimeOwner!.close();
+}, 30000);

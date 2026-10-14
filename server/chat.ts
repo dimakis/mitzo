@@ -5,6 +5,7 @@ import {
 import { getNativeResponsesStore } from './responses-chat-session.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
+import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import type { OrdinaryOpenShellCodexOwnedDispatch } from './ordinary-openshell-codex-owned-runtime.js';
 import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-repository-startup.js';
 import { PROFILE_TOOL_INSTRUCTIONS } from './session-profile-tools.js';
@@ -5854,18 +5855,52 @@ export function canResumeOwnedLocalResponsesDriver(
     return false;
   }
 }
-export function continueOwnedLocalResponsesQueue(
+export async function continueOwnedLocalResponsesQueue(
   sessionId: string,
   authorization: import('./auth.js').AuthSession | undefined,
+  connectionId?: string,
 ) {
   const owned = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
+  if (!authorization || authorization.expiresAt <= Date.now())
+    throw Error('Original Responses operator required');
+  if (owned) {
+    if (
+      owned.authSessionId !== authorization.id ||
+      !(owned.identity instanceof OrdinaryLocalResponsesOwnedRuntime)
+    )
+      throw Error('Original live Responses owner required');
+    owned.identity.resumeQueue();
+    return;
+  }
+  if (!connectionId || !canResumeOwnedLocalResponsesDriver(sessionId, authorization.id))
+    throw Error('Original Responses custody required');
+  const captured = captureAgentLibraryAuthorization(connectionId);
+  captured.assertCurrent();
+  const transport = _connRegistry?.get(connectionId)?.transport;
   if (
-    !authorization ||
-    owned?.authSessionId !== authorization.id ||
-    !(owned.identity instanceof OrdinaryLocalResponsesOwnedRuntime)
+    captured.auth.id !== authorization.id ||
+    liveTransportAuthSessionId(connectionId) !== authorization.id ||
+    !transport?.isOpen()
   )
-    throw Error('Original live Responses owner required');
-  owned.identity.resumeQueue();
+    throw Error('Original signed connection required');
+  const meta = eventStore.getSession(sessionId)!;
+  const head = getNativeResponsesStore().queue(sessionId, meta.accountBinding!).queued[0];
+  if (!head || !meta.repositoryWorkspaceId || !BASE_REPO || !isAbsolute(BASE_REPO))
+    throw Error('Saved Responses queue unavailable');
+  await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
+    command: { clientMsgId: head },
+    reservation: {
+      id: meta.repositoryWorkspaceId,
+      conversationId: sessionId,
+      binding: meta.accountBinding!,
+      taskRoot: join(BASE_REPO, '.claude', 'repository-tasks'),
+    },
+    operatorConnectionId: connectionId,
+    ownerConnectionId: connectionId,
+    ownerAuthSessionId: authorization.id,
+    resume: true,
+    resumeQueue: true,
+  });
 }
 export async function sendOwnedLocalResponsesCommand(input: {
   sessionId: string;
@@ -5896,6 +5931,7 @@ export async function startOwnedLocalResponsesCommand(
     ownerConnectionId?: string;
     ownerAuthSessionId: string;
     resume?: boolean;
+    resumeQueue?: boolean;
   },
 ) {
   const sessionId = options.reservation.conversationId,
@@ -5972,6 +6008,7 @@ export async function startOwnedLocalResponsesCommand(
       env.MITZO_SESSION_ID = sessionId;
       query = await openResponsesChat({
         commandAuthority: owner,
+        assertStartupCurrent: () => owner.assertSetupSync(selected.commandId),
         store: native,
         resume: selected.resume,
         conversationId: sessionId,
@@ -6141,11 +6178,13 @@ export async function startOwnedLocalResponsesCommand(
     }
   };
   try {
-    const result = options.resume
-      ? await owner.admitResume(options.command)
-      : await owner.admit(options.command);
+    const result = options.resumeQueue
+      ? await owner.reopenRetainedQueue()
+      : options.resume
+        ? await owner.admitResume(options.command)
+        : await owner.admit(options.command);
     if (result.dispatched) {
-      echo(command.clientMsgId);
+      if (!options.resumeQueue) echo(command.clientMsgId);
       void pump();
     } else owner.close();
     return { ...result, sessionId };

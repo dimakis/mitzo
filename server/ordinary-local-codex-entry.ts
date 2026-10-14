@@ -415,7 +415,10 @@ export function createOwnedLocalCodexEntryRouter(
         releaseStartup = reserveRepositoryStartup(sessionId);
         timer = setTimeout(() => controller.abort(), 120000);
         authority.assertCurrent();
-        const { profiles, catalog, result, agentContextPresets } = inventory(input.runOn, input.runtime.harness);
+        const { profiles, catalog, result, agentContextPresets } = inventory(
+          input.runOn,
+          input.runtime.harness,
+        );
         if (
           result.capabilityRevision !== input.capabilityRevision ||
           !result.routes.some(

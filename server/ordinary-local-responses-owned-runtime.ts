@@ -135,15 +135,30 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     if (!key.trim()) throw unavailable();
     return key;
   }
-  async assertSetup(commandId: string) {
+  assertSetupSync(commandId: string) {
     this.assertOwner();
     const command = this.#commands.get(commandId);
     if (!command) throw unavailable();
     const receipt = this.owners.eventStore.getOrdinaryLocalResponsesCommandAdmission(commandId);
     if (!receipt || !['uncertain', 'consumed'].includes(receipt.state)) throw unavailable();
-    await command.selection.assertCurrent(command.expected);
-    this.assertOwner();
+    const queue = this.owners.nativeStore.queue(
+      this.owners.reservation.conversationId,
+      this.owners.reservation.binding,
+    );
+    if (queue.active !== commandId && !queue.queued.includes(commandId)) throw unavailable();
+    command.selection.assertCurrentSync(command.expected);
     this.manager();
+    loadAccountProfiles().validateModelSelection(
+      this.owners.reservation.binding,
+      command.expected.selection.model,
+      command.expected.selection.thinking,
+    );
+  }
+  async assertSetup(commandId: string) {
+    this.assertSetupSync(commandId);
+    const command = this.#commands.get(commandId)!;
+    await command.selection.assertCurrent(command.expected);
+    this.assertSetupSync(commandId);
   }
   assertPrepare(
     commandId: string,
@@ -248,39 +263,56 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     this.assertOwner();
     const reservation = this.owners.reservation,
       native = this.owners.nativeStore;
-    const queue = native.queue(reservation.conversationId, reservation.binding),
-      id = queue.queued[0];
-    const meta = this.owners.eventStore.getSession(reservation.conversationId);
-    if (meta?.executionPhase && meta.executionPhase !== 'TERMINAL') return undefined;
-    if (
-      !id ||
-      queue.active ||
-      queue.paused ||
-      native.status(reservation.conversationId, reservation.binding) === 'running'
-    )
-      return undefined;
-    if (this.owners.eventStore.getOrdinaryLocalResponsesCommandAdmission(id)?.state !== 'consumed')
-      return undefined;
-    const command = this.#commands.get(id);
-    if (!command) throw unavailable();
-    await command.selection.assertCurrent(command.expected);
-    this.assertOwner();
-    this.manager();
-    loadAccountProfiles().validateModelSelection(
-      reservation.binding,
-      command.expected.selection.model,
-      command.expected.selection.thinking,
-    );
-    return native.claimNextCommand(reservation.conversationId, reservation.binding, (candidate) => {
+    for (let attempt = 0; attempt < 32; attempt++) {
+      const queue = native.queue(reservation.conversationId, reservation.binding),
+        id = queue.queued[0];
+      const meta = this.owners.eventStore.getSession(reservation.conversationId);
+      if (meta?.executionPhase && meta.executionPhase !== 'TERMINAL') return undefined;
       if (
-        candidate !== id ||
+        !id ||
+        queue.active ||
+        queue.paused ||
+        native.status(reservation.conversationId, reservation.binding) === 'running'
+      )
+        return undefined;
+      if (
         this.owners.eventStore.getOrdinaryLocalResponsesCommandAdmission(id)?.state !== 'consumed'
       )
-        return false;
+        return undefined;
+      const command = this.#commands.get(id);
+      if (!command) throw unavailable();
+      await command.selection.assertCurrent(command.expected);
       this.assertOwner();
-      command.selection.assertCurrentSync(command.expected);
-      return true;
-    });
+      if (native.queue(reservation.conversationId, reservation.binding).queued[0] !== id) {
+        this.pruneCancelledAuthorities();
+        continue;
+      }
+      this.manager();
+      loadAccountProfiles().validateModelSelection(
+        reservation.binding,
+        command.expected.selection.model,
+        command.expected.selection.thinking,
+      );
+      return native.claimNextCommand(
+        reservation.conversationId,
+        reservation.binding,
+        (candidate) => {
+          if (
+            candidate !== id ||
+            this.owners.eventStore.getOrdinaryLocalResponsesCommandAdmission(id)?.state !==
+              'consumed'
+          )
+            return false;
+          this.assertOwner();
+          command.selection.assertCurrentSync(command.expected);
+          return true;
+        },
+      );
+    }
+    // A bounded pass must not strand accepted work if cancellation keeps changing
+    // the head; the existing live pump coalesces this scheduling notification.
+    this.owners.onCommandTerminal?.();
+    return undefined;
   }
   private assertTerminalNativeClaim(commandId: string) {
     const events = this.owners.eventStore,
@@ -358,6 +390,89 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       this.#commands.set(commandId, { expected, selection, payload });
     }
   }
+  private assertResumeCustody(descriptor: ReturnType<RepositoryWorkspaces['getHostReservation']>) {
+    const previous = this.owners.eventStore.getSession(this.owners.reservation.conversationId);
+    if (previous?.executionPhase && previous.executionPhase !== 'TERMINAL') throw unavailable();
+    const custody = this.owners.nativeStore.readOrdinaryCustody(
+      this.owners.reservation.conversationId,
+      this.owners.reservation.binding,
+    );
+    if (
+      !hasPersistentRevocationAuthority() ||
+      !custody ||
+      custody.authSessionId !== this.authSessionId ||
+      !isDeepStrictEqual(
+        custody.binding,
+        this.owners.eventStore.getSessionRuntimeBinding(this.owners.reservation.conversationId),
+      ) ||
+      !isDeepStrictEqual(custody.workspace, {
+        workspaceId: descriptor.id,
+        cwd: descriptor.directory,
+      }) ||
+      descriptor.state !== 'claimed' ||
+      this.owners.nativeStore.status(
+        this.owners.reservation.conversationId,
+        this.owners.reservation.binding,
+      ) === 'running'
+    )
+      throw unavailable();
+    const target = this.#target.descriptor();
+    if (
+      custody.binding.execution.location !== 'local' ||
+      custody.binding.harness.implementation !== 'responses' ||
+      custody.binding.execution.targetId !== target.targetId ||
+      custody.binding.execution.targetRevision !== target.targetRevision
+    )
+      throw unavailable();
+  }
+
+  /** Reopen only positively accepted, never-attempted FIFO snapshots; no new command receipt. */
+  async reopenRetainedQueue(): Promise<{ dispatched: boolean }> {
+    this.assertOwner();
+    this.manager();
+    const reservation = this.owners.reservation;
+    const descriptor = this.owners.workspace.getHostReservation(reservation);
+    this.assertResumeCustody(descriptor);
+    if (this.owners.eventStore.hasUncertainOrdinaryCommand(reservation.conversationId))
+      throw unavailable();
+    await this.restoreQueuedCommands();
+    this.assertOwner();
+    const queue = this.owners.nativeStore.queue(reservation.conversationId, reservation.binding);
+    if (queue.active) {
+      this.assertTerminalNativeClaim(queue.active);
+      this.owners.nativeStore.finishCommand(
+        reservation.conversationId,
+        reservation.binding,
+        queue.active,
+      );
+    }
+    const commandId = queue.queued[0];
+    if (!commandId || commandId !== this.owners.commandId) throw unavailable();
+    const selected = this.snapshot(commandId);
+    const workspace = this.owners.workspace.getForConversation(reservation.conversationId);
+    if (
+      !workspace ||
+      workspace.state !== 'claimed' ||
+      workspace.sandbox ||
+      workspace.directory !== selected.expected.workspace.cwd
+    )
+      throw unavailable();
+    this.assertSetupSync(commandId);
+    await this.owners.dispatch({
+      owner: this,
+      ...selected,
+      binding: structuredClone(reservation.binding),
+      workspace,
+      sessionId: reservation.conversationId,
+      commandId,
+      resume: true,
+    });
+    this.assertSetupSync(commandId);
+    this.#initialized = true;
+    this.resumeQueue();
+    return { dispatched: true };
+  }
+
   admit(input: unknown) {
     return this.admitCommand(input, false, false);
   }
@@ -399,8 +514,12 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     )
       throw unavailable();
     profiles.validateModelSelection(original, request.selection.model, request.selection.thinking);
+    const existing = this.owners.eventStore.getOrdinaryLocalResponsesCommandAdmission(
+      request.clientMsgId,
+    );
     if (
       continuation &&
+      !existing &&
       this.owners.nativeStore.queue(this.owners.reservation.conversationId, original).queued
         .length >= 32
     )
@@ -411,29 +530,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       resume ||
       !this.owners.nativeStore.queue(this.owners.reservation.conversationId, original).active;
     if (resume) {
-      const previous = this.owners.eventStore.getSession(this.owners.reservation.conversationId);
-      if (previous?.executionPhase && previous.executionPhase !== 'TERMINAL') throw unavailable();
-      const custody = this.owners.nativeStore.readOrdinaryCustody(
-        this.owners.reservation.conversationId,
-        original,
-      );
-      if (
-        !hasPersistentRevocationAuthority() ||
-        !custody ||
-        custody.authSessionId !== this.authSessionId ||
-        !isDeepStrictEqual(
-          custody.binding,
-          this.owners.eventStore.getSessionRuntimeBinding(this.owners.reservation.conversationId),
-        ) ||
-        !isDeepStrictEqual(custody.workspace, {
-          workspaceId: descriptor.id,
-          cwd: descriptor.directory,
-        }) ||
-        descriptor.state !== 'claimed' ||
-        this.owners.nativeStore.status(this.owners.reservation.conversationId, original) ===
-          'running'
-      )
-        throw unavailable();
+      this.assertResumeCustody(descriptor);
       await this.restoreQueuedCommands();
     } else if (!continuation && descriptor.state === 'claimed') {
       const receipt = this.owners.eventStore.getOrdinaryLocalResponsesCommandAdmission(
@@ -498,7 +595,15 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       authority,
       store: {
         admitOrdinaryLocalCommand: events.admitOrdinaryLocalResponsesCommand.bind(events),
-        admitOrdinaryLocalContinuation: events.admitOrdinaryLocalResponsesContinuation.bind(events),
+        admitOrdinaryLocalContinuation: (meta, binding, input) => {
+          if (
+            !events.getOrdinaryLocalResponsesCommandAdmission(input.clientMsgId) &&
+            this.owners.nativeStore.queue(this.owners.reservation.conversationId, original).queued
+              .length >= 32
+          )
+            throw unavailable();
+          return events.admitOrdinaryLocalResponsesContinuation(meta, binding, input);
+        },
         claimOrdinaryLocalCommandDispatch:
           events.claimOrdinaryLocalResponsesCommandDispatch.bind(events),
         completeOrdinaryLocalCommand: events.completeOrdinaryLocalResponsesCommand.bind(events),

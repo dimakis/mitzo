@@ -1,6 +1,6 @@
 import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
 import { getNativeResponsesStore } from './responses-chat-session.js';
-import { continueOwnedLocalResponsesQueue } from './chat.js';
+import { continueOwnedLocalResponsesQueue, canResumeOwnedLocalResponsesDriver } from './chat.js';
 import {
   readOwnedResponsesQueue,
   readOwnedResponsesQueueOverview,
@@ -2731,6 +2731,8 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
           meta.sessionId,
           meta.accountBinding,
           !!registry.findBySessionId(meta.sessionId)?.session.ordinaryRuntimeOwner,
+          !!res.locals.authSession &&
+            canResumeOwnedLocalResponsesDriver(meta.sessionId, res.locals.authSession.id),
         )
       : codexBacked && meta.accountBinding
         ? readCodexQueue(
@@ -2961,12 +2963,18 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
   }
   if (eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation === 'responses') {
     try {
-      continueOwnedLocalResponsesQueue(sessionId, res.locals.authSession);
+      await continueOwnedLocalResponsesQueue(
+        sessionId,
+        res.locals.authSession,
+        typeof req.headers['x-connection-id'] === 'string'
+          ? req.headers['x-connection-id']
+          : undefined,
+      );
       res.json({ ok: true });
     } catch {
       res.status(409).json({
         error:
-          'Send a message using the original sign-in to reconnect this task before continuing saved work.',
+          'Saved work could not reconnect. Check the original sign-in, account, settings and prior outcome before trying again.',
       });
     }
     return;

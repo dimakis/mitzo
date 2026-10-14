@@ -108,6 +108,8 @@ export function getNativeResponsesStore() {
 }
 interface Options {
   commandAuthority?: ResponsesCommandAuthority;
+  /** Server-owned initial/retained command fence before the first active turn exists. */
+  assertStartupCurrent?: () => void;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
@@ -144,12 +146,22 @@ interface Options {
 }
 /** API execution uses the shared interaction policy and a private continuation store. */
 export async function openResponsesChat(options: Options) {
+  let initializing = true;
   let publishingTurnId: string = randomUUID();
   const assertRuntimeCurrent = options.commandAuthority
     ? () => options.commandAuthority!.assertEffect(publishingTurnId)
     : undefined;
   const assertRuntimeCurrentSync = options.commandAuthority
     ? () => options.commandAuthority!.assertStart(publishingTurnId)
+    : undefined;
+  const assertMcpCurrent = options.commandAuthority
+    ? () => {
+        if (initializing) {
+          if (!options.assertStartupCurrent)
+            throw Error('Owned Responses startup authority unavailable');
+          options.assertStartupCurrent();
+        } else assertRuntimeCurrentSync!();
+      }
     : undefined;
   const signal = options.session.abortController.signal;
   const connectionTools = sessionCredentialTools(
@@ -173,9 +185,11 @@ export async function openResponsesChat(options: Options) {
   );
   let startup;
   try {
+    assertMcpCurrent?.();
     startup = options.agentContext
       ? {}
       : await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal);
+    assertMcpCurrent?.();
   } catch (error) {
     dispose();
     throw error;
@@ -184,10 +198,12 @@ export async function openResponsesChat(options: Options) {
     cwd: options.session.cwd!,
     env: options.env,
     signal,
+    assertRuntimeCurrent: assertMcpCurrent,
   }).catch((error) => {
     dispose();
     throw error;
   });
+  initializing = false;
   const githubPublishing = createGithubPublishingTool(
     options.conversationId,
     options.registry,

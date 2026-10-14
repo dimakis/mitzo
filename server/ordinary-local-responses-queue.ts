@@ -3,7 +3,7 @@ import type { EventStore } from './event-store.js';
 import type { NativeResponsesStore } from './native-responses-store.js';
 import { hasPersistentRevocationAuthority, type AuthSession } from './auth.js';
 import type { readCodexQueue } from './codex-chat-session.js';
-type QueueStatus = NonNullable<ReturnType<typeof readCodexQueue>>;
+type QueueStatus = NonNullable<ReturnType<typeof readCodexQueue>> & { canContinue?: boolean };
 /** Metadata reads native scheduling identities, never provider transcript/images. */
 export function readOwnedResponsesQueue(
   events: EventStore,
@@ -11,6 +11,7 @@ export function readOwnedResponsesQueue(
   id: string,
   binding: AccountBinding,
   connected: boolean,
+  canContinue = false,
 ): QueueStatus {
   try {
     const queue = native.queue(id, binding),
@@ -19,6 +20,7 @@ export function readOwnedResponsesQueue(
     return {
       paused: queue.paused || !connected,
       connected,
+      canContinue: !connected && canContinue,
       recovering: false,
       queued: queue.queued.length,
       interrupted: status === 'interrupted' ? 1 : 0,

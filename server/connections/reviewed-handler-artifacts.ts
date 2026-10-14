@@ -91,7 +91,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9f3f6cc54fe2a0972949518e228fa008fdd4bb61b89c0706e0204dc776005265',
   '../ordinary-local-codex-entry.ts':
-    '497a278aa97a0ea2e908ba64c3425dc5054344249a180e15e0c03ecce4ea30cf',
+    '91e83a9e4219f76157198b025644637a20dfd78e068d9e6df21d34f2b2327019',
   '../ordinary-local-codex-metadata.ts':
     '95eeb702ef71016448c62d73649cdfa43f5265839509347775755e70cf608fa2',
   '../ordinary-repository-startup.ts':
@@ -206,7 +206,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': 'b7dbee8c3318a9429cb8c2e2d35a7adc0b5fa62c8b7b9e30bb24c1591031444f',
+  '../chat.ts': '27fa572746dc69fc16a8f97171b36197981a469daa56a3f5eac9bb9ba7141f16',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     'bccd81b31e6a1444a2b53c67f8ef11524c08bb4f4d95fa3f76c6b79ab4e443f8',
@@ -216,7 +216,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '2e31d8d75677051c5a481562a3d1cd186b353e9b5a260d613a754a1116fc0413',
+  '../app.ts': 'ec59b372cf6bc7653f1fa46f874936d0e553daf240bc225c5098df843e7decdc',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -444,7 +444,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-responses-runner.ts':
     '89680b91a569095ff275ba0987a819e70ef55a4a20e5b1f53d7211c2b9eb4ed9',
   '../responses-chat-session.ts':
-    '788cde69c9cb2bc44b910f734d70ec83a91ae56c2ab1976e240546b0b4b27760',
+    '49dc1349739ee26ad366f242bca2f1956eb103770002ef124ed5aa39bf65c201',
   // Image payload validation shares native queue admission and dispatch authority.
   '../responses-input.ts': 'b4be57d3535660a31597f07b075070a90b49b2e62239916937e9316e78cc4b05',
   '../symposium-agent-context.ts':
@@ -500,11 +500,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-responses-capabilities.ts':
     '22c442f7804e3d80a4482427cb2eace8778825d5876b6167686a96f07f65fead',
   '../ordinary-local-responses-owned-runtime.ts':
-    '16d55cb3435697616810e03ee1afd65765933fb38f4ecce15326aa7fc1ad0789',
+    '6d4bba15685033907422257bf30ec68f37d4db8564e3a291878ba42dd58ca859',
   '../ordinary-local-responses-queue.ts':
-    '929e43360804e034fb2d945a7b39dfc648ad53cda5f8a28e0da748cf04250fee',
+    '554f9a1352641f367f8a513cd5fde00ce3187465fc03ce2c5f35df807d59ad85',
   '../ordinary-runtime-capability-composition.ts':
     'dc11508e205a7a0853e0d3113550aaa1f97fe47938e6c007a8c0132e0d557667',
   '../../frontend/src/components/ShareButton.tsx':
     '09b59817a6877cb6d28ecd7b3a83169780a5ce39a420c720561cd4106c045f64',
+  // Ordinary Codex continuation, persistent login revocation and physical custody.
+  '../../frontend/src/components/CodexQueueStatus.tsx':
+    'd184be19fe19f7b29b2376b767f0f383001ff40b87e76b3d723d0c0431ecf265',
 });
