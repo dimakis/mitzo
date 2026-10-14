@@ -2,6 +2,7 @@ import { join } from 'path';
 import pino from 'pino';
 import type { DestinationStream, LoggerOptions, TransportTargetOptions } from 'pino';
 import { trace, context } from '@opentelemetry/api';
+import { resilientLogDestination } from './logger-transport.js';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -73,7 +74,7 @@ function buildProductionDestination(level: LogLevel): DestinationStream {
     });
   }
 
-  return pino.transport({ targets });
+  return resilientLogDestination(pino.transport({ targets }));
 }
 
 /**
