@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 const mocks = vi.hoisted(() => ({
@@ -2995,7 +2995,7 @@ it('keeps the admitted developer input fixed while asynchronous owned verificati
   }
 });
 
-it('limits owned tools to native and MCP and rejects helpers before owner awaits or approval', async () => {
+it('qualifies owned native, MCP, profile and publishing tools and rejects other helpers before effects', async () => {
   vi.clearAllMocks();
   mocks.initialize.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
@@ -3026,16 +3026,24 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
     .spyOn(native, 'createNativeToolExecutor')
     .mockReturnValue(nativeExecute as never);
   const f = ownedLocalOptions();
+  f.opts.session.accountBinding = f.opts.binding;
   f.opts.registry = {
     ...f.opts.registry,
     findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
+    get: () => f.opts.session,
   } as never;
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
     chat = await openCodexChat(f.opts);
     const config = mocks.conversationOptions!;
+    expect(config.systemPrompt).toContain('RequestGithubPublish');
     expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
-      [...native.nativeToolDefinitions.map((tool) => tool.name), mcpDefinition.name].sort(),
+      [
+        ...native.nativeToolDefinitions.map((tool) => tool.name),
+        ...profileToolDefinitions.map((tool) => tool.name),
+        'RequestGithubPublish',
+        mcpDefinition.name,
+      ].sort(),
     );
     const execute = config.executeTool as (
       name: string,
@@ -3046,11 +3054,8 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
     vi.mocked(f.lease.assertCurrent).mockClear();
     for (const name of [
       'ListConnections',
-      'SymposiumReadProfiles',
       'PrepareRepositoryChat',
       'RequestWebAccess',
-      'RequestGithubPublish',
-      'SymposiumProposeProfile',
       'Capability_fixture',
       'UnknownAlias',
     ])
@@ -3058,6 +3063,64 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
         execute(name, {}, new AbortController().signal, { turnId: 'turn', callId: name }),
       ).rejects.toThrow('Tool unavailable for owned local Codex chat');
     expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    await expect(
+      execute('RequestGithubPublish', {}, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'publish',
+      }),
+    ).resolves.toMatchObject({ content: 'Invalid GitHub publishing request', isError: true });
+    expect(f.lease.assertCurrent).toHaveBeenCalled();
+    const connection = {
+      id: 'owned-publisher',
+      revision: 1,
+      templateId: 'github-readonly',
+      status: 'active',
+      desiredAccountIds: [f.opts.binding.accountId],
+      publicConfig: { allowedRepositories: ['example/repo'] },
+    };
+    const invoke = vi.fn(async () => ({
+      id: 'published',
+      status: 'succeeded',
+      result: { url: 'https://github.com/example/repo/pull/1' },
+    }));
+    const resolve = vi.fn(async () => 'example/repo');
+    setConnectionsRuntime({
+      store: { list: () => [connection], get: () => connection },
+      verifyGithubPublishingIdentity: vi.fn(async () => true),
+      resolveGithubPublishingRepository: resolve,
+      capabilityStore: {
+        getGrant: () => ({ status: 'active', accountIds: [f.opts.binding.accountId] }),
+        hasGithubRepositoryAccess: () => true,
+      },
+      capabilities: { invoke, recoverPendingForConversation: vi.fn(async () => []) },
+    } as unknown as import('../connections-runtime.js').ConnectionsRuntime);
+    await expect(
+      execute(
+        'RequestGithubPublish',
+        {
+          repositoryPath: f.opts.session.cwd,
+          baseBranch: 'main',
+          title: 'Owned work',
+          body: 'Review',
+          draft: true,
+        },
+        new AbortController().signal,
+        { turnId: 'turn', callId: 'real-publication' },
+      ),
+    ).resolves.toMatchObject({ isError: false });
+    expect(resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ runtime: 'host', workspace: realpathSync(f.opts.session.cwd!) }),
+      f.opts.session.cwd,
+      'main',
+      expect.any(AbortSignal),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: f.opts.binding.accountId }),
+      expect.any(AbortSignal),
+      expect.any(Function),
+      expect.any(Function),
+    );
+    setConnectionsRuntime(null);
     expect(connectionExecute).not.toHaveBeenCalled();
     expect(mocks.permissionHandler).not.toHaveBeenCalled();
     expect(nativeExecute).not.toHaveBeenCalled();
@@ -3079,6 +3142,7 @@ it('limits owned tools to native and MCP and rejects helpers before owner awaits
     expect(mcpExecute).toHaveBeenCalledOnce();
   } finally {
     chat?.close();
+    setConnectionsRuntime(null);
     f.eventStore.close();
     nativeFactory.mockRestore();
     connectionFactory.mockRestore();
@@ -3193,5 +3257,245 @@ it('keeps owned native web search disabled despite a live runtime preference and
     store.close();
     f.eventStore.close();
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function ownedOpenShellAdapterFixture(resume = false) {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-owned-openshell-adapter-'));
+  const previousDirectory = mocks.privateDirectory;
+  mocks.privateDirectory = directory;
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: fixture\n');
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const config = {
+    cli: '/offline/selected-openshell',
+    image: 'selected-image',
+    policy,
+    seed: '/offline/seed',
+    serviceProviders: [],
+    grantableServiceProviders: [],
+    workspace: 'selected-workspace',
+    gateway: 'selected-gateway',
+    gatewayInsecure: false,
+    createDetached: true,
+    sandboxIdLength: 24,
+    workdir: '/sandbox/workspaces/task',
+    webSearch: 'disabled' as const,
+  };
+  const physical = {
+    sandboxName: 'selected-sandbox',
+    sandboxId: 'selected-resource',
+    cli: config.cli,
+    workspace: config.workspace,
+    gateway: config.gateway,
+    gatewayInsecure: false,
+    workdir: config.workdir,
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+  };
+  const binding = {
+    accountId: 'selected-api',
+    accountLabel: 'Selected',
+    provider: 'openai',
+    profileRevision: 'profile',
+    model: 'original-model',
+  };
+  const lifecycle = lifecycleController.initializeOpenShellLifecycle(config, {
+    registry: { findBySessionId: () => undefined, entries: function* () {} },
+    eventStore: { getSession: () => ({}) },
+    taskStore: { getTree: () => [] },
+    queue: () => ({ queued: 0, running: 0, recovery: false }),
+  })!;
+  if (resume)
+    lifecycleController.registerOpenShellLifecycle(
+      'bound-openshell',
+      physical,
+      binding as Parameters<typeof lifecycleController.registerOpenShellLifecycle>[2],
+      { kind: 'api', provider: 'selected-provider', model: binding.model },
+      'thread',
+    );
+  return {
+    cleanup: () => {
+      lifecycle.store.close();
+      mocks.privateDirectory = previousDirectory;
+      rmSync(directory, { recursive: true, force: true });
+    },
+    config,
+    physical,
+    binding,
+    opts: {
+      ...options(new AbortController()),
+      conversationId: 'bound-openshell',
+      messageId: 'new-command',
+      binding,
+      profile: {
+        accountId: binding.accountId,
+        accountLabel: 'Selected',
+        email: 'offline@invalid',
+        planType: 'api',
+        sandboxProvider: 'selected-provider',
+        model: 'next-model',
+      },
+      session: { ...options(new AbortController()).session, cwd: config.workdir, mode: 'agent' },
+      prompt: 'Next command',
+      systemPrompt: 'Pinned instructions',
+      model: 'next-model',
+    } as unknown as Parameters<typeof openCodexChat>[0],
+  };
+}
+it('consumes frozen owned OpenShell configuration and executes guarded runtime admission without implicit migration', async () => {
+  const { OwnedOpenShellCodexChatAdmission } =
+    await import('../owned-openshell-codex-chat-admission.js');
+  vi.clearAllMocks();
+  const f = ownedOpenShellAdapterFixture();
+  const owner = Object.assign(Object.create(OwnedOpenShellCodexChatAdmission.prototype), {
+    assertOptions: vi.fn(),
+    assertCurrent: vi.fn(async () => {}),
+    assertCurrentSync: vi.fn(),
+    configuration: () => f.config,
+    adoptPhysicalRuntime: vi.fn(),
+    assertBeforeEnqueue: vi.fn(),
+    assertBeforeDispatch: vi.fn(),
+    assertModelSelection: vi.fn(),
+    persistNativeCustody: vi.fn(),
+    canClaimCommand: vi.fn(() => false),
+  });
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '0');
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'unselected-legacy');
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    displayName: (name: string) => name,
+    call: vi.fn(),
+    close: mocks.mcpClose,
+  });
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.permissionHandler.mockReturnValue(vi.fn());
+  const { CodexConversationStore } = await import('../codex-conversation-store.js');
+  const retained = vi
+    .spyOn(CodexConversationStore.prototype, 'readArtifactRuntime')
+    .mockReturnValue({
+      runtime: f.physical,
+      route: { kind: 'api', provider: 'selected-provider', model: 'original-model' },
+    });
+  const ensure = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+    .mockResolvedValue(f.physical);
+  const verify = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'verifyKnowledgeRuntime')
+    .mockResolvedValue({});
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const query = await openCodexChat({ ...f.opts, ownedOpenShell: owner });
+  try {
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(verify).toHaveBeenCalled();
+    const captured = mocks.conversationOptions!;
+    expect(captured.enableCapacityRecovery).toBe(false);
+    const prepare = captured.prepareAgentContext as (signal: AbortSignal) => Promise<void>;
+    vi.mocked(owner.assertCurrent).mockClear();
+    await prepare(new AbortController().signal);
+    expect(owner.assertCurrent).toHaveBeenCalledTimes(2);
+    const reconnect = captured.reconnectGuard as <T>(operation: () => Promise<T>) => Promise<T>;
+    const operation = vi.fn(async () => 'exact-operation-result');
+    await expect(reconnect(operation)).resolves.toBe('exact-operation-result');
+    expect(operation).toHaveBeenCalledTimes(1);
+    const beforeRuntime = captured.beforeRuntimeAdmission as (
+      operation: () => Promise<void>,
+    ) => Promise<boolean>;
+    await expect(beforeRuntime(async () => {})).resolves.toBe(false);
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(verify.mock.calls.length).toBeGreaterThan(1);
+    expect((captured.canClaimCommand as (id: string) => boolean)('future')).toBe(false);
+  } finally {
+    query.close();
+    retained.mockRestore();
+    ensure.mockRestore();
+    verify.mockRestore();
+    compile.mockRestore();
+    f.cleanup();
+  }
+});
+it('cold owned OpenShell reuses the original physical mapping while a new turn selects another model', async () => {
+  const { OwnedOpenShellCodexChatAdmission } =
+    await import('../owned-openshell-codex-chat-admission.js');
+  const { CodexConversationStore } = await import('../codex-conversation-store.js');
+  vi.clearAllMocks();
+  const f = ownedOpenShellAdapterFixture(true);
+  const owner = Object.assign(Object.create(OwnedOpenShellCodexChatAdmission.prototype), {
+    assertOptions: vi.fn(),
+    assertCurrent: vi.fn(async () => {}),
+    assertCurrentSync: vi.fn(),
+    configuration: () => f.config,
+    adoptPhysicalRuntime: vi.fn(),
+    assertBeforeEnqueue: vi.fn(),
+    assertBeforeDispatch: vi.fn(),
+    assertModelSelection: vi.fn(),
+    persistNativeCustody: vi.fn(),
+    canClaimCommand: vi.fn(() => true),
+  });
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    displayName: (name: string) => name,
+    call: vi.fn(),
+    close: mocks.mcpClose,
+  });
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.permissionHandler.mockReturnValue(vi.fn());
+  const retained = vi
+    .spyOn(CodexConversationStore.prototype, 'readArtifactRuntime')
+    .mockReturnValue({
+      runtime: f.physical,
+      route: { kind: 'api', provider: 'selected-provider', model: 'original-model' },
+    });
+  const ensure = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+    .mockRejectedValue(Error('No resource creation during cold resume'));
+  const verify = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'verifyKnowledgeRuntime')
+    .mockResolvedValue({});
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const query = await openCodexChat({ ...f.opts, resume: true, ownedOpenShell: owner });
+  try {
+    expect(ensure).not.toHaveBeenCalled();
+    expect(mocks.conversationOptions).toMatchObject({
+      storedBinding: f.binding,
+      runtimeCwd: f.config.workdir,
+    });
+    expect(mocks.send).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'next-model' }));
+    expect(mocks.setArtifactRuntime).toHaveBeenLastCalledWith('bound-openshell', f.binding, {
+      runtime: expect.objectContaining(f.physical),
+      route: { kind: 'api', provider: 'selected-provider', model: 'original-model' },
+    });
+    expect(owner.adoptPhysicalRuntime).toHaveBeenLastCalledWith({
+      runtime: f.physical,
+      route: { kind: 'api', provider: 'selected-provider', model: 'original-model' },
+    });
+  } finally {
+    query.close();
+    retained.mockRestore();
+    ensure.mockRestore();
+    verify.mockRestore();
+    compile.mockRestore();
+    f.cleanup();
   }
 });

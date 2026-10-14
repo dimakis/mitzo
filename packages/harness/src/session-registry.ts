@@ -36,6 +36,18 @@ export interface ManagedSession {
   ownerConnectionId?: string;
   /** Trusted owned-local driver subject; attachment/takeover never replaces it. */
   ownedLocalAuthSessionId?: string;
+  /** Guarded ordinary driver stays with the existing session lifetime and
+   * attachment owner. It is never a separate account or runtime registry.
+   */
+  ordinaryRuntimeOwner?: {
+    location: 'local' | 'openshell';
+    authSessionId: string;
+    identity: object;
+    initialCommandId: string;
+    admit(command: unknown): Promise<{ dispatched: boolean }>;
+    retryInitial(command: unknown): Promise<{ dispatched: boolean }>;
+    close(): void;
+  };
   transport: SessionTransport;
   abortController: AbortController;
   sessionId?: string;

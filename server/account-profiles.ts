@@ -341,6 +341,64 @@ export class AccountProfiles {
     });
   }
 
+  /** Existing ordinary broker/API routes projected for one explicit server target.
+   * Configuration and cached metadata only; no discovery, credentials or launch.
+   * Native Symposium and ambiguous legacy API-plan Codex profiles are excluded.
+   */
+  ordinaryOpenShellCodexInventory(targetId: string, openaiApi: boolean) {
+    SessionRuntimeBindingV1Schema.shape.account.shape.accountId.parse(targetId);
+    return this.profiles.flatMap((profile) => {
+      let account: OrdinarySessionRuntimeCatalog['accounts'][number];
+      if (profile.provider === 'openai-codex') {
+        if (
+          !this.options.codexEnabled ||
+          profile.nativeAuth ||
+          profile.credentialRef ||
+          profile.planType.trim().toLowerCase() === 'api' ||
+          !profile.sandboxProvider ||
+          profile.sandboxProviderType !== 'openai-codex-oauth' ||
+          !profile.sandboxProviderId ||
+          !profile.sandboxGrantId
+        )
+          return [];
+        account = {
+          accountId: profile.id,
+          provider: profile.provider,
+          profileRevision: routingRevision(profile),
+          planType: profile.planType,
+          auth: { kind: 'brokered-oauth', targetIds: [targetId] },
+        };
+      } else if (
+        profile.provider === 'openai' &&
+        openaiApi &&
+        profile.sandboxProvider &&
+        this.isEnrolledOpenAIAccount(profile.id)
+      ) {
+        account = {
+          accountId: profile.id,
+          provider: profile.provider,
+          profileRevision: routingRevision(profile),
+          auth: { kind: 'api-credential', openshellTargetIds: [targetId] },
+        };
+      } else return [];
+      const discovered = cachedModels(JSON.stringify(profile));
+      return [
+        {
+          account,
+          label: profile.label,
+          models: structuredClone(
+            supportedModels(profile.provider, discovered?.models ?? profile.models),
+          ),
+          modelDiscovery: {
+            source: discovered?.models ? ('cached' as const) : ('configured' as const),
+            stale: !!discovered?.error,
+            ...(discovered?.updatedAt === undefined ? {} : { updatedAt: discovered.updatedAt }),
+          },
+        },
+      ];
+    });
+  }
+
   catalog() {
     return this.profiles
       .filter((p) => p.provider !== 'openai-codex' || this.options.codexEnabled)
@@ -784,6 +842,21 @@ export class AccountProfiles {
     return binding;
   }
 
+  /** Native history/source custody validates routing independently of its
+   * historical model key. This never authorizes an inference selection.
+   */
+  resumeRouting(binding: AccountBinding): AccountBinding {
+    const profile = this.profiles.find((entry) => entry.id === binding.accountId);
+    if (
+      !profile ||
+      profile.provider !== binding.provider ||
+      routingRevision(profile) !== binding.profileRevision ||
+      (profile.provider === 'openai-codex' && !this.options.codexEnabled)
+    )
+      throw new Error('Account configuration changed');
+    return structuredClone(binding);
+  }
+
   validateModel(binding: AccountBinding, model: string, reasoningEffort?: string | null): void {
     const entry = this.catalog()
       .find((account) => account.id === binding.accountId)
@@ -800,6 +873,14 @@ export class AccountProfiles {
 
   codexProfile(binding: AccountBinding): CodexAccountProfile {
     this.resume(binding);
+    return this.projectCodexProfile(binding);
+  }
+  /** Physical/native routing only; callers must validate the actual command model separately. */
+  codexRoutingProfile(binding: AccountBinding): CodexAccountProfile {
+    this.resumeRouting(binding);
+    return this.projectCodexProfile(binding);
+  }
+  private projectCodexProfile(binding: AccountBinding): CodexAccountProfile {
     const profile = this.profiles.find((p) => p.id === binding.accountId);
     if (!profile || profile.provider !== 'openai-codex') throw new Error('Not a Codex account');
     return {

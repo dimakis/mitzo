@@ -5,6 +5,7 @@ import type { AccountBinding } from '@mitzo/protocol';
 import type { CodexConversationStore } from './codex-conversation-store.js';
 
 interface Dependencies {
+  authorizeMutation?(sessionId: string, authorization?: AuthSession): void;
   binding(sessionId: string): AccountBinding | undefined;
   overview(
     sessionId: string,
@@ -45,6 +46,17 @@ interface Dependencies {
 /** Mounted after application authentication. Only saved, unclaimed work can be cancelled. */
 export function createCodexQueueRouter(deps: Dependencies) {
   const router = Router();
+  router.use('/:id/codex-queue', (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    try {
+      deps.authorizeMutation?.(req.params.id, res.locals.authSession as AuthSession | undefined);
+      next();
+    } catch {
+      res
+        .status(403)
+        .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
+    }
+  });
   router.get('/:id/codex-queue', (req, res) => {
     const binding = deps.binding(req.params.id);
     if (!binding) {

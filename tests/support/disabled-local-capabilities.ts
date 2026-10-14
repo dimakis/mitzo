@@ -1,7 +1,10 @@
 import type { Route } from '@playwright/test';
-/** Other UI fixtures explicitly leave the independently enrolled Local route off. */
+/** Legacy UI fixtures explicitly leave independently enrolled runtime routes off. */
 export async function disabledLocalCapabilities(route: Route, url: URL): Promise<boolean> {
-  if (url.pathname !== '/api/chat/local-codex/capabilities') return false;
+  if (
+    !['/api/chat/local-codex/capabilities', '/api/chat/runtime/capabilities'].includes(url.pathname)
+  )
+    return false;
   await route.fulfill({
     status: 503,
     json: { ok: false, code: 'entry_disabled', error: 'Local entry unavailable' },

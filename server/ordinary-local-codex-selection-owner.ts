@@ -34,6 +34,8 @@ export class OrdinaryLocalCodexSelectionOwner {
       operator: { assertCurrent(): void };
       signal: AbortSignal;
       commandId: string;
+      /** Cold owner independently verified original native custody before construction. */
+      continuation?: boolean;
     },
   ) {
     this.#reservation = structuredClone(owners.reservation);
@@ -59,7 +61,7 @@ export class OrdinaryLocalCodexSelectionOwner {
         expected.binding.account.accountId !== reservation.binding.accountId ||
         expected.binding.account.provider !== reservation.binding.provider ||
         expected.binding.account.profileRevision !== reservation.binding.profileRevision ||
-        expected.selection.model !== reservation.binding.model
+        (!this.owners.continuation && expected.selection.model !== reservation.binding.model)
       )
         throw unavailable();
       const published = this.owners.library.version(
@@ -126,16 +128,17 @@ export class OrdinaryLocalCodexSelectionOwner {
           this.owners.commandId,
         );
         if (
-          !admission ||
-          admission.state === 'reserved' ||
-          !isDeepStrictEqual(admission.binding, expected.binding) ||
-          !isDeepStrictEqual(admission.selection, expected.selection) ||
-          !isDeepStrictEqual(admission.workspace, expected.workspace) ||
-          expected.bootstrapId !==
-            ordinaryLocalCodexBootstrapId(
-              reservation.conversationId,
-              admission.requestFingerprint,
-            ) ||
+          (!admission && !this.owners.continuation) ||
+          admission?.state === 'reserved' ||
+          (admission &&
+            (!isDeepStrictEqual(admission.binding, expected.binding) ||
+              !isDeepStrictEqual(admission.selection, expected.selection) ||
+              !isDeepStrictEqual(admission.workspace, expected.workspace) ||
+              expected.bootstrapId !==
+                ordinaryLocalCodexBootstrapId(
+                  reservation.conversationId,
+                  admission.requestFingerprint,
+                ))) ||
           session.mode !== expected.selection.permission.mode ||
           !isDeepStrictEqual(session.accountBinding, reservation.binding) ||
           !isDeepStrictEqual(session.agentProfile, expected.agentProfile) ||

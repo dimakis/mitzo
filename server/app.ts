@@ -1,4 +1,6 @@
+import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
 import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
+import { ordinaryCodexContinuationStatus } from './ordinary-codex-continuation-status.js';
 import { createTelemetryRelay } from './telemetry-relay.js';
 import { traceAuthCheck } from './auth-check-tracing.js';
 import type {
@@ -2693,7 +2695,17 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.status(404).json({ error: 'Session not found' });
     return;
   }
-  const runtimeMetadata = ownedLocalCodexMetadata(eventStore, meta.sessionId);
+  const continuationStatus = ordinaryCodexContinuationStatus(
+    meta.sessionId,
+    res.locals.authSession?.id,
+  );
+  const runtimeMetadata = {
+    ...ownedLocalCodexMetadata(eventStore, meta.sessionId, continuationStatus.available),
+    ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
+  };
+  const lastAdmittedSelection = eventStore.getLatestOrdinaryCommandAdmission?.(
+    meta.sessionId,
+  )?.selection;
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
   const symposiumConfigured = Boolean(meta.symposiumConfig);
@@ -2723,6 +2735,16 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       }
     | undefined;
   if (meta.accountBinding && !symposiumConfigured) {
+    const retainedModel =
+      lastAdmittedSelection?.model ??
+      meta.selectedModel ??
+      codexQueue?.model ??
+      meta.accountBinding.model;
+    const retainedThinking = lastAdmittedSelection
+      ? lastAdmittedSelection.thinking
+      : (meta.reasoningEffort ?? codexQueue?.reasoningEffort ?? null);
+    if (retainedModel)
+      modelSelection = { model: retainedModel, reasoningEffort: retainedThinking, models: [] };
     try {
       const profiles = loadAccountProfiles();
       await profiles.refresh(req.query.refresh === '1');
@@ -2732,13 +2754,9 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       const defaultModel = profile?.models[0];
       if (profile && defaultModel)
         modelSelection = {
-          model:
-            meta.selectedModel ??
-            (meta.accountBinding.provider === 'openai-codex' ? codexQueue?.model : undefined) ??
-            meta.accountBinding.model ??
-            defaultModel.id,
+          model: retainedModel ?? defaultModel.id,
           models: profile.models,
-          reasoningEffort: meta.reasoningEffort ?? codexQueue?.reasoningEffort ?? null,
+          reasoningEffort: retainedThinking,
         };
     } catch {
       // Keep metadata available when the optional account catalog is temporarily unreadable.
@@ -2752,6 +2770,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     branch: meta.branch,
     wtId: meta.wtId,
     cwd: meta.cwd,
+    repositoryWorkspaceId: meta.repositoryWorkspaceId,
     mode: meta.mode,
     isActive: meta.isActive,
     // Optional catalog refresh may yield while this conversation is deleted.
@@ -2784,6 +2803,9 @@ async function reattachCodexQueue(
   deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
 ): Promise<'ready' | 'reattaching' | 'unavailable'> {
   const existing = registry.findBySessionId(id)?.session;
+  // Bound cold continuation must reacquire its original owning route through runtime admission.
+  if (eventStore.getSessionRuntimeBinding(id) && !existing?.ordinaryRuntimeOwner)
+    return 'unavailable';
   if (existing && getCodexRuntime(existing)) return 'ready';
   const meta = eventStore.getSession(id);
   if (!meta) return 'unavailable';
@@ -2822,9 +2844,28 @@ async function reattachCodexQueue(
   return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
 }
 
+function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
+  assertOwnedCodexQueueControl(
+    {
+      runtimeBinding: (sessionId) => eventStore.getSessionRuntimeBinding(sessionId),
+      accountBinding: (sessionId) => eventStore.getSession(sessionId)?.accountBinding,
+      custody: (sessionId, account, binding) => {
+        if (binding.harness.implementation !== 'codex') throw Error('Queue owner unavailable');
+        const native = getCodexConversationStore();
+        return binding.execution.location === 'local'
+          ? native.readHostCustody(sessionId, account)
+          : native.readOpenShellCustody(sessionId, account);
+      },
+    },
+    id,
+    authorization,
+  );
+}
+
 app.use(
   '/api/sessions',
   createCodexQueueRouter({
+    authorizeMutation: assertQueueOperator,
     binding(sessionId) {
       const meta = eventStore.getSession(sessionId);
       const binding = meta?.accountBinding;
@@ -2873,6 +2914,14 @@ app.use(
 
 app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
   const sessionId = req.params.id;
+  try {
+    assertQueueOperator(sessionId, res.locals.authSession);
+  } catch {
+    res
+      .status(403)
+      .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
+    return;
+  }
   const live = registry.findBySessionId(sessionId);
   const recentSend = eventStore.hasRecentSendCommandForSession(sessionId, Date.now() - 10_000);
   if (!live && !recentSend) {
@@ -2896,6 +2945,7 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
     return;
   }
   try {
+    assertQueueOperator(sessionId, res.locals.authSession);
     await runtime.acknowledgeRecovery();
     res.json({ ok: true });
   } catch {

@@ -22,6 +22,7 @@ export function isAllowedConnectionAddress(address: string, allowPrivate: boolea
 }
 export function connectionDnsLookup(
   allowPrivateNetwork: boolean,
+  assertRuntimeCurrent?: () => Promise<void>,
 ): NonNullable<RequestOptions['lookup']> {
   return (host, options, callback) => {
     lookup(host, { all: true }, (error, addresses) => {
@@ -40,8 +41,13 @@ export function connectionDnsLookup(
           [],
           undefined,
         );
-      if (options.all) callback(null, addresses);
-      else callback(null, addresses[0].address, addresses[0].family);
+      const complete = () => {
+        if (options.all) callback(null, addresses);
+        else callback(null, addresses[0].address, addresses[0].family);
+      };
+      if (assertRuntimeCurrent)
+        assertRuntimeCurrent().then(complete, (error: Error) => callback(error, [], undefined));
+      else complete();
     });
   };
 }
@@ -64,7 +70,7 @@ const httpsSend: ConnectionSender = (input, signal) =>
           ...input.headers,
         },
         // Resolve and validate every address, then connect to that checked result. No DNS TOCTOU lookup.
-        lookup: connectionDnsLookup(input.allowPrivateNetwork),
+        lookup: connectionDnsLookup(input.allowPrivateNetwork, input.assertRuntimeCurrent),
       },
       (response) => {
         const status = response.statusCode ?? 0;
@@ -99,6 +105,7 @@ export async function sendConnectionRequest(
   send: ConnectionSender = httpsSend,
 ) {
   signal.throwIfAborted();
+  if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
   const response = await send(input, signal);
   signal.throwIfAborted();
   if (response.status >= 300 && response.status < 400)

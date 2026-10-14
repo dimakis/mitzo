@@ -1,4 +1,6 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { createChatDraft, saveChatDraft } from '../lib/chat-drafts';
+import { useState } from 'react';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
 import './ChatAgentProfilePicker.css';
 export function ChatExecutionPicker({
@@ -8,7 +10,56 @@ export function ChatExecutionPicker({
   runtime: ReturnType<typeof useExplicitLocalChat>;
   disabled?: boolean;
 }) {
+  const navigate = useNavigate();
+  const [draftError, setDraftError] = useState('');
+  const startElsewhere = () => {
+    const draft = createChatDraft();
+    const location = runtime.binding?.execution.location === 'openshell' ? 'local' : 'openshell';
+    draft.settings = {
+      ...draft.settings,
+      retainRuntimeIntent: true,
+      runtimeSelection: {
+        ...runtime.intent,
+        execution: { location, targetId: null },
+        capabilityRevision: null,
+      },
+      selection: runtime.intent.account,
+      repositoryWorkspaceId: null,
+    };
+    if (!saveChatDraft(draft)) {
+      setDraftError('Could not save the new conversation draft. Retry.');
+      return;
+    }
+    navigate(`/chat?draft=${encodeURIComponent(draft.id)}`);
+  };
   if (!runtime.visible) return null;
+  const selectedRoute = runtime.inventory?.routes.find(
+    (route) =>
+      route.account.accountId === runtime.intent.account?.accountId &&
+      route.targetId === runtime.intent.execution.targetId &&
+      (() => {
+        const candidates = runtime.inventory!.targets.filter(
+          (target) =>
+            target.targetId === route.targetId &&
+            target.harness === route.harness &&
+            (!route.location || target.location === route.location),
+        );
+        return (
+          candidates.length === 1 && candidates[0].location === runtime.intent.execution.location
+        );
+      })(),
+  );
+  const harness = runtime.bound ? runtime.binding?.harness.implementation : selectedRoute?.harness;
+  const software =
+    harness === 'codex'
+      ? 'Codex'
+      : harness === 'responses'
+        ? 'Mitzo Responses'
+        : harness === 'claude-sdk'
+          ? 'Claude'
+          : harness === 'gemini'
+            ? 'Gemini'
+            : undefined;
   if (runtime.metadataUnavailable)
     return (
       <div className="chat-agent-profile">
@@ -21,18 +72,42 @@ export function ChatExecutionPicker({
   if (runtime.bound)
     return (
       <div className="chat-agent-profile">
-        <span>Run on: Local · first command only</span>
+        <span>
+          {runtime.continuation
+            ? `Run on: ${runtime.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local Mac'} · fixed for this conversation`
+            : `Run on: ${runtime.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local'} · first command only`}
+        </span>
+        {software && <span>Runs with {software}</span>}
         <p role="status">{runtime.reason}</p>
+        <button
+          type="button"
+          disabled={!runtime.intent.account || !runtime.intent.agentProfile}
+          onClick={startElsewhere}
+        >
+          New session on{' '}
+          {runtime.binding?.execution.location === 'openshell' ? 'Local Mac' : 'OpenShell'}
+        </button>
+        <span>
+          Starts a separate conversation and checkout using the same agent and account. Prepare its
+          repository before sending.
+        </span>
+        {draftError && <span role="alert">{draftError}</span>}
+        {runtime.continuation && (
+          <>
+            <span>Model and thinking changes apply to the next message.</span>
+            <button type="button" disabled={disabled} onClick={runtime.review}>
+              Use these conversation choices
+            </button>
+          </>
+        )}
       </div>
     );
   const target = runtime.inventory?.targets.find(
     (t) => t.targetId === runtime.intent.execution.targetId,
   );
-  const runOn = runtime.selectedLocal
-    ? runtime.intent.execution.targetId
-      ? `local:${runtime.intent.execution.targetId}`
-      : 'local'
-    : 'openshell';
+  const runOn = runtime.intent.execution.targetId
+    ? `${runtime.intent.execution.location}:${runtime.intent.execution.targetId}`
+    : runtime.intent.execution.location;
   return (
     <div className="chat-agent-profile">
       <label>
@@ -43,12 +118,12 @@ export function ChatExecutionPicker({
           value={runOn}
           onChange={(e) => {
             const selected = runtime.inventory?.targets.find(
-              (t) => `local:${t.targetId}` === e.target.value,
+              (t) => `${t.location}:${t.targetId}` === e.target.value,
             );
             runtime.update({
               ...runtime.intent,
               execution: {
-                location: selected ? 'local' : 'openshell',
+                location: selected?.location ?? 'openshell',
                 targetId: selected?.targetId ?? null,
               },
               capabilityRevision: null,
@@ -56,36 +131,38 @@ export function ChatExecutionPicker({
           }}
         >
           <option value="openshell">OpenShell</option>
-          {runtime.selectedLocal && !target && (
+          {runtime.intent.execution.targetId && !target && (
             <option value={runOn} disabled>
-              Local · unavailable
+              {runtime.selectedLocal ? 'Local Mac' : 'OpenShell'} · unavailable
             </option>
           )}
           {runtime.inventory?.targets.map((t) => (
-            <option key={t.targetId} value={`local:${t.targetId}`}>
-              Local · {t.label}
+            <option key={t.targetId} value={`${t.location}:${t.targetId}`}>
+              {t.location === 'local' ? 'Local' : 'OpenShell'} · {t.label}
             </option>
           ))}
-          {!runtime.selectedLocal && !runtime.inventory?.targets.length && (
-            <option value="local" disabled>
-              Local · unavailable
-            </option>
-          )}
+          {!runtime.selectedLocal &&
+            !runtime.inventory?.targets.some((target) => target.location === 'local') && (
+              <option value="local" disabled>
+                Local · unavailable
+              </option>
+            )}
         </select>
       </label>
+      {software && <p>Runs with {software}</p>}
       {runtime.selectedLocal && (
         <p>
-          Local uses a configured signed-in ChatGPT account on this Mac and starts one command.
-          Follow-up commands are not available yet.
+          Local Mac uses a separate checkout. Authentication and billing remain with the selected
+          account. The admitted conversation keeps its account and execution location.
         </p>
       )}
       {runtime.reason && <span role="status">{runtime.reason}</span>}
       <button type="button" disabled={disabled} onClick={runtime.refresh}>
         Refresh execution choices
       </button>
-      {runtime.selectedLocal && runtime.inventory && (
+      {runtime.inventory && (
         <button type="button" disabled={disabled} onClick={runtime.review}>
-          Use these Local choices
+          {runtime.selectedLocal ? 'Use these Local choices' : 'Use these OpenShell choices'}
         </button>
       )}
       {runtime.selectedLocal && <Link to="/connections">Connections</Link>}

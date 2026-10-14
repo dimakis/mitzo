@@ -83,8 +83,11 @@ export function sessionRepositoryTools(
   session: ManagedSession,
   registry: SessionRegistry,
   toolPrefix = '',
+  assertRuntimeCurrent?: () => Promise<void>,
+  assertRuntimeCurrentSync?: () => void,
 ) {
   const allowed = (name: string) => {
+    assertRuntimeCurrentSync?.();
     const owner = registry.findBySessionId(sessionId);
     return (
       !!owner &&
@@ -205,6 +208,7 @@ export function sessionRepositoryTools(
         const repository = canonicalRepositorySelection(selected);
         const connectionId = selectConnection(repository);
         if (!current()) return unavailable();
+        await assertRuntimeCurrent?.();
         const preparation = await getRepositoryWorkspaces().prepareChat(
           binding,
           sessionId,

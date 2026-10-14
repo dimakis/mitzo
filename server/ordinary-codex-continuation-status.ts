@@ -1,0 +1,84 @@
+import { isDeepStrictEqual } from 'node:util';
+import { eventStore, registry, canResumeOwnedLocalCodexDriver } from './chat.js';
+import { canResumeOwnedOpenShellCodexDriver } from './ordinary-openshell-codex-entry.js';
+import { loadAccountProfiles } from './account-profiles.js';
+import {
+  loadOrdinaryLocalCodexTarget,
+  OrdinaryLocalCodexCapabilityCatalog,
+} from './ordinary-local-codex-capabilities.js';
+import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
+import { projectOrdinaryOpenShellCodexCapabilities } from './ordinary-openshell-codex-route.js';
+import { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.js';
+import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
+
+/** Read-only action support; dispatch always requalifies the original authority. */
+export function ordinaryCodexContinuationStatus(
+  sessionId: string,
+  authSessionId?: string,
+): { available: boolean; reason?: string } {
+  const blocked = (reason: string) => ({ available: false, reason });
+  try {
+    const meta = eventStore.getSession(sessionId);
+    const binding = eventStore.getSessionRuntimeBinding(sessionId);
+    if (!binding || binding.version !== 2 || binding.harness.implementation !== 'codex' || !meta)
+      return { available: false };
+    if (eventStore.hasUncertainOrdinaryCommand(sessionId))
+      return blocked(
+        'A previous command has an unconfirmed dispatch. Its original receipt and workspace are retained.',
+      );
+    const location = binding.execution.location;
+    if (
+      custodianControllerMode ||
+      custodianOwnerMode ||
+      (location === 'local'
+        ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
+        : process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED) !== '1'
+    )
+      return blocked('This conversation’s execution route is not enabled.');
+    const profiles = loadAccountProfiles();
+    let resolved;
+    const request = {
+      account: binding.account,
+      harness: 'codex',
+      targetId: binding.execution.targetId,
+      mode: meta.mode,
+    };
+    if (location === 'local')
+      resolved = new OrdinaryLocalCodexCapabilityCatalog(
+        profiles,
+        loadOrdinaryLocalCodexTarget(),
+        'ordinary',
+      ).resolve(request);
+    else {
+      const target = loadOrdinaryOpenShellCodexTarget();
+      if (!target) return blocked('The original OpenShell target is unavailable.');
+      const projection = projectOrdinaryOpenShellCodexCapabilities({
+        profiles,
+        target: target.target,
+        deployment: 'ordinary',
+      });
+      resolved = resolveOrdinarySessionRuntime(request, projection.catalog);
+    }
+    if (resolved.status !== 'compatible' || !isDeepStrictEqual(resolved.binding, binding))
+      return blocked('The original account or execution configuration has changed.');
+    if (!authSessionId)
+      return blocked('Sign in with the original login to resume this conversation.');
+    const live = registry.findBySessionId(sessionId)?.session;
+    if (live)
+      return live.ordinaryRuntimeOwner?.authSessionId === authSessionId &&
+        live.ordinaryRuntimeOwner.location === location
+        ? { available: true }
+        : blocked('This conversation belongs to another login.');
+    const resumable =
+      location === 'local'
+        ? canResumeOwnedLocalCodexDriver(sessionId, authSessionId)
+        : canResumeOwnedOpenShellCodexDriver(sessionId, authSessionId);
+    return resumable
+      ? { available: true }
+      : blocked(
+          'The original runtime custody is unavailable. The saved conversation and workspace are retained.',
+        );
+  } catch {
+    return blocked('The original execution route is unavailable. Retry to check again.');
+  }
+}

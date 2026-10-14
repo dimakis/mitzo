@@ -337,3 +337,26 @@ it('preserves attached context and draft while Local refuses button and keyboard
     screen.getByText('Remove attached context before sending the Local command.'),
   ).toBeTruthy();
 });
+
+it('retains unsupported attached context with a conversation explanation for guarded routes', () => {
+  const onSend = vi.fn();
+  render(
+    <ChatInput
+      guardedConversation
+      onSend={onSend}
+      onStop={vi.fn()}
+      running={false}
+      savedChatDraft={{
+        ...createChatDraft(),
+        text: 'Continue',
+        contextBlocks: ['Retained reference'],
+      }}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+  expect(onSend).not.toHaveBeenCalled();
+  expect(screen.getByText('Retained reference')).toBeTruthy();
+  expect(
+    screen.getByText('Remove attached context before sending this conversation command.'),
+  ).toBeTruthy();
+});

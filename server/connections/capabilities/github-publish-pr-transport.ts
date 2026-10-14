@@ -597,21 +597,32 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     bundle: Buffer;
     operationId: string;
     signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
   }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
     checked(input.baseBranch, safeBranch, 'Base branch is invalid');
+    if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+    input.signal.throwIfAborted();
     const parent = await mkdtemp(join(tmpdir(), 'mitzo-github-publish-'));
-    await chmod(parent, 0o700);
     const directory = join(parent, 'checkout');
     try {
+      if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+      input.signal.throwIfAborted();
+      await chmod(parent, 0o700);
       const bundlePath = join(parent, 'commits.bundle');
+      if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+      input.signal.throwIfAborted();
       await writeFile(bundlePath, input.bundle, { mode: 0o600 });
+      if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+      input.signal.throwIfAborted();
       await this.runHost(
         'git',
         ['clone', '--no-checkout', `https://github.com/${input.repository}.git`, directory],
         input.signal,
       );
+      if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+      input.signal.throwIfAborted();
       await this.runHost(
         'git',
         [
@@ -623,6 +634,8 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         ],
         input.signal,
       );
+      if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+      input.signal.throwIfAborted();
       const fetched = await this.runHost(
         'git',
         ['-C', directory, 'rev-parse', `refs/heads/${input.sourceBranch}`],
@@ -630,6 +643,8 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       );
       if (fetched.stdout.trim() !== input.sourceOid)
         throw new Error('Host bundle source does not match approved commit');
+      if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+      input.signal.throwIfAborted();
       await this.runHost(
         'git',
         ['-C', directory, 'symbolic-ref', 'HEAD', `refs/heads/${input.sourceBranch}`],
@@ -650,9 +665,12 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     sourceBranch: string;
     operationId: string;
     signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
   }) {
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
     // No `--force`, no refspec supplied by a model, and no default branch name.
+    if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+    input.signal.throwIfAborted();
     await this.runHost(
       'git',
       ['-C', input.directory, 'push', 'origin', `HEAD:refs/heads/${input.sourceBranch}`],
@@ -754,8 +772,11 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     draft: boolean;
     operationId: string;
     signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
   }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
+    if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+    input.signal.throwIfAborted();
     const { stdout } = await this.runHost(
       'gh',
       [
@@ -790,6 +811,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     draft: boolean;
     operationId: string;
     signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
   }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
     if (!/^[1-9][0-9]*$/.test(input.pullRequest.id))
@@ -801,6 +823,8 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       id: input.pullRequest.id,
     });
     const pullRequestId = input.pullRequest.id;
+    if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+    input.signal.throwIfAborted();
     const { stdout } = await this.runHost(
       'gh',
       [
@@ -824,6 +848,8 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       id: pullRequestId,
     });
     if (value.draft !== input.draft) {
+      if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
+      input.signal.throwIfAborted();
       await this.runHost(
         'gh',
         input.draft

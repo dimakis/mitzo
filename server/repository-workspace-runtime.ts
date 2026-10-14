@@ -1,7 +1,6 @@
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
 import { loadAccountProfiles } from './account-profiles.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
@@ -61,7 +60,12 @@ export function getRepositoryWorkspaces(readOnly = false) {
     throw new Error('Repository preparation state is unavailable');
   service ??= new RepositoryWorkspaces(join(codexPrivateDirectory(), 'repository-sources'), {
     authorize: async (binding, connectionId, repository, signal) => {
-      if (!isDeepStrictEqual(repositoryWorkspaceBinding(binding.accountId, binding.model), binding))
+      const profiles = loadAccountProfiles();
+      profiles.resumeRouting(binding);
+      if (
+        !['openai', 'openai-codex'].includes(binding.provider) ||
+        (binding.provider === 'openai-codex' && profiles.codexRoutingProfile(binding).nativeAuth)
+      )
         throw new Error('Repository AI account changed');
       const runtime = getConnectionsRuntime();
       const connection = runtime?.store.get(connectionId);

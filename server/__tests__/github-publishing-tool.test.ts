@@ -463,3 +463,34 @@ it('does not restore a superseded publisher when its replacement closes', async 
   ).rejects.toThrow(/live/);
   f.execute.close();
 });
+
+it('refuses account grant and publication after owned authority changes during approval', async () => {
+  const f = fixture('openai-codex');
+  f.grant.accountIds = ['other'];
+  let revoked = false;
+  const assertCurrent = vi.fn(async () => {
+    if (revoked) throw Error('Owned authority revoked');
+  });
+  mocks.approve.mockImplementation(async (_name, value) => {
+    revoked = true;
+    return { behavior: 'allow', updatedInput: value };
+  });
+  const source = { runtime: 'host' as const, workspace: '/workspace', gitStorageRoots: [] };
+  const execute = createGithubPublishingTool(
+    'conversation',
+    f.registry,
+    () => source,
+    undefined,
+    assertCurrent,
+  );
+  expect(
+    await execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: true });
+  expect(f.invoke).not.toHaveBeenCalled();
+  expect(
+    (mocks.runtime as { capabilities: { setGrant: ReturnType<typeof vi.fn> } }).capabilities
+      .setGrant,
+  ).not.toHaveBeenCalled();
+  expect(source.workspace).toBe(f.session.cwd);
+  execute.close();
+});

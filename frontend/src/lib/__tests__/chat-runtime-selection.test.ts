@@ -186,3 +186,28 @@ describe('chat runtime selection preservation', () => {
     expect(snapshotChatRuntimeSelection(choice, inventory())).toBeNull();
   });
 });
+
+it('refuses replacing a bound public account tuple even when its account ID stays the same', () => {
+  const current = {
+    ...selected(),
+    accountReference: {
+      accountId: 'personal',
+      provider: 'openai-codex' as const,
+      profileRevision: 'original-login',
+    },
+  };
+  const candidate = {
+    ...current,
+    accountReference: {
+      accountId: 'personal',
+      provider: 'openai' as const,
+      profileRevision: 'new-api',
+    },
+  };
+  expect(replaceChatRuntimeSelection(current, candidate, current)).toMatchObject({
+    accepted: false,
+    selection: current,
+  });
+  const future = { ...current, account: { ...current.account!, reasoningEffort: 'low' } };
+  expect(replaceChatRuntimeSelection(current, future, current).accepted).toBe(true);
+});

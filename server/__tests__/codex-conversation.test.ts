@@ -38,6 +38,37 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it.each(['commit', 'cancel'] as const)(
+  'keeps a guarded uncertain FIFO entry undispatched until %s',
+  async (outcome) => {
+    const f = await setup();
+    let consumed = false;
+    f.conversationOptions.canClaimCommand = (id) => id === 'first' || consumed;
+    await f.c.send({ id: 'first', prompt: 'First authorized turn' });
+    await f.c.admitExplicitSend({ id: 'future', prompt: 'Frozen pending admission' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+    await f.c.startQueued();
+    expect(f.c.queue().find((command) => command.id === 'future')?.status).toBe('queued');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    if (outcome === 'cancel') {
+      expect(f.c.cancelQueued('future')).toBe('cancelled');
+      await f.c.startQueued();
+      expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    } else {
+      consumed = true;
+      await f.c.resumeAfterExplicitSend();
+      expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+      expect(f.c.queue().find((command) => command.id === 'future')?.prompt).toBe(
+        'Frozen pending admission',
+      );
+    }
+  },
+);
+
 it('runs the owning enqueue fence before direct or serialized command persistence', async () => {
   const f = await setup();
   const beforeRequests = f.requests.length;
@@ -478,6 +509,7 @@ async function setup(
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>,
   disableProjectDocuments = false,
   shouldContinueAfterToolResult?: CodexConversationOptions['shouldContinueAfterToolResult'],
+  canClaimCommand?: CodexConversationOptions['canClaimCommand'],
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -567,6 +599,7 @@ async function setup(
     prepareAgentContext,
     disableProjectDocuments,
     shouldContinueAfterToolResult,
+    canClaimCommand,
     onApplicationContextAccepted,
     beforeRuntimeAdmission,
     reconnectGuard,
@@ -5291,3 +5324,36 @@ it('reports a trusted external owner environment receipt without creating an una
   });
   expect(terminal).toHaveBeenCalledWith('external-command', 'turn-1', 'completed');
 });
+
+it('refuses synthetic retry children when command admission owns the queue', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[28] = () => true;
+  const { c, store } = await setup(...args);
+  const retry = vi.spyOn(store, 'retryLatestFailed');
+  expect(await c.retryLatestFailed(true)).toBe('not_retryable');
+  expect(retry).not.toHaveBeenCalled();
+});
+
+it.each(['guarded', 'disabled'] as const)(
+  'preserves a retained capacity receipt when direct retry is %s',
+  async (mode) => {
+    vi.useFakeTimers();
+    try {
+      const f = await capacityFixture();
+      const retained = f.store.capacityRecovery('app', binding)!;
+      const commands = f.store.commands('app', binding);
+      if (mode === 'guarded') f.conversationOptions.canClaimCommand = () => true;
+      else f.conversationOptions.enableCapacityRecovery = false;
+      const reserve = vi.spyOn(f.store, 'queueCapacityRetry');
+      await expect(f.c.tryCapacityNow(retained.id, retained.sourceCommandId)).rejects.toThrow(
+        'Capacity recovery unavailable',
+      );
+      expect(reserve).not.toHaveBeenCalled();
+      expect(f.store.capacityRecovery('app', binding)).toEqual(retained);
+      expect(f.store.commands('app', binding)).toEqual(commands);
+      f.c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

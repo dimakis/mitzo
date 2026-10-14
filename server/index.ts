@@ -41,7 +41,12 @@ import { fileURLToPath } from 'url';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
-import { authenticateWs, registerAuthSession, type AuthSession } from './auth.js';
+import {
+  authenticateWs,
+  registerAuthSession,
+  setAuthRevocationStore,
+  type AuthSession,
+} from './auth.js';
 import {
   claimTransportConnection,
   releaseTransportConnection,
@@ -65,6 +70,7 @@ import {
   setSessionsChangedCallback,
   reconcileSessionsBackground,
 } from './chat.js';
+setAuthRevocationStore(eventStore);
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
 import { NullTransport } from './null-transport.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';

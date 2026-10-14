@@ -117,3 +117,29 @@ it('validates the complete Local envelope, keeps oversized attachments, and resu
   expect(input).toHaveValue('Keep this prompt');
   expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled();
 });
+
+it('submits guarded queued input immediately and preserves old local queues without replay', async () => {
+  localStorage.setItem(
+    'mitzo-queue-bound',
+    JSON.stringify([{ text: 'Older queue', contextBlocks: [] }]),
+  );
+  const send = vi.fn((..._args: unknown[]) => true);
+  const props = {
+    sessionId: 'bound',
+    guardedConversation: true,
+    initialText: 'Admit with current settings',
+    onSend: send,
+    onStop: vi.fn(),
+  };
+  const { rerender } = render(<ChatInput {...props} running />);
+  const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+  await waitFor(() => expect(input).toHaveValue('Admit with current settings'));
+  const retained = localStorage.getItem('mitzo-queue-bound');
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  expect(send).toHaveBeenCalledOnce();
+  expect(send.mock.calls[0][0]).toBe('Admit with current settings');
+  expect(localStorage.getItem('mitzo-queue-bound')).toBe(retained);
+  rerender(<ChatInput {...props} running={false} />);
+  expect(send).toHaveBeenCalledOnce();
+  expect(localStorage.getItem('mitzo-queue-bound')).toBe(retained);
+});

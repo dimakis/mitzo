@@ -1,4 +1,8 @@
-import { AgentProfileSelectionSchema, type AgentProfileSelection } from '@mitzo/protocol';
+import {
+  AgentProfileSelectionSchema,
+  SessionRuntimeBindingV1Schema,
+  type AgentProfileSelection,
+} from '@mitzo/protocol';
 import { z } from 'zod';
 import type { AccountSelection } from '../types/account-selection';
 
@@ -13,6 +17,7 @@ const accountSelection = z.strictObject({
 export const ChatRuntimeSelectionSchema = z.strictObject({
   version: z.literal(1),
   account: accountSelection.nullable(),
+  accountReference: SessionRuntimeBindingV1Schema.shape.account.nullable().optional(),
   agentProfile: AgentProfileSelectionSchema.nullable(),
   execution: z.strictObject({
     location: z.enum(['openshell', 'local']),
@@ -35,6 +40,7 @@ export interface ChatRuntimeInventory {
   }[];
   routes: {
     accountId: string;
+    accountReference?: z.infer<typeof SessionRuntimeBindingV1Schema.shape.account>;
     targetId: string;
     location: ChatRuntimeSelection['execution']['location'];
     available: boolean;
@@ -50,6 +56,7 @@ export interface ChatRuntimeSelectionIssue {
     | 'location_unavailable'
     | 'target_required'
     | 'account_required'
+    | 'account_route_changed'
     | 'route_unavailable'
     | 'agent_unavailable'
     | 'model_unavailable'
@@ -122,6 +129,20 @@ export function evaluateChatRuntimeSelection(
             : 'The selected account and target are unavailable together. Review the choices.',
         );
       if (routes.length === 1) {
+        if (
+          selection.accountReference &&
+          routes[0].accountReference &&
+          (selection.accountReference.accountId !== routes[0].accountReference.accountId ||
+            selection.accountReference.provider !== routes[0].accountReference.provider ||
+            selection.accountReference.profileRevision !==
+              routes[0].accountReference.profileRevision)
+        )
+          add(
+            'account_route_changed',
+            selection.accountReference.provider !== routes[0].accountReference.provider
+              ? 'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.'
+              : 'The selected account configuration changed. Choose the account again before sending.',
+          );
         const models = routes[0].models.filter((entry) => entry.id === selection.account!.model);
         if (models.length !== 1)
           add('model_unavailable', 'The selected model is unavailable. Choose a model explicitly.');
@@ -159,6 +180,11 @@ export function replaceChatRuntimeSelection(
   if (
     bound &&
     (bound.account?.accountId !== candidate.account?.accountId ||
+      (bound.accountReference &&
+        (bound.accountReference.accountId !== candidate.accountReference?.accountId ||
+          bound.accountReference.provider !== candidate.accountReference?.provider ||
+          bound.accountReference.profileRevision !==
+            candidate.accountReference?.profileRevision)) ||
       !sameProfile(bound.agentProfile, candidate.agentProfile) ||
       bound.execution.location !== candidate.execution.location ||
       bound.execution.targetId !== candidate.execution.targetId)
@@ -201,6 +227,7 @@ export function retainChatRuntimeSelection(
   return {
     ...runtime,
     account: account ? { ...account } : null,
+    ...(runtime.account?.accountId !== account?.accountId ? { accountReference: null } : {}),
     agentProfile: profile,
     capabilityRevision: null,
   };

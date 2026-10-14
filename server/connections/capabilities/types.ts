@@ -70,6 +70,8 @@ export interface CapabilityExecutionContext {
   /** Exact semantic projection that was approved, when executor uses preflight. */
   approvalInput?: Readonly<Record<string, string | boolean>>;
   signal: AbortSignal;
+  /** Trusted retained owner; never accepted from capability input. */
+  assertRuntimeCurrent?: () => Promise<void>;
 }
 
 export interface CapabilityExecutorResult {
@@ -102,6 +104,7 @@ export interface CapabilityExecutor {
   recover(
     operation: CapabilityOperation,
     signal: AbortSignal,
+    assertRuntimeCurrent?: () => Promise<void>,
   ): Promise<CapabilityRecoveryResult | void>;
 }
 

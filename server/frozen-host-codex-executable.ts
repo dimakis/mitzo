@@ -11,6 +11,10 @@ import {
   type BigIntStats,
 } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import {
+  HostCodexExecutableCustodySchema,
+  type HostCodexExecutableCustody,
+} from './host-codex-custody.js';
 const unavailable = () => new Error('Host Codex runtime unavailable');
 const fields = ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs', 'uid', 'mode', 'nlink'] as const;
 type Metadata = Pick<BigIntStats, (typeof fields)[number]>;
@@ -166,6 +170,51 @@ export class FrozenHostCodexExecutable {
     } finally {
       if (fd !== undefined) closeSync(fd);
     }
+  }
+  static reopen(raw: unknown): FrozenHostCodexExecutable {
+    try {
+      const snapshot = HostCodexExecutableCustodySchema.parse(raw);
+      const decode = <T>(value: Record<string, string>): T =>
+        Object.fromEntries(
+          Object.entries(value).map(([key, entry]) => [
+            key,
+            key === 'sha256' ? entry : BigInt(entry),
+          ]),
+        ) as T;
+      if (
+        snapshot.path !== join(dirname(snapshot.path), 'codex-runtime') ||
+        snapshot.sourceIdentity.sha256 !== snapshot.sha256 ||
+        snapshot.ownedIdentity.sha256 !== snapshot.sha256
+      )
+        throw unavailable();
+      const executable = new FrozenHostCodexExecutable(
+        snapshot.path,
+        snapshot.sha256,
+        snapshot.source,
+        decode<Identity>(snapshot.sourceIdentity),
+        decode<Identity>(snapshot.ownedIdentity),
+        decode<DirectoryIdentity>(snapshot.sourceDirectory),
+        decode<DirectoryIdentity>(snapshot.ownedDirectory),
+      );
+      executable.assertLaunchCurrent();
+      return executable;
+    } catch {
+      throw unavailable();
+    }
+  }
+  custodySnapshot(): HostCodexExecutableCustody {
+    this.assertCurrent();
+    const encode = (value: Identity | DirectoryIdentity) =>
+      Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, String(entry)]));
+    return HostCodexExecutableCustodySchema.parse({
+      path: this.path,
+      source: this.source,
+      sha256: this.sha256,
+      sourceIdentity: encode(this.sourceIdentity),
+      ownedIdentity: encode(this.ownedIdentity),
+      sourceDirectory: encode(this.sourceDirectory),
+      ownedDirectory: encode(this.ownedDirectory),
+    });
   }
   assertCurrent(): void {
     try {

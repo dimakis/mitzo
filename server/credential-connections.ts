@@ -183,6 +183,7 @@ export interface AuthenticatedRequest {
   headers: Record<string, string>;
   body?: string;
   allowPrivateNetwork: boolean;
+  assertRuntimeCurrent?: () => Promise<void>;
 }
 export type ConnectionSender = (
   request: AuthenticatedRequest,
@@ -666,6 +667,7 @@ export class CredentialConnections {
     input: unknown,
     signal: AbortSignal,
     stillAllowed: () => boolean = () => true,
+    assertRuntimeCurrent?: () => Promise<void>,
   ) {
     const c = this.connection(id);
     const request = ConnectionRequestSchema.parse(input);
@@ -696,6 +698,8 @@ export class CredentialConnections {
       combined.throwIfAborted();
       check();
       if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
+      await assertRuntimeCurrent?.();
+      check();
       const headers = credentialHeaders(c.auth, secret);
       const response = await this.send(
         {
@@ -704,6 +708,7 @@ export class CredentialConnections {
           headers,
           body: request.body,
           allowPrivateNetwork: c.allowPrivateNetwork,
+          assertRuntimeCurrent,
         },
         combined,
       );

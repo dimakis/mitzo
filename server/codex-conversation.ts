@@ -97,6 +97,10 @@ export interface CodexConversationOptions {
   /** An enrolled route's existing command owner rejects unadmitted sends before
    * private queue mutation. No default gate is imposed on legacy conversations. */
   beforeEnqueue?: (input: CodexCommandInput) => void;
+  /** A guarded enqueue may retain uncertainty until its outer receipt commits. */
+  canClaimCommand?: (commandId: string) => boolean;
+  /** Owning physical custody must persist before the first native thread effect. */
+  beforeThreadInitialization?: (store: CodexConversationStore, binding: AccountBinding) => void;
   ownerKind?: 'ordinary' | 'symposium';
   /** Ordinary capacity recovery creates new linked native turns, never prompt replay. */
   enableCapacityRecovery?: boolean;
@@ -550,6 +554,7 @@ export class CodexConversation {
       toolSurfaceRevision,
       this.opts.ownerKind,
     );
+    this.opts.beforeThreadInitialization?.(this.opts.store, this.binding);
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
     this.paused = !!state.recovery;
@@ -925,6 +930,8 @@ export class CodexConversation {
     sourceCommandId: string,
     deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
   ) {
+    if (this.opts.canClaimCommand || !this.opts.enableCapacityRecovery)
+      throw new Error('Capacity recovery unavailable');
     assertCapacityAdmissionDeadline(deadline);
     if (!this.binding || this.closed) throw new Error('Capacity recovery unavailable');
     const before = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
@@ -1157,6 +1164,7 @@ export class CodexConversation {
   }
   async retryLatestFailed(confirmAmbiguous = false) {
     if (!this.binding || this.closed) throw new Error('Codex conversation unavailable');
+    if (this.opts.canClaimCommand) return 'not_retryable' as const;
     const result = this.opts.store.retryLatestFailed(
       this.opts.conversationId,
       this.binding,
@@ -1794,6 +1802,13 @@ export class CodexConversation {
       (this.pendingToolSurface || this.threadId !== recovery.threadId)
     )
       throw new Error('Capacity recovery thread changed');
+    if (this.opts.canClaimCommand) {
+      const nextQueued = this.opts.store.nextQueuedCommandId(
+        this.opts.conversationId,
+        this.binding!,
+      );
+      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) return;
+    }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
     const continuation = this.opts.store.capacityContinuation(
@@ -2316,7 +2331,7 @@ export class CodexConversation {
           status,
           providerTransportFailed ? 'fork' : 'resume',
           providerFailure?.retryAfterMs ? Date.now() + providerFailure.retryAfterMs : undefined,
-          providerFailure?.retryable ?? true,
+          this.opts.canClaimCommand ? false : (providerFailure?.retryable ?? true),
           providerFailure?.ambiguous ?? false,
         );
       const capacity =

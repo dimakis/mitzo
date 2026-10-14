@@ -16,6 +16,11 @@ it('retains omitted runtime intent through settings updates, invalidates changed
   const runtimeSelection = {
     ...createChatRuntimeSelection(),
     account: draft.settings.selection,
+    accountReference: {
+      accountId: 'personal',
+      provider: 'openai-codex' as const,
+      profileRevision: 'original-routing',
+    },
     execution: { location: 'local' as const, targetId: 'mac' },
     capabilityRevision: 'inventory-1',
   };
@@ -33,6 +38,7 @@ it('retains omitted runtime intent through settings updates, invalidates changed
   expect(getChatDraft(draft.id)?.settings.runtimeSelection).toEqual({
     ...runtimeSelection,
     account: { accountId: 'work', model: 'other' },
+    accountReference: null,
     capabilityRevision: null,
   });
   act(() => result.current.saveSettings({ ...draft.settings, runtimeSelection: null }));

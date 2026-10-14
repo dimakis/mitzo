@@ -1,12 +1,81 @@
 # Session runtime selection
 
-Status: incremental implementation. Versioned EventStore bindings, local account
-projection, V2 configured-target persistence and workspace reservations are
-accepted foundations. The owned Local first-command runtime, authenticated REST/SSE
-entry and responsive account/profile/execution picker are implemented behind an
-explicit server gate and await live qualification. The gate remains off by default.
-Staging is stood down; this document does not establish deployed support or authorize
-provider enrollment or production activation.
+Status: gated source implementation with offline continuity evidence. Ordinary
+Local Codex and OpenShell Codex share the existing picker, durable command receipts
+and immutable conversation binding. Configuration gates remain off by default;
+source support and offline tests do not establish live account, provider, native
+runtime or deployment qualification. Staging is stood down. Production activation
+requires a separate explicit user action.
+
+## Current ordinary Codex conversation contract
+
+The existing Agent, Account, Model, Thinking level and Run on controls retain their
+separate responsibilities. OpenShell stays the new-chat default; Local Mac requires
+an explicit choice. A pristine unselected target resolves from the first trusted
+inventory within its chosen environment. Previously selected unavailable/stale
+choices remain visible with a reason and are never replaced on refresh. Software
+is derived as Runs with Codex; there is no independent runtime selector.
+
+`GET /api/chat/runtime/capabilities` projects a bounded combined configuration-only
+inventory. Its composite capability revision covers draft review; each route can
+carry its own native capability revision for frozen admission. The generic
+`POST /api/chat/runtime/send` and `/continue` use strict ordinary Codex envelopes.
+The original Local capability/send/continue endpoints retain compatibility. A
+continuation includes the original session and repository preparation IDs, an exact
+command ID and model/thinking snapshot. Clients cannot provide paths, credentials,
+provider launchers, compiled agent prompts or workspace ownership.
+
+The supported source routes are file-backed host ChatGPT on Local Codex and the
+reviewed ordinary OpenShell Codex projection using an exact existing brokered
+OAuth provider/grant or explicitly enrolled OpenAI API profile. The current
+projections are disjoint: file-backed Local credentials do not confer OpenShell
+authority, and a brokered OpenShell account does not confer Local host-login
+authority. OpenShell OpenAI API support requires explicit operator declaration
+and existing provider policy. Only exact
+published user profiles without context recipes are advertised by this contract.
+Built-in profiles, recipes, Local API billing, Vertex, Local workspace/brokered
+authentication, native sandbox subscriptions and additional harnesses require
+separate reviewed enrollment.
+Legacy conversations keep their legacy ownership and are not implicitly converted.
+
+Account, profile snapshot, runtime, target and workspace stay fixed after admission.
+Draft intent also retains the public account routing tuple (ID, provider and profile
+revision). New session elsewhere copies it; reusing an ID with changed provider or
+routing cannot silently change authentication/billing. A new draft requires explicit
+Account re-selection, while generic capability review cannot replace that tuple.
+A bound conversation cannot replace its account tuple.
+Supported model/thinking edits are future-command intent; each admitted or queued
+command freezes its own selection under the existing EventStore receipt and native
+FIFO. Running/queued work cannot change when a later setting changes. Failed or
+uncertain HTTP delivery retains its original request for deliberate exact recovery;
+SSE observations cannot acknowledge or replay it. Stop, approval responses and
+same-login reconnect use the retained owning driver. Unsupported mode/context/web
+and connection helpers remain blocked independently of the ordinary composer.
+
+Session metadata advertises `runtimeCommandScope: conversation` only when its
+original route can continue; otherwise it keeps guarded/read-only behavior and a
+specific unavailable reason. Cold resume reacquires the original login's persistent
+revocation authority, immutable account/target routing, physical native custody,
+provider history and retained workspace before dispatch. Local private login-home
+and executable evidence and OpenShell physical runtime evidence live in the existing
+native conversation row; they are not another provider/history registry. Missing,
+changed or revoked custody refuses execution while retaining transcript, checkout
+and uncertainty evidence. Authentication/token refresh is still a strict refusal:
+this source contract does not silently renew a changed file-backed login lease.
+
+New session elsewhere copies account/profile/model/thinking intent into an
+independent blank draft, clears target/capability and repository preparation, and
+requires its own preparation/checkout. Returning to the original conversation
+retains its branch, edits, queue and provider history. See the
+[completion checklist](session-runtime-continuity-checklist.md) for source and
+rendered/live evidence boundaries.
+
+## Historical first-command checkpoint
+
+The following sections describe accepted foundation increments through PR #917.
+Their first-command-only restrictions remain the fallback for unsupported or
+unqualified metadata scopes; they are not the completion definition for the
+current ordinary conversation contract above.
 
 ## Guarded local Codex first-command contract
 

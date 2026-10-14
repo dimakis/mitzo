@@ -1,8 +1,12 @@
 import {
-  LocalCodexFirstCommandSchema,
+  OrdinaryCodexFirstCommandSchema,
+  OrdinaryCodexContinuationCommandSchema,
   LocalCodexFirstCommandReceiptSchema,
-  LocalCodexRetainedCommandObservationSchema,
+  OrdinaryCodexRetainedCommandObservationSchema,
 } from '@mitzo/protocol';
+const localCommandSchema = OrdinaryCodexFirstCommandSchema.or(
+  OrdinaryCodexContinuationCommandSchema,
+);
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
 interface Entry {
   body: Record<string, unknown>;
@@ -65,13 +69,14 @@ export class SendOutbox {
             (typeof entry.localDraftId !== 'string' || !/^\S{1,200}$/.test(entry.localDraftId))
           )
             throw Error('Invalid Local draft identity');
-          const body = LocalCodexFirstCommandSchema.parse(entry.body);
+          const body = localCommandSchema.parse(entry.body);
           if (
             entry.localReceipt &&
             (!['reserved', 'uncertain', 'consumed'].includes(entry.localReceipt.state) ||
               typeof entry.localReceipt.sessionId !== 'string' ||
               !entry.localReceipt.sessionId.length ||
               entry.localReceipt.sessionId.length > 200 ||
+              ('sessionId' in body && entry.localReceipt.sessionId !== body.sessionId) ||
               Object.keys(entry.localReceipt).length !== 2)
           )
             throw Error('Invalid Local receipt');
@@ -126,7 +131,7 @@ export class SendOutbox {
   enqueue(body: Record<string, unknown>, scope: number, localDraftId?: string): boolean {
     if (this.config.localFirstCommand) {
       if (localDraftId !== undefined && !/^\S{1,200}$/.test(localDraftId)) return false;
-      const parsed = LocalCodexFirstCommandSchema.safeParse(body);
+      const parsed = localCommandSchema.safeParse(body);
       if (!parsed.success || this.invalidLocalRecovery || this.entries.length || !this.active)
         return false;
       body = structuredClone(parsed.data);
@@ -226,12 +231,21 @@ export class SendOutbox {
       entry.uncertain = true;
       if (!this.persist()) throw Error('Local intent could not be retained');
       const response = await Promise.race([
-        this.config.fetch(this.config.url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
-          body: JSON.stringify(entry.body),
-          signal: abort.signal,
-        }),
+        this.config.fetch(
+          entry.body.runOn === 'openshell'
+            ? typeof entry.body.sessionId === 'string'
+              ? '/api/chat/runtime/continue'
+              : '/api/chat/runtime/send'
+            : typeof entry.body.sessionId === 'string'
+              ? this.config.url.replace(/\/send$/, '/continue')
+              : this.config.url,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
+            body: JSON.stringify(entry.body),
+            signal: abort.signal,
+          },
+        ),
         new Promise<never>((_, reject) => {
           abort.signal.addEventListener('abort', () => reject(Error('Delivery interrupted')), {
             once: true,
@@ -242,8 +256,10 @@ export class SendOutbox {
       const raw = await response.json();
       if (generation !== this.generation) return;
       const success = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
-      const observation = LocalCodexRetainedCommandObservationSchema.safeParse(raw);
-      const matching = raw?.clientMsgId === entry.body.clientMsgId;
+      const observation = OrdinaryCodexRetainedCommandObservationSchema.safeParse(raw);
+      const matching =
+        raw?.clientMsgId === entry.body.clientMsgId &&
+        (typeof entry.body.sessionId !== 'string' || raw?.sessionId === entry.body.sessionId);
       if (matching && response.status === 202 && success.success) {
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
         if (!this.persist()) throw Error('Local receipt could not be retained');

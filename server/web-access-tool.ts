@@ -44,9 +44,11 @@ export function createWebAccessTool(
   conversation: string | (() => string),
   registry: SessionRegistry,
   search: (query: string, signal: AbortSignal, owner: WebSearchExecutionOwner) => Promise<string>,
+  assertRuntimeCurrent?: () => Promise<void>,
 ) {
-  const urlAccess = createUrlAccessTool(conversation, registry);
+  const urlAccess = createUrlAccessTool(conversation, registry, undefined, assertRuntimeCurrent);
   return async (input: unknown, signal: AbortSignal) => {
+    await assertRuntimeCurrent?.();
     const operation =
       input && typeof input === 'object' && 'operation' in input ? input.operation : undefined;
     if (operation === 'request_access' || operation === 'revoke_access') {
@@ -150,6 +152,7 @@ export function createWebAccessTool(
                 : 'Reads this public HTTPS URL without credentials. Approval covers this origin and read only; shell networking and authenticated browsing remain restricted.',
           },
         );
+        await assertRuntimeCurrent?.();
         if (
           request.operation === 'search' &&
           decision.behavior === 'allow' &&
@@ -161,10 +164,15 @@ export function createWebAccessTool(
           saveWebSearchGrant(session);
         return decision;
       },
-      search: (query, signal) =>
-        search(query, signal, { parentSessionId: conversationId, operationId }),
+      search: async (query, signal) => {
+        await assertRuntimeCurrent?.();
+        return search(query, signal, { parentSessionId: conversationId, operationId });
+      },
 
-      fetchPage: fetchPublicPage,
+      fetchPage: async (url, signal) => {
+        await assertRuntimeCurrent?.();
+        return fetchPublicPage(url, signal, undefined, assertRuntimeCurrent);
+      },
     });
   };
 }

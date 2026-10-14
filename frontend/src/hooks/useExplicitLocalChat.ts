@@ -9,6 +9,8 @@ import {
 } from '../lib/explicit-local-chat';
 import {
   createChatRuntimeSelection,
+  ChatRuntimeSelectionSchema,
+  replaceChatRuntimeSelection,
   chatAgentProfileFromSearch,
   retainChatRuntimeSelection,
   evaluateChatRuntimeSelection,
@@ -37,6 +39,10 @@ export function useExplicitLocalChat(
   }, [saved, search]);
   const [choice, setChoice] = useState(() => ({ draftId, intent: seed() }));
   const intent = retained?.selection ?? (choice.draftId === draftId ? choice.intent : seed());
+  const latestIntent = useRef(intent);
+  latestIntent.current = intent;
+  const latestRetained = useRef(retained);
+  latestRetained.current = retained;
   const previousProfileSearch = useRef({ draftId, search });
   useEffect(() => {
     const previous = previousProfileSearch.current;
@@ -66,10 +72,15 @@ export function useExplicitLocalChat(
   const [metaFailure, setMetaFailure] = useState<{ sessionId: string; message: string } | null>(
     null,
   );
+  const [metadataLoadingForSession, setMetadataLoadingForSession] = useState<string | null>(null);
   const [meta, setMeta] = useState<{
     sessionId: string;
     binding: SessionRuntimeBinding | null;
     firstCommand: boolean;
+    reason?: string;
+    intent: ChatRuntimeSelection | null;
+    repositoryWorkspaceId?: string;
+    mode?: 'ask' | 'agent' | 'auto';
   } | null>(null);
   const scope = useRef({ draftId, sessionId });
   scope.current = { draftId, sessionId };
@@ -81,7 +92,14 @@ export function useExplicitLocalChat(
     const controller = new AbortController();
     setError('');
     void Promise.resolve()
-      .then(() => apiFetch('/api/chat/local-codex/capabilities', { signal: controller.signal }))
+      .then(async () => {
+        const response = await apiFetch('/api/chat/runtime/capabilities', {
+          signal: controller.signal,
+        });
+        return response.status === 404
+          ? apiFetch('/api/chat/local-codex/capabilities', { signal: controller.signal })
+          : response;
+      })
       .then(async (response) => {
         const body = await response.json();
         if (controller.signal.aborted) return;
@@ -94,6 +112,24 @@ export function useExplicitLocalChat(
         setEnrollment('on');
         const next = ExplicitLocalInventorySchema.parse(body);
         setInventory(next);
+        const pendingIntent = latestIntent.current;
+        const targets = next.targets.filter(
+          (target) => target.location === pendingIntent.execution.location,
+        );
+        if (
+          !scope.current.sessionId &&
+          pendingIntent.capabilityRevision === null &&
+          pendingIntent.execution.targetId === null &&
+          targets.length === 1
+        ) {
+          const resolved = {
+            ...pendingIntent,
+            execution: { ...pendingIntent.execution, targetId: targets[0].targetId },
+            capabilityRevision: next.capabilityRevision,
+          };
+          setChoice({ draftId: scope.current.draftId, intent: resolved });
+          latestRetained.current?.update(resolved);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
@@ -107,6 +143,7 @@ export function useExplicitLocalChat(
   useEffect(() => {
     if (!sessionId) return;
     setMetaFailure(null);
+    setMetadataLoadingForSession(sessionId);
     const controller = new AbortController();
     void Promise.resolve()
       .then(() =>
@@ -127,54 +164,158 @@ export function useExplicitLocalChat(
           binding: parsed,
           firstCommand:
             body.runtimeCommandScope === 'first-command-only' ||
-            parsed?.execution.location === 'local',
+            (!!parsed && body.runtimeCommandScope !== 'conversation'),
+          reason:
+            typeof body.runtimeCommandReason === 'string' && body.runtimeCommandReason.length <= 200
+              ? body.runtimeCommandReason
+              : undefined,
+          intent:
+            parsed && (body.modelSelection?.model ?? body.accountBinding?.model)
+              ? ChatRuntimeSelectionSchema.parse({
+                  version: 1,
+                  account: {
+                    accountId: parsed.account.accountId,
+                    model: body.modelSelection?.model ?? body.accountBinding?.model,
+                    reasoningEffort: body.modelSelection?.reasoningEffort ?? null,
+                  },
+                  accountReference: parsed.account,
+                  agentProfile: body.agentProfile
+                    ? {
+                        profileId: body.agentProfile.profileId,
+                        revision: body.agentProfile.revision,
+                        ...(body.agentProfile.kind ? { kind: body.agentProfile.kind } : {}),
+                      }
+                    : null,
+                  execution: {
+                    location: parsed.execution.location,
+                    targetId: parsed.version === 2 ? parsed.execution.targetId : null,
+                  },
+                  capabilityRevision: null,
+                })
+              : null,
+          repositoryWorkspaceId: body.repositoryWorkspaceId,
+          mode: body.mode,
         });
+        setMetadataLoadingForSession(null);
       })
       .catch(() => {
-        if (!controller.signal.aborted && scope.current.sessionId === sessionId)
+        if (!controller.signal.aborted && scope.current.sessionId === sessionId) {
           setMetaFailure({
             sessionId,
             message: 'Conversation settings are unavailable. Retry to continue.',
           });
+          setMetadataLoadingForSession(null);
+        }
       });
     return () => controller.abort();
   }, [sessionId, attempt]);
   const currentMeta = meta?.sessionId === sessionId ? meta : null;
   const metadataError = metaFailure?.sessionId === sessionId ? metaFailure.message : undefined;
-  const metadataUnavailable = !!sessionId && !currentMeta && !!metadataError;
-  const bound = !!sessionId && !!currentMeta?.firstCommand;
-  const selectedLocal = intent.execution.location === 'local';
+  const metadataUnavailable = !!sessionId && !!metadataError;
+  const metadataPending =
+    !!sessionId && (!currentMeta || metadataUnavailable || metadataLoadingForSession === sessionId);
+  const bound = !!sessionId && !!currentMeta?.binding;
+  const continuation =
+    bound && !currentMeta?.firstCommand && currentMeta?.binding?.harness.implementation === 'codex';
+  const [future, setFuture] = useState<{ sessionId: string; intent: ChatRuntimeSelection } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!sessionId || !currentMeta?.intent || !inventory) return;
+    setFuture((previous) =>
+      previous?.sessionId === sessionId
+        ? previous
+        : {
+            sessionId,
+            intent: { ...currentMeta.intent!, capabilityRevision: inventory.capabilityRevision },
+          },
+    );
+  }, [sessionId, currentMeta, inventory]);
+  const selectedIntent =
+    bound && currentMeta?.intent
+      ? future?.sessionId === sessionId
+        ? future.intent
+        : currentMeta.intent
+      : intent;
+  const selectedLocal = selectedIntent.execution.location === 'local';
+  const retainedExplicitIntent =
+    selectedLocal || !!saved || !!selectedIntent.account || !!selectedIntent.execution.targetId;
   const visible =
     bound ||
     metadataUnavailable ||
-    (!sessionId && enabled && (enrollment === 'on' || enrollment === 'unknown' || selectedLocal));
+    (!sessionId &&
+      enabled &&
+      (enrollment === 'on' || enrollment === 'unknown' || retainedExplicitIntent));
   const evaluation = evaluateChatRuntimeSelection(
-    intent,
+    selectedIntent,
     inventory ? normalizeLocalInventory(inventory) : null,
   );
-  const reason = bound
-    ? 'This Local conversation supports its first command only. Start a new chat for another command.'
-    : sessionId && !currentMeta
-      ? (metadataError ?? 'Loading conversation settings…')
-      : !visible
-        ? enabled && !sessionId && enrollment === 'loading'
-          ? 'Checking execution choices…'
-          : undefined
-        : enrollment !== 'on'
-          ? error || 'Execution choices are unavailable. Refresh to retry.'
-          : intent.execution.location === 'openshell'
-            ? 'OpenShell is unavailable.'
-            : !intent.agentProfile
-              ? 'Choose a published agent revision before sending.'
-              : evaluation.issues[0]?.message;
-  const update = (next: ChatRuntimeSelection) => {
-    if (sessionId) return;
-    setChoice({ draftId, intent: next });
-    retained?.update(next);
+  const reason = metadataPending
+    ? (metadataError ?? 'Loading conversation settings…')
+    : bound && !continuation
+      ? (currentMeta?.reason ??
+        `This ${currentMeta?.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local'} conversation supports its first command only. Start a new chat for another command.`)
+      : sessionId && !currentMeta
+        ? (metadataError ?? 'Loading conversation settings…')
+        : !visible
+          ? enabled && !sessionId && enrollment === 'loading'
+            ? 'Checking execution choices…'
+            : undefined
+          : enrollment !== 'on'
+            ? error || 'Execution choices are unavailable. Refresh to retry.'
+            : selectedIntent.execution.location === 'openshell' &&
+                inventory?.locations.some(
+                  (entry) => entry.location === 'openshell' && entry.status === 'unavailable',
+                )
+              ? ((inventory &&
+                  normalizeLocalInventory(inventory).locations.find(
+                    (location) => location.location === 'openshell' && !location.available,
+                  )?.reason) ??
+                evaluation.issues[0]?.message)
+              : !selectedIntent.agentProfile
+                ? 'Choose a published agent revision before sending.'
+                : evaluation.issues[0]?.message;
+  const update = (next: ChatRuntimeSelection, explicitAccountChoice = false) => {
+    const targets =
+      inventory?.targets.filter((target) => target.location === next.execution.location) ?? [];
+    const reviewed = inventory
+      ? {
+          ...next,
+          accountReference: !next.account?.accountId
+            ? null
+            : explicitAccountChoice ||
+                !next.accountReference ||
+                next.accountReference.accountId !== next.account?.accountId
+              ? (inventory.accounts.find(
+                  (entry) => entry.account.accountId === next.account?.accountId,
+                )?.account ?? next.accountReference)
+              : next.accountReference,
+          execution: {
+            ...next.execution,
+            targetId:
+              next.execution.targetId ?? (targets.length === 1 ? targets[0].targetId : null),
+          },
+          capabilityRevision: inventory.capabilityRevision,
+        }
+      : next;
+    if (sessionId) {
+      if (
+        continuation &&
+        currentMeta?.intent &&
+        replaceChatRuntimeSelection(selectedIntent, reviewed, currentMeta.intent).accepted
+      )
+        setFuture({ sessionId, intent: reviewed });
+      return;
+    }
+    setChoice({ draftId, intent: reviewed });
+    retained?.update(reviewed);
   };
   return {
-    intent,
+    intent: selectedIntent,
     inventory,
+    continuation,
+    repositoryWorkspaceId: currentMeta?.repositoryWorkspaceId,
+    mode: currentMeta?.mode,
     visible,
     selectedLocal,
     bound,
@@ -182,9 +323,24 @@ export function useExplicitLocalChat(
     reason,
     error,
     metadataUnavailable,
-    metadataPending: !!sessionId && !currentMeta,
+    metadataPending,
     refresh: () => setAttempt((value) => value + 1),
     update,
-    review: () => update({ ...intent, capabilityRevision: inventory?.capabilityRevision ?? null }),
+    review: () => {
+      const targets =
+        inventory?.targets.filter(
+          (target) => target.location === selectedIntent.execution.location,
+        ) ?? [];
+      update({
+        ...selectedIntent,
+        execution: {
+          ...selectedIntent.execution,
+          targetId:
+            selectedIntent.execution.targetId ??
+            (targets.length === 1 ? targets[0].targetId : null),
+        },
+        capabilityRevision: inventory?.capabilityRevision ?? null,
+      });
+    },
   };
 }

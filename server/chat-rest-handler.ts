@@ -193,6 +193,7 @@ export function createChatRestRouter(
   });
 
   router.use('/local-codex', createOwnedLocalCodexEntryRouter(sseRegistry, ctx));
+  router.use('/runtime', createOwnedLocalCodexEntryRouter(sseRegistry, ctx, true));
 
   router.post('/send', async (req, res) => {
     const msg = validateBody(V2SendMessage, req.body, res);

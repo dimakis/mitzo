@@ -1,8 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
+import { ordinaryRuntimeInventoryFixture } from '../../frontend/src/test-utils/ordinary-runtime-inventory-fixture';
 import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
-import { LocalCodexFirstCommandSchema } from '../../packages/protocol/src/local-codex-first-command';
+import {
+  OrdinaryCodexFirstCommandSchema,
+  OrdinaryCodexContinuationCommandSchema,
+} from '../../packages/protocol/src/local-codex-first-command';
 import { SwitchSessionMessage } from '../../packages/protocol/src/ws-schemas-v2';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const preparationId = '11111111-1111-4111-8111-111111111111';
@@ -14,8 +18,16 @@ const intent = {
   execution: { location: 'local', targetId: 'mac' },
   capabilityRevision: 'caps-r1',
 };
-async function offline(page: Page, gateOff = false, restore = false) {
+async function offline(
+  page: Page,
+  gateOff = false,
+  restore = false,
+  continuation = false,
+  location: 'local' | 'openshell' = 'local',
+) {
   const requests: unknown[] = [];
+  const attachments: Array<string | null> = [];
+  const controls: string[] = [];
   const forbidden: string[] = [];
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -78,20 +90,41 @@ async function offline(page: Page, gateOff = false, restore = false) {
       return route.abort();
     }
     const method = route.request().method();
+    if (method === 'POST' && /^\/api\/chat\/(?:interrupt|stop|close|archive)$/.test(url.pathname))
+      controls.push(url.pathname);
     const binding = {
       version: 2,
       account: localInventoryFixture().accounts[0].account,
       harness: { implementation: 'codex' },
-      execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+      execution: {
+        location,
+        targetId: location === 'local' ? 'mac' : 'sandbox',
+        targetRevision: 'target-r1',
+      },
     };
-    if (url.pathname === '/api/chat/local-codex/capabilities')
+    if (
+      url.pathname === '/api/chat/runtime/capabilities' ||
+      url.pathname === '/api/chat/local-codex/capabilities'
+    )
       return route.fulfill(
         gateOff
           ? { status: 503, json: { ok: false, code: 'entry_disabled', error: 'Unavailable' } }
-          : { json: localInventoryFixture() },
+          : {
+              json:
+                location === 'local' ? localInventoryFixture() : ordinaryRuntimeInventoryFixture(),
+            },
       );
-    if (url.pathname === '/api/chat/local-codex/send') {
-      const request = LocalCodexFirstCommandSchema.parse(route.request().postDataJSON());
+    if (
+      url.pathname === '/api/chat/local-codex/send' ||
+      url.pathname === '/api/chat/local-codex/continue' ||
+      url.pathname === '/api/chat/runtime/send' ||
+      url.pathname === '/api/chat/runtime/continue'
+    ) {
+      const request = (
+        url.pathname.endsWith('/continue')
+          ? OrdinaryCodexContinuationCommandSchema
+          : OrdinaryCodexFirstCommandSchema
+      ).parse(route.request().postDataJSON());
       requests.push(request);
       expect(route.request().headers()['x-connection-id']).toBe('local-offline-sse');
       await route.fulfill({
@@ -110,10 +143,11 @@ async function offline(page: Page, gateOff = false, restore = false) {
       expect(method).toBe('POST');
       expect(route.request().headers()['x-connection-id']).toBe('local-offline-sse');
       const selection = SwitchSessionMessage.strict().parse(route.request().postDataJSON());
-      expect(selection.sessionId).toBe(sessionId);
+      expect([sessionId, null]).toContain(selection.sessionId);
+      attachments.push(selection.sessionId);
       return route.fulfill({ json: { ok: true } });
     }
-    if (url.pathname === '/api/chat/send') {
+    if (url.pathname === '/api/chat/send' || url.pathname.endsWith('/selection')) {
       forbidden.push(url.pathname);
       return route.fulfill({ status: 409, json: { error: 'Legacy route prohibited in fixture' } });
     }
@@ -155,7 +189,8 @@ async function offline(page: Page, gateOff = false, restore = false) {
           sessionType: 'chat',
           mode: 'agent',
           runtimeBinding: binding,
-          runtimeCommandScope: 'first-command-only',
+          runtimeCommandScope: continuation ? 'conversation' : 'first-command-only',
+          repositoryWorkspaceId: preparationId,
           agentProfile: localInventoryFixture().agentProfiles[0],
           accountBinding: {
             ...binding.account,
@@ -226,7 +261,7 @@ async function offline(page: Page, gateOff = false, restore = false) {
       return route.fulfill({ status: 404, body: '' });
     }
   });
-  return { requests, forbidden, errors };
+  return { requests, forbidden, errors, attachments, controls };
 }
 async function emitLocalState(page: Page, state: 'running' | 'idle') {
   await page.evaluate(
@@ -480,6 +515,106 @@ test('Local first command: oversized complete command retains its image and enab
   );
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
   expect(fixture.requests).toEqual([]);
+  expect(fixture.forbidden).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('Local conversation: future thinking and queued command retain independent snapshots', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offline(page, false, false, true);
+  if (testInfo.project.name.startsWith('mobile'))
+    await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/chat/${sessionId}`);
+  await expect(page.getByText('Run on: Local Mac · fixed for this conversation')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Account' })).toBeDisabled();
+  await expect(page.getByText('Runs with Codex')).toBeVisible();
+  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('high');
+  await page.getByRole('button', { name: 'Use these conversation choices' }).click();
+  await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('First follow-up');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await expect.poll(() => fixture.requests.length).toBe(1);
+  await emitLocalState(page, 'running');
+  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('low');
+  await page.getByRole('button', { name: 'Use these conversation choices' }).click();
+  await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Queued follow-up');
+  await page.getByRole('button', { name: 'Queue message', exact: true }).click();
+  await expect.poll(() => fixture.requests.length).toBe(2);
+  expect(fixture.requests).toMatchObject([
+    { sessionId, selection: { thinking: 'high' }, payload: { text: 'First follow-up' } },
+    { sessionId, selection: { thinking: 'low' }, payload: { text: 'Queued follow-up' } },
+  ]);
+  await page.screenshot({
+    path: testInfo.outputPath('local-conversation-settings.png'),
+    fullPage: true,
+  });
+  expect(fixture.forbidden).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('OpenShell conversation: default route starts and continues without legacy settings writes', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offline(page, false, false, true, 'openshell');
+  if (testInfo.project.name.startsWith('mobile'))
+    await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/chat');
+  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('openshell:sandbox');
+  await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
+  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('low');
+  await page
+    .getByRole('combobox', { name: 'Agent', exact: true })
+    .selectOption(JSON.stringify(['saved', 'agent', 1]));
+  await expect(page.getByText('Runs with Codex')).toBeVisible();
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
+  ).not.toHaveCount(0);
+  await page.getByRole('button', { name: 'Use these OpenShell choices' }).click();
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
+  ).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add repository' }).click();
+  await page
+    .getByRole('combobox', { name: 'GitHub repository' })
+    .selectOption('github:owner/repository');
+  await page.getByRole('button', { name: 'Preview repository' }).click();
+  await page.getByRole('button', { name: 'Prepare repository' }).click();
+  await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Inspect OpenShell checkout');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await expect(page.getByText('Run on: OpenShell · fixed for this conversation')).toBeVisible();
+  await expect.poll(() => fixture.requests.length).toBe(1);
+  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('high');
+  await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Continue in this checkout');
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Queue message', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Queue message', exact: true }).click();
+  await expect.poll(() => fixture.requests.length).toBe(2);
+  expect(fixture.requests).toMatchObject([
+    { runOn: 'openshell', capabilityRevision: 'sandbox-caps-r1', selection: { thinking: 'low' } },
+    {
+      runOn: 'openshell',
+      sessionId,
+      capabilityRevision: 'sandbox-caps-r1',
+      selection: { thinking: 'high' },
+    },
+  ]);
+  await page.getByRole('button', { name: 'New session on Local Mac' }).click();
+  await expect.poll(() => fixture.attachments.at(-1)).toBe(null);
+  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('local:mac');
+  await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
+    'personal',
+  );
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  expect(fixture.controls).toEqual([]);
+  expect(fixture.requests).toHaveLength(2);
+  await page.screenshot({
+    path: testInfo.outputPath('openshell-new-session-elsewhere.png'),
+    fullPage: true,
+  });
   expect(fixture.forbidden).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

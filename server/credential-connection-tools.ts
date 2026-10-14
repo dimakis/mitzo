@@ -62,6 +62,7 @@ export function createCredentialConnectionTools(
   sessionId: string,
   approve: Approve,
   stillAllowed: (tool: string, method?: string) => boolean,
+  assertRuntimeCurrent?: () => Promise<void>,
 ) {
   const pending = new Map<string, Promise<{ content: string; isError: boolean }>>();
   const requestAccess = async (connectionId: string, signal: AbortSignal) => {
@@ -212,6 +213,12 @@ export function createCredentialConnectionTools(
                   : { responseMatch: input.responseMatch }),
               })
             : undefined;
+        if (assertRuntimeCurrent && (websocket || dashboard))
+          return {
+            content:
+              'This host helper is unavailable for an owned runtime until each WebSocket frame has final authority verification.',
+            isError: true,
+          };
         if (websocket) websocketRequestTarget(service.connection(connectionId));
         if (dashboard)
           dashboardRequestTarget(service.connection(connectionId), dashboard.operation);
@@ -270,8 +277,13 @@ export function createCredentialConnectionTools(
           );
           return { content, isError: false };
         }
-        const response = await service.request(sessionId, connectionId, request!, signal, () =>
-          stillAllowed(name, request!.method),
+        const response = await service.request(
+          sessionId,
+          connectionId,
+          request!,
+          signal,
+          () => stillAllowed(name, request!.method),
+          ...(assertRuntimeCurrent ? [assertRuntimeCurrent] : []),
         );
         return { content: JSON.stringify(response), isError: false };
       } catch (error) {

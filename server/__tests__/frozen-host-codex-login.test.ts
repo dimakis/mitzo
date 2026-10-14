@@ -189,3 +189,23 @@ it('attributes retained custody to the admitted bootstrap ID and never adopts it
     }),
   ).toThrow('Host Codex login unavailable');
 });
+
+it('reopens the original retained home from custody evidence and rejects substituted files', async () => {
+  const f = fixture();
+  const login = FrozenHostCodexLogin.capture(f.profile, { privateRoot: f.privateRoot });
+  const snapshot = login.custodySnapshot();
+  const lease = await login.connect(() => f.client);
+  writeFileSync(join(login.privateHome, 'retained-history'), 'original thread');
+  lease.close();
+  const reopened = FrozenHostCodexLogin.reopen(f.profile, snapshot);
+  expect(reopened.privateHome).toBe(login.privateHome);
+  expect(readFileSync(join(reopened.privateHome, 'retained-history'), 'utf8')).toBe(
+    'original thread',
+  );
+  await reopened.connect(() => ({ ...f.client, close: vi.fn() }));
+  renameSync(join(login.privateHome, 'auth.json'), join(login.privateHome, 'old-auth'));
+  writeFileSync(join(login.privateHome, 'auth.json'), auth, { mode: 0o600 });
+  expect(() => FrozenHostCodexLogin.reopen(f.profile, snapshot)).toThrow(
+    'Host Codex login unavailable',
+  );
+});

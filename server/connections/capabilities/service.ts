@@ -295,15 +295,17 @@ export class CapabilityService {
     accountId: string,
     conversationId: string,
     signal: AbortSignal,
+    assertRuntimeCurrent?: () => Promise<void>,
   ): Promise<CapabilityOperation[]> {
     return trackCapabilityOperation(this.options.store, () =>
-      this.recoverOwnedConversation(accountId, conversationId, signal),
+      this.recoverOwnedConversation(accountId, conversationId, signal, assertRuntimeCurrent),
     );
   }
   private async recoverOwnedConversation(
     accountId: string,
     conversationId: string,
     signal: AbortSignal,
+    assertRuntimeCurrent?: () => Promise<void>,
   ): Promise<CapabilityOperation[]> {
     const recovered: CapabilityOperation[] = [];
     for (const operation of this.options.store.pendingRecovery()) {
@@ -319,7 +321,8 @@ export class CapabilityService {
         operation.capabilityId,
         operation.capabilityVersion,
       );
-      if (template) recovered.push(await this.reconcile(template, operation, signal));
+      if (template)
+        recovered.push(await this.reconcile(template, operation, signal, assertRuntimeCurrent));
     }
     return recovered;
   }
@@ -355,15 +358,17 @@ export class CapabilityService {
     request: CapabilityRequest,
     signal: AbortSignal,
     approve: CapabilityApproval = this.options.approve,
+    assertRuntimeCurrent?: () => Promise<void>,
   ): Promise<CapabilityOperation> {
     return trackCapabilityOperation(this.options.store, () =>
-      this.invokeOwned(request, signal, approve),
+      this.invokeOwned(request, signal, approve, assertRuntimeCurrent),
     );
   }
   private async invokeOwned(
     request: CapabilityRequest,
     signal: AbortSignal,
     approve: CapabilityApproval,
+    assertRuntimeCurrent?: () => Promise<void>,
   ): Promise<CapabilityOperation> {
     signal.throwIfAborted();
     const template = this.options.getTemplate(request.capabilityId, request.capabilityVersion);
@@ -415,7 +420,7 @@ export class CapabilityService {
     // execute a second mutation.
     if (!begun.created) {
       if (this.inFlight.has(begun.operation.id)) return begun.operation;
-      return this.reconcile(template, begun.operation, signal);
+      return this.reconcile(template, begun.operation, signal, assertRuntimeCurrent);
     }
     let operation = begun.operation;
     this.inFlight.set(operation.id, null);
@@ -425,8 +430,17 @@ export class CapabilityService {
       // action card. Persist that exact projection and recovery lookup before
       // the human approval boundary so neither a restart nor a later execute
       // can silently widen what was approved.
+      if (assertRuntimeCurrent) await assertRuntimeCurrent();
+      signal.throwIfAborted();
       if (executor.preflight) {
-        const preflight = await executor.preflight({ operation, input, signal });
+        const preflight = await executor.preflight({
+          operation,
+          input,
+          signal,
+          ...(assertRuntimeCurrent ? { assertRuntimeCurrent } : {}),
+        });
+        if (assertRuntimeCurrent) await assertRuntimeCurrent();
+        signal.throwIfAborted();
         const approvalInput = persistedApprovalProjection(preflight.approvalInput);
         if (!approvalInput) throw new Error('Capability preflight is invalid');
         operation = this.options.store.recordPreflight(operation.id, {
@@ -456,6 +470,8 @@ export class CapabilityService {
         return this.options.store.transition(operation.id, 'pending_approval', 'denied', {
           failureCode: 'DENIED',
         });
+      if (assertRuntimeCurrent) await assertRuntimeCurrent();
+      signal.throwIfAborted();
       operation = this.options.store.transition(operation.id, 'pending_approval', 'running');
       // Re-read authoritative lifecycle state after the approval boundary.
       const current = this.options.getConnection(connection.id);
@@ -491,12 +507,15 @@ export class CapabilityService {
       // Mark dispatch before the executor call. A remote provider can commit a
       // mutation and then throw/timeout before responding; from this point
       // onward the only safe path is read-after-write recovery.
+      if (assertRuntimeCurrent) await assertRuntimeCurrent();
+      signal.throwIfAborted();
       operation = this.options.store.transition(operation.id, 'running', 'verification_pending');
       const executed = await executor.execute({
         operation,
         input,
         approvalInput: persistedApprovalProjection(operation.approvalInput),
         signal,
+        ...(assertRuntimeCurrent ? { assertRuntimeCurrent } : {}),
       });
       const sensitive = Object.values(input).filter(
         (value): value is string => typeof value === 'string',
@@ -518,9 +537,12 @@ export class CapabilityService {
           input,
           approvalInput: persistedApprovalProjection(operation.approvalInput),
           signal,
+          ...(assertRuntimeCurrent ? { assertRuntimeCurrent } : {}),
         },
         executed,
       );
+      if (assertRuntimeCurrent) await assertRuntimeCurrent();
+      signal.throwIfAborted();
       return this.options.store.transition(operation.id, 'verification_pending', 'succeeded', {
         result: output,
         externalResultId: executed.externalResultId,
@@ -545,14 +567,17 @@ export class CapabilityService {
     template: CapabilityTemplate,
     operation: CapabilityOperation,
     signal: AbortSignal,
+    assertRuntimeCurrent?: () => Promise<void>,
   ): Promise<CapabilityOperation> {
     if (operation.status === 'verification_pending')
-      return this.recover(template, operation, signal);
+      return this.recover(template, operation, signal, assertRuntimeCurrent);
     if (operation.status !== 'pending_approval' && operation.status !== 'running') return operation;
     // `verification_pending` is persisted immediately before execute(). These
     // prior states prove no provider mutation was dispatched, so a process
     // restart cancels rather than guessing an approval or replaying a write.
     try {
+      if (assertRuntimeCurrent) await assertRuntimeCurrent();
+      signal.throwIfAborted();
       return this.options.store.transition(operation.id, operation.status, 'cancelled', {
         failureCode: 'RECOVERY_CANCELLED',
       });
@@ -564,13 +589,16 @@ export class CapabilityService {
     template: CapabilityTemplate,
     operation: CapabilityOperation,
     signal: AbortSignal,
+    assertRuntimeCurrent?: () => Promise<void>,
   ): Promise<CapabilityOperation> {
     if (this.inFlight.has(operation.id)) {
       const existing = this.inFlight.get(operation.id);
       return existing ? await existing : (this.options.store.get(operation.id) ?? operation);
     }
     // Claim synchronously before any recovery executor can observe transient authority.
-    const work = Promise.resolve().then(() => this.recoverOwned(template, operation, signal));
+    const work = Promise.resolve().then(() =>
+      this.recoverOwned(template, operation, signal, assertRuntimeCurrent),
+    );
     this.inFlight.set(operation.id, work);
     try {
       return await work;
@@ -582,6 +610,7 @@ export class CapabilityService {
     template: CapabilityTemplate,
     operation: CapabilityOperation,
     signal: AbortSignal,
+    assertRuntimeCurrent?: () => Promise<void>,
   ): Promise<CapabilityOperation> {
     // A rollout can encounter records produced by a newer/older executable
     // registry. Leave them durable and ambiguous until a compatible executor
@@ -590,7 +619,12 @@ export class CapabilityService {
     try {
       signal.throwIfAborted();
       const executor = this.options.executorRegistry.resolve(template);
-      const recovered = await executor.recover(operation, signal);
+      if (assertRuntimeCurrent) await assertRuntimeCurrent();
+      signal.throwIfAborted();
+      const recovered = assertRuntimeCurrent
+        ? await executor.recover(operation, signal, assertRuntimeCurrent)
+        : await executor.recover(operation, signal);
+      if (assertRuntimeCurrent) await assertRuntimeCurrent();
       signal.throwIfAborted();
       this.options.beforeRecoveryPersist?.(operation);
       if (recovered?.outcome === 'definitively-not-applied') {

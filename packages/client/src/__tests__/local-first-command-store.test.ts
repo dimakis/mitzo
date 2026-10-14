@@ -894,3 +894,46 @@ it.each(['session_id', 'user_message'])(
     expect(store.getState().sessions.active).toBe('retained-local');
   },
 );
+
+it('admits same-session continuation through its frozen outbox without assigning another launch', async () => {
+  const { store, fetch } = setup();
+  channel.id = 'live-sse';
+  expect(store.getState().sendLocalFirstCommand(request)).toBe(true);
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+  const continuation = {
+    ...structuredClone(request),
+    clientMsgId: 'second-command',
+    sessionId: 'owned-session',
+  };
+  continuation.selection.thinking = 'high';
+  fetch.mockImplementation(async (path) =>
+    path === '/local/continue'
+      ? new Response(
+          JSON.stringify({
+            ok: true,
+            clientMsgId: continuation.clientMsgId,
+            sessionId: continuation.sessionId,
+            dispatched: true,
+            state: 'consumed',
+          }),
+          { status: 202 },
+        )
+      : new Response('[]'),
+  );
+  const delivered = vi.fn();
+  const assigned = vi.fn();
+  expect(store.getState().sendLocalFirstCommand({ ...continuation, sessionId: 'foreign' })).toBe(
+    false,
+  );
+  expect(
+    store
+      .getState()
+      .sendLocalFirstCommand(continuation, { onDelivery: delivered, onSessionAssigned: assigned }),
+  ).toBe(true);
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+  expect(assigned).not.toHaveBeenCalled();
+  expect(store.getState().sessions.active).toBe('owned-session');
+  const call = fetch.mock.calls.find(([url]) => url === '/local/continue')!;
+  expect(JSON.parse(call[1].body)).toEqual(continuation);
+  expect(channel.send.mock.calls.some(([body]) => body.type === 'send')).toBe(false);
+});

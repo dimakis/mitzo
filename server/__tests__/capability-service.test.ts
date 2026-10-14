@@ -743,3 +743,52 @@ it.each(['approval', 'execution'])(
     expect(f.execute).toHaveBeenCalledOnce();
   },
 );
+
+it('refreshes retained runtime authority after approval before the executor dispatches', async () => {
+  const f = await fixture();
+  let revoked = false;
+  const assertRuntimeCurrent = vi.fn(async () => {
+    if (revoked) throw Error('runtime owner revoked');
+  });
+  f.approve.mockImplementation(async () => {
+    revoked = true;
+    return true;
+  });
+  const result = await f.service.invoke(
+    request(),
+    new AbortController().signal,
+    f.approve,
+    assertRuntimeCurrent,
+  );
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(result.status).toBe('failed');
+  expect(f.store.get(result.id)?.status).toBe('failed');
+  f.store.close();
+});
+
+it('preserves durable recovery uncertainty when the original runtime revokes during verification', async () => {
+  const f = await fixture();
+  f.execute.mockRejectedValueOnce(Error('ambiguous provider outcome'));
+  const original = await f.service.invoke(request(), new AbortController().signal);
+  expect(original.status).toBe('verification_pending');
+  let revoked = false;
+  const guard = async () => {
+    if (revoked) throw Error('runtime owner revoked');
+  };
+  f.recover.mockImplementation(async (_operation, _signal, current) => {
+    expect(current).toBe(guard);
+    await current!();
+    revoked = true;
+    return { outcome: 'verified' };
+  });
+  const recovered = await f.service.recoverPendingForConversation(
+    'account-1',
+    'conversation-1',
+    new AbortController().signal,
+    guard,
+  );
+  expect(recovered[0].status).toBe('verification_pending');
+  expect(f.store.get(original.id)?.status).toBe('verification_pending');
+  expect(f.execute).toHaveBeenCalledTimes(1);
+  f.store.close();
+});
