@@ -271,7 +271,7 @@ async function offline(page: Page, sessions: unknown[] = []) {
   };
 }
 async function agentSettings(page: Page) {
-  const toggle = page.getByRole('button', { name: /^Agent settings,/ });
+  const toggle = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
 }
 

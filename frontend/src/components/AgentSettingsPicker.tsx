@@ -274,3 +274,29 @@ export function AgentSettingsPicker({
     </div>
   );
 }
+
+/** The one mounted field set inside the top conversation disclosure. */
+export function AgentSettingsFields({
+  agent,
+  accountModel,
+  execution,
+  details,
+}: {
+  agent: ReactNode;
+  accountModel: ReactNode;
+  execution: ReactNode;
+  details?: ReactNode;
+}) {
+  return (
+    <div className="agent-settings-picker">
+      <div className="agent-settings-panel agent-settings-panel--embedded">
+        <div className="agent-settings-body agent-settings-scroll">
+          <div className="agent-settings-agent">{agent}</div>
+          <div className="agent-settings-account-model">{accountModel}</div>
+          {execution}
+          {details}
+        </div>
+      </div>
+    </div>
+  );
+}

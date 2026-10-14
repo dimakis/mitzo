@@ -274,7 +274,7 @@ async function motionKinds(page: Page) {
 }
 
 async function openAgentSettings(page: Page) {
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
 }
@@ -2207,7 +2207,7 @@ async function exerciseBriefingReloadRecovery(
     'href',
     `/briefings/${binding.date}?revision=${binding.revision}`,
   );
-  const workspace = page.getByRole('button', { name: /^Agent settings,/ });
+  const workspace = page.getByRole('button', { name: /^Workspace controls,/ });
   async function openWorkspace() {
     await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
     await expect(workspace).toBeVisible();
@@ -2324,12 +2324,12 @@ test('reviewed launches let users dismiss Agent settings and reach Send at a sho
     document.documentElement.dataset.accent = 'teal';
   });
   await openAgentSettings(page);
-  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   await expect(settings).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
     'luna-fixture',
   );
-  await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+  await page.getByRole('button', { name: /^Workspace controls,/ }).click();
   await expect(settings).toHaveAttribute('aria-expanded', 'false');
   await expect(settings).toBeFocused();
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeHidden();

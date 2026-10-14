@@ -261,3 +261,28 @@ describe('ChatInput command strip', () => {
     expect(textarea?.value).toBe('/');
   });
 });
+
+it('leaves the phone keyboard closed on entry, including a restored draft', () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: true,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callback(0);
+    return 1;
+  });
+  try {
+    render(
+      <ChatInput
+        onSend={noop}
+        onStop={noopVoid}
+        running={false}
+        initialText="Restored mobile draft"
+      />,
+    );
+    expect(document.activeElement).not.toBe(screen.getByRole('textbox'));
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

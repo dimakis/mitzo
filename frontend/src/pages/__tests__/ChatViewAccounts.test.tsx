@@ -9,7 +9,7 @@ import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 
 function openAgentSettings() {
-  const trigger = screen.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = screen.getByRole('button', { name: /^Workspace controls,/ });
   if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
 }
 async function confirmAccount(accountId: string) {
@@ -576,7 +576,7 @@ it('clears a failed unassigned turn when a fresh chat route opens', async () => 
   expect(store.getState().modeChangeReady).toBe(true);
 });
 
-it('keeps ordinary account settings in one composer panel and permission controls in Workspace', async () => {
+it('keeps account and permission controls in one top panel with no composer picker', async () => {
   localStorage.removeItem('mitzo-workspace-controls-expanded');
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
@@ -600,12 +600,14 @@ it('keeps ordinary account settings in one composer panel and permission control
   expect(within(panel).getByRole('combobox', { name: 'Model' })).toBeTruthy();
   expect(screen.getAllByRole('region', { name: 'Agent settings' })).toHaveLength(1);
   const advanced = screen.getByTestId('web-search-connection');
-  expect(advanced.closest('[hidden]')).toBeTruthy();
-  fireEvent.click(workspace);
-  expect(advanced.closest('[hidden]')).toBeNull();
+  expect(advanced.closest('details')?.open).toBe(false);
+  fireEvent.click(screen.getByText('More options'));
+  expect(advanced.closest('details')?.open).toBe(true);
   expect(
     within(workspace.parentElement!.parentElement!).queryByRole('combobox', { name: 'Account' }),
-  ).toBeNull();
+  ).toBeTruthy();
+  expect(panel.closest('.chat-input')).toBeNull();
+  expect(document.querySelector('.chat-input .agent-settings-picker')).toBeNull();
   expect(screen.getByRole('button', { name: 'Agent' })).toBeTruthy();
 });
 
@@ -658,7 +660,7 @@ it('shows conversation history loading explicitly', async () => {
   expect(screen.queryByText('Loading conversation…')).toBeNull();
 });
 
-it('shows the profile, model and thinking in the collapsed composer Agent settings summary', async () => {
+it('shows the profile, model and thinking in the collapsed top chat settings summary', async () => {
   localStorage.removeItem('mitzo-workspace-controls-expanded');
   const catalog = [
     {
@@ -683,11 +685,11 @@ it('shows the profile, model and thinking in the collapsed composer Agent settin
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
-  const toggle = screen.getByRole('button', { name: /^Agent settings,/ });
+  const toggle = screen.getByRole('button', { name: /^Workspace controls,/ });
   await waitFor(() =>
     expect(toggle.getAttribute('aria-label')).toContain('Work Vertex, Luna, Thinking: high'),
   );
-  expect(toggle.querySelector('strong')).toBeTruthy();
+  expect(toggle.querySelector('.workspace-controls-profile')).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });

@@ -366,7 +366,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   releaseCatalog!();
   await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
   await page.goto('/chat');
-  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
   const profilePicker = page.getByRole('combobox', { name: 'Agent', exact: true });

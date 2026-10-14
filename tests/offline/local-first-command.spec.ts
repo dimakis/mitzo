@@ -280,7 +280,7 @@ async function emitLocalState(page: Page, state: 'running' | 'idle') {
 }
 
 async function openAgentSettings(page: Page) {
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
 }
@@ -404,7 +404,7 @@ for (const appearance of ['light', 'dark'] as const) {
         .getByRole('region', { name: 'Agent settings', exact: true })
         .getByRole('combobox', { name: 'Agent', exact: true }),
     ).toHaveCount(0);
-    await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+    await page.getByRole('button', { name: /^Workspace controls,/ }).click();
     await emitLocalState(page, 'running');
     await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Keep this follow-up draft');
     await page.getByRole('textbox', { name: 'Message Mitzo' }).press('Enter');
@@ -452,13 +452,9 @@ test('Local first command: restored Local remains visible and blocked with gate 
     page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
   ).toBeDisabled();
   await assertSettingsGeometry(page);
-  await page.getByRole('button', { name: 'Close agent settings', exact: true }).focus();
-  await expect(
-    page.getByRole('button', { name: 'Close agent settings', exact: true }),
-  ).toBeFocused();
-  await expect(
-    page.getByRole('button', { name: 'Close agent settings', exact: true }),
-  ).toBeInViewport();
+  await page.getByRole('button', { name: /^Workspace controls,/ }).focus();
+  await expect(page.getByRole('button', { name: /^Workspace controls,/ })).toBeFocused();
+  await expect(page.getByRole('button', { name: /^Workspace controls,/ })).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath('local-restored-disabled.png'),
     fullPage: true,
@@ -618,7 +614,7 @@ test('Bound Agent settings keeps Close and Done reachable with a long draft in s
       `Retain planning line ${index + 1} while reviewing the original bound session settings.`,
   ).join('\n');
   await input.fill(draft);
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
   for (const [width, height] of [
     [390, 844],
@@ -643,7 +639,7 @@ test('Bound Agent settings keeps Close and Done reachable with a long draft in s
       await control.scrollIntoViewIfNeeded();
       await expect(control).toBeInViewport();
       const contained = await control.evaluate((element) => {
-        const body = element.closest<HTMLElement>('.agent-settings-scroll')!;
+        const body = element.closest<HTMLElement>('[role="region"]')!;
         const style = getComputedStyle(body);
         const viewport = body.getBoundingClientRect();
         const field = element.getBoundingClientRect();
@@ -775,7 +771,7 @@ test('OpenShell conversation: default route starts and continues without legacy 
       .getByRole('status')
       .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
   ).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+  await page.getByRole('button', { name: /^Workspace controls,/ }).click();
   await page.getByRole('button', { name: 'Add repository' }).click();
   await page
     .getByRole('combobox', { name: 'GitHub repository' })

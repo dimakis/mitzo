@@ -1,17 +1,25 @@
 import { useMotionPresence } from '../hooks/useMotionPresence';
-import { useEffect, useLayoutEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { UiIcon } from './UiIcon';
 import type { WorkspaceSummary } from '../types/workspace';
-
-const STORAGE_KEY = 'mitzo-workspace-controls-expanded';
 
 export function WorkspaceControls({
   children,
   actions,
   status,
   summary,
+  agent,
+  settings,
+  onDone,
+  reviewDisabled = false,
+  scopeKey,
   attention = false,
 }: {
+  agent?: string;
+  settings?: ReactNode;
+  onDone?: () => void;
+  reviewDisabled?: boolean;
+  scopeKey?: string;
   attention?: boolean;
   children: ReactNode;
   actions?: ReactNode;
@@ -19,17 +27,32 @@ export function WorkspaceControls({
   summary?: WorkspaceSummary | null;
 }) {
   const id = useId();
-  const [expanded, setExpanded] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const [reviewExpanded, setReviewExpanded] = useState(attention);
-  useEffect(() => setReviewExpanded(attention), [attention]);
-  const open = expanded || reviewExpanded;
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => setOpen(false), [scopeKey]);
   const { ref, present } = useMotionPresence(open, 'disclosure', false);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (
+        !event.composedPath().includes(triggerRef.current!) &&
+        !event.composedPath().includes(ref.current!)
+      )
+        setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      // Nested dialogs and popovers get first refusal of Escape.
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      setOpen(false);
+      triggerRef.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open, ref]);
   useLayoutEffect(() => {
     const panel = ref.current;
     const owner = panel?.parentElement;
@@ -110,9 +133,13 @@ export function WorkspaceControls({
     <section className="workspace-controls">
       <div className="workspace-controls-heading">
         <button
+          ref={triggerRef}
+          type="button"
           className="workspace-controls-toggle"
+          data-attention={attention || undefined}
           aria-label={[
             'Workspace controls',
+            agent,
             summary?.profile,
             summary?.model,
             summary?.thinking,
@@ -123,24 +150,16 @@ export function WorkspaceControls({
           aria-describedby={`${id}-status`}
           aria-expanded={open}
           aria-controls={id}
-          onClick={() => {
-            const next = !open;
-            setReviewExpanded(false);
-            setExpanded(next);
-            try {
-              localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
-            } catch {
-              /* optional preference */
-            }
-          }}
+          onClick={() => setOpen(!open)}
         >
-          <UiIcon name="settings" />
+          <UiIcon name={agent ? 'bot' : 'settings'} />
           <span className="workspace-controls-summary">
             {summary ? (
               <>
-                <span className="workspace-controls-profile">{summary.profile}</span>
-                {(summary.model || summary.thinking) && (
+                <span className="workspace-controls-profile">{agent ?? summary.profile}</span>
+                {(agent || summary.model || summary.thinking) && (
                   <span className="workspace-controls-details">
+                    {agent && <span>{summary.profile}</span>}
                     {summary.model && <span>{summary.model}</span>}
                     {summary.location && (
                       <span>{summary.location === 'local' ? 'Local' : 'OpenShell'}</span>
@@ -164,11 +183,51 @@ export function WorkspaceControls({
         id={id}
         ref={ref}
         className="motion-disclosure"
+        role={settings ? 'region' : undefined}
+        aria-label={settings ? 'Agent settings' : undefined}
         hidden={!present}
         inert={!open}
         aria-hidden={!open || undefined}
       >
-        {children}
+        {settings && (
+          <div className="agent-settings-header">
+            <strong>Chat settings</strong>
+            <button
+              type="button"
+              aria-label="Close agent settings"
+              onClick={() => {
+                setOpen(false);
+                triggerRef.current?.focus({ preventScroll: true });
+              }}
+            >
+              <UiIcon name="close" />
+            </button>
+          </div>
+        )}
+        {settings}
+        {settings ? (
+          <details className="workspace-controls-options">
+            <summary>More options</summary>
+            {children}
+          </details>
+        ) : (
+          children
+        )}
+        {(settings || onDone) && (
+          <div className="workspace-controls-footer">
+            <button
+              type="button"
+              disabled={reviewDisabled}
+              onClick={() => {
+                onDone?.();
+                setOpen(false);
+                triggerRef.current?.focus({ preventScroll: true });
+              }}
+            >
+              Done <UiIcon name="check" />
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );

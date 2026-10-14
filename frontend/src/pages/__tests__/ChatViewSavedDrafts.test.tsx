@@ -16,7 +16,7 @@ import {
 import type { AccountSelection } from '../../components/AccountModelPicker';
 
 function openAgentSettings() {
-  const settings = screen.getByRole('button', { name: /^Agent settings,/ });
+  const settings = screen.getByRole('button', { name: /^Workspace controls,/ });
   if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
 }
 
@@ -95,9 +95,6 @@ vi.mock('../../components/SymposiumConversation', () => ({
   SymposiumConversation: ({ ordinaryComposer }: { ordinaryComposer: React.ReactNode }) => (
     <>{ordinaryComposer}</>
   ),
-}));
-vi.mock('../../components/WorkspaceControls', () => ({
-  WorkspaceControls: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ center, left }: { center: React.ReactNode; left: React.ReactNode }) => (

@@ -192,7 +192,7 @@ test('Access: empty ordinary composer survives Connections and return', async ({
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: isMobile ? 640 : 800 });
   const errors = await fixture(page);
   await page.goto('/chat');
-  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
   await page
@@ -331,7 +331,7 @@ test('Ordinary legacy Agent settings keeps Model and Thinking paired while savin
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   const draft = 'Retain this unsent draft while reviewing the billing alias';
   await input.fill(draft);
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
   await expect(panel).toBeVisible();

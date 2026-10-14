@@ -113,6 +113,7 @@
   max-width: 100%;
   min-width: 0;
   min-height: var(--control-height);
+  height: max(var(--control-height), calc(1.5em + var(--space-4)));
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -259,4 +260,20 @@
   .account-model-settings-pair {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Top disclosure owns height and scrolling; fields never resize the composer. */
+.agent-settings-panel--embedded {
+  margin: 0;
+  min-height: 0;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  overflow: visible;
+}
+.agent-settings-panel--embedded .agent-settings-scroll {
+  overflow: visible;
+  padding: var(--space-4);
 }
