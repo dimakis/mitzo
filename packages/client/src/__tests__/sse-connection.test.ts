@@ -418,6 +418,53 @@ describe('SseConnection', () => {
     conn.disconnect();
   });
 
+  it('confirms reconnect snapshots without waiting for a stalled event ACK', async () => {
+    let resolveEventAck!: (response: Response) => void;
+    const fetch = vi.fn((url: RequestInfo | URL) => {
+      if (String(url).endsWith('/session-event-applied'))
+        return new Promise<Response>((resolve) => {
+          resolveEventAck = resolve;
+        });
+      return Promise.resolve(Response.json({ applied: true }));
+    });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn(() => true);
+    conn.onMessage(listener);
+    try {
+      conn.connect();
+      const es = lastES();
+      es._emit('welcome', { connectionId: 'conn-1' });
+      conn.commitTranscriptCursor('other-session', 3);
+      await vi.waitFor(() => expect(resolveEventAck).toBeDefined());
+      es._emit('message', {
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 5,
+        offerId: 'offer-1',
+      });
+      es._emit('message', {
+        type: 'block_delta',
+        sessionId: 'sess-1',
+        seq: 6,
+        prevSessionSeq: 5,
+        delta: 'live',
+      });
+      expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ seq: 6 }));
+      conn.acknowledgeReconnectSnapshot('sess-1', 5, 'offer-1');
+      await vi.waitFor(() =>
+        expect(fetch).toHaveBeenCalledWith(
+          expect.stringContaining('/reconnect-snapshot-applied'),
+          expect.anything(),
+        ),
+      );
+      await vi.waitFor(() => expect(conn.getLastSeq('sess-1')).toBe(6));
+      expect(listener).toHaveBeenCalledWith(expect.objectContaining({ seq: 6, delta: 'live' }));
+      resolveEventAck(Response.json({ applied: true }));
+    } finally {
+      conn.disconnect();
+    }
+  });
+
   it('drains buffered events only after the applied snapshot POST confirms the offer', async () => {
     let resolveAck!: (value: Response) => void;
     const fetch = vi.fn(

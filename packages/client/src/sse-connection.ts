@@ -286,24 +286,22 @@ export class SseConnection implements ChatConnection {
   private sendSnapshotAck(body: Record<string, unknown>): Promise<boolean> {
     const connectionId = this._connectionId;
     if (!connectionId) return Promise.resolve(false);
-    const pending = this.appliedAckChain
-      .then(async () => {
-        if (this._connectionId !== connectionId) return false;
-        const applied = await this.postConnectionRequest(
-          'reconnect-snapshot-applied',
-          body,
-          connectionId,
-          async (response) => {
-            if (!response.ok) return false;
-            const result = (await response.json()) as { applied?: unknown };
-            return result.applied === true;
-          },
-        );
-        return applied && this._connectionId === connectionId;
-      })
+    // A snapshot is an authoritative prefix, fenced by its exact offer and
+    // connection. The server rejects event ACKs while that offer is pending
+    // and ignores older sequence numbers after confirmation. Waiting behind
+    // unrelated event ACKs adds their network latency to foreground recovery.
+    return this.postConnectionRequest(
+      'reconnect-snapshot-applied',
+      body,
+      connectionId,
+      async (response) => {
+        if (!response.ok) return false;
+        const result = (await response.json()) as { applied?: unknown };
+        return result.applied === true;
+      },
+    )
+      .then((applied) => applied && this._connectionId === connectionId)
       .catch(() => false);
-    this.appliedAckChain = pending;
-    return pending;
   }
 
   private async postConnectionRequest<T>(
