@@ -166,3 +166,7 @@ qualify live runtime behavior nor mark the broader feature complete.
 Approved picker integration checkpoint
 
 Signed source121 preserves the two reviewed UI deltas and all 300 original source keys, adding only the shared AgentSettings source/CSS and UiIcon to the 303-artifact closure. Trusted route model labels appear in summary and details while canonical model IDs remain in frozen requests; missing/retired catalogue entries retain their original ID. Long agent names wrap without hiding the choice. The affected UI batch passed 489 tests; the integrated owner/composer/design batch passed 151 tests including 106 design checks. The final display delta passed 34 focused checks, scoped types, lint, hooks and browser discovery. These overlapping runs are not additive totals. Fresh final-head hosted rendering, screenshot inspection, independent review and source acceptance remain pending.
+
+Accepted transport integration checkpoint
+
+PR #932 was accepted at c125be291ffa3e7a5b541ea68643ef93646a43f8 with reviewed and accepted tree 510d7d48794c57a791240f350cb974073573b126. Its owner cancelled only its newly queued/unclaimed HTTP-readiness receipt without dispatch. This candidate retains its four outbox/SSE/Codex transport modules byte-for-byte, all 303 source keys and the complete signed feature history under source122. Rendered corrections and fresh successor-head CI, visual inspection and independent source acceptance remain pending.
