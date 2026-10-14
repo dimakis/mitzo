@@ -161,6 +161,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   }, []);
 
   const star = useCallback(async (id: string) => {
+    const actionUrl = urlRef.current;
     // Read current starred state from the ref before toggling,
     // so rapid clicks always see the latest state (avoids stale closure).
     const currentItem = dataRef.current ? findInTree(dataRef.current.items, id) : undefined;
@@ -175,13 +176,17 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     });
 
     try {
-      await apiFetch(`/api/todos/${id}/action`, {
+      const response = await apiFetch(`/api/todos/${id}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
+      if (!response.ok) throw Error('Star change rejected');
     } catch {
-      // Optimistic update stays; next refresh will reconcile
+      // A lost response may follow a completed write. Keep the visible state
+      // uncertain until an explicit refresh reconciles it; never replay a write.
+      if (urlRef.current === actionUrl)
+        setError('Couldn’t confirm this change. Refresh to check its status.');
     }
   }, []);
 
@@ -196,11 +201,11 @@ export function useTodoData(profile?: string): UseTodoDataResult {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (res.ok) {
-          refresh();
-        }
+        if (!res.ok) throw Error('Creation rejected');
+        refresh();
       } catch {
-        // Network error
+        // The form already retains its fields when onCreate rejects.
+        throw Error('Couldn’t confirm creation. Refresh to check its status.');
       }
     },
     [refresh],
