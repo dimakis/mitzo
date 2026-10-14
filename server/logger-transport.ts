@@ -4,7 +4,10 @@ import type { DestinationStream } from 'pino';
 interface LogTransport extends DestinationStream {
   on(event: 'error', listener: (error: unknown) => void): unknown;
 }
-type FallbackWrite = (line: string, done: () => void) => void;
+type FallbackWrite = (
+  line: string,
+  done: (error?: Error | null, bytesWritten?: number) => void,
+) => void;
 const MAX_FALLBACK_BYTES = 64 * 1024;
 
 /** Operational logs must not terminate active sessions if a worker/disk fails.
@@ -14,42 +17,70 @@ const MAX_FALLBACK_BYTES = 64 * 1024;
 export function resilientLogDestination(
   transport: LogTransport,
   fallback: FallbackWrite = (line, done) => {
-    write(2, line, () => done());
+    write(2, line, (error, bytesWritten) => done(error, bytesWritten));
   },
 ): DestinationStream {
   let failed = false;
   let writing = false;
   let pending = '';
   let dropped = 0;
+  let failedWrites = 0;
+  let lostBytes = 0;
+  const add = (value: number, increment: number) =>
+    Math.min(Number.MAX_SAFE_INTEGER, value + increment);
 
   function flush() {
-    if (writing || (!pending && !dropped)) return;
-    const loss = dropped
-      ? JSON.stringify({
-          level: 40,
-          module: 'logger',
-          msg: 'Operational log fallback overflow',
-          dropped,
-        }) + '\n'
-      : '';
+    if (writing || (!pending && !dropped && !failedWrites)) return;
+    const previousLoss = { dropped, failedWrites, lostBytes };
+    const loss =
+      dropped || failedWrites
+        ? JSON.stringify({
+            level: 40,
+            module: 'logger',
+            msg: 'Operational log fallback loss',
+            dropped,
+            failedWrites,
+            lostBytes,
+          }) + '\n'
+        : '';
     const chunk = loss + pending;
     pending = '';
     dropped = 0;
+    failedWrites = 0;
+    lostBytes = 0;
     writing = true;
-    try {
-      fallback(chunk, () => {
-        writing = false;
-        flush();
-      });
-    } catch {
+    let completed = false;
+    const done = (error?: Error | null, bytesWritten?: number) => {
+      if (completed) return;
+      completed = true;
       writing = false;
-      // A broken fallback cannot report its own failure recursively.
+      const length = Buffer.byteLength(chunk);
+      const written =
+        bytesWritten === undefined && !error
+          ? length
+          : Math.max(0, Math.min(length, bytesWritten ?? 0));
+      if (error || written < length) {
+        dropped = add(dropped, previousLoss.dropped);
+        failedWrites = add(failedWrites, previousLoss.failedWrites + 1);
+        lostBytes = add(lostBytes, previousLoss.lostBytes + length - written);
+        // Retry only on a subsequent log, not recursively against a full disk.
+        return;
+      }
+      flush();
+    };
+    try {
+      fallback(chunk, done);
+    } catch {
+      done(new Error('Fallback write failed'));
     }
   }
 
   function enqueue(line: string) {
     if (Buffer.byteLength(pending) + Buffer.byteLength(line) <= MAX_FALLBACK_BYTES) pending += line;
-    else dropped++;
+    else {
+      dropped = add(dropped, 1);
+      lostBytes = add(lostBytes, Buffer.byteLength(line));
+    }
     flush();
   }
 

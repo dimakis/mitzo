@@ -1500,7 +1500,9 @@ checkPort(PORT).then(async (inUse) => {
   }
 
   server.listen(PORT, BIND_HOST, () => {
-    stopRuntimePerformanceMonitor = startRuntimePerformanceMonitor((message, fields) => log.warn(message, fields));
+    stopRuntimePerformanceMonitor = startRuntimePerformanceMonitor((message, fields) =>
+      log.warn(message, fields),
+    );
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
 
