@@ -6,6 +6,7 @@ import {
   useCallback,
   useImperativeHandle,
   type RefObject,
+  type ReactNode,
   type KeyboardEvent,
   type ChangeEvent,
 } from 'react';
@@ -40,6 +41,8 @@ export interface ChatInputDraftControl {
 }
 
 interface Props {
+  settings?: ReactNode;
+  sendLabel?: string;
   onSend: (
     text: string,
     images?: ImageAttachment[],
@@ -88,6 +91,8 @@ interface Props {
 const EMPTY_MESSAGES: FinishedMessage[] = [];
 
 export function ChatInput({
+  settings,
+  sendLabel = 'Send message',
   onSend,
   onStop,
   onInterrupt,
@@ -853,6 +858,7 @@ export function ChatInput({
           placeholder={running ? 'Type to queue or interrupt...' : 'Message Mitzo...'}
           rows={1}
         />
+        {settings}
         <div className="composer-toolbar">
           <div
             className="chat-input-command-strip"
@@ -953,12 +959,13 @@ export function ChatInput({
               </>
             ) : (
               <button
-                className="chat-input-btn chat-input-btn--send"
+                className={`chat-input-btn chat-input-btn--send${sendLabel === 'Start session' ? ' chat-input-btn--start' : ''}`}
                 onClick={handleSend}
-                aria-label="Send message"
+                aria-label={sendLabel}
                 disabled={!canSend || !!sendDisabledReason}
               >
                 <UiIcon name="send" />
+                {sendLabel === 'Start session' && <span>{sendLabel}</span>}
               </button>
             )}
           </div>

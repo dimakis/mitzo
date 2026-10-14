@@ -1,19 +1,24 @@
 import { selectedRuntimeRoute } from '../lib/chat-runtime-route';
 import { Link, useNavigate } from 'react-router-dom';
 import { createChatDraft, saveChatDraft } from '../lib/chat-drafts';
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { UiIcon } from './UiIcon';
+import './AgentSettingsPicker.css';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
 import './ChatAgentProfilePicker.css';
 export function ChatExecutionPicker({
   runtime,
   disabled = false,
   executionLocked = false,
+  presentation = 'default',
 }: {
   runtime: ReturnType<typeof useExplicitLocalChat>;
   disabled?: boolean;
   executionLocked?: boolean;
+  presentation?: 'default' | 'settings';
 }) {
   const navigate = useNavigate();
+  const descriptionId = useId();
   const [draftError, setDraftError] = useState('');
   const startElsewhere = () => {
     const draft = createChatDraft();
@@ -57,6 +62,83 @@ export function ChatExecutionPicker({
         </button>
       </div>
     );
+  if (presentation === 'settings') {
+    const selected = runtime.bound
+      ? runtime.binding?.execution.location
+      : runtime.intent.execution.location;
+    return (
+      <div className="agent-execution-settings">
+        <div className="agent-execution-heading">
+          <strong>Run on</strong>
+          <span>{runtime.bound ? 'Fixed for this conversation' : 'Default: OpenShell'}</span>
+        </div>
+        <div role="group" aria-label="Run on" className="agent-execution-cards">
+          {(['openshell', 'local'] as const).map((location) => (
+            <button
+              key={location}
+              type="button"
+              className="agent-execution-card"
+              aria-label={location === 'local' ? 'Local Mac' : 'OpenShell'}
+              aria-pressed={selected === location}
+              aria-describedby={`${descriptionId}-${location}`}
+              disabled={disabled || executionLocked || runtime.bound || !runtime.inventory}
+              onClick={() =>
+                runtime.update({
+                  ...runtime.intent,
+                  execution: { location, targetId: null },
+                  capabilityRevision: null,
+                })
+              }
+            >
+              <span className="agent-execution-card-heading">
+                <UiIcon name={location === 'local' ? 'laptop' : 'box'} />
+                <strong>{location === 'local' ? 'Local Mac' : 'OpenShell'}</strong>
+                {selected === location && <UiIcon name="check" />}
+              </span>
+              <span id={`${descriptionId}-${location}`} className="agent-execution-description">
+                {location === 'local'
+                  ? 'Run tools on this Mac.'
+                  : 'Run tools in an isolated sandbox.'}
+              </span>
+            </button>
+          ))}
+        </div>
+        {software && (
+          <span className="agent-execution-software">
+            <UiIcon name="terminal" />
+            Runs with {software}
+          </span>
+        )}
+        {runtime.error && (
+          <>
+            <span role="alert">{runtime.error}</span>
+            <button type="button" disabled={disabled} onClick={runtime.refresh}>
+              Retry execution choices
+            </button>
+          </>
+        )}
+        {runtime.reason && <p role="status">{runtime.reason}</p>}
+        {runtime.nativeConstraint?.reason && <p>{runtime.nativeConstraint.reason}</p>}
+        {runtime.bound && (
+          <>
+            <button
+              type="button"
+              disabled={!runtime.intent.account || !runtime.intent.agentProfile}
+              onClick={startElsewhere}
+            >
+              New session on{' '}
+              {runtime.binding?.execution.location === 'openshell' ? 'Local Mac' : 'OpenShell'}
+            </button>
+            <span>
+              Starts a separate conversation and checkout using the same agent and account. Prepare
+              its repository before sending.
+            </span>
+            {draftError && <span role="alert">{draftError}</span>}
+          </>
+        )}
+      </div>
+    );
+  }
   if (runtime.bound)
     return (
       <div className="chat-agent-profile">

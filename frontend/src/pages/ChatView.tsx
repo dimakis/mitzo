@@ -4,6 +4,7 @@ import {
   selectedRuntimeRoute,
 } from '../lib/chat-runtime-route';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
+import { AgentSettingsPicker } from '../components/AgentSettingsPicker';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
 import {
   buildLocalFirstCommand,
@@ -171,14 +172,28 @@ export function ChatView() {
     summaryForSession?.sessionId === (activeSessionId ?? newChatDraft.draft.id)
       ? summaryForSession.summary
       : null;
+  const [sessionTypeForScope, setSessionTypeForScope] = useState<{
+    scope: string;
+    type: 'chat' | 'symposium';
+  } | null>(null);
+  const currentSettingsScope = activeSessionId ?? newChatDraft.draft.id;
+  const trustedSessionType =
+    (!sessionId || sessionId === activeSessionId) &&
+    sessionTypeForScope?.scope === currentSettingsScope
+      ? sessionTypeForScope.type
+      : undefined;
   const setWorkspaceSummary = useCallback(
     (summary: WorkspaceSummary | null) => {
-      setSummaryForSession({ sessionId: activeSessionId ?? newChatDraft.draft.id, summary });
+      const scope = activeSessionId ?? newChatDraft.draft.id;
+      setSummaryForSession({ sessionId: scope, summary });
+      // A loading picker can clear its display summary, but cannot revoke the
+      // current session's authoritative classification while moving surfaces.
+      if (summary?.sessionType) setSessionTypeForScope({ scope, type: summary.sessionType });
     },
     [activeSessionId, newChatDraft.draft.id],
   );
-  const isSymposium = workspaceSummary?.sessionType === 'symposium';
-  const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
+  const isSymposium = trustedSessionType === 'symposium';
+  const ordinaryControls = !activeSessionId || trustedSessionType === 'chat';
   const accountScope = !sessionId && !activeSessionId ? newChatDraft.draft.id : activeSessionId;
   const [accountChoice, setAccountChoice] = useState<{
     scope: string | null;
@@ -736,8 +751,198 @@ export function ChatView() {
     ? repositoryHandoff.preparation?.prompt
     : searchParams.get('prompt') || undefined;
 
+  const [agentLabel, setAgentLabel] = useState<string | undefined>(undefined);
+  const accountModelControl =
+    !repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
+      <AccountModelPicker
+        presentation="settings"
+        controlled={
+          explicitNew || localRuntime.continuation
+            ? {
+                accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
+                accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
+                selection: localRuntime.intent.account,
+                onAccountChange: (selection) =>
+                  localRuntime.update(
+                    {
+                      ...localRuntime.intent,
+                      account: selection,
+                      capabilityRevision: null,
+                    },
+                    true,
+                  ),
+                onChange: (selection) =>
+                  localRuntime.update({
+                    ...localRuntime.intent,
+                    account: selection,
+                    capabilityRevision: null,
+                  }),
+              }
+            : undefined
+        }
+        key={`${chatDraftRevision}:${newChatDraft.draft.id}`}
+        initialSelection={
+          draftEnabled ? (newChatDraft.draft.settings.selection ?? undefined) : undefined
+        }
+        lockAccount={localBound || preparedExecutionLocked}
+        lockAccountModel={draftEnabled && preparedExecutionLocked && !preparedModelEditable}
+        requiredSelection={
+          !activeSessionId && repositoryHandoff.preparation && !preparedModelEditable
+            ? {
+                accountId: repositoryHandoff.preparation.accountId,
+                model: repositoryHandoff.preparation.model,
+              }
+            : !activeSessionId
+              ? launch?.accountSelection
+              : undefined
+        }
+        disabled={
+          (messages.running && !localRuntime.continuation) ||
+          controlsBlocked ||
+          repositoryHandoff.loading ||
+          briefingChat.selectionLocked
+        }
+        sessionId={activeSessionId}
+        preferredModel={modelState}
+        onDraftSelectionChange={draftEnabled ? saveStagedAccount : undefined}
+        onChange={selectAccount}
+        onSessionHydrated={hydrateAccount}
+        onSummaryChange={setWorkspaceSummary}
+      />
+    ) : (
+      <span>Waiting for repository preparation…</span>
+    );
+  const agentControl = (
+    <ChatAgentProfilePicker
+      label="Agent"
+      onLabelChange={setAgentLabel}
+      controlled={
+        explicitNew || localRuntime.continuation
+          ? {
+              versions: localRuntime.inventory?.agentProfiles ?? [],
+              selection: localRuntime.intent.agentProfile,
+              onChange: (agentProfile) =>
+                localRuntime.update({
+                  ...localRuntime.intent,
+                  agentProfile,
+                  capabilityRevision: null,
+                }),
+            }
+          : undefined
+      }
+      key={`agent-profile:${chatDraftRevision}`}
+      sessionId={activeSessionId}
+      search={searchParams.toString()}
+      onChange={onAgentProfileChange}
+      disabled={messages.running || controlsBlocked || localBound}
+    />
+  );
+  const executionControl = (
+    <ChatExecutionPicker
+      presentation="settings"
+      executionLocked={preparedExecutionLocked}
+      runtime={localRuntime}
+      disabled={
+        (messages.running && !localRuntime.continuation) ||
+        (!!localCommand && localCommand.state !== 'consumed')
+      }
+    />
+  );
+  const agentHarness = localRuntime.bound
+    ? localRuntime.binding?.harness.implementation
+    : selectedRuntimeRoute(localRuntime.intent, localRuntime.inventory)?.harness;
+  const agentSoftware =
+    agentHarness === 'codex'
+      ? 'Codex'
+      : agentHarness === 'responses'
+        ? 'Mitzo Responses'
+        : agentHarness === 'claude-sdk'
+          ? 'Claude'
+          : agentHarness === 'gemini'
+            ? 'Gemini'
+            : undefined;
+  const settings = !isSymposium ? (
+    <AgentSettingsPicker
+      summary={{
+        agent: agentLabel ?? 'Unavailable agent',
+        account:
+          explicitNew || localRuntime.continuation
+            ? (localRuntime.inventory?.accounts.find(
+                (item) => item.account.accountId === localRuntime.intent.account?.accountId,
+              )?.label ?? (localRuntime.intent.account ? 'Unavailable account' : 'Choose account'))
+            : workspaceSummary?.profile,
+        model:
+          explicitNew || localRuntime.continuation
+            ? localRuntime.intent.account?.model
+            : workspaceSummary?.model,
+        thinking:
+          explicitNew || localRuntime.continuation
+            ? (localRuntime.intent.account?.reasoningEffort ?? undefined)
+            : workspaceSummary?.thinking,
+        location:
+          explicitNew || localRuntime.continuation
+            ? localRuntime.intent.execution.location
+            : workspaceSummary?.location,
+      }}
+      agent={agentControl}
+      accountModel={accountModelControl}
+      execution={executionControl}
+      details={
+        activeSessionId ? (
+          <details className="composer-session-details">
+            <summary>Session details</summary>
+            <dl>
+              <dt>Account</dt>
+              <dd>
+                {localRuntime.bound
+                  ? (localRuntime.inventory?.accounts.find(
+                      (item) => item.account.accountId === localRuntime.intent.account?.accountId,
+                    )?.label ?? 'Unavailable')
+                  : (workspaceSummary?.profile ?? 'Unavailable')}
+              </dd>
+              <dt>Agent</dt>
+              <dd>{agentLabel ?? 'Unavailable'}</dd>
+              <dt>Model</dt>
+              <dd>
+                {localRuntime.intent.account?.model ?? workspaceSummary?.model ?? 'Unavailable'}
+              </dd>
+              <dt>Thinking level</dt>
+              <dd>
+                {localRuntime.bound
+                  ? (localRuntime.intent.account?.reasoningEffort ?? 'Unavailable')
+                  : (workspaceSummary?.thinking ?? 'Unavailable')}
+              </dd>
+              <dt>Run on</dt>
+              <dd>
+                {(explicitNew || localRuntime.continuation
+                  ? localRuntime.intent.execution.location
+                  : workspaceSummary?.location) === 'local'
+                  ? 'Local Mac'
+                  : (explicitNew || localRuntime.continuation
+                        ? localRuntime.intent.execution.location
+                        : workspaceSummary?.location) === 'openshell'
+                    ? 'OpenShell'
+                    : 'Unavailable'}
+              </dd>
+              <dt>Agent software</dt>
+              <dd>{agentSoftware ?? 'Unavailable'}</dd>
+              <dt>Workspace</dt>
+              <dd>{localRuntime.repositoryWorkspaceId ?? messages.wtId ?? 'Unavailable'}</dd>
+              <dt>Branch</dt>
+              <dd>{messages.branch || 'Unavailable'}</dd>
+            </dl>
+          </details>
+        ) : undefined
+      }
+      attention={!!localRuntime.reason}
+      onDone={explicitNew || localRuntime.continuation ? localRuntime.review : undefined}
+    />
+  ) : undefined;
+
   return (
-    <div className={`chat-page workspace-chat${keyboardOpen ? ' keyboard-open' : ''}`}>
+    <div
+      className={`chat-page workspace-chat${!activeSessionId ? ' chat-page--new' : ''}${keyboardOpen ? ' keyboard-open' : ''}`}
+    >
       <div className="chat-mobile-topbar">
         <div className="conversation-heading">
           <Link to="/sessions" aria-label="Back to chats">
@@ -823,93 +1028,9 @@ export function ChatView() {
           }
         >
           <div className="chat-account-bar">
-            {!repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
-              <AccountModelPicker
-                controlled={
-                  explicitNew || localRuntime.continuation
-                    ? {
-                        accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
-                        accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
-                        selection: localRuntime.intent.account,
-                        onAccountChange: (selection) =>
-                          localRuntime.update(
-                            {
-                              ...localRuntime.intent,
-                              account: selection,
-                              capabilityRevision: null,
-                            },
-                            true,
-                          ),
-                        onChange: (selection) =>
-                          localRuntime.update({
-                            ...localRuntime.intent,
-                            account: selection,
-                            capabilityRevision: null,
-                          }),
-                      }
-                    : undefined
-                }
-                key={`${chatDraftRevision}:${newChatDraft.draft.id}`}
-                initialSelection={
-                  draftEnabled ? (newChatDraft.draft.settings.selection ?? undefined) : undefined
-                }
-                lockAccount={localBound || preparedExecutionLocked}
-                lockAccountModel={draftEnabled && preparedExecutionLocked && !preparedModelEditable}
-                requiredSelection={
-                  !activeSessionId && repositoryHandoff.preparation && !preparedModelEditable
-                    ? {
-                        accountId: repositoryHandoff.preparation.accountId,
-                        model: repositoryHandoff.preparation.model,
-                      }
-                    : !activeSessionId
-                      ? launch?.accountSelection
-                      : undefined
-                }
-                disabled={
-                  (messages.running && !localRuntime.continuation) ||
-                  controlsBlocked ||
-                  repositoryHandoff.loading ||
-                  briefingChat.selectionLocked
-                }
-                sessionId={activeSessionId}
-                preferredModel={modelState}
-                onDraftSelectionChange={draftEnabled ? saveStagedAccount : undefined}
-                onChange={selectAccount}
-                onSessionHydrated={hydrateAccount}
-                onSummaryChange={setWorkspaceSummary}
-              />
-            ) : (
-              <span>Waiting for repository preparation…</span>
-            )}
-            <ChatAgentProfilePicker
-              controlled={
-                explicitNew || localRuntime.continuation
-                  ? {
-                      versions: localRuntime.inventory?.agentProfiles ?? [],
-                      selection: localRuntime.intent.agentProfile,
-                      onChange: (agentProfile) =>
-                        localRuntime.update({
-                          ...localRuntime.intent,
-                          agentProfile,
-                          capabilityRevision: null,
-                        }),
-                    }
-                  : undefined
-              }
-              key={`agent-profile:${chatDraftRevision}`}
-              sessionId={activeSessionId}
-              search={searchParams.toString()}
-              onChange={onAgentProfileChange}
-              disabled={messages.running || controlsBlocked || localBound}
-            />
-            <ChatExecutionPicker
-              executionLocked={preparedExecutionLocked}
-              runtime={localRuntime}
-              disabled={
-                (messages.running && !localRuntime.continuation) ||
-                (!!localCommand && localCommand.state !== 'consumed')
-              }
-            />
+            {isSymposium && accountModelControl}
+            {isSymposium && agentControl}
+            {isSymposium && executionControl}
             {localCommand && (
               <div className="chat-agent-profile" role="status">
                 <span>
@@ -972,11 +1093,11 @@ export function ChatView() {
                   onChange={handleModeChange}
                   disabled={controlsBlocked || localBound || modeChangeReady === false}
                 />
-                {activeSessionId && (
+                {activeSessionId && !controlsBlocked && (
                   <button
                     className="session-close-btn"
                     onClick={() => {
-                      if (ordinaryControls) storeCloseSession();
+                      if (ordinaryControls && !controlsBlocked) storeCloseSession();
                     }}
                     title="Close session"
                   >
@@ -1063,9 +1184,16 @@ export function ChatView() {
         </div>
       )}
       <SymposiumConversation
+        ordinaryConfirmed={
+          (!sessionId || sessionId === activeSessionId) &&
+          !isSymposium &&
+          (localRuntime.bound || trustedSessionType === 'chat')
+        }
+        ordinaryExcluded={isSymposium}
+        pendingSettings={settings}
         profileToolsTarget={profileToolsTarget}
         readOnly={controlsBlocked || localBound}
-        sessionId={activeSessionId}
+        sessionId={sessionId ?? activeSessionId}
         chat={{
           sessionId: sessionId || activeSessionId || undefined,
           messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,
@@ -1081,7 +1209,14 @@ export function ChatView() {
           voice,
         }}
         ordinaryComposer={
-          <>
+          <div
+            className={`conversation-composer${!activeSessionId ? ' conversation-composer--new' : ''}`}
+          >
+            {!activeSessionId && !briefingChat.isBriefing && (
+              <div className="composer-start-heading">
+                <h2>What are we working on?</h2>
+              </div>
+            )}
             <RepositoryChatDraftNotice handoff={repositoryHandoff} />
             {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
             {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
@@ -1098,7 +1233,7 @@ export function ChatView() {
             {launch && !repositoryHandoff.present && (
               <div role="status" className="chat-account-bar">
                 <p>
-                  Which account and model should handle this task? Check Workspace above, then send.
+                  Which account and model should handle this task? Check Agent settings, then send.
                 </p>
                 <details className="chat-launch-prompt">
                   <summary>Review launch prompt</summary>
@@ -1164,6 +1299,8 @@ export function ChatView() {
               )}
             {!controlsBlocked && <CodexQueueStatus sessionId={activeSessionId} />}
             <ChatInput
+              settings={settings}
+              sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
               boundedFirstCommand={localFirstCommand || controlsBlocked}
               guardedConversation={localRuntime.continuation}
               validateSend={
@@ -1254,7 +1391,7 @@ export function ChatView() {
               bootContext={bootContext}
               sessionContext={sessionContext}
             />
-          </>
+          </div>
         }
       />
     </div>

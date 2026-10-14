@@ -39,6 +39,55 @@ const noop = () => true;
 const noopVoid = () => {};
 
 describe('ChatInput command strip', () => {
+  it('keeps agent settings between the message and toolbar without changing the draft', () => {
+    const { container, rerender } = render(
+      <ChatInput
+        onSend={noop}
+        onStop={noopVoid}
+        running={false}
+        initialText="Keep this draft"
+        settings={<button>Agent settings</button>}
+      />,
+    );
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+    const settings = screen.getByRole('button', { name: 'Agent settings' });
+    const row = container.querySelector('.chat-input-row')!;
+    expect(settings.closest('.chat-input-row')).toBe(row);
+    expect(input.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      settings.compareDocumentPosition(container.querySelector('.composer-toolbar')!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.change(input, { target: { value: 'Edited draft' } });
+    rerender(
+      <ChatInput
+        onSend={noop}
+        onStop={noopVoid}
+        running
+        settings={<button>Agent settings</button>}
+      />,
+    );
+    expect(input.value).toBe('Edited draft');
+    expect(screen.getAllByRole('button', { name: 'Agent settings' })).toHaveLength(1);
+  });
+
+  it('names a new conversation action without changing normal message sends', () => {
+    const onSend = vi.fn(() => true);
+    const { rerender } = render(
+      <ChatInput
+        onSend={onSend}
+        onStop={noopVoid}
+        running={false}
+        initialText="Start the work"
+        sendLabel="Start session"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
+    expect(onSend).toHaveBeenCalledTimes(1);
+    rerender(<ChatInput onSend={onSend} onStop={noopVoid} running={false} />);
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy();
+  });
+
   it('keeps Session with the controls, including while its resources are open', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     const session = screen.getByRole('button', { name: 'Open session tray' });

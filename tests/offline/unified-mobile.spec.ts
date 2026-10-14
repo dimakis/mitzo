@@ -273,6 +273,12 @@ async function motionKinds(page: Page) {
   );
 }
 
+async function openAgentSettings(page: Page) {
+  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+  await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+}
+
 test('motion: navigation keeps layout and input stable across push and back', async ({
   page,
 }, testInfo) => {
@@ -2047,7 +2053,7 @@ async function exerciseBriefingReloadRecovery(
     'href',
     `/briefings/${binding.date}?revision=${binding.revision}`,
   );
-  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  const workspace = page.getByRole('button', { name: /^Agent settings,/ });
   async function openWorkspace() {
     await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
     await expect(workspace).toBeVisible();
@@ -2064,7 +2070,7 @@ async function exerciseBriefingReloadRecovery(
     binding.model,
   );
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
-  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toBeDisabled();
   await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
   expect(registrations).toEqual([binding]);
   // Confirm authoritative visibility before reusing a locally retained assignment.
@@ -2139,7 +2145,7 @@ for (const nativeMode of ['unready', 'lost-ack'] as const) {
   });
 }
 
-test('reviewed launches let users collapse Workspace and reach Send at a short viewport', async ({
+test('reviewed launches let users dismiss Agent settings and reach Send at a short viewport', async ({
   page,
   isMobile,
 }, testInfo) => {
@@ -2163,13 +2169,15 @@ test('reviewed launches let users collapse Workspace and reach Send at a short v
     document.documentElement.dataset.font = 'georgia';
     document.documentElement.dataset.accent = 'teal';
   });
-  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
-  await expect(workspace).toHaveAttribute('aria-expanded', 'true');
+  await openAgentSettings(page);
+  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  await expect(settings).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
     'luna-fixture',
   );
-  await workspace.click();
-  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+  await expect(settings).toHaveAttribute('aria-expanded', 'false');
+  await expect(settings).toBeFocused();
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeHidden();
   const send = page.getByRole('button', { name: 'Send launch prompt', exact: true });
   await send.scrollIntoViewIfNeeded();
@@ -2395,10 +2403,13 @@ test('failed briefing registration survives a completed turn and reload without 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       page.viewportSize()!.width,
     );
+    await openAgentSettings(page);
     const model = page.getByRole('combobox', { name: 'Model', exact: true });
     await expect(model).toHaveValue(binding.model);
     await expect(model).toBeDisabled();
-    await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toBeDisabled();
+    await expect(
+      page.getByRole('combobox', { name: 'Thinking level', exact: true }),
+    ).toBeDisabled();
     await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
   }
   await retained();
@@ -2484,7 +2495,7 @@ test('failed briefing registration survives a completed turn and reload without 
     .selectOption(changedBinding.model);
   await changedPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
   await expect(page).toHaveURL(/\/chat$/);
-  // Larger text must not let the expanded Workspace overlay cover launch actions.
+  // Larger text must keep composer settings and launch actions reachable.
   if (isMobile)
     await page.evaluate(() => {
       document.documentElement.style.fontSize = '20px';
@@ -2580,12 +2591,13 @@ test('saved chat identity failures lock model controls until an explicit success
       await page.goto(`/chat/${sessionId}`);
       const retry = page.getByRole('button', { name: 'Retry briefing lookup', exact: true });
       await expect(retry).toBeVisible();
+      await openAgentSettings(page);
       const model = page.getByRole('combobox', { name: 'Model', exact: true });
       await expect(model).toBeVisible();
       await expect(model).toBeDisabled();
       await expect(model).toHaveValue('luna-fixture');
       await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
-      const thinking = page.getByRole('combobox', { name: 'Thinking', exact: true });
+      const thinking = page.getByRole('combobox', { name: 'Thinking level', exact: true });
       await expect(thinking).toBeDisabled();
       await expect(
         page.getByRole('button', { name: 'Change account or model', exact: true }),
@@ -2692,12 +2704,8 @@ test('builder launcher distinguishes built-in guidance from a saved profile with
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
     'Help me create an agent.',
   );
-  await page.getByRole('button', { name: /^Workspace controls/ }).click();
-  await expect(page.locator('.workspace-controls > .motion-disclosure')).not.toHaveAttribute(
-    'data-motion-active',
-    'true',
-  );
-  const picker = page.getByRole('combobox', { name: 'Agent profile', exact: true });
+  await openAgentSettings(page);
+  const picker = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(picker).toHaveValue(JSON.stringify(['builtin', 'mitzo-profile-builder', 1]));
   await expect(picker.getByRole('option', { name: /My saved builder/ })).toHaveCount(1);
   await picker.selectOption(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));

@@ -113,6 +113,12 @@ async function offlinePicker(
   return { forbidden, errors };
 }
 
+async function openAgentSettings(page: Page) {
+  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+  await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+}
+
 /** Fixture-only Google enrollment; no production catalogue or provider is consulted. */
 function mixedGoogleInventory() {
   const inventory = multiRuntimeInventoryFixture();
@@ -172,12 +178,15 @@ async function narrowMobileEvidence(
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
     selection.model,
   );
-  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toHaveValue(
+  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
     selection.thinking,
   );
-  await expect(page.getByRole('combobox', { name: 'Run on', exact: true })).toHaveValue(
-    selection.environment,
-  );
+  await expect(
+    page.getByRole('group', { name: 'Run on', exact: true }).getByRole('button', {
+      name: selection.environment === 'local' ? 'Local Mac' : 'OpenShell',
+      exact: true,
+    }),
+  ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(selection.draft);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`${stem}-320.png`), fullPage: true });
@@ -185,6 +194,248 @@ async function narrowMobileEvidence(
 }
 
 for (const appearance of ['light', 'dark'] as const) {
+  test(`Approved composer Agent settings structure, dismissal and bounded scrolling (${appearance})`, async ({
+    page,
+  }, testInfo) => {
+    const inventory = multiRuntimeInventoryFixture();
+    const draftId = `approved-picker-${appearance}`;
+    const image = {
+      data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4V0AAAAASUVORK5CYII=',
+      preview:
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4V0AAAAASUVORK5CYII=',
+      mediaType: 'image/png',
+    };
+    const account = { accountId: 'api', model: 'shell-model', reasoningEffort: 'high' };
+    const intent = {
+      version: 1,
+      account,
+      accountReference: inventory.accounts[1].account,
+      agentProfile: { profileId: 'agent', revision: 1 },
+      execution: { location: 'openshell', targetId: 'shell' },
+      capabilityRevision: inventory.capabilityRevision,
+    };
+    const fixture = await offlinePicker(page, appearance, { inventory });
+    await page.addInitScript(
+      ({ draftId, account, intent, image }) => {
+        localStorage.setItem(
+          `mitzo-chat-draft:${draftId}`,
+          JSON.stringify({
+            version: 1,
+            id: draftId,
+            text: 'Retain the approved composer draft',
+            images: [image],
+            contextBlocks: [],
+            updatedAt: Date.now(),
+            settings: {
+              selection: account,
+              runtimeSelection: intent,
+              retainRuntimeIntent: true,
+              repositoryWorkspaceId: null,
+              mode: 'agent',
+              isolation: true,
+              search: 'agentProfile=agent&profileRevision=1',
+              summary: null,
+            },
+          }),
+        );
+      },
+      { draftId, account, intent, image },
+    );
+    const mobile = testInfo.project.name.startsWith('mobile');
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/chat?draft=${draftId}&agentProfile=agent&profileRevision=1`);
+    await page.addStyleTag({ content: 'html { font-size: 20px; }' });
+    const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+    const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
+    const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await expect(
+      page.getByRole('heading', { name: 'What are we working on?', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeVisible();
+    await expect(trigger).toHaveCount(1);
+    // The visual summary must lead with the selected agent inside the actual composer.
+    await expect(trigger.locator('strong')).toHaveText('Repository helper');
+    await expect(trigger).toHaveAccessibleName(
+      /Agent settings, Repository helper, API billing, Shell model, High, OpenShell/,
+    );
+    expect(
+      await trigger.evaluate((element) =>
+        element
+          .closest('.chat-input, .desktop-input-area')
+          ?.contains(document.querySelector('[aria-label="Message Mitzo"]')),
+      ),
+    ).toBe(true);
+    await openAgentSettings(page);
+    await expect(panel).toHaveCount(1);
+    expect(
+      await panel.evaluate((element) => {
+        const owner = element.closest('.chat-input-row');
+        const textarea = owner?.querySelector('textarea');
+        const toolbar = owner?.querySelector('.composer-toolbar');
+        return Boolean(
+          textarea &&
+          toolbar &&
+          textarea.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING &&
+          element.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING,
+        );
+      }),
+    ).toBe(true);
+    await expect(panel.getByRole('combobox')).toHaveCount(4);
+    expect(
+      await panel
+        .getByRole('combobox')
+        .evaluateAll((controls) => controls.map((control) => control.getAttribute('aria-label'))),
+    ).toEqual(['Agent', 'Account', 'Model', 'Thinking level']);
+    await expect(
+      page.locator('.workspace-controls').getByRole('combobox', {
+        name: /^(Agent|Account|Model|Thinking level)$/,
+      }),
+    ).toHaveCount(0);
+    const modelFields = panel.locator('.agent-settings-account-model');
+    await expect(modelFields.getByRole('combobox', { name: 'Account', exact: true })).toHaveCount(
+      1,
+    );
+    await expect(modelFields.getByRole('combobox', { name: 'Model', exact: true })).toHaveCount(1);
+    await expect(
+      modelFields.getByRole('combobox', { name: 'Thinking level', exact: true }),
+    ).toHaveCount(1);
+    const runOn = panel.getByRole('group', { name: 'Run on', exact: true });
+    await expect(runOn.getByRole('button')).toHaveCount(2);
+    const openshell = runOn.getByRole('button', { name: 'OpenShell', exact: true });
+    const local = runOn.getByRole('button', { name: 'Local Mac', exact: true });
+    await expect(openshell).toHaveAttribute('aria-pressed', 'true');
+    await expect(local).toHaveAttribute('aria-pressed', 'false');
+    await expect(openshell).toHaveAccessibleDescription('Run tools in an isolated sandbox.');
+    await expect(local).toHaveAccessibleDescription('Run tools on this Mac.');
+    await expect(panel.getByText('Runs with Codex', { exact: true })).toBeVisible();
+    await expect(openshell.locator('svg')).toHaveCount(2);
+    await expect(local.locator('svg')).toHaveCount(1);
+    await expect(panel.getByRole('combobox', { name: 'Run on', exact: true })).toHaveCount(0);
+    await expect(
+      panel.getByRole('button', { name: 'Refresh execution choices', exact: true }),
+    ).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: /^Use these / })).toHaveCount(0);
+    for (const width of mobile ? [390, 320] : [1280]) {
+      await page.setViewportSize({ width, height: mobile ? (width === 320 ? 740 : 844) : 900 });
+      const bounds = (await panel.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.y).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+      const body = panel.locator('.agent-settings-body');
+      if (mobile) {
+        await expect
+          .poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
+          .toBe(true);
+        await local.scrollIntoViewIfNeeded();
+        await expect(local).toBeInViewport();
+      }
+      const modelBox = (await panel
+        .getByRole('combobox', { name: 'Model', exact: true })
+        .boundingBox())!;
+      const thinkingBox = (await panel
+        .getByRole('combobox', { name: 'Thinking level', exact: true })
+        .boundingBox())!;
+      const shellBox = (await openshell.boundingBox())!;
+      const localBox = (await local.boundingBox())!;
+      if (mobile) {
+        expect(thinkingBox.y).toBeGreaterThan(modelBox.y);
+      } else {
+        expect(Math.abs(thinkingBox.y - modelBox.y)).toBeLessThan(1);
+        expect(thinkingBox.x).toBeGreaterThan(modelBox.x);
+      }
+      if (width <= 380) {
+        expect(localBox.y).toBeGreaterThan(shellBox.y);
+      } else {
+        expect(Math.abs(localBox.y - shellBox.y)).toBeLessThan(1);
+        expect(localBox.x).toBeGreaterThan(shellBox.x);
+      }
+      for (const control of [openshell, local, trigger]) {
+        expect(Math.round((await control.boundingBox())!.height)).toBeGreaterThanOrEqual(44);
+      }
+      const done = panel.getByRole('button', { name: 'Done', exact: true });
+      await expect(done).toBeInViewport();
+      await expect(composer).toBeInViewport();
+      await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      expect(
+        await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches),
+      ).toBe(true);
+      expect(
+        await panel.evaluate(
+          (element) =>
+            element
+              .getAnimations({ subtree: true })
+              .filter((animation) => animation.playState === 'running').length,
+        ),
+      ).toBe(0);
+      await page.screenshot({
+        path: testInfo.outputPath(`local-approved-agent-settings-${appearance}-${width}.png`),
+        fullPage: true,
+      });
+    }
+    if (appearance === 'light') {
+      await page.evaluate(() => {
+        document.documentElement.dataset.accent = 'lavender';
+        document.documentElement.dataset.font = 'system';
+        document.documentElement.style.fontSize = '';
+      });
+      if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+      await expect(panel).toBeVisible();
+      await expect(composer).toBeInViewport();
+      await expect(panel.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
+      await page.screenshot({
+        path: testInfo.outputPath(
+          `local-approved-agent-settings-light-lavender-system-${mobile ? '390' : '1280'}.png`,
+        ),
+        fullPage: true,
+      });
+    }
+    const thinking = panel.getByRole('combobox', { name: 'Thinking level', exact: true });
+    await thinking.selectOption('low');
+    await thinking.focus();
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(composer).toHaveValue('Retain the approved composer draft');
+    await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toBeVisible();
+    await openAgentSettings(page);
+    await expect(thinking).toHaveValue('low');
+    await panel.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+    await expect(panel).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await openAgentSettings(page);
+    await panel.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(panel).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await openAgentSettings(page);
+    await expect(thinking).toHaveValue('low');
+    await panel.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+    await expect(trigger).toBeFocused();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (draftId) => JSON.parse(localStorage.getItem(`mitzo-chat-draft:${draftId}`)!),
+          draftId,
+        ),
+      )
+      .toMatchObject({
+        text: 'Retain the approved composer draft',
+        images: [image],
+        settings: {
+          runtimeSelection: {
+            accountReference: inventory.accounts[1].account,
+            account: { accountId: 'api', model: 'shell-model', reasoningEffort: 'low' },
+            execution: { location: 'openshell', targetId: 'shell' },
+          },
+        },
+      });
+    expect(fixture.forbidden).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
+
   test(`A prepared checkout retains its identity when the first-message model changes (${appearance})`, async ({
     page,
   }, testInfo) => {
@@ -261,15 +512,19 @@ for (const appearance of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/chat?draft=${draftId}&agentProfile=agent&profileRevision=1`);
     await page.addStyleTag({ content: 'html { font-size: 20px; }' });
+    await openAgentSettings(page);
     const account = page.getByRole('combobox', { name: 'Account', exact: true });
     const model = page.getByRole('combobox', { name: 'Model', exact: true });
-    const thinking = page.getByRole('combobox', { name: 'Thinking', exact: true });
-    const environment = page.getByRole('combobox', { name: 'Run on', exact: true });
+    const thinking = page.getByRole('combobox', { name: 'Thinking level', exact: true });
+    const environments = page.getByRole('group', { name: 'Run on', exact: true });
+    const local = environments.getByRole('button', { name: 'Local Mac', exact: true });
+    const openshell = environments.getByRole('button', { name: 'OpenShell', exact: true });
     const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
     await expect(account).toHaveValue('personal');
     await expect(account).toBeDisabled();
-    await expect(environment).toHaveValue('local');
-    await expect(environment).toBeDisabled();
+    await expect(local).toHaveAttribute('aria-pressed', 'true');
+    await expect(local).toBeDisabled();
+    await expect(openshell).toBeDisabled();
     await expect(model).toBeEnabled();
     await model.selectOption('supported-next');
     await expect(model).toHaveValue('supported-next');
@@ -277,7 +532,9 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(thinking).toHaveValue('high');
     await expect(composer).toHaveValue('Keep this prepared development draft');
     await expect(page.getByText('fixture/repository', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toBeEnabled();
     await expect
       .poll(() =>
         page.evaluate(
@@ -317,6 +574,7 @@ for (const appearance of ['light', 'dark'] as const) {
     });
     if (testInfo.project.name.startsWith('mobile')) {
       await page.setViewportSize({ width: 320, height: 740 });
+      await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
       const repository = page.getByRole('region', { name: 'Repository for new chat' });
       await expect(repository).toBeInViewport();
       await expect
@@ -331,8 +589,9 @@ for (const appearance of ['light', 'dark'] as const) {
       await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
       await expect(composer).toBeInViewport();
       await expect(
-        page.getByRole('button', { name: 'Send message', exact: true }),
+        page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
       ).toBeInViewport();
+      await openAgentSettings(page);
       await expect(model).toHaveValue('supported-next');
       await expect(thinking).toHaveValue('high');
       await expect(composer).toHaveValue('Keep this prepared development draft');
@@ -345,8 +604,11 @@ for (const appearance of ['light', 'dark'] as const) {
       });
     }
     await expect(account).toBeDisabled();
-    await expect(environment).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
+    await expect(local).toBeDisabled();
+    await expect(openshell).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toBeEnabled();
     await expect
       .poll(() =>
         page.evaluate(
@@ -407,13 +669,19 @@ for (const appearance of ['light', 'dark'] as const) {
     await page.goto(`/chat?draft=${confirmationDraftId}&agentProfile=agent&profileRevision=1`);
     // Exercise larger text without changing the application's shared token palette.
     await page.addStyleTag({ content: 'html { font-size: 20px; }' });
+    await openAgentSettings(page);
     const account = page.getByRole('combobox', { name: 'Account', exact: true });
     const model = page.getByRole('combobox', { name: 'Model', exact: true });
-    const thinking = page.getByRole('combobox', { name: 'Thinking', exact: true });
-    const environment = page.getByRole('combobox', { name: 'Run on', exact: true });
+    const thinking = page.getByRole('combobox', { name: 'Thinking level', exact: true });
+    const environments = page.getByRole('group', { name: 'Run on', exact: true });
+    const local = environments.getByRole('button', { name: 'Local Mac', exact: true });
+    const openshell = environments.getByRole('button', { name: 'OpenShell', exact: true });
     const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
-    await expect(environment).toHaveValue('openshell');
-    await expect(environment.locator('option')).toHaveText(['OpenShell', 'Local Mac']);
+    await expect(openshell).toHaveAttribute('aria-pressed', 'true');
+    await expect(environments.getByRole('button')).toHaveText([
+      /OpenShell.*Run tools in an isolated sandbox\./s,
+      /Local Mac.*Run tools on this Mac\./s,
+    ]);
     await expect(account.locator('option:checked')).toHaveText('Confirm account: API billing');
     await expect(account.locator('option:checked')).toHaveAttribute('disabled', '');
     await expect(account).not.toHaveValue('api');
@@ -452,7 +720,7 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(page.getByText('Runs with Codex', { exact: true })).toBeVisible();
     await expect(model.locator('option[value="local-model"]')).toHaveCount(0);
 
-    await environment.selectOption('local');
+    await local.click();
     await expect(page.getByText('Runs with Mitzo Responses', { exact: true })).toBeVisible();
     await expect(account).toHaveValue('api');
     await expect(model).toHaveValue('shell-model');
@@ -463,9 +731,11 @@ for (const appearance of ['light', 'dark'] as const) {
     );
     await expect(model.locator('option[value="local-model"]')).toHaveCount(1);
     await expect(composer).toHaveValue('Keep this development draft across environments');
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
-    await environment.focus();
-    await expect(environment).toBeFocused();
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toBeDisabled();
+    await local.focus();
+    await expect(local).toBeFocused();
     await page.screenshot({
       path: testInfo.outputPath(`local-multi-runtime-responses-${appearance}.png`),
       fullPage: true,
@@ -478,7 +748,9 @@ for (const appearance of ['light', 'dark'] as const) {
       draft: 'Keep this development draft across environments',
     });
     await expect(model.locator('option[value="shell-model"]')).toHaveAttribute('disabled', '');
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toBeDisabled();
 
     // Replacement is explicit; it must not discard an unsupported thinking choice.
     await model.selectOption('local-model');
@@ -493,15 +765,17 @@ for (const appearance of ['light', 'dark'] as const) {
     await model.selectOption('claude-model');
     await expect(thinking).toHaveValue('low');
     await thinking.selectOption('high');
-    await environment.selectOption('openshell');
+    await openshell.click();
     await expect(account).toHaveValue('vertex');
-    await expect(environment).toHaveValue('openshell');
+    await expect(openshell).toHaveAttribute('aria-pressed', 'true');
     await expect(model).toHaveValue('claude-model');
     await expect(thinking).toHaveValue('high');
     await expect(page.getByText(/^Runs with /)).toHaveCount(0);
     await expect(model.locator('option[value="shell-model"]')).toHaveCount(0);
     await expect(composer).toHaveValue('Keep this development draft across environments');
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toBeDisabled();
     await expect
       .poll(() =>
         page.evaluate(() => {
@@ -522,7 +796,7 @@ for (const appearance of ['light', 'dark'] as const) {
         account: { accountId: 'vertex', model: 'claude-model', reasoningEffort: 'high' },
         execution: { location: 'openshell', targetId: null },
       });
-    await page.getByRole('button', { name: 'Refresh execution choices' }).scrollIntoViewIfNeeded();
+    await page.getByRole('button', { name: 'Done', exact: true }).scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
     await expect(composer).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
@@ -545,9 +819,14 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(model).toHaveValue('claude-model');
     await expect(thinking).toHaveValue('high');
     await expect(page.getByText(/^Runs with /)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
-    await environment.selectOption('local');
-    await expect(environment.locator('option')).toHaveText(['OpenShell', 'Local Mac']);
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toBeDisabled();
+    await local.click();
+    await expect(environments.getByRole('button')).toHaveText([
+      /OpenShell.*Run tools in an isolated sandbox\./s,
+      /Local Mac.*Run tools on this Mac\./s,
+    ]);
     await expect(page.getByText('Runs with Gemini', { exact: true })).toBeVisible();
     await expect(account).toHaveValue('google');
     await expect(model).toHaveValue('claude-model');
@@ -599,13 +878,15 @@ for (const appearance of ['light', 'dark'] as const) {
       environment: 'local',
       draft: 'Keep this development draft across environments',
     });
-    await environment.selectOption('openshell');
+    await openshell.click();
     await expect(account).toHaveValue('google');
     await expect(model).toHaveValue('gemini-fixture');
     await expect(thinking).toHaveValue('low');
     await expect(page.getByText(/^Runs with /)).toHaveCount(0);
     await expect(model.locator('option[value="shell-model"]')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toBeDisabled();
     await expect
       .poll(() =>
         page.evaluate(() => {
@@ -626,7 +907,7 @@ for (const appearance of ['light', 'dark'] as const) {
         account: { accountId: 'google', model: 'gemini-fixture', reasoningEffort: 'low' },
         execution: { location: 'openshell', targetId: null },
       });
-    await page.getByRole('button', { name: 'Refresh execution choices' }).scrollIntoViewIfNeeded();
+    await page.getByRole('button', { name: 'Done', exact: true }).scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
     await expect(composer).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

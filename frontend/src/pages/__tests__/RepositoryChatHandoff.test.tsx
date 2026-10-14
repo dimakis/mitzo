@@ -12,6 +12,11 @@ import { DesktopChatView } from '../DesktopChatView';
 import { PREFERRED_MODEL_KEY } from '../../lib/model-preference';
 import { useDraft } from '../../hooks/useDraft';
 const api = vi.hoisted(() => ({ fetch: vi.fn(), realComposer: false }));
+function openAgentSettings() {
+  const trigger = screen.getByRole('button', { name: /^Agent settings,/ });
+  if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+}
+
 vi.mock('../../lib/api-fetch', async () => ({
   ...(await vi.importActual<typeof import('../../lib/api-fetch')>('../../lib/api-fetch')),
   apiFetch: api.fetch,
@@ -62,7 +67,9 @@ vi.mock('../../components/ChatInput', async () => {
     draftStorageKey,
     sessionId,
     draftControl,
+    settings,
   }: {
+    settings?: React.ReactNode;
     initialText?: string;
     onSend(text: string): boolean;
     sendDisabledReason?: string;
@@ -83,6 +90,7 @@ vi.mock('../../components/ChatInput', async () => {
           value={text}
           onChange={(event) => setText(event.target.value)}
         />
+        {settings}
         <span>{sendDisabledReason}</span>
         <button
           disabled={!!sendDisabledReason}
@@ -199,6 +207,7 @@ function fixture(View: typeof ChatView, active: string | null = null, realSend =
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
+  openAgentSettings();
   return { store, send, newSession, unmount: rendered.unmount };
 }
 afterEach(() => {
@@ -229,6 +238,7 @@ for (const [layout, View] of [
         (screen.getByRole('button', { name: 'Send task' }) as HTMLButtonElement).disabled,
       ).toBe(false),
     );
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Choose unavailable profile' }));
     fireEvent.click(screen.getByRole('button', { name: 'Try send directly' }));
     expect(send).not.toHaveBeenCalled();
@@ -270,13 +280,13 @@ for (const [layout, View] of [
       );
       await waitFor(() =>
         expect(
-          (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+          (screen.getByRole('button', { name: 'Start session' }) as HTMLButtonElement).disabled,
         ).toBe(false),
       );
       fireEvent.change(screen.getByLabelText('Message Mitzo'), {
         target: { value: 'Reviewed immediately before Send' },
       });
-      fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
       expect(first.send).toHaveBeenCalledTimes(1);
       expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBe(
         'Reviewed immediately before Send',
@@ -286,7 +296,7 @@ for (const [layout, View] of [
       );
       await waitFor(() =>
         expect(
-          (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+          (screen.getByRole('button', { name: 'Start session' }) as HTMLButtonElement).disabled,
         ).toBe(failure === 'throwing'),
       );
       first.unmount();
@@ -319,16 +329,16 @@ for (const [layout, View] of [
     const { store, send } = fixture(View, null, true);
     await waitFor(() =>
       expect(
-        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+        (screen.getByRole('button', { name: 'Start session' }) as HTMLButtonElement).disabled,
       ).toBe(false),
     );
     fireEvent.change(screen.getByLabelText('Message Mitzo'), {
       target: { value: 'Queued reviewed task' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
     await waitFor(() =>
       expect(
-        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+        (screen.getByRole('button', { name: 'Start session' }) as HTMLButtonElement).disabled,
       ).toBe(true),
     );
     act(() => {
@@ -336,7 +346,7 @@ for (const [layout, View] of [
       store.setState({ sendStatus: 'Delivery uncertain. Waiting for confirmation.' });
     });
     expect(
-      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+      (screen.getByRole('button', { name: 'Start session' }) as HTMLButtonElement).disabled,
     ).toBe(true);
     fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
     expect(send).toHaveBeenCalledTimes(1);
@@ -485,7 +495,8 @@ for (const [layout, View] of [
         </MemoryRouter>
       </MitzoStoreProvider>,
     );
-    await screen.findByText('Other');
+    openAgentSettings();
+    await screen.findByText('Other', { selector: '.chat-account-binding' });
     fireEvent.click(screen.getByRole('button', { name: 'Other preparation' }));
     await waitFor(() =>
       expect(api.fetch.mock.calls.some(([url]) => url.includes('/chat-preparation'))).toBe(true),
@@ -634,7 +645,8 @@ for (const [layout, View] of [
       store.setState({ sessions: { ...store.getState().sessions, active: 'assigned' } });
     });
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat/assigned'));
-    await screen.findByText('Prepared');
+    openAgentSettings();
+    await screen.findByText('Prepared', { selector: '.chat-account-binding' });
     expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe('');
     expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
     expect(localStorage.getItem('mitzo-draft-assigned')).toBeNull();

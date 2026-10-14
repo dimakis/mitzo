@@ -1,11 +1,23 @@
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, within, cleanup, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { INITIAL_MESSAGES_STATE, messagesReducer } from '@mitzo/client';
+
+function openAgentSettings() {
+  const trigger = screen.getByRole('button', { name: /^Agent settings,/ });
+  if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+}
+async function confirmAccount(accountId: string) {
+  openAgentSettings();
+  openAgentSettings();
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
+    target: { value: accountId },
+  });
+}
 
 vi.mock('../../components/RepositoryChatPicker', () => ({
   RepositoryChatPicker: ({
@@ -97,12 +109,16 @@ vi.mock('../../components/ChatInput', () => ({
     onStop,
     running,
     composerGeneration,
+    settings,
+    sendLabel,
   }: {
     externalContextBlocks?: string[];
     sendDisabledReason?: string;
     onStop: () => void;
     running: boolean;
     composerGeneration?: number;
+    settings?: React.ReactNode;
+    sendLabel?: string;
     onSend: (
       text: string,
       images?: never[],
@@ -113,6 +129,8 @@ vi.mock('../../components/ChatInput', () => ({
   }) => (
     <div data-testid="chat-input">
       <span>{sendDisabledReason}</span>
+      {settings}
+      <span data-testid="send-label">{sendLabel}</span>
       <span data-testid="composer-running">{String(running)}</span>
       <span data-testid="composer-generation">{composerGeneration}</span>
       <button onClick={onStop}>Test Stop</button>
@@ -488,10 +506,11 @@ it('uses the account catalog on desktop and sends the explicit subscription choi
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
+  openAgentSettings();
   await screen.findByLabelText('Account');
   expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('luna');
   fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Use My subscription · Luna' }));
+  await confirmAccount('personal');
   fireEvent.click(screen.getByText('Test send'));
   expect(store.getState().sendMessage).toHaveBeenCalledWith(
     'hello',
@@ -581,7 +600,7 @@ it('offers the shared agent entry for an active desktop conversation', () => {
   expect(screen.getByRole('button', { name: 'Add agent' })).toBeTruthy();
 });
 
-it('shows the profile, model and thinking in the collapsed workspace header', async () => {
+it('shows the profile, model and thinking in the collapsed composer Agent settings summary', async () => {
   localStorage.removeItem('mitzo-workspace-controls-expanded');
   const catalog = [
     {
@@ -599,10 +618,11 @@ it('shows the profile, model and thinking in the collapsed workspace header', as
   ];
   vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => catalog } as Response);
   renderWithRouter();
-  const toggle = screen.getByRole('button', { name: /Workspace controls/ });
-  expect(await within(toggle).findByText('Work Vertex')).toBeTruthy();
-  expect(within(toggle).getByText('Luna')).toBeTruthy();
-  expect(within(toggle).getByText('Thinking: high')).toBeTruthy();
+  const toggle = screen.getByRole('button', { name: /^Agent settings,/ });
+  await waitFor(() =>
+    expect(toggle.getAttribute('aria-label')).toContain('Work Vertex, Luna, Thinking: high'),
+  );
+  expect(toggle.querySelector('strong')).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });
@@ -779,6 +799,7 @@ it('reviews a Telos launch, sends the chosen account once, and follows its assig
   );
   await screen.findByRole('button', { name: 'Send launch prompt' });
   expect(store.getState().sendMessage).not.toHaveBeenCalled();
+  openAgentSettings();
   fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
     target: { value: 'test' },
   });
@@ -869,7 +890,7 @@ it('reviews a carried launch in its own desktop draft before confirming the acco
   fireEvent.click(await screen.findByRole('button', { name: 'Review launch in new chat' }));
   await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat'));
   expect(sendMessage).not.toHaveBeenCalled();
-  fireEvent.click(await screen.findByRole('button', { name: 'Use Personal ChatGPT · Luna' }));
+  await confirmAccount('personal');
   fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
   expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
     'Launch',
@@ -890,7 +911,7 @@ it('blocks an unprepared repository and forwards its receipt with the first prom
   );
   if (screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false')
     fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Use Test account · Luna' }));
+  await confirmAccount('test');
   fireEvent.click(await screen.findByRole('button', { name: 'Block repository launch' }));
   expect((screen.getByRole('button', { name: 'Test send' }) as HTMLButtonElement).disabled).toBe(
     true,
@@ -923,7 +944,7 @@ it('blocks a saved repository before the picker reports any selection', async ()
   );
   if (screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false')
     fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Use Test account · Luna' }));
+  await confirmAccount('test');
 
   expect((screen.getByRole('button', { name: 'Test send' }) as HTMLButtonElement).disabled).toBe(
     true,
@@ -954,7 +975,7 @@ it.each([true, false])(
       screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false'
     )
       fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Use Test account · Luna' }));
+    await confirmAccount('test');
     fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
     expect(sessionStorage.getItem(key)).toBe(receipt);
@@ -997,7 +1018,8 @@ it('keeps desktop inline account and model changes locked when identity lookup f
     </MitzoStoreProvider>,
   );
   const retry = await screen.findByRole('button', { name: 'Retry briefing lookup' });
-  expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
+  openAgentSettings();
+  expect(((await screen.findByLabelText('Model')) as HTMLSelectElement).disabled).toBe(true);
   expect(screen.getByText('Work OpenAI', { selector: '.chat-account-binding' })).toBeTruthy();
   fireEvent.click(retry);
   await waitFor(() =>

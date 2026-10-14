@@ -3,6 +3,44 @@ import { it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
 
+it('settings labels Thinking level without changing bound account and model guards', () => {
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="luna"
+      onChange={onChange}
+      presentation="settings"
+      lockAccountModel
+      controlled={{
+        accounts: [
+          {
+            id: 'personal',
+            label: 'Personal',
+            models: [{ id: 'luna', label: 'Luna', reasoningEfforts: ['medium', 'high'] }],
+          },
+        ],
+        selection: { accountId: 'personal', model: 'luna', reasoningEffort: 'medium' },
+        onChange,
+      }}
+    />,
+  );
+  expect((screen.getByRole('combobox', { name: 'Account' }) as HTMLSelectElement).disabled).toBe(
+    true,
+  );
+  expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).disabled).toBe(
+    true,
+  );
+  const thinking = screen.getByRole('combobox', { name: 'Thinking level' });
+  expect((thinking as HTMLSelectElement).disabled).toBe(false);
+  fireEvent.change(thinking, { target: { value: 'high' } });
+  expect(onChange).toHaveBeenCalledWith({
+    accountId: 'personal',
+    model: 'luna',
+    reasoningEffort: 'high',
+  });
+});
+
 it('restricts contributor selection to eligible ordinary accounts without changing the default', async () => {
   const onChange = vi.fn();
   localStorage.setItem(

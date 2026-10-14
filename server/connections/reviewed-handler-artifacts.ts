@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.120';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.121';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -36,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/session-transport.ts':
     '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
   '../../frontend/src/components/SymposiumConversation.tsx':
-    '7d8cdb78c85f27d4783d9c746e918063a3e27c31b2a92bcb15bae14363f94cd7',
+    '4096d9d07ccc6b543ade047da065a43d8263cd8d5468b51e3a612e2752d9f8d4',
   '../../frontend/src/components/SymposiumReviewPanel.tsx':
     '32be2e13877a0db2e2d8531718b9410138471c01cebc963592df3ed69cdf710a',
   '../owned-local-codex-control.ts':
@@ -49,18 +49,18 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-artifact-route-composition.ts':
     '8d9e87e2a2873f0dc841429a5b9a43b93aa194237e4f9594b572e87bff27142b',
   '../../frontend/src/styles/workspace-chat.css':
-    '1d631fb2ea64f7afb75a8b4007023f9b256deb9ddd9ee105cdbf9fffffdde1f2',
+    '9ce1bc9aff66e24835844ff5db31fd9b9f9e88eda4413eb2d2525d2bfeb926b8',
   // Explicit Local draft selection, exact-request delivery and bound conversation controls.
   '../../frontend/src/client-store.ts':
     '74b4fb663607649429a29639ab1a7c5ad8f5a35d5564e1e475e965f13121d974',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    '18f20b572e3b63992b4063860ef671aa559b1a8736c7473ee70cb0e4bfec155c',
+    '63981ce704b29e7f880ecd45b3e070901d8c30d066eb6c285149d5402bf32adc',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
-    '084973bfa05c86b94cebb4c28b056fb19d91493bcd912070b369bf1a8f42cdb7',
+    '168cd6ef908fbdf1876e2efd28c5af8121cb1a7feeac07e12c0e7f4e1a795e76',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
-    'ff9e191dad5a75642942e0c09d93a3459d6aa1a6a35724529f468b1ab5d558bf',
+    'd857eabe124ac2ae9bdf9d40c7aedfd06e9d0a9b50ae26b83d58f56e7da7317a',
   '../../frontend/src/components/ChatInput.tsx':
-    'd95a91bbcfb8c581cc711bd940fb05c770f4dde42a33c15df721a0cd4b73f47f',
+    '77e1f9392fc9150469517880dda1fa43e2f8be9da2b652d830095dd6e88b7b97',
   '../../frontend/src/components/ComposerTools.tsx':
     '4da4ec4fd9f95a6b12a9b79a66f9fedc2f8c00e076459097e395121ca9a94864',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -88,9 +88,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     'dba8f9db6e85204da9bea2380e10b1bc0e1a00fe15ac598bcf8e6cd685a66b22',
   '../../frontend/src/pages/ChatView.tsx':
-    '614d2764205c9f4f420d83bef7461847aa80678fbda2fbd171a6e056dcc83f26',
+    'b30b0a1412baf8f7c5a97b0f4b9e726cebc34ea1785d6321a3c4e46cc888aed0',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '37e100b165ec30ab0418663bc00e69b1e274c089b9a519f62e0147951e530e5e',
+    '74a2d903ea9c1296666c271243d8676b2d84fedd3ef49ed34248ecd347a58dbb',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -562,4 +562,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a5301e8f86add7c8e88cfc39fb091f218645166b4400ebc6169e576bbfef12c9',
   '../../frontend/src/components/RepositoryChatPicker.css':
     'f6b45e7b9dd2d365fe3bb162cb08ecc4e07604ce468936cc21d634f0a8d70062',
+  // Ordinary Codex continuation, persistent login revocation and physical custody.
+  '../../frontend/src/components/AgentSettingsPicker.css':
+    'df4fa82dac392a9442fcc25d2a5f79a96f9ea21ff87feeadbd1b835673b1830a',
+  '../../frontend/src/components/AgentSettingsPicker.tsx':
+    'f536c462a9f67ffba518d7393b4a5e1839afda68a7467126d62429e9c9e97e0a',
+  '../../frontend/src/components/UiIcon.tsx':
+    '811a15dfb81c1a21b6fa29b7418b753edca17a7cc7c3ad1453b48121c1fd89df',
 });

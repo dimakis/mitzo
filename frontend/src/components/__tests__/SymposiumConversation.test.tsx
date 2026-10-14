@@ -2294,3 +2294,33 @@ it('retains readable seat history while unknown conversation metadata blocks new
     expect.objectContaining({ method: 'POST' }),
   );
 });
+
+it('mounts an authoritatively ordinary composer while its Symposium status is pending', () => {
+  vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryConfirmed
+      ordinaryComposer={<button>Ordinary confirmed send</button>}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Ordinary confirmed send' })).toBeTruthy();
+});
+
+it('keeps pending settings available without enabling an unconfirmed ordinary composer', () => {
+  vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      pendingSettings={<button>Review pending settings</button>}
+      ordinaryComposer={<button>Unconfirmed send</button>}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Review pending settings' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Unconfirmed send' })).toBeNull();
+  expect(screen.getByRole('textbox', { name: 'Message Mitzo' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+});

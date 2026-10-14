@@ -92,6 +92,7 @@ export function AccountModelPicker(
         disabled={props.disabled}
         lockAccountModel={props.lockAccountModel}
         lockAccount={props.lockAccount}
+        presentation={props.presentation}
       />
     );
   const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}:${JSON.stringify(props.allowedAccountIds?.slice().sort() ?? null)}`;
@@ -115,7 +116,9 @@ function SessionAccountModelPicker({
   lockAccountModel = false,
   onDraftSelectionChange,
   allowedAccountIds,
+  presentation = 'default',
 }: {
+  presentation?: 'default' | 'settings';
   draftOnly?: boolean;
   preferWorkOpenAI?: boolean;
   initialSelection?: AccountSelection;
@@ -529,7 +532,7 @@ function SessionAccountModelPicker({
       ) : legacy ? (
         <span>Legacy server account</span>
       ) : (
-        <PickerField label="Account" visible={draftOnly}>
+        <PickerField label="Account" visible={draftOnly || presentation === 'settings'}>
           <select
             disabled={disabled || !!requiredSelection || lockAccountModel}
             aria-label="Account"
@@ -619,7 +622,7 @@ function SessionAccountModelPicker({
           {aliasError && <span role="alert">{aliasError}</span>}
         </form>
       )}
-      <PickerField label="Model" visible={draftOnly}>
+      <PickerField label="Model" visible={draftOnly || presentation === 'settings'}>
         <select
           disabled={disabled || !!requiredSelection || lockAccountModel}
           aria-label="Model"
@@ -648,9 +651,12 @@ function SessionAccountModelPicker({
         </select>
       </PickerField>
       {!!account.models.find((m) => m.id === selection.model)?.reasoningEfforts?.length && (
-        <PickerField label="Thinking" visible={draftOnly}>
+        <PickerField
+          label={presentation === 'settings' ? 'Thinking level' : 'Thinking'}
+          visible={draftOnly || presentation === 'settings'}
+        >
           <select
-            aria-label="Thinking"
+            aria-label={presentation === 'settings' ? 'Thinking level' : 'Thinking'}
             className="chat-model-select"
             disabled={disabled}
             value={selection.reasoningEffort ?? ''}
@@ -749,7 +755,9 @@ function ControlledAccountModelPicker({
   lockAccount,
   onAccountChange,
   accountNeedsConfirmation = false,
+  presentation = 'default',
 }: {
+  presentation?: 'default' | 'settings';
   accounts: Account[];
   selection: AccountSelection | null;
   onChange(selection: AccountSelection): void;
@@ -765,38 +773,42 @@ function ControlledAccountModelPicker({
   let pendingAccountValue = '__mitzo_confirm_account__';
   while (accounts.some((entry) => entry.id === pendingAccountValue)) pendingAccountValue += '_';
   const field = (
-    label: string,
+    identity: 'Account' | 'Model' | 'Thinking',
     value: string,
     entries: { id: string; label: string }[],
     change: (value: string) => void,
     pendingLabel?: string,
-  ) => (
-    <PickerField label={label} visible>
-      <select
-        aria-label={label}
-        className="chat-model-select"
-        disabled={
-          disabled ||
-          (label !== 'Thinking' && lockAccountModel) ||
-          (label === 'Account' && lockAccount)
-        }
-        value={value}
-        onChange={(e) => change(e.target.value)}
-      >
-        <option value="">Choose {label.toLowerCase()}</option>
-        {value && !entries.some((e) => e.id === value) && (
-          <option disabled value={value}>
-            {pendingLabel ?? `Unavailable ${label.toLowerCase()}: ${value}`}
-          </option>
-        )}
-        {entries.map((entry) => (
-          <option key={entry.id} value={entry.id}>
-            {entry.label}
-          </option>
-        ))}
-      </select>
-    </PickerField>
-  );
+  ) => {
+    const label =
+      identity === 'Thinking' && presentation === 'settings' ? 'Thinking level' : identity;
+    return (
+      <PickerField label={label} visible>
+        <select
+          aria-label={label}
+          className="chat-model-select"
+          disabled={
+            disabled ||
+            (identity !== 'Thinking' && lockAccountModel) ||
+            (identity === 'Account' && lockAccount)
+          }
+          value={value}
+          onChange={(e) => change(e.target.value)}
+        >
+          <option value="">Choose {label.toLowerCase()}</option>
+          {value && !entries.some((e) => e.id === value) && (
+            <option disabled value={value}>
+              {pendingLabel ?? `Unavailable ${label.toLowerCase()}: ${value}`}
+            </option>
+          )}
+          {entries.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+      </PickerField>
+    );
+  };
   return (
     <>
       {field(

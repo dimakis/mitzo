@@ -192,9 +192,13 @@ test('Access: empty ordinary composer survives Connections and return', async ({
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: isMobile ? 640 : 800 });
   const errors = await fixture(page);
   await page.goto('/chat');
-  await page.getByRole('button', { name: /Workspace controls/ }).click();
-  await page.getByRole('button', { name: /Use Fixture account/ }).click();
-  await page.getByRole('button', { name: /Workspace controls/ }).click();
+  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  await settings.click();
+  await page
+    .getByRole('combobox', { name: 'Account', exact: true })
+    .selectOption('fixture-account');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(settings).toBeFocused();
   const composer = page.getByPlaceholder('Message Mitzo...');
   await composer.fill('Keep this draft intact');
   // A real file attachment remains client-side; this fixture forbids API writes.

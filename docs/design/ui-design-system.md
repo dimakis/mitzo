@@ -123,8 +123,27 @@ direct Web Animations calls outside the shared helper.
 
 ## Ordinary conversation runtime selection
 
-The existing shared picker owns Agent, Account, Model, Thinking and Run on across
-mobile and desktop. Reuse its workspace controls and token styles. OpenShell is
+The approved ordinary composer exposes one compact, agent-led Agent settings
+summary and one settings panel on mobile and desktop. The panel orders Agent,
+Account, the paired Model/Thinking level fields, then Run on. OpenShell and Local
+Mac are descriptive selection cards with accessible pressed state; Runs with
+reports derived software. Done reviews the current execution capability intent
+and closes the panel; Close and Escape dismiss without reviewing or confirming
+billing and return focus to the summary. `AgentSettingsPicker` renders the panel
+inside `ChatInput` between its textarea and toolbar. The shared AccountModelPicker
+and ChatAgentProfilePicker keep one mounted control set. Model/Thinking level pair
+on desktop and stack on phones; location cards pair at ordinary 390px and desktop
+widths and stack in the narrowest composer. Run on cards carry icons,
+selection ticks, descriptions and `aria-pressed`; no separate Run on select or
+Refresh/Use control belongs in this ordinary panel. New ordinary drafts show
+What are we working on? and Start session; bound chats keep Send.
+
+The panel uses `useMotionPresence`, shared `UiIcon`, semantic surface/accent/border
+colors, `--font-ui`, spacing/type/radius scales and `--control-height`. Its body
+scrolls while header/footer stay reachable. The viewport cap and measured remaining
+composer space are structural geometry: they reserve the textarea, attachments,
+toolbar and shell navigation rather than introducing another spacing scale.
+Workspace remains for conversation details and operational controls. OpenShell is
 the default; Local Mac is deliberate. Resolve only pristine unselected target
 intent from trusted inventory, and preserve stale/unavailable account, model,
 thinking and target choices with a useful reason. Runs with describes the derived
@@ -434,3 +453,14 @@ to the Playwright artifact output paths for review. Component/hook/client regres
 require no backend, credential, native provider or model. Rendered browser acceptance
 and inspection remain required in hosted CI when local memory pressure precludes
 building or browser execution; fixture presence alone is not visual acceptance.
+
+## Approved Agent settings fidelity checkpoint
+
+The saved approved mock is `mitzo-agent-picker.html` in the runtime separation
+handover. Source implementation and behavioral qualification are separate from
+rendered fidelity. The hosted offline runtime fixtures now target the approved
+composer hierarchy, card descriptions, dismissal/focus, retained images and
+settings, bounded internal scrolling at 390 × 844 and 320 × 740 with larger
+text, and desktop light/dark Mint/Georgia with Reduce Motion. Final current-head
+hosted screenshots, visual inspection and independent acceptance remain pending;
+this source checkpoint is not a claim that the approved layout has passed.

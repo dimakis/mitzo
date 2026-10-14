@@ -144,3 +144,21 @@ The original Host bootstrap identity is checked against the first receipt finger
 Baseline review race corrections (offline)
 
 The three Vertex continuity findings from baseline review 5514790917 were reproduced before fixes: an incoming deadline during idle SDK settings could strand an allocated execution, cancellation during awaited head authority could abort an accepted tail, and completed-model retirement could reject a valid warm continuation. The owner now settles only a known pre-input cancellation as abandoned with its existing cancelled receipt; provider-input and revoked-authority uncertainty remain retained. An exact consumed-head cancellation is rechecked after authority awaits and skipped before allocating execution, preserving the accepted tail IDs and frozen settings. Idle custody, account, profile, workspace and ADC checks remain current; startup, dispatching and active inference still validate their own model/thinking. Offline actual REST/SDK fixtures exercise process-close deferral and deadline, warm B-retired→C and cold C on the original SDK UUID/history/checkout, with no expired user input or provider fallback. Independent review and acceptance of the combined successor remain required.
+
+## Approved composer fidelity acceptance (in progress)
+
+The approved saved design requires one composer Agent settings summary/panel,
+Agent-first order, Account then paired Model/Thinking level, descriptive
+OpenShell/Local Mac cards, Runs with, and Done. This applies to ordinary legacy
+as well as enrolled runtime chats. Capability review, explicit account
+confirmation, unavailable intent, prepared first-message model changes, immutable
+receipts and queued snapshots retain their existing authority.
+
+The runtime offline fixtures now target card roles and the composer panel and
+add structural fidelity, Close/Escape/Done focus and draft/image retention,
+390 × 844 and 320 × 740 internal scrolling with larger text, desktop light/dark
+Mint/Georgia and reduced-motion checks. Ordinary legacy draft, briefing-bound, Agent Library and Access fixtures
+also target the composer controls. Source implementation is in progress;
+approved-design fidelity, hosted current-head results/screenshots, visual
+inspection and independent review remain pending. These checkpoints neither
+qualify live runtime behavior nor mark the broader feature complete.

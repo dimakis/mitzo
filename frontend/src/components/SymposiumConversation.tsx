@@ -139,6 +139,9 @@ export function SymposiumConversation({
   sessionId,
   chat,
   ordinaryComposer,
+  ordinaryConfirmed = false,
+  ordinaryExcluded = false,
+  pendingSettings,
   ordinaryAfterMessages,
   profileToolsTarget,
   readOnly = false,
@@ -146,6 +149,11 @@ export function SymposiumConversation({
   sessionId: string | null;
   chat: ChatAreaProps;
   ordinaryComposer: ReactNode;
+  /** Current-session authoritative ordinary metadata; never inferred from intent. */
+  ordinaryConfirmed?: boolean;
+  /** Authoritative current-session special classification excludes ordinary send. */
+  ordinaryExcluded?: boolean;
+  pendingSettings?: ReactNode;
   ordinaryAfterMessages?: ReactNode;
   profileToolsTarget: HTMLElement | null;
   readOnly?: boolean;
@@ -599,7 +607,7 @@ export function SymposiumConversation({
         )
       : null;
 
-  if (base && (!status || status.sessionId !== sessionId))
+  if (base && (!status || status.sessionId !== sessionId) && !ordinaryConfirmed)
     return (
       <>
         <ChatArea
@@ -621,6 +629,7 @@ export function SymposiumConversation({
               rows={1}
               disabled
             />
+            {pendingSettings}
             <div className="composer-toolbar">
               <div className="composer-actions">
                 <button
@@ -638,7 +647,7 @@ export function SymposiumConversation({
         {(statusError || error) && <div role="alert">{statusError || error}</div>}
       </>
     );
-  if (!status?.config)
+  if (status?.sessionId !== sessionId || !status?.config)
     return (
       <>
         {chat && (
@@ -654,7 +663,7 @@ export function SymposiumConversation({
           />
         )}
         {profileTools}
-        {ordinaryComposer}
+        {!ordinaryExcluded && ordinaryComposer}
       </>
     );
   return (

@@ -27,6 +27,17 @@ Accounts with multiple managed connections can provision new sandboxes without e
 
 ## Explicit ordinary conversations
 
+Ordinary chats use one agent-led **Agent settings** summary in the composer. Its
+panel orders Agent, Account, Model and Thinking level, followed by the configured
+OpenShell and Local Mac cards and derived agent software. Done reviews the current
+choices without sending a message; Close and Escape preserve the draft. New chats
+show **What are we working on?** and **Start session**. Reopened conversations expose
+their eight identity and setting fields under Session details, retaining unknown
+values explicitly. Workspace keeps advanced conversation controls. The panel
+reuses shared appearance and motion, and scrolls within the space left by the
+message, repository preparation and navigation. Final hosted visual evidence is
+required before claiming fidelity to the saved approved design.
+
 The existing Agent, Account, Model, Thinking and Run on picker supports gated
 Local Mac and ordinary OpenShell Codex source routes. OpenShell is the new-chat
 default even when unavailable; Local is explicit. The picker derives Runs with
@@ -106,8 +117,8 @@ for the native conversation. An invalid future choice remains visible with a rea
 until explicitly replaced or a new conversation is started. Images, context
 recipes, packs and OpenShell Gemini remain unavailable.
 
-- [x] Combined Vertex/Gemini source120 checkpoint: 300 unique reviewed artifacts with zero drift;
-      188 offline checks, scoped types and commit hooks passed. Live provider behavior,
+- [x] Combined ordinary conversation and approved picker source121 checkpoint: 303 unique reviewed artifacts with zero drift;
+      489 affected UI checks and 21 Vertex lifecycle checks passed with scoped types and signing hooks. Fresh combined-head hosted/source acceptance remains required. Live provider behavior,
       ADC renewal and staging qualification remain outstanding.
 
 Configuration remains operator-owned and disabled by default. Local requires

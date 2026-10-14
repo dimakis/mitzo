@@ -270,8 +270,8 @@ async function offline(page: Page, sessions: unknown[] = []) {
     release: () => release,
   };
 }
-async function workspace(page: Page) {
-  const toggle = page.getByRole('button', { name: /^Workspace controls/ });
+async function agentSettings(page: Page) {
+  const toggle = page.getByRole('button', { name: /^Agent settings,/ });
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
 }
 
@@ -628,21 +628,23 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   await page.getByRole('link', { name: /What is the story with my morning briefing/ }).click();
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(message);
-  await workspace(page);
+  await agentSettings(page);
   await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
     account.id,
   );
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
     'luna-alternate',
   );
-  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toHaveValue('high');
+  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
+    'high',
+  );
   await expect(page.getByRole('button', { name: 'Ask', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
   await expect(page.getByAltText('Attachment 1')).toBeVisible();
   await input.fill('Fix the morning briefing with this saved context');
-  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('low');
+  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
   await expect
     .poll(async () =>
       page.evaluate(() =>
@@ -666,8 +668,10 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
     .getByRole('link', { name: /Fix the morning briefing with this saved context/ })
     .click();
   await expect(input).toHaveValue('Fix the morning briefing with this saved context');
-  await workspace(page);
-  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toHaveValue('low');
+  await agentSettings(page);
+  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
+    'low',
+  );
   await expect(page.getByAltText('Attachment 1')).toBeVisible();
   await layout(page);
   expect(fixture.mutations).toEqual([]);
@@ -722,7 +726,7 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
     /draft.*(unavailable|found|available|missing)/i,
   );
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
-  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeDisabled();
   for (const selection of [
     { accountId: 'removed-account', model: 'luna-fixture', reasoningEffort: 'medium' },
     { accountId: account.id, model: 'removed-model', reasoningEffort: 'medium' },
@@ -735,9 +739,9 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
       draft,
     );
     await page.goto('/chat?draft=unavailable-reference');
-    await workspace(page);
+    await agentSettings(page);
     await expect(page.getByRole('alert')).toContainText('Selected account or model is unavailable');
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeDisabled();
     expect(
       await page.evaluate(
         () =>

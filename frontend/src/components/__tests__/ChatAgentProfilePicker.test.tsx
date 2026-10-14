@@ -24,6 +24,36 @@ const version = {
   },
 };
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+it('settings exposes the trusted selected label and clears it when the selected revision is unavailable', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [version] }));
+  const label = vi.fn();
+  const view = render(
+    <MemoryRouter>
+      <ChatAgentProfilePicker
+        label="Agent"
+        sessionId={null}
+        search="agentProfile=bob&profileRevision=3"
+        onChange={vi.fn()}
+        onLabelChange={label}
+      />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('combobox', { name: 'Agent' });
+  await waitFor(() => expect(label).toHaveBeenLastCalledWith('Bob · The architect'));
+  view.rerender(
+    <MemoryRouter>
+      <ChatAgentProfilePicker
+        label="Agent"
+        sessionId={null}
+        search="agentProfile=missing&profileRevision=3"
+        onChange={vi.fn()}
+        onLabelChange={label}
+      />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('alert');
+  await waitFor(() => expect(label).toHaveBeenLastCalledWith(undefined));
+});
 it('limits optional contributor guidance to roles supported by its execution route', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     response({
