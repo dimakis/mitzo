@@ -73,6 +73,13 @@ Codex/API/subscription seats use their fenced dynamic host tools. Vertex seats u
 
 ## Validation
 
+OpenAI search failures retain server-authored reasons through the approval boundary: HTTP rejection,
+authentication/access refusal, rate/quota limits, provider availability, transport failure, invalid
+responses, incomplete output (including the output-token limit), missing completed search receipts,
+and missing cited answers. Provider response bodies and raw exceptions are never returned. A failed
+search does not retry on another account or model. These categories identify subsequent failures;
+older generic results cannot establish which provider failure occurred.
+
 Tests cover the shared approval boundary, real permission cards, selected-account adapters with mocked transports, Codex search thread isolation and receipts, SSRF/DNS pinning, redirect handling, streaming limits, cancellation, SDK MCP wiring, and source display. Builds verify server artifacts and frontend types. The new URL approval path is tested with mocked transports, real Mitzo permission cards and a disposable local HTTP server; this does not claim production adoption. No live model calls are claimed by these tests. Live model tests must explicitly select an account-supported Luna model and announce the exact account/model; other models require explicit approval.
 
 Provider references: [OpenAI web search](https://developers.openai.com/api/docs/guides/tools-web-search), [Google grounding and display requirements](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/grounding/grounding-with-google-search), [Claude web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool). Codex's pinned native search contract remains in `docs/spikes/codex-web-search-policy/app-server-contract.json`.
