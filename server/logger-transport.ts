@@ -26,6 +26,7 @@ export function resilientLogDestination(
   let dropped = 0;
   let failedWrites = 0;
   let lostBytes = 0;
+  let partialPrefix = false;
   const add = (value: number, increment: number) =>
     Math.min(Number.MAX_SAFE_INTEGER, value + increment);
 
@@ -43,7 +44,8 @@ export function resilientLogDestination(
             lostBytes,
           }) + '\n'
         : '';
-    const chunk = loss + pending;
+    const chunk = (partialPrefix ? '\n' : '') + loss + pending;
+    partialPrefix = false;
     pending = '';
     dropped = 0;
     failedWrites = 0;
@@ -60,6 +62,7 @@ export function resilientLogDestination(
           ? length
           : Math.max(0, Math.min(length, bytesWritten ?? 0));
       if (error || written < length) {
+        partialPrefix = written > 0 && written < length;
         dropped = add(dropped, previousLoss.dropped);
         failedWrites = add(failedWrites, previousLoss.failedWrites + 1);
         lostBytes = add(lostBytes, previousLoss.lostBytes + length - written);

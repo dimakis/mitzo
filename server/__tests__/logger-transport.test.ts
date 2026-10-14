@@ -11,6 +11,27 @@ function setup() {
 }
 
 describe('operational logging transport failure', () => {
+  it('separates a recovery loss record from a partially written JSON prefix', () => {
+    const transport = Object.assign(new EventEmitter(), { write: vi.fn() });
+    let output = '';
+    const fallback = vi.fn(
+      (line: string, done: (error?: Error | null, bytesWritten?: number) => void) => {
+        if (!output) {
+          output = line.slice(0, 2);
+          done(null, 2);
+        } else {
+          output += line;
+          done(null, Buffer.byteLength(line));
+        }
+      },
+    );
+    const dest = resilientLogDestination(transport, fallback);
+    transport.emit('error', new Error('worker failed'));
+    dest.write('{"msg":"recovered"}\n');
+    expect(JSON.parse(output.split('\n')[1])).toMatchObject({ module: 'logger', failedWrites: 1 });
+    expect(JSON.parse(output.split('\n')[2])).toEqual({ msg: 'recovered' });
+  });
+
   it.each(['error', 'partial', 'throw'])(
     'reports %s fallback loss after recovery without recursively retrying',
     (mode) => {
