@@ -440,6 +440,42 @@ for (const [name, Screen] of [
       expect.anything(),
     );
   });
+  it(`${name}: a legacy display summary cannot bypass pending conversation classification`, async () => {
+    const { store, localSend, legacySend } = setup(Screen);
+    let resolveClassification!: (response: Response) => void;
+    const pendingClassification = new Promise<Response>((resolve) => {
+      resolveClassification = resolve;
+    });
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (String(url).includes('/symposium/status')) return pendingClassification;
+      if (String(url).includes('/meta')) return new Response('{}');
+      return new Response('[]');
+    });
+    act(() =>
+      store.setState({
+        sessions: { ...store.getState().sessions, active: 'unclassified-session' },
+      }),
+    );
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    await screen.findByRole('button', { name: /^Workspace controls.*Legacy account/ });
+    expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBeDisabled();
+    expect(document.querySelector('.chat-input[aria-busy="true"]')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    await act(async () =>
+      resolveClassification(
+        new Response(
+          JSON.stringify({ sessionId: 'unclassified-session', config: null, seats: [] }),
+        ),
+      ),
+    );
+    await screen.findByRole('button', { name: 'Test send' });
+    expect(document.querySelector('.chat-input[aria-busy="true"]')).toBeNull();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
   it(`${name}: untouched OpenShell stays blocked, explicit Local dispatches only exact dedicated intent`, async () => {
     const { localSend, legacySend } = setup(Screen);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });

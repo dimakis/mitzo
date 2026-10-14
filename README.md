@@ -118,7 +118,7 @@ until explicitly replaced or a new conversation is started. Images, context
 recipes, packs and OpenShell Gemini remain unavailable.
 
 - [x] Combined ordinary conversation and approved picker source122 checkpoint: 303 unique reviewed artifacts with zero drift;
-      489 affected UI checks and 21 Vertex lifecycle checks passed with scoped types and signing hooks. Fresh combined-head hosted/source acceptance remains required. Live provider behavior,
+      495 affected UI checks and 21 Vertex lifecycle checks passed with scoped types and signing hooks. Fresh combined-head hosted/source acceptance remains required. Live provider behavior,
       ADC renewal and staging qualification remain outstanding.
 
 Configuration remains operator-owned and disabled by default. Local requires

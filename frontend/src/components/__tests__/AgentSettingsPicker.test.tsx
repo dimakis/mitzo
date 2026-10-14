@@ -122,6 +122,12 @@ it('reserves heading and repository space as preparation grows and the viewport 
   let headingHeight = 80;
   let wrapperHeight = 600;
   let resize: (() => void) | undefined;
+  let animationFrame: (() => void) | undefined;
+  vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
+    animationFrame = callback;
+    return 1;
+  });
+  vi.stubGlobal('cancelAnimationFrame', () => {});
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -179,6 +185,7 @@ it('reserves heading and repository space as preparation grows and the viewport 
     expect(panel.style.getPropertyValue('--agent-settings-space')).toBe('200px');
     headingHeight = 140;
     resize?.();
+    animationFrame?.();
     expect(panel.style.getPropertyValue('--agent-settings-space')).toBe('140px');
     wrapperHeight = 540;
     fireEvent(window, new Event('resize'));
@@ -188,5 +195,116 @@ it('reserves heading and repository space as preparation grows and the viewport 
   } finally {
     bounds.mockRestore();
     vi.unstubAllGlobals();
+  }
+});
+
+it('keeps dismissal and a control row available when preparation consumes free space', () => {
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function (this: HTMLElement) {
+      const height = this.classList.contains('conversation-composer')
+        ? 300
+        : this.classList.contains('repository-chat-picker')
+          ? 260
+          : this.classList.contains('chat-input')
+            ? 240
+            : this.classList.contains('agent-settings-panel')
+              ? 100
+              : this.classList.contains('agent-settings-header') ||
+                  this.classList.contains('agent-settings-footer')
+                ? 60
+                : 0;
+      return {
+        top: 0,
+        bottom: height,
+        height,
+        width: 320,
+        left: 0,
+        right: 320,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      } as DOMRect;
+    });
+  try {
+    render(
+      <div className="conversation-composer conversation-composer--new">
+        <div className="repository-chat-picker">Prepared checkout</div>
+        <div className="chat-input">
+          <AgentSettingsPicker {...props} summary={{ ...props.summary, thinking: 'high' }} />
+        </div>
+      </div>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Luna, High, OpenShell/ }));
+    const panel = screen.getByRole('region', { name: 'Agent settings' });
+    expect(panel.style.getPropertyValue('--agent-settings-minimum')).toBe('164px');
+    expect(panel.style.getPropertyValue('--agent-settings-space')).toBe('164px');
+    fireEvent.click(screen.getByRole('button', { name: 'Close agent settings' }));
+    expect(screen.queryByRole('region', { name: 'Agent settings' })).toBeNull();
+  } finally {
+    bounds.mockRestore();
+  }
+});
+
+it('scrolls only an oversized bound composer and restores its styles on dismissal', () => {
+  let chatHeight = 600;
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function (this: HTMLElement) {
+      const height = this.classList.contains('workspace-chat')
+        ? chatHeight
+        : this.classList.contains('conversation-heading')
+          ? 100
+          : this.classList.contains('chat-input')
+            ? 600
+            : this.classList.contains('agent-settings-panel')
+              ? 140
+              : this.classList.contains('agent-settings-header') ||
+                  this.classList.contains('agent-settings-footer')
+                ? 60
+                : 0;
+      return {
+        top: 0,
+        bottom: height,
+        height,
+        width: 320,
+        left: 0,
+        right: 320,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      } as DOMRect;
+    });
+  try {
+    const view = render(
+      <div className="workspace-chat">
+        <header className="conversation-heading">Conversation</header>
+        <div className="chat-messages">Transcript</div>
+        <div className="conversation-composer" style={{ overflowY: 'visible' }}>
+          <div className="chat-input">
+            <div role="status">Queued messages retain their attachments</div>
+            <textarea aria-label="Message" />
+            <AgentSettingsPicker {...props} />
+            <button>Send message</button>
+          </div>
+        </div>
+      </div>,
+    );
+    const wrapper = view.container.querySelector<HTMLElement>('.conversation-composer')!;
+    const trigger = screen.getByRole('button', { name: /^Agent settings/ });
+    fireEvent.click(trigger);
+    expect(wrapper.style.overflowY).toBe('auto');
+    expect(wrapper.style.maxHeight).toBe('500px');
+    chatHeight = 400;
+    fireEvent(window, new Event('resize'));
+    expect(wrapper.style.maxHeight).toBe('300px');
+    expect(screen.getByRole('button', { name: 'Close agent settings' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close agent settings' }));
+    expect(wrapper.style.overflowY).toBe('visible');
+    expect(wrapper.style.maxHeight).toBe('');
+    expect(wrapper.style.flexShrink).toBe('');
+    expect(document.activeElement).toBe(trigger);
+  } finally {
+    bounds.mockRestore();
   }
 });

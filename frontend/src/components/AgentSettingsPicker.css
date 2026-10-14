@@ -39,7 +39,12 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  max-height: min(70dvh, var(--agent-settings-space, 45dvh));
+  min-height: var(--agent-settings-minimum, calc(var(--control-height) * 3));
+  max-height: max(
+    var(--agent-settings-minimum, calc(var(--control-height) * 3)),
+    min(70dvh, var(--agent-settings-space, 45dvh))
+  );
+  flex-shrink: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
   background: var(--color-surface);
@@ -200,5 +205,20 @@
 @container agent-settings (max-width: 300px) {
   .agent-execution-cards {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container agent-settings (max-width: 450px) {
+  .agent-settings-trigger {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .agent-settings-trigger > span {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .agent-settings-trigger > .ui-icon:last-child {
+    grid-column: 3;
+    grid-row: 1;
   }
 }

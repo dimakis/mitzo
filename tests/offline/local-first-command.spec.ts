@@ -284,6 +284,28 @@ async function openAgentSettings(page: Page) {
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
 }
+async function assertBoundRunOn(page: Page, location: 'local' | 'openshell', firstCommand = false) {
+  const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
+  const cards = panel.getByRole('group', { name: 'Run on', exact: true });
+  await expect(cards.getByRole('button')).toHaveCount(2);
+  for (const [value, name] of [
+    ['local', 'Local Mac'],
+    ['openshell', 'OpenShell'],
+  ] as const) {
+    const card = cards.getByRole('button', { name, exact: true });
+    await expect(card).toHaveAttribute('aria-pressed', String(value === location));
+    await expect(card).toBeDisabled();
+  }
+  await expect(panel.getByText('Fixed for this conversation', { exact: true })).toBeVisible();
+  if (firstCommand) {
+    await expect(panel.getByRole('status')).toHaveText(
+      `This ${location === 'local' ? 'Local' : 'OpenShell'} conversation supports its first command only. Start a new chat for another command.`,
+    );
+    await expect(
+      page.getByRole('button', { name: /^Workspace controls/ }).locator('.conversation-state'),
+    ).toHaveText('First command');
+  }
+}
 async function assertSettingsGeometry(page: Page) {
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
   const bounds = await panel.boundingBox();
@@ -371,10 +393,17 @@ for (const appearance of ['light', 'dark'] as const) {
     });
     await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}`));
     await openAgentSettings(page);
-    await expect(page.getByText('Run on: Local · first command only')).toBeVisible();
+    await assertBoundRunOn(page, 'local', true);
     await expect(
-      page.getByRole('combobox', { name: 'Agent', exact: true }).locator('option:checked'),
-    ).toHaveText('Repository helper · r1');
+      page
+        .getByRole('region', { name: 'Agent settings', exact: true })
+        .getByText('Repository helper · r1', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole('region', { name: 'Agent settings', exact: true })
+        .getByRole('combobox', { name: 'Agent', exact: true }),
+    ).toHaveCount(0);
     await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
     await emitLocalState(page, 'running');
     await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Keep this follow-up draft');
@@ -498,7 +527,7 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   recovered = true;
   await page.getByRole('button', { name: 'Retry conversation settings' }).press('Enter');
   await openAgentSettings(page);
-  await expect(page.getByText('Run on: Local · first command only')).toBeVisible();
+  await assertBoundRunOn(page, 'local', true);
   await expect(workspace.locator('.conversation-state')).toHaveText('First command');
   await assertWorkspaceHeadingFits(page);
   await expect(
@@ -571,6 +600,87 @@ test('Local first command: oversized complete command retains its image and enab
   expect(fixture.errors).toEqual([]);
 });
 
+test('Bound Agent settings keeps Close and Done reachable with a long draft in short viewports', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offline(page, false, false, true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/chat/${sessionId}`);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '20px';
+  });
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  if ((await workspace.getAttribute('aria-expanded')) === 'true') await workspace.click();
+  const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+  const draft = Array.from(
+    { length: 12 },
+    (_, index) =>
+      `Retain planning line ${index + 1} while reviewing the original bound session settings.`,
+  ).join('\n');
+  await input.fill(draft);
+  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
+  for (const [width, height] of [
+    [390, 844],
+    [320, 480],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await openAgentSettings(page);
+    await assertBoundRunOn(page, 'local');
+    await expect(panel.getByRole('combobox', { name: 'Account', exact: true })).toBeDisabled();
+    await expect(panel.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
+      'personal',
+    );
+    const local = panel.getByRole('group', { name: 'Run on', exact: true }).getByRole('button', {
+      name: 'Local Mac',
+      exact: true,
+    });
+    await local.scrollIntoViewIfNeeded();
+    await expect(local).toBeInViewport();
+    const close = panel.getByRole('button', { name: 'Close agent settings', exact: true });
+    await close.scrollIntoViewIfNeeded();
+    await expect(close).toBeInViewport();
+    await expect(workspace).toBeInViewport();
+    await expect(
+      page.getByRole('navigation', { name: 'Main navigation' }).first(),
+    ).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await expect(input).toHaveValue(draft);
+    await close.click();
+    await expect(panel).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await input.scrollIntoViewIfNeeded();
+    await expect(input).toBeInViewport();
+    await input.focus();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(draft);
+    await openAgentSettings(page);
+    const done = panel.getByRole('button', { name: 'Done', exact: true });
+    await done.scrollIntoViewIfNeeded();
+    await expect(done).toBeInViewport();
+    await expect(workspace).toBeInViewport();
+    await expect(
+      page.getByRole('navigation', { name: 'Main navigation' }).first(),
+    ).toBeInViewport();
+    await page.screenshot({
+      path: testInfo.outputPath(`local-approved-agent-settings-bound-${width}.png`),
+      fullPage: true,
+    });
+    await done.click();
+    await expect(panel).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await input.scrollIntoViewIfNeeded();
+    await input.focus();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(draft);
+  }
+  expect(fixture.requests).toEqual([]);
+  expect(fixture.forbidden).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 test('Local conversation: future thinking and queued command retain independent snapshots', async ({
   page,
 }, testInfo) => {
@@ -579,7 +689,7 @@ test('Local conversation: future thinking and queued command retain independent 
     await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/chat/${sessionId}`);
   await openAgentSettings(page);
-  await expect(page.getByText('Run on: Local Mac · fixed for this conversation')).toBeVisible();
+  await assertBoundRunOn(page, 'local');
   await expect(page.getByRole('combobox', { name: 'Account' })).toBeDisabled();
   await expect(page.getByText('Runs with Codex')).toBeVisible();
   await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
@@ -646,7 +756,7 @@ test('OpenShell conversation: default route starts and continues without legacy 
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Inspect OpenShell checkout');
   await page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }).click();
   await openAgentSettings(page);
-  await expect(page.getByText('Run on: OpenShell · fixed for this conversation')).toBeVisible();
+  await assertBoundRunOn(page, 'openshell');
   await expect.poll(() => fixture.requests.length).toBe(1);
   await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
   await page.getByRole('button', { name: 'Done', exact: true }).click();

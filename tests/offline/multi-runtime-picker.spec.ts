@@ -818,7 +818,9 @@ for (const appearance of ['light', 'dark'] as const) {
     await model.selectOption('local-model');
     await expect(thinking).toHaveValue('high');
     await expect(thinking.locator('option[value="high"]')).toHaveAttribute('disabled', '');
-    await expect(thinking.locator('option[value="high"]')).toHaveText('Unavailable thinking: high');
+    await expect(thinking.locator('option[value="high"]')).toHaveText(
+      'Unavailable thinking level: high',
+    );
     await thinking.selectOption('low');
     await account.selectOption('vertex');
     await expect(page.getByText('Runs with Claude', { exact: true })).toBeVisible();

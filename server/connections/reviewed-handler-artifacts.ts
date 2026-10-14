@@ -88,9 +88,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     'dba8f9db6e85204da9bea2380e10b1bc0e1a00fe15ac598bcf8e6cd685a66b22',
   '../../frontend/src/pages/ChatView.tsx':
-    '03100adae08f412477e2d6e52ae45b7fbd06f7644f7aa06018f82a4cd6d3c1f4',
+    '74dea01a8ddca9cd2834b77492bf0e8f63061c6592f0e107b40a7e023ad78801',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '13d6bb4ea4314a65cd074de16a6b99fd964c22dec94fa1d1125aa3b73cc023c0',
+    '484cb73d0984a25be7192e2befdeebbc008655f1dc74f70d4b2164e49f457cd1',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -564,9 +564,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f6b45e7b9dd2d365fe3bb162cb08ecc4e07604ce468936cc21d634f0a8d70062',
   // Ordinary Codex continuation, persistent login revocation and physical custody.
   '../../frontend/src/components/AgentSettingsPicker.css':
-    '6d5a10e790eb5457762cc7e479aecd15d3380739e4cf1b27ea00241d06cd607e',
+    '9b689f7e47b61b7b3a13f801702187579c5a36f99f85c8249d1fb2dcdf40e588',
   '../../frontend/src/components/AgentSettingsPicker.tsx':
-    'f536c462a9f67ffba518d7393b4a5e1839afda68a7467126d62429e9c9e97e0a',
+    '571473d94e619446d608cc3b339a279403c69c3b20e32fb1c1a876db264884d8',
   '../../frontend/src/components/UiIcon.tsx':
     '811a15dfb81c1a21b6fa29b7418b753edca17a7cc7c3ad1453b48121c1fd89df',
 });

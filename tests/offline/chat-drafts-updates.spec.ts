@@ -638,6 +638,8 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
     'high',
   );
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  if ((await workspace.getAttribute('aria-expanded')) !== 'true') await workspace.click();
   await expect(page.getByRole('button', { name: 'Ask', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',

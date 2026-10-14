@@ -1656,6 +1656,7 @@ async function fixtureSymposium(
     }
     if (route.request().method() !== 'GET')
       return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+    if (path.endsWith('/meta')) return route.fulfill({ json: { sessionType: 'symposium' } });
     if (path.endsWith('/messages'))
       return route.fulfill({ json: options.empty ? [] : symposiumMessages });
     if (path.endsWith('/symposium/status')) {
@@ -2347,7 +2348,8 @@ test('failed briefing registration survives a completed turn and reload without 
   const picker = page.getByRole('dialog');
   await expect(picker).toBeVisible();
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
-  const profile = page.getByRole('combobox', { name: 'Agent profile', exact: true });
+  await openAgentSettings(page);
+  const profile = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(profile).toBeEnabled();
   await expect(profile).toHaveValue('');
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
@@ -3199,11 +3201,14 @@ for (const appearance of [
     await expect(page.getByText('Here are the results.', { exact: true })).toBeVisible();
     const alignment = await page.locator('.msg-bubble-group--user').evaluate((user) => {
       const chat = user.closest('.chat-messages')!;
-      return Math.abs(
-        user.getBoundingClientRect().right -
-          chat.getBoundingClientRect().right +
-          parseFloat(getComputedStyle(chat).paddingRight),
-      );
+      // Flex aligns to the scroll container's content box, excluding its
+      // border and the visible WebKit scrollbar rather than the outer rectangle.
+      const contentRight =
+        chat.getBoundingClientRect().left +
+        chat.clientLeft +
+        chat.clientWidth -
+        parseFloat(getComputedStyle(chat).paddingRight);
+      return Math.abs(user.getBoundingClientRect().right - contentRight);
     });
     expect(alignment).toBeLessThan(2);
     expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);

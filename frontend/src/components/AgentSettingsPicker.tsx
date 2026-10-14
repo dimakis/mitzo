@@ -47,6 +47,13 @@ export function AgentSettingsPicker({
     const wrapper = owner.closest<HTMLElement>('.conversation-composer');
     const chat = owner.closest<HTMLElement>('.workspace-chat');
     const observed = new Set<Element>();
+    const previousWrapperStyle = wrapper
+      ? {
+          maxHeight: wrapper.style.maxHeight,
+          overflowY: wrapper.style.overflowY,
+          flexShrink: wrapper.style.flexShrink,
+        }
+      : null;
     const pixels = (value: string) => Number.parseFloat(value) || 0;
     const occupied = (element: HTMLElement) => {
       const style = getComputedStyle(element);
@@ -90,11 +97,33 @@ export function AgentSettingsPicker({
             siblings.add(child);
         }
       for (const sibling of siblings) reserved += occupied(sibling);
-      if (surfaceStyle)
-        reserved +=
-          pixels(surfaceStyle.paddingTop) +
+      const surfaceSpacing = surfaceStyle
+        ? pixels(surfaceStyle.paddingTop) +
           pixels(surfaceStyle.paddingBottom) +
-          pixels(surfaceStyle.rowGap) * Math.max(0, (surface?.children.length ?? 1) - 1);
+          pixels(surfaceStyle.rowGap) * Math.max(0, (surface?.children.length ?? 1) - 1)
+        : 0;
+      reserved += surfaceSpacing;
+      if (wrapper && !newConversation) {
+        const outside = [...siblings]
+          .filter((sibling) => !wrapper.contains(sibling))
+          .reduce((height, sibling) => height + occupied(sibling), 0);
+        const wrapperBudget = Math.max(
+          0,
+          Math.min(boundary, surfaceBottom) - top - outside - surfaceSpacing,
+        );
+        const chromeHeight = [
+          ...panel.querySelectorAll<HTMLElement>('.agent-settings-header, .agent-settings-footer'),
+        ].reduce((height, element) => height + occupied(element), 0);
+        const control = pixels(getComputedStyle(panel).getPropertyValue('--control-height')) || 44;
+        const fallback =
+          Math.min(boundary, surfaceBottom) - top - reserved < chromeHeight + control;
+        const maxHeight = fallback ? `${wrapperBudget}px` : previousWrapperStyle!.maxHeight;
+        const overflowY = fallback ? 'auto' : previousWrapperStyle!.overflowY;
+        const flexShrink = fallback ? '1' : previousWrapperStyle!.flexShrink;
+        if (wrapper.style.maxHeight !== maxHeight) wrapper.style.maxHeight = maxHeight;
+        if (wrapper.style.overflowY !== overflowY) wrapper.style.overflowY = overflowY;
+        if (wrapper.style.flexShrink !== flexShrink) wrapper.style.flexShrink = flexShrink;
+      }
       const next = new Set<Element>([
         owner,
         ...[composer, wrapper, chat].filter((node): node is HTMLElement => !!node),
@@ -110,12 +139,31 @@ export function AgentSettingsPicker({
           observer?.unobserve(node);
           observed.delete(node);
         }
-      panel.style.setProperty(
-        '--agent-settings-space',
-        `${Math.max(0, Math.min(boundary, surfaceBottom) - top - reserved)}px`,
-      );
+      const chrome = [
+        ...panel.querySelectorAll<HTMLElement>('.agent-settings-header, .agent-settings-footer'),
+      ].reduce((height, element) => height + occupied(element), 0);
+      // A preparation card or large-text draft may consume all free space. Keep
+      // the dismissal controls and one scrollable control row intact; the
+      // surrounding conversation scroll surface then owns the extra height.
+      const controlHeight =
+        pixels(getComputedStyle(panel).getPropertyValue('--control-height')) || 44;
+      const minimum = `${chrome + controlHeight}px`;
+      if (panel.style.getPropertyValue('--agent-settings-minimum') !== minimum)
+        panel.style.setProperty('--agent-settings-minimum', minimum);
+      const available = `${Math.max(chrome + controlHeight, Math.min(boundary, surfaceBottom) - top - reserved)}px`;
+      if (panel.style.getPropertyValue('--agent-settings-space') !== available)
+        panel.style.setProperty('--agent-settings-space', available);
     };
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    let frame: number | undefined;
+    const scheduleMeasure = () => {
+      if (frame !== undefined) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = undefined;
+        measure();
+      });
+    };
+    const observer =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure);
     const mutations = new MutationObserver(measure);
     mutations.observe(wrapper ?? owner, { childList: true, subtree: true, characterData: true });
     measure();
@@ -123,6 +171,12 @@ export function AgentSettingsPicker({
     window.visualViewport?.addEventListener('resize', measure);
     window.visualViewport?.addEventListener('scroll', measure);
     return () => {
+      if (wrapper && previousWrapperStyle) {
+        wrapper.style.maxHeight = previousWrapperStyle.maxHeight;
+        wrapper.style.overflowY = previousWrapperStyle.overflowY;
+        wrapper.style.flexShrink = previousWrapperStyle.flexShrink;
+      }
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
       observer?.disconnect();
       mutations.disconnect();
       window.removeEventListener('resize', measure);
@@ -136,6 +190,10 @@ export function AgentSettingsPicker({
       : summary.location === 'openshell'
         ? 'OpenShell'
         : undefined;
+  const thinking = summary.thinking?.replace(
+    /^(low|medium|high|xhigh|minimal|max|none)$/i,
+    (value) => value.charAt(0).toUpperCase() + value.slice(1),
+  );
   return (
     <div className="agent-settings-picker">
       <button
@@ -147,7 +205,7 @@ export function AgentSettingsPicker({
           summary.agent,
           summary.account,
           summary.model,
-          summary.thinking,
+          thinking,
           location,
         ]
           .filter(Boolean)
@@ -159,7 +217,7 @@ export function AgentSettingsPicker({
         <UiIcon name="bot" />
         <strong>{summary.agent}</strong>
         <span>
-          {[summary.account, summary.model, summary.thinking, location].filter(Boolean).join(' · ')}
+          {[summary.account, summary.model, thinking, location].filter(Boolean).join(' · ')}
         </span>
         <UiIcon name="down" />
       </button>

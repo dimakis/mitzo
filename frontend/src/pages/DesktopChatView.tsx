@@ -1156,9 +1156,7 @@ export function DesktopChatView() {
           <ScrollFab scrollRef={scrollRef} />
           <SymposiumConversation
             ordinaryConfirmed={
-              (!sessionId || sessionId === activeSessionId) &&
-              !isSymposium &&
-              (localRuntime.bound || trustedSessionType === 'chat')
+              (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
             }
             ordinaryExcluded={isSymposium}
             pendingSettings={settings}

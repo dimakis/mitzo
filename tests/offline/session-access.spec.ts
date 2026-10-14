@@ -193,7 +193,8 @@ test('Access: empty ordinary composer survives Connections and return', async ({
   const errors = await fixture(page);
   await page.goto('/chat');
   const settings = page.getByRole('button', { name: /^Agent settings,/ });
-  await settings.click();
+  if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();
+  await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
   await page
     .getByRole('combobox', { name: 'Account', exact: true })
     .selectOption('fixture-account');
