@@ -37,31 +37,56 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const generation = useRef(0);
   const blocked = useRef(false);
   const sequence = useRef(0);
-  const refresh = useCallback(async () => {
-    if (blocked.current) return;
-    const gen = generation.current,
-      seq = ++sequence.current;
-    try {
-      const response = await apiFetch(
-        `/api/notifications?${new URLSearchParams({ filter, offset: String(offset), limit: '50' })}`,
-      );
-      if (!response.ok) throw new Error('Cannot load notifications. Try again.');
-      const data = (await response.json()) as NotificationFeed;
-      if (gen !== generation.current || seq !== sequence.current || blocked.current) return;
-      if (offset > 0 && offset >= data.total) {
-        setOffset(Math.max(0, Math.floor((data.total - 1) / 50) * 50));
-        return;
+  const inFlight = useRef<{
+    generation: number;
+    promise: Promise<void>;
+    followUp?: Promise<void>;
+  } | null>(null);
+  const refresh = useCallback(
+    async (changed = false): Promise<void> => {
+      if (blocked.current) return;
+      const gen = generation.current;
+      const pending = inFlight.current;
+      if (pending?.generation === gen) {
+        if (!changed) return pending.promise;
+        // Mutations and SSE changes may arrive after the server took its snapshot.
+        // Preserve one trailing read; simple reconnect/resume signals share this one.
+        pending.followUp ??= pending.promise.then(() => {
+          if (generation.current === gen && !blocked.current) return refresh();
+        });
+        return pending.followUp;
       }
-      setFeed(data);
-      setError(null);
-      setLoading(false);
-      void syncNotificationBadge(data.needsYou);
-    } catch {
-      if (gen !== generation.current || seq !== sequence.current || blocked.current) return;
-      setError('Cannot load notifications. Try again.');
-      setLoading(false);
-    }
-  }, [filter, offset]);
+      const seq = ++sequence.current;
+      const next = { generation: gen, promise: Promise.resolve() };
+      inFlight.current = next;
+      next.promise = (async () => {
+        try {
+          const response = await apiFetch(
+            `/api/notifications?${new URLSearchParams({ filter, offset: String(offset), limit: '50' })}`,
+          );
+          if (!response.ok) throw new Error('Cannot load notifications. Try again.');
+          const data = (await response.json()) as NotificationFeed;
+          if (gen !== generation.current || seq !== sequence.current || blocked.current) return;
+          if (offset > 0 && offset >= data.total) {
+            setOffset(Math.max(0, Math.floor((data.total - 1) / 50) * 50));
+            return;
+          }
+          setFeed(data);
+          setError(null);
+          setLoading(false);
+          void syncNotificationBadge(data.needsYou);
+        } catch {
+          if (gen !== generation.current || seq !== sequence.current || blocked.current) return;
+          setError('Cannot load notifications. Try again.');
+          setLoading(false);
+        }
+      })().finally(() => {
+        if (inFlight.current === next) inFlight.current = null;
+      });
+      return next.promise;
+    },
+    [filter, offset],
+  );
   useEffect(() => {
     const lost = () => {
       generation.current++;
@@ -85,7 +110,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     window.addEventListener(NOTIFICATIONS_REFRESH_EVENT, nativeRefresh);
     document.addEventListener('visibilitychange', visible);
     const unsubscribe = eventBus.on('notifications_changed', () => {
-      void refresh();
+      void refresh(true);
     });
     const reconnected = eventBus.onConnectionChange((connected) => {
       if (connected) void refresh();
@@ -116,7 +141,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || 'Cannot save this change. Try again.');
       }
-      await refresh();
+      await refresh(true);
     },
     [refresh],
   );
