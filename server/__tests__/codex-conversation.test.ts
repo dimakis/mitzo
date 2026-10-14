@@ -3704,6 +3704,26 @@ it('rejects an empty first-turn ACK without promoting the replacement or issuing
 });
 
 it('retains a durable accepted turn and recovery fence when lifecycle ownership persistence fails', async () => {
+  const makeSpan = () => ({
+    setAttribute: vi.fn(),
+    setStatus: vi.fn(),
+    end: vi.fn(),
+    spanContext: () => ({
+      traceId: '12345678901234567890123456789012',
+      spanId: '1234567890123456',
+      traceFlags: 1,
+    }),
+  });
+  const turnSpan = makeSpan();
+  const firstOutputSpan = makeSpan();
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) =>
+    name === 'codex.turn'
+      ? (turnSpan as unknown as Span)
+      : name === 'codex.turn.first_output'
+        ? (firstOutputSpan as unknown as Span)
+        : original(name, options, ctx),
+  );
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-accepted-owner-failure-'));
   const path = join(dir, 'private.db');
   let store = new CodexConversationStore(path);
@@ -3742,6 +3762,20 @@ it('retains a durable accepted turn and recovery fence when lifecycle ownership 
     'verified context',
   );
   expect(first.c.isPaused()).toBe(true);
+  expect(turnSpan.end).toHaveBeenCalledOnce();
+  expect(turnSpan.setAttribute).toHaveBeenCalledWith('mitzo.turn.status', 'interrupted');
+  expect(turnSpan.setAttribute).toHaveBeenCalledWith('mitzo.failure.category', 'acknowledgment');
+  expect(firstOutputSpan.end).toHaveBeenCalledOnce();
+  expect(firstOutputSpan.setAttribute).toHaveBeenCalledWith(
+    'mitzo.first_output.result',
+    'failed_before_output',
+  );
+  expect(
+    JSON.stringify([
+      ...turnSpan.setAttribute.mock.calls,
+      ...firstOutputSpan.setAttribute.mock.calls,
+    ]),
+  ).not.toContain('lifecycle persistence unavailable');
   expect(store.readThreadAcceptances('app', binding)).toMatchObject([
     {
       commandId: 'accepted-before-owner-error',
@@ -3752,6 +3786,8 @@ it('retains a durable accepted turn and recovery fence when lifecycle ownership 
     },
   ]);
   first.c.close();
+  expect(turnSpan.end).toHaveBeenCalledOnce();
+  expect(firstOutputSpan.end).toHaveBeenCalledOnce();
   store.close();
   store = new CodexConversationStore(path);
   args[0] = store;

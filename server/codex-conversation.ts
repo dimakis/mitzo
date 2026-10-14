@@ -2016,6 +2016,7 @@ export class CodexConversation {
               if (active.completionOperation) await active.completionOperation;
             }
             if (this.active === active) {
+              this.finishTurnSpan('interrupted', 'acknowledgment');
               this.opts.store.pauseForRecovery(
                 this.opts.conversationId,
                 this.binding!,
