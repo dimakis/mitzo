@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -156,6 +157,98 @@ it.each(['consumed', 'uncertain'] as const)(
     const receipt = f.events.getOrdinaryLocalCommandAdmission(request.clientMsgId);
     expect(saved?.source).toBe('workspace');
     expect(receipt?.state).toBe(state);
+    if (state === 'consumed') {
+      const original = f.dispatch.mock.calls[0][0];
+      const native = new CodexConversationStore(join(f.root, 'historical-native.db'));
+      cleanups.push(() => native.close());
+      native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+      original.admission.persistCustody(native);
+      native.bindThread(original.sessionId, original.lease.binding, 'retained-thread');
+      vi.spyOn(
+        await import('../codex-chat-session.js'),
+        'getCodexConversationStore',
+      ).mockReturnValue(native);
+      vi.spyOn(
+        await import('../repository-workspace-runtime.js'),
+        'getRepositoryWorkspaces',
+      ).mockReturnValue(f.workspace);
+      const { assertOrdinaryHistoricalAcknowledgement } =
+        await import('../ordinary-command-historical-ack.js');
+      const { LocalCodexFirstCommandSchema } = await import('@mitzo/protocol');
+      const wire = LocalCodexFirstCommandSchema.parse({
+        ...request,
+        runOn: 'local',
+        repositoryWorkspaceId: f.reservation.id,
+      });
+      const originalConfiguration = structuredClone(f.configuration);
+      f.configuration[0].models = [
+        { id: 'future-C', label: 'Current supported C', reasoningEfforts: ['low'] },
+      ];
+      f.configuration[0].label = 'Updated display label';
+      f.writeProfiles();
+      const commandCount = native.commands(original.sessionId, original.lease.binding).length;
+      const launchCount = f.launch.mock.calls.length;
+      const dispatchCount = f.dispatch.mock.calls.length;
+      expect(
+        assertOrdinaryHistoricalAcknowledgement(
+          f.events,
+          original.sessionId,
+          f.auth.id,
+          wire,
+          true,
+        ),
+      ).toBe(true);
+      const custody = native.readHostCustody(original.sessionId, original.lease.binding)!;
+      const corrupt = new Database(join(f.root, 'historical-native.db'));
+      try {
+        corrupt
+          .prepare('UPDATE codex_conversations SET host_custody=? WHERE id=?')
+          .run(JSON.stringify({ ...custody, bootstrapId: 'f'.repeat(64) }), original.sessionId);
+        expect(() =>
+          assertOrdinaryHistoricalAcknowledgement(
+            f.events,
+            original.sessionId,
+            f.auth.id,
+            wire,
+            true,
+          ),
+        ).toThrow();
+      } finally {
+        corrupt
+          .prepare('UPDATE codex_conversations SET host_custody=? WHERE id=?')
+          .run(JSON.stringify(custody), original.sessionId);
+        corrupt.close();
+      }
+
+      expect(() =>
+        assertOrdinaryHistoricalAcknowledgement(
+          f.events,
+          original.sessionId,
+          f.auth.id,
+          { ...wire, payload: { text: 'Changed historical input' } },
+          true,
+        ),
+      ).toThrow();
+      expect(() =>
+        assertOrdinaryHistoricalAcknowledgement(
+          f.events,
+          original.sessionId,
+          'foreign-operator',
+          wire,
+          true,
+        ),
+      ).toThrow();
+      expect(f.events.getOrdinaryLocalCommandAdmission(request.clientMsgId)).toEqual(receipt);
+      expect(f.events.getSession(original.sessionId)?.agentContext).toEqual(saved);
+      expect(native.commands(original.sessionId, original.lease.binding)).toHaveLength(
+        commandCount,
+      );
+      expect(f.launch).toHaveBeenCalledTimes(launchCount);
+      expect(f.dispatch).toHaveBeenCalledTimes(dispatchCount);
+      // Fresh owner retry below still exercises its existing current-catalog authority.
+      f.configuration.splice(0, f.configuration.length, ...originalConfiguration);
+      f.writeProfiles();
+    }
     f.launch.mockClear();
     f.dispatch.mockClear();
     await expect(f.create().admit(request)).resolves.toEqual({ dispatched: false });
@@ -249,6 +342,43 @@ it.each(['workspace', 'contexgin'] as const)(
       'retained-thread',
     );
     expect(fetch).toHaveBeenCalledTimes(source === 'workspace' ? 0 : 1);
+    vi.spyOn(await import('../codex-chat-session.js'), 'getCodexConversationStore').mockReturnValue(
+      native,
+    );
+    vi.spyOn(
+      await import('../repository-workspace-runtime.js'),
+      'getRepositoryWorkspaces',
+    ).mockReturnValue(f.workspace);
+    const { LocalCodexContinuationCommandSchema } = await import('@mitzo/protocol');
+    const wire = LocalCodexContinuationCommandSchema.parse({
+      ...next,
+      runOn: 'local',
+      repositoryWorkspaceId: f.reservation.id,
+      sessionId: original.sessionId,
+    });
+    const retainedReceipt = f.events.getOrdinaryLocalCommandAdmission(next.clientMsgId);
+    f.configuration[0].models = [
+      { id: 'future-C', label: 'Current supported C', reasoningEfforts: ['low'] },
+    ];
+    f.writeProfiles();
+    const { assertOrdinaryHistoricalAcknowledgement } =
+      await import('../ordinary-command-historical-ack.js');
+    expect(
+      assertOrdinaryHistoricalAcknowledgement(f.events, original.sessionId, f.auth.id, wire, false),
+    ).toBe(true);
+    expect(() =>
+      assertOrdinaryHistoricalAcknowledgement(
+        f.events,
+        original.sessionId,
+        f.auth.id,
+        { ...wire, payload: { text: 'Changed' } },
+        false,
+      ),
+    ).toThrow();
+    expect(f.events.getOrdinaryLocalCommandAdmission(next.clientMsgId)).toEqual(retainedReceipt);
+    expect(f.events.getSession(original.sessionId)?.agentContext).toEqual(snapshot);
+    expect(fetch).toHaveBeenCalledTimes(source === 'workspace' ? 0 : 1);
+    expect(dispatch).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   },
 );

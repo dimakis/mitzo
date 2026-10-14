@@ -1,3 +1,4 @@
+import { AgentLibraryVersionSchema } from '@mitzo/protocol';
 import { contextDigest } from '../agent-context-compiler.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -76,7 +77,7 @@ function fixture() {
     target,
     deployment: 'ordinary',
   });
-  const agentProfile = {
+  const agentProfile = AgentLibraryVersionSchema.parse({
     profileId: 'agent',
     revision: 1,
     contentHash: 'a'.repeat(64),
@@ -89,7 +90,7 @@ function fixture() {
       acceptanceCriteria: ['Evidence'],
       modelPolicyRole: 'agent' as const,
     },
-  };
+  });
   agentProfile.contentHash = contextDigest(agentProfile.definition);
   const meta = {
     sessionId: 'session',
@@ -486,4 +487,94 @@ it('refuses an expired incoming warm authority wait without changing the origina
     f.driver.admit(nextMeta, f.command('accepted-next', 'next', 'high')),
   ).resolves.toMatchObject({ dispatched: true });
   expect(f.dispatch).toHaveBeenCalledTimes(2);
+});
+
+it('acknowledges a retained consumed OpenShell command after catalog retirement without native effects', async () => {
+  const f = fixture();
+  const { buildAgentProfilePrompt } = await import('../agent-library-prompt.js');
+  const first = f.command('first');
+  first.payload.systemPrompt = buildAgentProfilePrompt(f.meta.agentProfile.definition);
+  const later = f.command('later', 'next', 'high');
+  later.payload.systemPrompt = first.payload.systemPrompt;
+  await f.driver.admit(f.meta, first);
+  await f.driver.admit(
+    {
+      ...f.meta,
+      selectedModel: 'next',
+      reasoningEffort: 'high',
+      accountBinding: { ...f.account, model: 'next' },
+    },
+    later,
+  );
+  vi.spyOn(await import('../codex-chat-session.js'), 'getCodexConversationStore').mockReturnValue(
+    f.native,
+  );
+  const retiredProfiles = new AccountProfiles(
+    [
+      {
+        id: 'personal',
+        label: 'Refreshed label',
+        provider: 'openai-codex',
+        email: 'fixture@example.test',
+        planType: 'plus',
+        sandboxProvider: 'provider',
+        sandboxProviderType: 'openai-codex-oauth',
+        sandboxProviderId: 'provider-id',
+        sandboxGrantId: 'grant-id',
+        models: [{ id: 'future-C', label: 'Current C' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  vi.spyOn(await import('../account-profiles.js'), 'loadAccountProfiles').mockReturnValue(
+    retiredProfiles,
+  );
+  const { assertOrdinaryHistoricalAcknowledgement } =
+    await import('../ordinary-command-historical-ack.js');
+  const { OrdinaryCodexContinuationCommandSchema } = await import('@mitzo/protocol');
+  const wire = OrdinaryCodexContinuationCommandSchema.parse({
+    ...later,
+    runtime: { ...later.runtime, account: { ...later.runtime.account, provider: 'openai-codex' } },
+    payload: { text: later.payload.text },
+    runOn: 'openshell',
+    repositoryWorkspaceId: '00000000-0000-4000-8000-000000000001',
+    sessionId: 'session',
+  });
+  wire.repositoryWorkspaceId = 'repo';
+  expect(f.events.getSession('session')?.agentProfile).toEqual(f.meta.agentProfile);
+  const receipt = f.events.getOrdinaryOpenShellCommandAdmission('later');
+  const history = f.native.commands('session', f.account);
+  const artifact = f.native.readArtifactRuntime('session', f.account);
+  const calls = f.dispatch.mock.calls.length;
+  const claims = f.claim.mock.calls.length;
+  expect(
+    assertOrdinaryHistoricalAcknowledgement(f.events, 'session', 'signed-operator', wire, false),
+  ).toBe(true);
+  expect(() =>
+    assertOrdinaryHistoricalAcknowledgement(f.events, 'session', 'foreign-operator', wire, false),
+  ).toThrow();
+  expect(() =>
+    assertOrdinaryHistoricalAcknowledgement(
+      f.events,
+      'session',
+      'signed-operator',
+      { ...wire, payload: { text: 'Different' } },
+      false,
+    ),
+  ).toThrow();
+  expect(() =>
+    assertOrdinaryHistoricalAcknowledgement(
+      f.events,
+      'session',
+      'signed-operator',
+      { ...wire, selection: { ...wire.selection, thinking: 'low' } },
+      false,
+    ),
+  ).toThrow();
+  expect(f.events.getOrdinaryOpenShellCommandAdmission('later')).toEqual(receipt);
+  expect(f.native.commands('session', f.account)).toEqual(history);
+  expect(f.native.readArtifactRuntime('session', f.account)).toEqual(artifact);
+  expect(f.dispatch).toHaveBeenCalledTimes(calls);
+  expect(f.claim).toHaveBeenCalledTimes(claims);
+  vi.restoreAllMocks();
 });

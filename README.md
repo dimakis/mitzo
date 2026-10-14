@@ -106,7 +106,7 @@ for the native conversation. An invalid future choice remains visible with a rea
 until explicitly replaced or a new conversation is started. Images, context
 recipes, packs and OpenShell Gemini remain unavailable.
 
-- [x] Gemini source120 checkpoint: 298 unique reviewed artifacts with zero drift;
+- [x] Combined Vertex/Gemini source120 checkpoint: 299 unique reviewed artifacts with zero drift;
       188 offline checks, scoped types and commit hooks passed. Live provider behavior,
       ADC renewal and staging qualification remain outstanding.
 

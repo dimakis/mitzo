@@ -453,7 +453,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     },
     true,
   );
-  const invoke = (body: unknown, url = '/send') =>
+  const invoke = (body: unknown, url = '/send', auth: import('../auth.js').AuthSession = f.auth) =>
     new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
       let status = 200;
       const req = {
@@ -463,7 +463,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
         body,
       };
       const res = {
-        locals: { authSession: f.auth },
+        locals: { authSession: auth },
         set() {
           return this;
         },
@@ -543,6 +543,23 @@ it('a qualified preparation A starts model B on its original checkout and exact 
   ];
   f.configuration[0].label = 'Updated display label';
   f.writeProfiles();
+  const originalReceipt = chat.eventStore.getOrdinaryLocalVertexCommandAdmission(wire.clientMsgId);
+  expect(originalReceipt?.state).toBe('consumed');
+  const retiredExactRetry = await invoke(wire);
+  expect(chat.eventStore.getOrdinaryLocalVertexCommandAdmission(wire.clientMsgId)).toEqual(
+    originalReceipt,
+  );
+  expect(services.requests).toHaveLength(1);
+  expect(claim).toHaveBeenCalledTimes(1);
+  expect((await invoke({ ...wire, payload: { text: 'changed historical command' } })).status).toBe(
+    409,
+  );
+  expect((await invoke(wire, '/send', { ...f.auth, id: 'foreign-operator' })).status).toBe(403);
+  expect(retiredExactRetry).toMatchObject({
+    status: 202,
+    body: { state: 'consumed', sessionId },
+  });
+
   const { loadAccountProfiles } = await import('../account-profiles.js');
   expect(loadAccountProfiles().resolve('personal', 'future-C').profileRevision).toBe(revision);
   const { localVertexCapabilities, OrdinaryLocalVertexTarget } =
@@ -571,6 +588,26 @@ it('a qualified preparation A starts model B on its original checkout and exact 
   );
   expect(services.requests[1].options.resume).toBe(sessionId);
   expect(services.requests[1].options.model).toBe('future-C');
+  expect(await invoke(wire)).toMatchObject({
+    status: 202,
+    body: { state: 'consumed', dispatched: false, sessionId },
+  });
+  expect(services.requests).toHaveLength(2);
+  expect(chat.eventStore.getOrdinaryLocalVertexCommandAdmission(wire.clientMsgId)).toEqual(
+    originalReceipt,
+  );
+  expect((await invoke({ ...wire, sessionId }, '/continue')).status).toBe(409);
+  expect(
+    (
+      await invoke({
+        ...wire,
+        clientMsgId: 'future-C',
+        capabilityRevision: current.capabilityRevision,
+        selection: { ...wire.selection, model: 'future-C', thinking: 'low' },
+      })
+    ).status,
+  ).toBe(409);
+  expect(services.requests).toHaveLength(2);
   expect(f.workspace.get(ready.id).binding.model).toBe('next-model');
   expect(f.workspace.get(ready.id).directory).toBe(claimed.directory);
   expect(f.workspace.get(ready.id).ordinaryPreparation).toEqual(claimed.ordinaryPreparation);

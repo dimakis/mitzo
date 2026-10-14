@@ -414,6 +414,15 @@ export class EventStore {
     getSessionState: Database.Statement;
   };
 
+  /** Original ordinary command in this session's existing admission ledger. */
+  getOrdinaryInitialCommandId(sessionId: string): string | undefined {
+    return (
+      this.db!.prepare(
+        'SELECT client_msg_id FROM send_commands WHERE session_id=? AND ordinary_admission IS NOT NULL ORDER BY rowid LIMIT 1',
+      ).get(sessionId) as { client_msg_id: string } | undefined
+    )?.client_msg_id;
+  }
+
   getSendCommand(clientMsgId: string): SendCommandReceipt | undefined {
     const row = this.db!.prepare('SELECT * FROM send_commands WHERE client_msg_id = ?').get(
       clientMsgId,

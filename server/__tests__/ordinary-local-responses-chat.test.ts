@@ -156,7 +156,12 @@ it('dispatches consumed API commands through the actual chat owner and retains t
     },
     true,
   );
-  const invoke = (url: string, body: unknown, selectedRouter = router) =>
+  const invoke = (
+    url: string,
+    body: unknown,
+    selectedRouter = router,
+    auth: import('../auth.js').AuthSession = f.auth,
+  ) =>
     new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
       let status = 200;
       const req = {
@@ -166,7 +171,7 @@ it('dispatches consumed API commands through the actual chat owner and retains t
         body,
       };
       const res = {
-        locals: { authSession: f.auth },
+        locals: { authSession: auth },
         set() {
           return this;
         },
@@ -265,6 +270,46 @@ it('dispatches consumed API commands through the actual chat owner and retains t
       payload: { text: 'A queued frozen turn' },
     }),
   ).resolves.toMatchObject({ status: 202 });
+  const originalConfiguration = structuredClone(f.configuration);
+  const exactQueued = {
+    ...wire,
+    sessionId: f.reservation.conversationId,
+    clientMsgId: 'queued',
+    selection: structuredClone(queuedSelection),
+    payload: { text: 'A queued frozen turn' },
+  };
+  const retainedReceipt = chat.eventStore.getOrdinaryLocalResponsesCommandAdmission('queued');
+  const retainedQueue = native.queue(f.reservation.conversationId, f.reservation.binding);
+  const retainedHistory = native.load(f.reservation.conversationId, f.reservation.binding)!.history;
+  f.configuration[0].models = [{ id: 'future-C', label: 'Future C', reasoningEfforts: ['low'] }];
+  f.configuration[0].label = 'Refreshed label';
+  f.writeProfiles();
+  await expect(invoke('/continue', exactQueued)).resolves.toMatchObject({
+    status: 202,
+    body: { dispatched: false, state: 'consumed', sessionId: f.reservation.conversationId },
+  });
+  await expect(
+    invoke('/continue', { ...exactQueued, payload: { text: 'Changed' } }),
+  ).resolves.toMatchObject({ status: 409 });
+  await expect(
+    invoke('/continue', {
+      ...exactQueued,
+      selection: { ...exactQueued.selection, thinking: 'low' },
+    }),
+  ).resolves.toMatchObject({ status: 409 });
+  await expect(
+    invoke('/continue', exactQueued, router, { ...f.auth, id: 'foreign-operator' }),
+  ).resolves.toMatchObject({ status: 403 });
+  expect(chat.eventStore.getOrdinaryLocalResponsesCommandAdmission('queued')).toEqual(
+    retainedReceipt,
+  );
+  expect(native.queue(f.reservation.conversationId, f.reservation.binding)).toEqual(retainedQueue);
+  expect(native.load(f.reservation.conversationId, f.reservation.binding)!.history).toEqual(
+    retainedHistory,
+  );
+  expect(requests).toHaveLength(4);
+  f.configuration.splice(0, f.configuration.length, ...originalConfiguration);
+  f.writeProfiles();
   queuedSelection.model = f.request.selection.model;
   expect(requests).toHaveLength(4);
   const queues = await import('../ordinary-local-responses-queue.js');

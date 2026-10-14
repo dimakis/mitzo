@@ -1,3 +1,4 @@
+import { assertOrdinaryHistoricalAcknowledgement } from './ordinary-command-historical-ack.js';
 import {
   OrdinaryLocalVertexTarget,
   localVertexCapabilities,
@@ -438,6 +439,37 @@ export function createOwnedLocalCodexEntryRouter(
         return res
           .status(403)
           .json({ ok: false, code: 'connection_unavailable', error: unavailable });
+      try {
+        const captured = captureAgentLibraryAuthorization(connectionId);
+        captured.assertCurrent();
+        if (captured.auth.id !== auth.id) throw Error(unavailable);
+        if (
+          assertOrdinaryHistoricalAcknowledgement(
+            ctx.eventStore,
+            sessionId,
+            auth.id,
+            input,
+            !continuation,
+          )
+        ) {
+          captured.assertCurrent();
+          return res.status(202).json({
+            ok: true,
+            clientMsgId: input.clientMsgId,
+            sessionId,
+            dispatched: false,
+            state: 'consumed',
+          });
+        }
+      } catch {
+        return res.status(409).json({
+          ok: false,
+          code: 'retained_command',
+          error: unavailable,
+          clientMsgId: input.clientMsgId,
+          sessionId,
+        });
+      }
       if (continuation) {
         const meta = ctx.eventStore.getSession(sessionId);
         const binding = ctx.eventStore.getSessionRuntimeBinding(sessionId);

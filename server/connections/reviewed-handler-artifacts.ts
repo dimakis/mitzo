@@ -100,7 +100,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     'f719be5f15b168aee7069d0ad9d616426b4f5e88a6e9750b6b331b9e1b032b86',
   '../ordinary-local-codex-entry.ts':
-    '3affd30e3f613c1ebffd03a2d1fe482bce6e8f0b18dcc8a805a16e26fccfb908',
+    '83ebd26e595742a9f6f567215b1ffb8ac69dcf386a6c4468c9da7883337277e5',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':
@@ -121,7 +121,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '7e41079850cda5c9599796f3e1cd3810d8cf36f7400781990d54c384a1ed6703',
   '../send-command.ts': '18bc97eb0e66226fd777c77d58597293872c3e6378b071a91c6514511ffe9750',
   '../ordinary-local-codex-admission.ts':
-    'e5e38a3b2f28d7793b71c864a4566fb7af38875edb175c6d12926e36766db5e8',
+    '4868373c52aa261a89f64afd5ff42d16de8a67f250dc723e4622968a5dfd9442',
   '../ordinary-local-codex-capabilities.ts':
     'bea6fe896ae2956aca4d8b7ec62077ef2d35d0753a94ca78e888a721a26815ea',
   // Owned local command authority and the existing helpers in its code closure.
@@ -377,7 +377,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    '6677566cf98174a008c16f4711e8b28f328e1d4c09eb78f7d35f1be0a028537c',
+    'e3788a7640e606b62fcdcc31f911af75a7339896109a6ef41b8a607c943d7c72',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -557,4 +557,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
   '../../frontend/src/lib/repository-chat-preparation.ts':
     'd800d801ee8cd47bd102381a83e956b6d967db8480a8fa4e3cadc6f880d18786',
+  // Ordinary Codex continuation, persistent login revocation and physical custody.
+  '../ordinary-command-historical-ack.ts':
+    'a5301e8f86add7c8e88cfc39fb091f218645166b4400ebc6169e576bbfef12c9',
 });

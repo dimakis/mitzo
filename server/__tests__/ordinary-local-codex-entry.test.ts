@@ -1,3 +1,11 @@
+import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
+import { canonicalJson } from '../connections/capabilities/input-validation.js';
+import { openShellPhysicalCustodyFingerprint } from '../openshell-codex-custody.js';
+import type { ArtifactRuntime } from '../codex-conversation-store.js';
+import {
+  ordinaryLocalCommandFingerprint,
+  ordinaryLocalCodexBootstrapId,
+} from '../ordinary-local-codex-admission.js';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
@@ -52,6 +60,27 @@ const fixtures = vi.hoisted(() => ({
   controller: false,
   owner: false,
   root: '/offline/task-host',
+  shellCustody: vi.fn(),
+  shellArtifact: vi.fn(),
+}));
+vi.mock('../codex-chat-session.js', () => ({
+  getCodexConversationStore: () => ({
+    readHostCustody: (sessionId: string) => ({
+      authSessionId: auth.id,
+      bootstrapId: ordinaryLocalCodexBootstrapId(
+        sessionId,
+        store.getOrdinaryCommandAdmission(store.getOrdinaryInitialCommandId(sessionId)!)!
+          .requestFingerprint,
+      ),
+    }),
+    readOpenShellCustody: fixtures.shellCustody,
+    readArtifactRuntime: fixtures.shellArtifact,
+    read: (conversationId: string) => ({
+      conversationId,
+      cwd: fixtures.shellArtifact() ? '/sandbox/workspaces/task' : '/offline/checkout',
+      threadId: 'offline-retained-thread',
+    }),
+  }),
 }));
 vi.mock('../chat.js', () => ({
   startOwnedLocalCodexCommand: fixtures.start,
@@ -171,12 +200,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixtures.shellTarget.mockReturnValue(undefined);
   fixtures.shellResumable = false;
+  fixtures.shellCustody.mockReturnValue(null);
+  fixtures.shellArtifact.mockReturnValue(null);
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   fixtures.controller = fixtures.owner = false;
   auth = { id: `owned-entry-login-${++sequence}`, expiresAt: Date.now() + 600_000 };
   fixtures.profiles.mockReturnValue(profiles);
   fixtures.library.mockReturnValue({ version: () => publishedProfile });
   fixtures.workspace.mockReturnValue({
+    get: () => ({ state: 'claimed' }),
     reserveHostTask: fixtures.reserve,
     reserveOrdinarySandboxTask: fixtures.reserveSandbox,
   });
@@ -195,7 +227,9 @@ beforeEach(() => {
       resolved.binding,
       {
         clientMsgId: args.commandId,
-        requestFingerprint: 'offline-command',
+        requestFingerprint: ordinaryLocalCommandFingerprint('codex', args.command, {
+          workspace: { workspaceId, cwd: '/offline/checkout' },
+        }),
         selection: args.command.selection,
         payload: args.command.payload,
       },
@@ -432,10 +466,7 @@ it('aborts retained preparation on logout before bootstrap/dispatch', async () =
 it('returns an exact consumed duplicate without changing original receipt', async () => {
   expect((await send()).status).toBe(202);
   const original = store.getOrdinaryLocalCommandAdmission(input().clientMsgId);
-  fixtures.start.mockResolvedValueOnce({
-    dispatched: false,
-    sessionId: nativeStartupSessionId(`repository:${workspaceId}`),
-  });
+
   const response = await send();
   expect(response.body).toEqual(
     expect.objectContaining({ ok: true, dispatched: false, state: 'consumed' }),
@@ -1054,11 +1085,53 @@ it('reserves a qualified OpenShell preparation model B before admission and an e
       expect(record.binding.model).toBe('supported-next');
       expect(record.ordinaryPreparation?.originalBinding).toEqual(accountA);
       expect(record.ordinaryFirstReservation?.conversationId).toBe(args.meta.sessionId);
+      const artifact = {
+        runtime: {
+          sandboxName: 'offline-owned',
+          sandboxId: 'offline-resource',
+          workdir: shell.config.workdir,
+          appServerCommand: '/sandbox/run-mitzo-subscription-app-server',
+          cli: shell.config.cli,
+          gateway: shell.config.gateway,
+          workspace: shell.config.workspace,
+          gatewayInsecure: false,
+        },
+        route: {
+          kind: 'chatgpt-subscription',
+          provider: 'provider',
+          providerType: 'openai-codex-oauth',
+          providerId: 'provider-id',
+          grantId: 'grant-id',
+          model: args.command.selection.model,
+        },
+      } satisfies ArtifactRuntime;
+      fixtures.shellArtifact.mockReturnValue(artifact);
+      fixtures.shellCustody.mockReturnValue({
+        authSessionId: auth.id,
+        binding: shell.admittedBinding,
+        workspace: { workspaceId: ready.id, cwd: shell.config.workdir },
+        physicalIdentitySha256: openShellPhysicalCustodyFingerprint(artifact),
+      });
+      const command = {
+        ...args.command,
+        payload: {
+          ...args.command.payload,
+          systemPrompt: buildAgentProfilePrompt(args.meta.agentProfile.definition),
+        },
+      };
+      const expected = {
+        binding: shell.admittedBinding,
+        workspace: { workspaceId: ready.id, cwd: shell.config.workdir },
+        selection: args.command.selection,
+        agentProfile: args.meta.agentProfile,
+      };
       const admission = {
         clientMsgId: args.command.clientMsgId,
-        requestFingerprint: createHash('sha256').update(JSON.stringify(args.command)).digest('hex'),
+        requestFingerprint: `ordinary-openshell-codex-v1:${createHash('sha256')
+          .update(canonicalJson(JSON.parse(JSON.stringify({ request: command, expected }))))
+          .digest('hex')}`,
         selection: args.command.selection,
-        payload: args.command.payload,
+        payload: command.payload,
       };
       const receipt = store.admitOrdinaryOpenShellCommand(
         { ...args.meta, cwd: shell.config.workdir },

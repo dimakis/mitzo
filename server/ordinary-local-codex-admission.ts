@@ -115,6 +115,28 @@ function canonical(value: unknown): unknown {
     );
   return value;
 }
+/** Identical canonical identity for admission and authenticated historical acknowledgement. */
+export function ordinaryLocalCommandFingerprint(
+  adapter: 'codex' | 'responses' | 'gemini' | 'claude-sdk',
+  request: unknown,
+  snapshot: Pick<
+    OrdinaryLocalCodexAdmissionExpectation,
+    'workspace' | 'agentProfile' | 'agentContext'
+  >,
+) {
+  return `ordinary-local-${adapter}-v1:${createHash('sha256')
+    .update(
+      JSON.stringify(
+        canonical({
+          request,
+          workspace: snapshot.workspace,
+          agentProfile: snapshot.agentProfile,
+          agentContext: snapshot.agentContext,
+        }),
+      ),
+    )
+    .digest('hex')}`;
+}
 class OrdinaryLocalCodexAdmissionError extends Error {}
 function fail(reason: string): never {
   throw new OrdinaryLocalCodexAdmissionError(`Ordinary local Codex admission ${reason}`);
@@ -376,18 +398,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       agentProfile: admittedMeta.agentProfile,
       agentContext: admittedMeta.agentContext,
     };
-    const fingerprint = `ordinary-local-${d.adapter ?? 'codex'}-v1:${createHash('sha256')
-      .update(
-        JSON.stringify(
-          canonical({
-            request,
-            workspace: expected.workspace,
-            agentProfile: expected.agentProfile,
-            agentContext: expected.agentContext,
-          }),
-        ),
-      )
-      .digest('hex')}`;
+    const fingerprint = ordinaryLocalCommandFingerprint(d.adapter ?? 'codex', request, expected);
     if (d.bootstrapAuthority)
       expected.bootstrapId = ordinaryLocalCodexBootstrapId(admittedMeta.sessionId, fingerprint);
     // Clone every boundary so an asynchronous owner cannot rewrite admitted input.
