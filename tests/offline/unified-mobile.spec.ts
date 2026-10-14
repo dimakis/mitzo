@@ -1380,6 +1380,21 @@ test('accent-filled controls retain their paired foreground on hover and in user
   }
 });
 
+test('Calendar exposes temporary API failure on mobile and desktop', async ({ page }) => {
+  await page.route('**/api/calendar?**', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Unavailable' }),
+    }),
+  );
+  await page.goto('/calendar');
+  await expect(page.getByRole('alert')).toHaveText(
+    'Couldn’t load calendar. Check the connection and try again.',
+  );
+  await expect(page.getByRole('heading', { name: 'Calendar', exact: true })).toBeVisible();
+});
+
 test('desktop Calendar uses the week canvas and dismissible event details', async ({
   page,
   isMobile,

@@ -125,6 +125,9 @@ describe('useCalendarData', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.events).toEqual([]);
     expect(result.current.sprints).toEqual([]);
+    expect(result.current.error).toBe(
+      'Couldn’t load calendar. Check the connection and try again.',
+    );
   });
 
   it('handles fetch errors gracefully', async () => {
@@ -139,6 +142,24 @@ describe('useCalendarData', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.events).toEqual([]);
     expect(result.current.sprints).toEqual([]);
+    expect(result.current.error).toBe(
+      'Couldn’t load calendar. Check the connection and try again.',
+    );
+  });
+
+  it('clears an outage error when a different period can be loaded', async () => {
+    vi.mocked(apiFetch).mockRejectedValueOnce(new Error('offline'));
+    const { result, rerender } = renderHook(({ date }) => useCalendarData(date), {
+      initialProps: { date: '2026-04-10' },
+    });
+    await act(async () => {});
+    expect(result.current.error).toBe(
+      'Couldn’t load calendar. Check the connection and try again.',
+    );
+    rerender({ date: '2026-04-11' });
+    await act(async () => {});
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.events).toHaveLength(2);
   });
 
   it('separates events by type', async () => {

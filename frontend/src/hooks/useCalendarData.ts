@@ -71,7 +71,13 @@ export function useCalendarData(date: string, days: number = 7): UseCalendarData
       })
       .catch(() => {
         if (!cancelled) {
-          setData({ startDate: date, endDate: date, events: [], sprints: [] });
+          setData({
+            startDate: date,
+            endDate: date,
+            events: [],
+            sprints: [],
+            error: 'Couldn’t load calendar. Check the connection and try again.',
+          });
           setLoading(false);
         }
       });
