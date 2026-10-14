@@ -12,7 +12,7 @@ vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
 
-it('collapses workspace settings without unmounting the account controls and remembers preference', () => {
+it('retains account edits while toggling, but starts a newly mounted conversation collapsed', () => {
   const { unmount } = render(
     <WorkspaceControls status="Ready">
       <input aria-label="Account" defaultValue="Personal" />
@@ -33,8 +33,9 @@ it('collapses workspace settings without unmounting the account controls and rem
     </WorkspaceControls>,
   );
   expect(screen.getByRole('button', { name: /Workspace/ }).getAttribute('aria-expanded')).toBe(
-    'true',
+    'false',
   );
+  expect(screen.queryByRole('textbox', { name: 'Account' })).toBeNull();
 });
 
 it('collapses the main navigation independently and keeps named destinations accessible', () => {
