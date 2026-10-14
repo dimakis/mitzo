@@ -1835,6 +1835,29 @@ describe('handleSendV2 auto-watch', () => {
     expect(callArgs[1]).toBe('c1:sess-resume');
   });
 
+  it('preserves a pending launch selection when an unrelated background watch is removed', async () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.watch('c1', 'unrelated');
+    await handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send',
+        sessionId: null,
+        prompt: 'pending launch',
+        clientMsgId: 'pending-view',
+      },
+      ctx,
+    );
+    const options = (startChat as ReturnType<typeof vi.fn>).mock.calls[0][3];
+    handleUnwatch('c1', { type: 'unwatch', sessionId: 'unrelated' }, ctx);
+    options.onSessionResolved('intended-session');
+    expect(ctx.connRegistry.get('c1')!.activeSession).toBe('intended-session');
+  });
+
   it.each(['sess-selected', null])(
     'keeps explicit selection %s after an older launch resolves',
     async (selection) => {

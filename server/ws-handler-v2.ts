@@ -545,7 +545,8 @@ export function handleWatch(connectionId: string, msg: WatchMsg, ctx: V2HandlerC
 }
 
 export function handleUnwatch(connectionId: string, msg: UnwatchMsg, ctx: V2HandlerContext): void {
-  advanceViewGeneration(connectionId, ctx);
+  if (ctx.connRegistry.get(connectionId)?.activeSession === msg.sessionId)
+    advanceViewGeneration(connectionId, ctx);
   ctx.connRegistry.unwatch(connectionId, msg.sessionId);
   ctx.connRegistry.get(connectionId)?.transport.send({
     type: 'unwatched',
