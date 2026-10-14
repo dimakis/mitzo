@@ -11,6 +11,56 @@ const ack = (id = 'one') =>
 afterEach(() => vi.useRealTimers());
 
 describe('send outbox', () => {
+  it('wakes a saved retry on verified connectivity without overlapping delivery or changing identity', async () => {
+    vi.useFakeTimers();
+    let resolve!: (response: Response) => void;
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockReturnValueOnce(
+        new Promise<Response>((r) => {
+          resolve = r;
+        }),
+      )
+      .mockResolvedValueOnce(ack('two'));
+    const notify = vi.fn();
+    const outbox = new SendOutbox({ fetch, notify, url: '/send' });
+    outbox.start();
+    outbox.enqueue(prompt, 0);
+    outbox.enqueue({ ...prompt, clientMsgId: 'two' }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    outbox.wake();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][1].body).toBe(fetch.mock.calls[0][1].body);
+    outbox.wake();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    resolve(ack());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(notify.mock.calls.filter(([e]) => e.type === '_send_accepted')).toHaveLength(2);
+    outbox.stop();
+  });
+
+  it('does not restart delivery on connectivity after stop or authentication loss', async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
+    const outbox = new SendOutbox({ fetch, notify: vi.fn(), url: '/send' });
+    outbox.start();
+    outbox.enqueue(prompt, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    outbox.stop();
+    outbox.wake();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    outbox.rejectAll('Sign in again');
+    outbox.wake();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('retains the exact source snapshot across reload and a transient HTTP retry', async () => {
     vi.useFakeTimers();
     let value: string | null = null;

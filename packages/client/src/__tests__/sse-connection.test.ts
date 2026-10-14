@@ -86,6 +86,67 @@ describe('SseConnection', () => {
     vi.useRealTimers();
   });
 
+  it.each(['welcome', 'probe'] as const)(
+    'wakes an exact saved send on verified %s before replay is ready',
+    async (source) => {
+      const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+      vi.stubGlobal('document', doc);
+      vi.stubGlobal('addEventListener', vi.fn());
+      vi.stubGlobal('removeEventListener', vi.fn());
+      let recovered = false;
+      const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+        if (url.endsWith('/send')) {
+          if (!recovered) throw new Error('offline');
+          return {
+            ok: true,
+            status: 202,
+            json: async () => ({ accepted: true, clientMsgId: 'wake-one', sessionId: 's1' }),
+          } as Response;
+        }
+        if (url.endsWith('/reconnect')) return new Promise<Response>(() => {});
+        return { ok: true } as Response;
+      });
+      const conn = new SseConnection(createConfig({ fetch }));
+      try {
+        conn.onMessage(vi.fn());
+        conn.connect();
+        const es = lastES();
+        if (source === 'probe') es._emit('welcome', { connectionId: 'conn-1' });
+        conn.trackSeq('s1', 5);
+        conn.send({
+          type: 'send',
+          sessionId: 's1',
+          clientMsgId: 'wake-one',
+          prompt: 'keep working',
+        });
+        await vi.advanceTimersByTimeAsync(source === 'probe' ? 10_000 : 0);
+        const before = fetch.mock.calls.filter(([url]) => url.endsWith('/send'));
+        recovered = true;
+        if (source === 'welcome') es._emit('welcome', { connectionId: 'conn-1' });
+        else {
+          const probeCall = fetch.mock.calls.find(([url]) => url.endsWith('/probe'))!;
+          es._emit('message', { type: '_probe', nonce: 'not-current' });
+          await vi.advanceTimersByTimeAsync(0);
+          expect(fetch.mock.calls.filter(([url]) => url.endsWith('/send'))).toHaveLength(
+            before.length,
+          );
+          es._emit('message', {
+            type: '_probe',
+            nonce: JSON.parse(probeCall[1]!.body as string).nonce,
+          });
+        }
+        await vi.advanceTimersByTimeAsync(0);
+        const sends = fetch.mock.calls.filter(([url]) => url.endsWith('/send'));
+        expect(sends).toHaveLength(before.length + 1);
+        expect(sends.at(-1)![1]!.body).toBe(sends[0][1]!.body);
+        if (source === 'welcome') expect(conn.isConnected()).toBe(false);
+      } finally {
+        conn.disconnect();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
   it.each(['reconnected', 'session_resumed'])(
     'distinguishes sequenced live takeovers from replay ending with %s',
     async (completion) => {

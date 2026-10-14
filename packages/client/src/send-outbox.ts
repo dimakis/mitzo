@@ -107,6 +107,21 @@ export class SendOutbox {
     void this.pump();
   }
 
+  /** Verified connectivity supersedes offline backoff, never an in-flight
+   * request or a guarded command's deliberate recovery decision. */
+  wake(): void {
+    if (
+      !this.active ||
+      this.config.localFirstCommand ||
+      this.busyGeneration !== null ||
+      !this.timer
+    )
+      return;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    void this.pump();
+  }
+
   /** Deliberate recovery resubmits only the frozen request, never a rebuilt draft. */
   retryLocalCommand(): boolean {
     if (
