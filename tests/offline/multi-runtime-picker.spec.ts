@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { multiRuntimeInventoryFixture } from '../../frontend/src/test-utils/multi-runtime-inventory-fixture';
@@ -111,6 +111,77 @@ async function offlinePicker(
     }
   });
   return { forbidden, errors };
+}
+
+/** Fixture-only Google enrollment; no production catalogue or provider is consulted. */
+function mixedGoogleInventory() {
+  const inventory = multiRuntimeInventoryFixture();
+  const account = {
+    accountId: 'google',
+    provider: 'google-vertex' as const,
+    profileRevision: 'google-r1',
+  };
+  const models = [{ id: 'gemini-fixture', label: 'Gemini fixture', reasoningEfforts: ['low'] }];
+  inventory.accounts.push({
+    account,
+    label: 'Google Vertex billing',
+    models,
+    modelDiscovery: { source: 'configured', stale: false },
+  });
+  inventory.targets.push({
+    targetId: 'gemini',
+    targetRevision: 'gemini-r1',
+    label: 'Local Gemini',
+    location: 'local',
+    harness: 'gemini',
+  });
+  inventory.routes.push({
+    account,
+    targetId: 'gemini',
+    location: 'local',
+    harness: 'gemini',
+    modes: ['agent'],
+    models,
+  });
+  return inventory;
+}
+
+async function narrowMobileEvidence(
+  page: Page,
+  testInfo: TestInfo,
+  stem: string,
+  selection: {
+    accountId: string;
+    model: string;
+    thinking: string;
+    draft: string;
+    environment: string;
+  },
+) {
+  if (!testInfo.project.name.startsWith('mobile')) return;
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize)).toBe(
+    '20px',
+  );
+  await page.getByRole('combobox', { name: 'Model', exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeInViewport();
+  await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
+    selection.accountId,
+  );
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+    selection.model,
+  );
+  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toHaveValue(
+    selection.thinking,
+  );
+  await expect(page.getByRole('combobox', { name: 'Run on', exact: true })).toHaveValue(
+    selection.environment,
+  );
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(selection.draft);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath(`${stem}-320.png`), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
 }
 
 for (const appearance of ['light', 'dark'] as const) {
@@ -237,6 +308,31 @@ for (const appearance of ['light', 'dark'] as const) {
       path: testInfo.outputPath(`local-multi-runtime-prepared-model-${appearance}.png`),
       fullPage: true,
     });
+    await narrowMobileEvidence(page, testInfo, `local-multi-runtime-prepared-model-${appearance}`, {
+      accountId: 'personal',
+      model: 'supported-next',
+      thinking: 'high',
+      environment: 'local',
+      draft: 'Keep this prepared development draft',
+    });
+    await expect(account).toBeDisabled();
+    await expect(environment).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (draftId) => JSON.parse(localStorage.getItem(`mitzo-chat-draft:${draftId}`)!),
+          draftId,
+        ),
+      )
+      .toMatchObject({
+        text: 'Keep this prepared development draft',
+        images: [image],
+        settings: {
+          repositoryWorkspaceId: workspaceId,
+          runtimeSelection: { accountReference: inventory.accounts[0].account },
+        },
+      });
     expect(fixture.forbidden).toEqual([]);
     expect(fixture.errors).toEqual([]);
   });
@@ -244,7 +340,7 @@ for (const appearance of ['light', 'dark'] as const) {
   test(`Account and environment retain exact route, invalid choices and draft (${appearance})`, async ({
     page,
   }, testInfo) => {
-    const fixture = await offlinePicker(page, appearance);
+    const fixture = await offlinePicker(page, appearance, { inventory: mixedGoogleInventory() });
     if (testInfo.project.name.startsWith('mobile'))
       await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/chat?agentProfile=agent&profileRevision=1');
@@ -282,6 +378,15 @@ for (const appearance of ['light', 'dark'] as const) {
       path: testInfo.outputPath(`local-multi-runtime-responses-${appearance}.png`),
       fullPage: true,
     });
+    await narrowMobileEvidence(page, testInfo, `local-multi-runtime-responses-${appearance}`, {
+      accountId: 'api',
+      model: 'shell-model',
+      thinking: 'high',
+      environment: 'local',
+      draft: 'Keep this development draft across environments',
+    });
+    await expect(model.locator('option[value="shell-model"]')).toHaveAttribute('disabled', '');
+    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
 
     // Replacement is explicit; it must not discard an unsupported thinking choice.
     await model.selectOption('local-model');
@@ -335,6 +440,122 @@ for (const appearance of ['light', 'dark'] as const) {
       path: testInfo.outputPath(`local-multi-runtime-unavailable-${appearance}.png`),
       fullPage: true,
     });
+    await narrowMobileEvidence(page, testInfo, `local-multi-runtime-unavailable-${appearance}`, {
+      accountId: 'vertex',
+      model: 'claude-model',
+      thinking: 'high',
+      environment: 'openshell',
+      draft: 'Keep this development draft across environments',
+    });
+    // Keep the existing Vertex identity proof above before choosing another account.
+    await account.selectOption('google');
+    await expect(account).toHaveValue('google');
+    await expect(model).toHaveValue('claude-model');
+    await expect(thinking).toHaveValue('high');
+    await expect(page.getByText(/^Runs with /)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+    await environment.selectOption('local');
+    await expect(environment.locator('option')).toHaveText(['OpenShell', 'Local Mac']);
+    await expect(page.getByText('Runs with Gemini', { exact: true })).toBeVisible();
+    await expect(account).toHaveValue('google');
+    await expect(model).toHaveValue('claude-model');
+    await expect(model.locator('option[value="claude-model"]')).toHaveAttribute('disabled', '');
+    await expect(model.locator('option[value="claude-model"]')).toHaveText(
+      'Unavailable model: claude-model',
+    );
+    await expect(model.locator('option[value="gemini-fixture"]')).toHaveCount(1);
+    await expect(model.locator('option[value="shell-model"]')).toHaveCount(0);
+    await expect(composer).toHaveValue('Keep this development draft across environments');
+    await model.selectOption('gemini-fixture');
+    await expect(thinking).toHaveValue('high');
+    await expect(thinking.locator('option[value="high"]')).toHaveAttribute('disabled', '');
+    await thinking.selectOption('low');
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const drafts = Object.keys(localStorage)
+            .filter((key) => key.startsWith('mitzo-chat-draft:'))
+            .map((key) => JSON.parse(localStorage.getItem(key)!));
+          return drafts.find(
+            (draft) => draft.text === 'Keep this development draft across environments',
+          )?.settings.runtimeSelection;
+        }),
+      )
+      .toMatchObject({
+        accountReference: {
+          accountId: 'google',
+          provider: 'google-vertex',
+          profileRevision: 'google-r1',
+        },
+        account: { accountId: 'google', model: 'gemini-fixture', reasoningEffort: 'low' },
+        execution: { location: 'local', targetId: 'gemini' },
+      });
+    await model.scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+    await expect(composer).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: testInfo.outputPath(`local-multi-runtime-gemini-${appearance}.png`),
+      fullPage: true,
+    });
+    await narrowMobileEvidence(page, testInfo, `local-multi-runtime-gemini-${appearance}`, {
+      accountId: 'google',
+      model: 'gemini-fixture',
+      thinking: 'low',
+      environment: 'local',
+      draft: 'Keep this development draft across environments',
+    });
+    await environment.selectOption('openshell');
+    await expect(account).toHaveValue('google');
+    await expect(model).toHaveValue('gemini-fixture');
+    await expect(thinking).toHaveValue('low');
+    await expect(page.getByText(/^Runs with /)).toHaveCount(0);
+    await expect(model.locator('option[value="shell-model"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const drafts = Object.keys(localStorage)
+            .filter((key) => key.startsWith('mitzo-chat-draft:'))
+            .map((key) => JSON.parse(localStorage.getItem(key)!));
+          return drafts.find(
+            (draft) => draft.text === 'Keep this development draft across environments',
+          )?.settings.runtimeSelection;
+        }),
+      )
+      .toMatchObject({
+        accountReference: {
+          accountId: 'google',
+          provider: 'google-vertex',
+          profileRevision: 'google-r1',
+        },
+        account: { accountId: 'google', model: 'gemini-fixture', reasoningEffort: 'low' },
+        execution: { location: 'openshell', targetId: null },
+      });
+    await page.getByRole('button', { name: 'Refresh execution choices' }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+    await expect(composer).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: testInfo.outputPath(`local-multi-runtime-gemini-unavailable-${appearance}.png`),
+      fullPage: true,
+    });
+    await narrowMobileEvidence(
+      page,
+      testInfo,
+      `local-multi-runtime-gemini-unavailable-${appearance}`,
+      {
+        accountId: 'google',
+        model: 'gemini-fixture',
+        thinking: 'low',
+        environment: 'openshell',
+        draft: 'Keep this development draft across environments',
+      },
+    );
     expect(fixture.forbidden).toEqual([]);
     expect(fixture.errors).toEqual([]);
   });
