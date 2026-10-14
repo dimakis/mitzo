@@ -6,6 +6,10 @@ import { apiFetch } from '../../lib/api-fetch';
 import { CodexQueueStatus } from '../CodexQueueStatus';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@mitzo/client/hooks', () => ({
+  useMitzoStore: (select: (state: unknown) => unknown) =>
+    select({ getTransportConnectionId: () => 'owned-sse' }),
+}));
 
 const meta = (queue: Record<string, unknown>) =>
   ({ ok: true, json: async () => ({ codexQueue: queue }) }) as Response;
@@ -356,6 +360,44 @@ it('lets a paused connected chat explicitly reconnect and continue saved work', 
     }),
   );
   expect(await screen.findByText('Reconnected. Continuing saved messages.')).toBeTruthy();
+});
+
+it('allows the qualified original cold Responses queue to reconnect without adding or cancelling accepted work', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({
+        paused: true,
+        connected: false,
+        canContinue: true,
+        queued: 32,
+        interrupted: 1,
+        recovering: false,
+      }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Accepted FIFO work' }]))
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 0, interrupted: 1, recovering: false }),
+    );
+  render(<CodexQueueStatus sessionId="cold-full" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Reconnect and continue' }));
+  expect(apiFetch).toHaveBeenCalledWith('/api/sessions/cold-full/codex-queue/continue', {
+    method: 'POST',
+    headers: { 'X-Connection-ID': 'owned-sse' },
+    signal: expect.any(AbortSignal),
+  });
+  expect(await screen.findByText('Reconnected. Continuing saved messages.')).toBeTruthy();
+});
+
+it('does not offer a cold queue effect without the server original-owner qualification', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({ paused: true, connected: false, queued: 32, interrupted: 1, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Retained work' }]));
+  render(<CodexQueueStatus sessionId="cold-unqualified" />);
+  await screen.findByRole('button', { name: 'Review queue' });
+  expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
 });
 
 it('keeps the reconnect fallback available when recovery fails', async () => {

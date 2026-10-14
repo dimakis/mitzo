@@ -360,3 +360,17 @@ describe('sandbox authority snapshots', () => {
     },
   );
 });
+
+it('refreshes asynchronous grant authority after sandbox setup before the synchronous spawn fence', async () => {
+  vi.spyOn(SandboxManager, 'checkDependencies').mockReturnValue({ errors: [], warnings: [] });
+  const beforeSpawn = vi.fn();
+  const beforeSpawnAsync = vi.fn(async () => {
+    throw Error('Repository grant revoked');
+  });
+  await expect(run('touch forbidden', { beforeSpawnAsync, beforeSpawn })).rejects.toThrow(
+    'Repository grant revoked',
+  );
+  expect(beforeSpawnAsync).toHaveBeenCalledOnce();
+  expect(beforeSpawn).not.toHaveBeenCalled();
+  await expect(readFile(join(cwd, 'forbidden'))).rejects.toThrow();
+});

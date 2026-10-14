@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
+import { useMitzoStore } from '@mitzo/client/hooks';
 import './CodexQueueStatus.css';
 
 const CapacityRecovery = z.object({
@@ -15,6 +16,7 @@ const CapacityRecovery = z.object({
 const Queue = z.object({
   paused: z.boolean(),
   connected: z.boolean(),
+  canContinue: z.boolean().optional(),
   recovering: z.boolean().optional(),
   recoveryPhase: z.enum(['starting_workspace', 'reconnecting']).optional(),
   queued: z.number().int().nonnegative(),
@@ -54,6 +56,7 @@ function setHidden(sessionId: string, hidden: boolean) {
 }
 
 export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
+  const getTransportConnectionId = useMitzoStore((state) => state.getTransportConnectionId);
   const [queue, setQueue] = useState<QueueState | null>(null);
   const [commands, setCommands] = useState<QueuedCommand[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -312,9 +315,17 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     setError('');
     setNotice('');
     try {
+      const cold = !queue?.connected && queue?.canContinue;
+      const connectionId = cold ? getTransportConnectionId() : undefined;
+      if (cold && !connectionId)
+        throw Error('Reconnect using the original sign-in before continuing saved work.');
       const response = await apiFetch(
         `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue/continue`,
-        { method: 'POST', signal: AbortSignal.timeout(15000) },
+        {
+          method: 'POST',
+          signal: AbortSignal.timeout(15000),
+          ...(connectionId ? { headers: { 'X-Connection-ID': connectionId } } : {}),
+        },
       );
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -542,7 +553,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
           )}
           {!capacity &&
             queue.paused &&
-            queue.connected &&
+            (queue.connected || queue.canContinue === true) &&
             !queue.recovering &&
             queue.queued > 0 && (
               <button

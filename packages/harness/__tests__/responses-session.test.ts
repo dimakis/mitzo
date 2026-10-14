@@ -297,6 +297,21 @@ describe('ResponsesSession', () => {
     ).rejects.toThrow('synchronization pending');
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+  it('uses an enrolled resolver without retaining an alternate startup key', async () => {
+    const fetcher = vi.fn(async () => response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    const getApiKey = vi
+      .fn()
+      .mockResolvedValueOnce('sole-enrolled-key')
+      .mockRejectedValueOnce(Error('enrolled custody unavailable'));
+    const session = new ResponsesSession(config, { accountId: 'work', apiKey: '', getApiKey });
+    await collect(session);
+    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe('Bearer sole-enrolled-key');
+    await expect(
+      collect(session, [...session.checkpoint().history, { role: 'user', content: 'Continue' }]),
+    ).rejects.toThrow('enrolled custody unavailable');
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
   it('requires explicit API credentials and rejects Anthropic thinking options', () => {
     expect(() => new ResponsesSession(config, { accountId: 'personal', apiKey: '' })).toThrow(
       /API key/,

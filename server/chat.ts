@@ -1,5 +1,11 @@
+import {
+  OrdinaryLocalResponsesOwnedRuntime,
+  type OrdinaryLocalResponsesOwnedDispatch,
+} from './ordinary-local-responses-owned-runtime.js';
+import { getNativeResponsesStore } from './responses-chat-session.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
+import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import type { OrdinaryOpenShellCodexOwnedDispatch } from './ordinary-openshell-codex-owned-runtime.js';
 import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-repository-startup.js';
 import { PROFILE_TOOL_INSTRUCTIONS } from './session-profile-tools.js';
@@ -5799,4 +5805,420 @@ export function reconstructMessages(rawMessages: RawSdkMessage[]): RestoredMessa
   }
 
   return messages;
+}
+
+/** Explicit API continuation uses the retained ordinary session owner. */
+export function canResumeOwnedLocalResponsesDriver(
+  sessionId: string,
+  authSessionId: string,
+): boolean {
+  try {
+    if (
+      process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED !== '1' ||
+      !hasPersistentRevocationAuthority()
+    )
+      return false;
+    const meta = eventStore.getSession(sessionId),
+      runtime = eventStore.getSessionRuntimeBinding(sessionId);
+    if (
+      !meta?.accountBinding ||
+      !runtime ||
+      runtime.harness.implementation !== 'responses' ||
+      runtime.execution.location !== 'local' ||
+      (meta.executionPhase && meta.executionPhase !== 'TERMINAL') ||
+      eventStore.hasUncertainOrdinaryCommand(sessionId)
+    )
+      return false;
+    const native = getNativeResponsesStore(),
+      custody = native.readOrdinaryCustody(sessionId, meta.accountBinding);
+    return (
+      !!custody &&
+      custody.authSessionId === authSessionId &&
+      isDeepStrictEqual(custody.binding, runtime) &&
+      custody.workspace.cwd === meta.cwd &&
+      custody.workspace.workspaceId === meta.repositoryWorkspaceId &&
+      native.status(sessionId, meta.accountBinding) !== 'running' &&
+      (() => {
+        const active = native.queue(sessionId, meta.accountBinding!).active;
+        if (!active) return true;
+        const admission = eventStore.getExecutionAdmission(sessionId, active);
+        return (
+          !!admission &&
+          meta.executionPhase === 'TERMINAL' &&
+          meta.executionId === admission.token.executionId &&
+          meta.executionGeneration === admission.token.generation &&
+          !!eventStore.getExecutionTerminalReason(admission.token)
+        );
+      })()
+    );
+  } catch {
+    return false;
+  }
+}
+export async function continueOwnedLocalResponsesQueue(
+  sessionId: string,
+  authorization: import('./auth.js').AuthSession | undefined,
+  connectionId?: string,
+) {
+  const owned = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
+  if (!authorization || authorization.expiresAt <= Date.now())
+    throw Error('Original Responses operator required');
+  if (owned) {
+    if (
+      owned.authSessionId !== authorization.id ||
+      !(owned.identity instanceof OrdinaryLocalResponsesOwnedRuntime)
+    )
+      throw Error('Original live Responses owner required');
+    owned.identity.resumeQueue();
+    return;
+  }
+  if (!connectionId || !canResumeOwnedLocalResponsesDriver(sessionId, authorization.id))
+    throw Error('Original Responses custody required');
+  const captured = captureAgentLibraryAuthorization(connectionId);
+  captured.assertCurrent();
+  const transport = _connRegistry?.get(connectionId)?.transport;
+  if (
+    captured.auth.id !== authorization.id ||
+    liveTransportAuthSessionId(connectionId) !== authorization.id ||
+    !transport?.isOpen()
+  )
+    throw Error('Original signed connection required');
+  const meta = eventStore.getSession(sessionId)!;
+  const head = getNativeResponsesStore().queue(sessionId, meta.accountBinding!).queued[0];
+  if (!head || !meta.repositoryWorkspaceId || !BASE_REPO || !isAbsolute(BASE_REPO))
+    throw Error('Saved Responses queue unavailable');
+  const releaseStartup = reserveRepositoryStartup(sessionId);
+  const preparation = new AbortController();
+  const timer = setTimeout(() => preparation.abort(), 120000);
+  try {
+    await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
+      command: { clientMsgId: head },
+      reservation: {
+        id: meta.repositoryWorkspaceId,
+        conversationId: sessionId,
+        binding: meta.accountBinding!,
+        taskRoot: join(BASE_REPO, '.claude', 'repository-tasks'),
+      },
+      operatorConnectionId: connectionId,
+      ownerConnectionId: connectionId,
+      ownerAuthSessionId: authorization.id,
+      resume: true,
+      signal: preparation.signal,
+      resumeQueue: true,
+    });
+  } finally {
+    try {
+      if (!transport.isOpen()) {
+        const current = registry.findBySessionId(sessionId);
+        if (current) detachChatIfCurrentTransport(current.clientId, transport);
+      }
+    } catch {
+      log.warn('Responses chat attachment cleanup remains unconfirmed', { sessionId });
+    }
+    clearTimeout(timer);
+    preparation.abort();
+    releaseStartup();
+  }
+}
+export async function sendOwnedLocalResponsesCommand(input: {
+  sessionId: string;
+  command: unknown;
+  operatorConnectionId: string;
+  signal?: AbortSignal;
+}) {
+  const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
+  captured.assertCurrent();
+  const session = registry.findBySessionId(input.sessionId)?.session,
+    owner = session?.ordinaryRuntimeOwner;
+  if (
+    !session ||
+    !owner ||
+    owner.authSessionId !== captured.auth.id ||
+    eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation !== 'responses'
+  )
+    throw Error('Owned Local Responses unavailable');
+  const result = await owner.admit(input.command, input.signal);
+  return { ...result, sessionId: input.sessionId };
+}
+export async function startOwnedLocalResponsesCommand(
+  transport: SessionTransport,
+  clientId: string,
+  options: {
+    command: unknown;
+    reservation: Omit<HostRepositoryReservationInput, 'signal'>;
+    operatorConnectionId: string;
+    ownerConnectionId?: string;
+    ownerAuthSessionId: string;
+    /** Preparation deadline only; detached after successful startup. */
+    signal?: AbortSignal;
+    resume?: boolean;
+    resumeQueue?: boolean;
+  },
+) {
+  options.signal?.throwIfAborted();
+  const sessionId = options.reservation.conversationId,
+    command = options.command as { clientMsgId: string };
+  const live = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
+  if (live) {
+    const captured = captureAgentLibraryAuthorization(options.operatorConnectionId);
+    captured.assertCurrent();
+    if (
+      live.authSessionId !== captured.auth.id ||
+      live.authSessionId !== options.ownerAuthSessionId ||
+      live.initialCommandId !== command.clientMsgId ||
+      options.resume ||
+      eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation !== 'responses'
+    )
+      throw Error('Responses owner already exists');
+    return { ...(await live.retryInitial(options.command)), sessionId };
+  }
+  const native = getNativeResponsesStore(),
+    controller = new AbortController();
+  let query: QueryInstance | undefined, session: ManagedSession | undefined;
+  const input = new AsyncQueue<{
+    message: { content: string };
+    mitzoMessageId?: string;
+    mitzoImages?: { data: string; mediaType: string }[];
+    providerAdmission?: ProviderDispatchAdmission;
+  }>();
+  let running = false,
+    closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    input.close();
+    query?.close();
+    controller.abort();
+    owner.close();
+    const current = registry.findBySessionId(sessionId);
+    if (current && current.session === session) registry.abort(current.clientId);
+    if (session)
+      eventStore.setSessionState(sessionId, 'ENDED', {
+        clientId,
+        reason: 'owned_responses_closed',
+      });
+  };
+  const prepare = async (selected: OrdinaryLocalResponsesOwnedDispatch) => {
+    await selected.owner.assertSetup(selected.commandId);
+    if (!session) {
+      registry.register(clientId, {
+        transport,
+        abortController: controller,
+        sessionId,
+        cwd: selected.expected.workspace.cwd,
+        mode: selected.expected.selection.permission.mode,
+        model: selected.expected.selection.model,
+        branch: selected.workspace.featureBranch,
+        accountBinding: selected.binding,
+        sessionAllowList: new Set(),
+        ownerConnectionId: options.ownerConnectionId,
+        ownedLocalAuthSessionId: owner.authSessionId,
+      });
+      session = registry.get(clientId)!;
+      session.worktreePaths.set('primary', {
+        path: selected.expected.workspace.cwd,
+        wtId: selected.workspace.id,
+      });
+      session.inputQueue = {
+        push: () => {
+          throw Error('Runtime-bound commands require guarded admission');
+        },
+        close: () => {},
+      };
+      eventStore.setSessionState(sessionId, 'CREATED', { clientId });
+      const env = nativeExecutionEnv();
+      env.MITZO_SESSION_ID = sessionId;
+      query = await openResponsesChat({
+        commandAuthority: owner,
+        assertStartupCurrent: () => owner.assertSetupSync(selected.commandId),
+        store: native,
+        resume: selected.resume,
+        conversationId: sessionId,
+        binding: selected.binding,
+        getApiKey: (signal) => {
+          signal?.throwIfAborted();
+          const active = owner.activeCommandId();
+          if (!active) throw Error('Responses command unavailable');
+          return owner.resolveKey(active, signal);
+        },
+        selectedModel: selected.expected.selection.model,
+        reasoningEffort: selected.expected.selection.thinking,
+        session,
+        registry,
+        input,
+        eventStore,
+        systemPrompt: selected.payload.systemPrompt,
+        env,
+        mcpServers: loadMcpServers(),
+        publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+          .filter(Boolean)
+          .map((root) => join(root, '.git')),
+      });
+      owner.assertSetupSync(selected.commandId);
+      session.queryInstance = query;
+      session.ordinaryRuntimeOwner = {
+        location: 'local',
+        authSessionId: owner.authSessionId,
+        identity: owner,
+        initialCommandId: selected.commandId,
+        admit: async (raw, preparationSignal) => {
+          const result = await owner.admitContinuation(raw, preparationSignal);
+          if (result.dispatched) {
+            echo((raw as { clientMsgId: string }).clientMsgId);
+            void pump();
+          }
+          return result;
+        },
+        retryInitial: (raw) => (selected.resume ? owner.admitResume(raw) : owner.admit(raw)),
+        close,
+      };
+      send(transport, { type: 'session_id', sessionId, clientMsgId: selected.commandId });
+      send(transport, {
+        type: 'session_info',
+        sessionId,
+        cwd: selected.expected.workspace.cwd,
+        branch: selected.workspace.featureBranch,
+        worktree: false,
+      });
+      _onSessionChange?.(clientId, 'start');
+    }
+  };
+  const owner = new OrdinaryLocalResponsesOwnedRuntime({
+    enabled: process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED === '1',
+    eventStore,
+    library: getAgentLibrary(),
+    workspace: getRepositoryWorkspaces(true),
+    reservation: options.reservation,
+    nativeStore: native,
+    commandId: command.clientMsgId,
+    operatorConnectionId: options.operatorConnectionId,
+    signal: controller.signal,
+    dispatch: prepare,
+    dispatchContinuation: prepare,
+    onCommandTerminal: () => {
+      void pump();
+    },
+  });
+  let releaseStartup: () => void;
+  try {
+    releaseStartup = eventStore.reserveOrdinaryStartup([sessionId]);
+  } catch (error) {
+    owner.close();
+    throw error;
+  }
+  owner.signal.addEventListener('abort', close, { once: true });
+  if (owner.authSessionId !== options.ownerAuthSessionId) {
+    owner.close();
+    releaseStartup();
+    throw Error('Responses operator changed');
+  }
+  const echo = (commandId: string) => {
+    const selected = owner.snapshot(commandId);
+    storeAndEchoIfNew(
+      sessionId,
+      commandId,
+      selected.payload.text,
+      clientId,
+      session!.transport,
+      session!.observers,
+      imagePreviews(selected.payload.images),
+      undefined,
+      undefined,
+      'user',
+      false,
+    );
+  };
+  let scheduling = false;
+  let pumpRequested = false;
+  const pump = async () => {
+    if (closed) return;
+    if (scheduling) {
+      pumpRequested = true;
+      return;
+    }
+    scheduling = true;
+    try {
+      const commandId = await owner.claimNextCommand();
+      if (!commandId || closed) return;
+      const selected = owner.snapshot(commandId);
+      const provider = admitProviderDispatch({
+        store: eventStore,
+        request: {
+          sessionId,
+          clientMsgId: commandId,
+          effectivePrompt: selected.payload.text,
+          fingerprintSource: providerFingerprintSource(
+            selected.payload.text,
+            selected.payload.images,
+          ),
+          model: selected.expected.selection.model,
+          reasoningEffort: selected.expected.selection.thinking,
+          accountBinding: options.reservation.binding,
+        },
+        prepare: () =>
+          getResponsesRuntime(session!)!.prepare(
+            commandId,
+            responsesUserContent(selected.payload.text, selected.payload.images),
+            {
+              model: selected.expected.selection.model,
+              reasoningEffort: selected.expected.selection.thinking,
+            },
+          ),
+      });
+      if (provider.duplicate) throw Error('Responses provider command already attempted');
+      trackResponsesProviderAdmission(session!, provider, eventStore);
+      session!.model = selected.expected.selection.model;
+      input.push({
+        message: { content: selected.payload.text },
+        mitzoMessageId: commandId,
+        mitzoImages: selected.payload.images,
+        providerAdmission: provider,
+      });
+      if (!running) {
+        running = true;
+        void runQueryLoop(query!, clientId, registry, controller, eventStore, undefined, {
+          connRegistry: _connRegistry ?? undefined,
+          initialClientMsgId: commandId,
+          onTurnEnd: (ownerClientId) => _onSessionChange?.(ownerClientId, 'turn_end'),
+        })
+          .catch(() => {})
+          .finally(close);
+      }
+    } catch {
+      owner.interruptQueue();
+      send(session?.transport ?? transport, {
+        type: 'error',
+        sessionId,
+        error:
+          'Saved API work is paused. Check its account, settings and original outcome before continuing.',
+      });
+    } finally {
+      scheduling = false;
+      if (pumpRequested) {
+        pumpRequested = false;
+        void pump();
+      }
+    }
+  };
+  const onPreparationAbort = () => controller.abort(options.signal?.reason);
+  options.signal?.addEventListener('abort', onPreparationAbort, { once: true });
+  try {
+    options.signal?.throwIfAborted();
+    const result = options.resumeQueue
+      ? await owner.reopenRetainedQueue()
+      : options.resume
+        ? await owner.admitResume(options.command)
+        : await owner.admit(options.command);
+    if (result.dispatched) {
+      if (!options.resumeQueue) echo(command.clientMsgId);
+      void pump();
+    } else owner.close();
+    return { ...result, sessionId };
+  } catch (error) {
+    close();
+    throw error;
+  } finally {
+    options.signal?.removeEventListener('abort', onPreparationAbort);
+    releaseStartup();
+  }
 }

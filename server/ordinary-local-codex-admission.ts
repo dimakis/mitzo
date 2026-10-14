@@ -8,11 +8,9 @@ import {
   AccountBindingSchema,
   type SessionRuntimeBindingV2,
 } from '@mitzo/protocol';
+import type { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.js';
 import type { EventStore } from './event-store.js';
-import type {
-  OrdinaryLocalCodexCapabilityCatalog,
-  OrdinaryLocalCodexTarget,
-} from './ordinary-local-codex-capabilities.js';
+import type { OrdinaryLocalCodexTarget } from './ordinary-local-codex-capabilities.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 
 const reference = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
@@ -31,6 +29,12 @@ export const OrdinaryLocalCodexCommandRequestSchema = z.strictObject({
     .record(z.string(), z.json())
     .refine((payload) => Buffer.byteLength(JSON.stringify(payload), 'utf8') <= 1048576),
 });
+export const OrdinaryLocalResponsesCommandRequestSchema =
+  OrdinaryLocalCodexCommandRequestSchema.extend({
+    runtime: OrdinaryLocalCodexCommandRequestSchema.shape.runtime.extend({
+      harness: z.literal('responses'),
+    }),
+  });
 const Request = OrdinaryLocalCodexCommandRequestSchema;
 export type OrdinaryLocalCodexCommandRequest = z.infer<typeof Request>;
 export interface OrdinaryLocalCodexAdmissionExpectation {
@@ -113,7 +117,14 @@ export const ordinaryLocalCodexBootstrapId = (sessionId: string, requestFingerpr
   contentDigest(['ordinary-local-codex-bootstrap-v1', sessionId, requestFingerprint]);
 
 /** Session metadata cannot introduce a second model, mode, agent or recipe tuple. */
-function reconcileSessionMetadata(meta: Meta, request: OrdinaryLocalCodexCommandRequest): void {
+function reconcileSessionMetadata(
+  meta: Meta,
+  request: Omit<OrdinaryLocalCodexCommandRequest, 'runtime'> & {
+    runtime: Omit<OrdinaryLocalCodexCommandRequest['runtime'], 'harness'> & {
+      harness: 'codex' | 'responses';
+    };
+  },
+): void {
   const chosen = request.selection;
   if (
     (meta.mode !== undefined && meta.mode !== chosen.permission.mode) ||
@@ -187,15 +198,29 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
   constructor(
     private readonly dependencies: {
       enabled: boolean;
+      adapter?: 'responses';
       store: Store;
-      catalog: Pick<OrdinaryLocalCodexCapabilityCatalog, 'inventory' | 'resolve'>;
-      declaration: ReturnType<OrdinaryLocalCodexTarget['admissionDeclaration']>;
+      catalog: {
+        inventory(): {
+          capabilityRevision: string;
+          accounts: {
+            account: { accountId: string; profileRevision: string };
+            models: { id: string; reasoningEfforts?: string[] }[];
+            modelDiscovery: { stale: boolean };
+          }[];
+        };
+        resolve(input: unknown): ReturnType<typeof resolveOrdinarySessionRuntime>;
+      };
+      declaration: Omit<ReturnType<OrdinaryLocalCodexTarget['admissionDeclaration']>, 'harness'> & {
+        harness: 'codex' | 'responses';
+      };
       authority?: OrdinaryLocalCodexAdmissionAuthority;
       bootstrapAuthority?: OrdinaryLocalCodexBootstrapAuthority;
     },
   ) {
     this.dependencies = {
       enabled: dependencies.enabled,
+      adapter: dependencies.adapter,
       declaration: structuredClone(dependencies.declaration),
       catalog: {
         inventory: dependencies.catalog.inventory.bind(dependencies.catalog),
@@ -280,7 +305,9 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     const d = this.dependencies;
     if (!d.enabled || (!d.authority && !d.bootstrapAuthority)) fail('unavailable');
     if (d.authority && d.bootstrapAuthority) fail('authority_ambiguous');
-    const parsed = Request.safeParse(input);
+    const parsed = (
+      d.adapter === 'responses' ? OrdinaryLocalResponsesCommandRequestSchema : Request
+    ).safeParse(input);
     if (!parsed.success) fail('invalid_request');
     const request = structuredClone(parsed.data);
     const admittedMeta = structuredClone(meta);
@@ -294,8 +321,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     if (resolution.status !== 'compatible') fail('configuration_unavailable');
     const binding = resolution.binding;
     if (
-      binding.account.provider !== 'openai-codex' ||
-      binding.harness.implementation !== 'codex' ||
+      binding.account.provider !== (d.adapter === 'responses' ? 'openai' : 'openai-codex') ||
+      binding.harness.implementation !== (d.adapter === 'responses' ? 'responses' : 'codex') ||
       binding.execution.location !== 'local' ||
       binding.execution.targetId !== d.declaration.targetId ||
       binding.execution.targetRevision !== d.declaration.targetRevision
@@ -324,7 +351,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       agentProfile: admittedMeta.agentProfile,
       agentContext: admittedMeta.agentContext,
     };
-    const fingerprint = `ordinary-local-codex-v1:${createHash('sha256')
+    const fingerprint = `ordinary-local-${d.adapter ?? 'codex'}-v1:${createHash('sha256')
       .update(
         JSON.stringify(
           canonical({

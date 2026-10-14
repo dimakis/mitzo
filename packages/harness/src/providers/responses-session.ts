@@ -394,7 +394,8 @@ export class ResponsesSession implements ModelSession {
     if (!options.accountId.trim()) throw new Error('OpenAI account ID is required');
     if (options.checkpoint && options.checkpoint.accountId !== options.accountId)
       throw new Error('OpenAI checkpoint account does not match');
-    if (!plan && !options.apiKey.trim()) throw new Error('OpenAI API key is required');
+    if (!plan && !options.apiKey.trim() && !options.getApiKey)
+      throw new Error('OpenAI API key is required');
     if (config.thinking)
       throw new Error('Anthropic thinking budgets are unsupported by OpenAI Responses');
     if (options.checkpoint && options.checkpoint.model !== config.model)

@@ -22,8 +22,7 @@ export function ownedLocalControlStatus(
   if (!found) return 'unrestricted';
   const owner = found.session?.ownedLocalAuthSessionId;
   const binding = ctx.eventStore.getSessionRuntimeBinding?.(sessionId);
-  const boundLocal =
-    binding?.execution?.location === 'local' && binding.harness.implementation === 'codex';
+  const boundLocal = binding?.execution?.location === 'local';
   if (!owner && !boundLocal) return 'unrestricted';
   return owner && liveTransportAuthSessionId(connectionId) === owner && transport?.isOpen()
     ? 'authorized'
@@ -61,8 +60,7 @@ export function assertLegacyOwnedControlAllowed(
       status === 'denied' ||
       (status === 'unrestricted' &&
         sessionId === pendingSessionId &&
-        binding?.execution.location === 'local' &&
-        binding.harness.implementation === 'codex')
+        binding?.execution.location === 'local')
     )
       throw Error('Owned local session belongs to another login');
     if (status === 'authorized') {

@@ -1,5 +1,14 @@
+import {
+  OrdinaryLocalResponsesTarget,
+  localResponsesCapabilities,
+} from './ordinary-local-responses-capabilities.js';
 import { isDeepStrictEqual } from 'node:util';
-import { eventStore, registry, canResumeOwnedLocalCodexDriver } from './chat.js';
+import {
+  eventStore,
+  registry,
+  canResumeOwnedLocalCodexDriver,
+  canResumeOwnedLocalResponsesDriver,
+} from './chat.js';
 import { canResumeOwnedOpenShellCodexDriver } from './ordinary-openshell-codex-entry.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import {
@@ -20,7 +29,12 @@ export function ordinaryCodexContinuationStatus(
   try {
     const meta = eventStore.getSession(sessionId);
     const binding = eventStore.getSessionRuntimeBinding(sessionId);
-    if (!binding || binding.version !== 2 || binding.harness.implementation !== 'codex' || !meta)
+    if (
+      !binding ||
+      binding.version !== 2 ||
+      !['codex', 'responses'].includes(binding.harness.implementation) ||
+      !meta
+    )
       return { available: false };
     if (eventStore.hasUncertainOrdinaryCommand(sessionId))
       return blocked(
@@ -31,7 +45,9 @@ export function ordinaryCodexContinuationStatus(
       custodianControllerMode ||
       custodianOwnerMode ||
       (location === 'local'
-        ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
+        ? binding.harness.implementation === 'responses'
+          ? process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED
+          : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
         : process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED) !== '1'
     )
       return blocked('This conversation’s execution route is not enabled.');
@@ -39,11 +55,15 @@ export function ordinaryCodexContinuationStatus(
     let resolved;
     const request = {
       account: binding.account,
-      harness: 'codex',
+      harness: binding.harness.implementation,
       targetId: binding.execution.targetId,
       mode: meta.mode,
     };
-    if (location === 'local')
+    if (binding.harness.implementation === 'responses')
+      resolved = localResponsesCapabilities(profiles, new OrdinaryLocalResponsesTarget()).resolve(
+        request,
+      );
+    else if (location === 'local')
       resolved = new OrdinaryLocalCodexCapabilityCatalog(
         profiles,
         loadOrdinaryLocalCodexTarget(),
@@ -69,9 +89,19 @@ export function ordinaryCodexContinuationStatus(
         live.ordinaryRuntimeOwner.location === location
         ? { available: true }
         : blocked('This conversation belongs to another login.');
+    if (
+      binding.harness.implementation === 'responses' &&
+      meta.executionPhase &&
+      meta.executionPhase !== 'TERMINAL'
+    )
+      return blocked(
+        'The previous API turn has an unconfirmed outcome. Its original command and history are retained.',
+      );
     const resumable =
       location === 'local'
-        ? canResumeOwnedLocalCodexDriver(sessionId, authSessionId)
+        ? binding.harness.implementation === 'responses'
+          ? canResumeOwnedLocalResponsesDriver(sessionId, authSessionId)
+          : canResumeOwnedLocalCodexDriver(sessionId, authSessionId)
         : canResumeOwnedOpenShellCodexDriver(sessionId, authSessionId);
     return resumable
       ? { available: true }

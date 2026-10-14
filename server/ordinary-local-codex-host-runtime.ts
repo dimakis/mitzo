@@ -42,7 +42,7 @@ export function ordinaryLocalCodexHostContractRevision(executableSha256: string)
     )
     .digest('hex');
 }
-function privateSettings(path: string | undefined): unknown {
+export function readPrivateRuntimeSettings(path: string | undefined): unknown {
   let fd: number | undefined;
   try {
     if (!path || !isAbsolute(path) || realpathSync(path) !== path) throw unavailable();
@@ -92,10 +92,10 @@ export class OrdinaryLocalCodexHostRuntime {
     try {
       this.#env = { ...env };
       this.#native = Native.parse(
-        privateSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE),
+        readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE),
       );
       this.#target = new OrdinaryLocalCodexTarget(
-        privateSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
+        readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
       );
       this.#measurement = measureHostCodexExecutable(this.#native.executablePath);
       this.assertCurrentSync();
@@ -113,11 +113,13 @@ export class OrdinaryLocalCodexHostRuntime {
   }
   target(): OrdinaryLocalCodexTarget {
     return new OrdinaryLocalCodexTarget(
-      privateSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
+      readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
     );
   }
   assertCurrentSync(): void {
-    const native = Native.parse(privateSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE));
+    const native = Native.parse(
+      readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE),
+    );
     const original = this.#target.admissionDeclaration(),
       current = this.target().admissionDeclaration();
     if (
