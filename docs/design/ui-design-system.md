@@ -515,4 +515,6 @@ Full-app `npm run test:ui` remains CI acceptance; isolated component captures do
 not establish acceptance of unrelated routes or native keyboard behavior.
 
 Component captures show the [clear mobile composer](assets/chat-settings-mobile-dark.png)
-and [desktop settings disclosure](assets/chat-settings-desktop-light.png).
+and [desktop settings disclosure](assets/chat-settings-desktop-light.png). The
+[short mobile capture](assets/chat-settings-short-mobile-dark.png) verifies reachable
+settings and fixed actions over a tall draft.
