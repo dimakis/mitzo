@@ -13,6 +13,7 @@
  * The server runs both transports in parallel during the migration period.
  */
 
+import { AppliedEventAcks } from './applied-event-acks.js';
 import { SendOutbox } from './send-outbox.js';
 import type { ConnectionListener } from './connection.js';
 import type { ChatConnection } from './chat-connection.js';
@@ -62,11 +63,42 @@ export class SseConnection implements ChatConnection {
   /** Events applied while a transcript restore is unacknowledged. */
   private unacknowledgedSeq = new Map<string, Set<number>>();
   private appliedAckChain: Promise<unknown> = Promise.resolve();
+  private eventAckBatchSupported = false;
+  private eventAcks = new AppliedEventAcks({
+    post: async (sessionId, seqs) => {
+      const connectionId = this._connectionId;
+      if (!connectionId) return false;
+      return this.postConnectionRequest(
+        'session-event-applied',
+        {
+          type: 'session_event_applied',
+          sessionId,
+          seqs,
+        },
+        connectionId,
+        async (response) => {
+          if (!response.ok) return false;
+          const body = (await response.json()) as { applied?: unknown };
+          return body.applied === true;
+        },
+      );
+    },
+    resync: () => this.checkAndReconnect(true),
+  });
   private appliedDelivery = new AppliedDelivery({
     getCursor: (sessionId) => this.getLastSeq(sessionId),
     setCursor: (sessionId, seq) => this.seqBySession.set(sessionId, seq),
     deliver: (event) => this.listener?.(event),
-    ackEvent: (sessionId, seq) =>
+    ackEvent: (sessionId, seq) => {
+      if (this.eventAckBatchSupported) this.eventAcks.enqueue(sessionId, seq);
+      else
+        this.sendAppliedAck('session-event-applied', {
+          type: 'session_event_applied',
+          sessionId,
+          seq,
+        });
+    },
+    ackTranscript: (sessionId, seq) =>
       this.sendAppliedAck('session-event-applied', {
         type: 'session_event_applied',
         sessionId,
@@ -158,6 +190,7 @@ export class SseConnection implements ChatConnection {
     this._connected = false;
     this._connectionId = null;
     this.appliedAckChain = Promise.resolve();
+    this.eventAcks.reset();
   }
 
   blockAuthentication(): void {
@@ -254,6 +287,7 @@ export class SseConnection implements ChatConnection {
   }
 
   clearSession(sessionId: string): void {
+    this.eventAcks.clearSession(sessionId);
     this.seqBySession.delete(sessionId);
     this.replayingSessions.delete(sessionId);
     this.replaySeenSeq.delete(sessionId);
@@ -399,6 +433,7 @@ export class SseConnection implements ChatConnection {
     const wasConnected = this._connected;
     this._connectionId = null;
     this.appliedAckChain = Promise.resolve();
+    this.eventAcks.reset();
     this._connected = false;
     if (wasConnected) {
       this.listener?.({ type: '_close' });
@@ -438,8 +473,10 @@ export class SseConnection implements ChatConnection {
 
       this.lastStreamActivity = Date.now();
       this._connectionId = msg.connectionId as string;
+      this.eventAckBatchSupported = msg.eventAckBatchSize === 50;
       // An unresponsive ACK from the previous transport must not fence this one.
       this.appliedAckChain = Promise.resolve();
+      this.eventAcks.reset();
       this.appliedDelivery.clearPending();
 
       // A delivered welcome proves connectivity, even while replay is pending.
@@ -498,6 +535,7 @@ export class SseConnection implements ChatConnection {
       ) {
         this.replayingSessions.delete(msg.sessionId);
         this.replaySeenSeq.delete(msg.sessionId);
+        this.eventAcks.supersede(msg.sessionId, msg.cursor);
         this.appliedDelivery.offerSnapshot(
           msg.sessionId,
           msg.cursor,
@@ -629,6 +667,7 @@ export class SseConnection implements ChatConnection {
 
   private handleAuthLoss(notify = true): void {
     this.authBlocked = true;
+    this.eventAcks.reset();
     this.stopLivenessChecks();
     this.appliedDelivery.clearPending();
     this.foregroundProbe?.cancel();
@@ -746,6 +785,7 @@ export class SseConnection implements ChatConnection {
     }
     this._connectionId = null;
     this.appliedAckChain = Promise.resolve();
+    this.eventAcks.reset();
     // Background recovery belongs to the next foreground transition. Replaying
     // suspend against a successor would incorrectly suspend the resumed owner.
     if (globalThis.document?.visibilityState === 'hidden') return;

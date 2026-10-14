@@ -150,6 +150,26 @@ describe('chat-rest-handler', () => {
     });
   });
 
+  it('validates contiguous batch acknowledgements and retains legacy single events', async () => {
+    const events = [3, 7, 9].map((seq) => ({ seq, payload: { type: 'block_delta' } }));
+    connRegistry.setEventStore({
+      getEventsAfter: (_session, after, limit) =>
+        events.filter((event) => event.seq > after).slice(0, limit),
+    });
+    connRegistry.watch(CONNECTION_ID, 's');
+    connRegistry.enableAppliedCursor(CONNECTION_ID, 's', 0);
+    const acknowledge = (body: Record<string, unknown>) =>
+      request(testServer)
+        .post('/api/chat/session-event-applied')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ type: 'session_event_applied', sessionId: 's', ...body });
+    expect((await acknowledge({ seqs: [7] })).body.applied).toBe(false);
+    expect((await acknowledge({ seqs: [3, 7] })).body.applied).toBe(true);
+    expect((await acknowledge({ seqs: [3, 7] })).body.applied).toBe(true);
+    expect((await acknowledge({ seq: 9 })).body.applied).toBe(true);
+    expect((await acknowledge({ seq: 9, seqs: [9] })).status).toBe(400);
+  });
+
   it.each([false, true])(
     'preserves actual replay offers and transcript tails with queued navigation=%s',
     async (navigate) => {

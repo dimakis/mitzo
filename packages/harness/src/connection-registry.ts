@@ -274,6 +274,39 @@ export class ConnectionRegistry {
     return true;
   }
 
+  /** Atomically acknowledge an exact durable prefix; duplicates only reassert an applied prefix. */
+  ackAppliedEvents(connectionId: string, sessionId: string, sequences: number[]): boolean {
+    if (!this.appliedSessions.get(connectionId)?.has(sessionId)) return false;
+    if (!this.connections.get(connectionId)?.watchedSessions.has(sessionId)) return false;
+    if (this.snapshotOffers.get(connectionId)?.has(sessionId)) return false;
+    if (
+      !sequences.length ||
+      sequences.length > SYNC_BATCH_LIMIT ||
+      sequences.some(
+        (seq, i) => !Number.isSafeInteger(seq) || seq <= 0 || (i > 0 && seq <= sequences[i - 1]),
+      )
+    )
+      return false;
+    const cursor = this.cursors.get(connectionId)?.get(sessionId) ?? 0;
+    const unapplied = sequences.filter((seq) => seq > cursor);
+    if (!unapplied.length) return true;
+    const next = this.eventStore?.getEventsAfter(sessionId, cursor, unapplied.length);
+    if (
+      !next ||
+      next.length !== unapplied.length ||
+      next.some((event, i) => event.seq !== unapplied[i])
+    )
+      return false;
+    const last = unapplied[unapplied.length - 1];
+    this.cursors.get(connectionId)?.set(sessionId, last);
+    const boundary = this.retryBoundaries.get(connectionId)?.get(sessionId);
+    if (boundary !== undefined && last >= boundary) {
+      this.retryBoundaries.get(connectionId)?.delete(sessionId);
+      this.retryDelivery(connectionId, sessionId);
+    }
+    return true;
+  }
+
   ackAppliedEvent(connectionId: string, sessionId: string, seq: number): boolean {
     if (!this.appliedSessions.get(connectionId)?.has(sessionId)) return false;
     if (!this.connections.get(connectionId)?.watchedSessions.has(sessionId)) return false;

@@ -293,6 +293,7 @@ export function handleHello(
       type: 'welcome',
       protocolVersion: 2,
       connectionId,
+      eventAckBatchSize: 50,
     });
   }
 
@@ -722,6 +723,7 @@ export function handleSendV2(
     receiptAdmitted?: boolean;
     identityClaimed?: boolean;
     viewSelection?: ViewSelection;
+    dispatchWaitMs?: number;
   },
 ): Promise<'native' | void> {
   const selection = delivery?.viewSelection ?? captureViewSelection(connectionId, ctx);
@@ -736,7 +738,11 @@ export function handleSendV2(
   };
   return withSpanAsync<'native' | void>(
     'ws.send',
-    { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
+    {
+      'ws.connectionId': connectionId,
+      'ws.sessionId': msg.sessionId ?? 'new',
+      'ws.dispatch_wait_ms': delivery?.dispatchWaitMs ?? 0,
+    },
     async (span) => {
       try {
         if (msg.sessionId)
@@ -2031,6 +2037,7 @@ export async function dispatchV2Message(
   raw: string,
   ctx: V2HandlerContext,
   viewSelection?: ViewSelection,
+  dispatchWaitMs = 0,
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -2079,7 +2086,9 @@ export async function dispatchV2Message(
           });
         break;
       case 'session_event_applied':
-        ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq);
+        if (msg.seqs) ctx.connRegistry.ackAppliedEvents(connectionId, msg.sessionId, msg.seqs);
+        else if (msg.seq !== undefined)
+          ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq);
         break;
       case 'watch':
         handleWatch(connectionId, msg, ctx);
@@ -2097,7 +2106,7 @@ export async function dispatchV2Message(
         handleSessionClose(connectionId, msg, ctx);
         break;
       case 'send':
-        await handleSendV2(connectionId, transport, msg, ctx, { viewSelection });
+        await handleSendV2(connectionId, transport, msg, ctx, { viewSelection, dispatchWaitMs });
         break;
       case 'stop':
         handleStopV2(connectionId, msg, ctx);
@@ -2145,6 +2154,7 @@ export function scheduleV2Message(
   ctx: V2HandlerContext,
   onError: (error: unknown) => void,
 ): Promise<void> {
+  const receivedAt = performance.now();
   let isControl = false;
   try {
     const rawMessage = JSON.parse(raw) as Record<string, unknown>;
@@ -2166,7 +2176,15 @@ export function scheduleV2Message(
   // Retain receive order for a queued send's view claim, even when its
   // dispatch begins after a later navigation control has already completed.
   const viewSelection = captureViewSelection(connectionId, ctx);
-  const dispatch = () => dispatchV2Message(connectionId, transport, raw, ctx, viewSelection);
+  const dispatch = () =>
+    dispatchV2Message(
+      connectionId,
+      transport,
+      raw,
+      ctx,
+      viewSelection,
+      Math.max(0, performance.now() - receivedAt),
+    );
   if (isControl) {
     void dispatch().catch(onError);
     return chain;

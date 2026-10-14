@@ -298,6 +298,24 @@ describe('ConnectionRegistry', () => {
   });
 
   describe('applied delivery', () => {
+    it('atomically accepts exact contiguous batch prefixes and harmless retries', () => {
+      registry.register('c', mockTransport());
+      registry.watch('c', 's');
+      registry.enableAppliedCursor('c', 's', 0);
+      registry.setEventStore(mockEventStore([1, 4, 9].map((seq) => ({ seq, payload: {} }))));
+      expect(registry.ackAppliedEvents('c', 's', [1, 9])).toBe(false);
+      expect(registry.ackAppliedEvents('c', 's', [1, 4])).toBe(true);
+      expect(registry.ackAppliedEvents('c', 's', [1, 4])).toBe(true);
+      expect(registry.ackAppliedEvents('c', 's', [4, 9])).toBe(true);
+      expect(registry.ackAppliedEvents('c', 's', [4, 4])).toBe(false);
+      expect(registry.ackAppliedEvents('c', 's', [10])).toBe(false);
+      registry.offerSnapshot('c', 's', 9, 'offer');
+      expect(registry.ackAppliedEvents('c', 's', [9])).toBe(false);
+      expect(registry.ackAppliedEvents('foreign', 's', [9])).toBe(false);
+      registry.unwatch('c', 's');
+      expect(registry.ackAppliedEvents('c', 's', [9])).toBe(false);
+    });
+
     it('retries a sent event until its session predecessor is acknowledged', async () => {
       vi.useFakeTimers();
       const transport = mockTransport();

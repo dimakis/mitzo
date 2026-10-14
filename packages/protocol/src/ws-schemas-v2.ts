@@ -48,11 +48,25 @@ export const ReconnectSnapshotAppliedMessage = z.object({
   offerId: z.string().uuid(),
 });
 
-export const SessionEventAppliedMessage = z.object({
-  type: z.literal('session_event_applied'),
-  sessionId: z.string().min(1),
-  seq: z.number().int().positive(),
-});
+export const SessionEventAppliedMessage = z
+  .object({
+    type: z.literal('session_event_applied'),
+    sessionId: z.string().min(1),
+    seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    seqs: z
+      .array(z.number().int().positive().max(Number.MAX_SAFE_INTEGER))
+      .min(1)
+      .max(50)
+      .refine(
+        (seqs) => seqs.every((seq, i) => i === 0 || seq > seqs[i - 1]),
+        'Sequences must increase',
+      )
+      .optional(),
+  })
+  .refine(
+    (msg) => (msg.seq !== undefined) !== (msg.seqs !== undefined),
+    'Choose single seq or seqs batch',
+  );
 
 // ─── Session management ─────────────────────────────────────────────────────
 

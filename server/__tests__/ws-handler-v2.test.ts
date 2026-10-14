@@ -283,6 +283,7 @@ describe('handleHello', () => {
         connectionId: 'conn-new',
       }),
     ]);
+    expect(transport.sent.find((event) => event.type === 'welcome')?.eventAckBatchSize).toBe(50);
   });
 });
 
@@ -3011,6 +3012,49 @@ describe('dispatchV2Message', () => {
     );
 
     expect(stopChat).toHaveBeenCalledWith('driver-1');
+  });
+
+  it('records receive-to-dispatch wait on the existing send span', async () => {
+    vi.useFakeTimers({ toFake: ['performance'] });
+    const tracing = await import('../tracing.js');
+    const spans = vi.spyOn(tracing, 'withSpanAsync');
+    try {
+      const ctx = createContext();
+      const transport = mockTransport();
+      ctx.connRegistry.register('c1', transport);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const queued = scheduleV2Message(
+        gate,
+        'c1',
+        transport,
+        JSON.stringify({
+          type: 'send',
+          sessionId: null,
+          prompt: 'queued',
+          clientMsgId: 'trace-queue',
+        }),
+        ctx,
+        (error) => {
+          throw error;
+        },
+      );
+      vi.advanceTimersByTime(123);
+      release();
+      await queued;
+      expect(spans).toHaveBeenCalledWith(
+        'ws.send',
+        expect.objectContaining({
+          'ws.dispatch_wait_ms': 123,
+        }),
+        expect.any(Function),
+      );
+    } finally {
+      spans.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('keeps navigation newer than a queued send when that send eventually launches', async () => {
