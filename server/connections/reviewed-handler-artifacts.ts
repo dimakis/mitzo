@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.124';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.125';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -207,7 +207,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '80220a38e332849d1ef1c37064e0342b52fe1c901f4d0792a5ec73b9e304ee06',
   '../ordinary-codex-contributor-admission.ts':
     '20b50e35d894f942181af17b0e1bfe8a1fba059d3562338e586ee68de16841ce',
-  '../output-contributors.ts': '4dd6bcda22230f093584f236caf919c547000a906fb104b10840a3e8b335d206',
+  '../output-contributors.ts': '43590c62adfb9814031b739e44ed0e5c05230242e0cc7175bc204d6397a5f6b8',
   '../output-contributor-routes.ts':
     'e8b9ffc353713edbe91f9be431422996b142e91716147ca915e6f7702e94c1e8',
   '../session-output-references.ts':
@@ -216,7 +216,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-output-reference.ts':
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
-    '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
+    'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
   '../chat.ts': 'b4fa14f30a0ca2b403846fe696f4036605609e0a68d8cda62ee8971c9ef1d304',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':

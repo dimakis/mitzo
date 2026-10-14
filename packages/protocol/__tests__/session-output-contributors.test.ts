@@ -205,7 +205,7 @@ describe('output contributor persistence boundary', () => {
     );
   });
 
-  it('checks exact uniqueness outside the newest 100 association projection', () => {
+  it('retains exact associations outside the newest 100 projection while admitting independent contributors', () => {
     const { store, binding, allocation } = fixture();
     store.createSymposiumSession(allocation());
     for (let n = 0; n < 100; n++)
@@ -223,10 +223,18 @@ describe('output contributor persistence boundary', () => {
     expect(
       store.getOutputContributorForOutput('source', binding.outputId)?.coordinatorSessionId,
     ).toBe('coordinator');
-    expect(() => store.createSymposiumSession(allocation('duplicate', 'different-key'))).toThrow(
-      'already has a contributor',
-    );
-    expect(store.getSession('duplicate')).toBeNull();
+    expect(store.createSymposiumSession(allocation('independent', 'different-key'))).toEqual({
+      sessionId: 'independent',
+      created: true,
+    });
+    expect(store.getOutputContributorBinding('coordinator')).toMatchObject({
+      ...binding,
+      coordinatorSessionId: 'coordinator',
+    });
+    expect(store.getOutputContributorBinding('independent')).toMatchObject({
+      ...binding,
+      coordinatorSessionId: 'independent',
+    });
   });
 
   it('retains source/association history and profile receipts on reopen and owner backup', async () => {
@@ -260,19 +268,24 @@ describe('output contributor persistence boundary', () => {
     }
   });
 
-  it('rechecks uniqueness after another database owner commits and shares the original retry receipt', () => {
+  it('admits independent requests after another database owner commits and shares each original retry receipt', () => {
     const { path, store, binding, allocation } = fixture();
     const second = open(path);
     expect(second.getOutputContributorForOutput('source', binding.outputId)).toBeNull();
     store.createSymposiumSession(allocation());
-    expect(() => second.createSymposiumSession(allocation('duplicate', 'another-request'))).toThrow(
-      'already has a contributor',
-    );
-    expect(second.getSession('duplicate')).toBeNull();
+    expect(second.createSymposiumSession(allocation('independent', 'another-request'))).toEqual({
+      sessionId: 'independent',
+      created: true,
+    });
+    expect(store.createSymposiumSession(allocation('unused', 'another-request'))).toEqual({
+      sessionId: 'independent',
+      created: false,
+    });
+    expect(store.getSession('unused')).toBeNull();
     expect(second.createSymposiumSession(allocation('retry-id'))).toEqual({
       sessionId: 'coordinator',
       created: false,
     });
-    expect(store.getOutputContributorBindings('source')).toHaveLength(1);
+    expect(store.getOutputContributorBindings('source')).toHaveLength(2);
   });
 });

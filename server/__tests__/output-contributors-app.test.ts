@@ -5,10 +5,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { EventStore } from '../event-store.js';
+import { AccountProfiles } from '../account-profiles.js';
+let currentAccounts: AccountProfiles;
 
 vi.mock('../account-profiles.js', async (original) => ({
   ...(await original<object>()),
-  loadAccountProfiles: () => ({ catalog: () => [], privateCodexRoots: () => [] }),
+  loadAccountProfiles: () => currentAccounts,
 }));
 vi.mock('../auth.js', async (original) => ({
   ...(await original<object>()),
@@ -41,6 +43,7 @@ beforeAll(async () => {
       throw new Error('No network in output fixture');
     }),
   );
+  currentAccounts = new AccountProfiles([]);
   app = (await import('../app.js')).app;
   store = (await import('../chat.js')).eventStore;
   store.upsertSession({ sessionId: 'source', cwd: root });
@@ -120,4 +123,58 @@ it('mounts contributor capability discovery without account fallback or provider
     });
   expect(forged.status).toBe(400);
   expect(store.getOutputContributorBindings('source')).toEqual([]);
+});
+
+it('composes same-account independent API contributors through ordinary account discovery without native Symposium setup', async () => {
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'offline-image');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/offline/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/offline/seed');
+  currentAccounts = new AccountProfiles([
+    {
+      id: 'ordinary-api',
+      label: 'Offline API',
+      provider: 'openai',
+      credentialRef: { provider: 'offline', service: 'unused', account: 'api' },
+      sandboxProvider: 'offline-api',
+      models: [{ id: 'offline-model', label: 'Offline' }],
+    },
+  ]);
+  const base = '/api/sessions/source';
+  const eligibility = await request(app).get(`${base}/contributors`).set('x-operator', 'browser');
+  expect(eligibility.body.eligibility).toMatchObject({
+    available: true,
+    accountIds: ['ordinary-api'],
+  });
+  const listed = await request(app).get(`${base}/outputs`).set('x-operator', 'browser');
+  const output = listed.body.outputs[0];
+  const selected = await request(app)
+    .get(`${base}/outputs/${output.outputId}`)
+    .set('x-operator', 'browser');
+  const input = {
+    outputId: output.outputId,
+    outputRevision: 1,
+    contextPackageDigest: selected.body.contextPackageDigest,
+    accountId: 'ordinary-api',
+    model: 'offline-model',
+    mode: 'agent',
+    instructions: '',
+  };
+  const first = await request(app)
+    .post(`${base}/contributors`)
+    .set('x-operator', 'browser')
+    .send({ ...input, requestId: 'composed-first', label: 'First' });
+  const second = await request(app)
+    .post(`${base}/contributors`)
+    .set('x-operator', 'browser')
+    .send({ ...input, requestId: 'composed-second', label: 'Second' });
+  expect(first.status).toBe(200);
+  expect(second.status).toBe(200);
+  expect(second.body.contributor.id).not.toBe(first.body.contributor.id);
+  expect(first.body.contributor.accountLabel).toBe('Offline API');
+  expect(second.body.contributor.sessionId).toBeNull();
+  const contributors = await request(app).get(`${base}/contributors`).set('x-operator', 'browser');
+  expect(contributors.body.contributors).toHaveLength(2);
+  expect(store.getSession('source')?.symposiumConfig).toBeNull();
+  currentAccounts = new AccountProfiles([]);
 });

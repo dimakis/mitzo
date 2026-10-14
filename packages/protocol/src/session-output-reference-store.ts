@@ -103,8 +103,10 @@ export class SessionOutputReferenceStore {
     );
     if (binding.outputRevision !== output.revision || binding.contextPackageDigest !== digest)
       throw new Error('Output contributor context revision conflict');
-    if (guardedLookup(binding.parentSessionId, output.outputId))
-      throw new Error('This output already has a contributor');
+    // Repeat the owner's parent/association authority check inside the same
+    // allocation transaction. Existing contributors keep independent identities;
+    // their presence does not consume another contributor's admission.
+    guardedLookup(binding.parentSessionId, output.outputId);
   }
 
   /** The owner's transaction also contains the coordinator config and allocation receipt. */

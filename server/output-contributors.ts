@@ -85,7 +85,7 @@ type Binding = OutputContributorBinding & { coordinatorSessionId: string };
 const SEAT = 'contributor';
 const digest = (input: unknown) => createHash('sha256').update(JSON.stringify(input)).digest('hex');
 
-/** One selected output, one ordinary contributor. Existing Symposium owns claims, delivery and Stop. */
+/** Independently admitted contributors share one exact output. Existing Symposium owns delivery and Stop. */
 export class OutputContributors {
   private readonly hostGrants: SymposiumHostGrants;
   private readonly coordinators = new Map<string, SymposiumOrchestrator>();
