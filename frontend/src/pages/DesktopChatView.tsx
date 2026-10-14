@@ -949,6 +949,9 @@ export function DesktopChatView() {
                   </span>
                   {localCommand.request && (
                     <span>
+                      {localRuntime.continuation && localCommand.state === 'consumed'
+                        ? 'Last submitted command: '
+                        : ''}
                       Account: {localCommand.request.runtime.account.accountId} · Model:{' '}
                       {localCommand.request.selection.model} · Thinking:{' '}
                       {localCommand.request.selection.thinking ?? 'not configurable'} · Agent

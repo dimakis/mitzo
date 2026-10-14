@@ -1,7 +1,7 @@
 # Session runtime selection
 
 Status: gated source implementation with offline continuity evidence. Ordinary
-Local Codex, OpenShell Codex, Local Responses and plain Local Claude share the existing picker, durable command receipts
+Local Codex, OpenShell Codex, Local Responses, plain Local Claude and Local Gemini share the existing picker, durable command receipts
 and immutable conversation binding. Configuration gates remain off by default;
 source support and offline tests do not establish live account, provider, native
 runtime or deployment qualification. Staging is stood down. Production activation
@@ -14,7 +14,7 @@ separate responsibilities. OpenShell stays the new-chat default; Local Mac requi
 an explicit choice. A pristine unselected target resolves from the first trusted
 inventory within its chosen environment. Previously selected unavailable/stale
 choices remain visible with a reason and are never replaced on refresh. Software
-is derived as Runs with Codex, Mitzo Responses or Claude from the exact selected route; there is no independent runtime selector.
+is derived as Runs with Codex, Mitzo Responses, Claude or Gemini from the exact selected route; there is no independent runtime selector.
 
 `GET /api/chat/runtime/capabilities` projects a bounded combined configuration-only
 inventory. Its composite capability revision covers draft review; each route can
@@ -36,15 +36,17 @@ profiles use the existing Library namespaces. Supported workspace and ContexGin
 recipes compile once under the original workspace/runtime authority; each route
 advertises eligible profile references and reasons for incompatible selections.
 OpenShell ContexGin recipes require an explicit configured sandbox preset.
-Separately gated plain Local Responses and Claude SDK source routes use the same
+Separately gated plain Local Responses, Claude SDK and Gemini source routes use the same
 strict endpoints, picker and existing owners. Their specific qualifications and
-limits are documented in [Responses continuity](local-responses-continuity.md) and
-[Claude source status](ordinary-local-vertex-source-status.md). Original ADC
-identity, project/region and signed login are pinned for Claude; terminal-only
-SDK query reopening resumes its original thread with frozen model/effort options.
+limits are documented in [Responses continuity](local-responses-continuity.md),
+[Claude source status](ordinary-local-vertex-source-status.md) and
+[Gemini source status](ordinary-local-gemini-source-status.md). Original ADC
+identity, project/region and signed login are pinned for Vertex routes. Claude
+reopens its SDK query only after terminal, resuming the original thread with
+frozen model/effort options.
 Unconfirmed native outcomes remain retained and refuse cold replay. Pinned packs,
 Local workspace/brokered authentication, native sandbox subscriptions, Vertex
-OpenShell and ordinary Gemini adoption require separate reviewed enrollment.
+OpenShell remain unavailable. Local Gemini uses the existing NativeResponses owner with exact selected ADC custody; ambient project/quota and credential fallback are refused. Provider enrollment and live runtime qualification remain separate.
 Legacy conversations keep their legacy ownership and are not implicitly converted.
 
 Prepared context is saved with the original profile and recipe identity. Provider
@@ -60,13 +62,25 @@ revision). New session elsewhere copies it; reusing an ID with changed provider 
 routing cannot silently change authentication/billing. A new draft requires explicit
 Account re-selection, while generic capability review cannot replace that tuple.
 A bound conversation cannot replace its account tuple.
-Supported model/thinking edits are future-command intent; each admitted or queued
+Codex, Responses and Claude support model/thinking edits as future-command intent. Gemini retains its effective original first-message model and thinking, including signed native thought history. Changed future Gemini choices remain visible with the native constraint and refuse admission before a new receipt; they are not silently reset. Each admitted or queued
 command freezes its own selection under the existing EventStore receipt and native
 FIFO. Running/queued work cannot change when a later setting changes. Failed or
 uncertain HTTP delivery retains its original request for deliberate exact recovery;
 SSE observations cannot acknowledge or replay it. Stop, approval responses and
 same-login reconnect use the retained owning driver. Unsupported mode/context/web
 and connection helpers remain blocked independently of the ordinary composer.
+
+New server-qualified READY repository preparations permit another supported
+first-message model on the same original checkout before any reservation or
+admission. Account, provider/profile revision, runtime, target, credential,
+GitHub/source and physical workspace authority stay unchanged. The original
+preparation model, branch and source digest remain recorded; the atomic first
+reservation freezes the effective command, including model and thinking. For
+Gemini, that effective first selection becomes its immutable native original.
+Legacy preparations and prior, failed or uncertain reservations retain their
+existing full-selection guards. Native checkpoints are never reinterpreted.
+Preparation deadlines fence newly incoming admission across awaited authority and
+setup; an expired request does not replace or cancel previously admitted work.
 
 Session metadata advertises `runtimeCommandScope: conversation` only when its
 original route can continue; otherwise it keeps guarded/read-only behavior and a

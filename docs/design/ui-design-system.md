@@ -48,7 +48,7 @@ the corresponding routes and run in CI when host pressure prevents a broad build
 
 Chats shows a counted Drafts destination when saved drafts exist, separate from active and recent conversations. The shortcut disappears when the last draft is removed. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
 
-Empty messages with a repository preparation retain their exact receipt and account/model binding. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
+Empty messages with a repository preparation retain their exact receipt. Legacy preparations keep their account/model binding. New server-qualified READY preparations keep account and environment locked while allowing a supported first-message model before reservation; original source and preparation model stay recorded and the first reservation freezes the effective command. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
 
 Settings owns the Updates destination and its availability summary. The dedicated update panel uses the shared surface, accent action and secondary controls; commit/build metadata remains secondary. Review update opens the existing configured prompt for user review. Loading, unavailable configuration and failed checks must remain distinct from an up-to-date release. Both pages inherit theme, accent, font, shell scrolling and navigation motion; neither defines another palette or wordmark.
 
@@ -130,10 +130,8 @@ intent from trusted inventory, and preserve stale/unavailable account, model,
 thinking and target choices with a useful reason. Runs with describes the derived
 software rather than adding another runtime control.
 
-Bound ordinary Codex conversations lock account, exact published user profile and
-execution target. Server-supported conversation scope enables model/thinking edits
-for future commands, normal guarded follow-ups and the native queue. Each queued
-request keeps its original settings snapshot. Unsupported mode/context/web helpers
+Bound ordinary Codex, Responses, Claude and Gemini conversations lock account, exact profile identity and execution target. Supported Codex/Responses/Claude scope enables model/thinking edits for future commands, normal guarded follow-ups and the native queue. Gemini shows its original-model/thinking constraint and retains changed intent with explicit refusal; it does not promise unsupported future settings. Each queued
+request keeps its original settings snapshot. Consumed receipt settings are labelled Last submitted command, distinct from the future picker selection. Unsupported mode/context/web helpers
 remain independently disabled. Metadata loading/failure never enables legacy
 fallback; Retry preserves the conversation and draft.
 
@@ -377,7 +375,11 @@ also covers enabled and legacy policy on mobile WebKit/Chromium and desktop
 Chromium; broad build/browser acceptance runs in CI when local memory pressure
 prevents the full suite.
 
-## Explicit Local first-command selection
+## Historical explicit Local first-command selection
+
+This section records the guarded first-command checkpoint. The current ordinary
+conversation contract above applies to qualified continuation routes; these limits
+remain the fallback for unsupported or unqualified scopes.
 
 The gated ordinary-chat entry extends the existing Workspace disclosure and
 account/profile pickers with controlled metadata and Run on. It uses native labelled

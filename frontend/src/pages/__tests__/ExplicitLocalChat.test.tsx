@@ -1,7 +1,7 @@
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
@@ -452,6 +452,55 @@ for (const [name, Screen] of [
         reasoningEffort: 'high',
       }),
     );
+  });
+  it(`${name}: labels consumed receipt settings as historical while future model intent stays distinct`, async () => {
+    const fixture = localInventoryFixture();
+    fixture.accounts[0].models.push({
+      id: 'next-model',
+      label: 'Next model',
+      reasoningEfforts: ['low', 'high'],
+    });
+    const { store } = setup(Screen, false, false, true, false, true, fixture);
+    const { LocalCodexFirstCommandSchema } = await import('@mitzo/protocol');
+    const receipt = LocalCodexFirstCommandSchema.parse({
+      runOn: 'local',
+      clientMsgId: 'previous-command',
+      repositoryWorkspaceId: readyId,
+      capabilityRevision: fixture.capabilityRevision,
+      runtime: {
+        account: fixture.accounts[0].account,
+        harness: 'codex',
+        targetId: 'mac',
+        mode: 'agent',
+      },
+      selection: {
+        version: 1,
+        agent: { profileId: 'agent', revision: 1 },
+        context: { source: 'none', revision: null },
+        permission: { mode: 'agent', revision: 0 },
+        model: 'luna-fixture',
+        thinking: 'low',
+      },
+      payload: { text: 'Previously submitted' },
+    });
+    act(() =>
+      store.setState({
+        localCommand: { state: 'consumed', sessionId: 'bound-session', request: receipt },
+      }),
+    );
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    await screen.findByText('Run on: Local Mac · fixed for this conversation');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'next-model' },
+    });
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('next-model');
+    expect(
+      screen.getByText(
+        /Last submitted command: Account: personal · Model: luna-fixture · Thinking: low/,
+      ),
+    ).toBeInTheDocument();
+    expect(store.getState().localCommand?.request).toEqual(receipt);
   });
   it(`${name}: supported continuation freezes selected thinking and never sends through legacy routing`, async () => {
     const { localSend, legacySend } = setup(Screen, false, false, true, false, true);

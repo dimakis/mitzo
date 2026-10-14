@@ -88,9 +88,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     'dba8f9db6e85204da9bea2380e10b1bc0e1a00fe15ac598bcf8e6cd685a66b22',
   '../../frontend/src/pages/ChatView.tsx':
-    '263aeb3610f82ad185d30305106638e41049929cf895f87ad16e4df25ce27656',
+    'bb0e015ea43ce9bbf2d31cd22fe59daa97f113e1c231ab2710f1314042a6ee11',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '3732b70dff9dc6e00a713bb61cc5cbadd8a6492bcddf003b0f3356b80448fa6a',
+    '595f26f3b439967d2af96a04702c0059aaa0a68cba206ae322e05c8914f75228',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
