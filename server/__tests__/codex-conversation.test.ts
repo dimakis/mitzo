@@ -1776,49 +1776,67 @@ it('rejects idle admission when recovery persistence fails even if the error obs
   expect(f.c.queue()).toEqual([]);
 });
 
-it('bounds a silent idle probe, retires it before reconnect, and ignores its late reply', async () => {
-  const beforeReconnect = vi.fn(async () => {});
-  const f = await setup(
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    async () => binding,
-    beforeReconnect,
-  );
-  f.conversationOptions.idleProbeTimeoutMs = 2000;
-  vi.useFakeTimers();
-  const request = f.rpc.request.getMockImplementation()!;
-  let release!: () => void;
-  let held = true;
-  f.rpc.request.mockImplementation(async (method, params) => {
-    if (method === 'config/read' && held) {
-      held = false;
-      await new Promise<void>((resolve) => {
-        release = resolve;
-      });
-    }
-    return request(method, params);
-  });
-  beforeReconnect.mockImplementation(async () => {
+it.each(['host', 'openshell'] as const)(
+  'bounds a silent %s idle probe, retires it before reconnect, and ignores its late reply',
+  async (route) => {
+    const beforeReconnect = vi.fn(async () => {});
+    const f = await setup(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => binding,
+      route === 'openshell' ? beforeReconnect : undefined,
+    );
+    f.conversationOptions.idleProbeTimeoutMs = 2000;
+    vi.useFakeTimers();
+    const request = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    let held = true;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'config/read' && held) {
+        held = false;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return request(method, params);
+    });
+    beforeReconnect.mockImplementation(async () => {
+      expect(f.rpc.close).toHaveBeenCalledOnce();
+      expect(f.c.isPaused()).toBe(true);
+    });
+    const send = f.c.send({ id: 'bounded-idle', prompt: 'continue' });
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(f.c.queue()).toEqual([]);
+    expect(f.rpc.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(beforeReconnect).toHaveBeenCalledTimes(route === 'openshell' ? 1 : 0);
     expect(f.rpc.close).toHaveBeenCalledOnce();
-    expect(f.c.isPaused()).toBe(true);
-  });
-  const send = f.c.send({ id: 'bounded-idle', prompt: 'continue' });
-  await vi.advanceTimersByTimeAsync(1999);
+    await send;
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['running']);
+    release();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(f.rpc.close).toHaveBeenCalledOnce();
+    expect(f.c.isPaused()).toBe(false);
+    expect(f.onError).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  },
+);
+
+it('does not admit a new command after an owned terminal idle transport expires', async () => {
+  const f = await setup();
+  f.conversationOptions.transportClosure = 'terminal';
+  vi.useFakeTimers();
+  f.rpc.request.mockImplementation(async () => new Promise(() => {}));
+  const admission = f.c.admitExplicitSend({ id: 'terminal-expired', prompt: 'must not enqueue' });
+  const check = expect(admission).rejects.toThrow();
+  await vi.advanceTimersByTimeAsync(2000);
+  await check;
   expect(f.c.queue()).toEqual([]);
-  expect(f.rpc.close).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(1);
-  expect(beforeReconnect).toHaveBeenCalledOnce();
-  await send;
-  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
-  expect(f.c.queue().map(({ status }) => status)).toEqual(['running']);
-  release();
-  await vi.advanceTimersByTimeAsync(30000);
   expect(f.rpc.close).toHaveBeenCalledOnce();
-  expect(f.c.isPaused()).toBe(false);
-  expect(f.onError).not.toHaveBeenCalled();
-  vi.useRealTimers();
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
 });
 
 it('queues an explicit follow-up without applying the idle deadline to a busy turn', async () => {
