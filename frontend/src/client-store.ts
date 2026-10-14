@@ -3,10 +3,8 @@ import { createReviewedOutboxStorage } from './lib/reviewed-outbox-storage';
 /**
  * Bootstrap @mitzo/client store for the browser environment.
  *
- * This creates a MitzoStore with browser-native WebSocket and fetch.
- * Currently wired in for integration testing — the existing hooks
- * continue to drive the UI. This will become the primary state layer
- * once the frontend migration is complete.
+ * Chat events use EventSource; commands use acknowledged HTTP POST delivery.
+ * WebSocket remains available through an explicit diagnostic override.
  */
 
 import { createMitzoStore } from '@mitzo/client';
@@ -32,7 +30,7 @@ import { getPreferredModel } from './lib/model-preference';
  * This is an intentional flip from WS-default per the transport-ssot design doc.
  * Set localStorage 'mitzo:transport' to 'ws' to fall back to WebSocket.
  *
- * Browser defaults to SSE; native WKWebView defaults to the hardened WS path.
+ * Browser and native WKWebView both default to SSE.
  * Override: localStorage.setItem('mitzo:transport', 'sse' | 'ws'); location.reload();
  */
 const preference =
@@ -67,6 +65,14 @@ export const clientStore = createMitzoStore({
   ...(sseConfig ? { sseConfig } : {}),
   ...(typeof window !== 'undefined'
     ? {
+        localFirstCommandConfig: {
+          url: `${getApiBaseUrl()}/api/chat/local-codex/send`,
+          storage: createReviewedOutboxStorage(
+            localStorage,
+            new URL(`${getApiBaseUrl()}/api/chat/local-codex/send`, window.location.href).href,
+            'local',
+          ),
+        },
         reviewedSendConfig: {
           url: `${getApiBaseUrl()}/api/chat/send`,
           storage: createReviewedOutboxStorage(
@@ -91,7 +97,7 @@ if (typeof window !== 'undefined') {
   clientStore.getState().setModel(getPreferredModel());
 }
 
-// Wire Capacitor app lifecycle → force WS reconnect on resume, send suspend on background
+// Wire Capacitor app lifecycle → recover the event stream on resume, suspend on background
 registerCapacitorLifecycle(
   () => {
     clientStore.getState().forceReconnect();

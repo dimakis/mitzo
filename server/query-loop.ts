@@ -53,10 +53,12 @@ function endSubagentSpans(
     } | null;
   },
   statusCode: typeof SpanStatusCode.OK | typeof SpanStatusCode.ERROR,
+  toolCompletion = 'subagent_ended',
 ): void {
   // End any open tool spans
   for (const [, ts] of sub.toolSpans) {
-    ts.setStatus({ code: statusCode });
+    ts.setAttribute('tool.completion', toolCompletion);
+    ts.setStatus({ code: SpanStatusCode.ERROR });
     ts.end();
   }
   sub.toolSpans.clear();
@@ -65,6 +67,7 @@ function endSubagentSpans(
   if (sub.turnSpan) {
     sub.turnSpan.setStatus({ code: statusCode });
     sub.turnSpan.end();
+    sub.turnSpan = null;
   }
 
   // End subagent span with attributes
@@ -81,6 +84,7 @@ function endSubagentSpans(
     }
     sub.span.setStatus({ code: statusCode });
     sub.span.end();
+    sub.span = null;
   }
 }
 
@@ -297,7 +301,7 @@ async function _runQueryLoopInner(
       span: Span | null;
       turnSpan: Span | null;
       turnIndex: number;
-      toolSpans: Map<string, Span>; // blockId → tool span
+      toolSpans: Map<string, Span>; // tool use ID → tool span
       startedAt: number;
     }
   >();
@@ -332,7 +336,7 @@ async function _runQueryLoopInner(
   // Turn and tool span tracking
   let currentTurnSpan: Span | null = null;
   let turnBlockCount = 0;
-  const toolSpans = new Map<string, Span>(); // blockId → tool span
+  const toolSpans = new Map<string, Span>(); // tool use ID → tool span
 
   // Token tracking state for live token_update events
   let agentContextTokens = 0; // full context window size (input + cached) from parent message_start
@@ -625,10 +629,10 @@ async function _runQueryLoopInner(
         if (msg.type === 'assistant') {
           const parentToolUseId = msg.parent_tool_use_id as string | undefined;
 
-          // Subagent turn complete — emit subagent_end + close spans
+          // An assistant envelope can contain pending tool calls; close only after their results.
           if (parentToolUseId) {
             const subagent = activeSubagents.get(parentToolUseId);
-            if (subagent) {
+            if (subagent && subagent.toolSpans.size === 0) {
               const durationMs = Date.now() - subagent.startedAt;
               endSubagentSpans(subagent, SpanStatusCode.OK);
 
@@ -1004,7 +1008,7 @@ async function _runQueryLoopInner(
                   existing.turnSpan.setAttribute('subagent.turn.index', existing.turnIndex);
                 } else {
                   // First turn: create subagent span under the parent tool span
-                  const parentToolSpan = toolSpans.get(parentBlockId);
+                  const parentToolSpan = toolSpans.get(parentToolUseId);
                   if (!parentToolSpan) {
                     log.warn('subagent parent tool span not found', {
                       parentBlockId,
@@ -1215,14 +1219,13 @@ async function _runQueryLoopInner(
                 const subToolParent = subagent.turnSpan
                   ? trace.setSpan(context.active(), subagent.turnSpan)
                   : context.active();
-                const subToolSpan = tracer.startSpan(
-                  `subagent.tool.${toolName}`,
-                  {},
-                  subToolParent,
-                );
+                const subToolSpan =
+                  subagent.toolSpans.get(toolId) ??
+                  tracer.startSpan(`subagent.tool.${toolName}`, {}, subToolParent);
                 subToolSpan.setAttribute('tool.name', toolName);
                 subToolSpan.setAttribute('tool.id', toolId);
-                subagent.toolSpans.set(blockId, subToolSpan);
+                subToolSpan.setAttribute('tool.latency_scope', 'input_to_result');
+                subagent.toolSpans.set(toolId, subToolSpan);
 
                 emit(
                   v2('subagent_block_start', {
@@ -1298,10 +1301,12 @@ async function _runQueryLoopInner(
               const toolParent = currentTurnSpan
                 ? trace.setSpan(context.active(), currentTurnSpan)
                 : context.active();
-              const toolSpan = tracer.startSpan(`tool.${toolName}`, {}, toolParent);
+              const toolSpan =
+                toolSpans.get(toolId) ?? tracer.startSpan(`tool.${toolName}`, {}, toolParent);
               toolSpan.setAttribute('tool.name', toolName);
               toolSpan.setAttribute('tool.id', toolId);
-              toolSpans.set(blockId, toolSpan);
+              toolSpan.setAttribute('tool.latency_scope', 'input_to_result');
+              toolSpans.set(toolId, toolSpan);
 
               emit(
                 v2('block_start', {
@@ -1437,13 +1442,11 @@ async function _runQueryLoopInner(
                     ...(rawInput ? { rawInput } : {}),
                   }),
                 );
-                // End subagent tool span
-                const subToolSpan = subagent.toolSpans.get(blockId);
-                if (subToolSpan) {
-                  subToolSpan.setStatus({ code: SpanStatusCode.OK });
-                  subToolSpan.end();
-                  subagent.toolSpans.delete(blockId);
-                }
+                const subToolSpan = subagent.toolSpans.get(toolEntry.id);
+                subToolSpan?.addEvent('tool.input', {
+                  'tool.name': toolEntry.name,
+                  'tool.input': truncateForTrace(toolEntry.inputBuf).text,
+                });
 
                 log.info('subagent tool call', {
                   clientId,
@@ -1484,17 +1487,14 @@ async function _runQueryLoopInner(
               log.info('tool call', { clientId, tool: toolEntry.name, toolId: toolEntry.id });
               log.debug('tool call input', { clientId, toolId: toolEntry.id, input: trInput.text });
 
-              // End tool span — record raw input before closing
-              const toolSpan = toolSpans.get(blockId);
+              // Input completion is not execution completion; wait for the matching result.
+              const toolSpan = toolSpans.get(toolEntry.id);
               if (toolSpan) {
                 toolSpan.addEvent('tool.input', {
                   'tool.name': toolEntry.name,
                   'tool.input': trInput.text,
                   ...(trInput.truncated ? { 'tool.input.truncated': true } : {}),
                 });
-                toolSpan.setStatus({ code: SpanStatusCode.OK });
-                toolSpan.end();
-                toolSpans.delete(blockId);
               }
 
               // Mark snapshot block done with tool metadata.
@@ -1618,6 +1618,7 @@ async function _runQueryLoopInner(
                     taskId,
                   }),
                 );
+                endSubagentSpans(subagent, SpanStatusCode.ERROR, 'cancelled');
                 activeSubagents.delete(toolUseId);
               }
             }
@@ -1634,7 +1635,15 @@ async function _runQueryLoopInner(
           if (
             (parentToolUseId === null || parentToolUseId === undefined) &&
             typeof msg.uuid === 'string' &&
-            typeof content === 'string'
+            (typeof content === 'string' ||
+              (Array.isArray(content) &&
+                content.length > 0 &&
+                content.every(
+                  (block: unknown) =>
+                    !!block &&
+                    typeof block === 'object' &&
+                    ['text', 'image'].includes((block as { type?: string }).type ?? ''),
+                )))
           ) {
             if (parentTurnActive || pendingParentInputUuid !== undefined) {
               parentInputCorrelationAmbiguous = true;
@@ -1651,6 +1660,25 @@ async function _runQueryLoopInner(
                 const resultText = extractToolResultText(block.content);
                 const resultImages = extractToolResultImages(block.content);
                 const trResult = truncateForTrace(resultText);
+                const pendingSpans = subagent ? subagent.toolSpans : toolSpans;
+                const toolSpan = pendingSpans.get(block.tool_use_id);
+                if (toolSpan) {
+                  toolSpan.addEvent('tool.result', {
+                    'tool.id': block.tool_use_id,
+                    'tool.result': trResult.text,
+                    'tool.is_error': block.is_error === true,
+                    ...(trResult.truncated ? { 'tool.result.truncated': true } : {}),
+                  });
+                  toolSpan.setAttribute(
+                    'tool.completion',
+                    block.is_error === true ? 'error' : 'result',
+                  );
+                  toolSpan.setStatus({
+                    code: block.is_error === true ? SpanStatusCode.ERROR : SpanStatusCode.OK,
+                  });
+                  toolSpan.end();
+                  pendingSpans.delete(block.tool_use_id);
+                }
 
                 // Store images server-side and build reference array
                 const sid = resolvedSessionId || currentOwnerSession()?.sessionId;
@@ -1831,12 +1859,28 @@ async function _runQueryLoopInner(
       // Clean up any open subagent spans (ERROR if catch was entered)
       const subagentCleanupStatus = caughtError ? SpanStatusCode.ERROR : SpanStatusCode.OK;
       for (const [, sub] of activeSubagents) {
-        endSubagentSpans(sub, subagentCleanupStatus);
+        endSubagentSpans(
+          sub,
+          subagentCleanupStatus,
+          abortController.signal.aborted
+            ? 'cancelled'
+            : caughtError
+              ? 'session_error'
+              : 'session_ended',
+        );
       }
       activeSubagents.clear();
       // Clean up any open tool spans
       for (const [, ts] of toolSpans) {
-        ts.setStatus({ code: SpanStatusCode.OK });
+        ts.setAttribute(
+          'tool.completion',
+          abortController.signal.aborted
+            ? 'cancelled'
+            : caughtError
+              ? 'session_error'
+              : 'session_ended',
+        );
+        ts.setStatus({ code: SpanStatusCode.ERROR });
         ts.end();
       }
       toolSpans.clear();

@@ -139,14 +139,24 @@ export function SymposiumConversation({
   sessionId,
   chat,
   ordinaryComposer,
+  ordinaryConfirmed = false,
+  ordinaryExcluded = false,
+  pendingSettings,
   ordinaryAfterMessages,
   profileToolsTarget,
+  readOnly = false,
 }: {
   sessionId: string | null;
   chat: ChatAreaProps;
   ordinaryComposer: ReactNode;
+  /** Current-session authoritative ordinary metadata; never inferred from intent. */
+  ordinaryConfirmed?: boolean;
+  /** Authoritative current-session special classification excludes ordinary send. */
+  ordinaryExcluded?: boolean;
+  pendingSettings?: ReactNode;
   ordinaryAfterMessages?: ReactNode;
   profileToolsTarget: HTMLElement | null;
+  readOnly?: boolean;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [statusFresh, setStatusFresh] = useState(false);
@@ -370,7 +380,8 @@ export function SymposiumConversation({
   const current = selected === 'all' ? chat.current : null;
   const queue = useCallback(
     async (recipients: string[], content: string) => {
-      if (!sessionId || !base || symposiumQueueOperations.snapshot()[sessionId]) return false;
+      if (readOnly || !sessionId || !base || symposiumQueueOperations.snapshot()[sessionId])
+        return false;
       const epoch = sessionEpoch.current;
       const operation: QueueOperation = {
         sessionId,
@@ -430,10 +441,11 @@ export function SymposiumConversation({
         if (timer) clearTimeout(timer);
       }
     },
-    [base, sessionId],
+    [base, sessionId, readOnly],
   );
   const submitShare = useCallback(async () => {
     if (
+      readOnly ||
       !sessionId ||
       !share ||
       !excerpt.trim() ||
@@ -510,8 +522,9 @@ export function SymposiumConversation({
       if (timer) clearTimeout(timer);
       if (sessionEpoch.current === epoch) setShareBusy(false);
     }
-  }, [base, sessionId, share, excerpt, shareRecipients]);
+  }, [base, sessionId, share, excerpt, shareRecipients, readOnly]);
   const controlDelivery = async (deliveryId: string, action: 'approve' | 'send' | 'stop') => {
+    if (readOnly && action !== 'stop') return;
     if (
       !status?.deliveries?.some(
         (delivery) =>
@@ -528,6 +541,7 @@ export function SymposiumConversation({
 
   const startShare = useCallback(
     (messageId: string, provenance?: SymposiumProvenance) => {
+      if (readOnly) return;
       const matches = items.filter(
         (candidate): candidate is Authored =>
           candidate.kind === 'authored' &&
@@ -542,11 +556,24 @@ export function SymposiumConversation({
       setExcerpt(item.content);
       setShareRecipients([]);
     },
-    [items, selected],
+    [items, selected, readOnly],
   );
 
+  const profileDrafts =
+    !readOnly && sessionId && status?.sessionId === sessionId ? (
+      <SymposiumProfileProposals
+        key={sessionId}
+        id={profilesPanelId}
+        sessionId={sessionId}
+        pendingOnly={!profilesOpen}
+        refreshKey={chat.messages.length}
+        seatSeed={seatSeed}
+        onSeatSeedDone={() => setSeatSeed(null)}
+      />
+    ) : null;
+
   const profileTools =
-    sessionId && profileToolsTarget && status?.sessionId === sessionId
+    !readOnly && sessionId && profileToolsTarget && status?.sessionId === sessionId
       ? createPortal(
           <div className="symposium-profile-tools">
             <button
@@ -573,13 +600,6 @@ export function SymposiumConversation({
                     Draft reusable profile from this seat
                   </button>
                 )}
-                <SymposiumProfileProposals
-                  key={sessionId}
-                  id={profilesPanelId}
-                  sessionId={sessionId}
-                  seatSeed={seatSeed}
-                  onSeatSeedDone={() => setSeatSeed(null)}
-                />
               </>
             )}
           </div>,
@@ -587,10 +607,18 @@ export function SymposiumConversation({
         )
       : null;
 
-  if (base && (!status || status.sessionId !== sessionId))
+  if (base && (!status || status.sessionId !== sessionId) && !ordinaryConfirmed)
     return (
       <>
-        <ChatArea {...chat} />
+        <ChatArea
+          {...chat}
+          afterMessages={
+            <>
+              {chat.afterMessages}
+              {profileDrafts}
+            </>
+          }
+        />
         {/* Keep the input area visible without mounting queue/send effects. */}
         <div className="chat-input" aria-busy="true">
           <div className="chat-input-row">
@@ -601,6 +629,7 @@ export function SymposiumConversation({
               rows={1}
               disabled
             />
+            {pendingSettings}
             <div className="composer-toolbar">
               <div className="composer-actions">
                 <button
@@ -618,7 +647,7 @@ export function SymposiumConversation({
         {(statusError || error) && <div role="alert">{statusError || error}</div>}
       </>
     );
-  if (!status?.config)
+  if (status?.sessionId !== sessionId || !status?.config)
     return (
       <>
         {chat && (
@@ -628,12 +657,13 @@ export function SymposiumConversation({
               <>
                 {chat.afterMessages}
                 {ordinaryAfterMessages}
+                {profileDrafts}
               </>
             }
           />
         )}
         {profileTools}
-        {ordinaryComposer}
+        {!ordinaryExcluded && ordinaryComposer}
       </>
     );
   return (
@@ -711,7 +741,7 @@ export function SymposiumConversation({
           available for active deliveries.
         </p>
       )}
-      {sessionId && <SymposiumAccessRequests sessionId={sessionId} />}
+      {sessionId && !readOnly && <SymposiumAccessRequests sessionId={sessionId} />}
       {visiblePage.nextSeq !== null && (
         <div role="status">Showing the first 2,000 durable events. More history is available.</div>
       )}
@@ -721,10 +751,11 @@ export function SymposiumConversation({
         current={current}
         currentByMessage={live}
         contextItems={contextItems}
-        onShareMessage={selected === 'all' ? undefined : startShare}
+        onShareMessage={readOnly || selected === 'all' ? undefined : startShare}
         running={chat.running && (selected === 'all' || Object.keys(live ?? {}).length > 0)}
         afterMessages={
           <>
+            {profileDrafts}
             {visiblePage.queued.filter(
               (item) => selected === 'all' || item.recipientSeatId === selected,
             ).length > 0 && (
@@ -807,7 +838,11 @@ export function SymposiumConversation({
                             <button
                               type="button"
                               disabled={
-                                !statusFresh || state?.approve || state?.send || state?.stop
+                                readOnly ||
+                                !statusFresh ||
+                                state?.approve ||
+                                state?.send ||
+                                state?.stop
                               }
                               onClick={() => void controlDelivery(delivery.deliveryId, 'approve')}
                             >
@@ -818,6 +853,7 @@ export function SymposiumConversation({
                             <button
                               type="button"
                               disabled={
+                                readOnly ||
                                 state?.approve ||
                                 state?.send ||
                                 state?.stop ||
@@ -896,6 +932,7 @@ export function SymposiumConversation({
           <button
             type="button"
             disabled={
+              readOnly ||
               shareBusy ||
               Boolean(excerptOperation) ||
               !excerpt.trim() ||
@@ -925,13 +962,15 @@ export function SymposiumConversation({
         }
         audienceLabel={recipientName}
         recipients={recipients}
-        enabled={statusFresh && recipients.length > 0 && !queuedOperation}
+        enabled={!readOnly && statusFresh && recipients.length > 0 && !queuedOperation}
         disabledReason={
-          queuedOperation
-            ? 'Check the saved queued message before sending another.'
-            : !statusFresh
-              ? 'Status refresh is pending. Your draft stays here.'
-              : undefined
+          readOnly
+            ? 'Conversation controls are unavailable until its settings are confirmed.'
+            : queuedOperation
+              ? 'Check the saved queued message before sending another.'
+              : !statusFresh
+                ? 'Status refresh is pending. Your draft stays here.'
+                : undefined
         }
         onQueue={queue}
       />

@@ -1,5 +1,6 @@
 # A credential-free stdio MCP adapter. Host authorization never comes from these files.
 import json, os, stat, sys, time, uuid
+RESPONSE_LIMIT = 32 * 1024 * 1024
 root = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
 def read(name, limit):
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=root)
@@ -38,7 +39,7 @@ for line in sys.stdin.buffer:
             os.rename(call+'.tmp', call+'.request', src_dir_fd=root, dst_dir_fd=root)
             deadline = time.monotonic()+330
             while True:
-                try: response=read(call+'.response',1024*1024); break
+                try: response=read(call+'.response',RESPONSE_LIMIT); break
                 except FileNotFoundError:
                     if time.monotonic() > deadline: raise ValueError('Host timeout')
                     time.sleep(0.05)

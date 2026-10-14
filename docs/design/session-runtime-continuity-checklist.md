@@ -1,0 +1,184 @@
+# Session runtime continuity completion checklist
+
+This checklist compares accepted PR #917 with the product directions and approved
+picker retained as Telos artifact `3985777d901aa39cef7765f75b1277d6`, revision 1.
+The approved desktop and mobile references are `a875f7176ab17985a2cf43320c84bbee`
+and `022217422c48dabebd27199bc553489c`, revision 1. Configuration and
+offline fixtures establish source behavior; live account qualification remains
+separate. Staging is stood down.
+
+| Control or behavior      | Source evidence and remaining work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent                    | Exact published revision and unavailable revision retention exist. Bound profile stays fixed. Source scope includes exact builtin and published user profiles plus qualified workspace/ContexGin recipes. Route eligibility preserves incompatible selections with reasons; OpenShell ContexGin requires a named configured preset. Compiled snapshots and provider acceptance persist under existing owners; cold recipes require original native custody digests. Pinned packs remain unavailable.                                                                                                                                                                                                                                                              |
+| Account                  | Selected account survives draft restoration; unavailable choices remain visible. The combined inventory exposes only supported server-owned Local/OpenShell tuples. Local file-backed ChatGPT and OpenShell brokered OAuth/enrolled API profiles retain their exact authentication/billing identity. Their projections are disjoint; changing environment may retain an unavailable account choice. Separately gated Local Responses, plain Claude Vertex and Local Gemini routes retain their own exact authority; Vertex OpenShell remains unavailable. Account stays fixed after admission.                                                                                                                                                                    |
+| Model and Thinking level | Draft choices and invalid options remain visible. Server-supported ordinary Codex conversation scope enables edits for the next unadmitted message. Each guarded send freezes its settings; running/queued commands retain their snapshots. Local Responses and plain Claude have adapter-specific frozen snapshots; Claude applies actual SDK effort options by reopening only after terminal under the original UUID. Gemini retains its effective original first-message model/thinking; changed future intent remains visible and refuses before receipt. Qualified READY preparations permit supported first model A→B on the same original checkout before reservation, then freeze the complete command; legacy/prior/uncertain reservations stay guarded. |
+| Run on                   | OpenShell remains the new-chat default; Local requires an explicit choice. Server location reasons are displayed. Supported ordinary OpenShell shares the explicit binding admission and continuation flow. Its unselected default target resolves from the first trusted inventory; refresh preserves previously selected stale/invalid intent. No fallback is permitted.                                                                                                                                                                                                                                                                                                                                                                                        |
+| Agent software           | Runs with is derived from the exact configured route or bound harness. Do not introduce a runtime selector or infer software from account labels.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Session details          | Existing metadata hydration and workspace controls remain. The new-session-elsewhere action retains account/profile/model/thinking intent in a separate blank draft and requires independent repository preparation. Complete original profile/account/runtime/target/workspace/branch details.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Follow-up and queue      | First-command restrictions remain for unsupported metadata scopes. Supported Codex, Responses, Claude and Gemini source owners use guarded follow-up and native FIFO admission with durable snapshots, exact acknowledgements and retained manual retries. Cold controls require original-owner qualification; Gemini offline integration reopens and drains all 32 original consumed FIFO commands under their frozen model/thinking and signed history; final hosted exact-head gates remain pending. Interrupted/nonterminal work remains retained and refused.                                                                                                                                                                                                |
+| Stop and permissions     | Source ownership checks retain Stop, approval responses and same-login controls; unsupported mode/context/web helpers remain blocked. Offline owner tests cover foreign-login refusal and retained driver cancellation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Reconnect                | Metadata failures block sends with Retry. Preserve the exact binding, attachment owner and frozen HTTP recovery request. Offline attachment/outbox tests cover reconnect without a second dispatch.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Cold resume              | Source/offline Local and OpenShell cold continuation reacquire the original login, persistent revocation owner, route, physical custody, provider history and workspace. Missing/changed custody stays read-only with a reason. File-backed authentication/token refresh still refuses the strict retained lease; no automatic credential renewal is qualified.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Drafts                   | Retain text, attachments, settings, invalid intent and original recovery links across navigation and refresh; never rebuild a frozen request from edited draft settings.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Responsive picker        | Reuse existing shared picker/workspace controls and tokens. Hosted offline fixtures must inspect 390 × 844 scrolling, larger text, mobile/desktop, light/dark, alternate accents/fonts, focus, keyboard and Reduce Motion.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+
+## Implemented source API boundaries
+
+The server exposes explicit supported continuation scope and availability
+reason in session metadata; a Local location alone must not imply either support
+or permanent first-command restriction. Metadata retains the immutable binding
+and distinguishes the last admitted command from editable future model/thinking
+intent. Route capabilities must describe supported models, thinking and derived
+software for the bound account/target.
+
+Subsequent sends carry a session reference, command ID, exact settings snapshot and
+route-native capability revision under server validation. Admission freezes those values before
+queue/provider effects; exact retry returns its original receipt. Session account,
+profile, runtime, target and workspace cannot be replaced by future settings.
+The existing durable browser outbox validates both first and continuation commands
+for Local and OpenShell, retaining the complete frozen request across reload and
+lost acknowledgements. Recovery requires an explicit retry; it does not replay
+automatically or reconstruct a command from the current draft.
+Supported cold resume reuses existing provider and workspace owners and native
+conversation custody fields. It requires persistent login revocation authority.
+Local login source/home and executable identity changes refuse continuation;
+OpenShell retains its original account, gateway/runtime and checkout identity.
+
+## Validation status
+
+The audit read repository design/motion contracts, approved mock source and phone
+viewport reference. Focused offline regressions cover server-reason display, derived software,
+server-supported Local/OpenShell continuation, independent new-session intent, immutable future settings and retained exact
+acknowledgements. First-command-only regressions remain for unsupported scopes.
+The hosted browser fixture adds future-thinking and queued-follow-up snapshots;
+rendered evidence is pending hosted CI. Focused local verification uses one worker with a 1 GiB heap; broad
+builds and rendered offline browser evidence belong in hosted CI. No local backend,
+browser, model test, staging dispatch or production activation is authorized by
+this checklist.
+
+The initial PR #922 source snapshot passed 646 affected offline tests, server and
+frontend source type checks, affected lint, commit hooks and secret scanning.
+The development fixture used real temporary Git, esbuild and node:test, with
+native transport and publication simulated. Resume availability now checks for a
+running native command with a bounded query; it does not hydrate completed
+prompt/image history during metadata refresh. The regression deliberately makes
+completed payloads unreadable and verifies running/completed and binding checks.
+PR #922 source acceptance is retained. Context #927 and API #928 also passed their exact-head source gates; the final combined #930 hosted checks and independent acceptance remain required. No live account, tool or publication qualification is claimed here.
+
+## Independent source review corrections
+
+Queue mutations now require the original current signed login and native custody,
+including cold cancellation; bound cold provider reattachment cannot use legacy
+startup. Guarded retry helpers refuse synthetic native children without ordinary
+admission. The normal fresh-message admission remains the route to supported
+continuation; uncertain original work is retained.
+
+Owned OpenShell host requests refresh full owning authority before and after
+continuations. Host publishing, capability execution/recovery, provider grants,
+profile/repository helpers, REST and web calls recheck authority after approval
+and asynchronous preparation, immediately before effects. Guarded WebSocket and
+dashboard channels remain unavailable until async per-frame checks exist. Local
+Codex now delivers the existing profile helpers and GitHub publisher with these
+same fences; the native adapter fixture verifies publication uses its original
+checkout and selected account.
+
+Configured routes carry an explicit location, and target matching includes
+location and software. Identical target IDs across environments cannot change the
+selected route or software. Older ambiguous projections refuse selection. These
+changes preserve the picker and retain authentication/billing with the selected
+account. Fresh hosted evidence and independent review are required for this head.
+
+Accepted main's prompt preparation and transport latency changes preserve the
+guarded queue and final host effect fences. After integration, 430 focused offline
+checks passed across native conversation, host effects, query retirement,
+knowledge preparation, original queue custody and the development round trip.
+Saved Claude workspace recovery uses the actual persisted `anthropic-vertex`
+provider; both durable history APIs now recover its original workspace. Current
+head hosted CI and independent source acceptance remain required.
+
+## Plain Claude and multi-adapter source checkpoint
+
+The picker retains exactly two environment choices and derives its native tuple
+and model/thinking catalog from the selected opaque account reference, location,
+harness and target. Invalid intent, text, images and context survive edits and
+unavailable environments; changing environment never substitutes billing.
+Canonical plain builtin and compatible published profiles reuse Library authority.
+The hosted multi-runtime fixture is added for mobile/desktop theme and large-text
+evidence, with HTTP fully intercepted; its current-head browser result remains
+pending. Offline page/hook/picker regressions establish source behavior only.
+
+Claude ordinary first/future commands, FIFO and acknowledged never-dispatched cold
+queue tails use the existing send/execution ledgers and SDK history owner. Private
+custody pins original signed operator, SDK UUID, checkout and ADC identity/hash,
+project and region. Cancellation uses the canonical shared signed-custody guard,
+including cold controls. Final async and sync checks reach SDK profile effects
+after approval waits, and retired native query callbacks refuse completion without
+aborting successors. Completed-turn Stop/cold paths and active Stop's retained
+unconfirmed outcome are covered by fake SDK regressions. Active nonterminal work
+cannot cold replay; no live credential renewal, native sandbox or provider
+qualification is claimed. Claude context recipes/packs and Vertex OpenShell
+remain unavailable. Gemini uses its separately gated NativeResponses adapter with
+original model/thinking and signed-history custody; it does not inherit Claude
+SDK effort changes. Actual offline Gemini integration retains all 32 consumed command IDs, signed history and effective first-model/thinking through cold Continue, original-operator checks, startup exclusion, disconnect and deadline regressions. Final combined current-head hosted checks and independent acceptance remain pending.
+
+Prepared first-message model selection (source/offline)
+
+- [x] New qualified READY rows retain original preparation/source and private credential/runtime proof; legacy rows remain guarded.
+- [x] Local and ordinary OpenShell reserve a supported first-message model on the original checkout, then freeze the full first command before admission.
+- [x] Actual generic REST fake-SDK and fake-broker fixtures cover A→B, retained account/target/source, exact retry, expired grant refusal and immutable first-command payload.
+- [x] Terminal Claude cold continuation survives model catalogue retirement under unchanged routing and ADC custody; interrupted execution remains refused.
+- [x] Existing mobile/desktop controls preserve draft/images/thinking/preparation while Account and environment stay locked; constrained native conversations show their actual setting limit.
+- [ ] Hosted READY preparation visual fixtures and final combined exact-head CI/review.
+- [ ] Live credential renewal, native sandbox and physical orphan process qualification.
+
+Authenticated historical command acknowledgements (source/offline)
+
+Exact consumed first and later commands can acknowledge under the current original signed operator and SSE connection without current model discovery or capability readiness. Existing canonical receipt fingerprints verify the full command, retained profile/context, route, account and workspace; original native custody remains required. Qualified first commands also retain their full raw-first digest. Changed payload/settings, endpoint reclassification, conflicting bindings, uncertain work and foreign actors refuse. Acknowledgement cannot reopen a driver, claim a checkout, enqueue, compile context or call a provider. Actual SDK retired-first, Responses queued, Local Codex compiled-context and OpenShell retained-native fixtures cover these boundaries.
+
+Final acknowledgement validation checkpoint
+
+The signed source120 candidate qualified 113 offline tests across the actual SDK, Responses, Gemini, Local Codex and OpenShell owners and generic entry. These fixtures retain original receipts, FIFO state, native history, physical workspace and accepted profile/context while acknowledging exact consumed commands after model retirement and capability refresh. Payload/settings changes and foreign actors refuse; first and later endpoints cannot reclassify each other's commands.
+
+The original Host bootstrap identity is checked against the first receipt fingerprint, alongside its native account binding, conversation and workspace. A 96-test affected rerun covered this added fence. Three focused tests then proved persisted bootstrap-custody corruption refuses and both endpoint reclassification directions remain closed; these are overlapping reruns, not additional test totals. Scoped source/test types, lint, signing hooks and secret scanning passed. The final source120 manifest contains 299 unique artifacts with zero drift; all 13 feature commits were signed and accepted API Git/native execution primitives remained byte-identical. Current-head hosted CI, independent review and source acceptance are separate gates and remain pending at this checkpoint.
+
+Baseline review race corrections (offline)
+
+The three Vertex continuity findings from baseline review 5514790917 were reproduced before fixes: an incoming deadline during idle SDK settings could strand an allocated execution, cancellation during awaited head authority could abort an accepted tail, and completed-model retirement could reject a valid warm continuation. The owner now settles only a known pre-input cancellation as abandoned with its existing cancelled receipt; provider-input and revoked-authority uncertainty remain retained. An exact consumed-head cancellation is rechecked after authority awaits and skipped before allocating execution, preserving the accepted tail IDs and frozen settings. Idle custody, account, profile, workspace and ADC checks remain current; startup, dispatching and active inference still validate their own model/thinking. Offline actual REST/SDK fixtures exercise process-close deferral and deadline, warm B-retired→C and cold C on the original SDK UUID/history/checkout, with no expired user input or provider fallback. Independent review and acceptance of the combined successor remain required.
+
+## Approved composer fidelity acceptance (in progress)
+
+The approved saved design requires one composer Agent settings summary/panel,
+Agent-first order, Account then paired Model/Thinking level, descriptive
+OpenShell/Local Mac cards, Runs with, and Done. This applies to ordinary legacy
+as well as enrolled runtime chats. Capability review, explicit account
+confirmation, unavailable intent, prepared first-message model changes, immutable
+receipts and queued snapshots retain their existing authority.
+
+The runtime offline fixtures now target card roles and the composer panel and
+add structural fidelity, Close/Escape/Done focus and draft/image retention,
+390 × 844 and 320 × 740 internal scrolling with larger text, desktop light/dark
+Mint/Georgia and reduced-motion checks. Ordinary legacy draft, briefing-bound, Agent Library and Access fixtures
+also target the composer controls. Source implementation is in progress;
+approved-design fidelity, hosted current-head results/screenshots, visual
+inspection and independent review remain pending. These checkpoints neither
+qualify live runtime behavior nor mark the broader feature complete.
+
+Approved picker integration checkpoint
+
+Signed source121 preserves the two reviewed UI deltas and all 300 original source keys, adding only the shared AgentSettings source/CSS and UiIcon to the 303-artifact closure. Trusted route model labels appear in summary and details while canonical model IDs remain in frozen requests; missing/retired catalogue entries retain their original ID. Long agent names wrap without hiding the choice. The affected UI batch passed 489 tests; the integrated owner/composer/design batch passed 151 tests including 106 design checks. The final display delta passed 34 focused checks, scoped types, lint, hooks and browser discovery. These overlapping runs are not additive totals. Fresh final-head hosted rendering, screenshot inspection, independent review and source acceptance remain pending.
+
+Accepted transport integration checkpoint
+
+PR #932 was accepted at c125be291ffa3e7a5b541ea68643ef93646a43f8 with reviewed and accepted tree 510d7d48794c57a791240f350cb974073573b126. Its owner cancelled only its newly queued/unclaimed HTTP-readiness receipt without dispatch. This candidate retains its four outbox/SSE/Codex transport modules byte-for-byte, all 303 source keys and the complete signed feature history under source122. Rendered corrections and fresh successor-head CI, visual inspection and independent source acceptance remain pending.
+
+Rendered regression correction checkpoint
+
+The earlier c4e rendered run reported 49 failures before its workflow was cancelled; cancellation was not acceptance. Narrow summary columns clipped the settings panel, direct ResizeObserver writes caused undelivered notifications, and a derived fallback chat hint bypassed pending Symposium status. The signed UI correction uses a full-width narrow metadata row, measured minimum dismissal/footer/body space, coalesced idempotent observation and reversible bound-composer overflow. Only an existing current bound runtime supplies the early ordinary hint; actual Symposium status retains precedence. Fixture migrations open auto-expanded settings deliberately, preserve locked bound cards/profile revision and exact queue/draft/no-send assertions, and measure WebKit alignment against its content box with the existing tolerance. The consolidated offline run passed 495 checks including 106 design checks; actual final-head rendering and visual inspection remain required.
+
+Final picker source correction checkpoint
+
+At exact head 3884e702, hosted CI passed 15,496 unit checks (28 skipped), 106 design checks, 152 base-browser checks and 419 rendered checks (33 skipped), with native builds green. Centaur review 5515954725 verified the three backend corrections and required CEN-6754D10E2E7E: non-controlled settings Account Rename/alias utilities broke the paired Model/Thinking grid. The settings presentation now separates Account utilities, Model/Thinking and trailing controls while retaining the original default fragment and callbacks. Actual screenshots also required a left/full-column Agent field and a minimum usable scroll row accounting for borders, body padding and the largest visible control. Signed deltas retain alias payloads, confirmation/locks, original drafts and immutable requests. The consolidated offline batch passed 496 checks; focused picker and final-head hosted/visual/Centaur acceptance are recorded separately, and source merge remains gated.
+
+Final accepted-base source closure
+
+Accepted PR #931 advanced main to 5092ab2fc626eea2da2e0f127a2fe90baf55fd06 with tree e524b94b72585cf8c73627c7c043bf2cf6f170b9. Rebase preserves its web-page-content, search/access/fetch and Python host-bus/MCP sources byte-for-byte, alongside all four #932 transport sources. The complete source123 union has 308 unique artifacts with zero drift and retains the exact signed d358 UI sources. The final focused picker/design integration passed 159 checks and scoped types before this source-only base adoption. Current-head hosted verification, actual visual inspection and final independent source acceptance remain required.

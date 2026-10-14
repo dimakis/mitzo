@@ -1,5 +1,9 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import {
+  assertLegacyOwnedControlAllowed,
+  legacyChatOwnsAttachment,
+} from './owned-local-codex-control.js';
 import { SessionControlRejected } from './ordinary-contributor-execution.js';
 import { deliverLegacyChatMessage, routeLegacyChatSend } from './legacy-chat-delivery.js';
 import {
@@ -37,7 +41,12 @@ import { fileURLToPath } from 'url';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
-import { authenticateWs, registerAuthSession, type AuthSession } from './auth.js';
+import {
+  authenticateWs,
+  registerAuthSession,
+  setAuthRevocationStore,
+  type AuthSession,
+} from './auth.js';
 import {
   claimTransportConnection,
   releaseTransportConnection,
@@ -48,6 +57,7 @@ import {
   interruptChat,
   stopOrdinaryChat,
   detachChat,
+  detachChatIfCurrentTransport,
   reattachChat,
   isActive,
   BASE_REPO,
@@ -60,6 +70,7 @@ import {
   setSessionsChangedCallback,
   reconcileSessionsBackground,
 } from './chat.js';
+setAuthRevocationStore(eventStore);
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
 import { NullTransport } from './null-transport.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
@@ -122,7 +133,7 @@ import { TaskOrchestrator } from './task-orchestrator.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
 import { IncomingWsMessage } from './ws-schemas.js';
-import { resolvePending } from './permissions.js';
+import { getPendingSessionId, resolvePending } from './permissions.js';
 import { resolveSlashCommand } from './slash-commands.js';
 import { routeLegacySkillMessage } from './legacy-skill-routing.js';
 import { NativeCommandRegistry } from './native-commands.js';
@@ -130,7 +141,6 @@ import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { ConnectionRegistry } from '@mitzo/harness';
 import {
   isHelloHandshake,
-  getOwnerConnection,
   handleHello,
   scheduleV2Message,
   handleLegacySetMode,
@@ -554,7 +564,7 @@ healthMonitor.start();
 
 // Hook session lifecycle events into the overview emitter
 setSessionChangeCallback((clientId, event, sessionId) => {
-  if (event === 'start') {
+  if (event === 'start' || event === 'detach') {
     overviewEmitter.touch(clientId);
   } else if (event === 'end') {
     overviewEmitter.forget(clientId, sessionId);
@@ -713,15 +723,7 @@ app.get('/api/chat/events', (req, res) => {
           continue;
         }
 
-        const session = registry.get(found.clientId);
-        if (
-          session &&
-          (session.ownerConnectionId ?? getOwnerConnection(found.clientId)) === connectionId &&
-          registry.isAttached(found.clientId)
-        ) {
-          detachChat(found.clientId);
-          overviewEmitter.touch(found.clientId);
-          overviewEmitter.scheduleBroadcast();
+        if (detachChatIfCurrentTransport(found.clientId, transport)) {
           log.info('SSE session detached (surviving)', { connectionId, sessionId });
         }
       }
@@ -819,23 +821,15 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
         continue;
       }
 
-      const session = registry.get(found.clientId);
-      if (
-        session &&
-        (session.ownerConnectionId ?? getOwnerConnection(found.clientId)) === connectionId &&
-        registry.isAttached(found.clientId)
-      ) {
-        withSpan(
-          'session.detach',
-          { 'session.sessionId': sessionId, 'ws.connectionId': connectionId },
-          () => {
-            detachChat(found.clientId);
-            overviewEmitter.touch(found.clientId);
-            overviewEmitter.scheduleBroadcast();
+      withSpan(
+        'session.detach',
+        { 'session.sessionId': sessionId, 'ws.connectionId': connectionId },
+        () => {
+          if (detachChatIfCurrentTransport(found.clientId, transport)) {
             log.info('v2 session detached (surviving)', { connectionId, sessionId });
-          },
-        );
-      }
+          }
+        },
+      );
     }
   });
 
@@ -1044,6 +1038,7 @@ function handleChatWs(
 
       const msg = result.data;
       if (msg.type === 'send' || msg.type === 'interrupt') clientMsgId = msg.clientMsgId;
+      assertLegacyOwnedControlAllowed(initialClientId, clientId, transport, msg, v2Ctx);
       // traceparent is stripped by zod — extract from raw parsed object
       const traceparent = (parsed as Record<string, unknown>).traceparent as string | undefined;
 
@@ -1288,7 +1283,7 @@ function handleChatWs(
               msg.permId,
               msg.decision || 'deny',
               msg.answers,
-              registry.get(clientId)?.sessionId,
+              getPendingSessionId(msg.permId) ?? registry.get(clientId)?.sessionId,
             );
             if (!resolved) {
               try {
@@ -1364,7 +1359,7 @@ function handleChatWs(
         'ws.close_reason': reason?.toString() || '',
       },
       (span) => {
-        if (isActive(clientId)) {
+        if (isActive(clientId) && legacyChatOwnsAttachment(clientId, transport, v2Ctx)) {
           detachChat(clientId);
           overviewEmitter.touch(clientId);
           overviewEmitter.scheduleBroadcast();

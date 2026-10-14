@@ -235,6 +235,10 @@
   flex-shrink: 0;
   border-bottom: 1px solid var(--workspace-line);
 }
+.workspace-chat .workspace-controls > .motion-disclosure:not([hidden]) {
+  max-height: min(var(--workspace-disclosure-space, 45dvh), 45dvh);
+  overflow-y: auto;
+}
 .workspace-controls-toggle {
   display: flex;
   align-items: center;
@@ -1334,6 +1338,15 @@
 }
 
 @media (max-width: 767px) {
+  .workspace-controls-heading .workspace-controls-toggle {
+    grid-template-columns: 20px minmax(0, 1fr) minmax(0, max-content) 20px;
+  }
+  .workspace-controls-heading .conversation-state {
+    min-width: 0;
+    max-width: 8ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   /* Summaries retain their full accessible name; settings remain in the disclosure. */
   .workspace-controls-heading .workspace-controls-summary > span {
     display: block;
@@ -1349,4 +1362,74 @@
       calc(100dvh - 88px - env(safe-area-inset-bottom))
     );
   }
+}
+
+/* First-session composition shares the real repository launch and composer. */
+.composer-start-heading {
+  text-align: left;
+  padding: var(--space-6) var(--page-gutter) var(--space-4);
+}
+.composer-start-heading h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 500;
+  color: var(--color-text);
+}
+.chat-page--new .chat-empty {
+  display: none;
+}
+.chat-input--compact .chat-input-btn.chat-input-btn--start {
+  width: auto;
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  white-space: nowrap;
+}
+.composer-session-details summary {
+  min-height: var(--control-height);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.composer-session-details dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+}
+.composer-session-details dt {
+  color: var(--color-muted);
+}
+.composer-session-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.conversation-composer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-shrink: 0;
+}
+.conversation-composer--new {
+  /* Structural reading-width cap from the approved desktop composition. */
+  width: 100%;
+  max-width: 40rem;
+  margin-inline: auto;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.conversation-composer--new > * {
+  flex-shrink: 0;
+}
+.conversation-composer--new .repository-chat-picker {
+  flex-shrink: 1;
+}
+.chat-page--new .chat-messages:has(.chat-empty) {
+  display: none;
+}
+.chat-input--compact .chat-input-btn.chat-input-btn--start {
+  border-radius: var(--radius-md);
 }

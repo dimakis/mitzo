@@ -1150,3 +1150,29 @@ it('offers explicit original semantic cleanup during quarantine only after artif
     await screen.findByText(/No criterion evidence was recorded; retry is unavailable/),
   ).toBeTruthy();
 });
+
+it('keeps review findings and workflow history readable while readonly conversation controls refuse model actions', async () => {
+  const { SymposiumReviewEntry } = await import('../SymposiumReviewPanel');
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  vi.mocked(apiFetch).mockResolvedValue(response(symposiumReviewPreviewResponses.findings));
+  render(<SymposiumReviewEntry sessionId="session" readOnly />);
+  fireEvent.click(screen.getByRole('button', { name: 'Open review findings' }));
+  const fix = await screen.findByRole('button', { name: 'Accept selected findings and fix' });
+  expect(
+    (screen.getByRole('combobox', { name: 'Review workflow' }) as HTMLSelectElement).disabled,
+  ).toBe(false);
+  fireEvent.change(screen.getByLabelText('Reason for accepted fixes'), {
+    target: { value: 'Review the saved finding' },
+  });
+  fireEvent.click(
+    screen.getByLabelText('Accept: Preserve the selected connection after reconnect'),
+  );
+  expect((fix as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(fix);
+  expect(apiFetch).not.toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ method: 'POST' }),
+  );
+  expect(screen.getByRole('button', { name: 'Close review findings' })).toBeTruthy();
+});

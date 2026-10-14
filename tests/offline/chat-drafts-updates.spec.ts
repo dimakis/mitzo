@@ -1,3 +1,4 @@
+import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -55,14 +56,21 @@ async function seed(page: Page, values: Record<string, string>) {
     sessionStorage.setItem('draft-fixture-seeded', '1');
   }, values);
 }
-async function offline(page: Page) {
+async function offline(page: Page, sessions: unknown[] = []) {
   const errors: string[] = [];
   const mutations: string[] = [];
   let state: 'current' | 'available' | 'error' | 'loading' = 'available';
   let configured = true;
   let release: (() => void) | undefined;
   let checkFailed = false;
+  let sessionsFailed = false;
   let connections = 0;
+  let authChecks = 0;
+  const authTraceparents: string[] = [];
+  const telemetry: Array<{
+    authorization?: string;
+    spans: Array<{ name: string; traceId: string; status?: { code: number | string } }>;
+  }> = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => {
     // These draft/update checks do not consume broadcast events. A fulfilled
@@ -113,7 +121,30 @@ async function offline(page: Page) {
         },
       });
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/sessions' && sessionsFailed)
+        return fulfill({ status: 503, json: { error: 'Offline refresh failed' } });
+      if (url.pathname === '/api/auth/check') {
+        authChecks++;
+        const parent = route.request().headers().traceparent;
+        if (parent) authTraceparents.push(parent);
+      }
+      if (url.pathname === '/api/telemetry/v1/traces' && route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as {
+          resourceSpans?: Array<{
+            scopeSpans?: Array<{ spans?: (typeof telemetry)[number]['spans'] }>;
+          }>;
+        };
+        telemetry.push({
+          authorization: route.request().headers().authorization,
+          spans:
+            body.resourceSpans?.flatMap(
+              (resource) => resource.scopeSpans?.flatMap((scope) => scope.spans ?? []) ?? [],
+            ) ?? [],
+        });
+        return fulfill({ json: {} });
+      }
       if (url.pathname === '/api/version/check' && route.request().method() === 'POST') {
         mutations.push(url.pathname);
         return fulfill({
@@ -179,7 +210,7 @@ async function offline(page: Page) {
         '/api/skills': [],
         '/api/agent-library': { drafts: [], versions: [] },
         '/api/repository-workspaces/catalog': { available: true, repositories: [] },
-        '/api/sessions': { sessions: [], hasMore: false },
+        '/api/sessions': { sessions, hasMore: false },
         '/api/notifications': { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false },
         '/api/service-health': { services: [], checkedAt: Date.now() },
         '/api/home/preferences': {
@@ -221,6 +252,9 @@ async function offline(page: Page) {
     errors,
     mutations,
     connections: () => connections,
+    authChecks: () => authChecks,
+    authTraceparents,
+    telemetry,
     state: (next: typeof state) => {
       state = next;
     },
@@ -230,12 +264,166 @@ async function offline(page: Page) {
     failCheck: () => {
       checkFailed = true;
     },
+    failSessions: (failed: boolean) => {
+      sessionsFailed = failed;
+    },
     release: () => release,
   };
 }
-async function workspace(page: Page) {
-  const toggle = page.getByRole('button', { name: /^Workspace controls/ });
+async function agentSettings(page: Page) {
+  const toggle = page.getByRole('button', { name: /^Agent settings,/ });
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+}
+
+for (const theme of ['light', 'dark']) {
+  for (const recovery of ['automatic', 'foreground']) {
+    test(`authentication recovery: ${recovery} restores a transiently unavailable app (${theme})`, async ({
+      page,
+    }, testInfo) => {
+      const fixture = await offline(page);
+      await seed(page, {
+        mitzo_auth_token: 'offline-valid-token',
+        'mitzo-theme': theme,
+        'mitzo-accent': 'mint',
+        'mitzo-font': 'georgia',
+      });
+      await page.addInitScript((recovery) => {
+        const original = window.fetch.bind(window);
+        let failures = recovery === 'automatic' ? 2 : Infinity;
+        Object.assign(window, {
+          recoverOfflineAuthentication: () => {
+            failures = 0;
+          },
+        });
+        window.fetch = (input, init) => {
+          const url =
+            typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+          if (new URL(url, location.href).pathname === '/api/auth/check' && failures-- > 0)
+            return Promise.reject(new TypeError('Load failed'));
+          return original(input, init);
+        };
+      }, recovery);
+      await page.clock.install();
+      await page.goto('/sessions');
+      await expect(page.getByRole('alert')).toBeVisible();
+      for (const delay of recovery === 'automatic' ? [1_000, 2_000] : [1_000, 2_000, 4_000]) {
+        await page.clock.fastForward(delay);
+        if (recovery === 'foreground' || delay === 1_000)
+          await expect(page.getByRole('alert')).toBeVisible();
+      }
+      if (recovery === 'foreground') {
+        await page.evaluate(() => {
+          (
+            window as unknown as { recoverOfflineAuthentication: () => void }
+          ).recoverOfflineAuthentication();
+          window.dispatchEvent(new Event('mitzo:app-foreground'));
+        });
+      }
+      await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      if (process.env.MITZO_OFFLINE_TRACING === '1') {
+        // An opt-in build exercises the real dynamically loaded browser SDK.
+        await page.clock.runFor(1_100);
+        await expect
+          .poll(
+            () =>
+              fixture.telemetry
+                .flatMap((batch) => batch.spans)
+                .filter((span) => span.name === 'http.auth.check').length,
+          )
+          .toBeGreaterThan(0);
+        expect(
+          fixture.telemetry.every((batch) => batch.authorization === 'Bearer offline-valid-token'),
+        ).toBe(true);
+        await expect
+          .poll(async () => {
+            // Let asynchronous exports finish and advance any rescheduled batch.
+            await page.clock.runFor(1_000);
+            return fixture.authTraceparents.some((parent) =>
+              fixture.telemetry.some((batch) =>
+                batch.spans.some((span) => parent.startsWith(`00-${span.traceId}-`)),
+              ),
+            );
+          })
+          .toBe(true);
+        expect(
+          fixture.telemetry.some((batch) =>
+            batch.spans.some(
+              (span) => span.status?.code === 2 || span.status?.code === 'STATUS_CODE_ERROR',
+            ),
+          ),
+        ).toBe(true);
+      }
+      expect(await page.evaluate(() => localStorage.getItem('mitzo_auth_token'))).toBe(
+        'offline-valid-token',
+      );
+      await page.screenshot({
+        path: testInfo.outputPath(`auth-${recovery}-${theme}.png`),
+        animations: 'disabled',
+      });
+      await layout(page);
+      expect(fixture.mutations).toEqual([]);
+      expect(fixture.errors).toEqual([]);
+    });
+  }
+  test(`authentication recovery: stalled startup stays recoverable across tabs (${theme})`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    const fixture = await offline(page);
+    await seed(page, {
+      mitzo_auth_token: 'offline-valid-token',
+      'mitzo-theme': theme,
+      'mitzo-accent': 'mint',
+      'mitzo-font': 'georgia',
+    });
+    await page.addInitScript(() => {
+      const originalFetch = window.fetch.bind(window);
+      let stalled = true;
+      Object.assign(window, {
+        recoverOfflineAuthentication: () => {
+          stalled = false;
+        },
+      });
+      window.fetch = (input, init) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (stalled && new URL(url, location.href).pathname === '/api/auth/check')
+          return new Promise<Response>(() => {}); // Deliberately ignore abort, like a stalled transport.
+        return originalFetch(input, init);
+      };
+    });
+    await page.clock.install();
+    await page.goto('/sessions');
+    await expect(page.getByText('Checking authentication…')).toBeVisible();
+    if (isMobile) {
+      await page.getByRole('link', { name: 'Today', exact: true }).click();
+      await page.getByRole('link', { name: 'Chats', exact: true }).click();
+    }
+    await page.clock.fastForward(5_000);
+    await expect(page.getByRole('alert')).toContainText('Mitzo could not be reached');
+    await expect(page.getByText('Checking authentication…')).toHaveCount(0);
+    const retry = page.getByRole('button', { name: 'Retry', exact: true });
+    await expect(retry).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`auth-timeout-${theme}.png`),
+      animations: 'disabled',
+    });
+    expect(await page.evaluate(() => localStorage.getItem('mitzo_auth_token'))).toBe(
+      'offline-valid-token',
+    );
+    await page.evaluate(() =>
+      (
+        window as unknown as { recoverOfflineAuthentication: () => void }
+      ).recoverOfflineAuthentication(),
+    );
+    await retry.click();
+    await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Drafts/ })).toHaveCount(0);
+    await layout(page);
+    expect(fixture.mutations).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
 }
 async function layout(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -265,6 +453,139 @@ test('drafts and updates: offline navigation never opens a native event stream',
     expect(fixture.errors).toEqual([]);
   }
   expect(streams).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('chats: retained conversations stay usable while auxiliary requests and revalidation wait', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offline(page, [
+    { id: 'cached-chat', summary: 'Fix calendar sync', lastModified: Date.now() },
+  ]);
+  fixture.state('loading');
+  await page.goto('/sessions');
+  await expect(page.getByText('Fix calendar sync', { exact: true })).toBeVisible();
+  await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+  await expect.poll(() => fixture.connections()).toBeGreaterThan(0);
+  const checksBeforeNavigation = fixture.authChecks();
+  let finish!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let refetches = 0;
+  await page.route('**/api/sessions', async (route) => {
+    refetches++;
+    await paused;
+    await route.fulfill({
+      json: {
+        sessions: [
+          { id: 'cached-chat', summary: 'Updated calendar title', lastModified: Date.now() },
+        ],
+        hasMore: false,
+      },
+    });
+  });
+  await page.getByRole('button', { name: '+ New chat' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
+  await page.goBack();
+  await expect.poll(() => refetches).toBeGreaterThan(0);
+  await expect(page.getByText('Fix calendar sync', { exact: true })).toBeVisible();
+  await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+  await page.screenshot({
+    path: testInfo.outputPath('chats-retained-during-refresh.png'),
+    animations: 'disabled',
+  });
+  finish();
+  await expect(page.getByText('Updated calendar title', { exact: true })).toBeVisible();
+  expect(fixture.authChecks()).toBe(checksBeforeNavigation);
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('chats: a failed refresh retains the loaded list and retry restores it', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const fixture = await offline(page, [
+    { id: 'loaded-chat', summary: 'Already loaded conversation', lastModified: Date.now() },
+  ]);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  for (const theme of ['dark', 'light']) {
+    await seed(page, {
+      'mitzo-theme': theme,
+      'mitzo-accent': 'mint',
+      'mitzo-font': 'georgia',
+    });
+    await page.goto('/sessions');
+    await page.evaluate((theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+    }, theme);
+    await expect(page.getByText('Already loaded conversation', { exact: true })).toBeVisible();
+    fixture.failSessions(true);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(page.getByRole('alert')).toContainText(
+      'Couldn’t refresh chats. Showing the last loaded list.',
+    );
+    await expect(page.getByText('Already loaded conversation', { exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`chat-refresh-${theme}.png`) });
+    fixture.failSessions(false);
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  }
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('drafts: Chats hides the shortcut with no saved drafts', async ({ page }, testInfo) => {
+  const fixture = await offline(page);
+  await page.goto('/sessions');
+  await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Drafts/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '+ New chat' })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('chats-no-drafts.png'),
+    animations: 'disabled',
+  });
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('drafts: save status describes confirmed device storage and disappears when empty', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const fixture = await offline(page);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  for (const theme of ['dark', 'light']) {
+    await seed(page, {
+      'mitzo-theme': theme,
+      'mitzo-accent': 'mint',
+      'mitzo-font': 'georgia',
+    });
+    await page.goto('/chat');
+    await page.evaluate((theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+    }, theme);
+    const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+    await expect(input).toHaveValue('');
+    await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
+    await input.fill('Just a test.');
+    await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.keys(localStorage)
+            .filter((key) => key.startsWith('mitzo-chat-draft:'))
+            .some((key) => JSON.parse(localStorage.getItem(key)!).text === 'Just a test.'),
+        ),
+      )
+      .toBe(true);
+    await expect(input).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`draft-save-status-${theme}.png`) });
+    await input.fill('');
+    await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
+  }
+  expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });
 
@@ -307,21 +628,25 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   await page.getByRole('link', { name: /What is the story with my morning briefing/ }).click();
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(message);
-  await workspace(page);
+  await agentSettings(page);
   await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
     account.id,
   );
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
     'luna-alternate',
   );
-  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toHaveValue('high');
+  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
+    'high',
+  );
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  if ((await workspace.getAttribute('aria-expanded')) !== 'true') await workspace.click();
   await expect(page.getByRole('button', { name: 'Ask', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
   await expect(page.getByAltText('Attachment 1')).toBeVisible();
   await input.fill('Fix the morning briefing with this saved context');
-  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('low');
+  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
   await expect
     .poll(async () =>
       page.evaluate(() =>
@@ -345,8 +670,10 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
     .getByRole('link', { name: /Fix the morning briefing with this saved context/ })
     .click();
   await expect(input).toHaveValue('Fix the morning briefing with this saved context');
-  await workspace(page);
-  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toHaveValue('low');
+  await agentSettings(page);
+  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
+    'low',
+  );
   await expect(page.getByAltText('Attachment 1')).toBeVisible();
   await layout(page);
   expect(fixture.mutations).toEqual([]);
@@ -401,7 +728,7 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
     /draft.*(unavailable|found|available|missing)/i,
   );
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
-  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeDisabled();
   for (const selection of [
     { accountId: 'removed-account', model: 'luna-fixture', reasoningEffort: 'medium' },
     { accountId: account.id, model: 'removed-model', reasoningEffort: 'medium' },
@@ -414,9 +741,9 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
       draft,
     );
     await page.goto('/chat?draft=unavailable-reference');
-    await workspace(page);
+    await agentSettings(page);
     await expect(page.getByRole('alert')).toContainText('Selected account or model is unavailable');
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeDisabled();
     expect(
       await page.evaluate(
         () =>

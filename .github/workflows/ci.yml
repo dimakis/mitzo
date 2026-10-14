@@ -98,12 +98,34 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Retain Local first-command visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-first-command-visuals-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/offline/**/local-*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Retain artefact sharing acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: artefact-sharing-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/**/artefact-sharing.png
+            test-results/offline/**/file-options.png
+          retention-days: 7
+          if-no-files-found: ignore
+
   native:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
     name: Native Swift tests and builds
     runs-on: macos-26
-    timeout-minutes: 25
+    # Cold boot, first launch and WebKit readiness have separate bounded waits.
+    # Leave time for the build, retained diagnostics and owned-fixture cleanup.
+    timeout-minutes: 40
     permissions:
       contents: read
     env:

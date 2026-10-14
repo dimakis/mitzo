@@ -1,3 +1,7 @@
+import {
+  OrdinaryRepositoryRuntimeSelectionSchema,
+  type OrdinaryRepositoryRuntimeSelection,
+} from './ordinary-repository-preparation.js';
 import express from 'express';
 import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -11,6 +15,7 @@ const selection = z.strictObject({
 const previewInput = selection.extend({
   connectionId: z.string().min(1).max(128),
   repository: z.string().min(3).max(256),
+  ordinaryRuntime: OrdinaryRepositoryRuntimeSelectionSchema.optional(),
 });
 export function createRepositoryWorkspaceRouter(deps: {
   resolveBinding(accountId: string, model: string): AccountBinding;
@@ -21,6 +26,7 @@ export function createRepositoryWorkspaceRouter(deps: {
     connectionId: string,
     repository: string,
     signal: AbortSignal,
+    ordinaryRuntime?: OrdinaryRepositoryRuntimeSelection,
   ): Promise<unknown>;
   prepare(id: string, binding: AccountBinding, signal: AbortSignal): Promise<unknown>;
   status?(id: string, binding: AccountBinding): unknown;
@@ -61,6 +67,7 @@ export function createRepositoryWorkspaceRouter(deps: {
           input.data.connectionId,
           input.data.repository,
           controller.signal,
+          ...(input.data.ordinaryRuntime ? [input.data.ordinaryRuntime] : []),
         ),
       );
     } catch {
@@ -108,14 +115,14 @@ export function createRepositoryWorkspaceRouter(deps: {
       return res.status(404).json({ error: 'Repository chat preparation unavailable' });
     }
   });
-  router.get('/:id', (req, res) => {
+  router.get('/:id', async (req, res) => {
     const input = selection.safeParse(req.query);
     if (!input.success || !z.uuid().safeParse(req.params.id).success)
       return res.status(400).json({ error: 'Invalid repository preparation' });
     try {
       if (!deps.status) throw new Error('unavailable');
       return res.json(
-        deps.status(
+        await deps.status(
           String(req.params.id),
           deps.resolveBinding(input.data.accountId, input.data.model),
         ),

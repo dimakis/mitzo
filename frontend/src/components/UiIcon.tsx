@@ -1,4 +1,7 @@
 const paths = {
+  bot: 'M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3',
+  box: 'm12 3 9 5v8l-9 5-9-5V8Zm-9 5 9 5 9-5M12 13v8M7.5 5.5l9 5',
+  laptop: 'M6 4h12a2 2 0 0 1 2 2v11H4V6a2 2 0 0 1 2-2ZM2 17h20v3H2Z',
   forward: 'm9 6 6 6-6 6',
   left: 'M20 12H4m6-6-6 6 6 6',
   right: 'M4 12h16m-6-6 6 6-6 6',

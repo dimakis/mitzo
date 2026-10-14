@@ -44,7 +44,10 @@ it('prepares secret-free setup and reads only setup belonging to the owning chat
   expect(f.service.request).not.toHaveBeenCalled();
 });
 
-function setup(stillAllowed: (name: string, method?: string) => boolean = () => true) {
+function setup(
+  stillAllowed: (name: string, method?: string) => boolean = () => true,
+  assertRuntimeCurrent?: () => Promise<void>,
+) {
   const service = {
     catalog: vi.fn(() => [
       {
@@ -82,6 +85,7 @@ function setup(stillAllowed: (name: string, method?: string) => boolean = () => 
     'session-a',
     approve as never,
     stillAllowed,
+    assertRuntimeCurrent,
   );
   return { service, approve, tools };
 }
@@ -421,4 +425,23 @@ it('shows enabled WebSocket path and mutation risk without exposing its authenti
     'WebSocket commands at /api/socket may change service state.',
   );
   expect(prompt.description).not.toMatch(/authentication|access_token|auth_ok|credentialField/);
+});
+
+it('refuses guarded dashboard helpers before approvals or remote frame effects', async () => {
+  const f = setup(
+    () => true,
+    async () => {},
+  );
+  const result = await f.tools.execute(
+    'HomeAssistantDashboard',
+    { connectionId: 'ha', operation: 'read' },
+    new AbortController().signal,
+  );
+  expect(result).toMatchObject({
+    isError: true,
+    content: expect.stringContaining('final authority'),
+  });
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.service.grant).not.toHaveBeenCalled();
+  expect(f.service.dashboardRequest).not.toHaveBeenCalled();
 });

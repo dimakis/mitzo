@@ -82,6 +82,12 @@ vi.mock('../codex-mcp-tools.js', () => ({
   }),
 }));
 import { openResponsesChat, trackResponsesProviderAdmission } from '../responses-chat-session.js';
+import {
+  CredentialConnections,
+  CredentialConnectionStore,
+  type ConnectionSender,
+} from '../credential-connections.js';
+import * as credentialRuntime from '../credential-connections-runtime.js';
 
 it('runs successive user turns with a private credential and closes its input queue', async () => {
   const registry = new SessionRegistry();
@@ -130,6 +136,8 @@ it('runs successive user turns with a private credential and closes its input qu
       expect.objectContaining({ name: 'AskUserQuestion' }),
       expect.objectContaining({ name: 'RequestWebAccess' }),
       expect.objectContaining({ name: 'RequestGithubPublish' }),
+      expect.objectContaining({ name: 'SymposiumProposeProfile' }),
+      expect.objectContaining({ name: 'SymposiumReadProfiles' }),
     ]),
   );
   registry.dispose();
@@ -1564,6 +1572,233 @@ it.each([
       expect(calls.prompts).toHaveLength(prior);
     } finally {
       registry.dispose();
+    }
+  },
+);
+
+it('API tool dispatch persists profile proposals with the provider call identity', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { SymposiumProfileProposalStore } = await import('../symposium-profile-proposals.js');
+  const root = mkdtempSync(join(tmpdir(), 'profile-api-'));
+  vi.stubEnv('REPO_PATH', root);
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    transport: { send() {}, isOpen: () => true },
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId: 'profile-chat',
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  const input = new AsyncQueue<{ message: { content: string } }>();
+  input.close();
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'profile-chat',
+      binding: {
+        accountId: 'fixture',
+        accountLabel: 'Offline fixture',
+        provider: 'openai',
+        model: 'fixture',
+        profileRevision: 'r1',
+      },
+      apiKey: 'offline-fixture',
+      session: registry.get('client')!,
+      registry,
+      input,
+      systemPrompt: '',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    const execute = calls.options.at(-1)!.executeTool as (
+      block: unknown,
+      signal: AbortSignal,
+    ) => Promise<{ content: string; is_error: boolean }>;
+    const block = {
+      id: 'provider-call',
+      name: 'SymposiumProposeProfile',
+      input: {
+        definition: {
+          name: 'Trace',
+          role: 'agent',
+          instructions: 'Diagnose',
+          expectedOutput: 'Diagnosis',
+          acceptanceCriteria: ['Evidence'],
+          modelPolicyRole: 'agent',
+        },
+      },
+    };
+    const first = await execute(block, new AbortController().signal);
+    expect(first.is_error).toBe(false);
+    expect(await execute(block, new AbortController().signal)).toEqual(first);
+    const store = new SymposiumProfileProposalStore(join(root, '.mitzo', 'events.db'));
+    try {
+      expect(store.listPending('user', 'profile-chat')).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+    for await (const event of chat) {
+      expect(event).toBeDefined();
+    }
+  } finally {
+    registry.dispose();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('gives API chats a Jira connection route even when workspace context recommends the CLI', async () => {
+  const registry = new SessionRegistry();
+  registry.register('jira-client', {
+    transport: { send() {}, isOpen: () => true },
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId: 'jira-chat',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  const input = new AsyncQueue<{ message: { content: string } }>();
+  input.close();
+  const chat = await openResponsesChat({
+    conversationId: 'jira-chat',
+    binding: {
+      accountId: 'offline',
+      accountLabel: 'Offline',
+      provider: 'openai',
+      model: 'offline',
+      profileRevision: 'fixture',
+    },
+    apiKey: 'mock-only',
+    session: registry.get('jira-client')!,
+    registry,
+    input,
+    systemPrompt: 'For Jira run ./mgmt jira strats',
+    env: { PATH: '/usr/bin:/bin' },
+    mcpServers: {},
+    store: {} as never,
+  });
+  try {
+    const options = calls.options.at(-1)!;
+    expect(options.systemPrompt).toContain(
+      'Shared ./mgmt jira guidance applies to the OpenShell transport',
+    );
+    expect(options.systemPrompt).toContain('API Bash has no network or credentials');
+    expect((options.tools as Array<{ name: string }>).map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        'ListConnections',
+        'RequestConnectionAccess',
+        'ConnectionRequest',
+        'PrepareConnectionSetup',
+      ]),
+    );
+  } finally {
+    chat.close();
+    registry.dispose();
+  }
+});
+
+it.each(['agent', 'ask'] as const)(
+  'dispatches Jira reads through the API connection tools in %s mode',
+  async (mode) => {
+    const store = new CredentialConnectionStore(':memory:');
+    const vault = {
+      save: vi.fn(async () => ({ service: 'fixture', account: 'fixture' })),
+      read: vi.fn(async () => 'jira-private-token'),
+      link: vi.fn(),
+      remove: vi.fn(async () => {}),
+    };
+    const send = vi.fn<ConnectionSender>(async () => ({
+      status: 200,
+      body: '{"issues":[{"key":"TEST-1"}],"isLast":true}',
+    }));
+    const service = new CredentialConnections(store, vault, send);
+    const runtime = vi
+      .spyOn(credentialRuntime, 'getCredentialConnectionsRuntime')
+      .mockReturnValue(service);
+    const registry = new SessionRegistry();
+    registry.register('jira-read-client', {
+      transport: { send() {}, isOpen: () => true },
+      mode,
+      sessionId: 'jira-read-chat',
+      cwd: '/tmp',
+      abortController: new AbortController(),
+      sessionAllowList: new Set(),
+    });
+    const connection = await service.create(
+      {
+        label: 'Jira',
+        endpoint: 'https://team.atlassian.net',
+        auth: { kind: 'basic', username: 'reader@example.com' },
+        paths: ['/rest/api/3/'],
+        methods: ['GET', 'HEAD'],
+      },
+      { secret: 'jira-private-token' },
+    );
+    service.grant('jira-read-chat', connection.id, connection.revision);
+    const input = new AsyncQueue<{ message: { content: string } }>();
+    input.close();
+    const chat = await openResponsesChat({
+      conversationId: 'jira-read-chat',
+      binding: {
+        accountId: 'offline',
+        accountLabel: 'Offline',
+        provider: 'openai',
+        model: 'offline',
+        profileRevision: 'fixture',
+      },
+      apiKey: 'mock-only',
+      session: registry.get('jira-read-client')!,
+      registry,
+      input,
+      systemPrompt: '',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    try {
+      const execute = calls.options.at(-1)!.executeTool as (
+        block: unknown,
+        signal: AbortSignal,
+      ) => Promise<{ content: string; is_error: boolean }>;
+      const signal = new AbortController().signal;
+      const listed = await execute({ id: 'list', name: 'ListConnections', input: {} }, signal);
+      expect(JSON.parse(listed.content).connections).toContainEqual(
+        expect.objectContaining({
+          id: connection.id,
+          transport: 'keychain-https',
+          access: 'approved',
+        }),
+      );
+      const read = {
+        id: 'read',
+        name: 'ConnectionRequest',
+        input: {
+          connectionId: connection.id,
+          path: '/rest/api/3/search/jql?jql=assignee%3DcurrentUser()',
+          method: 'GET',
+        },
+      };
+      const result = await execute(read, signal);
+      expect(result.is_error).toBe(false);
+      expect(result.content).toContain('TEST-1');
+      expect(result.content).not.toContain('jira-private-token');
+      expect(send).toHaveBeenCalledOnce();
+      expect(send.mock.calls[0][0]).toMatchObject({
+        headers: {
+          Authorization: `Basic ${Buffer.from('reader@example.com:jira-private-token').toString('base64')}`,
+        },
+      });
+      service.disable(connection.id, connection.revision);
+      expect((await execute(read, signal)).is_error).toBe(true);
+      expect(send).toHaveBeenCalledOnce();
+    } finally {
+      chat.close();
+      registry.dispose();
+      runtime.mockRestore();
+      store.close();
     }
   },
 );

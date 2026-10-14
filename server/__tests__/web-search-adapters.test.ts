@@ -74,6 +74,55 @@ describe('selected-account native search adapters', () => {
     ).rejects.toThrow();
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it.each(['gpt-5.6-sol', 'gpt-6.1-sol'])(
+    'leaves %s search output uncapped and requests unlimited search results',
+    async (model) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            status: 'completed',
+            output: [
+              { type: 'web_search_call', status: 'completed' },
+              {
+                type: 'message',
+                content: [
+                  {
+                    type: 'output_text',
+                    text: 'Answer',
+                    annotations: [{ type: 'url_citation', url: 'https://example.com' }],
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      );
+      vi.stubGlobal('fetch', fetch);
+      await searchOpenAI('query', new AbortController().signal, 'fixture-key', model);
+      const request = JSON.parse(fetch.mock.calls[0][1].body);
+      expect(request).not.toHaveProperty('max_output_tokens');
+      expect(request.tools).toEqual([{ type: 'web_search', return_token_budget: 'unlimited' }]);
+      expect(request.model).toBe(model);
+      expect(fetch).toHaveBeenCalledOnce();
+    },
+  );
+  it('does not send GPT-5+ search parameters to non-reasoning models', async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          status: 'completed',
+          output: [],
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    await expect(
+      searchOpenAI('query', new AbortController().signal, 'fixture-key', 'gpt-4.1'),
+    ).rejects.toThrow();
+    const request = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(request).not.toHaveProperty('max_output_tokens');
+    expect(request.tools).toEqual([{ type: 'web_search' }]);
+  });
   it('uses the explicit Vertex project, region, token and model, with no function tools', async () => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(

@@ -6,6 +6,10 @@ import {
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
+  CredentialVerificationError,
+  type VerificationErrorCode,
+} from './credential-verification-error.js';
+import {
   requestTarget,
   type CredentialConnectionStore,
   type PublicCredentialConnection,
@@ -74,25 +78,47 @@ const custom = ConnectionInputSchema.pick({ auth: true, paths: true, methods: tr
 /** Agents provide configuration and documentation references, never credentials. */
 export const PrepareConnectionSetupSchema = z
   .object({
-    profile: z.enum(['home-assistant', 'custom']),
+    profile: z.enum(['home-assistant', 'jira', 'custom']),
     endpoint: ConnectionInputSchema.shape.endpoint,
     label: ConnectionInputSchema.shape.label.optional(),
     access: z.enum(['read', 'read-write']).default('read'),
     allowPrivateNetwork: z.boolean().default(false),
     custom: custom.optional(),
+    jira: z
+      .object({
+        email: z.string().email().max(256),
+        cloudId: z.string().uuid().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine(
     (value) => (value.profile === 'custom' ? !!value.custom : !value.custom),
     'Custom services need documented authentication; known profiles configure it automatically',
-  );
+  )
+  .refine(
+    (value) => (value.profile === 'jira' ? !!value.jira : !value.jira),
+    'Jira setup requires its account email and optional scoped-token cloud ID',
+  )
+  .refine((value) => {
+    if (value.profile !== 'jira') return true;
+    return (
+      value.access === 'read' &&
+      !value.allowPrivateNetwork &&
+      (value.endpoint === 'https://api.atlassian.com'
+        ? !!value.jira?.cloudId
+        : /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.atlassian\.net$/.test(value.endpoint) &&
+          !value.jira?.cloudId)
+    );
+  }, 'Use a Jira Cloud tenant origin, or api.atlassian.com with its cloud ID; Jira supports read access only');
 
 export interface ConnectionSetup {
   id: string;
   sessionId: string;
   revision: number;
   status: 'pending' | 'verifying' | 'ready' | 'cancelled' | 'expired';
-  profile: 'home-assistant' | 'custom';
+  profile: 'home-assistant' | 'jira' | 'custom';
   expiresAt: number;
   connection: CredentialConnectionInput;
   credential: { label: string; instructions: string; helpUrl?: string };
@@ -102,6 +128,7 @@ export interface ConnectionSetup {
   connectionId?: string;
   connectionRevision?: number;
   error?: string;
+  errorCode?: VerificationErrorCode;
   delivery?: 'pending' | 'delivered';
 }
 type CreateVerified = (
@@ -113,8 +140,6 @@ type CreateVerified = (
   stillAllowed: () => boolean,
   persistReady: (connection: PublicCredentialConnection) => void,
 ) => Promise<PublicCredentialConnection>;
-const retryMessage =
-  'Could not verify this key. Check the key, service address and access, then try again.';
 
 /** Secret-free persistent setup; browser submission is the sole credential boundary. */
 export class CredentialConnectionSetups {
@@ -127,17 +152,29 @@ export class CredentialConnectionSetups {
     if (!sessionId || sessionId.length > 256) throw new Error('Session unavailable');
     const parsed = PrepareConnectionSetupSchema.parse(input);
     const home = parsed.profile === 'home-assistant';
+    const jira = parsed.profile === 'jira';
+    const jiraPath = parsed.jira?.cloudId
+      ? `/ex/jira/${parsed.jira.cloudId}/rest/api/3/`
+      : '/rest/api/3/';
     const config = ConnectionInputSchema.parse({
-      label: parsed.label ?? (home ? 'Home Assistant' : new URL(parsed.endpoint).hostname),
+      label:
+        parsed.label ??
+        (home ? 'Home Assistant' : jira ? 'Jira' : new URL(parsed.endpoint).hostname),
       endpoint: parsed.endpoint,
       serviceTemplate: home ? 'home-assistant' : 'custom',
-      auth: home ? { kind: 'bearer' } : parsed.custom!.auth,
-      paths: home ? ['/api/'] : parsed.custom!.paths,
+      auth: home
+        ? { kind: 'bearer' }
+        : jira
+          ? { kind: 'basic', username: parsed.jira!.email }
+          : parsed.custom!.auth,
+      paths: home ? ['/api/'] : jira ? [jiraPath] : parsed.custom!.paths,
       methods: home
         ? parsed.access === 'read'
           ? ['GET', 'HEAD']
           : ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']
-        : parsed.custom!.methods,
+        : jira
+          ? ['GET', 'HEAD']
+          : parsed.custom!.methods,
       allowPrivateNetwork: parsed.allowPrivateNetwork,
       homeAssistantDashboards: home ? parsed.access : 'disabled',
       websocket:
@@ -160,12 +197,22 @@ export class CredentialConnectionSetups {
     )
       throw new Error('Read access cannot include write methods');
     if (!config.methods.includes('GET')) throw new Error('Verification requires GET access');
-    const verificationPath = home ? '/api/' : parsed.custom!.verificationPath;
+    const verificationPath = home
+      ? '/api/'
+      : jira
+        ? `${jiraPath}myself`
+        : parsed.custom!.verificationPath;
     requestTarget(config, verificationPath);
-    const verificationSuccess = home ? undefined : parsed.custom!.success;
+    const verificationSuccess = home
+      ? undefined
+      : jira
+        ? { field: 'accountId', type: 'string' as const }
+        : parsed.custom!.success;
     const helpUrl = home
       ? 'https://www.home-assistant.io/docs/authentication/'
-      : parsed.custom!.evidenceUrl;
+      : jira
+        ? 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/'
+        : parsed.custom!.evidenceUrl;
     const normalizedConfig = (connection: CredentialConnectionInput) => ({
       ...connection,
       paths: [...connection.paths].sort(),
@@ -203,14 +250,21 @@ export class CredentialConnectionSetups {
               'In Home Assistant, open your profile → Security → Long-lived access tokens. Create a token and paste it here. It stays out of chat.',
             helpUrl: 'https://www.home-assistant.io/docs/authentication/',
           }
-        : {
-            label:
-              config.auth.kind === 'basic' || config.auth.kind === 'password'
-                ? 'Password'
-                : 'API key',
-            instructions: 'Paste the credential for this service here. It stays out of chat.',
-            helpUrl: parsed.custom!.evidenceUrl,
-          },
+        : jira
+          ? {
+              label: 'Jira API token',
+              instructions:
+                'Create an Atlassian API token for the configured account. For scoped tokens, use Jira read scopes and the configured cloud ID. Paste the token only here; it stays out of chat.',
+              helpUrl,
+            }
+          : {
+              label:
+                config.auth.kind === 'basic' || config.auth.kind === 'password'
+                  ? 'Password'
+                  : 'API key',
+              instructions: 'Paste the credential for this service here. It stays out of chat.',
+              helpUrl: parsed.custom!.evidenceUrl,
+            },
       setupUrl: `/connections/setup/${id}`,
     };
     this.store.putSetup(setup);
@@ -235,7 +289,8 @@ export class CredentialConnectionSetups {
         ...setup,
         status: 'pending' as const,
         revision: setup.revision + 1,
-        error: retryMessage,
+        error: new CredentialVerificationError('interrupted').message,
+        errorCode: 'interrupted' as const,
       };
       this.store.putSetup(retry);
       return retry;
@@ -263,8 +318,9 @@ export class CredentialConnectionSetups {
       throw new Error('Setup changed');
     if (setup.status === 'ready') return setup;
     if (setup.status !== 'pending') throw new Error('Setup unavailable');
-    if (!secret || secret.length > 16_384 || /[\r\n]/.test(secret))
-      throw new Error('Invalid credential');
+    if (secret.length > 16_384) throw new Error('Invalid credential');
+    if (setup.profile === 'home-assistant') secret = secret.trim();
+    if (!secret || /[\r\n]/.test(secret)) throw new Error('Invalid credential');
     const verifying = { ...setup, status: 'verifying' as const, revision: revision + 1 };
     if (!this.store.replaceSetupAtRevision(verifying, revision)) throw new Error('Setup changed');
     this.active.add(id);
@@ -307,17 +363,23 @@ export class CredentialConnectionSetups {
             delivery: 'pending',
           };
           delete ready.error;
+          delete ready.errorCode;
           if (!this.store.replaceSetupAtRevision(ready, verifying.revision))
             throw new Error('Setup changed');
         },
       );
       return ready;
-    } catch {
+    } catch (error) {
+      const failure =
+        error instanceof CredentialVerificationError
+          ? error
+          : new CredentialVerificationError(signal.aborted ? 'timeout' : 'save_failed');
       const retry: ConnectionSetup = {
         ...verifying,
         status: setup.expiresAt <= Date.now() ? 'expired' : 'pending',
         revision: verifying.revision + 1,
-        error: retryMessage,
+        error: failure.message,
+        errorCode: failure.code,
       };
       this.store.replaceSetupAtRevision(retry, verifying.revision);
       return this.store.getSetup(id)!;

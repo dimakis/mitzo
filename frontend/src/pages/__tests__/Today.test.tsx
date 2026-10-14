@@ -46,6 +46,9 @@ vi.mock('../../hooks/useAttentionFeed', () => ({
 }));
 vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: () => () => {} } }));
 vi.mock('../../lib/api-fetch', () => ({
+  invalidateTodoReads: vi.fn(),
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+  AUTH_RESTORED_EVENT: 'mitzo:auth-restored',
   apiFetch: async (url: string) => ({
     ok: true,
     json: async () =>
@@ -175,6 +178,15 @@ describe('Today', () => {
     expect(screen.getByRole('alert').textContent).toContain('Couldn’t load chats');
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(data.retrySessions).toHaveBeenCalledOnce();
+  });
+  it('keeps recent chats visible alongside a refresh failure', async () => {
+    data.sessionsError = 'Couldn’t refresh chats. Showing the last loaded list.';
+    show();
+    await act(async () => {});
+    expect(screen.getByRole('alert').textContent).toContain('Couldn’t refresh chats');
+    expect(screen.getByRole('link', { name: /Resume investigation/ }).getAttribute('href')).toBe(
+      '/chat/session-1',
+    );
   });
 });
 

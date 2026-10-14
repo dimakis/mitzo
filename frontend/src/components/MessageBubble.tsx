@@ -13,10 +13,11 @@ import {
   artifactViewerUrl,
   relativeArtifactPath,
   remarkLocalMarkdownLinks,
+  isTelosArtifactUrl,
 } from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
-import { ShareButton } from './ShareButton';
+import { ShareButton, FileShareLink } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
 import { markdownComponents } from '../lib/markdown-config';
 import { MarkdownCodeBlock } from './MarkdownCodeBlock';
@@ -116,7 +117,10 @@ export function TextBubble({
 }: TextBubbleProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const processed = streaming ? content : linkifyFilePaths(content);
+  const processed = useMemo(
+    () => (streaming ? content : linkifyFilePaths(content)),
+    [content, streaming],
+  );
   const currentPath = location.pathname + location.search;
   const [collapsed, setCollapsed] = useState(true);
   const [isLong, setIsLong] = useState(false);
@@ -180,6 +184,22 @@ export function TextBubble({
         return <p>{children}</p>;
       },
       a: ({ href, children }) => {
+        if (!href) return <span>{children}</span>;
+        const destination = href?.startsWith(FILE_SCHEME) ? decodeFilePathUrl(href) : href;
+        if (destination && isTelosArtifactUrl(destination)) {
+          return (
+            <FileShareLink
+              filePath={destination}
+              onOpen={() =>
+                navigationRef.current.navigate(
+                  artifactViewerUrl(destination, navigationRef.current.currentPath),
+                )
+              }
+            >
+              {children}
+            </FileShareLink>
+          );
+        }
         const filePath = href?.startsWith(FILE_SCHEME)
           ? decodeFilePathUrl(href)
           : href
@@ -212,12 +232,25 @@ export function TextBubble({
                 filePath={filePath}
                 sessionId={artifactSessionId}
                 className="file-path-share"
+                onOpen={() =>
+                  navigationRef.current.navigate(
+                    artifactViewerUrl(
+                      filePath,
+                      navigationRef.current.currentPath,
+                      artifactSessionId,
+                    ),
+                  )
+                }
               />
             </span>
           );
         }
         return (
-          <a href={href} target="_blank" rel="noopener noreferrer">
+          <a
+            href={href}
+            target={/^(?:https?:)?\/\//i.test(href) ? '_blank' : undefined}
+            rel="noopener noreferrer"
+          >
             {children}
           </a>
         );
@@ -227,20 +260,29 @@ export function TextBubble({
   );
 
   const showCollapsed = isLong && collapsed && !streaming;
+  // Measuring a restored response updates collapse state immediately after
+  // mount. Reuse its parsed tree through that update and unrelated chat renders.
+  // Session-scoped renderers still change when the owning conversation changes.
+  const markdown = useMemo(
+    () => (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkLocalMarkdownLinks, remarkNeutralizeMalformedFileLinks]}
+        rehypePlugins={[rehypeHighlight]}
+        urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
+        components={mdComponents}
+      >
+        {processed}
+      </ReactMarkdown>
+    ),
+    [processed, mdComponents],
+  );
 
   return (
     <div
       className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}${showCollapsed ? ' msg-bubble--collapsed' : ''}`}
     >
       <div className="msg-bubble-markdown" ref={contentRef}>
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkLocalMarkdownLinks, remarkNeutralizeMalformedFileLinks]}
-          rehypePlugins={[rehypeHighlight]}
-          urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
-          components={mdComponents}
-        >
-          {processed}
-        </ReactMarkdown>
+        {markdown}
       </div>
       {!streaming && (
         <div className="msg-bubble-footer">

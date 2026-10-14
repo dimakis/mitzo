@@ -63,7 +63,7 @@ import { FileViewer } from '../FileViewer';
 describe('FileViewer HTML rendering', () => {
   it('offers a visible share action while viewing a file', () => {
     const markup = renderToStaticMarkup(createElement(FileViewer));
-    expect(markup).toContain('aria-label="Share file"');
+    expect(markup).toContain('aria-label="File options"');
     expect(markup).toContain('share-btn--visible');
   });
 

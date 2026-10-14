@@ -1,3 +1,4 @@
+import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -31,6 +32,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname === '/api/agent-library') {
         if (catalogMode === 'loading')
@@ -364,8 +366,10 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   releaseCatalog!();
   await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
   await page.goto('/chat');
-  await page.getByRole('button', { name: /^Workspace controls/ }).click();
-  const profilePicker = page.getByRole('combobox', { name: 'Agent profile', exact: true });
+  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();
+  await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+  const profilePicker = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(profilePicker).toBeVisible();
   await expect(profilePicker).toBeEnabled();
   expect(

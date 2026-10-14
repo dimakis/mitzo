@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { profileToolSchemas, profileToolDefinitions } from './session-profile-tools.js';
 import { repositoryChatSchemas, repositoryChatToolDefinitions } from './repository-chat-tools.js';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import {
@@ -13,8 +15,12 @@ import {
 import { sessionCredentialTools } from './session-credential-tools.js';
 
 const prefix = 'mcp__mitzo-connections__';
-const schemas = { ...credentialConnectionSchemas, ...repositoryChatSchemas };
-const definitions = [...credentialConnectionToolDefinitions, ...repositoryChatToolDefinitions];
+const schemas = { ...credentialConnectionSchemas, ...repositoryChatSchemas, ...profileToolSchemas };
+const definitions = [
+  ...credentialConnectionToolDefinitions,
+  ...repositoryChatToolDefinitions,
+  ...profileToolDefinitions,
+];
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
 export function credentialSdkPermission(
   name: string,
@@ -52,12 +58,18 @@ export function createCredentialSdkServer(
   sessionId: () => string | undefined,
   session: ManagedSession,
   registry: SessionRegistry,
+  boundary?: {
+    profilesOnly: true;
+    assertCurrent(signal: AbortSignal): Promise<void>;
+    assertCurrentSync(signal: AbortSignal): void;
+  },
 ) {
+  const runtimeId = randomUUID();
   let current: { id: string; tools: ReturnType<typeof sessionCredentialTools> } | undefined;
   return createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
-    tools: definitions.map((definition) =>
+    tools: (boundary?.profilesOnly ? profileToolDefinitions : definitions).map((definition) =>
       tool(
         definition.name,
         definition.description,
@@ -70,7 +82,20 @@ export function createCredentialSdkServer(
               isError: true,
             };
           if (current?.id !== id)
-            current = { id, tools: sessionCredentialTools(id, session, registry, prefix) };
+            current = {
+              id,
+              tools: sessionCredentialTools(
+                id,
+                session,
+                registry,
+                prefix,
+                undefined,
+                boundary ? () => boundary.assertCurrent(session.abortController.signal) : undefined,
+                boundary
+                  ? () => boundary.assertCurrentSync(session.abortController.signal)
+                  : undefined,
+              ),
+            };
           const callSignal =
             extra !== null &&
             typeof extra === 'object' &&
@@ -81,7 +106,14 @@ export function createCredentialSdkServer(
           const signal = callSignal
             ? AbortSignal.any([session.abortController.signal, callSignal])
             : session.abortController.signal;
-          const result = await current.tools.execute(definition.name, input, signal);
+          await boundary?.assertCurrent(signal);
+          const result = await current.tools.execute(definition.name, input, signal, {
+            turnId: runtimeId,
+            callId: String(
+              (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+            ),
+          });
+          await boundary?.assertCurrent(signal);
           return {
             content: [{ type: 'text', text: result?.content ?? 'Connection tool unavailable' }],
             isError: result?.isError ?? true,

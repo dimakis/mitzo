@@ -1,10 +1,111 @@
 # Session runtime selection
 
-Status: incremental design and source audit. Dormant infrastructure includes
-versioned EventStore bindings, configuration resolution, local Codex account
-projection and V2 configured-target persistence. This document does not establish
-live, staged or deployed support for any selectable route. The first-command
-guard below is an injected, dormant coordinator; no live caller is enrolled.
+Status: gated source implementation with offline continuity evidence. Ordinary
+Local Codex, OpenShell Codex, Local Responses, plain Local Claude and Local Gemini share the existing picker, durable command receipts
+and immutable conversation binding. Configuration gates remain off by default;
+source support and offline tests do not establish live account, provider, native
+runtime or deployment qualification. Staging is stood down. Production activation
+requires a separate explicit user action.
+
+## Current ordinary conversation contract
+
+The existing Agent, Account, Model, Thinking level and Run on controls retain their
+separate responsibilities. OpenShell stays the new-chat default; Local Mac requires
+an explicit choice. A pristine unselected target resolves from the first trusted
+inventory within its chosen environment. Previously selected unavailable/stale
+choices remain visible with a reason and are never replaced on refresh. Software
+is derived as Runs with Codex, Mitzo Responses, Claude or Gemini from the exact selected route; there is no independent runtime selector.
+
+`GET /api/chat/runtime/capabilities` projects a bounded combined configuration-only
+inventory. Its composite capability revision covers draft review; each route can
+carry its own native capability revision for frozen admission. The generic
+`POST /api/chat/runtime/send` and `/continue` use strict adapter-specific ordinary runtime envelopes.
+The original Local capability/send/continue endpoints retain compatibility. A
+continuation includes the original session and repository preparation IDs, an exact
+command ID and model/thinking snapshot. Clients cannot provide paths, credentials,
+provider launchers, compiled agent prompts or workspace ownership.
+
+The supported source routes are file-backed host ChatGPT on Local Codex and the
+reviewed ordinary OpenShell Codex projection using an exact existing brokered
+OAuth provider/grant or explicitly enrolled OpenAI API profile. The current
+projections are disjoint: file-backed Local credentials do not confer OpenShell
+authority, and a brokered OpenShell account does not confer Local host-login
+authority. OpenShell OpenAI API support requires explicit operator declaration
+and existing provider policy. Exact published user profiles and code-owned builtin
+profiles use the existing Library namespaces. Supported workspace and ContexGin
+recipes compile once under the original workspace/runtime authority; each route
+advertises eligible profile references and reasons for incompatible selections.
+OpenShell ContexGin recipes require an explicit configured sandbox preset.
+Separately gated plain Local Responses, Claude SDK and Gemini source routes use the same
+strict endpoints, picker and existing owners. Their specific qualifications and
+limits are documented in [Responses continuity](local-responses-continuity.md),
+[Claude source status](ordinary-local-vertex-source-status.md) and
+[Gemini source status](ordinary-local-gemini-source-status.md). Original ADC
+identity, project/region and signed login are pinned for Vertex routes. Claude
+reopens its SDK query only after terminal, resuming the original thread with
+frozen model/effort options.
+Unconfirmed native outcomes remain retained and refuse cold replay. Pinned packs,
+Local workspace/brokered authentication, native sandbox subscriptions, Vertex
+OpenShell remain unavailable. Local Gemini uses the existing NativeResponses owner with exact selected ADC custody; ambient project/quota and credential fallback are refused. Provider enrollment and live runtime qualification remain separate.
+Legacy conversations keep their legacy ownership and are not implicitly converted.
+
+Prepared context is saved with the original profile and recipe identity. Provider
+acceptance records the exact delivered snapshot, command, native thread and turn.
+Cold resume verifies retained payload and native custody hashes without recompiling
+workspace files or fetching a newer ContexGin version. Missing original context
+custody refuses execution. Pinned packs retain the native continuation barrier;
+their compiler support alone does not establish supported Codex admission.
+
+Account, profile snapshot, runtime, target and workspace stay fixed after admission.
+Draft intent also retains the public account routing tuple (ID, provider and profile
+revision). New session elsewhere copies it; reusing an ID with changed provider or
+routing cannot silently change authentication/billing. A new draft requires explicit
+Account re-selection, while generic capability review cannot replace that tuple.
+A bound conversation cannot replace its account tuple.
+Codex, Responses and Claude support model/thinking edits as future-command intent. Gemini retains its effective original first-message model and thinking, including signed native thought history. Changed future Gemini choices remain visible with the native constraint and refuse admission before a new receipt; they are not silently reset. Each admitted or queued
+command freezes its own selection under the existing EventStore receipt and native
+FIFO. Running/queued work cannot change when a later setting changes. Failed or
+uncertain HTTP delivery retains its original request for deliberate exact recovery;
+SSE observations cannot acknowledge or replay it. Stop, approval responses and
+same-login reconnect use the retained owning driver. Unsupported mode/context/web
+and connection helpers remain blocked independently of the ordinary composer.
+
+New server-qualified READY repository preparations permit another supported
+first-message model on the same original checkout before any reservation or
+admission. Account, provider/profile revision, runtime, target, credential,
+GitHub/source and physical workspace authority stay unchanged. The original
+preparation model, branch and source digest remain recorded; the atomic first
+reservation freezes the effective command, including model and thinking. For
+Gemini, that effective first selection becomes its immutable native original.
+Legacy preparations and prior, failed or uncertain reservations retain their
+existing full-selection guards. Native checkpoints are never reinterpreted.
+Preparation deadlines fence newly incoming admission across awaited authority and
+setup; an expired request does not replace or cancel previously admitted work.
+
+Session metadata advertises `runtimeCommandScope: conversation` only when its
+original route can continue; otherwise it keeps guarded/read-only behavior and a
+specific unavailable reason. Cold resume reacquires the original login's persistent
+revocation authority, immutable account/target routing, physical native custody,
+provider history and retained workspace before dispatch. Local private login-home
+and executable evidence and OpenShell physical runtime evidence live in the existing
+native conversation row; they are not another provider/history registry. Missing,
+changed or revoked custody refuses execution while retaining transcript, checkout
+and uncertainty evidence. Authentication/token refresh is still a strict refusal:
+this source contract does not silently renew a changed file-backed login lease.
+
+New session elsewhere copies account/profile/model/thinking intent into an
+independent blank draft, clears target/capability and repository preparation, and
+requires its own preparation/checkout. Returning to the original conversation
+retains its branch, edits, queue and provider history. See the
+[completion checklist](session-runtime-continuity-checklist.md) for source and
+rendered/live evidence boundaries.
+
+## Historical first-command checkpoint
+
+The following sections describe accepted foundation increments through PR #917.
+Their first-command-only restrictions remain the fallback for unsupported or
+unqualified metadata scopes; they are not the completion definition for the
+current ordinary conversation contract above.
 
 ## Guarded local Codex first-command contract
 
@@ -46,14 +147,197 @@ effects; native-command completion cannot erase a guarded receipt's session ID.
 Canonical workspace/ContexGin recipe pins are passed to their owning authority;
 native Codex packs retain their existing continuation-barrier refusal.
 
-Activation still requires an actual host/runtime/account authority, a workspace
-metadata reservation before filesystem materialization, and reviewed integration
-with Codex's existing thread, queue, cancellation and recovery ownership. The
-current CLI-version/account observations and post-launch runtime policy checks
-do not satisfy that pre-effect authority. No endpoint, default verifier, host
-probe, runtime launch or picker behavior is added by this coordinator. OpenShell
-remains the approved default for the eventual picker; local selection must be
-explicit once qualified.
+The coordinator remains independent of transport and provider loops. The owned
+composition below supplies the concrete first-command authorities, while endpoint
+enrollment, continuation and live qualification remain separate. OpenShell remains
+the default for the eventual picker; local selection must be explicit once qualified.
+
+## Owned local first-command composition
+
+[`OrdinaryLocalCodexOwnedRuntime`](../../server/ordinary-local-codex-owned-runtime.ts)
+composes the existing EventStore, published user Agent Library and reserved host
+workspace. It captures the authenticated operator once; browser detach does not
+replace the admitted subject, while expiry and revocation close the native client.
+Raw request payload accepts only `text`, optional `intent` and `images`. The server
+compiles `systemPrompt` from the exact published agent revision and freezes it in
+the existing command receipt. Caller prompts cannot replace the agent's instructions.
+
+The bounded route accepts file-backed ChatGPT login profiles without a workspace
+identity, no context recipe, and the original permission revision. Custodian
+controller/owner modes refuse it before resource effects. It does not enroll API
+billing, sandbox-native ChatGPT, later turns, cold resume, permission edits or
+automatic capacity recovery.
+Its tool surface is limited to the existing native host tools and MCP tools with
+final runtime checks. Project command hooks and connection, web, publishing and
+proposal helpers require separate qualification before this route may advertise
+or execute them.
+
+[`OrdinaryLocalCodexHostRuntime`](../../server/ordinary-local-codex-host-runtime.ts)
+observes the OS hostname and measures the explicitly configured native Codex binary.
+`MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE` selects a canonical owner-only `0600` JSON
+file with `{version:1, executablePath, executableSha256}`. The existing
+`MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE` selects the private target declaration.
+Its runtime contract must equal `ordinaryLocalCodexHostContractRevision(sha256)`,
+which includes the installed reviewed source revision and supported CLI version.
+It also includes the verified source-closure fingerprint, so verified source changes
+require a different contract even when the nominal revision is unchanged. Qualified selector files
+and the native binary join the existing model-tool protection sets; native code
+must have a single physical link.
+These files declare a selection; they confer no account or deployment authority.
+No configuration is generated or enrolled automatically.
+
+After the EventStore claim becomes `uncertain`, the bootstrap creates a private
+`0700` login home and copies only bounded file-backed authentication and the
+measured native binary. The private home name derives from the retained session
+and command fingerprint; an existing home is never adopted or deleted by retry.
+The same native client performs initialization, account, config and model checks
+and attaches to the existing `CodexConversation`. Source/private authentication,
+native identities, operator authorization, published agent, permission state and
+workspace ownership are fenced through dispatch and final host-tool effects.
+Authentication changes, including token refresh, invalidate this bounded lease;
+normal long-lived renewal requires separate implementation.
+
+The trusted chat consumer opens the first turn under the `uncertain` receipt and
+returns a prepared handle. Only after coordinator admission settles as `consumed`
+may the caller run the existing query loop to translate its buffered events.
+The server-internal `startOwnedLocalCodexCommand` entry joins those steps and
+requires `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` before opening the lazy existing
+Library/workspace owners. The dormant transport entry below composes that same wrapper. Consumer cleanup
+must release the retained driver's operator authority as well as the native query.
+Cancellation closes transport and query ownership while retaining workspace,
+login-home and command evidence. A successful receipt means first-command dispatch
+returned; model completion and resource retirement are separate observations.
+
+Offline tests exercise real command/library/workspace stores and local Git fixtures,
+with native transport replaced. They do not prove a live account, provider route
+or deployed UI. Activation needs accepted sources, independently reviewed staging
+configuration and a safe canonical staging instance. Live model tests must explicitly
+select a supported Luna model and identify the charged account before the call.
+
+Chat draft intent separately preserves Agent, Account, Model, Thinking and Run on
+choices. OpenShell remains the unresolved default, invalid choices retain a reason,
+and no target is silently substituted. Draft intent and capability revisions are
+selection metadata, never runtime authority. General picker activation still requires
+qualification of both the local and OpenShell routes.
+
+## Dormant authenticated Local entry
+
+`GET /api/chat/local-codex/capabilities` returns configuration-only account routing
+references, model/thinking metadata, configured targets and published Agent Library
+versions without context recipes. Workspace-bound and sandbox-native accounts are
+excluded. It performs no native account probe, launch or model execution and keeps
+OpenShell as the default location; configured compatibility does not establish readiness.
+Both endpoints are disabled unless `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and refuse
+custodian modes before loading lazy owners. Their presence does not enroll a deployed
+route or authorize activation.
+
+`POST /api/chat/local-codex/send` requires interactive operator authentication,
+same-origin JSON and a live `X-Connection-ID` SSE stream belonging to that exact login.
+Builtin namespace keys are refused, including IDs/revisions that collide with saved
+user profiles. Its shared strict `LocalCodexFirstCommandSchema` carries `runOn: local`, the prepared
+repository UUID, command/capability revisions, exact public account routing tuple,
+Codex target ID, model/thinking, published agent ID/revision, context `none`, original
+permission revision `0`, and raw `text`/optional `intent`/supported images. Native paths,
+credentials, session IDs, provider launchers, caller system prompts, context recipes
+and skill ceilings are refused. It never falls back to the ordinary send route.
+
+The server derives the stable `repository:<UUID>` startup identity and the task root
+`<REPO_PATH>/.claude/repository-tasks`. The latter must already exist as a canonical
+host-owned directory; sends do not create or replace it. Source preview and prepare
+remain explicit operations under the existing repository-workspace API and gate.
+The entry checks configured model/thinking/profile compatibility before reserving
+source, then uses `reserveHostTask` and the real owned command wrapper. The shared
+repository startup exclusion is held before asynchronous account/source operations
+on both guarded and legacy entry paths. The guarded coordinator still records
+uncertainty before native bootstrap, checkout materialization and the first turn.
+
+A successful HTTP 202 returns `{ok, clientMsgId, sessionId, dispatched, state}` from
+the original guarded receipt. A finite 409 with `code: retained_command` and `state`
+retains that receipt; `entry_unavailable` has no matching guarded receipt but may
+retain source reservation evidence. Exact retries requalify current authority and
+cannot replace identity or replay uncertain effects. No generic send acceptance,
+completion or failure helper rewrites these receipts. Consumers require a separate
+frozen local outbox; the legacy `{type: send}` outbox is incompatible.
+
+Preparation retains the admitted login through HTTP completion or SSE detach and
+requests cancellation after two minutes. Owner settlement can outlast that deadline;
+no forced cleanup or ownership reset follows. Logout/expiry abort it. Once admission
+returns, the timer is cleared and the driver owns the retained login lifetime.
+Existing Stop operates once the query is registered; cancellation before that point
+is the bounded startup deadline or login revocation, not an advertised Stop ACK.
+Workspace, login-home and receipt evidence survive cancellation/failure.
+
+The existing ManagedSession stores the original authenticated login ID as trusted
+control metadata. Stop, interrupt, permission response, reconnect, switch, suspend
+and close refuse foreign live operators before execution/takeover effects. Same-login
+reattach changes attachment only, preserving the original driver's authority. Cold
+replay never creates a native client or enrolls a new operator. Session metadata
+exposes only the immutable logical `runtimeBinding` and `runtimeCommandScope:
+first-command-only`, so reload/ended views must keep later sends/settings disabled.
+No later-turn admission, cold resume, default-runtime switch or general picker is
+implemented by this entry. Offline fixtures provide source evidence only; no live
+host/account/model qualification or activation was performed.
+
+The enabled legacy WebSocket handler checks that same retained login before every
+supported attachment and control message. It uses the assigned authenticated
+connection key, even after a reattach changes the query's client key. Approval
+responses resolve their actual pending-session owner before permission effects,
+including direct answers without reattachment. Legacy owned Send and mode changes
+are refused before native command or skill routing. Socket teardown detaches only
+the exact current transport, so an old socket cannot detach its replacement.
+The same identity check applies to SSE and v2 socket cleanup. If the original
+stream disappears during preparation, the admitted query reconciles attachment
+before consuming buffered events or issuing completion notifications. The login,
+native query and consumed receipt remain owned; suspension keeps its existing grace
+and buffering policy. Preparation cleanup never replays the admitted command.
+
+The REST send path decorates its registered transport to store events durably, and
+ordinary startup decorates it again to correlate initial events with the send.
+Both wrappers preserve the physical attachment reference. SSE, v2 and
+legacy teardown compare this reference, so new and resumed ordinary conversations
+still detach normally while stale connections cannot detach a replacement. The
+reference carries no account or login authority and adds no ownership store.
+
+## Host workspace reservation before checkout creation
+
+`RepositoryWorkspaces.reserveHostTask()` starts from an existing pinned, ready
+source preparation. It records the exact account binding, connection revision,
+source digest, base commit, feature branch, conversation and destination in the
+existing `repository_workspaces` row before creating task directories or copying
+files. A versioned host reservation marker pins the canonical task root and its
+device/inode identity. Its returned descriptor and `getHostReservation()` expose
+bounded server-owned metadata; they do not establish physical checkout readiness.
+
+The internal states distinguish resource intent from effects:
+
+| State      | Meaning                                                              | Retry behavior                                                                                       |
+| ---------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `reserved` | Exact task ownership saved; task copying has not begun               | Same-tuple retries recheck authorization, source and root; identical competing reservations converge |
+| `claiming` | Atomic effect claim saved before task directory creation or copy     | Preserve uncertainty and ownership; never replay materialization automatically                       |
+| `claimed`  | Copy, digest, task identity and final authorization checks completed | Validate the retained task; expected task edits are allowed and released source seeds are omitted    |
+
+`claimReservedHostTask()` rechecks the source, account/connection and pinned root,
+then changes `reserved` to `claiming` in an immediate SQLite transaction before
+filesystem effects. Exact-row comparisons prevent two stores from copying the
+same task. Failure, cancellation or revoked authorization after this transition
+retains `claiming`; a later caller cannot silently restart it. Completion also
+requires the exact owned row. Legacy acquisition, claim and discard transitions
+must preserve committed reservations rather than overwrite or remove their source.
+
+Existing startup lookup remains claimed-only, and legacy `claim()` cannot consume
+a new reservation. Public status conservatively projects internal `reserved` as
+the existing unsettled `claiming` state, without a conversation link or local
+paths. The existing picker therefore keeps sending and discard blocked; this
+increment adds no picker controls, endpoint or startup/admission caller.
+
+These checks use the existing GitHub authorization service. They do not confer
+provider authority or hold a native runtime/account revocation lease across
+filesystem operations. Route activation still requires the owning authority to
+coordinate this workspace ledger with the EventStore command receipt and its
+uncertainty boundary, qualify host/account ownership and integrate existing Codex
+queue, cancellation and recovery ownership. The two stores remain distinct;
+this contract does not claim a transaction across their databases. Orphaned or
+uncertain reservations require explicit owner recovery, not automatic cleanup.
 
 ## Separate account identity from execution choice
 

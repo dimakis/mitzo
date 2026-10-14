@@ -25,7 +25,8 @@ vi.mock('../session-artifact-reader.js', async (importOriginal) => {
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 const SESSION_ARTIFACT_ROOT = join(`${TEST_REPO}-sessions`, 'artifact-session');
 
-vi.mock('../chat.js', () => {
+vi.mock('../chat.js', async () => {
+  const { createRoutesRuntimeLedgerFixture } = await import('./fixtures/routes-runtime-ledger.js');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { join: pjoin } = require('path');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -95,6 +96,7 @@ vi.mock('../chat.js', () => {
     },
     setTaskStore: vi.fn(),
     eventStore: {
+      ...createRoutesRuntimeLedgerFixture(),
       setSessionState: vi.fn(),
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),

@@ -21,6 +21,11 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { CredentialVault, VaultReference } from './keychain-vault.js';
+import { KeychainUnavailableError } from './keychain-vault.js';
+import {
+  CredentialVerificationError,
+  verificationTransportError,
+} from './credential-verification-error.js';
 
 import {
   ConnectionInputSchema,
@@ -178,6 +183,7 @@ export interface AuthenticatedRequest {
   headers: Record<string, string>;
   body?: string;
   allowPrivateNetwork: boolean;
+  assertRuntimeCurrent?: () => Promise<void>;
 }
 export type ConnectionSender = (
   request: AuthenticatedRequest,
@@ -282,18 +288,31 @@ export class CredentialConnections {
     const url = requestTarget(parsed, path);
     const check = () => {
       signal.throwIfAborted();
-      if (!stillAllowed()) throw new Error('Setup unavailable');
+      if (!stillAllowed()) throw new CredentialVerificationError('setup_unavailable');
     };
     check();
-    const publicResponse = await this.send(
+    const send: ConnectionSender = async (request, signal) => {
+      try {
+        return await this.send(request, signal);
+      } catch (error) {
+        throw verificationTransportError(error, signal);
+      }
+    };
+    const publicResponse = await send(
       { url, method: 'GET', headers: {}, allowPrivateNetwork: parsed.allowPrivateNetwork },
       signal,
     );
     check();
     // A public success does not establish that the submitted credential works.
     if (![401, 403].includes(publicResponse.status))
-      throw new Error('Protected verification endpoint required');
-    const response = await this.send(
+      throw new CredentialVerificationError(
+        publicResponse.status === 429 || publicResponse.status >= 500
+          ? 'service_unavailable'
+          : publicResponse.status >= 200 && publicResponse.status < 300
+            ? 'verification_endpoint'
+            : 'unexpected_response',
+      );
+    const response = await send(
       {
         url,
         method: 'GET',
@@ -303,10 +322,23 @@ export class CredentialConnections {
       signal,
     );
     check();
+    if (response.status === 401) throw new CredentialVerificationError('credential_rejected');
+    if (response.status === 403) throw new CredentialVerificationError('access_denied');
+    if (response.status === 429 || response.status >= 500)
+      throw new CredentialVerificationError('service_unavailable');
     if (response.status < 200 || response.status >= 300 || !proof(response.body))
-      throw new Error('Authentication verification failed');
+      throw new CredentialVerificationError('unexpected_response');
     const id = randomUUID();
-    const credentialRef = await this.vault.save(id, secret);
+    let credentialRef: VaultReference;
+    try {
+      credentialRef = await this.vault.save(id, secret);
+    } catch (error) {
+      throw new CredentialVerificationError(
+        error instanceof KeychainUnavailableError && error.code === 'unlock_on_mac'
+          ? 'keychain_locked'
+          : 'storage_unavailable',
+      );
+    }
     try {
       check();
       const connection: CredentialConnection = {
@@ -635,6 +667,7 @@ export class CredentialConnections {
     input: unknown,
     signal: AbortSignal,
     stillAllowed: () => boolean = () => true,
+    assertRuntimeCurrent?: () => Promise<void>,
   ) {
     const c = this.connection(id);
     const request = ConnectionRequestSchema.parse(input);
@@ -665,6 +698,8 @@ export class CredentialConnections {
       combined.throwIfAborted();
       check();
       if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
+      await assertRuntimeCurrent?.();
+      check();
       const headers = credentialHeaders(c.auth, secret);
       const response = await this.send(
         {
@@ -673,6 +708,7 @@ export class CredentialConnections {
           headers,
           body: request.body,
           allowPrivateNetwork: c.allowPrivateNetwork,
+          assertRuntimeCurrent,
         },
         combined,
       );

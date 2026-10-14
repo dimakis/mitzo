@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionRuntimeBindingV2Schema, type OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
+import { PROFILE_BUILDER_ID, profileBuilderDefinition } from '@mitzo/protocol';
 import type {
   OrdinaryLocalCodexAdmissionExpectation,
   OrdinaryLocalCodexAdmissionLease,
@@ -11,6 +12,7 @@ import type {
 } from '../ordinary-local-codex-admission.js';
 import { EventStore } from '../event-store.js';
 import { OrdinaryLocalCodexAdmissionCoordinator } from '../ordinary-local-codex-admission.js';
+import { ordinaryLocalCodexBootstrapId } from '../ordinary-local-codex-admission.js';
 
 // Entirely offline authority/store fixtures. No provider or credential access.
 function fixture(realStore?: EventStore, enabled = true, hasAuthority = true) {
@@ -228,27 +230,65 @@ describe('guarded local Codex coordinator', () => {
       reasoningEffort: 'low',
     });
   });
-  it('passes a supplied canonical profile snapshot to owning authority', async () => {
-    const f = fixture();
-    const definition = {
-      name: 'Agent',
-      descriptor: 'Test',
-      role: 'agent',
-      instructions: 'Offline',
-      expectedOutput: 'Evidence',
-      acceptanceCriteria: ['Use evidence'],
-      modelPolicyRole: 'agent',
-    };
-    const profile = {
-      profileId: 'agent',
-      revision: 1,
-      definition,
-      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
-    };
-    Object.assign(f.meta, { agentProfile: profile });
-    await f.coordinator.admit(f.meta, f.request, f.effects);
-    expect(f.authority.withAdmission.mock.calls[0][0].agentProfile).toEqual(profile);
-  });
+  it.each([true, false])(
+    'refuses a different profile namespace before local authority admission (%s)',
+    async (requestedBuiltin) => {
+      const f = fixture();
+      Object.assign(f.request.selection.agent, {
+        profileId: PROFILE_BUILDER_ID,
+        ...(requestedBuiltin ? { kind: 'builtin' } : {}),
+      });
+      Object.assign(f.meta, {
+        agentProfile: {
+          profileId: PROFILE_BUILDER_ID,
+          revision: 1,
+          ...(!requestedBuiltin ? { kind: 'builtin' } : {}),
+          definition: profileBuilderDefinition,
+          contentHash: createHash('sha256')
+            .update(JSON.stringify(profileBuilderDefinition))
+            .digest('hex'),
+        },
+      });
+      await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+        /metadata_agent_mismatch/,
+      );
+      expect(f.authority.withAdmission).not.toHaveBeenCalled();
+      expect(f.effects.prepareWorkspace).not.toHaveBeenCalled();
+      expect(f.effects.dispatch).not.toHaveBeenCalled();
+    },
+  );
+  it.each([false, true])(
+    'passes a matching profile namespace to owning authority (%s)',
+    async (builtin) => {
+      const f = fixture();
+      Object.assign(f.request.selection.agent, {
+        profileId: builtin ? PROFILE_BUILDER_ID : 'agent',
+        ...(builtin ? { kind: 'builtin' } : {}),
+      });
+      const definition = {
+        name: 'Agent',
+        descriptor: 'Test',
+        role: 'agent',
+        instructions: 'Offline',
+        expectedOutput: 'Evidence',
+        acceptanceCriteria: ['Use evidence'],
+        modelPolicyRole: 'agent',
+      };
+      const profile = {
+        profileId: f.request.selection.agent.profileId,
+        revision: 1,
+        ...(builtin ? { kind: 'builtin' } : {}),
+        definition,
+        contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+      };
+      Object.assign(f.meta, { agentProfile: profile });
+      await f.coordinator.admit(f.meta, f.request, f.effects);
+      expect(f.authority.withAdmission.mock.calls[0][0].agentProfile).toEqual(profile);
+      expect(f.authority.withAdmission.mock.calls[0][0].selection.agent).toEqual(
+        f.request.selection.agent,
+      );
+    },
+  );
   it('passes exact supplied recipe and profile snapshots to authority and persistence', async () => {
     const f = fixture();
     const { profile, snapshot } = recipeMetadata();
@@ -541,5 +581,149 @@ describe('guarded local Codex coordinator', () => {
       f.coordinator.admit(f.meta, f.request, f.effects),
     ]);
     expect(f.effects.dispatch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('owned runtime bootstrap ordering', () => {
+  function bootstrapped() {
+    const f = fixture();
+    const bootstrap = vi.fn(
+      async (
+        _expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+        claim: () => boolean,
+        operation: (lease: OrdinaryLocalCodexAdmissionLease) => Promise<{ dispatched: boolean }>,
+      ) => {
+        f.trace.push('configuration');
+        if (!claim()) return undefined;
+        f.trace.push('bootstrap');
+        return operation(f.lease);
+      },
+    );
+    const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+      ...f.dependencies,
+      authority: undefined,
+      bootstrapAuthority: { withBootstrap: bootstrap },
+    } as never);
+    return { ...f, coordinator, bootstrap };
+  }
+
+  it('persists uncertainty before owned login/runtime bootstrap and qualifies before workspace', async () => {
+    const f = bootstrapped();
+    f.lease.assertCurrent.mockImplementation(async () => {
+      f.trace.push('verify');
+    });
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).resolves.toEqual({
+      dispatched: true,
+    });
+    expect(f.trace).toEqual([
+      'configuration',
+      'persist',
+      'claim',
+      'bootstrap',
+      'verify',
+      'verify',
+      'prepare',
+      'verify',
+      'dispatch',
+      'complete',
+    ]);
+    const persisted = f.store.admitOrdinaryLocalCommand.mock.calls[0][2];
+    expect(f.bootstrap.mock.calls[0][0].bootstrapId).toBe(
+      ordinaryLocalCodexBootstrapId(f.meta.sessionId, persisted.requestFingerprint),
+    );
+    expect(f.bootstrap.mock.calls[0][0].bootstrapId).toMatch(/^[a-f0-9]{64}$/);
+    f.trace.length = 0;
+    await f.coordinator.admit(f.meta, f.request, f.effects);
+    expect(f.bootstrap.mock.calls[1][0].bootstrapId).toBe(f.bootstrap.mock.calls[0][0].bootstrapId);
+  });
+
+  it('does not bootstrap again for a consumed or uncertain command', async () => {
+    const f = bootstrapped();
+    await f.coordinator.admit(f.meta, f.request, f.effects);
+    f.trace.length = 0;
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).resolves.toEqual({
+      dispatched: false,
+    });
+    expect(f.trace).toEqual(['configuration', 'persist', 'claim']);
+    expect(f.effects.prepareWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains uncertainty if runtime qualification fails after bootstrap claim', async () => {
+    const f = bootstrapped();
+    f.lease.assertCurrent.mockRejectedValue(new Error('revoked'));
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+      'dispatch_uncertain',
+    );
+    expect(f.effects.prepareWorkspace).not.toHaveBeenCalled();
+    expect(f.effects.dispatch).not.toHaveBeenCalled();
+    expect(f.store.completeOrdinaryLocalCommand).not.toHaveBeenCalled();
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).resolves.toEqual({
+      dispatched: false,
+    });
+  });
+
+  it('rejects a bootstrap owner invoking effects without claiming or invoking twice', async () => {
+    const f = bootstrapped();
+    f.bootstrap.mockImplementationOnce(async (_expected, _claim, operation) => operation(f.lease));
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+      'authority_unavailable',
+    );
+    expect(f.effects.prepareWorkspace).not.toHaveBeenCalled();
+    f.bootstrap.mockImplementationOnce(async (_expected, claim, operation) => {
+      claim();
+      await operation(f.lease);
+      return operation(f.lease);
+    });
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+      'authority_reentry',
+    );
+    expect(f.effects.dispatch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('bound Local continuation coordinator', () => {
+  it('authorizes a future snapshot and consumes it without changing earlier receipts', async () => {
+    const store = new EventStore(':memory:');
+    try {
+      const f = fixture(store);
+      await f.coordinator.admit(f.meta, f.request, f.effects);
+      const first = store.getOrdinaryLocalCommandAdmission('command');
+      const next = {
+        ...structuredClone(f.request),
+        clientMsgId: 'next',
+        payload: { text: 'Follow up' },
+      };
+      await expect(f.coordinator.admitContinuation(f.meta, next, f.effects)).resolves.toEqual({
+        dispatched: true,
+      });
+      expect(store.getOrdinaryLocalCommandAdmission('next')?.state).toBe('consumed');
+      expect(store.getOrdinaryLocalCommandAdmission('command')).toEqual(first);
+      f.effects.dispatch.mockClear();
+      await expect(f.coordinator.admitContinuation(f.meta, next, f.effects)).resolves.toEqual({
+        dispatched: false,
+      });
+      expect(f.effects.dispatch).not.toHaveBeenCalled();
+    } finally {
+      store.close();
+    }
+  });
+  it('refuses a continuation without an owner or with revoked authorization before effects', async () => {
+    const store = new EventStore(':memory:');
+    try {
+      const f = fixture(store);
+      await f.coordinator.admit(f.meta, f.request, f.effects);
+      f.effects.dispatch.mockClear();
+      f.effects.prepareWorkspace.mockClear();
+      f.lease.assertCurrent.mockRejectedValueOnce(new Error('revoked'));
+      const next = { ...structuredClone(f.request), clientMsgId: 'next' };
+      await expect(f.coordinator.admitContinuation(f.meta, next, f.effects)).rejects.toThrow(
+        'authority_unavailable',
+      );
+      expect(store.getSendCommand('next')).toBeUndefined();
+      expect(f.effects.dispatch).not.toHaveBeenCalled();
+      expect(f.effects.prepareWorkspace).not.toHaveBeenCalled();
+    } finally {
+      store.close();
+    }
   });
 });

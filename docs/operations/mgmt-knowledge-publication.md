@@ -196,6 +196,13 @@ selection. Reconciliation or compatibility failure blocks admission instead of
 silently accepting stale knowledge. The configuration is optional: unenrolled
 hosts retain their existing seed behavior.
 
+Retained-sandbox turns verify the selected host publication and the sandbox's
+protected runtime and complete knowledge view on every admission. A valid remote
+view requires no new host upload snapshot. When upload or repair is required,
+Mitzo freezes and verifies the selected source, then requires the frozen baseline
+bytes to match those captured before remote checks. A changed publication blocks
+that admission instead of substituting another revision across the checks.
+
 SQLite adoption receipts are account-scoped and bind the conversation, command
 attempt, provider thread and acknowledged turn to the exact source, payload,
 manifest, delivered-context hash, sandbox identity, knowledge path and runtime

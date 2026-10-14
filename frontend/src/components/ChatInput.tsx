@@ -6,6 +6,7 @@ import {
   useCallback,
   useImperativeHandle,
   type RefObject,
+  type ReactNode,
   type KeyboardEvent,
   type ChangeEvent,
 } from 'react';
@@ -40,6 +41,8 @@ export interface ChatInputDraftControl {
 }
 
 interface Props {
+  settings?: ReactNode;
+  sendLabel?: string;
   onSend: (
     text: string,
     images?: ImageAttachment[],
@@ -61,6 +64,11 @@ interface Props {
   savedChatDraft?: ChatDraft;
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
+  boundedFirstCommand?: boolean;
+  /** Admit queued commands immediately with frozen settings through the owning runtime. */
+  guardedConversation?: boolean;
+  /** Validate the actual edited payload against the selected route before sending. */
+  validateSend?: (text: string, images?: ImageAttachment[]) => string | undefined;
   cwd?: string;
   voice?: UseVoiceReturn;
   branch?: string;
@@ -83,6 +91,8 @@ interface Props {
 const EMPTY_MESSAGES: FinishedMessage[] = [];
 
 export function ChatInput({
+  settings,
+  sendLabel = 'Send message',
   onSend,
   onStop,
   onInterrupt,
@@ -91,7 +101,10 @@ export function ChatInput({
   draftStorageKey: suppliedDraftStorageKey,
   savedChatDraft,
   draftControl,
-  sendDisabledReason,
+  sendDisabledReason: suppliedSendDisabledReason,
+  boundedFirstCommand = false,
+  guardedConversation = false,
+  validateSend,
   cwd,
   voice,
   branch,
@@ -178,6 +191,17 @@ export function ChatInput({
   }, [assignment, sessionId]);
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
+  const sendDisabledReason =
+    suppliedSendDisabledReason ??
+    ((boundedFirstCommand || guardedConversation) && activeContextBlocks.length
+      ? boundedFirstCommand
+        ? 'Remove attached context before sending the Local command.'
+        : 'Remove attached context before sending this conversation command.'
+      : undefined) ??
+    validateSend?.(
+      text.trim() || 'What do you see in this image?',
+      images.length ? images : undefined,
+    );
   const previousSavedId = useRef(savedChatDraft?.id);
   const savedOwnerChanging = previousSavedId.current !== savedChatDraft?.id;
   useEffect(() => {
@@ -186,20 +210,35 @@ export function ChatInput({
     setImages(savedChatDraft?.images ?? []);
     if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
   }, [savedChatDraft, savedOwnerChanging, useExternal]);
-  const [saveFailed, setSaveFailed] = useState(false);
+  const [saveResult, setSaveResult] = useState<{
+    draft: ChatDraft;
+    failed: boolean;
+    stored: boolean;
+  } | null>(null);
   useEffect(() => {
     if (!savedChatDraft || savedOwnerChanging) return;
     const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
-    setSaveFailed(
-      !saveChatDraft({
-        ...current,
-        settings: savedChatDraft.settings,
-        text,
-        images,
-        contextBlocks: activeContextBlocks,
-      }),
-    );
+    const draft = {
+      ...current,
+      settings: savedChatDraft.settings,
+      text,
+      images,
+      contextBlocks: activeContextBlocks,
+    };
+    const saved = saveChatDraft(draft);
+    setSaveResult({ draft, failed: !saved, stored: saved && getChatDraft(draft.id) !== null });
   }, [savedChatDraft, savedOwnerChanging, text, images, activeContextBlocks]);
+  // A prior revision's successful write cannot confirm current edits or a new owner.
+  const currentSave =
+    savedChatDraft &&
+    !savedOwnerChanging &&
+    saveResult?.draft.id === savedChatDraft.id &&
+    saveResult.draft.settings === savedChatDraft.settings &&
+    saveResult.draft.text === text &&
+    saveResult.draft.images === images &&
+    saveResult.draft.contextBlocks === activeContextBlocks
+      ? saveResult
+      : null;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
@@ -281,7 +320,8 @@ export function ChatInput({
   }, []);
 
   useEffect(() => {
-    textareaRef.current?.focus();
+    // Returning routes may mount after a user has focused a file control.
+    if (document.activeElement === document.body) textareaRef.current?.focus();
   }, []);
 
   useEffect(() => {
@@ -303,6 +343,7 @@ export function ChatInput({
       payload: { text: string; images: ImageAttachment[]; contextBlocks: string[] },
       queued = false,
     ): boolean => {
+      if (queued && (boundedFirstCommand || sendDisabledReason)) return false;
       const submitted = latestDraft.current;
       const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
       const pending: { assignedSessionId?: string } = {};
@@ -373,6 +414,8 @@ export function ChatInput({
       useExternal,
       draftStorageKey,
       savedChatDraft,
+      boundedFirstCommand,
+      sendDisabledReason,
     ],
   );
 
@@ -384,6 +427,9 @@ export function ChatInput({
       !sendPending.current &&
       !interruptPending.current &&
       !previewOpen &&
+      !boundedFirstCommand &&
+      !guardedConversation &&
+      !sendDisabledReason &&
       queuedMessages.length > 0
     ) {
       const q = dequeue();
@@ -394,18 +440,31 @@ export function ChatInput({
     // Keep a completed turn pending while the editor is modal. Its already
     // queued message may drain once editing closes, without sending this draft.
     if (!previewOpen || running) prevRunning.current.running = running;
-  }, [running, queuedMessages, sendOrdinary, dequeue, previewOpen]);
+  }, [
+    running,
+    queuedMessages,
+    sendOrdinary,
+    dequeue,
+    previewOpen,
+    boundedFirstCommand,
+    guardedConversation,
+    sendDisabledReason,
+  ]);
 
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
   useEffect(() => {
+    if (boundedFirstCommand || guardedConversation) {
+      setShowSlashPicker(false);
+      return;
+    }
     const trimmed = text.trimStart();
     if (trimmed.startsWith('/') && !trimmed.includes(' ')) {
       setShowSlashPicker(true);
     } else if (!trimmed.startsWith('/')) {
       setShowSlashPicker(false);
     }
-  }, [text]);
+  }, [text, boundedFirstCommand, guardedConversation]);
 
   function handleSlashSelect(name: string) {
     setText((draft) => `/${name} ${draft.trimStart().startsWith('/') ? '' : draft}`);
@@ -585,9 +644,24 @@ export function ChatInput({
     : null;
 
   function handleQueue() {
-    if (previewOpen || sendPending.current) return;
+    if (
+      boundedFirstCommand ||
+      sendDisabledReason ||
+      previewOpen ||
+      sendPending.current ||
+      interruptPending.current
+    )
+      return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
+    if (guardedConversation) {
+      sendOrdinary({
+        text: trimmed || 'What do you see in this image?',
+        images: [...images],
+        contextBlocks: [],
+      });
+      return;
+    }
     const added = enqueue({
       text: trimmed || 'What do you see in this image?',
       images: [...images],
@@ -617,7 +691,7 @@ export function ChatInput({
   }
 
   function fireQueuedAsInterrupt(index: number) {
-    if (previewOpen) return;
+    if (boundedFirstCommand || guardedConversation || sendDisabledReason || previewOpen) return;
     const q = queuedMessages[index];
     if (!q || sendPending.current || interruptPending.current || sendDisabledReason) return;
     if (!running) {
@@ -646,6 +720,7 @@ export function ChatInput({
 
   function handleInterrupt() {
     if (
+      boundedFirstCommand ||
       previewOpen ||
       sendGuard.current ||
       sendPending.current ||
@@ -691,11 +766,11 @@ export function ChatInput({
 
   return (
     <div className="chat-input chat-input--compact">
-      {savedChatDraft && (
-        <p className="chat-draft-save-status" role={saveFailed ? 'alert' : 'status'}>
-          {saveFailed
+      {currentSave && (currentSave.failed || currentSave.stored) && (
+        <p className="chat-draft-save-status" role={currentSave.failed ? 'alert' : 'status'}>
+          {currentSave.failed
             ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
-            : 'Saved to Drafts · message and settings stay editable'}
+            : 'Draft saved on this device'}
         </p>
       )}
       {images.length > 0 && (
@@ -748,9 +823,10 @@ export function ChatInput({
         <div key={i} className="chat-input-queued">
           <span className="chat-input-queued-label">{i + 1}</span>
           <span className="chat-input-queued-text">{q.text}</span>
-          {onInterrupt && (
+          {onInterrupt && !boundedFirstCommand && (
             <button
               className="chat-input-queued-btn chat-input-queued-btn--fire"
+              disabled={!!sendDisabledReason}
               onClick={() => fireQueuedAsInterrupt(i)}
               title={running ? 'Send now (interrupt)' : 'Send now'}
             >
@@ -782,6 +858,7 @@ export function ChatInput({
           placeholder={running ? 'Type to queue or interrupt...' : 'Message Mitzo...'}
           rows={1}
         />
+        {settings}
         <div className="composer-toolbar">
           <div
             className="chat-input-command-strip"
@@ -793,7 +870,7 @@ export function ChatInput({
           >
             <ComposerTools
               terminalHref={
-                sessionId
+                sessionId && !boundedFirstCommand && !guardedConversation
                   ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
                   : undefined
               }
@@ -803,6 +880,7 @@ export function ChatInput({
                 textareaRef.current?.focus();
               }}
               commandsExpanded={showSlashPicker}
+              commandsDisabled={boundedFirstCommand || guardedConversation}
               onAttach={() => fileInputRef.current?.click()}
               attachmentDisabled={images.length >= MAX_IMAGE_ATTACHMENTS}
               onDismiss={() => textareaRef.current?.focus()}
@@ -824,6 +902,7 @@ export function ChatInput({
             {!useExternal && (
               <SessionTray
                 placement="toolbar"
+                contextRemovalOnly={boundedFirstCommand || guardedConversation}
                 messages={messages}
                 current={current}
                 bootContext={bootContext}
@@ -847,20 +926,22 @@ export function ChatInput({
             {micProps && <MicButton {...micProps} />}
             {running ? (
               <>
-                {canSend && onInterrupt && (
+                {canSend && onInterrupt && !boundedFirstCommand && (
                   <button
                     className="chat-input-btn chat-input-btn--interrupt"
                     aria-label="Interrupt and send now"
+                    disabled={!!sendDisabledReason}
                     onClick={handleInterrupt}
                     title="Interrupt — send now, mid-thinking"
                   >
                     <UiIcon name="interrupt" />
                   </button>
                 )}
-                {canSend && (
+                {canSend && !boundedFirstCommand && (
                   <button
                     className="chat-input-btn chat-input-btn--queue"
                     aria-label="Queue message"
+                    disabled={!!sendDisabledReason}
                     onClick={handleQueue}
                     title="Queue — send after current turn"
                   >
@@ -878,12 +959,13 @@ export function ChatInput({
               </>
             ) : (
               <button
-                className="chat-input-btn chat-input-btn--send"
+                className={`chat-input-btn chat-input-btn--send${sendLabel === 'Start session' ? ' chat-input-btn--start' : ''}`}
                 onClick={handleSend}
-                aria-label="Send message"
+                aria-label={sendLabel}
                 disabled={!canSend || !!sendDisabledReason}
               >
                 <UiIcon name="send" />
+                {sendLabel === 'Start session' && <span>{sendLabel}</span>}
               </button>
             )}
           </div>

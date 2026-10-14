@@ -449,15 +449,17 @@ export function SessionList() {
         </div>
       )}
       <div className="session-list-scroll">
-        <Link to="/sessions/drafts" className="conversation-drafts-link">
-          <UiIcon name="edit" />
-          <span>
-            <strong>Drafts</strong>
-            <span className="workspace-muted">Pick up where you left off</span>
-          </span>
-          <span className="conversation-draft-count">{drafts.length}</span>
-          <UiIcon name="forward" size={16} />
-        </Link>
+        {drafts.length > 0 && (
+          <Link to="/sessions/drafts" className="conversation-drafts-link">
+            <UiIcon name="edit" />
+            <span>
+              <strong>Drafts</strong>
+              <span className="workspace-muted">Pick up where you left off</span>
+            </span>
+            <span className="conversation-draft-count">{drafts.length}</span>
+            <UiIcon name="forward" size={16} />
+          </Link>
+        )}
         {importOpen && (
           <SdkConversationImport
             onClose={() => {

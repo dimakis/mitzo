@@ -517,3 +517,53 @@ it('retains a scoped prepare receipt when its response is lost without contamina
   expect(onChange).toHaveBeenLastCalledWith({ blocked: true, repositoryWorkspaceId: preview.id });
   expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
 });
+
+it('retains the same ready preparation across a supported model edit and exposes only server-qualified runtime metadata', async () => {
+  const ordinaryRuntime = {
+    version: 2 as const,
+    account: { accountId: 'account', provider: 'openai' as const, profileRevision: 'profile-r1' },
+    harness: { implementation: 'responses' as const },
+    execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'target-r1' },
+  };
+  const onChange = vi.fn();
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? { available: true, repositories: [] }
+            : { ...preview, state: 'ready', ordinaryRuntime },
+        ),
+      ),
+  );
+  const { rerender } = render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model-A"
+      initialPreparationId={preview.id}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByText(/Ready for your first prompt/);
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime,
+  });
+  rerender(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model-B"
+      initialPreparationId={preview.id}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByText(/Ready for your first prompt/);
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime,
+  });
+  expect(api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
+  expect(api.fetch.mock.calls.some(([url]) => String(url).includes(`/${preview.id}?`))).toBe(true);
+});

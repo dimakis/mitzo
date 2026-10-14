@@ -1,3 +1,8 @@
+import {
+  sessionProfileTools,
+  profileToolDefinitions,
+  type ProfileToolCall,
+} from './session-profile-tools.js';
 import { sessionRepositoryTools, REPOSITORY_CHAT_INSTRUCTIONS } from './repository-chat-tools.js';
 import {
   buildPermissionHandler,
@@ -17,6 +22,9 @@ import { connectionGuide } from './connection-guide.js';
 export const CONNECTION_TOOL_INSTRUCTIONS =
   '\nFor services, call ListConnections first; GetConnectionGuide explains setup/use. Credentials belong only in secure setup cards, never chat or workspace files. Request session access before use.\n' +
   REPOSITORY_CHAT_INSTRUCTIONS;
+/** Native API tools run on the host; shared OpenShell CLI guidance cannot grant their shell egress. */
+export const API_CONNECTION_INSTRUCTIONS =
+  '\nThis is a host API chat. For live Jira, call ListConnections and use approved ConnectionRequest reads through a Keychain connection. Load GetConnectionGuide for Jira setup and pagination. Shared ./mgmt jira guidance applies to the OpenShell transport; API Bash has no network or credentials. Do not install requests or search editor configuration to make that CLI work.\n';
 export function sessionCredentialTools(
   sessionId: string,
   session: ManagedSession,
@@ -36,11 +44,29 @@ export function sessionCredentialTools(
       signal: AbortSignal,
     ) => Promise<{ content: string; isError: boolean }>;
   },
+  assertRuntimeCurrent?: () => Promise<void>,
+  assertRuntimeCurrentSync?: () => void,
 ) {
-  const repositoryTools = sessionRepositoryTools(sessionId, session, registry, toolPrefix);
+  const profileTools = sessionProfileTools(
+    sessionId,
+    session,
+    registry,
+    toolPrefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  );
+  const repositoryTools = sessionRepositoryTools(
+    sessionId,
+    session,
+    registry,
+    toolPrefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  );
   const currentService = getCredentialConnectionsRuntime();
   const owner = () => registry.findBySessionId(sessionId);
   const stillAllowed = (name: string, method?: string) => {
+    assertRuntimeCurrentSync?.();
     const current = owner();
     return (
       !!current &&
@@ -67,18 +93,38 @@ export function sessionCredentialTools(
     ? createCredentialConnectionTools(
         currentService,
         sessionId,
-        (name, input, opts) => {
+        async (name, input, opts) => {
+          await assertRuntimeCurrent?.();
           const current = owner();
           if (!current || !credentialAllowed(name))
             return Promise.resolve({ behavior: 'deny', message: 'Session unavailable' });
-          return buildPermissionHandler(current.clientId, registry)(toolPrefix + name, input, opts);
+          const decision = await buildPermissionHandler(current.clientId, registry)(
+            toolPrefix + name,
+            input,
+            opts,
+          );
+          await assertRuntimeCurrent?.();
+          return decision;
         },
         credentialAllowed,
+        assertRuntimeCurrent,
       )
     : undefined;
   return {
-    definitions: [...credentialConnectionToolDefinitions, ...repositoryTools.definitions],
-    async execute(name: string, input: Record<string, unknown>, signal: AbortSignal) {
+    definitions: [
+      ...credentialConnectionToolDefinitions,
+      ...repositoryTools.definitions,
+      ...profileToolDefinitions,
+    ],
+    async execute(
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      call?: ProfileToolCall,
+    ) {
+      await assertRuntimeCurrent?.();
+      const profileResult = await profileTools.execute(name, input, signal, call);
+      if (profileResult) return profileResult;
       const repositoryResult = await repositoryTools.execute(name, input, signal);
       if (repositoryResult) return repositoryResult;
       if (!credentialConnectionToolDefinitions.some((t) => t.name === name)) return undefined;

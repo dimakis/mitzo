@@ -226,6 +226,132 @@ describe('createMitzoStore', () => {
 });
 
 describe('switchSession', () => {
+  it('recovers the assigned new chat on a surviving foreground stream', async () => {
+    vi.useFakeTimers();
+    let visibility = 'visible';
+    const browserListeners = new Map<string, () => void>();
+    vi.stubGlobal('document', {
+      get visibilityState() {
+        return visibility;
+      },
+      addEventListener: (type: string, listener: () => void) =>
+        browserListeners.set(type, listener),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    let welcome!: (event: MessageEvent) => void;
+    const source = {
+      addEventListener: (type: string, listener: (event: MessageEvent) => void) => {
+        if (type === 'welcome') welcome = listener;
+      },
+      removeEventListener: vi.fn(),
+      close: vi.fn(),
+      onmessage: null as ((event: MessageEvent) => void) | null,
+      onerror: null,
+    };
+    const emit = (message: Record<string, unknown>) =>
+      source.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }));
+    // Keep mode hydration delayed until foreground recovery. Initial send
+    // acceptance now attaches immediately, before that lifecycle transition.
+    let recovering = false;
+    const fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/probe'))
+        emit({ type: '_probe', nonce: JSON.parse(String(init?.body)).nonce });
+      if (url.endsWith('/reconnect') && recovering)
+        emit({ type: 'mode_changed', sessionId: 'assigned', mode: 'ask' });
+      if (url.endsWith('/send')) {
+        const body = JSON.parse(String(init?.body));
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            accepted: true,
+            clientMsgId: body.clientMsgId,
+            sessionId: 'assigned',
+          }),
+        };
+      }
+      return { ok: true };
+    });
+    const store = createMitzoStore({
+      ...makeOptions(),
+      sseConfig: {
+        baseUrl: '',
+        fetch,
+        createEventSource: () => source as unknown as EventSource,
+      },
+    });
+    try {
+      welcome(new MessageEvent('welcome', { data: JSON.stringify({ connectionId: 'surviving' }) }));
+      store.getState().newSession();
+      store.getState().sendMessage('Start this chat');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.getState().sessions.active).toBe('assigned');
+      expect(store.getState().modeChangeReady).toBe(false);
+      visibility = 'hidden';
+      browserListeners.get('visibilitychange')?.();
+      await vi.advanceTimersByTimeAsync(0);
+      fetch.mockClear();
+      recovering = true;
+      visibility = 'visible';
+      browserListeners.get('visibilitychange')?.();
+      await vi.advanceTimersByTimeAsync(0);
+      const switches = fetch.mock.calls.filter(([url]) => String(url).endsWith('/switch'));
+      expect(switches).toHaveLength(1);
+      expect(JSON.parse(String(switches[0][1]?.body))).toMatchObject({ sessionId: 'assigned' });
+      expect(store.getState().modeChangeReady).toBe(true);
+    } finally {
+      store.getState().invalidateAuthentication();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a streaming response intact when an HTTP control fails', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('selected');
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'selected', mode: 'agent' });
+    lastWs.simulateMessage({ type: 'message_start', sessionId: 'selected', messageId: 'answer' });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'selected',
+      blockId: 'text',
+      blockType: 'text',
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'selected',
+      blockId: 'text',
+      delta: 'preserved',
+    });
+    lastWs.simulateMessage({
+      type: 'session_state_changed',
+      sessionId: 'selected',
+      state: 'running',
+    });
+    const messages = store.getState().messages;
+    lastWs.simulateMessage({
+      type: '_control_error',
+      operation: 'switch',
+      sessionId: 'selected',
+      error: 'Route unavailable',
+    });
+    expect(store.getState().messages).toBe(messages);
+    expect(store.getState().messages.running).toBe(true);
+    expect(store.getState().messages.current?.blocks.get('text')?.content).toBe('preserved');
+    expect(store.getState().sendError).toBe('Route unavailable');
+    lastWs.simulateMessage({ type: '_control_error', operation: 'suspend', error: 'Backgrounded' });
+    expect(store.getState().messages).toBe(messages);
+    lastWs.simulateMessage({
+      type: '_control_error',
+      operation: 'switch',
+      sessionId: 'other',
+      error: 'Old view',
+    });
+    expect(store.getState().sendError).toBe('Route unavailable');
+  });
+
   it('commits the transcript cursor and drains a successor buffered during opening', async () => {
     const transport = mockTransport();
     let resolveHistory!: (value: unknown) => void;
@@ -2682,6 +2808,46 @@ describe('task CRUD actions', () => {
 });
 
 describe('foreground recovery', () => {
+  it('keeps loaded messages visible without history loading while foreground recovery is pending', async () => {
+    const transport = mockTransport();
+    let finish!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url.includes('/messages')
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ ok: true, json: async () => [] }),
+    );
+    const store = createReadyStore(transport);
+    const existing = {
+      messageId: 'existing',
+      role: 'assistant' as const,
+      blocks: [],
+      isStreaming: false,
+    };
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+      messages: { ...s.messages, messages: [existing] },
+    }));
+    lastWs.simulateMessage({ type: '_foreground' });
+    expect(store.getState().historyLoading).toBe(false);
+    expect(store.getState().messages.messages).toEqual([existing]);
+    finish({
+      ok: true,
+      json: async () => [
+        existing,
+        { messageId: 'missed', role: 'assistant', blocks: [], isStreaming: false },
+      ],
+    });
+    await vi.waitFor(() =>
+      expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual([
+        'existing',
+        'missed',
+      ]),
+    );
+    expect(store.getState().historyLoading).toBe(false);
+  });
+
   it('restores seat currents while retaining a newer ordinary current covered by the cursor', async () => {
     const seat = {
       seatId: 'architect',
@@ -3304,6 +3470,8 @@ it('rejects a foreign same-ID echo for an assigned observed ordinary send', asyn
 it('rejects foreign same-ID history and accepts the original ordinary send transcript once', async () => {
   const transport = mockTransport();
   const store = createReadyStore(transport);
+  // Other stores can reconnect during awaits and replace the shared fixture pointer.
+  const socket = lastWs;
   await store.getState().switchSession('target');
   const onDelivery = vi.fn();
   store.getState().sendMessage('Exact draft', { onDelivery });
@@ -3314,22 +3482,22 @@ it('rejects foreign same-ID history and accepts the original ordinary send trans
     json: async () =>
       url.includes('/messages') ? [{ messageId: id, role: 'user', blocks: [], timestamp: 1 }] : [],
   }));
-  lastWs.simulateMessage({ type: '_foreground' });
+  socket.simulateMessage({ type: '_foreground' });
   await vi.waitFor(() =>
     expect(store.getState().messages.messages.some((m) => m.messageId === id)).toBe(true),
   );
   expect(onDelivery).not.toHaveBeenCalled();
   await store.getState().switchSession('target');
-  lastWs.simulateMessage({ type: '_foreground' });
+  socket.simulateMessage({ type: '_foreground' });
   await vi.waitFor(() => expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted'));
-  lastWs.simulateMessage({
+  socket.simulateMessage({
     type: 'user_message',
     sessionId: 'target',
     messageId: id,
     text: 'Exact draft',
   });
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
-  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
+  expect(socket.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
 });
 
 it('scopes offscreen reconnect receipts to their requested session instead of another send ID', async () => {

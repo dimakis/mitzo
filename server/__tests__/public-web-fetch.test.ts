@@ -35,7 +35,7 @@ describe('approved credential-free public website reads', () => {
     });
     expect(send.mock.calls[0][1]).toEqual({ address: '93.184.216.34', family: 4 });
     expect(output).toContain('https://example.com/');
-    expect(output).toContain('<h1>Revenue</h1>');
+    expect(output).toContain('Revenue');
   });
   it('requires a new approval for a redirect to another origin', async () => {
     const send = vi.fn().mockResolvedValue({
@@ -65,7 +65,7 @@ describe('approved credential-free public website reads', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
   it.each([
-    { ...page, body: 'x'.repeat(131073) },
+    { ...page, body: 'x'.repeat(2097153) },
     { ...page, headers: { 'content-type': 'application/octet-stream' } },
     { ...page, status: 403 },
   ])('does not relay oversized, binary or failed responses', async (response) => {
@@ -93,7 +93,10 @@ describe('approved credential-free public website reads', () => {
 });
 
 it.each([
-  [{ ...page, body: 'x'.repeat(131073) }, 'Approved read exceeded the 128 KB page limit.'],
+  [
+    { ...page, body: 'x'.repeat(2097153) },
+    'Approved read exceeded the 2 MB download safety limit.',
+  ],
   [
     { ...page, headers: { 'content-type': 'application/octet-stream' } },
     'Approved read returned an unsupported format or compression.',

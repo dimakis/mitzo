@@ -11,6 +11,10 @@ vi.mock('../account-profiles.js', async (original) => ({
   ...(await original<object>()),
   loadAccountProfiles: () => ({ ...catalog, privateCodexRoots: () => [] }),
 }));
+vi.mock('../codex-chat-session.js', async (original) => ({
+  ...(await original<object>()),
+  readCodexQueue: () => undefined,
+}));
 vi.mock('../auth.js', async (original) => ({
   ...(await original<object>()),
   authMiddleware: (_req: Request, _res: Response, next: NextFunction) => next(),
@@ -76,4 +80,68 @@ it('observes deletion during optional catalog refresh before returning reuse eli
   const response = await request(app).get('/api/sessions/during-refresh/meta');
   expect(response.status).toBe(200);
   expect(response.body.isHidden).toBe(true);
+});
+
+it('retains the last admitted model and thinking when optional account refresh fails on reopen', async () => {
+  const account = {
+    accountId: 'personal',
+    accountLabel: 'Personal',
+    provider: 'openai-codex' as const,
+    model: 'first',
+    profileRevision: 'fixture',
+  };
+  const meta = {
+    sessionId: 'ordinary-retained-settings',
+    cwd: '/offline/retained-task',
+    repositoryWorkspaceId: 'workspace',
+    accountBinding: account,
+  };
+  const runtime = {
+    version: 2,
+    account: {
+      accountId: account.accountId,
+      provider: account.provider,
+      profileRevision: account.profileRevision,
+    },
+    harness: { implementation: 'codex' },
+    execution: { location: 'local', targetId: 'mac', targetRevision: 'fixture' },
+  };
+  const selection = {
+    version: 1 as const,
+    model: 'first',
+    thinking: 'low',
+    agent: { profileId: 'published', revision: 1 },
+    context: { source: 'none' as const, revision: null },
+    permission: { mode: 'agent' as const, revision: 0 },
+  };
+  store.admitOrdinaryLocalCommand(meta, runtime, {
+    clientMsgId: 'settings-first',
+    requestFingerprint: 'first',
+    selection,
+    payload: { text: 'First' },
+  });
+  store.claimOrdinaryLocalCommandDispatch('settings-first');
+  store.completeOrdinaryLocalCommand('settings-first');
+  store.admitOrdinaryLocalContinuation(
+    { ...meta, accountBinding: { ...account, model: 'next' } },
+    runtime,
+    {
+      clientMsgId: 'settings-next',
+      requestFingerprint: 'next',
+      selection: { ...selection, model: 'next', thinking: 'high' },
+      payload: { text: 'Next' },
+    },
+  );
+  catalog.refresh.mockRejectedValueOnce(Error('Optional catalogue unreadable'));
+  const response = await request(app).get(
+    '/api/sessions/ordinary-retained-settings/meta?refresh=1',
+  );
+  expect(response.status).toBe(200);
+  expect(response.body.modelSelection).toEqual({
+    model: 'next',
+    reasoningEffort: 'high',
+    models: [],
+  });
+  expect(response.body.accountBinding.model).toBe('first');
+  expect(store.getSessionRuntimeBinding(meta.sessionId)).toEqual(runtime);
 });

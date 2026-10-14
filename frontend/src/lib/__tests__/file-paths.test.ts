@@ -226,6 +226,28 @@ describe('detectFilePaths', () => {
 });
 
 describe('linkifyFilePaths', () => {
+  it.each(['', '?revision=2', '?revision=12'])(
+    'preserves the full bare Telos destination with suffix %s',
+    (suffix) => {
+      const url = '/api/telos/artifacts/' + 'a'.repeat(32) + suffix;
+      expect(linkifyFilePaths(`Saved ${url}.`)).toBe(
+        `Saved [${url}](${FILE_SCHEME}${encodeURIComponent(url)}).`,
+      );
+      expect(detectFilePaths(url)).toEqual([{ path: url, start: 0, end: url.length }]);
+      for (const input of [`[artifact](${url})`, `\`${url}\``, `\`\`\`\n${url}\n\`\`\``]) {
+        expect(linkifyFilePaths(input)).toBe(input);
+      }
+    },
+  );
+
+  it.each(['?revision=0', '?revision=2extra', '?revision=2&revision=3', '#details'])(
+    'does not turn an unsupported Telos suffix %s into a latest-revision link',
+    (suffix) => {
+      const input = '/api/telos/artifacts/' + 'a'.repeat(32) + suffix;
+      expect(linkifyFilePaths(input)).toBe(input);
+    },
+  );
+
   it('wraps absolute paths in markdown links', () => {
     const input = 'Created /tmp/output.md for you.';
     const result = linkifyFilePaths(input);

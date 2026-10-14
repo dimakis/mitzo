@@ -88,14 +88,20 @@ function canonical(path: string): string {
 }
 /** Retain lexical selections and physical targets across re-enrollment/removal.
  * Lexical interpreter/provider links are authority: replacing them changes code.
+ * Server owners register only their already qualified paths. Private metadata
+ * is unreadable as well as unwritable; public executable code stays readable.
  */
-export function workspaceRuntimeAuthorityPaths(): string[] {
-  const configured = configuredWorkspaceRuntimePrivatePaths();
-  for (const path of configured.slice(0, 2)) {
+export function registerWorkspaceRuntimeAuthorityPaths(
+  paths: readonly string[],
+  privateFiles: readonly string[] = [],
+): void {
+  for (const path of privateFiles) {
+    absolute(path);
     observedPrivateFiles.add(resolve(path));
     observedPrivateFiles.add(canonical(path));
   }
-  for (const path of configured) {
+  for (const path of new Set([...paths, ...privateFiles])) {
+    absolute(path);
     observeSelectorLinks(path);
     observedAuthority.add(resolve(path));
     // Resolve parent aliases without following the final selected executable
@@ -103,6 +109,10 @@ export function workspaceRuntimeAuthorityPaths(): string[] {
     observedAuthority.add(join(canonical(dirname(path)), basename(path)));
     observedAuthority.add(canonical(path));
   }
+}
+export function workspaceRuntimeAuthorityPaths(): string[] {
+  const configured = configuredWorkspaceRuntimePrivatePaths();
+  registerWorkspaceRuntimeAuthorityPaths(configured, configured.slice(0, 2));
   return [...observedAuthority];
 }
 /** Confidential metadata is unreadable; public runtime code may still execute. */

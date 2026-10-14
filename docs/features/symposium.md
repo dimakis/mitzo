@@ -84,6 +84,38 @@ adapter does not compile or authorize recipe context sources and explicitly reje
 recipe-bearing saved profiles. Use Default Mitzo or a compatible saved profile without
 a context recipe. Accepted compiler source does not prove runtime context adoption.
 
+## Artifact route composition ownership
+
+`server/symposium-artifact-route-composition.ts` owns the publication, review and
+source mounts between ordinary GitHub publication and the Director. It uses the
+existing stores and resolves the current host, source capability, review runtime,
+publication registration and repository configuration at request time. `app.ts`
+retains store lifetimes, host/runtime installation and publication approval hooks.
+Reviews retain their own operator middleware and request-action authority;
+publication and source retain their outer operator middleware and existing
+reauthorization/JSON checks. No native or legacy path is retired by this extraction.
+
+## Director route composition ownership
+
+`server/symposium-director-route-composition.ts` owns the Director mount directly
+after the artifact routes, with the existing outer operator middleware. It adapts
+current account validation, grant operations and event-store perspectives for the
+Director. Host readiness, account catalogs and verified runtimes are resolved at
+request time; the safety orchestrator remains available independently of a verified
+runtime. `app.ts` retains construction, installation and teardown of all borrowed
+stores, grants, registry, hosts and runtimes. Unbound Director selections retain
+their existing validation behavior; host grant construction still requires a binding.
+
+The configuration family is owned by `server/symposium-director-configuration.ts`:
+draft, selection, activation, seat revision, configuration updates and operation
+receipts. The Director router registers these handlers directly in their existing
+positions. Operator-bound receipt replay precedes current runtime/account/revision
+checks, preserves exact canonical requests and returns the original committed
+configuration without minting new grants. The legacy identical-config retry remains
+separate from keyed operation proof. Mutation-started flags retain their existing
+uncertainty semantics. Membership uses the same cross-account predicate; safety,
+recovery, perspectives and dispatch remain in the Director router.
+
 ## Reference map
 
 | Question                                                    | Read                                                                                                                                                                   |

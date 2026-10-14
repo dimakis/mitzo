@@ -1,6 +1,7 @@
 import {
   sessionCredentialTools,
   CONNECTION_TOOL_INSTRUCTIONS,
+  API_CONNECTION_INSTRUCTIONS,
 } from './session-credential-tools.js';
 import {
   createGithubPublishingTool,
@@ -29,6 +30,7 @@ import type {
   ProviderAttemptTerminalReason,
   ProviderAttemptToken,
 } from '@mitzo/protocol';
+import type { ResponsesCommandAuthority } from './native-responses-runner.js';
 import { NativeResponsesRunner } from './native-responses-runner.js';
 import { responsesUserContent } from './responses-input.js';
 import { NativeResponsesStore } from './native-responses-store.js';
@@ -95,7 +97,7 @@ function persistPendingCancellation(pending: PendingProviderAdmission): void {
   pending.eventStore.transitionExecution(pending.admission.token, 'TERMINAL', 'interrupted');
   pending.cancellationPersisted = true;
 }
-function store() {
+export function getNativeResponsesStore() {
   if (!privateStore) {
     const directory = codexPrivateDirectory();
     mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -105,6 +107,9 @@ function store() {
   return privateStore;
 }
 interface Options {
+  commandAuthority?: ResponsesCommandAuthority;
+  /** Server-owned initial/retained command fence before the first active turn exists. */
+  assertStartupCurrent?: () => void;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
@@ -141,25 +146,50 @@ interface Options {
 }
 /** API execution uses the shared interaction policy and a private continuation store. */
 export async function openResponsesChat(options: Options) {
+  let initializing = true;
+  let publishingTurnId: string = randomUUID();
+  const assertRuntimeCurrent = options.commandAuthority
+    ? () => options.commandAuthority!.assertEffect(publishingTurnId)
+    : undefined;
+  const assertRuntimeCurrentSync = options.commandAuthority
+    ? () => options.commandAuthority!.assertStart(publishingTurnId)
+    : undefined;
+  const assertMcpCurrent = options.commandAuthority
+    ? () => {
+        if (initializing) {
+          if (!options.assertStartupCurrent)
+            throw Error('Owned Responses startup authority unavailable');
+          options.assertStartupCurrent();
+        } else assertRuntimeCurrentSync!();
+      }
+    : undefined;
   const signal = options.session.abortController.signal;
   const connectionTools = sessionCredentialTools(
     options.conversationId,
     options.session,
     options.registry,
+    '',
+    undefined,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
   );
   signal.throwIfAborted();
-  const privateStorage = options.store ?? store();
+  const privateStorage = options.store ?? getNativeResponsesStore();
   const { hooks, dispose } = createNativeHooks(
     options.session.cwd!,
     options.conversationId,
     options.env,
-    { trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1' },
+    {
+      trustProjectHooks: !options.commandAuthority && process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
+    },
   );
   let startup;
   try {
+    assertMcpCurrent?.();
     startup = options.agentContext
       ? {}
       : await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal);
+    assertMcpCurrent?.();
   } catch (error) {
     dispose();
     throw error;
@@ -168,27 +198,32 @@ export async function openResponsesChat(options: Options) {
     cwd: options.session.cwd!,
     env: options.env,
     signal,
+    assertRuntimeCurrent: assertMcpCurrent,
   }).catch((error) => {
     dispose();
     throw error;
   });
+  initializing = false;
   const githubPublishing = createGithubPublishingTool(
     options.conversationId,
     options.registry,
     () => hostGithubPublishingSource(options.session, options.publishingGitStorageRoots),
+    options.session,
+    assertRuntimeCurrent,
   );
-  let publishingTurnId: string = randomUUID();
   let interrupted = false;
   let activeTurnFinalized: Promise<void> | undefined;
   let completeActiveTurn: (() => void) | undefined;
   const systemPrompt =
     options.systemPrompt +
     CONNECTION_TOOL_INSTRUCTIONS +
+    API_CONNECTION_INSTRUCTIONS +
     HOST_TOOL_INSTRUCTIONS +
     WEB_ACCESS_INSTRUCTIONS +
     GITHUB_PUBLISHING_INSTRUCTIONS +
     (startup.context ? `\n\n${startup.context}` : '');
   const runner = new NativeResponsesRunner({
+    commandAuthority: options.commandAuthority,
     conversationId: options.conversationId,
     binding: options.binding,
     apiKey: options.apiKey,
@@ -208,12 +243,18 @@ export async function openResponsesChat(options: Options) {
       githubPublishingDefinition,
     ],
     executeTool: async (block, signal) => {
+      if (options.commandAuthority) await options.commandAuthority.assertEffect(publishingTurnId);
       const result = await hooks.executeTool(
         block.name,
         block.input,
         signal,
         async (input, forcePrompt) => {
-          const keychainResult = await connectionTools.execute(block.name, input, signal);
+          if (options.commandAuthority)
+            await options.commandAuthority.assertEffect(publishingTurnId);
+          const keychainResult = await connectionTools.execute(block.name, input, signal, {
+            turnId: publishingTurnId,
+            callId: block.id,
+          });
           if (keychainResult) return keychainResult;
           if (block.name === REQUEST_GITHUB_PUBLISH)
             return githubPublishing(input, signal, { turnId: publishingTurnId, callId: block.id });
@@ -230,6 +271,7 @@ export async function openResponsesChat(options: Options) {
                       options.getApiKey ? await options.getApiKey(signal) : options.apiKey!,
                       runner.getSelectedModel(),
                     ),
+              assertRuntimeCurrent,
             )(input, signal);
           }
           const owner = options.registry.findBySessionId(options.conversationId);
@@ -238,14 +280,14 @@ export async function openResponsesChat(options: Options) {
             const result = await mcp.execute(
               block.name,
               input,
-              (name, input, signal) =>
-                buildPermissionHandler(owner.clientId, options.registry, {
+              async (name, input, signal) => {
+                const decision = await buildPermissionHandler(owner.clientId, options.registry, {
                   onDemandCreate: options.onDemandCreate,
-                })(name, input, {
-                  signal,
-                  toolUseID: randomUUID(),
-                  forcePrompt,
-                }),
+                })(name, input, { signal, toolUseID: randomUUID(), forcePrompt });
+                if (options.commandAuthority)
+                  await options.commandAuthority.assertEffect(publishingTurnId);
+                return decision;
+              },
               signal,
             );
             return result;
@@ -253,6 +295,12 @@ export async function openResponsesChat(options: Options) {
           const result = await createNativeToolExecutor(owner.clientId, options.registry, {
             env: options.env,
             forcePrompt,
+            assertRuntimeCurrentAsync: options.commandAuthority
+              ? () => options.commandAuthority!.assertEffect(publishingTurnId)
+              : undefined,
+            assertRuntimeCurrent: options.commandAuthority
+              ? () => options.commandAuthority!.assertStart(publishingTurnId)
+              : undefined,
             onDemandCreate: options.onDemandCreate,
           })({ ...block, input }, signal);
           return { content: result.content, isError: !!result.is_error };
@@ -336,6 +384,8 @@ export async function openResponsesChat(options: Options) {
             throw new Error('Google Vertex image attachments are not supported');
           }
           const content = responsesUserContent(message.message.content, message.mitzoImages);
+          if (options.commandAuthority)
+            options.commandAuthority.assertStart(message.mitzoMessageId!);
           let providerAttempt: ProviderAttemptToken | undefined;
           if (providerAdmission) {
             const attempt = options.eventStore!.beginProviderAttempt(

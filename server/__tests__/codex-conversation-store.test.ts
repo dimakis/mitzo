@@ -300,6 +300,36 @@ it('migrates existing conversations to unresolved search authority and persists 
   });
   reopened.close();
 });
+it('observes running work without loading completed command payloads and enforces its binding', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'history', prompt: 'retained development history' });
+  s.claimNext('c', binding);
+  s.finish('c', binding, 'history', 'completed');
+  s.enqueue('c', binding, { id: 'child', prompt: 'continue' });
+  expect(s.hasRunningCommand('c', binding)).toBe(false);
+  s.claimNext('c', binding);
+  // Historical payload decoding is deliberately unavailable: metadata needs only status.
+  const db = new Database(path);
+  db.prepare('UPDATE codex_commands SET input=? WHERE conversation_id=? AND id=?').run(
+    'unavailable historical payload',
+    'c',
+    'history',
+  );
+  db.close();
+  const historyRead = vi.spyOn(s, 'commands').mockImplementation(() => {
+    throw new Error('full history must not be loaded');
+  });
+  expect(s.hasRunningCommand('c', binding)).toBe(true);
+  expect(() => s.hasRunningCommand('c', { ...binding, accountId: 'other' })).toThrow('binding');
+  expect(() => s.hasRunningCommand('missing', binding)).toThrow();
+  s.finish('c', binding, 'child', 'completed');
+  expect(s.hasRunningCommand('c', binding)).toBe(false);
+  expect(historyRead).not.toHaveBeenCalled();
+  historyRead.mockRestore();
+  s.close();
+});
 it('deduplicates queued prompts and preserves pending work through restart without replaying running work', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);

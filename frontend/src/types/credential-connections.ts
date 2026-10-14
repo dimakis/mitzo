@@ -64,12 +64,13 @@ export interface ConnectionSetup {
   revision: number;
   status: 'pending' | 'verifying' | 'ready' | 'cancelled' | 'expired';
   expiresAt: number;
-  profile: 'home-assistant' | 'custom';
+  profile: 'home-assistant' | 'jira' | 'custom';
   connection: CredentialConnectionInput;
   credential: { label: string; helpUrl?: string; instructions: string };
   connectionId?: string;
   delivery?: 'pending' | 'delivered';
   connectionRevision?: number;
   error?: string;
+  errorCode?: string;
   setupUrl: string;
 }

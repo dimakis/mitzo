@@ -25,6 +25,7 @@ const mockEventStore = {
   listSessionsLimited: vi.fn().mockReturnValue([]),
   getEventsAfter: vi.fn().mockReturnValue([]),
   getSessionEvents: vi.fn().mockReturnValue([]),
+  getLatestEvent: vi.fn().mockReturnValue(null),
   markSessionInactive: vi.fn(),
   hideSession: vi.fn(),
   incrementPromptCount: vi.fn().mockReturnValue(1),
@@ -178,6 +179,57 @@ describe('SDK discovery admission', () => {
 });
 
 describe('getSessionsCached', () => {
+  it('keeps explicit titles and never replaces a manually cleared title', async () => {
+    mockListSessionsMeta.mockReturnValue([
+      {
+        sessionId: 'renamed',
+        conversationSource: 'mitzo',
+        summary: 'My chosen name',
+        initialPrompt: 'Fix calendar sync',
+        numTurns: 1,
+        updatedAt: 1000,
+      },
+      {
+        sessionId: 'cleared',
+        conversationSource: 'mitzo',
+        summary: '',
+        manuallyRenamed: true,
+        initialPrompt: 'Fix calendar sync',
+        numTurns: 1,
+        updatedAt: 900,
+      },
+    ]);
+    const { getSessionsCached } = await import('../chat.js');
+    expect(getSessionsCached().sessions.map((session) => session.summary)).toEqual([
+      'My chosen name',
+      '',
+    ]);
+    expect(mockEventStore.getLatestEvent).not.toHaveBeenCalled();
+  });
+
+  it.each(['initial-prompt', 'durable-user-event'])(
+    'recovers blank native titles from %s locally',
+    async (source) => {
+      mockListSessionsMeta.mockReturnValue([
+        {
+          sessionId: 'native-unnamed',
+          conversationSource: 'mitzo',
+          summary: '',
+          initialPrompt: source === 'initial-prompt' ? 'Fix calendar sync' : null,
+          numTurns: 1,
+          promptCount: 0,
+          isActive: false,
+          updatedAt: 1000,
+        },
+      ]);
+      mockEventStore.getLatestEvent.mockReturnValue({ payload: { text: 'Fix calendar sync' } });
+      const { getSessionsCached } = await import('../chat.js');
+      expect(getSessionsCached().sessions[0].summary).toBe('Calendar Fix Sync');
+      expect(mockListSessions).not.toHaveBeenCalled();
+      expect(mockUpsertSession).not.toHaveBeenCalled();
+    },
+  );
+
   it('returns sessions that have turns', async () => {
     mockListSessionsMeta.mockReturnValue([
       {

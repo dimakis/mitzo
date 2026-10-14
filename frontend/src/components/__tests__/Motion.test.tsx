@@ -8,6 +8,7 @@ import { MotionPresence } from '../MotionPresence';
 import { CollapsibleSection } from '../CollapsibleSection';
 import { WorkspaceControls } from '../WorkspaceControls';
 import { useMotionPresence } from '../../hooks/useMotionPresence';
+import { animateMotion } from '../../lib/motion';
 
 let reduced = false;
 const listeners = new Set<() => void>();
@@ -105,6 +106,72 @@ describe('shared navigation motion', () => {
 });
 
 describe('shared presence motion', () => {
+  it('holds the closed frame until React hides the retained surface, then releases it', async () => {
+    localStorage.removeItem('mitzo-workspace-controls-expanded');
+    render(
+      <WorkspaceControls status="Ready">
+        <input aria-label="Setting" />
+      </WorkspaceControls>,
+    );
+    const toggle = screen.getByRole('button', { name: /Workspace controls/ });
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    expect(animate.mock.calls.at(-1)![1]).toMatchObject({ fill: 'forwards' });
+    const exit = animations.at(-1)!;
+    const surface = screen.getByLabelText('Setting').parentElement!;
+    exit.cancel.mockImplementation(() => expect(surface.hidden).toBe(true));
+    expect(exit.cancel).not.toHaveBeenCalled();
+    await act(async () => exit.finish());
+    expect(surface.hidden).toBe(true);
+    expect(exit.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts an interrupted exit from the visible frame instead of flashing fully open', () => {
+    const view = render(
+      <MotionPresence open>
+        <div>Menu</div>
+      </MotionPresence>,
+    );
+    vi.stubGlobal('getComputedStyle', (element: HTMLElement) => ({
+      opacity: '0.4',
+      translate: '0px 3px',
+      getPropertyValue: (name: string) =>
+        element === document.documentElement
+          ? name.includes('duration')
+            ? '180ms'
+            : 'ease-out'
+          : '',
+    }));
+    view.rerender(
+      <MotionPresence open={false}>
+        <div>Menu</div>
+      </MotionPresence>,
+    );
+    expect(animate.mock.calls.at(-1)![0][0]).toMatchObject({
+      opacity: '0.4',
+      translate: '0px 3px',
+    });
+    view.rerender(
+      <MotionPresence open>
+        <div>Menu</div>
+      </MotionPresence>,
+    );
+    expect(animate.mock.calls.at(-1)![0][0]).toMatchObject({
+      opacity: '0.4',
+      translate: '0px 3px',
+    });
+  });
+
+  it('collapses a bounded disclosure from its rendered height, keeping scrolling intact on entry', () => {
+    const surface = document.createElement('div');
+    Object.defineProperty(surface, 'scrollHeight', { value: 900 });
+    vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({ height: 240 } as DOMRect);
+    animateMotion(surface, 'disclosure', false);
+    expect(animate.mock.calls.at(-1)![0][0]).toMatchObject({ height: '240px' });
+    animateMotion(surface, 'disclosure');
+    expect(animate.mock.calls.at(-1)![1].fill).not.toBe('forwards');
+  });
+
   it('cancels an exiting popover when it becomes an inline control', () => {
     function ResponsiveSurface({ open, inline }: { open: boolean; inline: boolean }) {
       const { ref, present } = useMotionPresence(open, 'popover', false, !inline);

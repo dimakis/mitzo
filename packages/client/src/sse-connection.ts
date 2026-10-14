@@ -35,7 +35,7 @@ export interface SseConnectionConfig {
 }
 
 const MAX_PENDING_SENDS = 100;
-const APPLIED_ACK_TIMEOUT_MS = 10_000;
+const CONNECTION_POST_TIMEOUT_MS = 10_000;
 const LIVENESS_PROBE_INTERVAL_MS = 10_000;
 
 export class SseConnection implements ChatConnection {
@@ -81,6 +81,7 @@ export class SseConnection implements ChatConnection {
       }),
     resync: () => this.checkAndReconnect(true),
   });
+  private switchIntent: Record<string, unknown> | null = null;
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private authProbe: Promise<void> | null = null;
@@ -107,21 +108,28 @@ export class SseConnection implements ChatConnection {
       headers: (): Record<string, string> =>
         this._connectionId ? { 'X-Connection-ID': this._connectionId } : {},
       notify: (event) => {
+        // The store synchronously tracks an accepted session while selecting it.
+        // Capture transport ownership first: local selection does not attach a
+        // headerless send to the stream that welcomed during HTTP delivery.
+        const acceptedSessionId =
+          event.type === '_send_accepted' && typeof event.sessionId === 'string'
+            ? event.sessionId
+            : undefined;
+        const needsReplay =
+          acceptedSessionId !== undefined && !this.seqBySession.has(acceptedSessionId);
         this.listener?.(event);
-        if (event.type === '_send_accepted' && typeof event.sessionId === 'string') {
-          const sessionId = event.sessionId as string;
-          if (!this.seqBySession.has(sessionId)) {
-            this.seqBySession.set(sessionId, 0);
-            // Include acknowledgements arriving during the welcome replay too.
-            if (
-              this.es &&
-              this._connectionId &&
-              (this._connected ||
-                (this.replayRequest?.es === this.es &&
-                  this.replayRequest.connectionId === this._connectionId))
-            )
-              void this.doReconnectPost(this._connectionId, this.es);
-          }
+        if (acceptedSessionId !== undefined && needsReplay) {
+          if (!this.seqBySession.has(acceptedSessionId))
+            this.seqBySession.set(acceptedSessionId, 0);
+          // Include acknowledgements arriving during the welcome replay too.
+          if (
+            this.es &&
+            this._connectionId &&
+            (this._connected ||
+              (this.replayRequest?.es === this.es &&
+                this.replayRequest.connectionId === this._connectionId))
+          )
+            void this.doReconnectPost(this._connectionId, this.es);
         }
       },
     });
@@ -184,6 +192,7 @@ export class SseConnection implements ChatConnection {
     if (msg.type === 'send') return this.outbox.enqueue(msg, this.sendScope);
     const endpoint = this.messageTypeToEndpoint(msg.type as string);
     if (!endpoint) return false;
+    if (endpoint === 'switch') this.switchIntent = msg;
 
     if (this._connected && this._connectionId) {
       this.doPost(endpoint, msg);
@@ -200,6 +209,10 @@ export class SseConnection implements ChatConnection {
     }
 
     return false;
+  }
+
+  setRecoverySession(sessionId: string | null): void {
+    this.switchIntent = { type: 'switch_session', sessionId };
   }
 
   onMessage(listener: ConnectionListener): void {
@@ -255,7 +268,12 @@ export class SseConnection implements ChatConnection {
     this.appliedAckChain = this.appliedAckChain
       .then(async () => {
         if (this._connectionId !== connectionId) return;
-        const response = await this.postAppliedAck(endpoint, body, connectionId);
+        const response = await this.postConnectionRequest(
+          endpoint,
+          body,
+          connectionId,
+          async (response) => response,
+        );
         if (!response.ok) throw new Error('Applied event acknowledgement failed');
       })
       .catch(() => {
@@ -271,40 +289,47 @@ export class SseConnection implements ChatConnection {
     const pending = this.appliedAckChain
       .then(async () => {
         if (this._connectionId !== connectionId) return false;
-        const response = await this.postAppliedAck(
+        const applied = await this.postConnectionRequest(
           'reconnect-snapshot-applied',
           body,
           connectionId,
+          async (response) => {
+            if (!response.ok) return false;
+            const result = (await response.json()) as { applied?: unknown };
+            return result.applied === true;
+          },
         );
-        if (!response.ok) return false;
-        const result = (await response.json()) as { applied?: unknown };
-        return result.applied === true && this._connectionId === connectionId;
+        return applied && this._connectionId === connectionId;
       })
       .catch(() => false);
     this.appliedAckChain = pending;
     return pending;
   }
 
-  private async postAppliedAck(
+  private async postConnectionRequest<T>(
     endpoint: string,
     body: Record<string, unknown>,
     connectionId: string,
-  ): Promise<Response> {
+    readResponse: (response: Response) => Promise<T>,
+  ): Promise<T> {
     const abort = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
-        this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
-          method: 'POST',
-          signal: abort.signal,
-          headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
-          body: JSON.stringify(body),
-        }),
+        this.config
+          .fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
+            method: 'POST',
+            signal: abort.signal,
+            headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
+            body: JSON.stringify(body),
+            ...(endpoint === 'suspend' ? { keepalive: true } : {}),
+          })
+          .then(readResponse),
         new Promise<never>((_, reject) => {
           timeout = setTimeout(() => {
             abort.abort();
-            reject(new Error('Applied acknowledgement timed out'));
-          }, APPLIED_ACK_TIMEOUT_MS);
+            reject(new Error('Connection request timed out'));
+          }, CONNECTION_POST_TIMEOUT_MS);
         }),
       ]);
     } finally {
@@ -317,6 +342,7 @@ export class SseConnection implements ChatConnection {
   clearPendingSends(): void {
     this.sendScope++;
     this.pendingSends = [];
+    this.switchIntent = null;
   }
 
   getTrackedSessions(): string[] {
@@ -325,7 +351,9 @@ export class SseConnection implements ChatConnection {
 
   /**
    * Signal the server that this client is about to be backgrounded.
-   * Uses fetch POST first; falls back to sendBeacon.
+   * Uses an authenticated keepalive POST while connected, or sendBeacon
+   * when the stream is disconnected. Suspend is a best-effort lifecycle hint;
+   * foreground reconnect restores sessions even if the hint was not delivered.
    */
   sendSuspend(): void {
     if (this.seqBySession.size === 0) return;
@@ -335,7 +363,7 @@ export class SseConnection implements ChatConnection {
       lastSeq,
     }));
 
-    // Try POST first
+    // Keep authentication headers on native iOS, where beacon cannot add them.
     if (this._connected && this._connectionId) {
       this.doPost('suspend', { type: 'session_suspend', sessions });
       return;
@@ -416,6 +444,10 @@ export class SseConnection implements ChatConnection {
       this.appliedAckChain = Promise.resolve();
       this.appliedDelivery.clearPending();
 
+      // A delivered welcome proves connectivity, even while replay is pending.
+      // Saved prompts retain their independent, acknowledged HTTP delivery.
+      this.outbox.wake();
+
       // Control messages wait for replay readiness. Prompt delivery uses
       // its independent HTTP outbox and never waits for this handshake.
       // Capture both connectionId and ES instance for the staleness guard.
@@ -451,6 +483,7 @@ export class SseConnection implements ChatConnection {
         if (this.foregroundProbe && msg.nonce === this.foregroundProbe.nonce) {
           const resumeSessions = this.foregroundProbe.resumeSessions;
           this.foregroundProbe.cancel();
+          this.outbox.wake();
           // Backgrounding suspended the sessions even if the stream survived.
           if (resumeSessions && this._connectionId && this.seqBySession.size)
             void this.doReconnectPost(this._connectionId, es);
@@ -607,7 +640,7 @@ export class SseConnection implements ChatConnection {
     this.es = null;
     this._connectionId = null;
     this._connected = false;
-    this.pendingSends = [];
+    this.clearPendingSends();
     this.outbox.rejectAll('Authentication expired. Sign in again to retry.');
     if (notify) this.listener?.({ type: '_auth_lost' });
   }
@@ -633,7 +666,13 @@ export class SseConnection implements ChatConnection {
     }
     const request = { es: welcomeEs, connectionId: welcomeConnectionId, dirty: false };
     this.replayRequest = request;
-    for (const sessionId of this.seqBySession.keys()) {
+    // This exact request owns only these sessions, even if navigation changes
+    // the tracked set while its response is in flight.
+    const sessions = Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+      sessionId,
+      lastSeq,
+    }));
+    for (const { sessionId } of sessions) {
       this.replayingSessions.add(sessionId);
       this.replaySeenSeq.delete(sessionId);
       this.pendingSnapshots.delete(sessionId);
@@ -653,10 +692,7 @@ export class SseConnection implements ChatConnection {
           body: JSON.stringify({
             type: 'reconnect',
             supportsAppliedCursor: true,
-            sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
-              sessionId,
-              lastSeq,
-            })),
+            sessions,
           }),
         }),
         new Promise<never>((_, reject) => {
@@ -674,7 +710,7 @@ export class SseConnection implements ChatConnection {
       if (res.ok) {
         if (request.dirty) return;
         this._connected = true;
-        this.flushPendingSends();
+        this.flushPendingSends(new Set(sessions.map(({ sessionId }) => sessionId)));
         this.listener?.({ type: '_open' });
       } else {
         console.warn('[SseConnection] reconnect POST returned', res.status);
@@ -710,14 +746,38 @@ export class SseConnection implements ChatConnection {
       this.es.close();
       this.es = null;
     }
+    this._connectionId = null;
+    this.appliedAckChain = Promise.resolve();
+    // Background recovery belongs to the next foreground transition. Replaying
+    // suspend against a successor would incorrectly suspend the resumed owner.
+    if (globalThis.document?.visibilityState === 'hidden') return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.doConnect();
+      if (globalThis.document?.visibilityState !== 'hidden') this.doConnect();
     }, this.config.reconnectDelayMs);
   }
 
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
-    if (!this._connectionId) return;
+    const connectionId = this._connectionId;
+    const es = this.es;
+    const sendScope = this.sendScope;
+    if (!connectionId) return;
+    const current = () =>
+      !this.authBlocked && this.es === es && this._connectionId === connectionId;
+    const visible = () =>
+      current() &&
+      this.sendScope === sendScope &&
+      (endpoint !== 'switch' || this.switchIntent === body);
+    const transportFailure = (error: string) => {
+      // Lifecycle failures must never enter the terminal provider-error reducer.
+      if (visible())
+        this.listener?.({
+          type: '_control_error',
+          operation: endpoint,
+          ...(typeof body.sessionId === 'string' ? { sessionId: body.sessionId } : {}),
+          error,
+        });
+    };
     const scope =
       typeof body.sessionId === 'string' && body.sessionId ? { sessionId: body.sessionId } : {};
     const control = ['stop', 'interrupt', 'close'].includes(endpoint) ? endpoint : undefined;
@@ -734,18 +794,42 @@ export class SseConnection implements ChatConnection {
       return true;
     };
     try {
-      const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Connection-ID': this._connectionId },
-        body: JSON.stringify(body),
-      });
+      const { res, rejected } = await this.postConnectionRequest(
+        endpoint,
+        body,
+        connectionId,
+        async (res) => {
+          let rejected: Record<string, unknown> | undefined;
+          if (!res.ok && endpoint !== 'suspend') {
+            try {
+              rejected = await res.json();
+            } catch {
+              /* A status alone cannot prove expiry. */
+            }
+          }
+          return { res, rejected };
+        },
+      );
       if (!res.ok) {
+        // Background hints recover on foreground and never become chat errors.
+        if (endpoint === 'suspend') return;
+        if (!control && !visible()) return;
+        const expired =
+          res.status === 404 &&
+          (rejected?.code === 'connection_expired' ||
+            rejected?.error === 'Connection not registered' ||
+            rejected?.error === 'No SSE stream for this connection');
+        if (res.status === 401 && current()) {
+          this.handleAuthLoss();
+          return;
+        }
+        if (expired && current()) this.scheduleReconnect();
+        if (expired && !control && endpoint !== 'permission') return;
         if (control && scope.sessionId) {
           let error = `Could not ${endpoint} (${res.status}). Please retry.`;
           let code: string | undefined;
           let clientMsgId: string | undefined;
           try {
-            const rejected = await res.json();
             if (
               rejected?.type === 'session_control_rejected' &&
               rejected.sessionId === scope.sessionId &&
@@ -765,7 +849,6 @@ export class SseConnection implements ChatConnection {
         }
         if (endpoint === 'permission' && typeof body.permId === 'string') {
           try {
-            const rejected = await res.json();
             if (
               rejected?.type === 'permission_response_rejected' &&
               rejected.permId === body.permId &&
@@ -794,13 +877,14 @@ export class SseConnection implements ChatConnection {
           });
           return;
         }
-        this.listener?.({
-          type: 'error',
-          ...scope,
-          error: `Could not ${endpoint} (${res.status}). Please retry.`,
-        });
+        transportFailure(`Could not ${endpoint} (${res.status}). Please retry.`);
       }
     } catch {
+      // A late beacon or retry could suspend the resumed foreground owner.
+      if (endpoint === 'suspend') return;
+      if (!control && !visible()) return;
+      if (current()) this.scheduleReconnect();
+      if (endpoint === 'switch') return;
       if (controlFailure(`Could not ${endpoint}. Please retry.`)) return;
       if (endpoint === 'permission' && typeof body.permId === 'string')
         this.listener?.({
@@ -809,14 +893,21 @@ export class SseConnection implements ChatConnection {
           permId: body.permId,
           error: 'Could not submit the permission response. Review the prompt and try again.',
         });
-      else
-        this.listener?.({ type: 'error', ...scope, error: `Could not ${endpoint}. Please retry.` });
+      else transportFailure(`Could not ${endpoint}. Please retry.`);
     }
   }
 
-  private flushPendingSends(): void {
-    if (this.pendingSends.length === 0) return;
-    const toFlush = this.pendingSends;
+  private flushPendingSends(reconnectedSessions: ReadonlySet<string> = new Set()): void {
+    const toFlush = this.pendingSends.filter(({ endpoint }) => endpoint !== 'switch');
+    if (this.switchIntent) {
+      const selection = { ...this.switchIntent };
+      // Preserve a newly opened chat's REST boundary if it was absent from the
+      // replay request. For covered chats, resetting would invalidate its offer.
+      if (typeof selection.sessionId === 'string' && reconnectedSessions.has(selection.sessionId))
+        delete selection.historyCursor;
+      this.switchIntent = selection;
+      toFlush.unshift({ endpoint: 'switch', body: selection });
+    }
     this.pendingSends = [];
     for (const { endpoint, body } of toFlush) {
       this.doPost(endpoint, body);

@@ -83,8 +83,11 @@ export function sessionRepositoryTools(
   session: ManagedSession,
   registry: SessionRegistry,
   toolPrefix = '',
+  assertRuntimeCurrent?: () => Promise<void>,
+  assertRuntimeCurrentSync?: () => void,
 ) {
   const allowed = (name: string) => {
+    assertRuntimeCurrentSync?.();
     const owner = registry.findBySessionId(sessionId);
     return (
       !!owner &&
@@ -92,7 +95,8 @@ export function sessionRepositoryTools(
       !session.abortController.signal.aborted &&
       !registry.isClosingOut(owner.clientId) &&
       !registry.isUserClose(owner.clientId) &&
-      !registry.isSuspended(owner.clientId) &&
+      // iOS suspension buffers transport events; it does not revoke the running
+      // turn's authority to prepare a draft. Starting that draft still needs Send.
       checkSkillPolicy(registry, owner.clientId, toolPrefix + name) !== 'deny'
     );
   };
@@ -204,6 +208,7 @@ export function sessionRepositoryTools(
         const repository = canonicalRepositorySelection(selected);
         const connectionId = selectConnection(repository);
         if (!current()) return unavailable();
+        await assertRuntimeCurrent?.();
         const preparation = await getRepositoryWorkspaces().prepareChat(
           binding,
           sessionId,

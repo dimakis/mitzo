@@ -8,7 +8,7 @@ import {
 } from './codex-capacity-reattachment.js';
 import { z } from 'zod';
 import { searchCodex } from './codex-approved-search.js';
-import { context, SpanStatusCode, type Span } from '@opentelemetry/api';
+import { context, trace, SpanStatusCode, type Span, type Context } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { CodexUserInput } from './codex-user-input.js';
@@ -91,6 +91,16 @@ export interface CodexStartupConfigObservation {
 }
 
 export interface CodexConversationOptions {
+  /** Read-only idle health deadline; never changes model RPC timeouts. */
+  idleProbeTimeoutMs?: number;
+  route?: 'openai-api' | 'chatgpt-subscription';
+  /** An enrolled route's existing command owner rejects unadmitted sends before
+   * private queue mutation. No default gate is imposed on legacy conversations. */
+  beforeEnqueue?: (input: CodexCommandInput) => void;
+  /** A guarded enqueue may retain uncertainty until its outer receipt commits. */
+  canClaimCommand?: (commandId: string) => boolean;
+  /** Owning physical custody must persist before the first native thread effect. */
+  beforeThreadInitialization?: (store: CodexConversationStore, binding: AccountBinding) => void;
   ownerKind?: 'ordinary' | 'symposium';
   /** Ordinary capacity recovery creates new linked native turns, never prompt replay. */
   enableCapacityRecovery?: boolean;
@@ -199,6 +209,8 @@ export interface CodexConversationOptions {
   loadConversationHistory?: () => ConversationHistoryEntry[];
   loadSourceSnapshots?: () => SourceSnapshot[];
   onClosed?: () => void;
+  /** An owned first-command transport cannot recover or acquire another lease. */
+  readonly transportClosure?: 'terminal';
   onError?: (error: Error) => void;
   onTransportClosed?: (diagnostic: {
     activeTurn: boolean;
@@ -339,6 +351,7 @@ export class CodexConversation {
     reason?: 'provider_transport_failure';
   };
   private mapper?: CodexSessionEvents;
+  private commandContexts = new Map<string, Context>();
   private active?: {
     command: CodexCommand;
     turnId?: string;
@@ -350,6 +363,8 @@ export class CodexConversation {
     interruptRequested?: boolean;
     abort: AbortController;
     span?: Span;
+    firstOutputSpan?: Span;
+    traceContext?: Context;
   };
   private terminalTurns = new Map<string, { commandId: string; status: string }>();
   private paused = false;
@@ -387,8 +402,18 @@ export class CodexConversation {
       onClose: (error) => this.transportClosed(generation, error),
     });
   }
-  private transportClosed(generation: number, error: Error) {
+  private transportClosed(generation: number, error: Error, requireRecoveryPersistence = false) {
     if (this.closed || generation !== this.transportGeneration) return;
+    if (this.opts.transportClosure === 'terminal') {
+      try {
+        this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed' });
+      } finally {
+        // Use the existing terminal owner: cancel host work, retain ambiguous
+        // provider state, and notify the adapter so its stream and MCPs close.
+        this.close();
+      }
+      return;
+    }
     // Invalidate every in-flight request owned by this transport. Its rejection
     // is recovery fallout, not a second fatal send failure.
     this.transportGeneration += 1;
@@ -405,6 +430,7 @@ export class CodexConversation {
     if (commandId) this.opts.onProviderComplete?.(commandId, status);
     this.active?.abort.abort();
     this.active = undefined;
+    let recoveryPersistenceFailed = false;
     try {
       if (this.binding)
         this.opts.store.pauseForRecovery(
@@ -418,6 +444,7 @@ export class CodexConversation {
           true,
         );
     } catch (persistenceError) {
+      recoveryPersistenceFailed = true;
       this.opts.onError?.(
         persistenceError instanceof Error
           ? persistenceError
@@ -435,6 +462,8 @@ export class CodexConversation {
             ? 'protocol'
             : 'closed',
     });
+    if (requireRecoveryPersistence && recoveryPersistenceFailed)
+      throw new Error('Codex idle transport recovery failed');
     // An idle connection can expire between sends. The pre-send probe reconnects
     // it before dispatch; no provider turn has failed in that case.
     if (active)
@@ -525,6 +554,7 @@ export class CodexConversation {
       toolSurfaceRevision,
       this.opts.ownerKind,
     );
+    this.opts.beforeThreadInitialization?.(this.opts.store, this.binding);
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
     this.paused = !!state.recovery;
@@ -900,6 +930,8 @@ export class CodexConversation {
     sourceCommandId: string,
     deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
   ) {
+    if (this.opts.canClaimCommand || !this.opts.enableCapacityRecovery)
+      throw new Error('Capacity recovery unavailable');
     assertCapacityAdmissionDeadline(deadline);
     if (!this.binding || this.closed) throw new Error('Capacity recovery unavailable');
     const before = this.opts.store.capacityRecovery(this.opts.conversationId, this.binding);
@@ -950,6 +982,7 @@ export class CodexConversation {
     else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
   }
   enqueue(input: CodexCommandInput) {
+    this.opts.beforeEnqueue?.(input);
     // A transport loss keeps the durable binding. Accept an explicit new user
     // message before reconnecting so it cannot be lost between recovery and send.
     if (this.closed || (!this.ready && !this.paused) || !this.binding)
@@ -980,17 +1013,23 @@ export class CodexConversation {
       },
       true,
     );
-    if (saved) this.clearCapacityTimer();
+    if (saved) {
+      this.clearCapacityTimer();
+      this.commandContexts.set(input.id, context.active());
+    }
     this.opts.onQueueChange?.();
     return { model, reasoningEffort };
   }
   async admitExplicitSend(input: CodexCommandInput, signal?: AbortSignal) {
-    const admission = this.explicitEnqueue.then(async () => {
-      if (signal?.aborted) throw sendCancelledError();
-      await this.probeOpenShellTransport(signal);
-      if (signal?.aborted) throw sendCancelledError();
-      return this.enqueue(input);
-    });
+    const sendContext = context.active();
+    const admission = this.explicitEnqueue.then(() =>
+      context.with(sendContext, async () => {
+        if (signal?.aborted) throw sendCancelledError();
+        await this.probeIdleTransport(signal);
+        if (signal?.aborted) throw sendCancelledError();
+        return this.enqueue(input);
+      }),
+    );
     this.explicitEnqueue = admission.then(
       () => undefined,
       () => undefined,
@@ -1011,26 +1050,88 @@ export class CodexConversation {
     await this.resumeAfterExplicitSend();
   }
   /**
-   * An idle SSH relay can look healthy until its next write. Probe it before
+   * An idle provider process or SSH relay can look healthy until its next write. Probe it before
    * persisting a new user command so transport recovery cannot turn that
    * command into an ambiguous interrupted turn.
    */
-  private async probeOpenShellTransport(signal?: AbortSignal) {
-    if (!this.opts.beforeReconnect || this.paused || !this.ready || this.closed) return;
+  private async probeIdleTransport(signal?: AbortSignal) {
+    if (
+      // Guarded host commands have a separate terminal owner and must reach
+      // its enqueue fence without a legacy transport preflight. OpenShell's
+      // enrolled recovery path keeps its existing workspace lifecycle guard.
+      (this.opts.beforeEnqueue && !this.opts.beforeReconnect) ||
+      this.paused ||
+      !this.ready ||
+      this.closed ||
+      this.active ||
+      this.pumping
+    )
+      return;
     const generation = this.transportGeneration;
+    const client = this.client;
+    const span = tracer.startSpan('codex.transport.idle_probe');
+    span.setAttribute('mitzo.transport.generation', generation);
+    const configured = this.opts.idleProbeTimeoutMs ?? 2000;
+    const deadline = Number.isFinite(configured) && configured > 0 ? configured : 2000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let retirementFailed = false;
+    const retire = (error: Error) => {
+      try {
+        this.transportClosed(generation, error, true);
+      } catch {
+        retirementFailed = true;
+      } finally {
+        // Observers and persistence reporting are outside transport custody.
+        // Neither may keep a dead generation or its RPC timers alive.
+        try {
+          if (!this.closed) client.close();
+        } catch {
+          retirementFailed = true;
+        }
+      }
+    };
     try {
+      const expired = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new CodexTransportError('timeout');
+          // Invalidate callbacks before close: a synchronous late notification
+          // or a delayed old RPC can never settle the replacement generation.
+          retire(error);
+          reject(retirementFailed ? new Error('Codex idle transport recovery failed') : error);
+        }, deadline);
+      });
       await raceWithAbort(
-        this.client.request('config/read', {
-          cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-          includeLayers: false,
-        }),
+        Promise.race([
+          client.request('config/read', {
+            cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+            includeLayers: false,
+          }),
+          expired,
+        ]),
         signal,
       );
+      span.setAttribute('mitzo.probe.result', 'healthy');
     } catch (error) {
+      span.setAttribute('mitzo.probe.result', signal?.aborted ? 'cancelled' : 'failed');
+      if (signal?.aborted) {
+        // A cancelled read must not retain its client's general RPC timer: it
+        // could otherwise close a later successfully dispatched turn. Retire
+        // this owned idle generation; only a later explicit send reconnects.
+        if (generation === this.transportGeneration) {
+          retire(new CodexTransportError('connection'));
+        }
+        if (retirementFailed) span.setAttribute('mitzo.probe.recovery', 'failed');
+        throw error;
+      }
+      if (retirementFailed)
+        throw new Error('Codex idle transport recovery failed', { cause: error });
       // The transport close callback owns recovery persistence. If it ran,
       // continue so this explicit send can acknowledge recovery and reconnect.
       if (generation !== this.transportGeneration && this.paused) return;
       throw error;
+    } finally {
+      clearTimeout(timer);
+      span.end();
     }
   }
   /** A new user message explicitly resumes saved FIFO work. Interrupted work
@@ -1053,7 +1154,10 @@ export class CodexConversation {
   cancelQueued(commandId: string) {
     if (!this.binding) throw new Error('Codex account binding unavailable');
     const result = this.opts.store.cancelQueued(this.opts.conversationId, this.binding, commandId);
-    if (result === 'cancelled') this.opts.onQueueChange?.();
+    if (result === 'cancelled') {
+      this.commandContexts.delete(commandId);
+      this.opts.onQueueChange?.();
+    }
     return result;
   }
   async startQueued() {
@@ -1063,6 +1167,7 @@ export class CodexConversation {
   }
   async retryLatestFailed(confirmAmbiguous = false) {
     if (!this.binding || this.closed) throw new Error('Codex conversation unavailable');
+    if (this.opts.canClaimCommand) return 'not_retryable' as const;
     const result = this.opts.store.retryLatestFailed(
       this.opts.conversationId,
       this.binding,
@@ -1076,7 +1181,8 @@ export class CodexConversation {
   }
   async acknowledgeRecovery() {
     if (this.recovery) return this.recovery;
-    const operation = this.continueRecovery();
+    const span = tracer.startSpan('codex.transport.recovery');
+    const operation = this.continueRecovery().finally(() => span.end());
     const shared = operation.finally(() => {
       if (this.recovery === shared) {
         this.recovery = undefined;
@@ -1638,15 +1744,27 @@ export class CodexConversation {
   private pump(): Promise<void> {
     if (this.pumping) return this.pumping;
     if (this.active || this.paused || this.closed) return Promise.resolve();
-    this.pumping = this.beginNext().finally(() => {
-      this.pumping = undefined;
-    });
+    const next = this.queue().find((command) => command.status === 'queued');
+    const commandContext = next && this.commandContexts.get(next.id);
+    this.pumping = context
+      .with(commandContext ?? context.active(), () => this.beginNext())
+      .finally(() => {
+        this.pumping = undefined;
+      });
     return this.pumping;
   }
   private finishTurnSpan(
     status: 'completed' | 'interrupted' | 'failed',
     failureCategory: 'none' | 'provider' | 'dispatch' | 'transport' | 'close' | 'acknowledgment',
   ) {
+    this.active?.firstOutputSpan?.setAttribute(
+      'mitzo.first_output.result',
+      failureCategory === 'none' || failureCategory === 'provider'
+        ? 'terminal_before_output'
+        : 'failed_before_output',
+    );
+    this.active?.firstOutputSpan?.end();
+    if (this.active) this.active.firstOutputSpan = undefined;
     const span = this.active?.span;
     if (!span) return;
     this.active!.span = undefined;
@@ -1687,6 +1805,13 @@ export class CodexConversation {
       (this.pendingToolSurface || this.threadId !== recovery.threadId)
     )
       throw new Error('Capacity recovery thread changed');
+    if (this.opts.canClaimCommand) {
+      const nextQueued = this.opts.store.nextQueuedCommandId(
+        this.opts.conversationId,
+        this.binding!,
+      );
+      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) return;
+    }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
     const continuation = this.opts.store.capacityContinuation(
@@ -1704,7 +1829,10 @@ export class CodexConversation {
       completions: new Map<string, { first: ObjectValue; conflict?: ObjectValue }>(),
       interruptRequested: false,
       span: undefined as Span | undefined,
+      firstOutputSpan: undefined as Span | undefined,
+      traceContext: this.commandContexts.get(command.id) ?? context.active(),
     };
+    this.commandContexts.delete(command.id);
     this.active = active;
     let transportGeneration = this.transportGeneration;
     this.opts.onQueueChange?.();
@@ -1766,9 +1894,12 @@ export class CodexConversation {
       await this.opts.prepareAgentContext?.(active.abort.signal);
       active.abort.signal.throwIfAborted();
       this.opts.onProviderDispatch?.(command.id);
-      active.span = tracer.startSpan('codex.turn', {}, context.active());
-      active.span.setAttribute('mitzo.route', 'chatgpt-subscription');
+      active.span = tracer.startSpan('codex.turn', {}, active.traceContext);
+      active.span.setAttribute('mitzo.route', this.opts.route ?? 'chatgpt-subscription');
       active.span.setAttribute('gen_ai.request.model', model);
+      active.span.setAttribute('mitzo.command.id', command.id);
+      active.span.setAttribute('mitzo.account.id', this.binding!.accountId);
+      active.span.setAttribute('mitzo.transport.generation', transportGeneration);
       if (rolloverContext && !attemptContext)
         additionalContext['mitzo.tool-surface-rollover'] = {
           kind: 'untrusted',
@@ -1790,8 +1921,14 @@ export class CodexConversation {
       }
       active.abort.signal.throwIfAborted();
       this.turnDispatchCount += 1;
-      const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(
-        await this.client.request('turn/start', {
+      const turnContext = trace.setSpan(active.traceContext, active.span);
+      const dispatchSpan = tracer.startSpan('codex.turn.dispatch', {}, turnContext);
+      const ackSpan = tracer.startSpan('codex.turn.acknowledgment', {}, turnContext);
+      active.firstOutputSpan = tracer.startSpan('codex.turn.first_output', {}, turnContext);
+      let response: unknown;
+      let dispatched = false;
+      try {
+        const pendingAck = this.client.request('turn/start', {
           threadId: this.threadId,
           clientUserMessageId: command.id,
           model,
@@ -1810,8 +1947,15 @@ export class CodexConversation {
           sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
           ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
           ...(Object.keys(additionalContext).length ? { additionalContext } : {}),
-        }),
-      );
+        });
+        dispatchSpan.end();
+        dispatched = true;
+        response = await pendingAck;
+      } finally {
+        if (!dispatched) dispatchSpan.end();
+        ackSpan.end();
+      }
+      const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(response);
       if (this.active === active) {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');
@@ -1890,6 +2034,7 @@ export class CodexConversation {
               if (active.completionOperation) await active.completionOperation;
             }
             if (this.active === active) {
+              this.finishTurnSpan('interrupted', 'acknowledgment');
               this.opts.store.pauseForRecovery(
                 this.opts.conversationId,
                 this.binding!,
@@ -1955,6 +2100,7 @@ export class CodexConversation {
         );
       }
       if (continuation && error instanceof CapacityAdmissionTimeoutError && !active.turnId) {
+        if (this.active === active) this.finishTurnSpan('failed', 'dispatch');
         this.opts.store.cancelUndispatchedCapacityContinuation(
           this.opts.conversationId,
           this.binding!,
@@ -2017,6 +2163,20 @@ export class CodexConversation {
   }
   private notification(method: string, params: ObjectValue) {
     if (this.closed || params.threadId !== this.threadId) return;
+    if (
+      this.active?.firstOutputSpan &&
+      [
+        'item/agentMessage/delta',
+        'item/reasoning/summaryTextDelta',
+        'item/reasoning/textDelta',
+      ].includes(method) &&
+      !!this.active.turnId &&
+      params.turnId === this.active.turnId
+    ) {
+      this.active.firstOutputSpan.setAttribute('mitzo.first_output.result', 'output');
+      this.active.firstOutputSpan.end();
+      this.active.firstOutputSpan = undefined;
+    }
     const turn = z
       .object({
         id: z.string(),
@@ -2174,7 +2334,7 @@ export class CodexConversation {
           status,
           providerTransportFailed ? 'fork' : 'resume',
           providerFailure?.retryAfterMs ? Date.now() + providerFailure.retryAfterMs : undefined,
-          providerFailure?.retryable ?? true,
+          this.opts.canClaimCommand ? false : (providerFailure?.retryable ?? true),
           providerFailure?.ambiguous ?? false,
         );
       const capacity =
@@ -2471,12 +2631,16 @@ export class CodexConversation {
     }
   }
   close() {
+    this.commandContexts.clear();
     if (this.closed) return;
     this.closed = true;
     this.paused = true;
     const active = this.active;
     const closeStatus =
-      active?.accepted && this.opts.deferToolSurfaceReplacement ? 'interrupted' : 'failed';
+      active?.accepted &&
+      (this.opts.deferToolSurfaceReplacement || this.opts.transportClosure === 'terminal')
+        ? 'interrupted'
+        : 'failed';
     let failed = false;
     let failure: unknown;
     const attempt = (operation: () => void) => {

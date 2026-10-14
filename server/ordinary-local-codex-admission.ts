@@ -8,16 +8,14 @@ import {
   AccountBindingSchema,
   type SessionRuntimeBindingV2,
 } from '@mitzo/protocol';
+import type { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.js';
 import type { EventStore } from './event-store.js';
-import type {
-  OrdinaryLocalCodexCapabilityCatalog,
-  OrdinaryLocalCodexTarget,
-} from './ordinary-local-codex-capabilities.js';
+import type { OrdinaryLocalCodexTarget } from './ordinary-local-codex-capabilities.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 
 const reference = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
 const Selection = OrdinaryLocalCommandSelectionSchema;
-const Request = z.strictObject({
+export const OrdinaryLocalCodexCommandRequestSchema = z.strictObject({
   clientMsgId: reference,
   capabilityRevision: reference,
   runtime: z.strictObject({
@@ -31,6 +29,25 @@ const Request = z.strictObject({
     .record(z.string(), z.json())
     .refine((payload) => Buffer.byteLength(JSON.stringify(payload), 'utf8') <= 1048576),
 });
+export const OrdinaryLocalResponsesCommandRequestSchema =
+  OrdinaryLocalCodexCommandRequestSchema.extend({
+    runtime: OrdinaryLocalCodexCommandRequestSchema.shape.runtime.extend({
+      harness: z.literal('responses'),
+    }),
+  });
+export const OrdinaryLocalVertexCommandRequestSchema =
+  OrdinaryLocalCodexCommandRequestSchema.extend({
+    runtime: OrdinaryLocalCodexCommandRequestSchema.shape.runtime.extend({
+      harness: z.literal('claude-sdk'),
+    }),
+  });
+export const OrdinaryLocalGeminiCommandRequestSchema =
+  OrdinaryLocalResponsesCommandRequestSchema.extend({
+    runtime: OrdinaryLocalResponsesCommandRequestSchema.shape.runtime.extend({
+      harness: z.literal('gemini'),
+    }),
+  });
+const Request = OrdinaryLocalCodexCommandRequestSchema;
 export type OrdinaryLocalCodexCommandRequest = z.infer<typeof Request>;
 export interface OrdinaryLocalCodexAdmissionExpectation {
   binding: SessionRuntimeBindingV2;
@@ -41,6 +58,8 @@ export interface OrdinaryLocalCodexAdmissionExpectation {
   selection: z.infer<typeof Selection>;
   agentProfile?: Meta['agentProfile'];
   agentContext?: Meta['agentContext'];
+  /** Derived from the persisted session/fingerprint before bootstrap effects. */
+  bootstrapId?: string;
 }
 /** Injection belongs exclusively to the actual host-login/runtime/agent-context
  * owning authority. It must independently observe exact host, runtime, account,
@@ -58,6 +77,18 @@ export interface OrdinaryLocalCodexAdmissionAuthority {
     operation: (lease: OrdinaryLocalCodexAdmissionLease) => Promise<T>,
   ): Promise<T>;
 }
+/** An owned runtime may need native account/read to qualify. Its bootstrap is
+ * an external effect too: first freeze intent and claim durable uncertainty.
+ * The owner validates server configuration before claim, then retains the same
+ * isolated login/client through qualification and dispatch. A false claim must
+ * return without any bootstrap effects; it never recovers an uncertain launch. */
+export interface OrdinaryLocalCodexBootstrapAuthority {
+  withBootstrap<T>(
+    expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    claimBeforeBootstrap: () => boolean,
+    operation: (lease: OrdinaryLocalCodexAdmissionLease) => Promise<T>,
+  ): Promise<T | undefined>;
+}
 export interface OrdinaryLocalCodexAdmissionEffects {
   /** Owning workspace authority creates/reuses the already reserved exact workspace. */
   prepareWorkspace(expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>): Promise<void>;
@@ -70,7 +101,8 @@ export interface OrdinaryLocalCodexAdmissionEffects {
 type Store = Pick<
   EventStore,
   'admitOrdinaryLocalCommand' | 'claimOrdinaryLocalCommandDispatch' | 'completeOrdinaryLocalCommand'
->;
+> &
+  Partial<Pick<EventStore, 'admitOrdinaryLocalContinuation'>>;
 type Meta = Parameters<Store['admitOrdinaryLocalCommand']>[0];
 
 function canonical(value: unknown): unknown {
@@ -83,6 +115,28 @@ function canonical(value: unknown): unknown {
     );
   return value;
 }
+/** Identical canonical identity for admission and authenticated historical acknowledgement. */
+export function ordinaryLocalCommandFingerprint(
+  adapter: 'codex' | 'responses' | 'gemini' | 'claude-sdk',
+  request: unknown,
+  snapshot: Pick<
+    OrdinaryLocalCodexAdmissionExpectation,
+    'workspace' | 'agentProfile' | 'agentContext'
+  >,
+) {
+  return `ordinary-local-${adapter}-v1:${createHash('sha256')
+    .update(
+      JSON.stringify(
+        canonical({
+          request,
+          workspace: snapshot.workspace,
+          agentProfile: snapshot.agentProfile,
+          agentContext: snapshot.agentContext,
+        }),
+      ),
+    )
+    .digest('hex')}`;
+}
 class OrdinaryLocalCodexAdmissionError extends Error {}
 function fail(reason: string): never {
   throw new OrdinaryLocalCodexAdmissionError(`Ordinary local Codex admission ${reason}`);
@@ -91,8 +145,20 @@ function fail(reason: string): never {
 const contentDigest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
+/** Reconstruct retained private bootstrap identity from the existing command
+ * receipt. Knowing an ID confers no custody or permission to resume/clean it. */
+export const ordinaryLocalCodexBootstrapId = (sessionId: string, requestFingerprint: string) =>
+  contentDigest(['ordinary-local-codex-bootstrap-v1', sessionId, requestFingerprint]);
+
 /** Session metadata cannot introduce a second model, mode, agent or recipe tuple. */
-function reconcileSessionMetadata(meta: Meta, request: OrdinaryLocalCodexCommandRequest): void {
+function reconcileSessionMetadata(
+  meta: Meta,
+  request: Omit<OrdinaryLocalCodexCommandRequest, 'runtime'> & {
+    runtime: Omit<OrdinaryLocalCodexCommandRequest['runtime'], 'harness'> & {
+      harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini';
+    };
+  },
+): void {
   const chosen = request.selection;
   if (
     (meta.mode !== undefined && meta.mode !== chosen.permission.mode) ||
@@ -117,6 +183,7 @@ function reconcileSessionMetadata(meta: Meta, request: OrdinaryLocalCodexCommand
     const parsed = AgentLibraryVersionSchema.safeParse(meta.agentProfile);
     if (
       !parsed.success ||
+      parsed.data.kind !== chosen.agent.kind ||
       parsed.data.profileId !== chosen.agent.profileId ||
       parsed.data.revision !== chosen.agent.revision ||
       parsed.data.contentHash !== contentDigest(parsed.data.definition)
@@ -165,14 +232,29 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
   constructor(
     private readonly dependencies: {
       enabled: boolean;
+      adapter?: 'responses' | 'claude-sdk' | 'gemini';
       store: Store;
-      catalog: Pick<OrdinaryLocalCodexCapabilityCatalog, 'inventory' | 'resolve'>;
-      declaration: ReturnType<OrdinaryLocalCodexTarget['admissionDeclaration']>;
+      catalog: {
+        inventory(): {
+          capabilityRevision: string;
+          accounts: {
+            account: { accountId: string; profileRevision: string };
+            models: { id: string; reasoningEfforts?: string[] }[];
+            modelDiscovery: { stale: boolean };
+          }[];
+        };
+        resolve(input: unknown): ReturnType<typeof resolveOrdinarySessionRuntime>;
+      };
+      declaration: Omit<ReturnType<OrdinaryLocalCodexTarget['admissionDeclaration']>, 'harness'> & {
+        harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini';
+      };
       authority?: OrdinaryLocalCodexAdmissionAuthority;
+      bootstrapAuthority?: OrdinaryLocalCodexBootstrapAuthority;
     },
   ) {
     this.dependencies = {
       enabled: dependencies.enabled,
+      adapter: dependencies.adapter,
       declaration: structuredClone(dependencies.declaration),
       catalog: {
         inventory: dependencies.catalog.inventory.bind(dependencies.catalog),
@@ -181,6 +263,13 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       authority: dependencies.authority
         ? {
             withAdmission: dependencies.authority.withAdmission.bind(dependencies.authority),
+          }
+        : undefined,
+      bootstrapAuthority: dependencies.bootstrapAuthority
+        ? {
+            withBootstrap: dependencies.bootstrapAuthority.withBootstrap.bind(
+              dependencies.bootstrapAuthority,
+            ),
           }
         : undefined,
       store: {
@@ -192,6 +281,9 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         completeOrdinaryLocalCommand: dependencies.store.completeOrdinaryLocalCommand.bind(
           dependencies.store,
         ),
+        admitOrdinaryLocalContinuation: dependencies.store.admitOrdinaryLocalContinuation?.bind(
+          dependencies.store,
+        ),
       },
     };
   }
@@ -201,9 +293,61 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     input: unknown,
     effects: OrdinaryLocalCodexAdmissionEffects,
   ): Promise<{ dispatched: boolean }> {
+    return this.admitCommand(meta, input, effects, false);
+  }
+
+  /** Existing-session admission requires the retained owner, never a fresh
+   * first-command bootstrap. Workspace preparation here is an identity recheck.
+   */
+  async admitContinuation(
+    meta: Meta,
+    input: unknown,
+    effects: OrdinaryLocalCodexAdmissionEffects,
+  ): Promise<{ dispatched: boolean }> {
+    if (
+      !this.dependencies.authority ||
+      this.dependencies.bootstrapAuthority ||
+      !this.dependencies.store.admitOrdinaryLocalContinuation
+    )
+      fail('authority_unavailable');
+    return this.admitCommand(meta, input, effects, true);
+  }
+
+  /** Explicit cold resume claims a fresh command before reopening retained
+   * native custody. It never retries an old uncertain or consumed operation.
+   */
+  async admitResume(
+    meta: Meta,
+    input: unknown,
+    effects: OrdinaryLocalCodexAdmissionEffects,
+  ): Promise<{ dispatched: boolean }> {
+    if (
+      this.dependencies.authority ||
+      !this.dependencies.bootstrapAuthority ||
+      !this.dependencies.store.admitOrdinaryLocalContinuation
+    )
+      fail('authority_unavailable');
+    return this.admitCommand(meta, input, effects, true);
+  }
+
+  private async admitCommand(
+    meta: Meta,
+    input: unknown,
+    effects: OrdinaryLocalCodexAdmissionEffects,
+    continuation: boolean,
+  ): Promise<{ dispatched: boolean }> {
     const d = this.dependencies;
-    if (!d.enabled || !d.authority) fail('unavailable');
-    const parsed = Request.safeParse(input);
+    if (!d.enabled || (!d.authority && !d.bootstrapAuthority)) fail('unavailable');
+    if (d.authority && d.bootstrapAuthority) fail('authority_ambiguous');
+    const parsed = (
+      d.adapter === 'claude-sdk'
+        ? OrdinaryLocalVertexCommandRequestSchema
+        : d.adapter === 'gemini'
+          ? OrdinaryLocalGeminiCommandRequestSchema
+          : d.adapter === 'responses'
+            ? OrdinaryLocalResponsesCommandRequestSchema
+            : Request
+    ).safeParse(input);
     if (!parsed.success) fail('invalid_request');
     const request = structuredClone(parsed.data);
     const admittedMeta = structuredClone(meta);
@@ -217,8 +361,15 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     if (resolution.status !== 'compatible') fail('configuration_unavailable');
     const binding = resolution.binding;
     if (
-      binding.account.provider !== 'openai-codex' ||
-      binding.harness.implementation !== 'codex' ||
+      binding.account.provider !==
+        (d.adapter === 'claude-sdk'
+          ? 'anthropic-vertex'
+          : d.adapter === 'gemini'
+            ? 'google-vertex'
+            : d.adapter === 'responses'
+              ? 'openai'
+              : 'openai-codex') ||
+      binding.harness.implementation !== (d.adapter ?? 'codex') ||
       binding.execution.location !== 'local' ||
       binding.execution.targetId !== d.declaration.targetId ||
       binding.execution.targetRevision !== d.declaration.targetRevision
@@ -247,51 +398,47 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       agentProfile: admittedMeta.agentProfile,
       agentContext: admittedMeta.agentContext,
     };
+    const fingerprint = ordinaryLocalCommandFingerprint(d.adapter ?? 'codex', request, expected);
+    if (d.bootstrapAuthority)
+      expected.bootstrapId = ordinaryLocalCodexBootstrapId(admittedMeta.sessionId, fingerprint);
     // Clone every boundary so an asynchronous owner cannot rewrite admitted input.
     const snapshot = structuredClone(expected);
     const prepareWorkspace = effects.prepareWorkspace.bind(effects);
     const dispatch = effects.dispatch.bind(effects);
     let entered = false;
     let claimed = false;
+    let claimAttempted = false;
+    const claim = () => {
+      if (claimAttempted) fail('authority_reentry');
+      claimAttempted = true;
+      try {
+        const admit = continuation
+          ? d.store.admitOrdinaryLocalContinuation!
+          : d.store.admitOrdinaryLocalCommand;
+        admit(structuredClone(admittedMeta), structuredClone(snapshot.binding), {
+          clientMsgId: request.clientMsgId,
+          requestFingerprint: fingerprint,
+          selection: structuredClone(snapshot.selection),
+          payload: structuredClone(request.payload),
+        });
+      } catch {
+        fail('identity_conflict');
+      }
+      claimed = d.store.claimOrdinaryLocalCommandDispatch(request.clientMsgId);
+      return claimed;
+    };
     try {
-      const result = await d.authority.withAdmission(structuredClone(snapshot), async (lease) => {
+      const operation = async (lease: OrdinaryLocalCodexAdmissionLease) => {
         if (!lease || typeof lease.assertCurrent !== 'function') fail('authority_unavailable');
+        if (d.bootstrapAuthority && !claimed) fail('authority_unavailable');
         if (entered) fail('authority_reentry');
         entered = true;
         try {
           await lease.assertCurrent();
         } catch {
-          fail('authority_unavailable');
+          fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
         }
-        const fingerprint = `ordinary-local-codex-v1:${createHash('sha256')
-          .update(
-            JSON.stringify(
-              canonical({
-                request,
-                workspace: snapshot.workspace,
-                agentProfile: snapshot.agentProfile,
-                agentContext: snapshot.agentContext,
-              }),
-            ),
-          )
-          .digest('hex')}`;
-        try {
-          d.store.admitOrdinaryLocalCommand(
-            structuredClone(admittedMeta),
-            structuredClone(snapshot.binding),
-            {
-              clientMsgId: request.clientMsgId,
-              requestFingerprint: fingerprint,
-              selection: structuredClone(snapshot.selection),
-              payload: structuredClone(request.payload),
-            },
-          );
-        } catch {
-          fail('identity_conflict');
-        }
-        if (!d.store.claimOrdinaryLocalCommandDispatch(request.clientMsgId))
-          return { dispatched: false };
-        claimed = true;
+        if (!d.bootstrapAuthority && !claim()) return { dispatched: false };
         try {
           await lease.assertCurrent();
           await prepareWorkspace(structuredClone(snapshot));
@@ -302,8 +449,14 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           fail('dispatch_uncertain');
         }
         return { dispatched: true };
-      });
+      };
+      const result = d.bootstrapAuthority
+        ? await d.bootstrapAuthority.withBootstrap(structuredClone(snapshot), claim, operation)
+        : await d.authority!.withAdmission(structuredClone(snapshot), operation);
+      if (d.bootstrapAuthority && claimAttempted && !claimed && !entered && result === undefined)
+        return { dispatched: false };
       if (!entered) fail('authority_unavailable');
+      if (!result) fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
       return result;
     } catch (error) {
       if (error instanceof OrdinaryLocalCodexAdmissionError) throw error;

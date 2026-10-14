@@ -330,3 +330,13 @@ export {
 
 export { sessionApprovalServer } from './session-approval-scope.js';
 export * from './ordinary-local-admission.js';
+export * from './local-codex-first-command.js';
+
+export * from './profile-builder.js';
+
+export * from './ordinary-openshell-admission.js';
+
+export * from './local-vertex-command.js';
+export * from './ordinary-local-vertex-admission.js';
+
+export * from './ordinary-local-vertex-custody.js';

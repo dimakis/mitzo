@@ -104,12 +104,14 @@ export interface GithubHostPublisher {
     bundle: Buffer;
     operationId: string;
     signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
   }): Promise<{ directory: string; cleanupDirectory?: string }>;
   push(input: {
     directory: string;
     sourceBranch: string;
     operationId: string;
     signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
   }): Promise<void>;
   findOpen(input: {
     repository: string;
@@ -117,6 +119,7 @@ export interface GithubHostPublisher {
     baseBranch: string;
     operationId: string;
     signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
   }): Promise<GithubPullRequest | null>;
   create(input: {
     repository: string;
@@ -127,6 +130,7 @@ export interface GithubHostPublisher {
     draft: boolean;
     operationId: string;
     signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
   }): Promise<GithubPullRequest>;
   update(input: {
     repository: string;
@@ -138,6 +142,7 @@ export interface GithubHostPublisher {
     draft: boolean;
     operationId: string;
     signal: AbortSignal;
+    assertRuntimeCurrent?: () => Promise<void>;
   }): Promise<GithubPullRequest>;
   read(input: {
     repository: string;
@@ -478,6 +483,8 @@ export function createGithubArtifactPublishPrExecutor(
         signal: context.signal,
       });
       assertApproved(context, state, existingBeforeWrite);
+      if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+      context.signal.throwIfAborted();
       const bundle = await deps.exportBundle({
         operation: context.operation,
         repositoryPath: state.repositoryPath,
@@ -497,6 +504,8 @@ export function createGithubArtifactPublishPrExecutor(
       let directory: string | undefined;
       let cleanupDirectory: string | undefined;
       try {
+        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+        context.signal.throwIfAborted();
         const reconstructed = await deps.host.reconstruct({
           repository: state.repository,
           sourceBranch: state.inspection.sourceBranch!,
@@ -505,15 +514,23 @@ export function createGithubArtifactPublishPrExecutor(
           bundle,
           operationId: context.operation.id,
           signal: context.signal,
+          ...(context.assertRuntimeCurrent
+            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+            : {}),
         });
         directory = reconstructed.directory;
         cleanupDirectory = reconstructed.cleanupDirectory ?? directory;
         if (!directory) reject('Host reconstruction failed');
+        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+        context.signal.throwIfAborted();
         await deps.host.push({
           directory,
           sourceBranch: state.inspection.sourceBranch!,
           operationId: context.operation.id,
           signal: context.signal,
+          ...(context.assertRuntimeCurrent
+            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+            : {}),
         });
         context.signal.throwIfAborted();
         const existing = await deps.host.findOpen({
@@ -522,10 +539,15 @@ export function createGithubArtifactPublishPrExecutor(
           baseBranch: state.input.baseBranch,
           operationId: context.operation.id,
           signal: context.signal,
+          ...(context.assertRuntimeCurrent
+            ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+            : {}),
         });
         // A close/replace race after the branch push must never change an
         // approved create into an update (or vice versa).
         assertApproved(context, state, existing);
+        if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+        context.signal.throwIfAborted();
         const pr = assertPullRequest(
           existing
             ? await deps.host.update({
@@ -538,6 +560,9 @@ export function createGithubArtifactPublishPrExecutor(
                 draft: state.input.draft,
                 operationId: context.operation.id,
                 signal: context.signal,
+                ...(context.assertRuntimeCurrent
+                  ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+                  : {}),
               })
             : await deps.host.create({
                 repository: state.repository,
@@ -548,6 +573,9 @@ export function createGithubArtifactPublishPrExecutor(
                 draft: state.input.draft,
                 operationId: context.operation.id,
                 signal: context.signal,
+                ...(context.assertRuntimeCurrent
+                  ? { assertRuntimeCurrent: context.assertRuntimeCurrent }
+                  : {}),
               }),
           {
             repository: state.repository,
@@ -562,6 +590,8 @@ export function createGithubArtifactPublishPrExecutor(
       }
     },
     async verify(context, result) {
+      if (context.assertRuntimeCurrent) await context.assertRuntimeCurrent();
+      context.signal.throwIfAborted();
       const state = await inspect(context);
       const externalResultId = result.externalResultId;
       if (typeof externalResultId !== 'string') reject('GitHub pull request result is invalid');
@@ -591,7 +621,9 @@ export function createGithubArtifactPublishPrExecutor(
       if (verifiedHead !== state.inspection.sourceOid)
         reject('GitHub remote branch does not match the approved commit');
     },
-    async recover(operation, signal) {
+    async recover(operation, signal, assertRuntimeCurrent) {
+      if (assertRuntimeCurrent) await assertRuntimeCurrent();
+      signal.throwIfAborted();
       const result = operation.recoveryIntent;
       if (!result || Array.isArray(result) || typeof result !== 'object')
         reject('GitHub recovery result is unavailable');
@@ -694,6 +726,8 @@ export function createGithubArtifactPublishPrExecutor(
           operationId: operation.id,
           signal,
         });
+        if (assertRuntimeCurrent) await assertRuntimeCurrent();
+        signal.throwIfAborted();
         pr = existing
           ? await completeExisting(existing)
           : await deps.host.create({
@@ -705,6 +739,7 @@ export function createGithubArtifactPublishPrExecutor(
               draft,
               operationId: operation.id,
               signal,
+              ...(assertRuntimeCurrent ? { assertRuntimeCurrent } : {}),
             });
       }
       assertPullRequest(pr, { repository, sourceBranch, baseBranch });
@@ -720,6 +755,8 @@ export function createGithubArtifactPublishPrExecutor(
       });
       if (!verified) throw new CapabilityRecoveryPendingError('GitHub recovery remains pending');
       assertPullRequest(verified, { repository, sourceBranch, baseBranch });
+      if (assertRuntimeCurrent) await assertRuntimeCurrent();
+      signal.throwIfAborted();
       return { outcome: 'verified' };
     },
   };

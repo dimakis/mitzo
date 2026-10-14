@@ -1,4 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createServer, type Server } from 'node:http';
+const servers: Server[] = [];
+afterEach(async () => {
+  for (const server of servers.splice(0).reverse())
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+});
 import express from 'express';
 import request from 'supertest';
 import { createCustodianProxy, type CustodianClient } from '../symposium-custodian-proxy.js';
@@ -59,7 +67,7 @@ const activeStatusConfig = {
   })),
 };
 
-function fixture(
+async function fixture(
   runtimeAvailable = false,
   custodianClient?: CustodianClient,
   artifactReady?: (sessionId: string, seatId: string, generation: number) => boolean,
@@ -176,8 +184,17 @@ function fixture(
       resolveSelection,
     }),
   );
+  const server = createServer(app);
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  servers.push(server);
   return {
-    app,
+    app: server,
     store,
     orchestrator,
     getRuntime,
@@ -195,7 +212,7 @@ describe('Symposium director routes', () => {
   it.each(['invalid', 'missing-session', 'unavailable'])(
     'proves seat revision never started after an early %s refusal',
     async (reason) => {
-      const { app, reviseSeat } = fixture();
+      const { app, reviseSeat } = await fixture();
       const body = {
         expectedRevision: 4,
         seatId: 'new-reviewer',
@@ -221,7 +238,7 @@ describe('Symposium director routes', () => {
   );
 
   it('never provides no-mutation proof after entering seat revision', async () => {
-    const { app, store, reviseSeat } = fixture(true);
+    const { app, store, reviseSeat } = await fixture(true);
     store.getActiveSymposiumConfig.mockReturnValue(activeStatusConfig as never);
     reviseSeat.mockImplementationOnce(() => {
       throw new Error('Write result unknown');
@@ -245,7 +262,7 @@ describe('Symposium director routes', () => {
   it.each(['omitted', 'explicit', 'profile', 'new'])(
     'preserves custom seat guidance and permissions on revision: %s',
     async (mode) => {
-      const { app, store, reviseSeat } = fixture(true);
+      const { app, store, reviseSeat } = await fixture(true);
       const prior = {
         ...activeStatusConfig.seats[1],
         role: 'coder',
@@ -303,7 +320,7 @@ describe('Symposium director routes', () => {
     const artifactReady = vi.fn(() => {
       throw new Error('physical verification must not run');
     });
-    const { app, store, getRuntime, orchestrator, activateDraft, reviseSeat } = fixture(
+    const { app, store, getRuntime, orchestrator, activateDraft, reviseSeat } = await fixture(
       true,
       undefined,
       artifactReady,
@@ -375,7 +392,7 @@ describe('Symposium director routes', () => {
   it.each(['revision', 'generation', 'reconciliation', 'membership', 'draft'])(
     'does not project a current admission receipt after %s mismatch',
     async (mismatch) => {
-      const { app, store, getRuntime } = fixture();
+      const { app, store, getRuntime } = await fixture();
       store.getSession.mockReturnValue({
         sessionId: 'chat',
         sessionType: 'symposium',
@@ -413,7 +430,7 @@ describe('Symposium director routes', () => {
 
   it('keeps a saved Ready sandbox and admitted receipt separate from executable authority', async () => {
     const artifactReady = vi.fn(() => true);
-    const { app, store, getRuntime, orchestrator } = fixture(true, undefined, artifactReady);
+    const { app, store, getRuntime, orchestrator } = await fixture(true, undefined, artifactReady);
     store.getSession.mockReturnValue({
       sessionId: 'chat',
       sessionType: 'symposium',
@@ -450,7 +467,7 @@ describe('Symposium director routes', () => {
   });
 
   it('returns ordinary session metadata without requesting a runtime or roster', async () => {
-    const { app, store, getRuntime } = fixture();
+    const { app, store, getRuntime } = await fixture();
     store.getSession.mockReturnValue({
       sessionId: 'chat',
       sessionType: 'chat',
@@ -473,7 +490,7 @@ describe('Symposium director routes', () => {
   });
   it('does not report a provider-admitted sealed source seat as executable', async () => {
     const ready = vi.fn(() => false);
-    const { app, store, orchestrator } = fixture(true, undefined, ready);
+    const { app, store, orchestrator } = await fixture(true, undefined, ready);
     store.getSymposiumMembershipHistory.mockReturnValue([
       {
         sessionId: 'chat',
@@ -502,7 +519,7 @@ describe('Symposium director routes', () => {
     expect(ready).toHaveBeenCalledWith('chat', 'reviewer', 2);
   });
   it('resolves one fresh runtime per status request and preserves each seat diagnostic', async () => {
-    const { app, getRuntime, orchestrator } = fixture(true);
+    const { app, getRuntime, orchestrator } = await fixture(true);
     const first = await request(app).get('/api/sessions/chat/symposium');
     expect(first.status).toBe(200);
     expect(getRuntime).toHaveBeenCalledTimes(1);
@@ -530,7 +547,7 @@ describe('Symposium director routes', () => {
   });
 
   it('returns only the requested seat perspective and bounded queued inputs', async () => {
-    const { app, getPerspective, getQueuedInputs } = fixture();
+    const { app, getPerspective, getQueuedInputs } = await fixture();
     const response = await request(app).get(
       '/api/sessions/chat/symposium/perspectives?kind=seat&seatId=reviewer&afterSeq=0&limit=20',
     );
@@ -548,7 +565,7 @@ describe('Symposium director routes', () => {
     ).toBe(404);
   });
   it('carries pinned Library identity and guidance into primary setup without changing its account', async () => {
-    const { app, store } = fixture();
+    const { app, store } = await fixture();
     const binding = {
       accountId: 'work',
       accountLabel: 'Work',
@@ -584,7 +601,7 @@ describe('Symposium director routes', () => {
   });
 
   it('creates a revision-guarded draft from the existing session account binding', async () => {
-    const { app, store } = fixture();
+    const { app, store } = await fixture();
     store.getSession.mockReturnValue({
       sessionId: 'chat',
       sessionType: 'chat',
@@ -623,7 +640,7 @@ describe('Symposium director routes', () => {
   });
 
   it('activates a draft through host grants only after shared and cross-account confirmation', async () => {
-    const { app, store, activateDraft } = fixture(true);
+    const { app, store, activateDraft } = await fixture(true);
     store.getSession.mockReturnValue({
       sessionId: 'chat',
       sessionType: 'symposium',
@@ -682,7 +699,7 @@ describe('Symposium director routes', () => {
     'runtime',
     'cross-account',
   ])('proves activation never started for explicit predispatch refusal: %s', async (refusal) => {
-    const { app, store, activateDraft } = fixture(refusal !== 'runtime');
+    const { app, store, activateDraft } = await fixture(refusal !== 'runtime');
     if (refusal === 'missing-session') store.getSession.mockReturnValue(null);
     if (['missing-config', 'invalid-config', 'active-config', 'cross-account'].includes(refusal)) {
       const saved = store.getSession('chat')!;
@@ -728,7 +745,7 @@ describe('Symposium director routes', () => {
     expect(store.setSymposiumConfig).not.toHaveBeenCalled();
   });
   it('does not issue grants or persist activation without a verified runtime', async () => {
-    const { app, store, activateDraft } = fixture();
+    const { app, store, activateDraft } = await fixture();
     const response = await request(app)
       .post('/api/sessions/chat/symposium/activate')
       .send({ expectedRevision: 4, sharedBoundaryAcknowledged: true });
@@ -738,7 +755,7 @@ describe('Symposium director routes', () => {
     expect(store.setSymposiumConfig).not.toHaveBeenCalled();
   });
   it('does not claim activation never started when the activation callback throws', async () => {
-    const { app, activateDraft } = fixture(true);
+    const { app, activateDraft } = await fixture(true);
     activateDraft.mockImplementation(() => {
       throw new Error('Activation outcome unavailable');
     });
@@ -750,7 +767,7 @@ describe('Symposium director routes', () => {
     expect(response.body).not.toHaveProperty('activationMutation');
   });
   it('reissues a nonactive seat from server-resolved selection without client grant claims', async () => {
-    const { app, store, resolveSelection, reviseSeat } = fixture(true);
+    const { app, store, resolveSelection, reviseSeat } = await fixture(true);
     const bound = {
       ...config,
       seats: config.seats.map((seat) => ({
@@ -826,7 +843,7 @@ describe('Symposium director routes', () => {
     expect(uncertain.body).not.toHaveProperty('seatMutation');
   });
   it('accepts custom configuration without a saved profile and resolves its account on the host', async () => {
-    const { app, store, reviseSeat } = fixture(true);
+    const { app, store, reviseSeat } = await fixture(true);
     store.getActiveSymposiumConfig.mockReturnValue({
       ...config,
       seats: config.seats.map((seat) => ({
@@ -877,7 +894,7 @@ describe('Symposium director routes', () => {
   it.each(['reviewer', 'new-seat'])(
     'does not mint or reissue %s grants without a runtime',
     async (seatId) => {
-      const { app, store, resolveSelection, reviseSeat } = fixture();
+      const { app, store, resolveSelection, reviseSeat } = await fixture();
       const before = JSON.stringify(store.getActiveSymposiumConfig());
       const response = await request(app).post('/api/sessions/chat/symposium/seats/revise').send({
         expectedRevision: 4,
@@ -899,7 +916,7 @@ describe('Symposium director routes', () => {
     },
   );
   it('resolves a seat account binding server-side without exposing credentials', async () => {
-    const { app, resolveSelection } = fixture();
+    const { app, resolveSelection } = await fixture();
     const response = await request(app)
       .post('/api/sessions/chat/symposium/selection')
       .send({ accountId: 'claude-work', model: 'claude-sonnet', reasoningEffort: 'high' });
@@ -915,7 +932,7 @@ describe('Symposium director routes', () => {
     expect(JSON.stringify(response.body)).not.toMatch(/credential|token|secret/i);
   });
   it('shows reserved capacity and pending runtime without presenting a seat as admitted', async () => {
-    const { app } = fixture();
+    const { app } = await fixture();
     const response = await request(app).get('/api/sessions/chat/symposium');
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
@@ -933,7 +950,7 @@ describe('Symposium director routes', () => {
   });
 
   it('shows a draft roster without requiring active provider admission', async () => {
-    const { app, store } = fixture();
+    const { app, store } = await fixture();
     store.getSession.mockReturnValue({
       sessionId: 'chat',
       sessionType: 'symposium',
@@ -948,7 +965,7 @@ describe('Symposium director routes', () => {
   });
 
   it('fences revocation while runtime is unavailable and derives the actor from auth', async () => {
-    const { app, orchestrator } = fixture();
+    const { app, orchestrator } = await fixture();
     const body = {
       seatId: 'reviewer',
       action: 'suspend',
@@ -970,7 +987,7 @@ describe('Symposium director routes', () => {
   });
 
   it('requires verified runtime and explicit shared-boundary acknowledgement before admission', async () => {
-    const { app, orchestrator } = fixture();
+    const { app, orchestrator } = await fixture();
     const response = await request(app).post('/api/sessions/chat/symposium/membership').send({
       seatId: 'reviewer',
       action: 'restore',
@@ -984,7 +1001,7 @@ describe('Symposium director routes', () => {
   });
 
   it('returns a guarded conflict when admission is requested for an unactivated draft', async () => {
-    const { app, store, orchestrator } = fixture(true);
+    const { app, store, orchestrator } = await fixture(true);
     store.getActiveSymposiumConfig.mockImplementation(() => {
       throw new Error('Symposium is not active');
     });
@@ -1002,7 +1019,7 @@ describe('Symposium director routes', () => {
   });
 
   it('requires typed confirmation when restoring a seat bound to another account', async () => {
-    const { app, store, orchestrator } = fixture(true);
+    const { app, store, orchestrator } = await fixture(true);
     store.getActiveSymposiumConfig.mockReturnValue({
       ...config,
       seats: config.seats.map((seat, index) => ({
@@ -1029,7 +1046,7 @@ describe('Symposium director routes', () => {
   });
 
   it('updates draft configuration only at the expected revision', async () => {
-    const { app, store } = fixture();
+    const { app, store } = await fixture();
     const next = { ...config, revision: 5, state: 'draft' };
     const stale = await request(app)
       .put('/api/sessions/chat/symposium/config')
@@ -1045,7 +1062,7 @@ describe('Symposium director routes', () => {
   });
 
   it('requires the discovered account catalog to support each selected model and effort', async () => {
-    const { app, store, validateSelection } = fixture();
+    const { app, store, validateSelection } = await fixture();
     validateSelection.mockImplementation(() => {
       throw new Error('Model unavailable for selected account');
     });
@@ -1077,7 +1094,7 @@ describe('Symposium director routes', () => {
   });
 
   it('requires typed cross-account confirmation before activating a shared seat', async () => {
-    const { app, store, validateActiveConfig } = fixture(true);
+    const { app, store, validateActiveConfig } = await fixture(true);
     const activeSeat = (seat: (typeof config.seats)[number], accountId: string) => ({
       ...seat,
       accountBinding: {
@@ -1125,7 +1142,7 @@ describe('Symposium director routes', () => {
   });
 
   it('rejects active configuration without verified runtime grants and draft grant fabrication', async () => {
-    const { app, store, validateActiveConfig } = fixture();
+    const { app, store, validateActiveConfig } = await fixture();
     const active = {
       ...config,
       revision: 5,
@@ -1184,7 +1201,7 @@ describe('Symposium director routes', () => {
   });
 
   it('stages selected recipients only when a runtime can verify admission', async () => {
-    const unavailable = fixture();
+    const unavailable = await fixture();
     const body = {
       sourceSeatId: null,
       recipientSeatIds: ['reviewer'],
@@ -1196,7 +1213,7 @@ describe('Symposium director routes', () => {
         .status,
     ).toBe(503);
     expect(unavailable.orchestrator.stageDelivery).not.toHaveBeenCalled();
-    const ready = fixture(true);
+    const ready = await fixture(true);
     const accepted = await request(ready.app)
       .post('/api/sessions/chat/symposium/deliveries')
       .send(body);
@@ -1205,7 +1222,7 @@ describe('Symposium director routes', () => {
   });
 
   it('does not let a director injection impersonate a seat-authored aside', async () => {
-    const { app, orchestrator } = fixture(true);
+    const { app, orchestrator } = await fixture(true);
     const response = await request(app)
       .post('/api/sessions/chat/symposium/deliveries')
       .send({
@@ -1219,7 +1236,7 @@ describe('Symposium director routes', () => {
   });
 
   it('shares only an excerpt of a completed durable source and derives its seat', async () => {
-    const { app, store, orchestrator } = fixture(true);
+    const { app, store, orchestrator } = await fixture(true);
     const body = {
       sourceMessageId: 'review-1',
       sourceSeatId: 'reviewer',
@@ -1268,7 +1285,7 @@ describe('Symposium director routes', () => {
   });
 
   it('proves dispatch did not start only when the runtime was unavailable before delivery', async () => {
-    const absent = fixture();
+    const absent = await fixture();
     const rejected = await request(absent.app).post(
       '/api/sessions/chat/symposium/deliveries/delivery-1/dispatch',
     );
@@ -1276,7 +1293,7 @@ describe('Symposium director routes', () => {
     expect(rejected.body.dispatch).toBe('not-started');
     expect(absent.orchestrator.deliver).not.toHaveBeenCalled();
 
-    const available = fixture(true);
+    const available = await fixture(true);
     available.orchestrator.deliver.mockRejectedValueOnce(new Error('Provider response lost'));
     const uncertain = await request(available.app).post(
       '/api/sessions/chat/symposium/deliveries/delivery-1/dispatch',
@@ -1287,7 +1304,7 @@ describe('Symposium director routes', () => {
   });
 
   it('scopes edit/step/cancel to this conversation and fences cancellation without runtime', async () => {
-    const { app, orchestrator } = fixture();
+    const { app, orchestrator } = await fixture();
     const foreign = await request(app)
       .post('/api/sessions/chat/symposium/deliveries/foreign/interventions')
       .send({ action: 'edit', content: 'new text', idempotencyKey: 'edit-1' });
@@ -1320,7 +1337,7 @@ describe('Symposium director routes', () => {
 });
 
 it('refuses converting an active ordinary conversation into a draft', async () => {
-  const { app, store } = fixture();
+  const { app, store } = await fixture();
   store.getSession.mockReturnValue({
     sessionId: 'chat',
     symposiumConfig: null,
@@ -1341,7 +1358,7 @@ it('refuses converting an active ordinary conversation into a draft', async () =
 });
 
 it('refuses initial /config conversion while ordinary execution is active', async () => {
-  const { app, store } = fixture();
+  const { app, store } = await fixture();
   store.getSession.mockReturnValue({
     sessionId: 'chat',
     symposiumConfig: null,
@@ -1367,7 +1384,7 @@ it('refuses initial /config conversion while ordinary execution is active', asyn
 });
 
 it('does not infer public visibility from a null author and rejects selecting private context', async () => {
-  const { app, getPerspective } = fixture();
+  const { app, getPerspective } = await fixture();
   getPerspective.mockReturnValue({
     items: [
       {
@@ -1389,7 +1406,7 @@ it('does not infer public visibility from a null author and rejects selecting pr
   expect(getPerspective).not.toHaveBeenCalled();
 });
 it('selects delivered broadcasts using historical membership and delivered edits in chronological order', async () => {
-  const { app, store } = fixture();
+  const { app, store } = await fixture();
   store.getSymposiumMembershipHistory.mockReturnValue([
     { seatId: 'architect', generation: 1, state: 'active', occurredAt: 1 },
     { seatId: 'reviewer', generation: 1, state: 'active', occurredAt: 1 },
@@ -1435,7 +1452,7 @@ it('selects delivered broadcasts using historical membership and delivered edits
 });
 
 it('refreshes retained admissions only through the verified runtime at an explicit revision', async () => {
-  const { app, orchestrator } = fixture(true);
+  const { app, orchestrator } = await fixture(true);
   expect(
     (
       await request(app)
@@ -1446,7 +1463,7 @@ it('refreshes retained admissions only through the verified runtime at an explic
   expect(orchestrator.refreshActiveAdmissions).toHaveBeenCalledWith('chat', 4);
   expect(
     (
-      await request(fixture(false).app)
+      await request((await fixture(false)).app)
         .post('/api/sessions/chat/symposium/admissions/refresh')
         .send({ expectedRevision: 4 })
     ).status,
@@ -1459,7 +1476,7 @@ it('refreshes retained admissions only through the verified runtime at an explic
 it.each(['removed', 'suspended'])(
   'fails closed when %s membership and private delivery share a millisecond',
   async (state) => {
-    const { app, store } = fixture();
+    const { app, store } = await fixture();
     store.getSymposiumMembershipHistory.mockReturnValue([
       ...['architect', 'reviewer', 'third'].map((seatId) => ({
         seatId,
@@ -1493,7 +1510,7 @@ it.each(['removed', 'suspended'])(
 );
 
 it('distinguishes rejected draft validation from an entered store mutation', async () => {
-  const { app, store, validateSelection } = fixture();
+  const { app, store, validateSelection } = await fixture();
   const next = {
     ...config,
     revision: 5,
@@ -1530,7 +1547,7 @@ it('distinguishes rejected draft validation from an entered store mutation', asy
 });
 
 it('requires explicit primary transfer confirmation and binds operator identity', async () => {
-  const { app, orchestrator } = fixture(true);
+  const { app, orchestrator } = await fixture(true);
   const input = {
     fromSeatId: 'architect',
     toSeatId: 'reviewer',
@@ -1556,7 +1573,7 @@ it('requires explicit primary transfer confirmation and binds operator identity'
 
 it('fences aliases before the actual child director cancellation fallback', async () => {
   const client = { request: vi.fn(), invalidate: vi.fn() };
-  const { app, orchestrator, store } = fixture(false, client);
+  const { app, orchestrator, store } = await fixture(false, client);
   const before = store.getSymposiumDelivery('delivery-1');
   for (const path of [
     '/api/sessions/chat/Symposium/deliveries/delivery-1/cancel',

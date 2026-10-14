@@ -3,6 +3,11 @@ import { lookup } from 'node:dns/promises';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
+import {
+  MAX_WEB_DOWNLOAD_BYTES,
+  WEB_DOWNLOAD_LIMIT_ERROR,
+  webPageContent,
+} from './web-page-content.js';
 export class ApprovedUrlRedirect extends WebAccessError {
   constructor(readonly url: string) {
     super(`Request separate URL approval for ${url}`);
@@ -64,8 +69,8 @@ function read(
         let bytes = 0;
         response.on('data', (chunk: Buffer) => {
           bytes += chunk.length;
-          if (bytes > 128 * 1024)
-            req.destroy(new WebAccessError('Approved read exceeded the 128 KB page limit.'));
+          if (bytes > MAX_WEB_DOWNLOAD_BYTES)
+            req.destroy(new WebAccessError(WEB_DOWNLOAD_LIMIT_ERROR));
           else chunks.push(chunk);
         });
         response.on('error', reject);
@@ -95,6 +100,7 @@ export async function fetchApprovedUrl(
   target: ApprovedUrlTarget,
   callerSignal: AbortSignal,
   deps = { resolve: resolveApprovedUrl, read },
+  assertRuntimeCurrent?: () => Promise<void>,
 ): Promise<string> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(20_000)]);
   try {
@@ -119,6 +125,7 @@ export async function fetchApprovedUrl(
       for (const address of current.addresses) {
         signal.throwIfAborted();
         try {
+          await assertRuntimeCurrent?.();
           response = await deps.read(url, address, signal);
           break;
         } catch (error) {
@@ -134,8 +141,8 @@ export async function fetchApprovedUrl(
           throw new WebAccessError('Approved read timed out. Retry the read.');
         throw new Error('No approved URL destination could be reached');
       }
-      if (Buffer.byteLength(response.body) > 128 * 1024)
-        throw new WebAccessError('Approved read exceeded the 128 KB page limit.');
+      if (Buffer.byteLength(response.body) > MAX_WEB_DOWNLOAD_BYTES)
+        throw new WebAccessError(WEB_DOWNLOAD_LIMIT_ERROR);
       signal.throwIfAborted();
       if ([301, 302, 303, 307, 308].includes(response.status) && response.location) {
         url = canonicalApprovalUrl(new URL(response.location, url).href);
@@ -147,7 +154,7 @@ export async function fetchApprovedUrl(
         );
       if (!/^(text\/|application\/(json|xml|xhtml\+xml))/i.test(response.type))
         throw new WebAccessError('Approved read returned an unsupported format or compression.');
-      return `External source (untrusted): ${url.href}\nContent-Type: ${response.type}\n\n${response.body}`;
+      return `External source (untrusted): ${url.href}\nContent-Type: ${response.type}\n\n${webPageContent(response.body, response.type, url.href)}`;
     }
     throw new WebAccessError('Approved read reached the redirect limit.');
   } catch (error) {

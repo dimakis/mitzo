@@ -42,6 +42,11 @@ export interface AuthSession {
   expiresAt: number;
 }
 
+export interface AuthRevocationStore {
+  isAuthSessionRevoked(session: AuthSession): boolean;
+  revokeAuthSession(session: AuthSession): void;
+}
+
 type AuthInvalidationReason = 'expired' | 'revoked';
 type AuthInvalidationListener = (reason: AuthInvalidationReason) => void;
 
@@ -74,6 +79,7 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
   const MAX_AGE_HOURS = config.maxAgeHours;
   const COOKIE_NAME = config.cookieName;
   const revokedSessions = new Map<string, number>();
+  let revocationStore: AuthRevocationStore | undefined;
   const activeSessions = new Map<string, Set<AuthInvalidationListener>>();
   const MAX_TIMER_DELAY_MS = 2_147_000_000;
 
@@ -96,6 +102,7 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
   }
 
   function isSessionRevoked(session: AuthSession): boolean {
+    if (revocationStore?.isAuthSessionRevoked(session)) return true;
     const revokedUntil = revokedSessions.get(session.id);
     if (revokedUntil === undefined) return false;
     if (revokedUntil <= Date.now()) {
@@ -246,13 +253,29 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
 
   function revokeAuthSession(session: AuthSession | undefined): void {
     if (!session) return;
+    // Retain process-local refusal even when the durable writer fails. The
+    // failure is propagated; callers cannot acknowledge an unpersisted logout.
     revokedSessions.set(session.id, session.expiresAt);
+    let persistenceError: unknown;
+    try {
+      revocationStore?.revokeAuthSession(session);
+    } catch (error) {
+      persistenceError = error;
+    }
     scheduleAt(session.expiresAt, () => {
       if (revokedSessions.get(session.id) === session.expiresAt) revokedSessions.delete(session.id);
     });
     const listeners = activeSessions.get(session.id);
     activeSessions.delete(session.id);
-    for (const listener of listeners ?? []) listener('revoked');
+    const failures: unknown[] = persistenceError ? [persistenceError] : [];
+    for (const listener of listeners ?? []) {
+      try {
+        listener('revoked');
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length) throw new AggregateError(failures, 'Login revocation remains unconfirmed');
   }
 
   /** Logout invalidation must outlive an individual proxied HTTP request. */
@@ -260,14 +283,31 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
     sessions: readonly (AuthSession | null)[],
     notify?: (jti: string) => void,
   ) {
+    const failures: unknown[] = [];
     for (const session of sessions) {
       if (!session) continue;
-      revokeAuthSession(session);
-      notify?.(session.id);
+      try {
+        revokeAuthSession(session);
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        notify?.(session.id);
+      } catch (error) {
+        failures.push(error);
+      }
     }
+    if (failures.length) throw new AggregateError(failures, 'Operator logout remains unconfirmed');
   }
 
   return {
+    setRevocationStore(store: AuthRevocationStore) {
+      if (revocationStore && revocationStore !== store)
+        throw new Error('Authentication revocation owner cannot be replaced');
+      revocationStore = store;
+      for (const [id, expiresAt] of revokedSessions) store.revokeAuthSession({ id, expiresAt });
+    },
+    hasPersistentRevocationAuthority: () => revocationStore !== undefined,
     login,
     verifyPassphrase,
     authenticateToken,

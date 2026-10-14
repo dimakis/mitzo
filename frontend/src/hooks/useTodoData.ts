@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoItem, TodoData, TodoOutcomeDraft } from '../types/todo';
-import { apiFetch } from '../lib/api-fetch';
+import { apiFetch, invalidateTodoReads } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
+import { ListCache, SupersededListRequest } from '../lib/list-cache';
+
+const todoCache = new ListCache<TodoData>();
+function invalidateTodos(): void {
+  invalidateTodoReads();
+  todoCache.invalidate();
+}
+eventBus.on('todo_update', invalidateTodos);
 
 export interface UseTodoDataResult {
   loading: boolean;
@@ -51,8 +59,9 @@ export function findInTree(items: TodoItem[], id: string): TodoItem | undefined 
 }
 
 export function useTodoData(profile?: string): UseTodoDataResult {
-  const [data, setData] = useState<TodoData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const url = profile ? `/api/todos?${new URLSearchParams({ profile })}` : '/api/todos';
+  const [data, setData] = useState<TodoData | null>(() => todoCache.get(url) ?? null);
+  const [loading, setLoading] = useState(() => !todoCache.get(url));
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
@@ -60,15 +69,16 @@ export function useTodoData(profile?: string): UseTodoDataResult {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    const cached = todoCache.get(url);
+    setData(cached ?? null);
+    setLoading(!cached);
     setError(null);
 
-    const url = profile ? `/api/todos?${new URLSearchParams({ profile })}` : '/api/todos';
-
-    apiFetch(url)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Todo API returned ${r.status}`);
-        return r.json();
+    todoCache
+      .load(url, async () => {
+        const response = await apiFetch(url);
+        if (!response.ok) throw new Error(`Todo API returned ${response.status}`);
+        return response.json();
       })
       .then((result: TodoData) => {
         if (!cancelled) {
@@ -77,9 +87,13 @@ export function useTodoData(profile?: string): UseTodoDataResult {
           setLoading(false);
         }
       })
-      .catch(() => {
-        if (!cancelled) {
-          setData({ profiles: [], items: [] });
+      .catch((error) => {
+        if (cancelled) return;
+        if (error instanceof SupersededListRequest) {
+          // An action can finish after switching to an uncached profile.
+          // The mounted consumer still needs a current read after invalidation.
+          setRefreshKey((k) => k + 1);
+        } else {
           setError('Unable to load Telos items');
           setLoading(false);
         }
@@ -88,13 +102,21 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     return () => {
       cancelled = true;
     };
-  }, [profile, refreshKey]);
+  }, [url, refreshKey]);
 
   // Live update: SSE todo_update signals a refetch
   useEffect(() => {
-    return eventBus.on('todo_update', () => {
+    const refreshOnResume = () => {
+      if (document.visibilityState === 'visible') setRefreshKey((k) => k + 1);
+    };
+    document.addEventListener('visibilitychange', refreshOnResume);
+    const unsubscribe = eventBus.on('todo_update', () => {
       setRefreshKey((k) => k + 1);
     });
+    return () => {
+      document.removeEventListener('visibilitychange', refreshOnResume);
+      unsubscribe();
+    };
   }, []);
 
   const performAction = useCallback(async (id: string, action: string, days?: number) => {
@@ -109,6 +131,8 @@ export function useTodoData(profile?: string): UseTodoDataResult {
       });
 
       if (res.ok) {
+        invalidateTodoReads();
+        todoCache.update((data) => ({ ...data, items: removeFromTree(data.items, id) }));
         setData((prev) => (prev ? { ...prev, items: removeFromTree(prev.items, id) } : prev));
       }
     } catch {
@@ -122,7 +146,10 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     [performAction],
   );
   const done = useCallback((id: string) => performAction(id, 'done'), [performAction]);
-  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+  const refresh = useCallback(() => {
+    invalidateTodos();
+    setRefreshKey((k) => k + 1);
+  }, []);
 
   const star = useCallback(async (id: string) => {
     // Read current starred state from the ref before toggling,
@@ -131,6 +158,8 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     const action = currentItem?.starred ? 'unstar' : 'star';
 
     // Optimistically toggle
+    invalidateTodoReads();
+    todoCache.update((data) => ({ ...data, items: toggleStarInTree(data.items, id) }));
     setData((prev) => {
       if (!prev) return prev;
       return { ...prev, items: toggleStarInTree(prev.items, id) };

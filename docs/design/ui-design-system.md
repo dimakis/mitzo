@@ -29,9 +29,26 @@ Use grouped bordered rows and quiet surfaces for lists. Put the most useful titl
 
 ## Drafts and updates
 
-Chats keeps a counted Drafts destination separate from active and recent conversations. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
+Chat load errors distinguish an initial request from a refresh of a previously loaded
+list. A failed refresh retains its rows beside the existing error and Retry control,
+including in Today's recent sessions. Draft confirmation describes storage on the
+current device, appears only after the current revision is saved, and disappears
+when an empty composer has no retained draft. Failed writes remain explicit alerts.
+These changes reuse existing list/error and composer status styles.
 
-Empty messages with a repository preparation retain their exact receipt and account/model binding. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
+Isolated actual SessionList and ChatInput renders were checked offline in mobile
+WebKit at 320px and desktop Chromium at 1280px, dark/light themes and Mint/Georgia,
+with retry, empty/saved/cleared states and retained composer focus. Captures show
+[mobile refresh](assets/chat-refresh-mobile-dark.png),
+[desktop refresh](assets/chat-refresh-desktop-light.png),
+[mobile draft save](assets/chat-save-mobile-light.png) and
+[desktop draft save](assets/chat-save-desktop-dark.png).
+These focused renders omit the application shell; full-app offline fixtures cover
+the corresponding routes and run in CI when host pressure prevents a broad build.
+
+Chats shows a counted Drafts destination when saved drafts exist, separate from active and recent conversations. The shortcut disappears when the last draft is removed. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
+
+Empty messages with a repository preparation retain their exact receipt. Legacy preparations keep their account/model binding. New server-qualified READY preparations keep account and environment locked while allowing a supported first-message model before reservation; original source and preparation model stay recorded and the first reservation freezes the effective command. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
 
 Settings owns the Updates destination and its availability summary. The dedicated update panel uses the shared surface, accent action and secondary controls; commit/build metadata remains secondary. Review update opens the existing configured prompt for user review. Loading, unavailable configuration and failed checks must remain distinct from an up-to-date release. Both pages inherit theme, accent, font, shell scrolling and navigation motion; neither defines another palette or wordmark.
 
@@ -103,6 +120,77 @@ for surfaces, preserving drafts, focus, and subscriptions. Streaming content doe
 not replay transitions. Reduce Motion disables animation and press scaling.
 `npm run test:design` also rejects literal timings/easing, broad transitions, and
 direct Web Animations calls outside the shared helper.
+
+## Ordinary conversation runtime selection
+
+The approved ordinary composer exposes one compact, agent-led Agent settings
+summary and one settings panel on mobile and desktop. The panel orders Agent,
+Account, the paired Model/Thinking level fields, then Run on. OpenShell and Local
+Mac are descriptive selection cards with accessible pressed state; Runs with
+reports derived software. Done reviews the current execution capability intent
+and closes the panel; Close and Escape dismiss without reviewing or confirming
+billing and return focus to the summary. `AgentSettingsPicker` renders the panel
+inside `ChatInput` between its textarea and toolbar. The shared AccountModelPicker
+and ChatAgentProfilePicker keep one mounted control set. Model/Thinking level pair
+on desktop and stack on phones; location cards pair at ordinary 390px and desktop
+widths and stack in the narrowest composer. Run on cards carry icons,
+selection ticks, descriptions and `aria-pressed`; no separate Run on select or
+Refresh/Use control belongs in this ordinary panel. New ordinary drafts show
+What are we working on? and Start session; bound chats keep Send.
+
+The panel uses `useMotionPresence`, shared `UiIcon`, semantic surface/accent/border
+colors, `--font-ui`, spacing/type/radius scales and `--control-height`. Its body
+scrolls while header/footer stay reachable. The viewport cap and measured remaining
+composer space are structural geometry: they reserve the textarea, attachments,
+toolbar and shell navigation rather than introducing another spacing scale.
+Workspace remains for conversation details and operational controls. OpenShell is
+the default; Local Mac is deliberate. Resolve only pristine unselected target
+intent from trusted inventory, and preserve stale/unavailable account, model,
+thinking and target choices with a useful reason. Runs with describes the derived
+software rather than adding another runtime control. An unbound retained
+account whose exact reference is missing or changed displays a disabled confirmation
+option in the existing Account select. Selecting the real catalogue account
+explicitly confirms its current tuple in one step, retaining model, thinking and
+draft content. Opening the control, changing other settings or reviewing execution
+choices never confirms billing; bound accounts stay locked.
+
+Bound ordinary Codex, Responses, Claude and Gemini conversations lock account, exact profile identity and execution target. Supported Codex/Responses/Claude scope enables model/thinking edits for future commands, normal guarded follow-ups and the native queue. Gemini shows its original-model/thinking constraint and retains changed intent with explicit refusal; it does not promise unsupported future settings. Each queued
+request keeps its original settings snapshot. Consumed receipt settings are labelled Last submitted command, distinct from the future picker selection. Unsupported mode/context/web helpers
+remain independently disabled. Metadata loading/failure never enables legacy
+fallback; Retry preserves the conversation and draft.
+
+New session elsewhere creates a separately owned blank draft with copied intent
+and no inherited repository preparation. The explicit retained-intent flag keeps
+that blank draft recoverable without changing ordinary empty-draft behavior. Its
+separate preparation creates a separate checkout. The original conversation,
+provider history, branch and pending work remain under their existing owners.
+Unavailable cold custody is a visible server reason, not a replacement environment.
+
+Repository preparation cards share the chat column's available flex space with
+the non-shrinking composer. Long branch/details/actions scroll inside the existing
+card instead of pushing attachments and the message field beneath navigation.
+The Workspace disclosure observes that card's geometry; no fixed viewport-height
+cap or reset of settings, focus or draft is required.
+
+The existing motion boundaries, drafts and focus remain mounted. Expanded settings
+must scroll at 390 × 844 and with larger text while shell navigation stays reachable.
+Hosted all-intercept fixtures cover Local/OpenShell start, future thinking, guarded
+queue snapshots and new-session intent. Source tests are offline; rendered hosted
+CI evidence and live provider qualification remain separate. The approved source
+archive is Telos artifact `3985777d901aa39cef7765f75b1277d6`, revision 1; its mock
+catalogues illustrate layout and do not establish live route availability. See the
+[completion checklist](session-runtime-continuity-checklist.md).
+
+## Authentication recovery
+
+The native splash yields to the rendered authentication status without waiting for a network response. A stalled check has a five-second deadline and reaches the existing token-styled unavailable alert and Retry action. Mobile shell navigation remains reachable. Retry starts a fresh check without clearing a valid login or requiring another tab; only an actual authentication denial redirects to Login with the original destination. Offline fixtures cover startup, tab changes, light/dark appearance and retry on mobile WebKit and mobile/desktop Chromium.
+
+Transient failures also retry automatically with three bounded backoff attempts.
+Returning to the native foreground, restoring network connectivity or making the
+document visible restarts unavailable authentication without requiring a manual
+Retry. Hidden apps do not send recovery attempts; duplicate wake signals are
+coalesced. Verified routes remain visible, and denied authorization still goes
+directly to Login. Recovery reuses the same status, alert and shared button styles.
 
 ## Verification
 
@@ -271,3 +359,108 @@ Cancel and direct answers to the full iPhone form.
 Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromium,
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
+
+## Artefact sharing links
+
+Markdown Telos artefact links reuse `FileShareLink` and a compact file-options
+surface. Ordinary file links retain their primary in-app opening action and one
+quiet options trigger; previews group Open, Download and Share behind that same
+trigger. Telos filenames open their read-only saved revision inside Files and retain one
+quiet options trigger, following the same pattern as ordinary files. Choices appear only on request using `HomeDialog`, its focus/scroll
+ownership, shared control-height targets and motion-presence helper. The action
+state stays with the trigger so closing/reopening cannot duplicate a pending
+operation. Successful actions dismiss the options and restore focus. A returning composer
+only takes initial focus when no other control owns it. On iOS, the system Share sheet also offers Save to Files. The offline
+artefact fixture checks compact closed controls, revealed choices, Escape/focus
+restoration, exact revision and original bytes across mobile/desktop appearances.
+
+## Agent profile draft cards
+
+Pending profile proposals appear after the transcript inside the existing ChatArea
+scroll surface, even with Workspace closed. Empty drafts and manual seat drafting
+remain available through Workspace. The cards reuse SymposiumProfileProposals, its
+labelled controls, shared profile styles and semantic tokens. New proposals receive
+an opaque generated ID; users edit the agent's name and guidance. Internal role and reviewer recipe controls
+are available under the native **Advanced profile settings** disclosure. Explicit Save
+confirms the profile is in the Agent Library and provides a Library link. Editing
+never saves automatically. Offline fixtures cover direct save, empty/error states,
+long instructions, keyboard activation, 320px/390px mobile and desktop, dark/light
+themes and alternate accent/font preferences.
+
+## Google Workspace policy status
+
+`GoogleWorkspaceControls` retains the existing Connections surface and controls,
+shared tokens and focus behavior. Copy distinguishes Docs authoring, legacy
+read-only Docs access, and unavailable Docs policy evidence; credential readiness
+remains a separate status. It exposes no new write toggle. The inventory lists
+Docs editing only when the effective policy was checked.
+
+Isolated, fully intercepted component views were inspected on 320px mobile WebKit
+with Dark/Mint/Georgia and 1280px desktop Chromium with Light/Teal/System for
+enabled, legacy and unknown Docs policy. They preserve keyboard focus without
+horizontal overflow. Captures show [mobile Docs authoring](assets/google-docs-mobile-dark.png)
+and [desktop legacy Docs access](assets/google-docs-desktop-light.png). These
+component checks use no backend, credential, or model. The full-app offline fixture
+also covers enabled and legacy policy on mobile WebKit/Chromium and desktop
+Chromium; broad build/browser acceptance runs in CI when local memory pressure
+prevents the full suite.
+
+## Historical explicit Local first-command selection
+
+This section records the guarded first-command checkpoint. The current ordinary
+conversation contract above applies to qualified continuation routes; these limits
+remain the fallback for unsupported or unqualified scopes.
+
+The gated ordinary-chat entry extends the existing Workspace disclosure and
+account/profile pickers with controlled metadata and Run on. It uses native labelled
+selects, existing account-model fields and chat-agent-profile styles; color, spacing,
+type, radii, control heights, focus and disclosure motion remain shared. It adds no
+page theme. An untouched enrolled draft retains OpenShell; unavailable choices
+retain their labels and reasons. Explicit Local uses a separate strict first-command
+HTTP route while existing event-stream transcript and permission handling stay shared.
+Configuration metadata never establishes runtime readiness. The shared settings
+disclosure scrolls within the remaining space after repository and composer controls
+on desktop, with a viewport cap. Its mobile overlay stops before
+the first repository or launch action and updates when that action appears, retaining
+keyboard focus and the existing disclosure motion.
+
+Mobile and desktop write the same account/profile/target/capability intent into
+saved drafts. Model/thinking and published revisions are never silently replaced
+when unavailable. Local requires a prepared repository, a published agent and the
+original permission policy. It disables unsupported context additions, command
+pickers, worktree toggles, web grants and subsequent sends; attached context remains
+removable without deleting draft text or images. Bound conversations display the
+Local first-command limit on reload and keep account/profile/runtime choices fixed.
+Unknown conversation metadata also blocks helper starts and context/model/mode/profile
+mutations until Retry resolves its binding. A recovered Local binding shows First command
+without inferring account readiness. On phones the status uses a shrinking grid column
+and an 8ch structural cap beside the always-reachable Access action; its full text stays
+in the accessible description and tooltip. Readonly findings, history and safe Stop
+remain available; review action controls stay disabled.
+Persisted account/model/thinking hydration remains separate from user edits, so
+metadata arriving before the runtime check still supplies the actual conversation
+settings without replacing device defaults. Running Local conversations expose Stop
+and retain follow-up drafts and existing queues, while queue creation and draining
+remain blocked. The composer validates the complete command envelope, including
+UTF8 metadata and attachments, and explains removal/resizing when it exceeds 1 MiB.
+Recovery shows the original command tuple and resends its retained envelope only
+on a deliberate operator action. Authentication restoration does not replay it.
+
+The intercepted Local browser fixture covers review, preparation, immutable POST,
+bound settings and disabled-gate draft restoration on mobile and desktop in light
+and dark appearance with alternate accent/font settings. Screenshot evidence goes
+to the Playwright artifact output paths for review. Component/hook/client regressions
+require no backend, credential, native provider or model. Rendered browser acceptance
+and inspection remain required in hosted CI when local memory pressure precludes
+building or browser execution; fixture presence alone is not visual acceptance.
+
+## Approved Agent settings fidelity checkpoint
+
+The saved approved mock is `mitzo-agent-picker.html` in the runtime separation
+handover. Source implementation and behavioral qualification are separate from
+rendered fidelity. The hosted offline runtime fixtures now target the approved
+composer hierarchy, card descriptions, dismissal/focus, retained images and
+settings, bounded internal scrolling at 390 × 844 and 320 × 740 with larger
+text, and desktop light/dark Mint/Georgia with Reduce Motion. Final current-head
+hosted screenshots, visual inspection and independent acceptance remain pending;
+this source checkpoint is not a claim that the approved layout has passed.

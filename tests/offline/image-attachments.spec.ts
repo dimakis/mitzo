@@ -1,3 +1,4 @@
+import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -88,6 +89,7 @@ async function fixtureImages(page: Page, provider: (typeof providers)[number]) {
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });

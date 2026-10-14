@@ -15,6 +15,11 @@ import {
 } from '../../lib/chat-drafts';
 import type { AccountSelection } from '../../components/AccountModelPicker';
 
+function openAgentSettings() {
+  const settings = screen.getByRole('button', { name: /^Agent settings,/ });
+  if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
+}
+
 vi.mock('../../components/AccountModelPicker', () => ({
   AccountModelPicker: ({
     initialSelection,
@@ -166,6 +171,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     draft.settings.search = 'cwd=%2Fworkspace';
     saveChatDraft(draft);
     const view = mount(Page, `/chat?draft=${draft.id}&cwd=%2Fworkspace`);
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
     expect(getChatDraft(draft.id)).toBeNull();
@@ -184,13 +190,15 @@ for (const Page of [ChatView, DesktopChatView]) {
     const reloaded = mount(Page, clearedUrl);
     expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
     expect(screen.queryByRole('alert')).toBeNull();
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'After reload' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
     expect(reloaded.send).toHaveBeenCalled();
   });
   it(`${Page.name} keeps a preparation-only draft before typing, after clearing and through reload until removal`, () => {
     const view = mount(Page, '/chat');
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     fireEvent.click(screen.getByRole('button', { name: 'Ready scoped repository' }));
     const draft = listChatDrafts()[0];
@@ -208,6 +216,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     view.unmount();
     mount(Page, savedUrl);
     expect(screen.queryByRole('alert')).toBeNull();
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     expect(screen.getByTestId('repository-id').textContent).toBe(
       draft.settings.repositoryWorkspaceId,
@@ -237,8 +246,9 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(draft.text);
     expect(screen.getByTestId('restored-selection').textContent).toContain('personal');
     expect(getChatDraft(draft.id)?.settings).toMatchObject(draft.settings);
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
     expect(store.getState().config.mode).toBe('ask');
     expect(send).toHaveBeenCalledWith(
       draft.text,
@@ -278,6 +288,7 @@ for (const Page of [ChatView, DesktopChatView]) {
   });
   it(`${Page.name} gives fresh drafts a reloadable URL preserving launch settings`, async () => {
     mount(Page, '/chat?cwd=%2Fworkspace&extraTools=read&agentProfile=helper&profileRevision=2');
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     fireEvent.change(screen.getByLabelText('Message Mitzo'), {
       target: { value: 'Save for later' },
@@ -315,6 +326,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     saveChatDraft(first);
     saveChatDraft(second);
     mount(Page, `/chat?draft=${first.id}`);
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     fireEvent.click(screen.getByRole('button', { name: 'Open second draft' }));
     expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
@@ -333,6 +345,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     draft.settings.repositoryWorkspaceId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
     saveChatDraft(draft);
     mount(Page, `/chat?draft=${draft.id}`);
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     expect(screen.getByTestId('repository-id').textContent).toBe(
       draft.settings.repositoryWorkspaceId,
@@ -343,7 +356,7 @@ for (const Page of [ChatView, DesktopChatView]) {
       draft.settings.repositoryWorkspaceId,
     );
     expect(
-      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+      (screen.getByRole('button', { name: 'Start session' }) as HTMLButtonElement).disabled,
     ).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Remove scoped repository' }));
     expect(getChatDraft(draft.id)?.settings.repositoryWorkspaceId).toBeNull();
@@ -354,10 +367,11 @@ for (const Page of [ChatView, DesktopChatView]) {
     draft.settings.repositoryWorkspaceId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
     saveChatDraft(draft);
     const { send } = mount(Page, `/chat?draft=${draft.id}`);
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     fireEvent.click(screen.getByRole('button', { name: 'Ready scoped repository' }));
     fireEvent.click(screen.getByRole('button', { name: 'Change saved account' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
     expect(send).not.toHaveBeenCalled();
     expect(screen.getByRole('alert').textContent).toMatch(/remove.*repository.*account/i);
     expect(getChatDraft(draft.id)?.settings).toMatchObject({
@@ -380,11 +394,13 @@ for (const Page of [ChatView, DesktopChatView]) {
     saveChatDraft(first);
     saveChatDraft(second);
     mount(Page, `/chat?draft=${first.id}`);
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     expect(screen.getByTestId('repository-id').textContent).toBe(
       first.settings.repositoryWorkspaceId,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Open second draft' }));
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     expect(screen.getByTestId('repository-id').textContent).toBe(
       second.settings.repositoryWorkspaceId,
@@ -398,11 +414,17 @@ for (const Page of [ChatView, DesktopChatView]) {
   });
   it(`${Page.name} blocks a missing reference without replacing it with an empty saved draft`, () => {
     const { send } = mount(Page, '/chat?draft=missing');
+    openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Cannot send' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
     expect(send).not.toHaveBeenCalled();
     expect(listChatDrafts()).toEqual([]);
     expect(screen.getByRole('alert').textContent).toMatch(/draft.*unavailable/i);
   });
 }
+
+vi.mock('../../hooks/useExplicitLocalChat', async () => {
+  const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
+  return { useExplicitLocalChat: disabledLocalChat };
+});

@@ -1,5 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import { AgentLibraryVersionSchema, type AgentProfileSelection } from '@mitzo/protocol';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  profileBuilderDefinition,
+  AgentLibraryVersionSchema,
+  type AgentProfileSelection,
+} from '@mitzo/protocol';
 import { registerAuthSession, type AuthSession } from './auth.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
@@ -44,12 +50,30 @@ export async function withAgentLibraryRecoveryAuthorization<T>(
     release();
   }
 }
+/** Builtin identity is code-owned and never resolved through the user Library. */
+export function readBuiltinAgentLibraryProfile(selection: AgentProfileSelection) {
+  if (selection.kind === 'builtin') {
+    if (selection.profileId !== PROFILE_BUILDER_ID) return null;
+    if (selection.revision !== PROFILE_BUILDER_REVISION) return null;
+    return {
+      kind: 'builtin' as const,
+      profileId: PROFILE_BUILDER_ID,
+      revision: PROFILE_BUILDER_REVISION,
+      definition: structuredClone(profileBuilderDefinition),
+      contentHash: createHash('sha256')
+        .update(JSON.stringify(profileBuilderDefinition))
+        .digest('hex'),
+    };
+  }
+  return null;
+}
 export async function readAgentLibraryProfile(
   selection: AgentProfileSelection,
   connectionId?: string,
 ) {
   const captured = captureAgentLibraryAuthorization(connectionId);
   const auth = captured.auth;
+  if (selection.kind === 'builtin') return readBuiltinAgentLibraryProfile(selection);
   if (!custodianControllerClient)
     return getAgentLibrary().version('user', selection.profileId, selection.revision);
   const response = await custodianControllerClient.request(

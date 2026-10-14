@@ -15,13 +15,142 @@ Expand **Workspace** in chat to choose the account and model. **Make default for
 
 Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
 
-Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Known native capacity failures schedule up to five continuations from saved progress, 30 seconds apart, using the same account, model and provider thread. **Try again** runs one attempt immediately within that budget; after exhaustion it explicitly starts a new five-attempt cycle. **Stop retries** cancels waiting work and interrupts only its active continuation. A new user message supersedes pending retries. Each continuation is a new native turn with fresh standard admission and acknowledgment-bound context delivery; it does not replay the original prompt or replace completed tool results. Restart stops the retry schedule until a manual **Try again**; uncertain dispatched work remains held for inspection.
+Legacy Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Known native capacity failures schedule up to five continuations from saved progress, 30 seconds apart, using the same account, model and provider thread. **Try again** runs one attempt immediately within that budget; after exhaustion it explicitly starts a new five-attempt cycle. **Stop retries** cancels waiting work and interrupts only its active continuation. A new user message supersedes pending retries. Each continuation is a new native turn with fresh standard admission and acknowledgment-bound context delivery; it does not replay the original prompt or replace completed tool results. Restart stops the retry schedule until a manual **Try again**; uncertain dispatched work remains held for inspection.
+
+Chats and Telos retain their last successful lists in memory while refreshing, including when you return to a loaded page. Chats does not wait for configuration or version checks to finish displaying conversations. Opening saved history skips SDK directory discovery when its workspace is already recorded; histories bound to other providers skip Claude SDK workspace lookup. Assistant responses reuse parsed Markdown across collapse measurement and unrelated updates, refreshing it when the text or owning session changes. The native splash yields to the route authentication status as soon as the app renders. Authentication checks have a five-second deadline; a stalled or unavailable check preserves the login and offers Retry without requiring a tab change. Protected routes reuse a successful authentication check for up to 30 seconds within the same login; credential changes, logout and protected 401 responses invalidate that proof. List snapshots clear when authentication changes. Identical simultaneous Telos list requests from pages and navigation badges share one network request, reducing duplicate Python startup and database lock contention. Native-provider chats receive local automatic titles without sending their content to a separate naming account; older unnamed conversations derive a display title from saved prompts. Chats shows its Drafts shortcut only while saved drafts exist.
 
 Codex startup failures distinguish known account, workspace-routing, transport and request errors. A resume with an unavailable or changed native conversation binding reports that binding problem and preserves saved messages; it does not automatically create replacement provider history. Startup exceptions identify the failing step when available and show a **Reference** shared with the server log. Recognized storage, permission and connection error codes receive specific explanations. Unknown startup failures do not imply queued work or prove that a provider turn ran. First-send preparation failures before native dispatch explicitly report that no provider turn started. A rejected sandbox policy identifies the runtime contract mismatch; failures after dispatch retain advice to inspect uncertain work. Logs retain the session ID, bounded failure categories, recognized RPC methods, allowlisted resource codes, command exit status/signals and application source locations. Commands, stderr, upstream exception text and private paths remain excluded. Inspect conversation recovery before retrying uncertain work.
 
 Ordinary OpenShell Codex chats reserve their account-bound native ledger before provisioning. If provisioning fails before provider initialization, a later send finishes that reserved startup under the same chat ID. Once provider initialization begins, an unacknowledged thread outcome blocks ordinary resume; existing legacy history is never marked undispatched automatically.
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
+
+## Explicit ordinary conversations
+
+Ordinary chats use one agent-led **Agent settings** summary in the composer. Its
+panel orders Agent, Account, Model and Thinking level, followed by the configured
+OpenShell and Local Mac cards and derived agent software. Done reviews the current
+choices without sending a message; Close and Escape preserve the draft. New chats
+show **What are we working on?** and **Start session**. Reopened conversations expose
+their eight identity and setting fields under Session details, retaining unknown
+values explicitly. Workspace keeps advanced conversation controls. The panel
+reuses shared appearance and motion, and scrolls within the space left by the
+message, repository preparation and navigation. Final hosted visual evidence is
+required before claiming fidelity to the saved approved design.
+
+The existing Agent, Account, Model, Thinking and Run on picker supports gated
+Local Mac and ordinary OpenShell Codex source routes. OpenShell is the new-chat
+default even when unavailable; Local is explicit. The picker derives Runs with
+Codex from the selected route and retains unavailable choices and drafts. Published
+provider-compatible user profiles and the canonical Agent Builder builtin retain
+their immutable namespaces. Qualified workspace and ContexGin recipes retain
+their compiler context snapshots; OpenShell ContexGin requires a configured named
+sandbox preset. Native packs and incompatible or unavailable recipes stay refused
+without replacing the selected choice. Local uses a configured file-backed host
+ChatGPT account. OpenShell uses its exact existing
+brokered OAuth provider/grant or explicitly enrolled OpenAI API profile. These
+account projections are disjoint: a Local credential profile is not automatically
+enrolled on OpenShell, and changing environment retains that choice with an
+unavailable reason when its original account has no compatible route. Local API,
+Vertex, workspace-based or brokered Local authentication, and native sandbox
+subscription routes are not advertised by this Codex contract.
+
+New ordinary-route READY repository preparations retain a private server-produced
+account, runtime, credential and source snapshot. Before the first command is
+reserved, Model and Thinking remain editable for supported choices while Account
+and Run on stay fixed. The same checkout admits the selected first-message model;
+the original preparation model, branch and source digest remain recorded. The
+atomic first reservation freezes the complete command and effective model, so
+retries, uncertain reservations and later ownership checks cannot reinterpret it.
+Entry preparation deadlines fence awaited checkout, native setup and live
+admission before receipts or queue effects. An expired incoming command keeps
+prior admitted work healthy; its request signal is never retained as conversation
+lifetime or frozen command data. Legacy preparations keep their original full-selection guard. Catalogue and label
+updates do not change retained routing or credential authority; the native owner
+still validates each future command. These are source and offline-fixture checks,
+with hosted visual evidence pending and live credential renewal or orphan process
+recovery unqualified.
+
+Bound Codex queues require the original still-valid signed login for cancellation,
+continuation and recovery controls, including cold controls. Native retry helpers
+that synthesize a command outside ordinary admission remain unavailable; existing
+failed/uncertain work stays retained. Local delivers the existing profile helpers
+and approval-backed GitHub publisher from its original checkout. Owned OpenShell
+host effects recheck the selected account/profile/target after approvals and before
+publication, provider grants, REST and web effects. WebSocket/dashboard helpers
+remain unavailable on this bound route until their per-frame authority is supported.
+
+Local enrolled OpenAI API accounts also have a gated [Responses conversation route](docs/design/local-responses-continuity.md)
+through the same picker and runtime endpoints. It retains the exact API account,
+original private history and independent checkout across follow-up, FIFO queue,
+Stop and supported cold resume. The original sign-in can reconnect and drain a full
+saved queue without adding a message or cancelling accepted work. Its per-command model/thinking snapshots stay
+separate from the original native binding. Plain provider-compatible Library
+profiles and the canonical Agent Builder namespace are supported; reusable
+context recipes remain explicitly unavailable. An unfinished provider execution
+after restart remains held for outcome recovery. No live account qualification or
+activation is claimed by this source increment.
+
+Local Anthropic Vertex accounts have a separately gated [Claude SDK source route](docs/design/ordinary-local-vertex-source-status.md)
+through the same picker and generic runtime endpoints. Run on has exactly two
+choices, OpenShell and Local Mac; software and model catalogs derive from the
+selected account's native route. The Claude route supports plain compatible
+Library profiles and canonical builtin identity, frozen FIFO model/effort choices,
+original SDK thread/workspace custody and completed-turn cold continuation.
+Original signed login custody also guards cold queue cancellation. It requires
+`MITZO_ORDINARY_LOCAL_VERTEX_ENABLED=1`, a separately reviewed private
+`MITZO_ORDINARY_LOCAL_VERTEX_TARGET_FILE`, and explicit account configuration with
+project, region and selected ADC. Inherited Google project/quota controls are not
+adopted. ADC identity/content changes refuse continuation; credential renewal,
+native process isolation and live provider behavior remain unqualified. Active
+Stop without a native terminal result retains unconfirmed work and refuses cold
+replay. Context recipes, packs, Vertex OpenShell and ordinary Gemini adoption
+remain outside this Claude checkpoint.
+
+Local Google Vertex accounts have a gated [Gemini source route](docs/design/ordinary-local-gemini-source-status.md)
+through the same picker and runtime endpoints. It reuses NativeResponses history,
+ordinary admission, independent checkout and signed operator custody for first
+commands, FIFO, Stop and completed-turn cold continuation. Explicit parsed ADC
+credentials bind the original private file, project and region; ambient Google
+project/quota controls and changed ADC are refused. Model and thinking stay fixed
+for the native conversation. An invalid future choice remains visible with a reason
+until explicitly replaced or a new conversation is started. Images, context
+recipes, packs and OpenShell Gemini remain unavailable.
+
+- [x] Combined ordinary conversation and approved picker source123 checkpoint: 308 unique reviewed artifacts with zero drift;
+      496 affected UI checks and 21 Vertex lifecycle checks passed with scoped types and signing hooks. Fresh combined-head hosted/source acceptance remains required. Live provider behavior,
+      ADC renewal and staging qualification remain outstanding.
+
+Configuration remains operator-owned and disabled by default. Local requires
+`MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and separately reviewed target/native files.
+OpenShell requires `MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED=1`, the existing reviewed
+OpenShell policy/seed configuration and an owner-only canonical
+`MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE` declaring its target, runtime contract
+and explicit OpenAI API policy. Neither setting authorizes deployment or makes a
+configured target live-ready. The combined configuration inventory is
+`GET /api/chat/runtime/capabilities`; strict first and subsequent command endpoints
+are `POST /api/chat/runtime/send` and `/continue`. Original Local endpoints remain
+compatible. Each send requalifies the owning authority before effects.
+
+A conversation keeps its account, published profile, runtime, target and independent
+checkout. Supported model/thinking changes apply to the next unadmitted command;
+running and queued commands keep their original snapshots. Durable receipts freeze
+request identity and require deliberate recovery after uncertain delivery. New
+session elsewhere copies intent into a separate blank draft and requires new
+repository preparation. Unsupported mode/context/web and general connection
+helpers remain blocked while normal supported follow-ups use the owning native
+queue.
+
+Reconnect retains the original driver and authenticated login. Cold resume checks
+persistent login revocation, immutable routing, the original provider history,
+physical runtime/login custody and the existing workspace. Missing or changed
+custody produces an explicit unavailable state and retains saved work. Changed
+file-backed authentication, including token refresh, still refuses the retained
+lease; automatic credential renewal is not qualified. Source implementation and
+offline regressions are separate from live qualification. Staging remains stood
+down and production activation is a separate user action. See the
+[runtime contract](docs/design/session-runtime-selection.md) and
+[completion checklist](docs/design/session-runtime-continuity-checklist.md).
 
 ## Conversation activity
 
@@ -42,6 +171,8 @@ separate canonical staging and live acceptance before activation.
 
 With reviewed deployment configuration setting `MITZO_REPOSITORY_WORKSPACES_ENABLED=1`, a new ordinary OpenAI chat can select a repository from its assigned managed GitHub connection, preview the default branch’s exact commit, and prepare an independent feature-branch checkout before the first prompt. Mobile and desktop share the picker. Agents can also discover authorized repositories and prepare a new repository-chat draft through `ListRepositories` and `PrepareRepositoryChat`; the user reviews and starts it from a chat card. Credentials stay on the controller, and the selected repository remains bound to the conversation across restart and resume.
 
+Backgrounding the iPhone buffers chat events while the running agent can still discover repositories, prepare a draft and recover its status. Account, scope, mode and skill permissions still apply; the new repository chat starts only after the user reviews and sends the draft.
+
 Source verification streams 64 KiB chunks instead of buffering whole files. Host task copies use pinned directory descriptors through an isolated Python helper, retaining independent checkouts without following replacement paths. Filesystem cloning, shared download caching and retained-storage quotas remain subsequent resource work.
 
 Initial support covers regular-file GitHub projects up to 10,000 files and 64 MiB of Git storage/current-tree content. Dependency automation, local repository attachment and other hosting providers are subsequent slices. The feature is disabled by default and requires separate canonical-staging provider enrollment and live acceptance before rollout. See [repository-backed chats](docs/features/repository-backed-chats.md) for configuration, custody and acceptance gates.
@@ -57,7 +188,7 @@ Initial support covers regular-file GitHub projects up to 10,000 files and 64 Mi
 
 Experimental [Symposium conversations](docs/features/symposium.md) combine independently configured contributors with selected context, attributed results and explicit Stop controls. The current direction puts artifacts first and reuses ordinary account/session execution; that integration is not yet accepted. The [current acceptance checklist](docs/features/symposium-integrated-acceptance.md) distinguishes the next conversation slice from historical review/publication work. Provider sign-in, physical runtime admission and live acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
 
-In a chat on desktop or mobile, expand **Workspace** and select **Reusable profile drafts** to review, edit and explicitly save proposed agent profiles. The drafts control stays inside Workspace, leaving the conversation and composer clear. When no drafts exist, it explains how to request one; loading and connection errors remain visible. Saving a profile does not apply it to an agent. See [reusable profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes).
+Choose **Create with advisor** in Agent Library to open **Agent Builder**, then describe the agent you need. The builder can inspect existing profiles and create editable draft cards in ordinary OpenAI API, Gemini/Vertex, Claude SDK and Codex chats. Pending drafts appear directly in the conversation on mobile and desktop, with **Save reusable profile** and a confirmation linking to the Library. New profiles receive an ID automatically. **Workspace → Reusable profile drafts** retains manual drafting and loading/empty/error feedback. Saving makes the profile available for new chats; existing chats keep their selected revision. See [reusable profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes).
 
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
 
@@ -83,7 +214,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Session settings at a glance** — a single session header shows the account profile, model, and thinking level even when collapsed. Expand it for account, permission, web access, and reviewer controls; Outputs / Sources is beside the composer. The summary wraps compactly on mobile.
 - **Boot context provenance** — Outputs / Sources identifies ContexGin-compiled context for sandbox chats. Older saved sandbox bundles display as Sandbox with a normal status indicator when their content is present; Fallback is reserved for the local fallback path. These labels identify compilation sources, rather than proving that a model used every included fact.
 - **Live token usage** — the composer shows an icon-only context wheel beside the send controls. Press it to compare the latest context with its limit and view cumulative usage separately. Native Codex's **Latest request** is the latest reported input plus output; **Cumulative usage** is input plus output summed across model requests in the current runtime thread, including resumed history. Other routes report current input context and accumulated session usage across agent runs. Repeated history and cached input count again in later requests, so cumulative usage can exceed the context limit without requiring compaction. **How these numbers work** explains the tool loop, KV cache reuse, compaction, and optimization: repeated context and large tool results are useful signals, but cache reuse and model pricing matter, and cumulative tokens are not a cost figure or finalized billing. OpenAI Responses supplies usage at completion. Native observations survive switching and reconnecting and remain labelled as reported so far. Token capacities follow the active model: Claude and Codex runtime reports take priority, with an hourly refreshed Models.dev catalog for routes that do not report limits. Runtime capacity is labelled **Effective context limit**, rather than the model's published maximum. Exact provider/model IDs are used; unknown or expired capacities do not show an occupancy percentage. Pressed details show the model, separate input/output limits, source and last check. Catalog refresh never delays model responses.
-- **Request web access** — ordinary ChatGPT/Codex (host or OpenShell), OpenAI API, Gemini/Vertex and Claude SDK chats can ask the user for web search or URL access. `request_access` shows the exact HTTP(S) origin and resolved addresses, including local/private hosts and custom ports, and enables credential-free reads through the web tool for 15 minutes. `fetch` reuses that approval; `revoke_access` removes it. Redirects to another origin pause the same read and ask for destination approval, including reads using a 15-minute grant; changed destination addresses still require renewed access. Web rows show readable destinations (including schemes and query strings), distinguish access grants from completed reads, and separate approval from fetch outcomes such as blocked access, timeouts or oversized pages. Ungranted `fetch` keeps the single public HTTPS read flow. Search uses the selected account/model without fallback. See [request web access](docs/features/request-web-access.md).
+- **Request web access** — ordinary ChatGPT/Codex (host or OpenShell), OpenAI API, Gemini/Vertex and Claude SDK chats can ask the user for web search or URL access. `request_access` shows the exact HTTP(S) origin and resolved addresses, including local/private hosts and custom ports, and enables credential-free reads through the web tool for 15 minutes. `fetch` reuses that approval; `revoke_access` removes it. Redirects to another origin pause the same read and ask for destination approval, including reads using a 15-minute grant; changed destination addresses still require renewed access. Web rows show readable destinations (including schemes and query strings), distinguish access grants from completed reads, and separate approval from fetch outcomes such as blocked access, timeouts or oversized pages. Ungranted `fetch` keeps the single public HTTPS read flow. Search uses the selected account/model without fallback. OpenAI API searches have no Mitzo output-token or duration cutoff; supported reasoning models request unlimited returned search content, with provider limits and user cancellation still applying. Website reads extract full readable HTML text and links rather than rejecting ordinary pages at 128 KB, with a separate 2 MiB download resource guard. API failures retain sanitized reasons such as authentication, quota, incomplete output or missing citations. See [request web access](docs/features/request-web-access.md).
 - **Approved GitHub publishing** — ordinary Codex subscription, OpenShell, API-key, Gemini/Vertex and Claude SDK chats expose `RequestGithubPublish`. It resolves the workspace’s GitHub repository and selects the matching active managed connection for the current AI account. Access approval is remembered per repository and account, then it asks approval for the exact feature branch, source commit and pull request. Host and OpenShell workspaces use separate validated source transports; GitHub write credentials stay on the controller and are removed from legacy and account-selected Claude SDK child environments and project hook expansion and execution. Connections now includes host-only and Vertex accounts for GitHub assignments. A managed connection and controller publishing authorization remain required; the legacy read-only provider alone does not grant publishing. Adding a connection preserves existing OpenShell Codex conversations: retained sandboxes keep their current read attachments, while the controller can select the new publishing connection after approval. New chats receive the current automatic connections; revoked or replaced retained attachments still block admission.
 - **Symposium access requests** — admitted Codex/API/subscription and Vertex seats expose website access and publication request tools. Website requests show the seat, account, exact origin and resolved addresses for user approval; bounded reads remain scoped to the executing claim. Publication requests open the existing sealed-artifact review workflow and never grant direct GitHub writes. Vertex uses a credential-free, bounded stdio/file bridge inside the claim’s private HOME. The broker activates only after a verified model receipt and drains before attempt cleanup.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
@@ -92,7 +223,8 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Native fusion** — `/fuse <task>` runs a parallel panel, judge, and synthesis with durable admission; `/fuse --self <task>` uses two independent slots of the same model. Exact retries do not repeat provider work. Uncertain panel outcomes stop later phases; explicitly start another attempt with `/fuse --confirm-ambiguous <task>` (retain `--self` when applicable). Usage-only commands make no provider calls. See [fusion admission](docs/design/fusion-admission.md).
 - **Voice** — tap to start/stop recording with live transcription previews (STT) and explicit per-message read-aloud (TTS) via [Yapper](https://github.com/dimakis/yapper). The final audio chunk is sent before transcription ends; if streaming disconnects or times out, the complete recording is transcribed through the batch endpoint. Cancelling discards the recording and releases the microphone. Voice features degrade gracefully when Yapper is offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
-- **File browser** — view and edit repo files, generated session artifacts, and worktree roots; Markdown links in existing conversations open in their original workspace, including `~/` home paths within allowed workspaces. Returning from a file keeps a disabled input placeholder visible while session type is checked; the ordinary composer and its queued-message effects mount only after the chat is confirmed as ordinary. In browsers, use Download in the file viewer, Markdown preview or message file links to save the original filename and bytes directly, even when the system share sheet is blocked. Use Share to send the original file or choose Save to Files on supported iOS devices; browsers without file sharing fall back to a download. Markdown retains its `.md` filename and document MIME type. File viewing and sharing support Vertex and both OpenAI API-key and subscription conversations, including OpenShell workspaces. Older sandbox conversations without a verified workspace record need one resume in the same conversation before file access; the workspace and file must still exist. Rollout requires updating the backend and the bundled iOS app.
+- **File browser** — view and edit repo files, generated session artifacts, and worktree roots; Markdown links in existing conversations open in their original workspace, including `~/` home paths within allowed workspaces. Returning from a file keeps a disabled input placeholder visible while session type is checked; the ordinary composer and its queued-message effects mount only after the chat is confirmed as ordinary. In browsers, use Download in the file viewer, Markdown preview or message file links to save the original filename and bytes directly, even when the system share sheet is blocked. Use Share to send the original file or choose Save to Files on supported iOS devices; browsers without file sharing fall back to a download. Telos artefact links in chat use authenticated sharing within Mitzo. The iOS share sheet receives a temporary local file with its original name, extension and bytes; Office documents, PDFs, images and archives retain their file types. Native sharing accepts files up to 32 MiB and removes the temporary copy when the share sheet completes or is cancelled. Markdown retains its `.md` filename and document MIME type. The backend exposes download filenames to configured iOS origins. File viewing and sharing support Vertex and both OpenAI API-key and subscription conversations, including OpenShell workspaces. Older sandbox conversations without a verified workspace record need one resume in the same conversation before file access; the workspace and file must still exist. Rollout requires updating the backend and the bundled iOS app.
+- **Compact file options** — file links and previews keep Open, Download and Share behind one quiet control. Telos filenames open their saved revision inside Files and keep their actions behind ⋯; iOS sharing includes Save to Files. No persistent row of action buttons interrupts the conversation.
 - **Document editor** — Markdown and HTML source, preview and split views; desktop CodeMirror editing with optional Vim, mode status and relative line numbers, plus fullscreen editing with reachable save controls. Touch devices default to standard selection editing. Vim `:w` uses the same Save flow; see [Vim document editing](docs/features/document-vim-editor.md). Uses a quiet grouped toolbar for view and keyboard preferences, with compact labelled icons for Markdown formatting and undo/redo in both Standard and Vim modes, keyboard shortcuts, unsaved draft recovery within the current browser tab, and a layout that follows the mobile keyboard. Saves preserve drafts on errors and detect changes made by agents or other editors. Review the latest saved version before choosing whether to use it or keep your draft for the next save. Vertex and host OpenAI files use the host workspace; API-key and subscription OpenShell documents save in the verified conversation workspace without host fallback. Sandbox editing requires the original document content and an available workspace.
 - **Markdown diagrams** — Mermaid fences render in chat, Files, inline previews and document previews, with theme-aware SVG, copy controls, and readable source for invalid or incomplete diagrams. Expanded chat previews stay open across message and navigation updates.
 - **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed, no-network renderer
@@ -103,7 +235,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Work outputs** — each Telos work detail shows its latest saved file revisions before milestones and reference material. Markdown, archives, images and other file bytes use the same durable store (5 MiB per file); Download and Share target the exact listed revision without an active agent session. Native clients use Share. A saved output is not automatically reviewed or delivered. Folder snapshots and external destination tracking are subsequent slices.
 - **Upload work files** — the Outputs upload drawer accepts non-sensitive documents and images up to 5 MiB. Choose file or use Camera to request rear-camera capture on supported phones, review the selection, then upload explicitly. Reusing a filename retains immutable revisions; failed uploads preserve the selection for retry. Credentials and private financial or health evidence require private case storage, not this shared output store.
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
-- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible. Returning after reconnecting reclaims a disconnected session owner and reconciles approval cards with the server’s live requests.
+- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops. Session opening coordinates live replay with the restored history cursor; expired approvals clear locally so later requests remain accessible. Returning after reconnecting reclaims a disconnected session owner and reconciles approval cards with the server’s live requests. Verified stream recovery wakes saved HTTP sends from retry backoff without waiting for transcript replay. Idle Codex health checks have a separate two-second deadline before command admission; active turns and guarded host command ownership retain their existing lifecycle rules. See [prompt delivery](docs/design/prompt-delivery.md) for incident evidence and recovery details.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
 - **Closeout live canary** — an opt-in Luna-only harness validates one durable closeout attempt against an isolated controller and explicit billing account. See [closeout live canary](docs/operations/closeout-live-canary.md).
 - **iOS app** — native wrapper via Capacitor with push notifications and home-screen install. Xcode 27 builds use a single storyboard-backed UIKit scene, required to launch on iOS 27; scene callbacks preserve Capacitor links and watch relay background/foreground handling.
@@ -134,7 +266,7 @@ Open **Knowledge** for curated documents from the host-enrolled accepted Git sou
 
 Opening Knowledge starts at the Library tree, including when a working copy was recovered. Choose **Resume editing** to continue that copy; recovery preserves its text, folders and saved review state.
 
-**Knowledge → Context** curates reusable context packs from accepted document revisions. Save recoverable drafts, inspect history and affected profiles, compile a preview, and explicitly publish a pack revision. Agent Library profiles compose exact pack revisions under one context budget. The advisor can propose a portable draft for review and import. See [context packs](docs/features/context-packs.md).
+**Knowledge → Context** curates reusable context packs from accepted document revisions. Save recoverable drafts, inspect history and affected profiles, compile a preview, and explicitly publish a pack revision. Agent Library profiles compose exact pack revisions under one context budget. Agent Builder creates editable draft cards for direct review and save in chat. See [context packs](docs/features/context-packs.md).
 
 Per-message context blocks selected in **Sources** appear beside your sent message immediately. Their injected reference text is collapsed by default and can be inspected or copied separately; editing, copying or reading aloud the message uses your prompt. Live echoes and restored history show the same disclosure. Selecting context does not switch the agent profile. Older prompts with ambiguous reference-delimiter examples stay intact so their source text cannot be mistaken for your question.
 
@@ -148,13 +280,15 @@ Tap a draft thumbnail or its Sources drawer row to open a full-screen preview, d
 
 Apple Keychain HTTPS connections support Home Assistant and custom APIs with tokens, API keys or username/password authentication. Open **More → API connections** or **Connections → Add connection → Authenticated API** to configure any HTTPS API with its own origin, paths and methods. The generic entry starts with a blank custom service; Home Assistant is an optional template. The selected template is saved with the connection, and both the UI and controller restrict Home Assistant dashboard scope to that integration. Deploy the updated backend before distributing the new frontend, which submits this template metadata. Agents discover configured connections and request approval for each session. The new mobile navigation requires distributing an updated iOS bundle; a backend update alone does not update installed app assets. Credentials stay in Keychain and are supplied only by the trusted request client. A signed Mac helper and explicit configuration are required; this feature is disabled by default. Apple Passwords records are not automatically browsed or synced. Any Keychain service connection can enable bounded authenticated text WebSocket requests through `ConnectionWebSocket`, using its configured path, header or JSON authentication, and optional subprotocols. Credentials stay private, generic commands require session approval and are blocked in Ask mode, and unconfirmed commands are never replayed automatically. Home Assistant connections can also enable dashboard list/read/save over authenticated WebSocket API calls. Dashboard writes require explicit scope and session approval, check the last-read configuration hash before saving, and verify the saved configuration by reading it back. Ask mode permits dashboard reads only; storage dashboards can be updated, while YAML dashboards remain owned by their source. See [Keychain setup and session access](docs/keychain-connections.md).
 
+**Google Workspace** — the reviewed provider profile supports Docs and Slides creation and editing through their native APIs. Drive, Gmail, Sheets and Calendar endpoints remain read-only. Connections reports the installed Docs policy separately; older providers continue to show Docs as read-only. Chat access approval and reconnecting credentials do not change provider policy or Google consent. Enabling Docs authoring requires a separately reviewed provider update and a compatible Google grant; it is not a write-access toggle. See [Google policy verification and rollout](docs/google-workspace-cli-contract.md#docs-authoring-policy-profile-revision-9).
+
 **Shared UI theme** — `frontend/src/styles/tokens.css` is the single source for the app's colors, UI and code fonts, type and spacing scales, radii and control sizes. Change `--color-accent` there to update actions, links, selected navigation, status accents and derived panel tints across mobile and desktop. Dark defaults and light overrides live in that same file. Existing `--accent`, `--ui-font` and `--workspace-*` names are aliases, not separate palettes. New UI must reference these tokens; a unit test rejects palette literals and font stacks elsewhere in production frontend source. Stable agent identity colors are distinct tokens and saved configuration remains literal wire data.
 
 **Shared UI motion** — Pages fade quickly; menus, sheets and disclosures use the same brief transitions on web and iOS. Reduce Motion disables animations. Shared motion tokens and reusable components keep new routes and controls consistent; CI rejects ad hoc durations and direct animation calls. See [the frontend motion contract](docs/design/frontend-motion.md). Installed iOS apps receive this behavior with an updated app bundle.
 
 **Settings → Appearance** offers Lavender, Teal, Rose, Amber, Blue, Mint, Coral and Plum accents and System, Arial, Georgia, Verdana, Trebuchet MS, Palatino and Courier New UI fonts. Font stacks use local fallbacks when the selected family is unavailable. Changes preview immediately, apply to every route, and persist locally on the current device across reloads. Each accent has light/dark variants; code retains its monospace font. Reset appearance restores the defaults.
 
-**Chats → Drafts** keeps unsent new conversations separate from chat history. New chat opens a fresh composer; leaving it saves the message, attachments, context, account, model, thinking level and launch settings on this device. Open a draft to edit it before sending, or explicitly discard it. Failed or uncertain sends retain the draft until acceptance is confirmed. Existing unsent new-chat text is preserved during migration using the device's saved account/model preference; older versions did not record the rest of its settings.
+**Chats → Drafts** keeps unsent new conversations separate from chat history. New chat opens a fresh composer; edits automatically save the message, attachments, context, account, model, thinking level and launch settings on this device. “Draft saved on this device” confirms a successful local save; an empty composer has no save confirmation. Storage failures show a warning. Open a draft to edit it before sending, or explicitly discard it. Failed or uncertain sends retain the draft until acceptance is confirmed. Existing unsent new-chat text is preserved during migration using the device's saved account/model preference; older versions did not record the rest of its settings.
 
 Repository preparations stay with their draft even before typing or after clearing its message. Discard releases an unused preparation before removing the saved draft; if its state or cleanup cannot be confirmed, the draft remains available to reopen and retry.
 
@@ -172,7 +306,11 @@ For ordinary ChatGPT accounts, **Sign-in** is separate from effective access. An
 
 If an ordinary OpenShell ChatGPT chat rejects an expired, revoked or unverified subscription grant during startup, the error asks for a fresh sign-in to the selected account. Reconnect that account before retrying; changing the model does not repair its sign-in grant.
 
+Chat-prepared service connections report token rejection, service/network failures and Apple Keychain storage failures separately. Home Assistant token entry ignores surrounding paste whitespace. A failed submission keeps its recovery message visible after checking saved setup status; a confirmed successful save clears the error without submitting the key again. Diagnostic setup records retain only a fixed failure code and message, never keys or upstream error details.
+
 Ordinary OpenShell chats validate reviewed Jira, GitHub and custom REST connection policies at runtime as well as during setup. Current account assignments, exact provider bindings and explicit on-demand approvals remain required; changed permissions or an altered sandbox policy block admission.
+
+OpenAI API chats read Jira through Mitzo's approved Keychain connection tools; their Bash sandbox has no network or credentials. Reuse a saved Jira connection, or ask the chat to prepare its secure Jira read-only setup card with your public account email and site information. Enter the API token only in that card. Both tenant URLs and scoped-token cloud IDs are supported. Each chat approves access separately; an OpenShell-only Jira enrollment does not supply host API access. See [Jira reads in API chats](docs/operations/api-jira-access.md) for setup and query details.
 
 When OpenAI reports `not_authorized_invalid_project`, chat errors identify the selected account’s project as unavailable or archived. Check that account’s project configuration before starting a new turn; Mitzo keeps the failed turn paused without automatically retrying or switching accounts. Provider response bodies and credentials are not included in the public diagnostic.
 
@@ -196,9 +334,26 @@ If the service template catalog is temporarily unavailable, existing connections
 
 ## Architecture
 
+Browser and native iOS chat use SSE for live updates and acknowledged HTTP POST
+for prompts and controls, independently of the selected AI provider. Prompts
+can enter the delivery outbox while the event stream reconnects; drafts clear
+only after acceptance. An explicit `mitzo:transport=ws` localStorage preference
+retains WebSocket for diagnostics. Existing overrides are preserved; remove that
+preference to use SSE. Installed iOS apps need an updated bundle to adopt this default.
+Expired SSE connection IDs trigger bounded stream recovery and rehydrate the latest
+selected chat after replay readiness. Background suspend is never replayed against
+a replacement connection. Transport failures preserve streamed content and running
+state; cancellation and permission failures require operator review rather than
+automatic retries. See [the failure investigation](docs/operations/session-control-recovery.md).
+
+SSE background suspension uses an authenticated keepalive POST. A failed suspend
+hint does not add an error to the conversation; foreground probe/reconnect restores
+tracked sessions from their last applied cursor. Prompt delivery, control and
+permission failures retain their existing feedback.
+
 ```
 Phone (Tailscale) ──┬── HTTP: REST API
-                    └── WebSocket: v2 streaming protocol
+                    └── SSE: v2 streaming protocol (WS diagnostic override)
                         │
                     Server (Node + TypeScript)
                         │
@@ -215,7 +370,24 @@ SDK query failures after input acceptance are recorded under the current convers
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
-The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 also persists the exact configured target ID and routing revision; V1 remains readable without target inference or automatic upgrade. A pure server resolver checks compatibility against an injected catalog and returns a V2 binding containing its selected target/revision. AccountProfiles can project credential-free local Codex host-login metadata with the exact existing account routing revision when Codex is enabled; this performs no authentication or discovery. A dormant local Codex target loader now validates an explicit operator-owned file and computes its routing revision. Its bounded configuration-only capability snapshot joins that target with the existing local account projection and cached model/thinking metadata; OpenShell remains the default preference with an explicit unavailable reason until its projection is enrolled. A dormant first-command coordinator requires an explicit server gate and independently qualified owning authority, then atomically saves the exact runtime/workspace binding and frozen published profile, context, permission, model and thinking selection in the existing command receipts. Exact retries retain their choices; uncertainty is saved before workspace or provider effects and cannot replay automatically. Existing-session adoption and later commands are refused by this slice. Legacy send, startup and cold-start preflight fail closed for runtime-bound rows. Actual host/runtime verification, workspace reservation before materialization, provider continuity, other provider projections and an authenticated picker endpoint remain separate work; no live caller or runtime selector is enrolled.
+The [session runtime selection contract](docs/design/session-runtime-selection.md)
+separates immutable account, agent/runtime, execution target and workspace identity
+from per-command model/thinking intent. Its gated Local and ordinary OpenShell
+Codex routes use the existing EventStore, native queue and lifecycle owners; legacy
+sessions remain unenrolled. Configuration-only inventory does not grant execution
+authority. Each first command, later admission and cold continuation rechecks the
+original binding and custody before effects. Offline continuity evidence does not
+establish live qualification or activate staging/production.
+
+The original dormant first-command coordinator atomically freezes the published profile, context, permission, model/thinking, runtime and workspace in the existing command receipt. It records uncertainty before login copying, native launch or checkout materialization. Exact retries preserve their choices; uncertain effects never replay automatically. Its original dormant slice refuses existing-session adoption, later commands and cold resume; the ordinary guarded owners described above add their independently qualified later-command and cold paths without adopting unenrolled legacy history. The existing repository ledger reserves the destination before copying and retains interrupted materialization for explicit recovery.
+
+The owned Local composition retains the original operator, published profile,
+physical host/native binary, private file-backed ChatGPT login and independent
+checkout. Durable private-home/executable custody supports checked cold continuation
+under the same native conversation row and persistent revocation owner. Changed
+login files, executable identity or authority refuse continuation while preserving
+command/workspace evidence. Additional authentication renewal and provider routes
+still require separate qualification.
 
 Symposium shutdown fences new admission and dispatch, drains retained seat and login
 cleanup, and awaits the owned gateway child before closing custody stores. A bounded
@@ -545,6 +717,47 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 
 **Observability**
 
+OpenShell Codex follow-ups probe an idle relay with a separate two-second deadline;
+active turns retain their existing RPC deadlines. A failed or cancelled probe
+retires its transport before another explicit send can recover. Valid retained
+knowledge views are verified each turn without copying an unused upload snapshot.
+Server traces separate idle probing, recovery, native dispatch, acknowledgement,
+first output and knowledge preparation/upload phases. Tool spans cover input
+generation through the matching result, including execution and approval wait;
+their `tool.latency_scope` is `input_to_result`.
+
+Browser and iOS tracing are opt-in. Set `VITE_OTEL_ENDPOINT=api` to export
+through `/api/telemetry/v1/traces` on the app's configured API origin. The
+relay requires normal Mitzo authentication and forwards only trace payloads
+to the server's configured `OTEL_EXPORTER_OTLP_ENDPOINT`; login headers and
+cookies are never forwarded. Requests and collector responses are capped
+at 1 MiB, with a two-second collector deadline. The iOS build must use this
+relay: `localhost:4318` would address the phone itself. Direct collector URLs
+remain supported for local browser development and receive no Mitzo token.
+Browser spans export in bounded batches to reduce per-span network work.
+Cold authentication checks wait for the browser tracer within the existing
+five-second authentication deadline, so delayed tracing initialization cannot
+leave startup pending. A late initialization records its failed duration without
+sending an obsolete check or changing authentication state.
+Authentication checks use a shared W3C trace context between the phone and
+server, with separate `http.auth.check` spans for network wait and server
+verification. These spans record the static route, HTTP method and response
+status; they exclude cookies, tokens, query strings and request contents.
+Frontend spans also record `mitzo.client.platform` (`ios`, `android` or `web`)
+and `mitzo.auth.tracing_initialization_ms`, so tracer startup is distinguishable
+from the request wait. The server records `http.auth.preflight` for the
+authentication OPTIONS request before CORS responds. Preflights do not carry
+the GET request's trace context and are separate traces.
+Allowed origins cache CORS preflight permission for up to 600 seconds, subject
+to browser limits; the actual API requests still require authentication. This
+reduces repeated cross-origin round trips after the first approved preflight.
+
+Unavailable authentication makes up to three automatic retries with backoff.
+The existing Retry action remains available; native foreground, browser
+visibility and restored network connectivity also resume recovery automatically.
+Hidden apps wait for foreground, verified routes stay visible, and genuine
+authorization denial continues to redirect to Login.
+
 | File                | Purpose                                                                                          |
 | ------------------- | ------------------------------------------------------------------------------------------------ |
 | `logger.ts`         | Pino structured logging: JSON output, daily rotation, OTel trace context mixin, Loki integration |
@@ -674,6 +887,21 @@ Transcript projections and reconnect snapshots live in
 session state, the event cursor and active-generation provider attempts in one
 SQLite read transaction. Existing public replay methods and types remain
 available through the event-store module.
+
+Session lifecycle writes and restart recovery live in
+`packages/protocol/src/session-lifecycle-store.ts`. The module borrows the same
+connection and prepared statements and calls EventStore's public hooks. It
+preserves warn-only transitions, lifecycle event ordering, caller transactions
+and per-session progress if recovery fails. EventStore retains schema, migration,
+backup and close ownership.
+
+Session metadata, list/search, counters and ordinary runtime-binding persistence
+are isolated in `packages/protocol/src/session-metadata-store.ts`. It borrows the
+same connection and prepared statements; EventStore retains schema, migrations,
+backup and close. Existing public methods, immutable account/workspace/profile
+bindings, search filters and transaction boundaries are preserved. Runtime
+enrollment takes the existing immediate write lock before calling the public
+upsert hook, so a competing connection cannot claim the same session first.
 
 ### Frontend (`frontend/`) — React 19 + Vite
 

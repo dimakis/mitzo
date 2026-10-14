@@ -431,7 +431,7 @@ describe('SymposiumConversation', () => {
     expect(screen.queryByRole('button', { name: 'Reusable profile drafts' })).toBeNull();
     expect(
       vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/profile-proposals')),
-    ).toBe(false);
+    ).toBe(true);
     expect(screen.queryByText(/Codex-backed agent/)).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Reusable profile drafts' })).toBeNull();
   });
@@ -2260,4 +2260,67 @@ it('never retargets a selected draft when that recipient loses admission', async
   ).toBe('Private draft');
   fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+
+it('retains readable seat history while unknown conversation metadata blocks new handoffs and profile edits', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).includes('/perspectives')
+        ? page
+        : String(url).includes('/profile-proposals')
+          ? []
+          : status,
+    ),
+  );
+  render(
+    <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} readOnly />,
+  );
+  fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
+  await screen.findByText('reviewer-reply');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+    target: { value: 'reviewer' },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message for Reviewer' }), {
+    target: { value: 'Keep this draft' },
+  });
+  const send = screen.getByRole('button', { name: 'Queue for approval' });
+  expect((send as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole('button', { name: 'Share excerpt' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Workspace controls' }));
+  expect(screen.queryByRole('button', { name: 'Reusable profile drafts' })).toBeNull();
+  fireEvent.click(send);
+  expect(apiFetch).not.toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ method: 'POST' }),
+  );
+});
+
+it('mounts an authoritatively ordinary composer while its Symposium status is pending', () => {
+  vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryConfirmed
+      ordinaryComposer={<button>Ordinary confirmed send</button>}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Ordinary confirmed send' })).toBeTruthy();
+});
+
+it('keeps pending settings available without enabling an unconfirmed ordinary composer', () => {
+  vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      pendingSettings={<button>Review pending settings</button>}
+      ordinaryComposer={<button>Unconfirmed send</button>}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Review pending settings' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Unconfirmed send' })).toBeNull();
+  expect(screen.getByRole('textbox', { name: 'Message Mitzo' }).hasAttribute('disabled')).toBe(
+    true,
+  );
 });

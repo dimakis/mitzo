@@ -86,3 +86,56 @@ it('makes an accepted session routable before boot completes and preserves its p
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('counts native messages once for naming and ignores retried message IDs', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-native-naming-'));
+  vi.stubEnv('REPO_PATH', root);
+  const chat = await import('../chat.js');
+  const { AsyncQueue } = await import('../async-queue.js');
+  const sessionId = 'native-naming';
+  chat.eventStore.upsertSession({
+    sessionId,
+    conversationSource: 'mitzo',
+    accountBinding: {
+      accountId: 'offline',
+      accountLabel: 'Offline fixture',
+      provider: 'openai-codex',
+      model: 'luna-fixture',
+      profileRevision: 'fixture',
+    },
+  });
+  chat.registry.register('native-naming-client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: new AbortController(),
+    mode: 'auto',
+    cwd: root,
+    sessionId,
+    sessionAllowList: new Set(),
+    agentName: 'fixture',
+  });
+  chat.registry.get('native-naming-client')!.inputQueue = new AsyncQueue();
+  try {
+    await chat.sendToChat('native-naming-client', 'Fix calendar sync', undefined, undefined, 'one');
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(1);
+    await chat.sendToChat('native-naming-client', 'Fix calendar sync', undefined, undefined, 'one');
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(1);
+    await chat.sendToChat('native-naming-client', 'Add a regression', undefined, undefined, 'two');
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(2);
+    await chat.sendToChat('native-naming-client', 'Check calendar', undefined, undefined, 'three');
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(3);
+    chat.closeoutSession('native-naming-client', { id: 'test-closeout', source: 'automatic' });
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(3);
+    const closeout = chat.eventStore
+      .getSessionEvents(sessionId)
+      .find(
+        (event) =>
+          event.type === 'user_message' && String(event.payload.messageId).startsWith('closeout-'),
+      );
+    expect(closeout?.payload.source).toBe('closeout');
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

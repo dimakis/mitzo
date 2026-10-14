@@ -138,17 +138,20 @@ export function Today() {
                 <h2 id="recent-title">Recent sessions</h2>
                 <Link to="/sessions">All sessions</Link>
               </div>
-              {loading ? (
-                <p role="status">Loading recent chats…</p>
-              ) : sessionsError ? (
+              {!loading && sessionsError && (
                 <div className="workspace-load-error" role="alert">
                   <span>{sessionsError}</span>
                   <button type="button" onClick={retrySessions}>
                     Try again
                   </button>
                 </div>
+              )}
+              {loading ? (
+                <p role="status">Loading recent chats…</p>
               ) : recent.length === 0 ? (
-                <p className="workspace-muted">Your conversations will appear here.</p>
+                !sessionsError && (
+                  <p className="workspace-muted">Your conversations will appear here.</p>
+                )
               ) : (
                 recent.map((session) => (
                   <Link

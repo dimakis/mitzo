@@ -53,8 +53,11 @@ function runtimeFilesystemProtection() {
 /** The SDK's own sandbox settings are mutable provider policy. An outer OS sandbox
  * protects the whole provider process, including native Read, arbitrary Bash,
  * project hooks and stdio MCP descendants, independently of those settings. */
-export function credentialSdkBoundary(platform: NodeJS.Platform = process.platform) {
-  return createSdkBoundary(platform, false);
+export function credentialSdkBoundary(
+  platform: NodeJS.Platform = process.platform,
+  selectedAuthorityWriteRoots: readonly string[] = [],
+) {
+  return createSdkBoundary(platform, false, selectedAuthorityWriteRoots);
 }
 
 /** Controller project commands need the runtime fence for every provider, with
@@ -63,7 +66,14 @@ export function runtimeFilesystemSdkBoundary(platform: NodeJS.Platform = process
   return createSdkBoundary(platform, true);
 }
 
-function createSdkBoundary(platform: NodeJS.Platform, runtimeOnly: boolean) {
+function createSdkBoundary(
+  platform: NodeJS.Platform,
+  runtimeOnly: boolean,
+  selectedAuthorityWriteRoots: readonly string[] = [],
+) {
+  const selectedWriteRoots = [...new Set(selectedAuthorityWriteRoots.map(canonical))];
+  selectedWriteRoots.forEach(validatePath);
+  Object.freeze(selectedWriteRoots);
   const initialRuntime = runtimeFilesystemProtection();
   const storage = [
     join(homedir(), '.mitzo', 'keychain-helper'),
@@ -77,7 +87,12 @@ function createSdkBoundary(platform: NodeJS.Platform, runtimeOnly: boolean) {
     (process.env.MITZO_KEYCHAIN_CONNECTIONS_ENABLED === '1' ||
       !!getCredentialConnectionsRuntime() ||
       storage.some(existsSync));
-  if (!credentialIsolation && initialRuntime.writeRoots.length === 0) return undefined;
+  if (
+    !credentialIsolation &&
+    initialRuntime.writeRoots.length === 0 &&
+    selectedWriteRoots.length === 0
+  )
+    return undefined;
   const deniedRoots = [
     ...new Set(
       [
@@ -133,6 +148,7 @@ function createSdkBoundary(platform: NodeJS.Platform, runtimeOnly: boolean) {
         authority.capture(root, runtime.privateFiles.includes(root)),
       );
       runtime.writeRoots.forEach((root) => authority.capture(root));
+      selectedWriteRoots.forEach((root) => authority.capture(root));
       runtime.selectors.forEach((entry) => authority.capture(dirname(entry)));
       const temporary = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-sdk-sandbox-')));
       const policy = join(temporary, 'policy.json');
@@ -166,7 +182,7 @@ function createSdkBoundary(platform: NodeJS.Platform, runtimeOnly: boolean) {
         : [worker];
       const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
       const targetEnv = { ...options.env };
-      if (credentialIsolation) {
+      if (credentialIsolation || selectedWriteRoots.length > 0) {
         for (const name of [
           'AUTH_PASSPHRASE',
           'AUTH_SECRET',
@@ -192,6 +208,7 @@ function createSdkBoundary(platform: NodeJS.Platform, runtimeOnly: boolean) {
             denyWrite: [
               ...launchDeniedRoots,
               ...runtime.writeRoots,
+              ...selectedWriteRoots,
               ...runtime.patterns,
               ...trustedExecutableRoots,
               temporary,

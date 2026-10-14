@@ -3,6 +3,7 @@ import { request as httpsRequest, type RequestOptions } from 'node:https';
 import { lookup } from 'node:dns';
 import { isIP } from 'node:net';
 import type { AuthenticatedRequest, ConnectionSender } from './credential-connections.js';
+import { CredentialVerificationError } from './credential-verification-error.js';
 
 /** Enrollment may permit LAN services, but never local controller or metadata endpoints. */
 export function isAllowedConnectionAddress(address: string, allowPrivate: boolean): boolean {
@@ -21,6 +22,7 @@ export function isAllowedConnectionAddress(address: string, allowPrivate: boolea
 }
 export function connectionDnsLookup(
   allowPrivateNetwork: boolean,
+  assertRuntimeCurrent?: () => Promise<void>,
 ): NonNullable<RequestOptions['lookup']> {
   return (host, options, callback) => {
     lookup(host, { all: true }, (error, addresses) => {
@@ -34,9 +36,18 @@ export function connectionDnsLookup(
             !isAllowedConnectionAddress(a.address, allowPrivateNetwork),
         )
       )
-        return callback(error ?? new Error('Destination is unavailable'), [], undefined);
-      if (options.all) callback(null, addresses);
-      else callback(null, addresses[0].address, addresses[0].family);
+        return callback(
+          error ?? new CredentialVerificationError('destination_blocked'),
+          [],
+          undefined,
+        );
+      const complete = () => {
+        if (options.all) callback(null, addresses);
+        else callback(null, addresses[0].address, addresses[0].family);
+      };
+      if (assertRuntimeCurrent)
+        assertRuntimeCurrent().then(complete, (error: Error) => callback(error, [], undefined));
+      else complete();
     });
   };
 }
@@ -44,7 +55,7 @@ const httpsSend: ConnectionSender = (input, signal) =>
   new Promise((resolve, reject) => {
     const hostname = input.url.hostname.replace(/^\[|\]$/g, '');
     if (isIP(hostname) && !isAllowedConnectionAddress(hostname, input.allowPrivateNetwork))
-      return reject(new Error('Destination is unavailable'));
+      return reject(new CredentialVerificationError('destination_blocked'));
     const request = httpsRequest(
       input.url,
       {
@@ -59,14 +70,14 @@ const httpsSend: ConnectionSender = (input, signal) =>
           ...input.headers,
         },
         // Resolve and validate every address, then connect to that checked result. No DNS TOCTOU lookup.
-        lookup: connectionDnsLookup(input.allowPrivateNetwork),
+        lookup: connectionDnsLookup(input.allowPrivateNetwork, input.assertRuntimeCurrent),
       },
       (response) => {
         const status = response.statusCode ?? 0;
         // Refuse redirects before reading their body; never resend authentication to another URL.
         if (status >= 300 && status < 400) {
           response.destroy();
-          reject(new Error('Redirects are unavailable'));
+          reject(new CredentialVerificationError('redirect'));
           return;
         }
         const parts: Buffer[] = [];
@@ -74,7 +85,7 @@ const httpsSend: ConnectionSender = (input, signal) =>
         response.on('data', (part: Buffer) => {
           size += part.length;
           if (size > 64 * 1024) {
-            const error = new Error('Connection response is too large');
+            const error = new CredentialVerificationError('unexpected_response');
             reject(error);
             response.destroy(error);
             return;
@@ -94,8 +105,10 @@ export async function sendConnectionRequest(
   send: ConnectionSender = httpsSend,
 ) {
   signal.throwIfAborted();
+  if (input.assertRuntimeCurrent) await input.assertRuntimeCurrent();
   const response = await send(input, signal);
   signal.throwIfAborted();
-  if (response.status >= 300 && response.status < 400) throw new Error('Redirects are unavailable');
+  if (response.status >= 300 && response.status < 400)
+    throw new CredentialVerificationError('redirect');
   return response;
 }

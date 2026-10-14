@@ -3,6 +3,10 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { verifiedRuntimeServiceEnvironment } from '../openshell-runtime-policy.js';
+import { tracer } from '../tracing.js';
+import { SpanStatusCode, type Span } from '@opentelemetry/api';
+import { base, fixture } from './fixtures/effective-runtime-policy.js';
 import {
   CodexAppServerClient,
   CodexRequestError,
@@ -34,6 +38,65 @@ function processStub() {
 
 afterEach(() => vi.useRealTimers());
 describe('Codex app-server transport', () => {
+  it.each(['success', 'timeout', 'rejected', 'closed'] as const)(
+    'ends a bounded RPC trace on %s without recording private frames or errors',
+    async (outcome) => {
+      vi.useFakeTimers();
+      const spans: Array<{
+        setAttribute: ReturnType<typeof vi.fn>;
+        setStatus: ReturnType<typeof vi.fn>;
+        end: ReturnType<typeof vi.fn>;
+      }> = [];
+      const spy = vi.spyOn(tracer, 'startSpan').mockImplementation(() => {
+        const span = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
+        spans.push(span);
+        return span as unknown as Span;
+      });
+      const { child, sent, reply } = processStub();
+      const client = new CodexAppServerClient(child, { timeoutMs: 10 });
+      try {
+        const ready = client.initialize();
+        reply({ id: sent[0].id, result: { private: 'PRIVATE-INIT' } });
+        await ready;
+        expect(spans[0]?.end).toHaveBeenCalledOnce();
+        const request = client.request('account/read', { private: 'PRIVATE-REQUEST' });
+        const check =
+          outcome === 'success'
+            ? expect(request).resolves.toEqual({ private: 'PRIVATE-RESPONSE' })
+            : expect(request).rejects.toBeInstanceOf(Error);
+        if (outcome === 'success')
+          reply({ id: sent.at(-1)!.id, result: { private: 'PRIVATE-RESPONSE' } });
+        else if (outcome === 'rejected')
+          reply({ id: sent.at(-1)!.id, error: { message: 'PRIVATE-PROVIDER-ERROR' } });
+        else if (outcome === 'closed') client.close(new Error('PRIVATE-CLOSE-ERROR'));
+        else await vi.advanceTimersByTimeAsync(10);
+        await check;
+        expect(spy).toHaveBeenLastCalledWith(
+          'codex.rpc',
+          expect.objectContaining({
+            attributes: {
+              'rpc.system': 'jsonrpc',
+              'rpc.method': 'account/read',
+              'rpc.timeout_ms': 10,
+            },
+          }),
+        );
+        expect(spans[1]?.end).toHaveBeenCalledOnce();
+        expect(spans[1]?.setStatus).toHaveBeenCalledWith({
+          code: outcome === 'success' ? SpanStatusCode.OK : SpanStatusCode.ERROR,
+        });
+        expect(
+          JSON.stringify([
+            spy.mock.calls,
+            ...spans.map((s) => [s.setAttribute.mock.calls, s.setStatus.mock.calls]),
+          ]),
+        ).not.toContain('PRIVATE');
+      } finally {
+        client.close();
+        spy.mockRestore();
+      }
+    },
+  );
   it('preserves execution authentication classification for native routing errors', async () => {
     const { child, sent, reply } = processStub();
     const client = new CodexAppServerClient(child, {
@@ -450,6 +513,59 @@ describe('Codex app-server transport', () => {
         encoding: 'utf8',
       }),
     ).toBe('');
+  });
+
+  it('launches with either reviewed GitHub alias while requiring every independent service credential', () => {
+    const f = fixture(['mitzo-openai-keychain-spike', 'github', 'mitzo-google-workspace-spike']);
+    const required = verifiedRuntimeServiceEnvironment(
+      base,
+      f.observed,
+      f.providers,
+      f.providers[0].name,
+    );
+    const spec = openShellCodexProcessSpec({
+      sandboxName: 'approved-sandbox',
+      workdir: '/sandbox/workspaces/mgmt',
+      requiredProviderEnvironment: required,
+    });
+    const remote = spec.args.at(-1)!.replaceAll('/sandbox/run-mitzo-app-server', '/usr/bin/true');
+    for (const alias of ['GITHUB_TOKEN', 'GH_TOKEN']) {
+      expect(
+        execFileSync('/bin/sh', ['-c', remote], {
+          env: {
+            [alias]: 'synthetic-github-placeholder',
+            GOOGLE_WORKSPACE_CLI_TOKEN: 'synthetic-gws-placeholder',
+          },
+          encoding: 'utf8',
+        }),
+      ).toBe('');
+    }
+    for (const env of [
+      {},
+      { GITHUB_TOKEN: '', GH_TOKEN: '', GOOGLE_WORKSPACE_CLI_TOKEN: 'synthetic-gws-placeholder' },
+      { GITHUB_TOKEN: 'synthetic-github-placeholder' },
+      { GOOGLE_WORKSPACE_CLI_TOKEN: 'synthetic-gws-placeholder' },
+    ]) {
+      expect(() => execFileSync('/bin/sh', ['-c', remote], { env, stdio: 'pipe' })).toThrow(
+        expect.objectContaining({ status: 78, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }),
+      );
+    }
+  });
+
+  it('rejects malformed credential alternative groups before launching', () => {
+    for (const requiredProviderEnvironment of [
+      [[]],
+      [['GH_TOKEN', 'TOKEN;touch /tmp/unreviewed']],
+      [Array.from({ length: 65 }, (_, i) => `TOKEN_${i}`)],
+    ]) {
+      expect(() =>
+        openShellCodexProcessSpec({
+          sandboxName: 'approved-sandbox',
+          workdir: '/sandbox/workspaces/mgmt',
+          requiredProviderEnvironment,
+        }),
+      ).toThrow('environment name');
+    }
   });
 
   it('cancels pending environment retries when the client closes', async () => {

@@ -4,6 +4,12 @@ import { MemoryRouter, useNavigate, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TextBubble } from '../MessageBubble';
 import { apiFetch } from '../../lib/api-fetch';
+import rehypeHighlight from 'rehype-highlight';
+
+vi.mock('rehype-highlight', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('rehype-highlight')>();
+  return { ...actual, default: vi.fn(actual.default) };
+});
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('mermaid', () => ({
@@ -40,6 +46,27 @@ function Harness({ content, sessionId }: { content: string; sessionId: string })
 }
 
 describe('expanded message previews', () => {
+  it('parses a restored response once across measurement, collapse and parent updates', () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(600);
+    const content = 'Saved response\n\n```ts\nconst saved = true;\n```';
+    const bubble = (text = content, timestamp = 1) => (
+      <MemoryRouter>
+        <TextBubble content={text} timestamp={timestamp} artifactSessionId="session-1" />
+      </MemoryRouter>
+    );
+    const view = render(bubble());
+
+    expect(screen.getByRole('button', { name: 'Show more' })).toBeDefined();
+    expect(rehypeHighlight).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+    view.rerender(bubble(content, 2));
+    expect(rehypeHighlight).toHaveBeenCalledTimes(1);
+
+    view.rerender(bubble(content + '\n\nNew text', 2));
+    expect(screen.getByText('New text')).toBeDefined();
+    expect(rehypeHighlight).toHaveBeenCalledTimes(2);
+  });
+
   it('adds collapse controls when an asynchronously rendered diagram grows', async () => {
     let height = 100;
     vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(() => height);

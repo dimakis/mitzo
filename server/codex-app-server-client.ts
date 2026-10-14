@@ -16,7 +16,10 @@ import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { isAbsolute, posix } from 'node:path';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
+import { tracer } from './tracing.js';
+import { SpanStatusCode } from '@opentelemetry/api';
 
 export const SUPPORTED_CODEX_CLI_VERSION = readFileSync(
   new URL('../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
@@ -31,8 +34,8 @@ export function assertSupportedCodexCliVersion(output: string): void {
     throw new Error(`Unsupported Codex CLI version; expected ${SUPPORTED_CODEX_CLI_VERSION}`);
 }
 
-function assertHostCodexRuntimeVersion(base: NodeJS.ProcessEnv): void {
-  const result = spawnSync('codex', ['--version'], {
+function assertHostCodexRuntimeVersion(base: NodeJS.ProcessEnv, executable = 'codex'): void {
+  const result = spawnSync(executable, ['--version'], {
     env: base,
     encoding: 'utf8',
     timeout: 5000,
@@ -147,8 +150,9 @@ export interface OpenShellCodexOptions {
   gatewayEndpoint?: string;
   gatewayInsecure?: boolean;
   cliEnvironment?: OpenShellCliEnvironment;
-  /** Required service environment names derived only from verified public profiles. */
-  requiredProviderEnvironment?: readonly string[];
+  /** Required service credentials derived only from verified public profiles.
+   * A string requires that name; an alias group requires any one name in it. */
+  requiredProviderEnvironment?: readonly (string | readonly string[])[];
   /** Non-secret, reviewed external-service context for managed sandbox tools. */
   connectionEnv?: { JIRA_URL: typeof JIRA_API_ENDPOINT; JIRA_EMAIL: string };
 }
@@ -309,12 +313,28 @@ export function openShellCodexProcessSpec(
   if (options.appServerCommand === '/usr/local/bin/symposium-subscription-app-server')
     throw new Error('Native ChatGPT launch requires the isolated Symposium controller');
   const required = options.requiredProviderEnvironment ?? [];
-  if (required.length > 64 || required.some((key) => !/^[A-Z][A-Z0-9_]{0,127}$/.test(key)))
+  const groups = required.map((value) => (typeof value === 'string' ? [value] : value));
+  if (
+    groups.length > 64 ||
+    groups.some(
+      (group) =>
+        !Array.isArray(group) ||
+        !group.length ||
+        group.length > 64 ||
+        group.some((key) => typeof key !== 'string' || !/^[A-Z][A-Z0-9_]{0,127}$/.test(key)),
+    ) ||
+    new Set(groups.flat()).size > 64
+  )
     throw new Error('Invalid required provider environment name');
   const command = options.appServerCommand || '/sandbox/run-mitzo-app-server';
   if (!required.length) return openShellSshProcessSpec(options, command, base);
   // This shell becomes the app-server. Its check never prints or copies values.
-  const gate = [...new Set(required)].map((key) => `test -n "\${${key}:-}" || exit 78`).join('; ');
+  const gate = groups
+    .map(
+      (group) =>
+        [...new Set(group)].map((key) => `test -n "\${${key}:-}"`).join(' || ') + ' || exit 78',
+    )
+    .join('; ');
   return openShellSshArgvProcessSpec(
     options,
     ['/bin/sh', '-c', `${gate}; exec '${command}'`],
@@ -447,10 +467,38 @@ export class CodexAppServerClient {
     base: NodeJS.ProcessEnv = process.env,
     lifecycle?: CodexLifecycleTransport,
   ) {
-    assertHostCodexRuntimeVersion(base);
+    return this.launchHost(credentialRef, base, lifecycle, false);
+  }
+
+  /** Only the private bootstrap owner supplies this home, after durable effect
+   * admission. File-only custody prevents a shared keychain login from replacing
+   * the frozen account. The original configured profile remains routing identity.
+   */
+  static launchIsolated(
+    privateHome: string,
+    base: NodeJS.ProcessEnv = process.env,
+    lifecycle?: CodexLifecycleTransport,
+    executable?: FrozenHostCodexExecutable,
+  ) {
+    if (!(executable instanceof FrozenHostCodexExecutable))
+      throw new Error('Host Codex runtime unavailable');
+    executable.assertLaunchCurrent();
+    return this.launchHost(privateHome, base, lifecycle, true, executable);
+  }
+
+  private static launchHost(
+    credentialRef: string,
+    base: NodeJS.ProcessEnv,
+    lifecycle: CodexLifecycleTransport | undefined,
+    isolated: boolean,
+    executable?: FrozenHostCodexExecutable,
+  ) {
+    const env = codexEnvironment(credentialRef, base);
+    assertHostCodexRuntimeVersion(isolated ? env : base, executable?.path);
+    executable?.assertCurrent();
     return new CodexAppServerClient(
       spawn(
-        'codex',
+        executable?.path ?? 'codex',
         [
           'app-server',
           '--stdio',
@@ -458,6 +506,7 @@ export class CodexAppServerClient {
           'forced_login_method="chatgpt"',
           '-c',
           'model_provider="openai"',
+          ...(isolated ? ['-c', 'cli_auth_credentials_store="file"'] : []),
           ...(lifecycle
             ? Object.entries(codexRuntimeOverrides({})).flatMap(([key, value]) => [
                 '-c',
@@ -465,7 +514,7 @@ export class CodexAppServerClient {
               ])
             : []),
         ],
-        { env: codexEnvironment(credentialRef, base), stdio: ['pipe', 'pipe', 'pipe'] },
+        { env, stdio: ['pipe', 'pipe', 'pipe'] },
       ),
       { lifecycle },
     );
@@ -557,7 +606,16 @@ export class CodexAppServerClient {
   private sendRequest(method: string, params: JsonObject): Promise<unknown> {
     if (this.closed) return Promise.reject(new CodexTransportError('connection'));
     const id = ++this.sequence;
-    return new Promise((resolve, reject) => {
+    // initialize and request's allowlist supply bounded method names. Frames,
+    // response bodies and upstream exception text never enter telemetry.
+    const span = tracer.startSpan('codex.rpc', {
+      attributes: {
+        'rpc.system': 'jsonrpc',
+        'rpc.method': method,
+        'rpc.timeout_ms': this.timeoutMs,
+      },
+    });
+    return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(
         () =>
           this.close(
@@ -573,7 +631,24 @@ export class CodexAppServerClient {
       } catch {
         this.close();
       }
-    });
+    }).then(
+      (result) => {
+        span.setStatus({ code: SpanStatusCode.OK });
+        span.end();
+        return result;
+      },
+      (error: unknown) => {
+        span.setAttribute(
+          'rpc.failure.category',
+          error instanceof CodexTransportError || error instanceof CodexRequestError
+            ? error.category
+            : 'unknown',
+        );
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        span.end();
+        throw error;
+      },
+    );
   }
 
   private write(value: JsonObject) {

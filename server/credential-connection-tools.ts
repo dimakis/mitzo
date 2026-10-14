@@ -37,7 +37,7 @@ const descriptions = {
   GetConnectionGuide:
     'Load current Mitzo instructions for connecting services, using approved connections, or troubleshooting. Use when service setup is needed; keeps detailed guidance out of the initial context. Returns no credentials.',
   PrepareConnectionSetup:
-    'Prepare a service connection for this chat without credentials. For Home Assistant provide its HTTPS origin and intended read or read-write access; Mitzo configures authentication and transport. For custom services provide authentication and request scope established from official documentation, with evidenceUrl. Returns a secure setup card/link where the user enters only their credential. Never put keys, passwords, or tokens in chat or tool input. Setup does not grant session access or execute the original task.',
+    'Prepare a service connection for this chat without credentials. For Home Assistant provide its HTTPS origin and intended read or read-write access. For Jira provide profile jira, the account email in jira.email, and its tenant HTTPS origin; scoped tokens require endpoint https://api.atlassian.com and jira.cloudId. Jira supports reads only. Mitzo configures authentication and transport. For custom services provide authentication and request scope established from official documentation, with evidenceUrl. Returns a secure setup card/link where the user enters only their credential. Never put keys, passwords, or tokens in chat or tool input. Setup does not grant session access or execute the original task.',
   GetConnectionSetup:
     'Read progress for a setup prepared by this chat. Returns non-secret pending, verifying, ready, cancelled, or expired status and connectionId when ready. Use once when checking secure completion; do not repeatedly poll. Continue the original task after readiness, request session access, and avoid repeating completed actions.',
   RequestConnectionAccess:
@@ -62,6 +62,7 @@ export function createCredentialConnectionTools(
   sessionId: string,
   approve: Approve,
   stillAllowed: (tool: string, method?: string) => boolean,
+  assertRuntimeCurrent?: () => Promise<void>,
 ) {
   const pending = new Map<string, Promise<{ content: string; isError: boolean }>>();
   const requestAccess = async (connectionId: string, signal: AbortSignal) => {
@@ -212,6 +213,12 @@ export function createCredentialConnectionTools(
                   : { responseMatch: input.responseMatch }),
               })
             : undefined;
+        if (assertRuntimeCurrent && (websocket || dashboard))
+          return {
+            content:
+              'This host helper is unavailable for an owned runtime until each WebSocket frame has final authority verification.',
+            isError: true,
+          };
         if (websocket) websocketRequestTarget(service.connection(connectionId));
         if (dashboard)
           dashboardRequestTarget(service.connection(connectionId), dashboard.operation);
@@ -270,8 +277,13 @@ export function createCredentialConnectionTools(
           );
           return { content, isError: false };
         }
-        const response = await service.request(sessionId, connectionId, request!, signal, () =>
-          stillAllowed(name, request!.method),
+        const response = await service.request(
+          sessionId,
+          connectionId,
+          request!,
+          signal,
+          () => stillAllowed(name, request!.method),
+          ...(assertRuntimeCurrent ? [assertRuntimeCurrent] : []),
         );
         return { content: JSON.stringify(response), isError: false };
       } catch (error) {

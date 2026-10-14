@@ -5,6 +5,7 @@ import { apiFetch } from '../lib/api-fetch';
 
 export interface ContextPanelProps {
   selected: string[];
+  removalOnly?: boolean;
   onToggle: (name: string) => void;
   blocks?: ContextBlockEntry[];
   loaded?: boolean;
@@ -20,6 +21,7 @@ function formatSize(bytes: number): string {
 
 export function ContextPanel({
   selected,
+  removalOnly,
   onToggle,
   blocks: externalBlocks,
   loaded: externalLoaded,
@@ -65,6 +67,7 @@ export function ContextPanel({
                 className={`context-panel-item${isSelected ? ' context-panel-item--selected' : ''}`}
                 onClick={() => onToggle(block.name)}
                 aria-pressed={isSelected}
+                disabled={removalOnly && !isSelected}
               >
                 <span className="context-panel-check">
                   {isSelected && <UiIcon name="check" size={16} />}

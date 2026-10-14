@@ -1,3 +1,21 @@
+import {
+  readOwnedVertexQueue,
+  readOwnedVertexQueueOverview,
+  cancelOwnedVertexQueuedCommand,
+} from './ordinary-local-vertex-queue.js';
+import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
+import { getNativeResponsesStore } from './responses-chat-session.js';
+import { continueOwnedLocalResponsesQueue, canResumeOwnedLocalResponsesDriver } from './chat.js';
+import {
+  readOwnedNativeContinuationConstraint,
+  readOwnedResponsesQueue,
+  readOwnedResponsesQueueOverview,
+  cancelOwnedResponsesQueuedCommand,
+} from './ordinary-local-responses-queue.js';
+import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
+import { ordinaryCodexContinuationStatus } from './ordinary-codex-continuation-status.js';
+import { createTelemetryRelay } from './telemetry-relay.js';
+import { traceAuthCheck } from './auth-check-tracing.js';
 import type {
   SymposiumReviewPhysicalHost,
   SymposiumReviewRouteHost,
@@ -81,7 +99,7 @@ import {
 import { createCustodianProxy } from './symposium-custodian-proxy.js';
 import { drainRetainedSymposiumControllers } from './symposium-controller-drain.js';
 import { createSessionMessagesHandler } from './session-messages-route.js';
-import { createSymposiumSourceRouter } from './symposium-source-routes.js';
+import { mountSymposiumArtifactRoutes } from './symposium-artifact-route-composition.js';
 import { getConnectionRegistry } from './chat.js';
 import {
   publicationControllerApproval,
@@ -98,7 +116,6 @@ import {
   publicationSealFenceForRecord,
   type CompletedPublicationHost,
 } from './symposium-publication-artifact.js';
-import { createPublicationRouter } from './symposium-publication-routes.js';
 import { capabilityOperationStore } from './capability-operation-owner.js';
 import {
   ownedEvidenceHandler,
@@ -111,11 +128,10 @@ import type { ConnectionSelection } from './symposium-personal-connections.js';
 import { SymposiumReviewStore } from './symposium-review-workflows.js';
 import { SymposiumAccessRequests } from './symposium-access-tools.js';
 import { createSymposiumAccessRouter } from './symposium-access-router.js';
-import { createSymposiumReviewRouteComposition } from './symposium-review-route-composition.js';
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
-import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
+import { SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 import { authorizeSymposiumSeat } from './symposium-seat-authorization.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
@@ -179,9 +195,8 @@ import {
   type VerifySymposiumSubscriptionAuth,
 } from './symposium-subscription-native.js';
 import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
-import { createSymposiumDirectorRouter } from './symposium-director-routes.js';
+import { mountSymposiumDirectorRoutes } from './symposium-director-route-composition.js';
 import { SymposiumHostGrants } from './symposium-host-grants.js';
-import { getSymposiumPerspective, getSymposiumQueuedInputs } from './symposium-perspectives.js';
 import express from 'express';
 import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
@@ -404,6 +419,8 @@ app.use(
 
 // --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
 // Mounted before yapper proxy so cross-origin voice requests get CORS headers.
+// Auth preflight must be observed before CORS responds without reaching the route.
+app.use(traceAuthCheck);
 const CORS_ALLOWED_ORIGINS =
   process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) ?? [];
 
@@ -413,11 +430,15 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+      res.vary('Origin');
       res.setHeader(
         'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, X-CSRF-Token, X-Connection-ID',
+        'Content-Type, Authorization, X-CSRF-Token, X-Connection-ID, traceparent',
       );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      // Cache transport permission, not authentication or API responses.
+      if (req.method === 'OPTIONS') res.setHeader('Access-Control-Max-Age', '600');
     }
     if (req.method === 'OPTIONS') {
       res.status(204).end();
@@ -562,6 +583,11 @@ app.post(
   '/api/telos/items/:itemId/artifacts/upload',
   operatorAuthMiddleware,
   express.json({ limit: '8mb' }),
+);
+app.use(
+  '/api/telemetry',
+  authMiddleware,
+  createTelemetryRelay(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
 );
 app.use(express.json({ limit: '10mb' }));
 
@@ -1524,16 +1550,16 @@ app.use(
     invoke: (id, input, signal) => requestOperatorGithubPublication(id, registry, input, signal),
   }),
 );
-app.use(
-  '/api/sessions/:id/symposium/publication',
-  operatorAuthMiddleware,
-  createPublicationRouter({
+mountSymposiumArtifactRoutes(app, {
+  events: eventStore,
+  currentHost: () => symposiumProductionHost,
+  repositories: () => getRepoConfig().repos,
+  publication: {
     onConsentInvalidated: (conversationId, connectionId) =>
       clearPublicationControllerSessionGrants(registry, conversationId, connectionId),
     onPublicationCompleted: (sessionId, publication, operation) =>
       symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
     registration: () => symposiumPublication,
-    hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
     approval: (req, session, conversationId) =>
       custodianPublicationApproval(req) ??
       publicationControllerApproval(
@@ -1544,65 +1570,22 @@ app.use(
         req.header('x-connection-id'),
         getConnectionRegistry() ?? undefined,
       ),
-  }),
-);
-app.use(
-  '/api/sessions/:id/symposium/reviews',
-  createSymposiumReviewRouteComposition({
+  },
+  reviews: {
     store: symposiumReviewStore,
     actionAuthority: symposiumReviewActionAuthority,
-    currentHost: () => symposiumProductionHost,
     runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
-    hasSession: (sessionId) => eventStore.getSession(sessionId)?.sessionType === 'symposium',
-  }),
-);
-app.use(
-  '/api/sessions/:id/symposium/source',
-  operatorAuthMiddleware,
-  createSymposiumSourceRouter({
-    repositories: () => getRepoConfig().repos,
-    getSession: (id) => eventStore.getSession(id),
-    getHost: () => symposiumProductionHost?.sourceImport,
-  }),
-);
-app.use(
-  '/api/sessions/:id/symposium',
-  operatorAuthMiddleware,
-  createSymposiumDirectorRouter({
-    store: eventStore,
-    artifactReady: (sessionId, seatId, generation) =>
-      symposiumProductionHost?.artifactReady?.(sessionId, seatId, generation) ?? true,
-    getRuntime: (sessionId) => symposiumRuntimeForSession(sessionId),
-    getSafetyOrchestrator: () => symposiumSafetyOrchestrator,
-    profileBindingEnforced: true,
-    hasOrdinaryRuntime: (sessionId) => {
-      const found = registry.findBySessionId(sessionId);
-      return Boolean(found && registry.isActive(found.clientId));
-    },
-    validateSelection: (seat) => {
-      if (seat.accountBinding)
-        symposiumAccountProfiles().validateModel(
-          seat.accountBinding,
-          seat.model,
-          seat.reasoningEffort,
-        );
-    },
-    validateActiveConfig: (sessionId, config) =>
-      symposiumHostGrants.validateActiveConfig(sessionId, config),
-    activateDraft: (input) => symposiumHostGrants.activate(input),
-    reviseSeat: (input) => symposiumHostGrants.reviseSeat(input),
-    getPerspective: (sessionId, perspective, options) =>
-      getSymposiumPerspective(eventStore, sessionId, perspective, options),
-    getQueuedInputs: (sessionId, perspective) =>
-      getSymposiumQueuedInputs(eventStore, sessionId, perspective),
-    resolveSelection: (accountId, model, reasoningEffort) => {
-      const profiles = symposiumAccountProfiles();
-      const binding = profiles.resolve(accountId, model);
-      profiles.validateModel(binding, model, reasoningEffort);
-      return AccountBindingSchema.parse(binding);
-    },
-  }),
-);
+  },
+});
+mountSymposiumDirectorRoutes(app, {
+  store: eventStore,
+  currentHost: () => symposiumProductionHost,
+  currentAccounts: symposiumAccountProfiles,
+  runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
+  safetyOrchestrator: symposiumSafetyOrchestrator,
+  grants: symposiumHostGrants,
+  registry,
+});
 
 app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => {
   if (!openShellLifecycleService) {
@@ -2524,10 +2507,10 @@ app.use(
       const binding = repositoryWorkspaceBinding(record.binding.accountId, record.binding.model);
       return { repositoryChat: service.chatPreparation(id, binding) };
     },
-    preview: (binding, connectionId, repository, signal) =>
-      getRepositoryWorkspaces().preview(binding, connectionId, repository, signal),
+    preview: (binding, connectionId, repository, signal, ordinaryRuntime) =>
+      getRepositoryWorkspaces().preview(binding, connectionId, repository, signal, ordinaryRuntime),
     prepare: (id, binding, signal) => getRepositoryWorkspaces().prepare(id, binding, signal),
-    status: (id, binding) => getRepositoryWorkspaces(true).status(id, binding),
+    status: (id, binding) => getRepositoryWorkspaces(true).qualifiedStatus(id, binding),
     discard: (id, binding) => getRepositoryWorkspaces(true).discard(id, binding),
   }),
 );
@@ -2725,6 +2708,27 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.status(404).json({ error: 'Session not found' });
     return;
   }
+  const continuationStatus = ordinaryCodexContinuationStatus(
+    meta.sessionId,
+    res.locals.authSession?.id,
+  );
+  const runtimeMetadata = {
+    ...ownedLocalCodexMetadata(eventStore, meta.sessionId, continuationStatus.available),
+    ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
+    ...(meta.accountBinding?.provider === 'google-vertex' &&
+    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'gemini'
+      ? {
+          runtimeNativeConstraint: readOwnedNativeContinuationConstraint(
+            getNativeResponsesStore(),
+            meta.sessionId,
+            meta.accountBinding,
+          ),
+        }
+      : {}),
+  };
+  const lastAdmittedSelection = eventStore.getLatestOrdinaryCommandAdmission?.(
+    meta.sessionId,
+  )?.selection;
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
   const symposiumConfigured = Boolean(meta.symposiumConfig);
@@ -2733,14 +2737,34 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     (meta.accountBinding?.provider === 'openai-codex' ||
       (meta.accountBinding?.provider === 'openai' &&
         !!meta.cwd?.startsWith('/sandbox/workspaces/')));
-  const codexQueue =
-    codexBacked && meta.accountBinding
-      ? readCodexQueue(
+  const responsesBacked = ['responses', 'gemini'].includes(
+    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation ?? '',
+  );
+  const vertexBacked =
+    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'claude-sdk';
+  const codexQueue = vertexBacked
+    ? readOwnedVertexQueue(
+        eventStore,
+        meta.sessionId,
+        !!registry.findBySessionId(meta.sessionId)?.session.ordinaryRuntimeOwner,
+      )
+    : responsesBacked && meta.accountBinding
+      ? readOwnedResponsesQueue(
+          eventStore,
+          getNativeResponsesStore(),
           meta.sessionId,
           meta.accountBinding,
-          registry.findBySessionId(meta.sessionId)?.session,
+          !!registry.findBySessionId(meta.sessionId)?.session.ordinaryRuntimeOwner,
+          !!res.locals.authSession &&
+            canResumeOwnedLocalResponsesDriver(meta.sessionId, res.locals.authSession.id),
         )
-      : undefined;
+      : codexBacked && meta.accountBinding
+        ? readCodexQueue(
+            meta.sessionId,
+            meta.accountBinding,
+            registry.findBySessionId(meta.sessionId)?.session,
+          )
+        : undefined;
   let modelSelection:
     | {
         model: string;
@@ -2754,6 +2778,16 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       }
     | undefined;
   if (meta.accountBinding && !symposiumConfigured) {
+    const retainedModel =
+      lastAdmittedSelection?.model ??
+      meta.selectedModel ??
+      codexQueue?.model ??
+      meta.accountBinding.model;
+    const retainedThinking = lastAdmittedSelection
+      ? lastAdmittedSelection.thinking
+      : (meta.reasoningEffort ?? codexQueue?.reasoningEffort ?? null);
+    if (retainedModel)
+      modelSelection = { model: retainedModel, reasoningEffort: retainedThinking, models: [] };
     try {
       const profiles = loadAccountProfiles();
       await profiles.refresh(req.query.refresh === '1');
@@ -2763,13 +2797,9 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       const defaultModel = profile?.models[0];
       if (profile && defaultModel)
         modelSelection = {
-          model:
-            meta.selectedModel ??
-            (meta.accountBinding.provider === 'openai-codex' ? codexQueue?.model : undefined) ??
-            meta.accountBinding.model ??
-            defaultModel.id,
+          model: retainedModel ?? defaultModel.id,
           models: profile.models,
-          reasoningEffort: meta.reasoningEffort ?? codexQueue?.reasoningEffort ?? null,
+          reasoningEffort: retainedThinking,
         };
     } catch {
       // Keep metadata available when the optional account catalog is temporarily unreadable.
@@ -2777,11 +2807,13 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   res.json({
     sessionId: meta.sessionId,
+    ...runtimeMetadata,
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,
     wtId: meta.wtId,
     cwd: meta.cwd,
+    repositoryWorkspaceId: meta.repositoryWorkspaceId,
     mode: meta.mode,
     isActive: meta.isActive,
     // Optional catalog refresh may yield while this conversation is deleted.
@@ -2800,7 +2832,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         }
       : {}),
     ...(modelSelection ? { modelSelection } : {}),
-    ...(codexBacked ? { codexQueue } : {}),
+    ...(codexBacked || responsesBacked ? { codexQueue } : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });
@@ -2813,7 +2845,16 @@ async function reattachCodexQueue(
   waitForReady = false,
   deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
 ): Promise<'ready' | 'reattaching' | 'unavailable'> {
+  if (
+    ['responses', 'gemini'].includes(
+      eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
+    )
+  )
+    return 'unavailable';
   const existing = registry.findBySessionId(id)?.session;
+  // Bound cold continuation must reacquire its original owning route through runtime admission.
+  if (eventStore.getSessionRuntimeBinding(id) && !existing?.ordinaryRuntimeOwner)
+    return 'unavailable';
   if (existing && getCodexRuntime(existing)) return 'ready';
   const meta = eventStore.getSession(id);
   if (!meta) return 'unavailable';
@@ -2852,21 +2893,73 @@ async function reattachCodexQueue(
   return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
 }
 
+function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
+  assertOwnedCodexQueueControl(
+    {
+      runtimeBinding: (sessionId) => eventStore.getSessionRuntimeBinding(sessionId),
+      accountBinding: (sessionId) => eventStore.getSession(sessionId)?.accountBinding,
+      custody: (sessionId, account, binding) => {
+        if (
+          binding.harness.implementation === 'claude-sdk' &&
+          binding.execution.location === 'local'
+        )
+          return eventStore.getOrdinaryLocalVertexCustody(sessionId);
+        if (
+          ['responses', 'gemini'].includes(binding.harness.implementation) &&
+          binding.execution.location === 'local'
+        )
+          return getNativeResponsesStore().readOrdinaryCustody(sessionId, account);
+        if (binding.harness.implementation !== 'codex') throw Error('Queue owner unavailable');
+        const native = getCodexConversationStore();
+        return binding.execution.location === 'local'
+          ? native.readHostCustody(sessionId, account)
+          : native.readOpenShellCustody(sessionId, account);
+      },
+    },
+    id,
+    authorization,
+  );
+}
+
 app.use(
   '/api/sessions',
   createCodexQueueRouter({
+    authorizeMutation: assertQueueOperator,
     binding(sessionId) {
       const meta = eventStore.getSession(sessionId);
       const binding = meta?.accountBinding;
       return binding &&
-        (binding.provider === 'openai-codex' ||
+        (['responses', 'claude-sdk', 'gemini'].includes(
+          eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation ?? '',
+        ) ||
+          binding.provider === 'openai-codex' ||
           (binding.provider === 'openai' && !!meta?.cwd?.startsWith('/sandbox/workspaces/')))
         ? binding
         : undefined;
     },
-    overview: readCodexQueueOverview,
-    cancel: (id, binding, commandId) =>
-      cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
+    overview: (id, binding) =>
+      eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk'
+        ? readOwnedVertexQueueOverview(eventStore, id)
+        : ['responses', 'gemini'].includes(
+              eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
+            )
+          ? readOwnedResponsesQueueOverview(eventStore, getNativeResponsesStore(), id, binding)
+          : readCodexQueueOverview(id, binding),
+    cancel: (id, binding, commandId, authorization) =>
+      eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk'
+        ? cancelOwnedVertexQueuedCommand(eventStore, id, commandId, authorization)
+        : ['responses', 'gemini'].includes(
+              eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
+            )
+          ? cancelOwnedResponsesQueuedCommand(
+              eventStore,
+              getNativeResponsesStore(),
+              id,
+              binding,
+              commandId,
+              authorization,
+            )
+          : cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
     retry: async (id, _binding, confirmAmbiguous) => {
       const session = registry.findBySessionId(id)?.session;
       const runtime = session ? getCodexRuntime(session) : undefined;
@@ -2903,6 +2996,36 @@ app.use(
 
 app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
   const sessionId = req.params.id;
+  try {
+    assertQueueOperator(sessionId, res.locals.authSession);
+  } catch {
+    res
+      .status(403)
+      .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
+    return;
+  }
+  if (
+    ['responses', 'gemini'].includes(
+      eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation ?? '',
+    )
+  ) {
+    try {
+      await continueOwnedLocalResponsesQueue(
+        sessionId,
+        res.locals.authSession,
+        typeof req.headers['x-connection-id'] === 'string'
+          ? req.headers['x-connection-id']
+          : undefined,
+      );
+      res.json({ ok: true });
+    } catch {
+      res.status(409).json({
+        error:
+          'Saved work could not reconnect. Check the original sign-in, account, settings and prior outcome before trying again.',
+      });
+    }
+    return;
+  }
   const live = registry.findBySessionId(sessionId);
   const recentSend = eventStore.hasRecentSendCommandForSession(sessionId, Date.now() - 10_000);
   if (!live && !recentSend) {
@@ -2926,6 +3049,7 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
     return;
   }
   try {
+    assertQueueOperator(sessionId, res.locals.authSession);
     await runtime.acknowledgeRecovery();
     res.json({ ok: true });
   } catch {

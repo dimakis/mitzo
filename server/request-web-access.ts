@@ -85,7 +85,10 @@ export async function executeWebAccess(
         return { content: decision.message ?? 'Web access declined', isError: true };
       if (!isDeepStrictEqual(decision.updatedInput, request) || !deps.isCurrent())
         return { content: 'Web access request changed during approval; retry', isError: true };
-      const operationSignal = AbortSignal.any([signal, AbortSignal.timeout(90_000)]);
+      const operationSignal =
+        request.operation === 'search'
+          ? signal
+          : AbortSignal.any([signal, AbortSignal.timeout(90_000)]);
       try {
         const content = await withWebAbort(
           request.operation === 'search'

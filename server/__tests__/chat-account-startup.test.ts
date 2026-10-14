@@ -18,7 +18,7 @@ vi.mock('../prompt-compare.js', () => ({
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: vi.fn(() => ({})) }));
 vi.mock('../auto-rename.js', async (original) => ({
   ...(await original<object>()),
-  shouldAutoRename: () => false,
+  shouldAutoRename: vi.fn(() => false),
 }));
 vi.mock('../hook-bridge.js', async (original) => ({
   ...(await original<object>()),
@@ -65,6 +65,8 @@ it('delivers the exact dated briefing snapshot to the mocked Codex provider and 
     .spyOn(codex, 'openCodexChat')
     .mockRejectedValue(new Error('Mocked provider captured input; do not start a real model'));
   const chat = await import('../chat.js');
+  const naming = await import('../auto-rename.js');
+  vi.mocked(naming.shouldAutoRename).mockReturnValueOnce(true);
   const content =
     '# Morning briefing\n## 09:30 Meeting\n' +
     'Source detail\n'.repeat(9000) +
@@ -103,6 +105,7 @@ it('delivers the exact dated briefing snapshot to the mocked Codex provider and 
       .find((event) => event.type === 'user_message');
     expect(user?.payload.sourceSnapshots).toEqual([snapshot]);
     expect(user?.payload.text).toBe('Discuss the saved report');
+    expect(chat.eventStore.getSession(sessionId)?.summary).toBe('Discuss Report Saved');
     const restored = await chat.getMessages(sessionId);
     expect(restored.filter((message) => message.role === 'user')).toHaveLength(1);
     expect(restored[0].sourceSnapshots).toEqual([snapshot]);

@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { createBrowserId } from './browser-crypto';
 import { getDefaultAccountModel } from './account-preference';
+import {
+  ChatRuntimeSelectionSchema,
+  chatAgentProfileFromSearch,
+  retainChatRuntimeSelection,
+} from './chat-runtime-selection';
 
 const PREFIX = 'mitzo-chat-draft:';
 export function chatDraftStorageKey(id: string) {
@@ -18,6 +23,9 @@ const schema = z.object({
   contextBlocks: z.array(z.string()),
   updatedAt: z.number(),
   settings: z.object({
+    // Additive intent only; old drafts keep their original version and unknown location.
+    runtimeSelection: ChatRuntimeSelectionSchema.nullable().optional(),
+    retainRuntimeIntent: z.boolean().optional(),
     selection: z
       .object({
         accountId: z.string().optional(),
@@ -54,7 +62,21 @@ export function createChatDraft(): ChatDraft {
 export function getChatDraft(id: string): ChatDraft | null {
   try {
     const parsed = schema.safeParse(JSON.parse(localStorage.getItem(PREFIX + id) || 'null'));
-    return parsed.success && parsed.data.id === id ? parsed.data : null;
+    if (!parsed.success || parsed.data.id !== id) return null;
+    const draft = parsed.data;
+    if (draft.settings.runtimeSelection) {
+      const params = new URLSearchParams(draft.settings.search);
+      draft.settings.runtimeSelection = retainChatRuntimeSelection(
+        draft.settings.runtimeSelection,
+        draft.settings.selection,
+        params.has('agentProfile') ||
+          params.has('profileRevision') ||
+          params.has('agentProfileKind')
+          ? chatAgentProfileFromSearch(draft.settings.search)
+          : undefined,
+      );
+    }
+    return draft;
   } catch {
     return null;
   }
@@ -81,7 +103,8 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.text.trim() &&
       !draft.images.length &&
       !draft.contextBlocks.length &&
-      !draft.settings.repositoryWorkspaceId
+      !draft.settings.repositoryWorkspaceId &&
+      !draft.settings.retainRuntimeIntent
     )
       localStorage.removeItem(PREFIX + draft.id);
     else

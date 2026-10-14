@@ -34,6 +34,20 @@ export interface ManagedSession {
   symposiumPublicationUsers?: number;
   /** Current event connection; the registry key remains stable for the query lifetime. */
   ownerConnectionId?: string;
+  /** Trusted owned-local driver subject; attachment/takeover never replaces it. */
+  ownedLocalAuthSessionId?: string;
+  /** Guarded ordinary driver stays with the existing session lifetime and
+   * attachment owner. It is never a separate account or runtime registry.
+   */
+  ordinaryRuntimeOwner?: {
+    location: 'local' | 'openshell';
+    authSessionId: string;
+    identity: object;
+    initialCommandId: string;
+    admit(command: unknown, preparationSignal?: AbortSignal): Promise<{ dispatched: boolean }>;
+    retryInitial(command: unknown): Promise<{ dispatched: boolean }>;
+    close(): void;
+  };
   transport: SessionTransport;
   abortController: AbortController;
   sessionId?: string;

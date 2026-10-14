@@ -1,3 +1,4 @@
+import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
@@ -272,6 +273,12 @@ async function motionKinds(page: Page) {
   );
 }
 
+async function openAgentSettings(page: Page) {
+  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+  await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+}
+
 test('motion: navigation keeps layout and input stable across push and back', async ({
   page,
 }, testInfo) => {
@@ -351,6 +358,84 @@ test('motion: Reduce Motion disables navigation and control animations', async (
   expect(animations).toBe(0);
 });
 
+test('motion: closing menus hold their final frame without flashing or moving chat controls', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    const finishes: { opacity: string; height: number }[] = [];
+    Object.assign(window, { exitFrames: finishes });
+    const original = HTMLElement.prototype.animate;
+    HTMLElement.prototype.animate = function (frames, options) {
+      const animation = original.call(this, frames, options);
+      const final = animation.effect?.getKeyframes().at(-1);
+      if (final?.opacity === '0') {
+        // Observe the native endpoint before React's finished handler can hide it.
+        void animation.finished
+          .then(() =>
+            finishes.push({
+              opacity: getComputedStyle(this).opacity,
+              height: this.getBoundingClientRect().height,
+            }),
+          )
+          .catch(() => {});
+      }
+      return animation;
+    };
+  });
+  await page.goto('/chat');
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await draft.fill('Preserve this draft');
+  const composer = page.locator('.chat-input--compact');
+  const header = page.locator('.workspace-controls-heading');
+  const toggle = page.getByRole('button', { name: 'More composer actions', exact: true });
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'dark' ? 'mint' : 'teal';
+      document.documentElement.dataset.font = theme === 'dark' ? 'system' : 'georgia';
+    }, theme);
+    // Font substitution can change intrinsic height between appearances. Measure
+    // each appearance before toggling so this checks motion, not font metrics.
+    const baseline = { composer: await composer.boundingBox(), header: await header.boundingBox() };
+    await toggle.click();
+    await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeVisible();
+    await composer.screenshot({
+      path: testInfo.outputPath(`menu-${theme}.png`),
+      animations: 'disabled',
+    });
+    await toggle.click();
+    await expect(composer.locator('.composer-tools')).toBeHidden();
+    await workspace.click();
+    const panel = page.locator('.workspace-controls > .motion-disclosure');
+    await expect(panel).toBeVisible();
+    await panel.screenshot({
+      path: testInfo.outputPath(`workspace-${theme}.png`),
+      animations: 'disabled',
+    });
+    await workspace.click();
+    await expect(panel).toBeHidden();
+    await expect(draft).toHaveValue('Preserve this draft');
+    expect(await composer.boundingBox()).toEqual(baseline.composer);
+    expect(await header.boundingBox()).toEqual(baseline.header);
+  }
+  const frames = await page.evaluate(
+    () =>
+      (
+        window as Window & {
+          exitFrames: { opacity: string; height: number }[];
+        }
+      ).exitFrames,
+  );
+  expect(frames).toHaveLength(4);
+  expect(frames.every((frame) => Number(frame.opacity) === 0)).toBe(true);
+  // Disclosure endpoints must stay collapsed until the hidden attribute commits.
+  expect(frames.filter((_, index) => index % 2 === 1).every((frame) => frame.height < 3)).toBe(
+    true,
+  );
+});
+
 test('composer: commands use a quiet icon with discoverable labels', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/chat');
@@ -389,6 +474,63 @@ test('composer: commands use a quiet icon with discoverable labels', async ({ pa
   await commands.click();
   await expect(draft).toHaveValue('Keep this draft while browsing commands');
   await page.keyboard.press('Escape');
+});
+
+test('motion: rapid toggles continue from the visible menu and disclosure frame', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/chat');
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeVisible();
+  const samples = await page.evaluate(async () => {
+    const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const results: { before: number; after: number; heightBefore: number; heightAfter: number }[] =
+      [];
+    for (const [toggleSelector, surfaceSelector] of [
+      ['.composer-tools-toggle', '.composer-tools'],
+      ['.workspace-controls-toggle', '.workspace-controls > .motion-disclosure'],
+    ]) {
+      const toggle = document.querySelector<HTMLElement>(toggleSelector)!;
+      const surface = document.querySelector<HTMLElement>(surfaceSelector)!;
+      toggle.click();
+      await nextFrame();
+      for (let interruption = 0; interruption < 2; interruption++) {
+        const current = surface
+          .getAnimations()
+          .find((animation) => animation.id.startsWith('mitzo:'))!;
+        current.pause();
+        current.currentTime = Number(current.effect!.getTiming().duration) / 2;
+        const before = Number(getComputedStyle(surface).opacity);
+        const heightBefore = surface.getBoundingClientRect().height;
+        toggle.click();
+        await nextFrame();
+        const replacement = surface
+          .getAnimations()
+          .find((animation) => animation.id.startsWith('mitzo:'))!;
+        replacement.pause();
+        replacement.currentTime = 0;
+        results.push({
+          before,
+          after: Number(getComputedStyle(surface).opacity),
+          heightBefore,
+          heightAfter: surface.getBoundingClientRect().height,
+        });
+      }
+      // Let the final entrance settle, then close this surface normally.
+      surface.getAnimations().forEach((animation) => animation.finish());
+      await nextFrame();
+      toggle.click();
+      await nextFrame();
+    }
+    return results;
+  });
+  expect(samples).toHaveLength(4);
+  for (const sample of samples) {
+    expect(sample.before).toBeGreaterThan(0);
+    expect(sample.before).toBeLessThan(1);
+    expect(sample.after).toBeCloseTo(sample.before, 3);
+    expect(Math.abs(sample.heightAfter - sample.heightBefore)).toBeLessThan(3);
+  }
 });
 
 test('motion: a wide mobile composer keeps inline actions accessible', async ({
@@ -487,6 +629,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
       // No app mutation or model request can leave this fixture suite.
       if (route.request().method() !== 'GET')
@@ -1513,6 +1656,7 @@ async function fixtureSymposium(
     }
     if (route.request().method() !== 'GET')
       return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+    if (path.endsWith('/meta')) return route.fulfill({ json: { sessionType: 'symposium' } });
     if (path.endsWith('/messages'))
       return route.fulfill({ json: options.empty ? [] : symposiumMessages });
     if (path.endsWith('/symposium/status')) {
@@ -1659,7 +1803,7 @@ test('combined conversation empty and failed status remain readable without impl
 async function exerciseBriefingReloadRecovery(
   page: Page,
   hideAssigned = false,
-  nativeMode?: 'unready' | 'lost-ack',
+  nativeMode?: 'unready' | 'lost-ack' | 'sse',
 ) {
   test.setTimeout(60_000);
   // Today must reopen this historical fixture's date, including after reload.
@@ -1673,8 +1817,9 @@ async function exerciseBriefingReloadRecovery(
     sessionStorage.clear();
   });
   if (nativeMode)
-    await page.addInitScript(() => {
-      // Only platform presentation APIs are stubbed; chat uses the actual native-default selector.
+    await page.addInitScript((mode) => {
+      // Retain diagnostic WS coverage; SSE exercises the unmodified native default.
+      if (mode !== 'sse') localStorage.setItem('mitzo:transport', 'ws');
       const names = [
         'App',
         'Keyboard',
@@ -1721,7 +1866,7 @@ async function exerciseBriefingReloadRecovery(
           nativeCallback: () => 'offline-native-listener',
         },
       });
-    });
+    }, nativeMode);
   const sessionId = 'sse-restored-briefing-command';
   const binding = {
     sessionId,
@@ -1744,7 +1889,7 @@ async function exerciseBriefingReloadRecovery(
   const websocketSends: unknown[] = [];
   await page.routeWebSocket('**/*', (socket) => {
     sockets += 1;
-    if (!nativeMode) {
+    if (!nativeMode || nativeMode === 'sse') {
       socket.close();
       return;
     }
@@ -1846,7 +1991,9 @@ async function exerciseBriefingReloadRecovery(
     return route.fallback();
   });
   await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
-  expect(await page.evaluate(() => localStorage.getItem('mitzo:transport'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('mitzo:transport'))).toBe(
+    nativeMode && nativeMode !== 'sse' ? 'ws' : null,
+  );
   if (nativeMode)
     expect(
       await page.evaluate(() =>
@@ -1867,18 +2014,22 @@ async function exerciseBriefingReloadRecovery(
   ]);
   expect(registrations).toHaveLength(0);
   // HTTP delivery does not wait for the receiver's asynchronous socket startup.
-  if (nativeMode) await expect.poll(() => sockets).toBeGreaterThanOrEqual(1);
+  if (nativeMode && nativeMode !== 'sse')
+    await expect.poll(() => sockets).toBeGreaterThanOrEqual(1);
   await page.reload();
   await expect.poll(() => sends.length).toBe(2);
   releaseFirst?.();
   expect(sends[1]).toEqual(sends[0]);
   expect(turns.size).toBe(1);
-  if (nativeMode) {
+  if (nativeMode && nativeMode !== 'sse') {
     await expect.poll(() => sockets).toBeGreaterThanOrEqual(2);
     expect(sockets).toBeGreaterThanOrEqual(2);
     expect(websocketSends).toHaveLength(0);
     expect(chatSseRequests).toBe(0);
-  } else expect(sockets).toBe(0);
+  } else {
+    expect(sockets).toBe(0);
+    await expect.poll(() => chatSseRequests).toBeGreaterThanOrEqual(2);
+  }
   // Stay in the same app process while the restored acknowledgement remains pending.
   await page.getByRole('link', { name: 'Today', exact: true }).click();
   await page.getByRole('link', { name: 'Read briefing', exact: true }).click();
@@ -1903,7 +2054,7 @@ async function exerciseBriefingReloadRecovery(
     'href',
     `/briefings/${binding.date}?revision=${binding.revision}`,
   );
-  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  const workspace = page.getByRole('button', { name: /^Agent settings,/ });
   async function openWorkspace() {
     await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
     await expect(workspace).toBeVisible();
@@ -1920,7 +2071,7 @@ async function exerciseBriefingReloadRecovery(
     binding.model,
   );
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
-  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toBeDisabled();
   await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
   expect(registrations).toEqual([binding]);
   // Confirm authoritative visibility before reusing a locally retained assignment.
@@ -1963,7 +2114,7 @@ async function exerciseBriefingReloadRecovery(
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
   expect(sends).toHaveLength(2);
   expect(turns.size).toBe(1);
-  if (nativeMode) {
+  if (nativeMode && nativeMode !== 'sse') {
     expect(websocketSends).toHaveLength(0);
     expect(chatSseRequests).toBe(0);
   }
@@ -1981,15 +2132,21 @@ test('default SSE allows a fresh draft when the recovered local conversation is 
   await exerciseBriefingReloadRecovery(page, true);
 });
 
+test('native-default SSE retains reviewed briefing delivery through cold reload without a duplicate turn', async ({
+  page,
+}) => {
+  await exerciseBriefingReloadRecovery(page, false, 'sse');
+});
+
 for (const nativeMode of ['unready', 'lost-ack'] as const) {
-  test(`native-default WS retains reviewed briefing delivery through cold reload with ${nativeMode} receipt`, async ({
+  test(`explicit native WS override retains reviewed briefing delivery through cold reload with ${nativeMode} receipt`, async ({
     page,
   }) => {
     await exerciseBriefingReloadRecovery(page, false, nativeMode);
   });
 }
 
-test('reviewed launches let users collapse Workspace and reach Send at a short viewport', async ({
+test('reviewed launches let users dismiss Agent settings and reach Send at a short viewport', async ({
   page,
   isMobile,
 }, testInfo) => {
@@ -2013,13 +2170,15 @@ test('reviewed launches let users collapse Workspace and reach Send at a short v
     document.documentElement.dataset.font = 'georgia';
     document.documentElement.dataset.accent = 'teal';
   });
-  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
-  await expect(workspace).toHaveAttribute('aria-expanded', 'true');
+  await openAgentSettings(page);
+  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  await expect(settings).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
     'luna-fixture',
   );
-  await workspace.click();
-  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+  await expect(settings).toHaveAttribute('aria-expanded', 'false');
+  await expect(settings).toBeFocused();
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeHidden();
   const send = page.getByRole('button', { name: 'Send launch prompt', exact: true });
   await send.scrollIntoViewIfNeeded();
@@ -2189,7 +2348,8 @@ test('failed briefing registration survives a completed turn and reload without 
   const picker = page.getByRole('dialog');
   await expect(picker).toBeVisible();
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
-  const profile = page.getByRole('combobox', { name: 'Agent profile', exact: true });
+  await openAgentSettings(page);
+  const profile = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(profile).toBeEnabled();
   await expect(profile).toHaveValue('');
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
@@ -2245,10 +2405,13 @@ test('failed briefing registration survives a completed turn and reload without 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       page.viewportSize()!.width,
     );
+    await openAgentSettings(page);
     const model = page.getByRole('combobox', { name: 'Model', exact: true });
     await expect(model).toHaveValue(binding.model);
     await expect(model).toBeDisabled();
-    await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toBeDisabled();
+    await expect(
+      page.getByRole('combobox', { name: 'Thinking level', exact: true }),
+    ).toBeDisabled();
     await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
   }
   await retained();
@@ -2334,7 +2497,7 @@ test('failed briefing registration survives a completed turn and reload without 
     .selectOption(changedBinding.model);
   await changedPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
   await expect(page).toHaveURL(/\/chat$/);
-  // Larger text must not let the expanded Workspace overlay cover launch actions.
+  // Larger text must keep composer settings and launch actions reachable.
   if (isMobile)
     await page.evaluate(() => {
       document.documentElement.style.fontSize = '20px';
@@ -2430,12 +2593,13 @@ test('saved chat identity failures lock model controls until an explicit success
       await page.goto(`/chat/${sessionId}`);
       const retry = page.getByRole('button', { name: 'Retry briefing lookup', exact: true });
       await expect(retry).toBeVisible();
+      await openAgentSettings(page);
       const model = page.getByRole('combobox', { name: 'Model', exact: true });
       await expect(model).toBeVisible();
       await expect(model).toBeDisabled();
       await expect(model).toHaveValue('luna-fixture');
       await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
-      const thinking = page.getByRole('combobox', { name: 'Thinking', exact: true });
+      const thinking = page.getByRole('combobox', { name: 'Thinking level', exact: true });
       await expect(thinking).toBeDisabled();
       await expect(
         page.getByRole('button', { name: 'Change account or model', exact: true }),
@@ -2495,18 +2659,78 @@ test('saved chat identity failures lock model controls until an explicit success
   }
 });
 
-test('profile drafts stay behind Workspace and remain readable on mobile and desktop', async ({
+test('builder launcher distinguishes built-in guidance from a saved profile with the same ID', async ({
+  page,
+}) => {
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname === '/api/agent-library')
+      return route.fulfill({
+        json: {
+          drafts: [],
+          versions: [
+            {
+              profileId: 'mitzo-profile-builder',
+              revision: 2,
+              contentHash: 'a'.repeat(64),
+              definition: {
+                name: 'My saved builder',
+                descriptor: 'My own guidance',
+                description: 'Saved profile',
+                role: 'agent',
+                instructions: 'Use my own instructions.',
+                expectedOutput: 'A report',
+                acceptanceCriteria: ['Cites evidence'],
+                modelPolicyRole: 'agent',
+              },
+            },
+          ],
+        },
+      });
+    if (url.pathname === '/api/accounts')
+      return route.fulfill({
+        json: [
+          {
+            id: 'work-account',
+            label: 'Work OpenAI',
+            models: [{ id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low'] }],
+          },
+        ],
+      });
+    return route.fallback();
+  });
+  await page.goto('https://mitzo-ui.test/agent-library');
+  await page.getByRole('link', { name: 'Create with advisor', exact: true }).click();
+  await expect(page).toHaveURL(/agentProfileKind=builtin/);
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
+    'Help me create an agent.',
+  );
+  await openAgentSettings(page);
+  const picker = page.getByRole('combobox', { name: 'Agent', exact: true });
+  await expect(picker).toHaveValue(JSON.stringify(['builtin', 'mitzo-profile-builder', 1]));
+  await expect(picker.getByRole('option', { name: /My saved builder/ })).toHaveCount(1);
+  await picker.selectOption(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));
+  await expect(page).toHaveURL(/profileRevision=2/);
+  expect(new URL(page.url()).searchParams.has('agentProfileKind')).toBe(false);
+  await expect(picker).toHaveValue(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));
+  await picker.selectOption('');
+  expect(new URL(page.url()).searchParams.has('agentProfile')).toBe(false);
+});
+
+test('profile draft cards appear in conversation and save without opening Workspace', async ({
   page,
   isMobile,
 }, testInfo) => {
-  let state: 'empty' | 'error' | 'populated' = 'empty';
-  let draftReads = 0;
+  let state: 'empty' | 'error' | 'populated' = 'populated';
+  let writes = 0;
   const proposal = {
     proposalId: 'offline-draft',
-    suggestedProfileId: 'reviewer',
+    suggestedProfileId: null,
     state: 'pending',
     definition: {
       name: 'Reusable reviewer for planning decisions and their supporting evidence',
+      descriptor: 'The challenger',
       role: 'reviewer',
       instructions: 'Review the selected changes and explain each finding with evidence. '.repeat(
         12,
@@ -2520,6 +2744,15 @@ test('profile drafts stay behind Workspace and remain readable on mobile and des
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (
+      url.pathname === '/api/symposium/profile-proposals/offline-draft/save' &&
+      route.request().method() === 'POST'
+    ) {
+      writes++;
+      expect(route.request().postDataJSON().profileId).toMatch(/^[0-9a-f-]{36}$/);
+      state = 'empty';
+      return route.fulfill({ json: { profileId: 'saved-reviewer', revision: 1 } });
+    }
     if (route.request().method() !== 'GET')
       return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
     if (url.pathname === '/api/sessions/ui-drafts/messages') return route.fulfill({ json: [] });
@@ -2528,76 +2761,67 @@ test('profile drafts stay behind Workspace and remain readable on mobile and des
     if (url.pathname === '/api/sessions/ui-drafts/symposium/status')
       return route.fulfill({ json: { sessionId: 'ui-drafts', config: null, seats: [] } });
     if (url.pathname === '/api/symposium/profiles') return route.fulfill({ json: [] });
-    if (url.pathname === '/api/symposium/profile-proposals') {
-      draftReads += 1;
-      if (state === 'error')
-        return route.fulfill({ status: 503, json: { error: 'Draft service unavailable' } });
-      return route.fulfill({ json: state === 'populated' ? [proposal] : [] });
-    }
+    if (url.pathname === '/api/symposium/profile-proposals')
+      return state === 'error'
+        ? route.fulfill({ status: 503, json: { error: 'Draft service unavailable' } })
+        : route.fulfill({ json: state === 'populated' ? [proposal] : [] });
     return route.fallback();
   });
-  for (const width of isMobile ? [320, 390] : [1280]) {
-    await page.setViewportSize({ width, height: 900 });
+  for (const width of isMobile ? [320, 390] : [1280])
     for (const theme of ['dark', 'light']) {
-      state = 'empty';
-      const readsBefore = draftReads;
+      await page.setViewportSize({ width, height: 900 });
+      state = 'populated';
       await page.goto('https://mitzo-ui.test/chat/ui-drafts');
-      await expect(page.getByPlaceholder('Message Mitzo...')).toBeVisible();
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
         document.documentElement.dataset.accent = 'teal';
         document.documentElement.dataset.font = 'georgia';
       }, theme);
-      const workspace = page.getByRole('button', { name: /^Workspace controls/ });
-      const drafts = page.getByRole('button', { name: 'Reusable profile drafts', exact: true });
-      await expect(drafts).toBeHidden();
-      expect(draftReads).toBe(readsBefore);
-      await page.screenshot({
-        path: testInfo.outputPath(`drafts-collapsed-${width}-${theme}.png`),
-      });
-      await workspace.click();
-      await expect(drafts).toBeVisible();
-      expect(draftReads).toBe(readsBefore);
-      const touch = await drafts.boundingBox();
-      expect(touch!.height).toBeGreaterThanOrEqual(44);
-      for (const next of ['empty', 'error', 'populated'] as const) {
+      const panel = page.getByRole('complementary', { name: 'Reusable profile drafts' });
+      await expect(panel).toBeVisible();
+      await expect(panel.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
+        proposal.definition.name,
+      );
+      await expect(panel.getByRole('textbox', { name: 'Profile ID', exact: true })).toHaveCount(0);
+      await expect(
+        page.getByRole('button', { name: 'Reusable profile drafts', exact: true }),
+      ).toBeHidden();
+      await expect(
+        panel.getByRole('textbox', { name: 'Model policy role', exact: true }),
+      ).toBeHidden();
+      await panel.getByRole('textbox', { name: 'Name', exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`draft-profile-${width}-${theme}.png`) });
+      const save = panel.getByRole('button', { name: 'Save reusable profile' });
+      await save.scrollIntoViewIfNeeded();
+      await expect(save).toBeEnabled();
+      expect((await save.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await save.focus();
+      await expect(save).toBeFocused();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({ path: testInfo.outputPath(`draft-ready-${width}-${theme}.png`) });
+      const before = writes;
+      await page.keyboard.press('Enter');
+      await expect(panel.getByRole('status')).toContainText('Saved Reusable reviewer');
+      await expect(panel.getByRole('link', { name: 'Open Agent Library' })).toBeVisible();
+      expect(writes).toBe(before + 1);
+      await page.screenshot({ path: testInfo.outputPath(`draft-saved-${width}-${theme}.png`) });
+      for (const next of ['empty', 'error'] as const) {
         state = next;
-        await drafts.focus();
-        await expect(drafts).toBeFocused();
-        await page.keyboard.press('Enter');
-        const panel = page.getByRole('complementary', { name: 'Reusable profile drafts' });
-        await expect(panel).toBeVisible();
+        await page.goto('https://mitzo-ui.test/chat/ui-drafts');
+        await page.getByRole('button', { name: /^Workspace controls/ }).click();
+        await expect(page.locator('.workspace-controls > .motion-disclosure')).not.toHaveAttribute(
+          'data-motion-active',
+          'true',
+        );
+        await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
         if (next === 'empty')
           await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
-        if (next === 'error')
-          await expect(panel.getByRole('alert')).toHaveText('Draft service unavailable');
-        if (next === 'populated') {
-          await expect(panel.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
-            proposal.definition.name,
-          );
-          await panel
-            .getByRole('button', { name: 'Save reusable profile' })
-            .scrollIntoViewIfNeeded();
-          await expect(panel.getByRole('button', { name: 'Save reusable profile' })).toBeVisible();
-          const saveTarget = await panel
-            .getByRole('button', { name: 'Save reusable profile' })
-            .boundingBox();
-          expect(saveTarget!.height).toBeGreaterThanOrEqual(44);
-        }
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-          true,
-        );
-        await page.screenshot({
-          path: testInfo.outputPath(`drafts-${next}-${width}-${theme}.png`),
-        });
-        await drafts.click();
-        await expect(panel).toBeHidden();
+        else await expect(panel.getByRole('alert')).toHaveText('Draft service unavailable');
+        await expect(page.getByPlaceholder('Message Mitzo...')).toBeVisible();
       }
-      await workspace.click();
-      await expect(drafts).toBeHidden();
-      await expect(page.getByPlaceholder('Message Mitzo...')).toBeVisible();
     }
-  }
 });
 
 const iconTasks = (
@@ -2977,11 +3201,14 @@ for (const appearance of [
     await expect(page.getByText('Here are the results.', { exact: true })).toBeVisible();
     const alignment = await page.locator('.msg-bubble-group--user').evaluate((user) => {
       const chat = user.closest('.chat-messages')!;
-      return Math.abs(
-        user.getBoundingClientRect().right -
-          chat.getBoundingClientRect().right +
-          parseFloat(getComputedStyle(chat).paddingRight),
-      );
+      // Flex aligns to the scroll container's content box, excluding its
+      // border and the visible WebKit scrollbar rather than the outer rectangle.
+      const contentRight =
+        chat.getBoundingClientRect().left +
+        chat.clientLeft +
+        chat.clientWidth -
+        parseFloat(getComputedStyle(chat).paddingRight);
+      return Math.abs(user.getBoundingClientRect().right - contentRight);
     });
     expect(alignment).toBeLessThan(2);
     expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);

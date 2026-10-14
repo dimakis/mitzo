@@ -29,6 +29,43 @@ it('attests production OpenAI + automatic GitHub + approved GWS layers exactly',
   expect(attestEffectiveRuntimePolicy(base, f.observed, f.providers).providers).toHaveLength(3);
 });
 
+it('attests the retained read-only Google profile without adding Docs writes', () => {
+  const f = fixture(['mitzo-google-workspace-spike']);
+  const profile = load(
+    readFileSync(
+      new URL(
+        '../../infra/openshell/providers/google-workspace-readonly-reviewed-profile.yaml',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  ) as Profile;
+  profile.source = 'user';
+  profile.scope = 'workspace';
+  f.providers[0].profile = profile;
+  const key = '_provider_' + f.providers[0].name.replaceAll('-', '_');
+  f.observed.network_policies[key].endpoints = structuredClone(profile.endpoints);
+  f.observed.network_policies[key].binaries = profile.binaries.map((path) => ({ path }));
+  expect(attestEffectiveRuntimePolicy(base, f.observed, f.providers).providers).toHaveLength(1);
+  expect(profile.endpoints.find((e) => e.host === 'docs.googleapis.com')?.access).toBe('read-only');
+  f.observed.network_policies[key].endpoints[1].access = 'read-write';
+  expect(() => attestEffectiveRuntimePolicy(base, f.observed, f.providers)).toThrow(
+    'effective policy differs',
+  );
+});
+it('rejects a Google policy mixing read-only consent with Docs writes', () => {
+  const f = fixture(['mitzo-google-workspace-spike']);
+  const profile = f.providers[0].profile as unknown as {
+    credentials: Array<{ refresh: { scopes: string[] } }>;
+  };
+  profile.credentials[0].refresh.scopes = profile.credentials[0].refresh.scopes.map((scope) =>
+    scope.replace('/auth/documents', '/auth/documents.readonly'),
+  );
+  expect(() => attestEffectiveRuntimePolicy(base, f.observed, f.providers)).toThrow(
+    'differs from reviewed definition',
+  );
+});
+
 const mutations: [string, (f: ReturnType<typeof fixture>) => void][] = [
   [
     'extra network rule',
@@ -284,8 +321,9 @@ it('derives required service names from reviewed profiles and excludes inference
     f.providers,
     f.providers[0].name,
   );
-  expect(required).toContain('GOOGLE_WORKSPACE_CLI_TOKEN');
-  expect(required).not.toContain('OPENAI_API_KEY');
+  expect(required).toContainEqual(['GOOGLE_WORKSPACE_CLI_TOKEN']);
+  expect(required).toContainEqual(['GH_TOKEN', 'GITHUB_TOKEN']);
+  expect(required.flat()).not.toContain('OPENAI_API_KEY');
   const google = f.providers.find((p) => p.type === 'mitzo-google-workspace-spike')!;
   (google.profile as Profile).credentials[0].env_vars = ['TOKEN;touch /tmp/unreviewed'];
   expect(() =>

@@ -32,6 +32,11 @@ exists and then disconnects. Navigation interruption cancels its owned animation
 Use `MotionPresence` for conditionally mounted content. It retains the content
 briefly for exit motion and immediately makes it inert and hidden from assistive
 technology. Reopening cancels the exit. Updating children does not replay motion.
+Exits hold their final frame until React hides or removes the retained surface;
+only then is the animation released. Interrupted toggles continue from the visible
+opacity, translation and disclosure height. Bounded disclosures close from their
+rendered height rather than their full scrollable content height. Entrance height
+is released on completion so settings and streamed content can keep scrolling/growing.
 
 ```tsx
 <MotionPresence open={menuOpen} kind="popover">

@@ -5,6 +5,7 @@ import type { AccountBinding } from '@mitzo/protocol';
 import type { CodexConversationStore } from './codex-conversation-store.js';
 
 interface Dependencies {
+  authorizeMutation?(sessionId: string, authorization?: AuthSession): void;
   binding(sessionId: string): AccountBinding | undefined;
   overview(
     sessionId: string,
@@ -14,6 +15,7 @@ interface Dependencies {
     sessionId: string,
     binding: AccountBinding,
     commandId: string,
+    authorization?: AuthSession,
   ): 'cancelled' | 'not_queued' | 'not_found';
   retry(
     sessionId: string,
@@ -45,6 +47,17 @@ interface Dependencies {
 /** Mounted after application authentication. Only saved, unclaimed work can be cancelled. */
 export function createCodexQueueRouter(deps: Dependencies) {
   const router = Router();
+  router.use('/:id/codex-queue', (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    try {
+      deps.authorizeMutation?.(req.params.id, res.locals.authSession as AuthSession | undefined);
+      next();
+    } catch {
+      res
+        .status(403)
+        .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
+    }
+  });
   router.get('/:id/codex-queue', (req, res) => {
     const binding = deps.binding(req.params.id);
     if (!binding) {
@@ -159,7 +172,10 @@ export function createCodexQueueRouter(deps: Dependencies) {
       return;
     }
     try {
-      const result = deps.cancel(req.params.id, binding, req.params.commandId);
+      const authorization = res.locals.authSession as AuthSession | undefined;
+      const result = authorization
+        ? deps.cancel(req.params.id, binding, req.params.commandId, authorization)
+        : deps.cancel(req.params.id, binding, req.params.commandId);
       if (result === 'not_found') {
         res.status(404).json({ error: 'Queued message not found' });
         return;
