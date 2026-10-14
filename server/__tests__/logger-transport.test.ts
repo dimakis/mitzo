@@ -51,7 +51,7 @@ describe('operational logging transport failure', () => {
       expect(fallback).toHaveBeenCalledOnce();
       dest.write('{"msg":"recovered"}\n');
       expect(fallback).toHaveBeenCalledTimes(2);
-      const summary = JSON.parse(fallback.mock.calls[1][0].split('\n')[0]);
+      const summary = JSON.parse(fallback.mock.calls[1][0].trimStart().split('\n')[0]);
       expect(summary).toMatchObject({ module: 'logger', failedWrites: 1 });
       expect(summary.lostBytes).toBeGreaterThan(0);
       expect(fallback.mock.calls[1][0]).toContain('recovered');
