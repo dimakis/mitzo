@@ -238,6 +238,10 @@ and returns focus to the trigger. Its host lives above responsive screens so a
 viewport change does not discard the requested work view. Changing conversation
 closes it. The dialog owns its gutter once; staged account/model fields occupy
 the full form width instead of inheriting compact inline-chat geometry.
+Nested `HomeDialog` cancellation remains in the top form, including while its
+submission guard refuses dismissal. Shared scroll-lock owners restore the original
+body overflow only after the last dialog closes, including simultaneous navigation
+unmounts; closing one dialog cannot unlock another active dialog.
 
 The work view reuses `OutputContributorPanel`, ordinary `AccountModelPicker`,
 optional Library guidance, existing source/delivery/retry/Stop APIs and their

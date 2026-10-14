@@ -3857,6 +3857,10 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   const additions: Record<string, unknown>[] = [];
   const contributors: Record<string, unknown>[] = [];
   const catalogScopes: string[] = [];
+  let releaseAddition!: () => void;
+  const additionReady = new Promise<void>((resolve) => {
+    releaseAddition = resolve;
+  });
   let failReads = false;
   let empty = false;
   await page.route('**/api/**', async (route) => {
@@ -3900,6 +3904,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
     if (path === `/api/sessions/${sessionId}/contributors` && route.request().method() === 'POST') {
       const input = route.request().postDataJSON();
       additions.push(input);
+      await additionReady;
       const contributor = {
         id: 'ordinary-independent',
         label: input.label,
@@ -3930,6 +3935,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: /Workspace controls/ }).click();
   const action = page.getByRole('button', { name: 'Collaborate', exact: true });
+  const originalOverflow = await page.evaluate(() => document.body.style.overflow);
   await expect(action).toBeVisible();
   await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
   expect(workReads).toHaveLength(0);
@@ -3956,6 +3962,12 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   }
   await dialog.getByRole('button', { name: 'Add contributor', exact: true }).click();
   const add = page.getByRole('dialog', { name: 'Add contributor', exact: true });
+  await expect(add).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(add).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Add contributor', exact: true })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Add contributor', exact: true }).click();
   await expect(
     add.getByText('Start an independent conversation using one of your existing accounts.'),
   ).toBeVisible();
@@ -3970,6 +3982,14 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   await add.getByRole('button', { name: /^Use Work OpenAI/ }).click();
   await add.getByLabel('Session mode').selectOption('agent');
   await add.getByRole('button', { name: 'Add to this output', exact: true }).click();
+  await expect.poll(() => additions.length).toBe(1);
+  await page.keyboard.press('Escape');
+  await expect(add).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(
+    add.getByRole('button', { name: 'Adding contributor…', exact: true }),
+  ).toBeDisabled();
+  releaseAddition();
   await expect(add).toHaveCount(0);
   await expect(dialog.getByText('Independent writer', { exact: true })).toBeVisible();
   expect(additions).toEqual([
@@ -3997,4 +4017,14 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   await expect(dialog.getByText('No finalized drafts yet')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
+  empty = false;
+  await action.click();
+  await dialog.getByRole('button', { name: 'Add contributor', exact: true }).click();
+  await expect(add).toBeVisible();
+  await page.evaluate(() => {
+    window.history.pushState({}, '', '/chats');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe(originalOverflow);
 });
