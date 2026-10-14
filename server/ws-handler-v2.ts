@@ -1254,7 +1254,10 @@ export function handleSendV2(
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
           const onSessionResolved = (resolvedId: string) => {
-            if (!selectionStillCurrent()) return;
+            // A background launch still belongs to this attachment's lifecycle:
+            // disconnect cleanup must discover its driver through the watch.
+            // A removed/replaced connection cannot inherit that old ownership.
+            if (!viewConnection || ctx.connRegistry.get(connectionId) !== viewConnection) return;
             ctx.connRegistry.watch(connectionId, resolvedId);
             selectForSend(resolvedId);
           };

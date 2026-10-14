@@ -1888,6 +1888,36 @@ describe('handleSendV2 auto-watch', () => {
       await handleSwitchSession('c1', { type: 'switch_session', sessionId: selection }, ctx);
       options.onSessionResolved('original-session');
       expect(ctx.connRegistry.get('c1')!.activeSession).toBe(selection);
+      // Disconnect cleanup enumerates this watch even though the view moved away.
+      expect(ctx.connRegistry.get('c1')!.watchedSessions.has('original-session')).toBe(true);
+      expect(startChat).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['removed', 'replaced'] as const)(
+    'does not attach a late resolved launch to a %s connection lifecycle',
+    async (lifecycle) => {
+      (startChat as ReturnType<typeof vi.fn>).mockClear();
+      const ctx = createContext();
+      const transport = mockTransport();
+      ctx.connRegistry.register('c1', transport);
+      await handleSendV2(
+        'c1',
+        transport,
+        {
+          type: 'send',
+          sessionId: null,
+          prompt: 'late resolution',
+          clientMsgId: 'gone-launch',
+        },
+        ctx,
+      );
+      const options = (startChat as ReturnType<typeof vi.fn>).mock.calls[0][3];
+      ctx.connRegistry.remove('c1');
+      if (lifecycle === 'replaced') ctx.connRegistry.register('c1', mockTransport());
+      options.onSessionResolved('late-session');
+      expect(ctx.connRegistry.get('c1')?.watchedSessions.has('late-session') ?? false).toBe(false);
+      expect(ctx.connRegistry.get('c1')?.activeSession ?? null).toBeNull();
       expect(startChat).toHaveBeenCalledOnce();
     },
   );
