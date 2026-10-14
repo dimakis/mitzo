@@ -1513,7 +1513,10 @@ for (const appearance of [
     await expect(page.getByRole('alert')).toHaveText(
       'Couldn’t load calendar. Check the connection and try again.',
     );
-    await expect(page.getByRole('heading', { name: 'Calendar', exact: true })).toBeVisible();
+    // Mobile uses the shared shell rather than a duplicate page heading.
+    if (!isMobile)
+      await expect(page.getByRole('heading', { name: 'Calendar', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Next period', exact: true })).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath(
         `responsiveness-calendar-unavailable-${appearance.theme}-${appearance.accent}-${appearance.font}.png`,
