@@ -19,7 +19,13 @@ import {
 import { nativeStartupSessionId } from '../../ordinary-repository-startup.js';
 export async function ownedResponsesRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
-  options: { contextRecipe?: boolean; chatRoute?: boolean; dual?: boolean; gemini?: boolean } = {},
+  options: {
+    contextRecipe?: boolean;
+    chatRoute?: boolean;
+    dual?: boolean;
+    gemini?: boolean;
+    ordinaryPreparation?: boolean;
+  } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
@@ -146,7 +152,18 @@ export async function ownedResponsesRuntimeFixture(
   git(source, 'commit', '-qm', 'offline base');
   const baseOid = git(source, 'rev-parse', 'HEAD');
   const inspect = async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid });
+  const ordinaryAuthority = options.ordinaryPreparation
+    ? await import('../../ordinary-repository-preparation-authority.js')
+    : undefined;
   const workspace = new RepositoryWorkspaces(join(root, 'repositories'), {
+    ...(ordinaryAuthority
+      ? {
+          ordinaryPreparation: {
+            capture: ordinaryAuthority.captureOrdinaryRepositoryPreparation,
+            assert: ordinaryAuthority.assertOrdinaryRepositoryPreparation,
+          },
+        }
+      : {}),
     authorize: async (selected) => {
       loadAccountProfiles().resumeRouting(selected);
       return { revision: 1, allowedBaseBranches: ['main'] };
