@@ -1,4 +1,5 @@
 import { parse, defaultTreeAdapter as tree, type DefaultTreeAdapterTypes } from 'parse5';
+import { WebAccessError } from './request-web-access.js';
 
 // Transport resource guard, distinct from model output or readable-article budgets.
 export const MAX_WEB_DOWNLOAD_BYTES = 2 * 1024 * 1024;
@@ -150,7 +151,10 @@ export function webPageContent(body: string, contentType: string, sourceUrl: str
       for (let i = node.childNodes.length - 1; i >= 0; i--)
         pending.push({ node: node.childNodes[i]!, preformatted });
   }
-  return (
-    (references ? `URL references resolve against: ${base.href}\n\n` : '') + parts.join('').trim()
-  );
+  const content = parts.join('').trim();
+  if (!content)
+    throw new WebAccessError(
+      'The website returned no readable content. It may require JavaScript or an interactive browser.',
+    );
+  return (references ? `URL references resolve against: ${base.href}\n\n` : '') + content;
 }

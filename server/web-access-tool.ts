@@ -105,6 +105,7 @@ export function createWebAccessTool(
       checkSkillPolicy(registry, clientId, REQUEST_WEB_ACCESS) !== 'deny';
     return executeWebAccess(input, signal, {
       isCurrent,
+      assertRuntimeCurrent,
       approve: async (request, signal, redirectedFrom) => {
         if (request.operation === 'search' && searchAllowed)
           return { behavior: 'allow', updatedInput: request };

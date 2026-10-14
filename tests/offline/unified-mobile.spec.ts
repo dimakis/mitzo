@@ -391,10 +391,17 @@ test('motion: closing menus hold their final frame without flashing or moving ch
   const toggle = page.getByRole('button', { name: 'More composer actions', exact: true });
   const workspace = page.getByRole('button', { name: /^Workspace controls/ });
   for (const theme of ['dark', 'light']) {
-    await page.evaluate((theme) => {
+    await page.evaluate(async (theme) => {
       document.documentElement.dataset.theme = theme;
       document.documentElement.dataset.accent = theme === 'dark' ? 'mint' : 'teal';
       document.documentElement.dataset.font = theme === 'dark' ? 'system' : 'georgia';
+      await document.fonts.ready;
+      await Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+          .map((animation) => animation.finished.catch(() => {})),
+      );
     }, theme);
     // Font substitution also schedules the settings panel's ResizeObserver
     // budget measurement. Settle that layout before measuring the motion baseline.

@@ -38,10 +38,14 @@ describe('web request through real Mitzo approval cards', () => {
     const execute = createWebAccessTool('chat', registry, search);
     return { registry, events, abort, search, execute };
   }
-  it.each(['once', 'always', 'deny'] as const)(
-    'uses an exact card despite Auto/cached grants and handles %s',
-    async (decision) => {
-      const f = fixture();
+  it.each(
+    (['openai', 'openai-codex', 'google-vertex', 'anthropic-vertex'] as const).flatMap((provider) =>
+      (['once', 'always', 'deny'] as const).map((decision) => [provider, decision] as const),
+    ),
+  )(
+    'uses an exact card on %s despite Auto/cached grants and handles %s',
+    async (provider, decision) => {
+      const f = fixture(provider);
       const pending = f.execute(
         { operation: 'search', query: 'Revenue', reason: 'Verify current guidance' },
         f.abort.signal,

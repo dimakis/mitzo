@@ -6,7 +6,10 @@ function fixture(
   status = 'completed',
   searched = true,
   answer = 'Answer [Revenue](https://www.revenue.ie/)',
-  searchItem: Record<string, unknown> = { status: 'completed' },
+  searchItem: Record<string, unknown> = {
+    action: { type: 'search', query: 'Revenue' },
+    results: null,
+  },
 ) {
   let callbacks: CodexLifecycleTransport;
   const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
@@ -22,7 +25,7 @@ function fixture(
         callbacks.onNotification('item/completed', {
           threadId: 'search-thread',
           turnId: 'search-turn',
-          item: { type: 'webSearch', id: 'search-item', ...searchItem },
+          item: { type: 'webSearch', id: 'search-item', query: 'Revenue', ...searchItem },
         });
       callbacks.onNotification('item/completed', {
         threadId: 'unrelated',
@@ -120,7 +123,7 @@ describe('approved Codex search on the bound runtime', () => {
   it.each([
     { status: 'failed' },
     { status: 'inProgress' },
-    {},
+    { query: undefined },
     { status: 'completed', error: { message: 'search failed' } },
   ])('rejects an unsuccessful search item %j even with a sourced answer', async (item) => {
     const f = fixture('completed', true, 'Answer https://www.revenue.ie/', item);
@@ -198,4 +201,84 @@ it('rejects trusted pack-origin search before child client creation independentl
   ).rejects.toThrow(/trusted native continuation barrier/);
   expect(createClient).not.toHaveBeenCalled();
   expect(f.verify).not.toHaveBeenCalled();
+});
+
+// Pinned Codex 0.160.0 WebSearchItem has id/query/action; completion is the
+// item/completed notification, not an invented item.status field.
+it('accepts the pinned native search receipt through the shared approval boundary', async () => {
+  const { executeWebAccess } = await import('../request-web-access.js');
+  const f = fixture('completed', true, 'Answer https://www.revenue.ie/', {
+    status: undefined,
+    action: { type: 'search', query: 'Revenue' },
+  });
+  const input = { operation: 'search' as const, query: 'Revenue', reason: 'Research' };
+  const result = await executeWebAccess(input, new AbortController().signal, {
+    isCurrent: () => true,
+    approve: async () => ({ behavior: 'allow', updatedInput: input }),
+    search: (query, signal) =>
+      searchCodex(query, signal, {
+        createClient: f.createClient,
+        verify: f.verify,
+        model: 'selected-model',
+        modelProvider: 'openshell',
+        cwd: '/workspace',
+      }),
+    fetchPage: vi.fn(),
+  });
+  expect(result.isError).toBe(false);
+  expect(result.content).toContain('https://www.revenue.ie/');
+  expect(f.close).toHaveBeenCalledOnce();
+});
+
+it('keeps an approved native search running beyond 90 seconds until caller cancellation', async () => {
+  vi.useFakeTimers();
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+    const timer = new AbortController();
+    setTimeout(() => timer.abort(), ms);
+    return timer.signal;
+  });
+  const f = fixture();
+  f.verify.mockImplementation(() => new Promise(() => {}));
+  const abort = new AbortController();
+  try {
+    const result = searchCodex('Revenue', abort.signal, {
+      createClient: f.createClient,
+      verify: f.verify,
+      model: 'model',
+      modelProvider: 'openshell',
+      cwd: '/workspace',
+    });
+    const rejected = expect(result).rejects.toThrow(/interrupted/i);
+    await vi.advanceTimersByTimeAsync(90_001);
+    expect(f.close).not.toHaveBeenCalled();
+    abort.abort();
+    await rejected;
+  } finally {
+    timeout.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it('preserves a safe native failure reason without leaking provider exceptions', async () => {
+  const { executeWebAccess } = await import('../request-web-access.js');
+  const f = fixture();
+  f.verify.mockRejectedValue(new Error('private-account-token-provider-body'));
+  const input = { operation: 'search' as const, query: 'Revenue', reason: 'Research' };
+  const result = await executeWebAccess(input, new AbortController().signal, {
+    isCurrent: () => true,
+    approve: async () => ({ behavior: 'allow', updatedInput: input }),
+    search: (query, signal) =>
+      searchCodex(query, signal, {
+        createClient: f.createClient,
+        verify: f.verify,
+        model: 'model',
+        modelProvider: 'openshell',
+        cwd: '/workspace',
+      }),
+    fetchPage: vi.fn(),
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('account verification failed');
+  expect(result.content).not.toContain('private-account-token-provider-body');
+  expect(f.request.mock.calls.some(([method]) => method === 'thread/start')).toBe(false);
 });

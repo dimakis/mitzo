@@ -199,6 +199,7 @@ describe('selected-account native search adapters', () => {
         sdk,
       ),
     ).toContain('source');
+    expect(sdk.mock.calls[0][0].options).not.toHaveProperty('maxTurns');
     expect(sdk.mock.calls[0][0].options).toMatchObject({
       env,
       model: 'selected-claude',
@@ -206,7 +207,6 @@ describe('selected-account native search adapters', () => {
       strictMcpConfig: true,
       mcpServers: {},
       settingSources: [],
-      maxTurns: 3,
       persistSession: false,
     });
   });

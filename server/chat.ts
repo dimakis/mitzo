@@ -2490,24 +2490,40 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,
       });
-      const webAccess = createWebAccessSdkServer(
-        createWebAccessTool(
-          () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
-          registry,
-          (query, signal, owner) =>
-            searchSdk(query, signal, {
-              ...owner,
-              executionStore: eventStore,
-              env: sessionEnv,
-              model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
-            }),
-          options.ordinarySdkAuthority
-            ? () => options.ordinarySdkAuthority!.assertCurrent(abortController.signal)
-            : undefined,
-        ),
-        abortController.signal,
-        githubPublishing,
-      );
+      const createSdkWebAccess = (state?: { retired: boolean }) => {
+        const assertWebCurrent = async () => {
+          if (state?.retired) throw Error('Completed SDK query retired');
+          await options.ordinarySdkAuthority?.assertCurrent(abortController.signal);
+          if (state?.retired) throw Error('Completed SDK query retired');
+        };
+        return createWebAccessSdkServer(
+          createWebAccessTool(
+            () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
+            registry,
+            (query, signal, owner) =>
+              searchSdk(query, signal, {
+                ...owner,
+                executionStore: eventStore,
+                env: sessionEnv,
+                model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
+                ...(options.ordinarySdkAuthority
+                  ? {
+                      assertCurrent: assertWebCurrent,
+                      assertCurrentSync: (signal) => {
+                        if (state?.retired) throw Error('Completed SDK query retired');
+                        options.ordinarySdkAuthority!.assertCurrentSync(signal);
+                      },
+                      writeRoots: options.ordinarySdkAuthority.writeRoots(),
+                    }
+                  : {}),
+              }),
+            options.ordinarySdkAuthority ? assertWebCurrent : undefined,
+          ),
+          abortController.signal,
+          options.ordinarySdkAuthority ? undefined : githubPublishing,
+        );
+      };
+      const webAccess = createSdkWebAccess();
       await authorizeSdkContext(abortController.signal);
       const sdkOptions: NonNullable<Parameters<typeof query>[0]['options']> = {
         cwd,
@@ -2531,17 +2547,17 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           preset: 'claude_code',
           append:
             systemPromptAppend +
+            WEB_ACCESS_INSTRUCTIONS +
             (options.ordinarySdkAuthority
               ? ''
-              : WEB_ACCESS_INSTRUCTIONS +
-                GITHUB_PUBLISHING_INSTRUCTIONS +
-                CONNECTION_TOOL_INSTRUCTIONS),
+              : GITHUB_PUBLISHING_INSTRUCTIONS + CONNECTION_TOOL_INSTRUCTIONS),
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
           ? [
               'mcp__mitzo-connections__SymposiumReadProfiles',
               'mcp__mitzo-connections__SymposiumProposeProfile',
+              WEB_ACCESS_SDK_TOOL,
             ]
           : [
               ...(sdkCredentialIsolation ? [] : mcpAllowed),
@@ -2553,9 +2569,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         disallowedTools: [
           'WebSearch',
           'WebFetch',
-          ...(options.ordinarySdkAuthority
-            ? ['mcp__mitzo-web-access__*', GITHUB_PUBLISH_SDK_TOOL]
-            : []),
+          ...(options.ordinarySdkAuthority ? [GITHUB_PUBLISH_SDK_TOOL] : []),
         ],
         thinking: resolveThinking(options.model),
         effort: resolveClaudeEffort(options.model, options.reasoningEffort),
@@ -2563,7 +2577,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         ...(resolvedResume ? { resume: resolvedResume } : {}),
         ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
         mcpServers: options.ordinarySdkAuthority
-          ? { 'mitzo-connections': connectionServer }
+          ? { 'mitzo-connections': connectionServer, 'mitzo-web-access': webAccess }
           : {
               ...(sdkCredentialIsolation ? {} : allMcpServers),
               'mitzo-web-access': webAccess,
@@ -2592,6 +2606,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             session.inputQueue = queue as { push(message: unknown): void; close(): void };
           },
           mcpServers: (state) => ({
+            'mitzo-web-access': createSdkWebAccess(state),
             'mitzo-connections': createCredentialSdkServer(
               () => session.sessionId,
               session,

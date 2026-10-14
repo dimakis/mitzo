@@ -784,6 +784,11 @@ test('OpenShell conversation: default route starts and continues without legacy 
   await page.getByRole('button', { name: 'Prepare repository' }).click();
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Inspect OpenShell checkout');
   await page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }).click();
+  // The draft composer is replaced when session metadata binds the conversation.
+  // Open settings on that bound composer, rather than the outgoing draft.
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Conversation connected.' }),
+  ).toBeVisible();
   await openAgentSettings(page);
   await assertBoundRunOn(page, 'openshell');
   await expect.poll(() => fixture.requests.length).toBe(1);

@@ -3,6 +3,10 @@ import { z } from 'zod';
 import type { CodexLifecycleTransport } from './codex-app-server-client.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { SEARCH_INSTRUCTIONS } from './web-search-adapters.js';
+import { WebAccessError } from './request-web-access.js';
+import { webSearchFailure } from './web-search-errors.js';
+
+const searchFailure = (detail: string) => webSearchFailure('native Codex', detail);
 interface Rpc {
   initialize(): Promise<void>;
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
@@ -29,7 +33,8 @@ export async function searchCodex(
   options: Options,
 ): Promise<string> {
   assertNativeCodexContextAdmission({ source: options.agentContextSource });
-  const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(90_000)]);
+  const signal = callerSignal;
+  let phase = 'transport initialization failed';
   let threadId: string | undefined;
   const turns = new Map<string, { searched: boolean; text: string[] }>();
   let finish!: (value: { id: string; status: string }) => void;
@@ -43,7 +48,7 @@ export async function searchCodex(
     onRequest: async () => {
       throw new Error('Search request has no executable tools');
     },
-    onClose: () => fail(new Error('Search transport closed')),
+    onClose: () => fail(searchFailure('transport closed before completion')),
     onNotification: (method, params) => {
       if (!threadId || params.threadId !== threadId) return;
       if (method === 'turn/completed') {
@@ -54,6 +59,8 @@ export async function searchCodex(
       const item = z
         .object({
           type: z.string(),
+          id: z.string().optional(),
+          query: z.string().optional(),
           text: z.string().optional(),
           status: z.string().optional(),
           error: z.unknown().optional(),
@@ -63,7 +70,10 @@ export async function searchCodex(
       const turn = turns.get(params.turnId) ?? { searched: false, text: [] };
       if (
         item.data.type === 'webSearch' &&
-        item.data.status === 'completed' &&
+        !!item.data.id &&
+        !!item.data.query?.trim() &&
+        // The pinned protocol has no status field: item/completed is the receipt.
+        (item.data.status === undefined || item.data.status === 'completed') &&
         item.data.error == null
       )
         turn.searched = true;
@@ -81,8 +91,10 @@ export async function searchCodex(
   try {
     signal.throwIfAborted();
     await step(client.initialize());
+    phase = 'account verification failed';
     await step(options.verify(client));
     signal.throwIfAborted();
+    phase = 'runtime configuration could not be read';
     const configuration = z
       .object({ config: z.unknown() })
       .parse(await step(client.request('config/read', { cwd: options.cwd, includeLayers: false })));
@@ -99,6 +111,7 @@ export async function searchCodex(
       'features.code_mode_host': false,
       ...(options.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
     };
+    phase = 'thread could not be started';
     const thread = z
       .object({
         thread: z.object({ id: z.string().min(1) }),
@@ -120,8 +133,9 @@ export async function searchCodex(
         ),
       );
     if (thread.model !== options.model || thread.modelProvider !== options.modelProvider)
-      throw new Error('Search route changed');
+      throw searchFailure('account or model route changed');
     threadId = thread.thread.id;
+    phase = 'turn could not be started';
     const start = z.object({ turn: z.object({ id: z.string() }) }).parse(
       await step(
         client.request('turn/start', {
@@ -133,19 +147,22 @@ export async function searchCodex(
         }),
       ),
     );
+    phase = 'turn did not complete';
     const terminal = await completed;
     const turn = turns.get(start.turn.id);
-    if (
-      terminal.id !== start.turn.id ||
-      terminal.status !== 'completed' ||
-      !turn?.searched ||
-      !turn.text.length
-    )
-      throw new Error('Search did not complete with a receipt');
+    if (terminal.id !== start.turn.id || terminal.status !== 'completed')
+      throw searchFailure('turn did not complete');
+    if (!turn?.searched) throw searchFailure('returned no completed search receipt');
+    if (!turn.text.length) throw searchFailure('returned no answer');
     signal.throwIfAborted();
     const answer = turn.text.join('\n');
-    if (!/https?:\/\//.test(answer)) throw new Error('Search did not provide source URLs');
+    if (!/https?:\/\//.test(answer)) throw searchFailure('returned no source URLs');
     return answer;
+  } catch (error) {
+    if (signal.aborted) throw searchFailure('was interrupted');
+    if (error instanceof WebAccessError) throw error;
+    // Raw RPC/provider errors can include credentials or private account data.
+    throw searchFailure(phase);
   } finally {
     signal.removeEventListener('abort', onAbort);
     client.close();

@@ -50,6 +50,28 @@ describe('shared web access tool wiring', () => {
     ).resolves.toMatchObject({ isError: true });
     expect(f.search).not.toHaveBeenCalled();
   });
+  it('withholds a completed public read after owned query authority is withdrawn', async () => {
+    const f = fixture();
+    let current = true;
+    const assertCurrent = vi.fn(async () => {
+      if (!current) throw Error('Completed SDK query retired');
+    });
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    vi.mocked(fetchPublicPage).mockImplementationOnce(async () => {
+      current = false;
+      return 'stale owned-query page';
+    });
+    const execute = createWebAccessTool('conversation', f.registry, f.search, assertCurrent);
+    const result = await execute(
+      { operation: 'fetch', url: 'https://example.com', reason: 'Read' },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain('stale owned-query page');
+  });
   it('keeps redirect destination consent explicit alongside session search consent', async () => {
     const f = fixture();
     approve.mockImplementation(async (_name, input) => ({
