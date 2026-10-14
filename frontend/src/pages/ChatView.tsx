@@ -1,3 +1,4 @@
+import { runtimeModelAccounts } from '../lib/chat-runtime-route';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
 import {
@@ -810,10 +811,7 @@ export function ChatView() {
                 controlled={
                   explicitNew || localRuntime.continuation
                     ? {
-                        accounts: (localRuntime.inventory?.accounts ?? []).map((a) => ({
-                          ...a,
-                          id: a.account.accountId,
-                        })),
+                        accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
                         selection: localRuntime.intent.account,
                         onAccountChange: (selection) =>
                           localRuntime.update(

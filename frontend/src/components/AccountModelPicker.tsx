@@ -801,7 +801,7 @@ function ControlledAccountModelPicker({
         if (chosen)
           (onAccountChange ?? onChange)({
             accountId: id,
-            model: selection?.model ?? chosen.models[0].id,
+            model: selection?.model ?? chosen.models[0]?.id ?? '',
             reasoningEffort: selection?.reasoningEffort ?? null,
           });
       })}

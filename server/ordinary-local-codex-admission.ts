@@ -35,6 +35,12 @@ export const OrdinaryLocalResponsesCommandRequestSchema =
       harness: z.literal('responses'),
     }),
   });
+export const OrdinaryLocalVertexCommandRequestSchema =
+  OrdinaryLocalCodexCommandRequestSchema.extend({
+    runtime: OrdinaryLocalCodexCommandRequestSchema.shape.runtime.extend({
+      harness: z.literal('claude-sdk'),
+    }),
+  });
 const Request = OrdinaryLocalCodexCommandRequestSchema;
 export type OrdinaryLocalCodexCommandRequest = z.infer<typeof Request>;
 export interface OrdinaryLocalCodexAdmissionExpectation {
@@ -121,7 +127,7 @@ function reconcileSessionMetadata(
   meta: Meta,
   request: Omit<OrdinaryLocalCodexCommandRequest, 'runtime'> & {
     runtime: Omit<OrdinaryLocalCodexCommandRequest['runtime'], 'harness'> & {
-      harness: 'codex' | 'responses';
+      harness: 'codex' | 'responses' | 'claude-sdk';
     };
   },
 ): void {
@@ -198,7 +204,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
   constructor(
     private readonly dependencies: {
       enabled: boolean;
-      adapter?: 'responses';
+      adapter?: 'responses' | 'claude-sdk';
       store: Store;
       catalog: {
         inventory(): {
@@ -212,7 +218,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         resolve(input: unknown): ReturnType<typeof resolveOrdinarySessionRuntime>;
       };
       declaration: Omit<ReturnType<OrdinaryLocalCodexTarget['admissionDeclaration']>, 'harness'> & {
-        harness: 'codex' | 'responses';
+        harness: 'codex' | 'responses' | 'claude-sdk';
       };
       authority?: OrdinaryLocalCodexAdmissionAuthority;
       bootstrapAuthority?: OrdinaryLocalCodexBootstrapAuthority;
@@ -306,7 +312,11 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     if (!d.enabled || (!d.authority && !d.bootstrapAuthority)) fail('unavailable');
     if (d.authority && d.bootstrapAuthority) fail('authority_ambiguous');
     const parsed = (
-      d.adapter === 'responses' ? OrdinaryLocalResponsesCommandRequestSchema : Request
+      d.adapter === 'claude-sdk'
+        ? OrdinaryLocalVertexCommandRequestSchema
+        : d.adapter === 'responses'
+          ? OrdinaryLocalResponsesCommandRequestSchema
+          : Request
     ).safeParse(input);
     if (!parsed.success) fail('invalid_request');
     const request = structuredClone(parsed.data);
@@ -321,8 +331,13 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     if (resolution.status !== 'compatible') fail('configuration_unavailable');
     const binding = resolution.binding;
     if (
-      binding.account.provider !== (d.adapter === 'responses' ? 'openai' : 'openai-codex') ||
-      binding.harness.implementation !== (d.adapter === 'responses' ? 'responses' : 'codex') ||
+      binding.account.provider !==
+        (d.adapter === 'claude-sdk'
+          ? 'anthropic-vertex'
+          : d.adapter === 'responses'
+            ? 'openai'
+            : 'openai-codex') ||
+      binding.harness.implementation !== (d.adapter ?? 'codex') ||
       binding.execution.location !== 'local' ||
       binding.execution.targetId !== d.declaration.targetId ||
       binding.execution.targetRevision !== d.declaration.targetRevision

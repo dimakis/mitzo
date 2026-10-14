@@ -11,7 +11,7 @@ export function ownedLocalCodexMetadata(
   return {
     runtimeBinding,
     ...((runtimeBinding.execution.location === 'local' || conversationAvailable) &&
-    ['codex', 'responses'].includes(runtimeBinding.harness.implementation)
+    ['codex', 'responses', 'claude-sdk'].includes(runtimeBinding.harness.implementation)
       ? {
           runtimeCommandScope: conversationAvailable
             ? ('conversation' as const)

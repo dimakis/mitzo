@@ -1,3 +1,8 @@
+import {
+  readOwnedVertexQueue,
+  readOwnedVertexQueueOverview,
+  cancelOwnedVertexQueuedCommand,
+} from './ordinary-local-vertex-queue.js';
 import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
 import { getNativeResponsesStore } from './responses-chat-session.js';
 import { continueOwnedLocalResponsesQueue, canResumeOwnedLocalResponsesDriver } from './chat.js';
@@ -2723,8 +2728,15 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         !!meta.cwd?.startsWith('/sandbox/workspaces/')));
   const responsesBacked =
     eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'responses';
-  const codexQueue =
-    responsesBacked && meta.accountBinding
+  const vertexBacked =
+    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'claude-sdk';
+  const codexQueue = vertexBacked
+    ? readOwnedVertexQueue(
+        eventStore,
+        meta.sessionId,
+        !!registry.findBySessionId(meta.sessionId)?.session.ordinaryRuntimeOwner,
+      )
+    : responsesBacked && meta.accountBinding
       ? readOwnedResponsesQueue(
           eventStore,
           getNativeResponsesStore(),
@@ -2872,6 +2884,11 @@ function assertQueueOperator(id: string, authorization?: import('./auth.js').Aut
       accountBinding: (sessionId) => eventStore.getSession(sessionId)?.accountBinding,
       custody: (sessionId, account, binding) => {
         if (
+          binding.harness.implementation === 'claude-sdk' &&
+          binding.execution.location === 'local'
+        )
+          return eventStore.getOrdinaryLocalVertexCustody(sessionId);
+        if (
           binding.harness.implementation === 'responses' &&
           binding.execution.location === 'local'
         )
@@ -2896,27 +2913,33 @@ app.use(
       const meta = eventStore.getSession(sessionId);
       const binding = meta?.accountBinding;
       return binding &&
-        (eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation === 'responses' ||
+        (['responses', 'claude-sdk'].includes(
+          eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation ?? '',
+        ) ||
           binding.provider === 'openai-codex' ||
           (binding.provider === 'openai' && !!meta?.cwd?.startsWith('/sandbox/workspaces/')))
         ? binding
         : undefined;
     },
     overview: (id, binding) =>
-      eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses'
-        ? readOwnedResponsesQueueOverview(eventStore, getNativeResponsesStore(), id, binding)
-        : readCodexQueueOverview(id, binding),
+      eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk'
+        ? readOwnedVertexQueueOverview(eventStore, id)
+        : eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses'
+          ? readOwnedResponsesQueueOverview(eventStore, getNativeResponsesStore(), id, binding)
+          : readCodexQueueOverview(id, binding),
     cancel: (id, binding, commandId, authorization) =>
-      eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses'
-        ? cancelOwnedResponsesQueuedCommand(
-            eventStore,
-            getNativeResponsesStore(),
-            id,
-            binding,
-            commandId,
-            authorization,
-          )
-        : cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
+      eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk'
+        ? cancelOwnedVertexQueuedCommand(eventStore, id, commandId, authorization)
+        : eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses'
+          ? cancelOwnedResponsesQueuedCommand(
+              eventStore,
+              getNativeResponsesStore(),
+              id,
+              binding,
+              commandId,
+              authorization,
+            )
+          : cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
     retry: async (id, _binding, confirmAmbiguous) => {
       const session = registry.findBySessionId(id)?.session;
       const runtime = session ? getCodexRuntime(session) : undefined;

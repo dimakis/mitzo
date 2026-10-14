@@ -573,7 +573,13 @@ describe('runQueryLoop', () => {
     );
   });
 
-  it('correlates a parent input UUID with the final result that follows it', async () => {
+  it.each([
+    'finish closeout',
+    [
+      { type: 'text', text: 'finish closeout' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AA==' } },
+    ],
+  ])('correlates a parent text/image input UUID with its final result: %j', async (content) => {
     const received: string[] = [];
     await runQueryLoop(
       eventStream([
@@ -581,7 +587,7 @@ describe('runQueryLoop', () => {
           type: 'user',
           uuid: 'closeout-input-uuid',
           parent_tool_use_id: null,
-          message: { role: 'user', content: 'finish closeout' },
+          message: { role: 'user', content },
         },
         {
           type: 'stream_event',

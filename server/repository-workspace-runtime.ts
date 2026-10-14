@@ -14,8 +14,21 @@ export function repositoryWorkspacesEnabled() {
 export function repositoryWorkspaceBinding(accountId: string, model: string) {
   const profiles = loadAccountProfiles();
   const binding = profiles.resolve(accountId, model);
-  if (!['openai', 'openai-codex'].includes(binding.provider))
-    throw new Error('Initial repository chats require an OpenAI account');
+  if (
+    !['openai', 'openai-codex'].includes(binding.provider) &&
+    !(
+      binding.provider === 'anthropic-vertex' &&
+      process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1' &&
+      profiles
+        .ordinaryLocalVertexInventory()
+        .some(
+          (entry) =>
+            entry.account.accountId === binding.accountId &&
+            entry.account.profileRevision === binding.profileRevision,
+        )
+    )
+  )
+    throw new Error('Selected account is unavailable for repository chats');
   if (binding.provider === 'openai-codex' && profiles.codexProfile(binding).nativeAuth)
     throw new Error('Native Symposium accounts are unavailable for ordinary repository chats');
   return binding;
@@ -63,7 +76,18 @@ export function getRepositoryWorkspaces(readOnly = false) {
       const profiles = loadAccountProfiles();
       profiles.resumeRouting(binding);
       if (
-        !['openai', 'openai-codex'].includes(binding.provider) ||
+        (!['openai', 'openai-codex'].includes(binding.provider) &&
+          !(
+            binding.provider === 'anthropic-vertex' &&
+            process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1' &&
+            profiles
+              .ordinaryLocalVertexInventory()
+              .some(
+                (entry) =>
+                  entry.account.accountId === binding.accountId &&
+                  entry.account.profileRevision === binding.profileRevision,
+              )
+          )) ||
         (binding.provider === 'openai-codex' && profiles.codexRoutingProfile(binding).nativeAuth)
       )
         throw new Error('Repository AI account changed');

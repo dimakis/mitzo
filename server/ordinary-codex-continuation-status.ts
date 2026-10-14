@@ -1,4 +1,9 @@
 import {
+  OrdinaryLocalVertexTarget,
+  localVertexCapabilities,
+} from './ordinary-local-vertex-capabilities.js';
+import { canResumeOwnedLocalVertexDriver } from './ordinary-local-vertex-entry.js';
+import {
   OrdinaryLocalResponsesTarget,
   localResponsesCapabilities,
 } from './ordinary-local-responses-capabilities.js';
@@ -32,7 +37,7 @@ export function ordinaryCodexContinuationStatus(
     if (
       !binding ||
       binding.version !== 2 ||
-      !['codex', 'responses'].includes(binding.harness.implementation) ||
+      !['codex', 'responses', 'claude-sdk'].includes(binding.harness.implementation) ||
       !meta
     )
       return { available: false };
@@ -45,9 +50,11 @@ export function ordinaryCodexContinuationStatus(
       custodianControllerMode ||
       custodianOwnerMode ||
       (location === 'local'
-        ? binding.harness.implementation === 'responses'
-          ? process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED
-          : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
+        ? binding.harness.implementation === 'claude-sdk'
+          ? process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED
+          : binding.harness.implementation === 'responses'
+            ? process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED
+            : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
         : process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED) !== '1'
     )
       return blocked('This conversation’s execution route is not enabled.');
@@ -59,7 +66,11 @@ export function ordinaryCodexContinuationStatus(
       targetId: binding.execution.targetId,
       mode: meta.mode,
     };
-    if (binding.harness.implementation === 'responses')
+    if (binding.harness.implementation === 'claude-sdk')
+      resolved = localVertexCapabilities(profiles, new OrdinaryLocalVertexTarget()).resolve(
+        request,
+      );
+    else if (binding.harness.implementation === 'responses')
       resolved = localResponsesCapabilities(profiles, new OrdinaryLocalResponsesTarget()).resolve(
         request,
       );
@@ -90,7 +101,7 @@ export function ordinaryCodexContinuationStatus(
         ? { available: true }
         : blocked('This conversation belongs to another login.');
     if (
-      binding.harness.implementation === 'responses' &&
+      ['responses', 'claude-sdk'].includes(binding.harness.implementation) &&
       meta.executionPhase &&
       meta.executionPhase !== 'TERMINAL'
     )
@@ -99,9 +110,11 @@ export function ordinaryCodexContinuationStatus(
       );
     const resumable =
       location === 'local'
-        ? binding.harness.implementation === 'responses'
-          ? canResumeOwnedLocalResponsesDriver(sessionId, authSessionId)
-          : canResumeOwnedLocalCodexDriver(sessionId, authSessionId)
+        ? binding.harness.implementation === 'claude-sdk'
+          ? canResumeOwnedLocalVertexDriver(sessionId, authSessionId)
+          : binding.harness.implementation === 'responses'
+            ? canResumeOwnedLocalResponsesDriver(sessionId, authSessionId)
+            : canResumeOwnedLocalCodexDriver(sessionId, authSessionId)
         : canResumeOwnedOpenShellCodexDriver(sessionId, authSessionId);
     return resumable
       ? { available: true }

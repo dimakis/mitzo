@@ -1635,7 +1635,15 @@ async function _runQueryLoopInner(
           if (
             (parentToolUseId === null || parentToolUseId === undefined) &&
             typeof msg.uuid === 'string' &&
-            typeof content === 'string'
+            (typeof content === 'string' ||
+              (Array.isArray(content) &&
+                content.length > 0 &&
+                content.every(
+                  (block: unknown) =>
+                    !!block &&
+                    typeof block === 'object' &&
+                    ['text', 'image'].includes((block as { type?: string }).type ?? ''),
+                )))
           ) {
             if (parentTurnActive || pendingParentInputUuid !== undefined) {
               parentInputCorrelationAmbiguous = true;

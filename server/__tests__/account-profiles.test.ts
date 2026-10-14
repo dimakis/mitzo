@@ -141,6 +141,11 @@ describe('explicit account binding', () => {
       CLAUDE_CODE_USE_BEDROCK: '1',
       OPENAI_API_KEY: 'personal',
       GOOGLE_APPLICATION_CREDENTIALS: '/wrong.json',
+      GOOGLE_CLOUD_QUOTA_PROJECT: 'wrong-billing-project',
+      GOOGLE_CLOUD_PROJECT: 'wrong-project',
+      GCLOUD_PROJECT: 'wrong-project',
+      GOOGLE_AUTH_TOKEN: 'unowned-token',
+      GOOGLE_CLOUD_UNIVERSE_DOMAIN: 'other.invalid',
       GH_TOKEN: 'controller-publisher',
       GITHUB_TOKEN: 'controller-publisher-fallback',
     });
@@ -159,6 +164,11 @@ describe('explicit account binding', () => {
       'OPENAI_API_KEY',
       'GH_TOKEN',
       'GITHUB_TOKEN',
+      'GOOGLE_CLOUD_QUOTA_PROJECT',
+      'GOOGLE_CLOUD_PROJECT',
+      'GCLOUD_PROJECT',
+      'GOOGLE_AUTH_TOKEN',
+      'GOOGLE_CLOUD_UNIVERSE_DOMAIN',
     ])
       expect(env[key]).toBeUndefined();
   });
