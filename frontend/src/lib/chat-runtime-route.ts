@@ -13,19 +13,21 @@ export function runtimeRoutes(
   inventory: ExplicitLocalInventory | null,
 ) {
   if (!inventory || !intent.account) return [];
-  return inventory.routes.filter(
-    (route) =>
+  return inventory.routes.filter((route) => {
+    const targets = inventory.targets.filter(
+      (target) =>
+        target.targetId === route.targetId &&
+        target.harness === route.harness &&
+        (!route.location || target.location === route.location),
+    );
+    return (
       route.account.accountId === intent.account!.accountId &&
-      (!route.location || route.location === intent.execution.location) &&
       (!intent.accountReference || sameAccount(route.account, intent.accountReference)) &&
       inventory.accounts.some((entry) => sameAccount(entry.account, route.account)) &&
-      inventory.targets.filter(
-        (target) =>
-          target.targetId === route.targetId &&
-          target.location === intent.execution.location &&
-          target.harness === route.harness,
-      ).length === 1,
-  );
+      targets.length === 1 &&
+      targets[0].location === intent.execution.location
+    );
+  });
 }
 export function selectedRuntimeRoute(
   intent: ChatRuntimeSelection,
@@ -45,7 +47,16 @@ export function resolveRuntimeTarget(
       (target) =>
         target.location === intent.execution.location &&
         inventory.routes.some(
-          (route) => route.targetId === target.targetId && route.harness === target.harness,
+          (route) =>
+            route.targetId === target.targetId &&
+            route.harness === target.harness &&
+            (!route.location || route.location === target.location) &&
+            inventory.targets.filter(
+              (candidate) =>
+                candidate.targetId === route.targetId &&
+                candidate.harness === route.harness &&
+                (!route.location || candidate.location === route.location),
+            ).length === 1,
         ),
     );
     return targets.length === 1 ? targets[0].targetId : null;

@@ -40,3 +40,30 @@ it('rejects mismatched target harness and ambiguous account routes rather than c
     [],
   );
 });
+
+it('rejects an unlocated route shared across environments while explicit location disambiguates', () => {
+  const data = multiRuntimeInventoryFixture();
+  const route = data.routes.find((entry) => entry.targetId === 'responses')!;
+  const target = data.targets.find((entry) => entry.targetId === 'responses')!;
+  data.targets.push({ ...target, location: 'openshell' });
+  const intent = {
+    ...createChatRuntimeSelection(),
+    account: { accountId: 'api', model: 'local-model', reasoningEffort: 'high' },
+    accountReference: route.account,
+    execution: { location: 'local' as const, targetId: 'responses' },
+  };
+  route.location = undefined;
+  expect(selectedRuntimeRoute(intent, data)).toBeUndefined();
+  expect(resolveRuntimeTarget(intent, data)).toBeNull();
+  expect(runtimeModelAccounts(intent, data).find((entry) => entry.id === 'api')?.models).toEqual(
+    [],
+  );
+  route.location = 'local';
+  expect(selectedRuntimeRoute(intent, data)?.harness).toBe('responses');
+  expect(resolveRuntimeTarget(intent, data)).toBe('responses');
+  expect(intent.account).toEqual({
+    accountId: 'api',
+    model: 'local-model',
+    reasoningEffort: 'high',
+  });
+});

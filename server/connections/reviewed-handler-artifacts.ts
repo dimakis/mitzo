@@ -541,7 +541,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-vertex-command.ts':
     '68c894b50473dff78d3c82ebab11d27b5f937a76a9b972248d1327b9e6b54d97',
   '../../frontend/src/lib/chat-runtime-route.ts':
-    '68970a8cc58c9315ae2e5fa68cc1903f25ee0c16a284abd40f764fbc49580fd4',
+    'fd312e00907f2d1a46dc412d182638a91d3aa381785bde97c16cbd993f0d2016',
   '../../frontend/src/components/ShareButton.tsx':
     '09b59817a6877cb6d28ecd7b3a83169780a5ce39a420c720561cd4106c045f64',
   // Ordinary Codex continuation, persistent login revocation and physical custody.
