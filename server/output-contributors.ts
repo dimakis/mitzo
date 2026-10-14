@@ -7,12 +7,14 @@ import {
   type AgentLibraryVersion,
   type AgentProfileSelection,
   type FinishedMessage,
+  type MitzoMode,
   type OutputContributorBinding,
   type SeatConfig,
   type SymposiumConfig,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { AccountProfiles } from './account-profiles.js';
+import { assertOrdinaryCodexContributorAccount } from './ordinary-codex-contributor-admission.js';
 import { resolveChatAgentProfile } from './agent-library-binding.js';
 import { SymposiumHostGrants } from './symposium-host-grants.js';
 import { SymposiumOrchestrator } from './symposium-orchestrator.js';
@@ -120,17 +122,12 @@ export class OutputContributors {
     const raw = this.deps.store.getSession(id)?.symposiumConfig;
     return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
   }
-  private validateAccount(seat: SeatConfig) {
+  private validateAccount(seat: SeatConfig, mode?: MitzoMode) {
     if (!seat.accountBinding || !['coder', 'implementer'].includes(seat.role))
       throw new Error('Ordinary contributors require writable contributor guidance');
     const accounts = this.deps.currentAccounts();
-    accounts.resume(seat.accountBinding);
+    assertOrdinaryCodexContributorAccount(accounts, seat.accountBinding, mode);
     accounts.validateModelSelection(seat.accountBinding, seat.model, seat.reasoningEffort);
-    if (
-      seat.accountBinding.provider !== 'openai-codex' ||
-      accounts.codexProfile(seat.accountBinding).nativeAuth
-    )
-      throw new Error('Selected account does not support ordinary contributor turns');
   }
   private validateAuthority(binding: Binding, config: SymposiumConfig) {
     const seat = config.seats[0];
@@ -197,11 +194,10 @@ export class OutputContributors {
     const accountIds: string[] = [];
     if (availableWorkspace)
       for (const account of this.deps.currentAccounts().catalog()) {
-        if (account.provider !== 'openai-codex') continue;
         try {
           const selected = this.deps.currentAccounts().resolve(account.id, account.models[0]?.id);
-          if (!this.deps.currentAccounts().codexProfile(selected).nativeAuth)
-            accountIds.push(account.id);
+          assertOrdinaryCodexContributorAccount(this.deps.currentAccounts(), selected);
+          accountIds.push(account.id);
         } catch {
           /* Catalog presence alone is no admission. */
         }
@@ -262,7 +258,7 @@ export class OutputContributors {
         color: '#335577',
         ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       };
-      this.validateAccount(seat);
+      this.validateAccount(seat, input.mode);
       const allocation = this.deps.store.createSymposiumSession({
         idempotencyKey: key,
         fingerprint,
@@ -319,7 +315,7 @@ export class OutputContributors {
         profileSelections: selectedProfiles,
       });
     }
-    this.validateAccount(config.seats[0]);
+    this.validateAccount(config.seats[0], binding.mode);
     let member = this.deps.store.getLatestSymposiumMembership(binding.coordinatorSessionId, SEAT);
     if (!member) {
       member = this.deps.store.transitionSymposiumMembership({
@@ -369,6 +365,7 @@ export class OutputContributors {
         hostGrants: this.hostGrants,
         assertArtifactCurrent: (input) => {
           this.selected(binding);
+          this.validateAccount(input.seat, binding.mode);
           if (
             input.sessionId !== binding.coordinatorSessionId ||
             input.seat.contextGrant?.sourceRefs.join() !== this.sourceRef(binding)
@@ -411,7 +408,7 @@ export class OutputContributors {
     const binding = this.binding(parent, contributorId);
     const selected = this.selected(binding);
     const config = this.config(contributorId)!;
-    this.validateAccount(config.seats[0]);
+    this.validateAccount(config.seats[0], binding.mode);
     this.validateAuthority(binding, config);
     const prior = this.deps.store.getSymposiumDeliveryByIdempotencyKey(
       contributorId,
@@ -513,7 +510,7 @@ export class OutputContributors {
     let available = true;
     try {
       this.selected(binding);
-      this.validateAccount(seat);
+      this.validateAccount(seat, binding.mode);
       this.validateAuthority(binding, config);
     } catch {
       available = false;

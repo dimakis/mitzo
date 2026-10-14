@@ -66,6 +66,7 @@ import {
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { telosArtifactInstructions } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
+import { assertOrdinaryCodexContributorAccount } from './ordinary-codex-contributor-admission.js';
 import {
   createWebAccessSdkServer,
   webAccessSdkPermission,
@@ -1381,6 +1382,15 @@ async function _startChatInner(
       );
     if (!accountBinding && openShellAvailable)
       throw new Error('OpenShell execution requires an explicit account selection');
+    if (options.ordinaryTurnLifecycle) {
+      if (!accountBinding || !profiles)
+        throw new Error('Selected account does not support ordinary contributor turns');
+      assertOrdinaryCodexContributorAccount(profiles, accountBinding, options.mode);
+      // Availability was captured before profile lookup. Do not fall back to
+      // Responses when configuration changed during that awaited lookup.
+      if (accountBinding.provider === 'openai' && !openShellAvailable)
+        throw new Error('Selected account does not support ordinary contributor turns');
+    }
     if (accountBinding) {
       requireCustodianOrdinaryRuntime(custodianControllerMode, accountBinding.provider);
       openShellRequested =
@@ -1483,6 +1493,8 @@ async function _startChatInner(
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, buildSdkChildEnvironment());
     }
+    if (options.ordinaryTurnLifecycle && !codexProfile)
+      throw new Error('Selected account does not support ordinary contributor turns');
   } catch (err: unknown) {
     options.onStartupAdmission?.(err);
     const diagnostic = err instanceof Error ? codexRuntimeDiagnostic(err) : undefined;

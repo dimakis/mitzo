@@ -1,6 +1,6 @@
 # Symposium: current direction and source guide
 
-Updated 10 October 2026. Start here for Symposium product work.
+Updated 12 October 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
@@ -45,8 +45,19 @@ or artifact migration; preserve existing storage restrictions.
 for exact finalized transcript references and one additional
 ordinary Codex-backed contributor per selected output. Child-thread continuity,
 attributed replies, optional durable guidance and Stop/recovery have offline test
-coverage. Independent content retention, output revision editing and API/Vertex
+coverage. Independent content retention, output revision editing and Vertex
 contributor adapters remain outside this bounded slice.
+
+The ordinary contributor adapter also admits existing OpenAI API accounts when
+the normal dedicated OpenShell Codex route is configured and the selected account
+already has its sandbox provider binding. Select Agent or Auto mode, as required
+by that ordinary route. Responses execution and named retained sandboxes do not
+provide this contributor admission. Account and route compatibility are checked
+again before dispatch; no Symposium-specific account or target registry is added.
+Offline tests cover startup, independent continuation, replay, attribution and
+uncertain Stop. These checks do not establish live provider enrollment or runtime
+adoption. Ordinary chat remains free of automatic output-workflow setup; this
+backend capability does not add that workflow to the composer.
 
 Source acceptance and exact-head CI/review evidence are recorded on that PR.
 Verify freshly accepted main before selecting a runtime candidate. The next work
