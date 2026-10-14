@@ -1547,18 +1547,17 @@
 
 .workspace-controls .agent-settings-header,
 .workspace-controls-footer {
-  position: sticky;
-  z-index: 2;
+  flex-shrink: 0;
   background: var(--color-bg);
 }
-.workspace-controls .agent-settings-header {
-  top: 0;
+.workspace-chat .workspace-controls > .workspace-controls-settings:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
-.workspace-controls-footer {
-  bottom: 0;
-}
-
-/* Keep scrolled controls clear of the sticky header and Done action. */
-.workspace-controls > .motion-disclosure {
-  scroll-padding-block: calc(var(--control-height) + 2 * var(--space-4));
+.workspace-controls-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: var(--space-4);
 }

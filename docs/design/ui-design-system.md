@@ -311,8 +311,8 @@ Access cannot authorize a tool or start a session.
 On phones the Workspace summary truncates long text while its accessible name keeps
 the full account/model details. The expanded settings panel measures the space before launch actions or the composer and
 scrolls within that space. On short phones with a tall draft, it may overlap part of the
-composer to preserve room for the sticky header, Done action and usable settings rows.
-Scroll padding keeps focused controls clear of those sticky actions. A 60dvh cap is
+composer to preserve room for the fixed header, Done action and usable settings rows.
+The settings body owns scrolling between those actions. A 60dvh cap is
 the fallback before measurement, bounded by the viewport. These bounds are structural overlay geometry;
 colors, type, spacing and controls remain shared.
 

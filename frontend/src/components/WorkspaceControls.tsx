@@ -182,7 +182,7 @@ export function WorkspaceControls({
       <div
         id={id}
         ref={ref}
-        className="motion-disclosure"
+        className={`motion-disclosure${settings ? ' workspace-controls-settings' : ''}`}
         role={settings ? 'region' : undefined}
         aria-label={settings ? 'Agent settings' : undefined}
         hidden={!present}
@@ -204,12 +204,14 @@ export function WorkspaceControls({
             </button>
           </div>
         )}
-        {settings}
         {settings ? (
-          <details className="workspace-controls-options">
-            <summary>More options</summary>
-            {children}
-          </details>
+          <div className="workspace-controls-content">
+            {settings}
+            <details className="workspace-controls-options">
+              <summary>More options</summary>
+              {children}
+            </details>
+          </div>
         ) : (
           children
         )}
