@@ -31,11 +31,15 @@ is performed.
 
 Ordinary `ChatView` and `DesktopChatView` intentionally neither mount an Outputs
 panel nor fetch its state automatically. Preserve that approved quiet-chat design.
-`OutputContributorPanel` and `useOutputContributors` remain source components,
-but the ordinary pages currently have no mounted entry into their workflow.
-A deliberate work-selection entry must be designed and verified separately.
+`OrdinaryCollaborationEntry` opens the existing `OutputContributorPanel` and
+`useOutputContributors` on an explicit Collaborate action in Workspace. Its shared
+host remains above responsive screens; closing or changing conversation stops
+reads, and the parent transcript remains unchanged. New invitations from this
+ordinary action use the existing eligible account catalog and output service,
+without entering dedicated native setup. Runtime-bound ordinary conversations
+remain unavailable here until their contributor adapter is qualified.
 
-The current `AddAgentSheet`, `NewSymposium` and Director configuration still use
+Retained `AddAgentSheet`, `NewSymposium` and Director configuration still use
 the dedicated Symposium catalog/configuration path. Personal/subscription login
 components call `/api/symposium/personal/*`; native creation is mounted at
 `/api/symposium/sessions`. Those paths are not replaced by API contributor

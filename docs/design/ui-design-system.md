@@ -230,7 +230,22 @@ The Today workspace shares `HomeDialog` for native modal focus, scroll locking a
 
 Every PR changing rendered UI records the shared components/tokens reused, intentional exceptions and validation results in the PR template's UI design section. Inspect changed screens on narrow mobile (including 320px) and desktop, light and dark themes, and representative alternate accents/fonts. Check loading, empty, error and populated states; long content and larger text; keyboard focus and accessible names; 44px touch targets; final-item scrolling and keyboard/safe-area behaviour when relevant. Provide screenshots or a specific visual inspection record. Update the offline browser fixtures to cover new routes and interactions rather than relying on the existing route list to test a new page automatically.
 
-Ordinary mobile and desktop conversations share `ChatArea` and its `AgentActivity` disclosure. They do not render an Outputs panel or fetch output/contributor state. The underlying output reference and contributor APIs remain available for stored work; ordinary chat does not automatically present that workflow. Offline checks cover both conversation layouts, collapsed and expanded activity, ongoing thoughts/tools, keyboard focus and alternate appearance preferences.
+Ordinary mobile and desktop conversations share `ChatArea` and its `AgentActivity`
+disclosure. They do not render an Outputs panel in the transcript or fetch
+output/contributor state automatically. The explicit Collaborate action in
+Workspace opens selected work in the shared `HomeDialog`; closing it stops reads
+and returns focus to the trigger. Its host lives above responsive screens so a
+viewport change does not discard the requested work view. Changing conversation
+closes it. The dialog owns its gutter once; staged account/model fields occupy
+the full form width instead of inheriting compact inline-chat geometry.
+
+The work view reuses `OutputContributorPanel`, ordinary `AccountModelPicker`,
+optional Library guidance, existing source/delivery/retry/Stop APIs and their
+eligibility reasons. It does not enroll accounts, convert the parent chat or
+establish the full standard runtime picker/owned-driver cutover. Existing native
+conversations retain their separate history and controls. Offline checks cover
+mobile/desktop layouts, light/dark and alternate appearance, lazy reads, empty
+and failed work, nested dialogs, restored focus and the quiet parent transcript.
 
 Run `npm run test:design` for the static contract. CI runs it in a named step as well as the full suite. Run `npm run test:ui` for rendered changes, with additional component/behaviour checks appropriate to the feature. Document inapplicable checks rather than silently omitting them. Reviewers evaluate design consistency alongside correctness.
 
@@ -464,3 +479,17 @@ settings, bounded internal scrolling at 390 × 844 and 320 × 740 with larger
 text, and desktop light/dark Mint/Georgia with Reduce Motion. Final current-head
 hosted screenshots, visual inspection and independent acceptance remain pending;
 this source checkpoint is not a claim that the approved layout has passed.
+
+### Explicit collaboration control inspection
+
+The isolated actual collaboration controls were inspected offline in 320px mobile
+WebKit and 1280px desktop Chromium, dark/light themes, Mint/System and
+Teal/Georgia. Checks cover bounded dialog geometry, full-width staged account
+fields, nested dialog dismissal and focus restoration. Captures show
+[mobile selected work](assets/collaboration-entry-mobile-dark.png),
+[desktop selected work](assets/collaboration-entry-desktop-light.png) and
+[mobile contributor setup](assets/collaboration-add-mobile.png).
+The isolated inspection omits the application shell. The all-intercept app
+fixture separately covers lazy work reads, ordinary account selection, exact
+output/digest submission, empty/error/retry and the quiet transcript; hosted
+`npm run test:ui` remains required CI evidence. No backend or model is used.
