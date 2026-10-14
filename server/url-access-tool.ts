@@ -290,6 +290,7 @@ export function createUrlAccessTool(
               signal,
               assertRuntimeCurrent,
             );
+            await assertRuntimeCurrent?.();
             signal.throwIfAborted();
             if (!chainCurrent())
               return { content: 'Session permissions changed during URL read', isError: true };

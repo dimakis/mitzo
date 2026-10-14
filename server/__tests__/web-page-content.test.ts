@@ -148,3 +148,27 @@ it('preserves XHTML source including self-closing non-void elements', () => {
     '<html xmlns="http://www.w3.org/1999/xhtml"><head><script src="app.js" /></head><body><p>Article</p></body></html>';
   expect(webPageContent(body, 'application/xhtml+xml; charset=utf-8', target.url)).toBe(body);
 });
+
+it.each(['public', 'approved'] as const)(
+  'reports a JavaScript shell as unreadable on the %s path',
+  async (path) => {
+    const read = vi.fn().mockResolvedValue({
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+      type: 'text/html',
+      body: '<html><head><title>Search</title></head><body><script>bootstrap()</script><main></main></body></html>',
+    });
+    const work =
+      path === 'public'
+        ? fetchPublicPage(target.url, new AbortController().signal, {
+            resolve: async () => target.addresses,
+            send: read,
+          })
+        : fetchApprovedUrl(target.url, target, new AbortController().signal, {
+            resolve: async () => target,
+            read,
+          });
+    await expect(work).rejects.toThrow('no readable content');
+    expect(read).toHaveBeenCalledOnce();
+  },
+);

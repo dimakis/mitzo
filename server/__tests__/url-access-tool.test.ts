@@ -11,7 +11,7 @@ import { createUrlAccessTool, clearUrlAccessGrants } from '../url-access-tool.js
 beforeEach(() => {
   approve.mockReset();
 });
-function fixture() {
+function fixture(assertRuntimeCurrent?: () => Promise<void>) {
   const session = {
     sessionId: 'conversation',
     mode: 'auto',
@@ -34,7 +34,12 @@ function fixture() {
   }));
   const fetch = vi.fn().mockResolvedValue('page');
   let now = 1000;
-  const tool = createUrlAccessTool('conversation', registry, { resolve, fetch, now: () => now });
+  const tool = createUrlAccessTool(
+    'conversation',
+    registry,
+    { resolve, fetch, now: () => now },
+    assertRuntimeCurrent,
+  );
   return {
     session,
     resolve,
@@ -482,4 +487,26 @@ it('does not recreate a first pending origin after session access is cleared and
   });
   expect(await result).toMatchObject({ isError: true });
   expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+});
+
+it('withholds a granted page when owned runtime authority changes during its read', async () => {
+  let current = true;
+  const f = fixture(async () => {
+    if (!current) throw Error('Original owned authority withdrawn');
+  });
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const signal = new AbortController().signal;
+  expect(
+    await f.tool.request(
+      { operation: 'request_access', url: 'https://example.com', reason: 'Read' },
+      signal,
+    ),
+  ).toMatchObject({ isError: false });
+  f.fetch.mockImplementationOnce(async () => {
+    current = false;
+    return 'stale owned-query page';
+  });
+  const result = await f.tool.fetch('https://example.com', signal);
+  expect(result).toMatchObject({ isError: true });
+  expect(result?.content).not.toContain('stale owned-query page');
 });

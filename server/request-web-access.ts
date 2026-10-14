@@ -35,6 +35,7 @@ export const WEB_ACCESS_INSTRUCTIONS =
 
 interface WebAccessDependencies {
   isCurrent(): boolean;
+  assertRuntimeCurrent?(): Promise<void>;
   approve(
     input: WebAccessRequest,
     signal: AbortSignal,
@@ -96,7 +97,13 @@ export async function executeWebAccess(
             : deps.fetchPage(request.url, operationSignal),
           operationSignal,
         );
+        await deps.assertRuntimeCurrent?.();
         signal.throwIfAborted();
+        if (!deps.isCurrent())
+          return {
+            content: 'Session permissions changed during web access; retry the request',
+            isError: true,
+          };
         return { content, isError: false };
       } catch (error) {
         if (error instanceof WebAccessRedirect && request.operation === 'fetch') {

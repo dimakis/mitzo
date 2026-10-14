@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.128';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.131';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,15 +22,17 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Shared provider search errors and result authority.
+  '../web-search-errors.ts': '059b6e418ef97abe994ad92fd37302844ecf11f0dc05e861569be21a49d0f022',
   // Bounded Vertex response transport for complete approved website reads.
   '../symposium-host-tool-bus.py':
     '0a214810f54fd435ffb56adf80f917062c60e3cdf334f88e5aaf429c1f6eb44c',
   '../symposium-host-tool-mcp.py':
     '2cb79bc6ae7f3f02fa0156100c3cbc74524a0523279d873d1851d085a6b19cb5',
   // Explicit web-search budgets and inert readable-page extraction.
-  '../web-page-content.ts': '9458f1d3d38a9e637a69edb0f38b727f93b7ed63db231bf382334e0f4c684d9d',
-  '../request-web-access.ts': '592474d722988313871b11141c9d53fbd7a683ecea63afb586c4482d772cad42',
-  '../web-search-adapters.ts': 'a1033a174a8015776b583e2dbb624e67966ab2eefc62de42a019cddfdc750018',
+  '../web-page-content.ts': 'ea1e6cd81d71987fecab925f0a46918d2790bead3e1321c4d3729afd9c3c532f',
+  '../request-web-access.ts': '9ba2dc2968d0fae9bc0c4c9abb9db642facad111c79552a8537751524ec41416',
+  '../web-search-adapters.ts': '37048de3d44f2f3017aab3006c7e2abaf5c6b1c3dda1a624dac9ef9e9b8deb35',
   '../../packages/harness/src/index.ts':
     '2741b93d5b35a7542d87757caf6ea9e359d019e74be0dd506188df1a98dffe33',
   '../../packages/harness/src/session-transport.ts':
@@ -184,8 +186,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e71d039c70f52a061ecb2bb6779aa4693288965a814d99d75dab0c224f18c8ff',
   '../transport-auth-ownership.ts':
     '945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14',
-  '../url-access-tool.ts': '5ffa93b5a0d2160d19e144248b679cfea7b120cfe27fbe7cdf6029392eafbb59',
-  '../web-access-tool.ts': 'b1444e725ed36a8f9a1d12dc812df56a34e1fd84f86aa4559f521ac0b9c58668',
+  '../url-access-tool.ts': '3db73be08b7d4d7c06ceac75c75735d6fed9dd3da926003dfb4640e8be691cd3',
+  '../web-access-tool.ts': '5850cc94cff84037d50a9e0ed4d47895f06b498d6ef34da21ace23d81f3abdb2',
   '../index.ts': 'c25c4845e9953c84240601420dbf18b224b05848acb9d60bda526d32d3db321e',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
@@ -221,7 +223,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': 'b4fa14f30a0ca2b403846fe696f4036605609e0a68d8cda62ee8971c9ef1d304',
+  '../chat.ts': 'b672b3563fc53625c2e7a065f7356b682a6f671e6a2a9a83b79d435e8b6154cc',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     'd5b795c7cf178c0cfd3b8e2cb4a2470b4af25af276f02652ba878e09a9a3ca21',
@@ -421,7 +423,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '43a7f7edf9a9bb894be6843c6c3204a308227daeb495aef0f56ff707dace0a7b',
   '../symposium-subscription-native.ts':
     '64eadac8483f30497939d4c19db4adeb3e6ac189b7e97e8fac855df11ca80975',
-  '../codex-approved-search.ts': '49be84f5fbea7fbc2453585393e9e0d2eb0af75ed6a776f1dd5329c9c91240c7',
+  '../codex-approved-search.ts': '511b6ebe13277607afa9f3fd6990a100d828151962abb2623c65e4ef212d456b',
   '../native-codex-context-admission.ts':
     '91a021e0dba7a2e1d38cfe2a744da603370f562f5d78c25255237d4065eda558',
   '../symposium-host-tool-bridge.ts':

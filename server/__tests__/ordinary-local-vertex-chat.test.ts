@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, expect, it, vi } from 'vitest';
 const services = vi.hoisted(() => ({
   authId: '',
@@ -244,6 +247,38 @@ it('routes first, queued future and cold commands through the actual SDK owner w
   ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
   expect(services.requests).toHaveLength(1);
   expect(services.requests[0].options.effort).toBe('low');
+  expect(services.requests[0].options.allowedTools).toContain(
+    'mcp__mitzo-web-access__RequestWebAccess',
+  );
+  expect(services.requests[0].options.disallowedTools).not.toContain('mcp__mitzo-web-access__*');
+  const servers = services.requests[0].options.mcpServers as Record<
+    string,
+    McpSdkServerConfigWithInstance
+  >;
+  expect(servers).toHaveProperty('mitzo-web-access');
+  const web = servers['mitzo-web-access'];
+  const webClient = new Client({ name: 'owned-web-test', version: '1' });
+  const [webTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  await web.instance.connect(webTransport);
+  await webClient.connect(clientTransport);
+  cleanups.push(async () => {
+    await webClient.close();
+    await web.instance.close();
+  });
+  expect((await webClient.listTools()).tools.map((tool) => tool.name)).toEqual([
+    'RequestWebAccess',
+  ]);
+  expect(
+    await webClient.callTool({
+      name: 'RequestWebAccess',
+      arguments: {
+        operation: 'revoke_access',
+        url: 'https://example.com',
+        reason: 'Remove obsolete access',
+      },
+    }),
+  ).toMatchObject({ isError: false });
+
   releaseFirst!();
   await vi.waitFor(() => expect(history).toEqual([f.request.clientMsgId, 'queued']));
   await vi.waitFor(() =>
@@ -258,6 +293,16 @@ it('routes first, queued future and cold commands through the actual SDK owner w
     env: { ANTHROPIC_VERTEX_PROJECT_ID: 'offline-project', CLOUD_ML_REGION: 'offline-region' },
   });
   expect(services.requests[1].options).not.toHaveProperty('sessionId');
+  expect(services.requests[1].options.mcpServers).toHaveProperty('mitzo-web-access');
+  const queriesBeforeStaleSearch = services.query.mock.calls.length;
+  expect(
+    await webClient.callTool({
+      name: 'RequestWebAccess',
+      arguments: { operation: 'search', query: 'Research', reason: 'Verify' },
+    }),
+  ).toMatchObject({ isError: true });
+  expect(services.query).toHaveBeenCalledTimes(queriesBeforeStaleSearch);
+
   const custody = chat.eventStore.getOrdinaryLocalVertexCustody(f.reservation.conversationId);
   // Emulate the durable state after an acknowledged queue entry was saved and
   // the predecessor reached terminal, before the old driver dispatched its tail.

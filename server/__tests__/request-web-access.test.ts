@@ -235,3 +235,26 @@ it('bounds redirect approval chains without dispatching an extra read', async ()
   expect(approve).toHaveBeenCalledTimes(4);
   expect(fetchPage).toHaveBeenCalledTimes(4);
 });
+
+it.each(['search', 'fetch'] as const)(
+  'does not publish %s results after the selected authority changes',
+  async (operation) => {
+    let current = true;
+    const input =
+      operation === 'search'
+        ? { operation, query: 'q', reason: 'why' }
+        : { operation, url: 'https://example.com', reason: 'why' };
+    const read = async () => {
+      current = false;
+      return 'stale selected-account result';
+    };
+    const result = await executeWebAccess(input, new AbortController().signal, {
+      isCurrent: () => current,
+      approve: async () => ({ behavior: 'allow', updatedInput: input }),
+      search: read,
+      fetchPage: read,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain('stale selected-account result');
+  },
+);
