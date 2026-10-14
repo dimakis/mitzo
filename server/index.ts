@@ -751,6 +751,7 @@ app.get('/api/chat/events', (req, res) => {
     type: 'welcome',
     protocolVersion: 2,
     connectionId,
+    eventAckBatchSize: 50,
   });
 
   // Reconnect is handled via POST /api/chat/reconnect — the client sends
