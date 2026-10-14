@@ -560,4 +560,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Ordinary Codex continuation, persistent login revocation and physical custody.
   '../ordinary-command-historical-ack.ts':
     'a5301e8f86add7c8e88cfc39fb091f218645166b4400ebc6169e576bbfef12c9',
+  '../../frontend/src/components/RepositoryChatPicker.css':
+    'f6b45e7b9dd2d365fe3bb162cb08ecc4e07604ce468936cc21d634f0a8d70062',
 });

@@ -147,6 +147,12 @@ separate preparation creates a separate checkout. The original conversation,
 provider history, branch and pending work remain under their existing owners.
 Unavailable cold custody is a visible server reason, not a replacement environment.
 
+Repository preparation cards share the chat column's available flex space with
+the non-shrinking composer. Long branch/details/actions scroll inside the existing
+card instead of pushing attachments and the message field beneath navigation.
+The Workspace disclosure observes that card's geometry; no fixed viewport-height
+cap or reset of settings, focus or draft is required.
+
 The existing motion boundaries, drafts and focus remain mounted. Expanded settings
 must scroll at 390 × 844 and with larger text while shell navigation stays reachable.
 Hosted all-intercept fixtures cover Local/OpenShell start, future thinking, guarded

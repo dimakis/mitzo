@@ -315,6 +315,35 @@ for (const appearance of ['light', 'dark'] as const) {
       environment: 'local',
       draft: 'Keep this prepared development draft',
     });
+    if (testInfo.project.name.startsWith('mobile')) {
+      await page.setViewportSize({ width: 320, height: 740 });
+      const repository = page.getByRole('region', { name: 'Repository for new chat' });
+      await expect(repository).toBeInViewport();
+      await expect
+        .poll(() => repository.evaluate((element) => element.scrollHeight > element.clientHeight))
+        .toBe(true);
+      await page
+        .getByRole('button', { name: 'Refresh preparation status', exact: true })
+        .scrollIntoViewIfNeeded();
+      await expect(
+        page.getByRole('button', { name: 'Refresh preparation status', exact: true }),
+      ).toBeInViewport();
+      await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+      await expect(composer).toBeInViewport();
+      await expect(
+        page.getByRole('button', { name: 'Send message', exact: true }),
+      ).toBeInViewport();
+      await expect(model).toHaveValue('supported-next');
+      await expect(thinking).toHaveValue('high');
+      await expect(composer).toHaveValue('Keep this prepared development draft');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({
+        path: testInfo.outputPath(`local-multi-runtime-prepared-scroll-${appearance}-320.png`),
+        fullPage: true,
+      });
+    }
     await expect(account).toBeDisabled();
     await expect(environment).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();

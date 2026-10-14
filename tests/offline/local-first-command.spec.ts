@@ -494,6 +494,13 @@ test('Local first command: oversized complete command retains its image and enab
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 320, height: 740 });
   await page.goto('/chat?draft=local-restored');
+  // This size fixture deliberately starts with a legacy unconfirmed account.
+  // Explicitly confirm its existing enrolled candidate before freezing preparation.
+  const account = page.getByRole('combobox', { name: 'Account', exact: true });
+  await expect(account.locator('option:checked')).toHaveText('Confirm account: Personal ChatGPT');
+  await expect(account.locator('option:checked')).toHaveAttribute('disabled', '');
+  await account.selectOption('personal');
+  await expect(account).toHaveValue('personal');
   await page.getByRole('button', { name: 'Add repository' }).click();
   await page
     .getByRole('combobox', { name: 'GitHub repository' })

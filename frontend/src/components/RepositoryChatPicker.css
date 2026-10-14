@@ -1,4 +1,9 @@
 .repository-chat-picker {
+  /* Share the remaining flex space with the fixed composer, not content's min-height. */
+  min-height: 0;
+  flex-shrink: 1;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   margin: 0.5rem 0.75rem;
   padding: 0.75rem;
   border: 1px solid var(--border);
@@ -6,6 +11,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+}
+.repository-chat-picker > * {
+  flex-shrink: 0;
 }
 .repository-chat-picker label {
   display: flex;
