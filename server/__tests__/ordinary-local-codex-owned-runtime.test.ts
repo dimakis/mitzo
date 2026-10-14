@@ -135,6 +135,40 @@ it('revocation during compilation retains the uncertain command and never delive
   vi.unstubAllGlobals();
 });
 
+it.each(['consumed', 'uncertain'] as const)(
+  'reconciles the original compiled recipe snapshot for an exact %s first-command retry',
+  async (state) => {
+    const f = await fixture({ contextRecipe: 'workspace' });
+    const request = {
+      ...f.request,
+      selection: {
+        ...f.request.selection,
+        context: {
+          source: 'workspace' as const,
+          revision: contextDigest(f.agentProfile.definition.contextRecipe),
+        },
+      },
+    };
+    if (state === 'uncertain') f.dispatch.mockRejectedValueOnce(Error('Lost native outcome'));
+    if (state === 'consumed') await f.create().admit(request);
+    else await expect(f.create().admit(request)).rejects.toThrow();
+    const saved = f.events.getSession(f.reservation.conversationId)?.agentContext;
+    const receipt = f.events.getOrdinaryLocalCommandAdmission(request.clientMsgId);
+    expect(saved?.source).toBe('workspace');
+    expect(receipt?.state).toBe(state);
+    f.launch.mockClear();
+    f.dispatch.mockClear();
+    await expect(f.create().admit(request)).resolves.toEqual({ dispatched: false });
+    expect(f.events.getOrdinaryLocalCommandAdmission(request.clientMsgId)).toEqual(receipt);
+    expect(f.events.getSession(f.reservation.conversationId)?.agentContext).toEqual(saved);
+    await expect(
+      f.create().admit({ ...request, payload: { text: 'Changed original input' } }),
+    ).rejects.toThrow();
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(f.dispatch).not.toHaveBeenCalled();
+  },
+);
+
 it.each(['workspace', 'contexgin'] as const)(
   'cold %s continuation keeps the original compiled snapshot without reading fresh source',
   async (source) => {

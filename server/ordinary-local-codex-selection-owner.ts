@@ -151,7 +151,27 @@ export class OrdinaryLocalCodexSelectionOwner {
                 ))) ||
           session.mode !== expected.selection.permission.mode ||
           !isDeepStrictEqual(session.accountBinding, reservation.binding) ||
-          !isDeepStrictEqual(session.agentProfile, expected.agentProfile) ||
+          !isDeepStrictEqual(session.agentProfile, expected.agentProfile)
+        )
+          throw unavailable();
+        // An exact first-command retry keeps its original unprepared fingerprint.
+        // Adopt only the saved compiler snapshot under the already verified
+        // original receipt, profile, operator and claimed workspace authority.
+        if (
+          !expected.agentContext &&
+          !this.#context &&
+          session.agentContext &&
+          admission &&
+          ['uncertain', 'consumed'].includes(admission.state)
+        ) {
+          assertOrdinaryCodexContextIdentity(
+            expected.agentProfile,
+            expected.selection,
+            session.agentContext,
+          );
+          this.#context = structuredClone(session.agentContext);
+        }
+        if (
           !isDeepStrictEqual(
             session.agentContext ?? undefined,
             expected.agentContext ?? this.#context,

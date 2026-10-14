@@ -69,6 +69,7 @@ function inventory(location: 'local' | 'openshell' = 'local') {
     });
     return {
       profiles,
+      agentContextPresets: configured.config.agentContextPresets,
       catalog: {
         inventory: () => projection.inventory,
         resolve: (request: unknown) => resolveOrdinarySessionRuntime(request, projection.catalog),
@@ -117,7 +118,7 @@ function inventory(location: 'local' | 'openshell' = 'local') {
         ? { location: 'local', status: 'unavailable', reason: 'accounts_unavailable' }
         : location,
     );
-  return { profiles, catalog, result };
+  return { profiles, catalog, result, agentContextPresets: undefined };
 }
 
 /** Composes the accepted projections; never creates another selection registry. */
@@ -223,14 +224,33 @@ export function createOwnedLocalCodexEntryRouter(
           .json({ ok: false, code: 'interactive_auth_required', error: unavailable });
       const result = general ? ordinaryCodexCapabilities() : inventory().result;
       const agentProfiles = ordinaryCodexAgentProfiles(getAgentLibrary().list('user').versions);
-      const shell = general ? loadOrdinaryOpenShellCodexTarget() : undefined;
+      let shell: ReturnType<typeof loadOrdinaryOpenShellCodexTarget>;
+      if (
+        general &&
+        result.routes.some((route) => 'location' in route && route.location === 'openshell')
+      ) {
+        try {
+          shell = loadOrdinaryOpenShellCodexTarget();
+        } catch {
+          // A stale preset declaration must not erase another environment's inventory.
+          // OpenShell recipes remain unavailable without their exact preset authority.
+        }
+      }
       const response = {
         ...result,
         agentProfiles,
         routes: result.routes.map((route) => {
-          const target = result.targets.find((target) => target.targetId === route.targetId);
+          const location = 'location' in route ? route.location : 'local';
+          const target = result.targets.find(
+            (target) =>
+              target.targetId === route.targetId &&
+              target.location === location &&
+              target.harness === route.harness,
+          );
+          if (!target) throw Error(unavailable);
           const presets =
             target?.location === 'openshell' &&
+            shell?.target.targetId === target.targetId &&
             shell?.target.targetRevision === target.targetRevision
               ? shell.config.agentContextPresets
               : undefined;
@@ -239,7 +259,7 @@ export function createOwnedLocalCodexEntryRouter(
             ...ordinaryCodexAgentProfileRouteProjection(
               agentProfiles,
               route.account.provider,
-              target?.location ?? 'local',
+              target.location,
               presets,
             ),
           };
@@ -352,7 +372,7 @@ export function createOwnedLocalCodexEntryRouter(
         releaseStartup = reserveRepositoryStartup(sessionId);
         timer = setTimeout(() => controller.abort(), 120000);
         authority.assertCurrent();
-        const { profiles, catalog, result } = inventory(input.runOn);
+        const { profiles, catalog, result, agentContextPresets } = inventory(input.runOn);
         if (
           result.capabilityRevision !== input.capabilityRevision ||
           !result.routes.some(
@@ -393,6 +413,15 @@ export function createOwnedLocalCodexEntryRouter(
         if (!profile || profile.definition.contextRecipe?.source === 'packs')
           throw Error(unavailable);
         assertOrdinaryCodexContextIdentity(profile, input.selection, undefined, binding.provider);
+        if (
+          ordinaryCodexAgentProfileRouteProjection(
+            [profile],
+            binding.provider,
+            input.runOn,
+            agentContextPresets,
+          ).agentProfileRejections.length
+        )
+          throw Error(unavailable);
         if (!BASE_REPO || !isAbsolute(BASE_REPO)) throw Error(unavailable);
         const reservation = {
           id: input.repositoryWorkspaceId,

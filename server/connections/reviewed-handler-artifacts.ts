@@ -91,7 +91,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     'fc3cc569ee1d6c5b2658534efe229e505d0da3d9cdfab31e5a12365bb14e306b',
   '../ordinary-local-codex-entry.ts':
-    'fbecbfa09cd73c864b12bd99ff04f65d6f6183d4b2bf5e4c3d877c7f484aa329',
+    '97bedd736e6a3b7644b16da2545a5beb0fdddbfd8628af0c0fb52ca32515cfbe',
   '../ordinary-local-codex-metadata.ts':
     '0e130b90b574eb2fba0dff6a551057beb431719ce60f4b0660a9537866705cfc',
   '../ordinary-repository-startup.ts':
@@ -119,7 +119,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-host-runtime.ts':
     '48aad0cbf5c821df0f87cdb5171f1aac5fad478281dee9f62a825f2b1714598c',
   '../ordinary-local-codex-selection-owner.ts':
-    'de0f223aa1bfc8d6028df24f85cdb61db1b4ecc83c3ef885a2c7cb792ded8fd1',
+    '2d68e8ba326dadd04c7df5ad45256352130f9cee1bee692d51070f0292a7a9cc',
   '../ordinary-local-codex-owned-runtime.ts':
     'b4e9409632414361f3c21ca50b1387118774b7bf4e3512c8191c78a60628dedc',
   '../frozen-host-codex-login.ts':
