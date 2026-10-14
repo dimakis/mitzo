@@ -1780,10 +1780,18 @@ export class OpenShellRuntimeManager {
 
   private async waitForReady(name: string, owner: string, signal: AbortSignal) {
     const deadline = Date.now() + this.readiness.timeoutMs;
+    const timeout = AbortSignal.timeout(this.readiness.timeoutMs);
+    const boundedSignal = AbortSignal.any([signal, timeout]);
     let phase = 'unavailable';
     while (Date.now() <= deadline) {
       signal.throwIfAborted();
-      const sandbox = await this.get(name, signal);
+      let sandbox: z.infer<typeof Sandbox> | undefined;
+      try {
+        sandbox = await this.get(name, boundedSignal);
+      } catch (error) {
+        if (signal.aborted || !timeout.aborted) throw error;
+        break;
+      }
       phase = sandbox?.phase ?? 'unavailable';
       if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
         throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
@@ -1791,7 +1799,12 @@ export class OpenShellRuntimeManager {
         throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
       if (sandbox?.phase === 'Ready') return sandbox;
       if (sandbox?.phase === 'Error') throw new Error(`OpenShell sandbox ${name} is Error`);
-      await this.delay(signal);
+      try {
+        await this.delay(boundedSignal);
+      } catch (error) {
+        if (signal.aborted || !timeout.aborted) throw error;
+        break;
+      }
     }
     throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }

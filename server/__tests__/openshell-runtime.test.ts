@@ -1133,6 +1133,38 @@ describe('OpenShell runtime lifecycle', () => {
     expect(run).toHaveBeenCalledTimes(6);
   });
 
+  it.each(['inspection', 'delay'])('enforces the readiness deadline during %s', async (stage) => {
+    let gets = 0;
+    const run = vi.fn(async (_args: readonly string[], signal: AbortSignal) => {
+      gets++;
+      if (stage === 'inspection' && gets > 1)
+        return new Promise<string>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      return ready('Creating');
+    });
+    const manager = new OpenShellRuntimeManager(config, run, {
+      pollIntervalMs: 10_000,
+      timeoutMs: 20,
+    });
+    const controller = new AbortController();
+    const outcome = manager.ensure('conversation', controller.signal).then(
+      () => 'unexpected success',
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    try {
+      await expect(
+        Promise.race([
+          outcome,
+          new Promise<string>((resolve) => setTimeout(() => resolve('deadline exceeded'), 250)),
+        ]),
+      ).resolves.toContain('did not become Ready');
+    } finally {
+      controller.abort();
+      await outcome;
+    }
+  });
+
   it('bounds and aborts readiness polling', async () => {
     const creating = vi.fn().mockResolvedValue(ready('Creating'));
     await expect(
