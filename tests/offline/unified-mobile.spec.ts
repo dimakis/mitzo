@@ -396,8 +396,28 @@ test('motion: closing menus hold their final frame without flashing or moving ch
       document.documentElement.dataset.accent = theme === 'dark' ? 'mint' : 'teal';
       document.documentElement.dataset.font = theme === 'dark' ? 'system' : 'georgia';
     }, theme);
-    // Font substitution can change intrinsic height between appearances. Measure
-    // each appearance before toggling so this checks motion, not font metrics.
+    // Font substitution also schedules the settings panel's ResizeObserver
+    // budget measurement. Settle that layout before measuring the motion baseline.
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      let previous = '';
+      let stableFrames = 0;
+      for (let frame = 0; frame < 60 && stableFrames < 3; frame++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const geometry = JSON.stringify(
+          ['.chat-input--compact', '.workspace-controls-heading', '.agent-settings-panel'].map(
+            (selector) => {
+              const element = document.querySelector(selector);
+              const box = element?.getBoundingClientRect();
+              return box ? [box.x, box.y, box.width, box.height] : null;
+            },
+          ),
+        );
+        stableFrames = geometry === previous ? stableFrames + 1 : 0;
+        previous = geometry;
+      }
+      if (stableFrames < 3) throw new Error('Appearance layout did not settle before motion check');
+    });
     const baseline = { composer: await composer.boundingBox(), header: await header.boundingBox() };
     await toggle.click();
     await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeVisible();
