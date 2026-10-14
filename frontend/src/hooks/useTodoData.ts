@@ -66,6 +66,8 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
   dataRef.current = data;
+  const urlRef = useRef(url);
+  urlRef.current = url;
 
   useEffect(() => {
     let cancelled = false;
@@ -120,6 +122,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   }, []);
 
   const performAction = useCallback(async (id: string, action: string, days?: number) => {
+    const actionUrl = urlRef.current;
     const body: Record<string, unknown> = { action };
     if (days !== undefined) body.days = days;
 
@@ -130,13 +133,19 @@ export function useTodoData(profile?: string): UseTodoDataResult {
         body: JSON.stringify(body),
       });
 
-      if (res.ok) {
-        invalidateTodoReads();
-        todoCache.update((data) => ({ ...data, items: removeFromTree(data.items, id) }));
-        setData((prev) => (prev ? { ...prev, items: removeFromTree(prev.items, id) } : prev));
-      }
+      if (!res.ok) throw new Error('Outcome change rejected');
+      if (urlRef.current === actionUrl)
+        setError((previous) =>
+          previous === 'Couldn’t confirm this change. Refresh to check its status.'
+            ? null
+            : previous,
+        );
+      invalidateTodoReads();
+      todoCache.update((data) => ({ ...data, items: removeFromTree(data.items, id) }));
+      setData((prev) => (prev ? { ...prev, items: removeFromTree(prev.items, id) } : prev));
     } catch {
-      // Network error — leave item in list
+      if (urlRef.current === actionUrl)
+        setError('Couldn’t confirm this change. Refresh to check its status.');
     }
   }, []);
 

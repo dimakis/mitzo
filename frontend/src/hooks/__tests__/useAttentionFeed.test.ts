@@ -218,6 +218,18 @@ describe('useAttentionFeed', () => {
     });
 
     expect(result.current.items).toEqual([]);
+    expect(result.current.error).toBe('Couldn’t load attention items. Try again.');
+  });
+
+  it('reports HTTP failures and clears the error after an explicit retry', async () => {
+    mockApiFetch
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValue(new Response(JSON.stringify({ items: [] })));
+    const { result } = renderHook(() => useAttentionFeed());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBe('Couldn’t load attention items. Try again.');
+    result.current.retry();
+    await waitFor(() => expect(result.current.error).toBeNull());
   });
 
   describe('sessionsToAttention (via session_activity events)', () => {

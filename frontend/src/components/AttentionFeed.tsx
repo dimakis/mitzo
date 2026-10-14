@@ -47,7 +47,7 @@ function AttentionCard({
 const DEFAULT_VISIBLE_COUNT = 5;
 
 export function AttentionFeed() {
-  const { items, tier1Count, loading } = useAttentionFeed();
+  const { items, tier1Count, loading, error, retry } = useAttentionFeed();
   const navigate = useNavigate();
 
   const hasUrgent = tier1Count > 0;
@@ -94,7 +94,11 @@ export function AttentionFeed() {
       <button className="overview-header" onClick={toggleOpen} aria-expanded={isOpen}>
         <span className="overview-header-title">What&apos;s Next</span>
         <span className="overview-header-summary">
-          {loading ? 'loading...' : summaryParts.join(' \u00B7 ') || 'all clear'}
+          {loading
+            ? 'loading...'
+            : error
+              ? 'unavailable'
+              : summaryParts.join(' \u00B7 ') || 'all clear'}
         </span>
         {hasUrgent && <span className="overview-badge">{tier1Count}</span>}
         <span className={`overview-chevron${isOpen ? ' overview-chevron--open' : ''}`}>
@@ -103,7 +107,15 @@ export function AttentionFeed() {
       </button>
       {isOpen && (
         <div className="attention-cards">
-          {!loading && items.length === 0 && (
+          {error && (
+            <div className="attention-empty" role="alert">
+              <p>{error}</p>
+              <button className="btn-secondary" onClick={retry}>
+                Retry attention items
+              </button>
+            </div>
+          )}
+          {!loading && !error && items.length === 0 && (
             <div className="attention-empty">Nothing needs your attention right now.</div>
           )}
           {visibleItems.map((item) => (

@@ -10,6 +10,8 @@ let mockFeedReturn = {
   items: [] as AttentionItem[],
   tier1Count: 0,
   loading: false,
+  error: null as string | null,
+  retry: vi.fn(),
 };
 
 vi.mock('../../hooks/useAttentionFeed', () => ({
@@ -51,7 +53,7 @@ function makeItems(count: number): AttentionItem[] {
 }
 
 function setFeed(items: AttentionItem[], tier1Count = 0, loading = false) {
-  mockFeedReturn = { items, tier1Count, loading };
+  mockFeedReturn = { items, tier1Count, loading, error: null, retry: vi.fn() };
 }
 
 function renderFeed() {
@@ -71,6 +73,16 @@ afterEach(() => {
 // ─── Tests ────────────────────────────────────────────────────────────────
 
 describe('AttentionFeed', () => {
+  it('reports a failed attention read and retries without claiming all clear', () => {
+    mockFeedReturn.error = 'Couldn’t load attention items. Try again.';
+    renderFeed();
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.queryByText('Nothing needs your attention right now.')).toBeNull();
+    expect(screen.queryByText('all clear')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry attention items' }));
+    expect(mockFeedReturn.retry).toHaveBeenCalledOnce();
+  });
+
   it('renders empty state when no items', () => {
     setFeed([]);
     renderFeed();

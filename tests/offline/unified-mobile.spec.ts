@@ -1400,6 +1400,55 @@ test('accent-filled controls retain their paired foreground on hover and in user
   }
 });
 
+test('Attention exposes an unavailable read and retries without claiming all clear', async ({
+  page,
+}, testInfo) => {
+  let available = false;
+  await page.route('**/api/todos*', (route) =>
+    route.fulfill({
+      status: available ? 200 : 503,
+      json: available ? fixtures['/api/todos'] : { error: 'Unavailable' },
+    }),
+  );
+  await page.goto('/focus');
+  const section = page.locator('.attention-section');
+  await expect(section.getByRole('alert')).toContainText(
+    'Couldn’t load attention items. Try again.',
+  );
+  await expect(section.getByText('all clear', { exact: true })).toHaveCount(0);
+  await section.screenshot({
+    path: testInfo.outputPath('attention-unavailable.png'),
+    animations: 'disabled',
+  });
+  available = true;
+  await section.getByRole('button', { name: 'Retry attention items' }).click();
+  await expect(section.getByRole('alert')).toHaveCount(0);
+  await expect(section.locator('.attention-card').first()).toBeVisible();
+});
+
+test('a rejected outcome swipe restores its row and shows the unconfirmed change', async ({
+  page,
+}, testInfo) => {
+  await page.route('**/api/todos/*/action', (route) =>
+    route.fulfill({ status: 503, json: { error: 'Unavailable' } }),
+  );
+  await page.goto('/todos');
+  const card = page.locator('.todo-card').first();
+  await expect(card).toBeVisible();
+  await card.dispatchEvent('touchstart', { touches: [{ clientX: 0, clientY: 20 }] });
+  await card.dispatchEvent('touchmove', { touches: [{ clientX: 150, clientY: 20 }] });
+  await card.dispatchEvent('touchend');
+  await expect(
+    page.getByText('Couldn’t confirm this change. Refresh to check its status.', { exact: true }),
+  ).toBeVisible();
+  await expect(card).toHaveCSS('opacity', '1');
+  await expect(card).toBeVisible();
+  await card.screenshot({
+    path: testInfo.outputPath('outcome-failed-swipe.png'),
+    animations: 'disabled',
+  });
+});
+
 test('Calendar exposes temporary API failure on mobile and desktop', async ({ page }) => {
   await page.route('**/api/calendar?**', (route) =>
     route.fulfill({

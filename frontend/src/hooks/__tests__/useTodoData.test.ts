@@ -202,9 +202,26 @@ describe('useTodoData', () => {
       await result.current.ack('abc123');
     });
 
+    expect(result.current.error).toBe('Couldn’t confirm this change. Refresh to check its status.');
     // Item should still be in the list since action failed
     expect(result.current.items).toHaveLength(1);
   });
+
+  it.each(['ack', 'done', 'snooze'] as const)(
+    'reports rejected %s without removing the outcome',
+    async (action) => {
+      const { result } = renderHook(() => useTodoData());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      vi.mocked(apiFetch).mockResolvedValueOnce(new Response('{}', { status: 503 }));
+      await act(async () => {
+        await result.current[action]('abc123');
+      });
+      expect(result.current.items).toHaveLength(1);
+      expect(result.current.error).toBe(
+        'Couldn’t confirm this change. Refresh to check its status.',
+      );
+    },
+  );
 
   it('create posts to /api/todos and triggers refresh', async () => {
     const { result } = renderHook(() => useTodoData());
