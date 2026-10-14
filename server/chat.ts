@@ -6046,6 +6046,21 @@ export function canResumeOwnedLocalResponsesDriver(
     const native = getNativeResponsesStore(),
       custody = native.readOrdinaryCustody(sessionId, meta.accountBinding);
     OrdinaryLocalResponsesOwnedRuntime.assertRetainedCredential(meta.accountBinding, custody);
+    if (
+      meta.accountBinding.provider !==
+      (runtime.harness.implementation === 'gemini' ? 'google-vertex' : 'openai')
+    )
+      return false;
+    if (runtime.harness.implementation === 'gemini') {
+      const frozen = native.frozenSettings(sessionId, meta.accountBinding);
+      if (
+        !frozen ||
+        !isDeepStrictEqual(frozen.selection, custody?.nativeSelection) ||
+        frozen.checkpointModel !== custody?.nativeSelection?.model
+      )
+        return false;
+    }
+
     return (
       !!custody &&
       custody.authSessionId === authSessionId &&

@@ -1,5 +1,12 @@
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { RepositoryWorkspaces } from '../repository-workspaces.js';
+import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import { contextDigest } from '../agent-context-compiler.js';
-import { PROFILE_BUILDER_ID } from '@mitzo/protocol';
+import { LocalCodexFirstCommandSchema, PROFILE_BUILDER_ID } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import { AccountProfiles } from '../account-profiles.js';
@@ -32,6 +39,7 @@ import {
 
 const fixtures = vi.hoisted(() => ({
   reserve: vi.fn(),
+  reserveSandbox: vi.fn(),
   continue: vi.fn(),
   start: vi.fn(),
   startShell: vi.fn(),
@@ -121,7 +129,7 @@ const profiles = new AccountProfiles(
       credentialRef: '/offline/login',
       email: 'fixture@example.test',
       planType: 'plus',
-      models: [{ id: 'fixture', label: 'Offline' }, ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : [])],
+      models: [{ id: 'fixture', label: 'Offline' }],
     },
   ],
   { codexEnabled: true },
@@ -168,7 +176,11 @@ beforeEach(() => {
   auth = { id: `owned-entry-login-${++sequence}`, expiresAt: Date.now() + 600_000 };
   fixtures.profiles.mockReturnValue(profiles);
   fixtures.library.mockReturnValue({ version: () => publishedProfile });
-  fixtures.workspace.mockReturnValue({ reserveHostTask: fixtures.reserve });
+  fixtures.workspace.mockReturnValue({
+    reserveHostTask: fixtures.reserve,
+    reserveOrdinarySandboxTask: fixtures.reserveSandbox,
+  });
+  fixtures.reserveSandbox.mockResolvedValue(undefined);
   fixtures.reserve.mockResolvedValue({ state: 'reserved' });
   fixtures.start.mockImplementation(async (_transport, _client, args) => {
     const resolved = catalog.resolve(args.command.runtime);
@@ -254,6 +266,8 @@ it('dispatches explicit Local with server-owned identities through the existing 
   const response = await send();
   expect(response.status).toBe(202);
   const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
+  const resolution = catalog.resolve(input().runtime);
+  if (resolution.status !== 'compatible') throw Error('Expected configured fixture route');
   expect(fixtures.reserve).toHaveBeenCalledWith(
     expect.objectContaining({
       id: workspaceId,
@@ -274,6 +288,10 @@ it('dispatches explicit Local with server-owned identities through the existing 
         binding,
         conversationId: sessionId,
         taskRoot: '/offline/task-host/.claude/repository-tasks',
+        runtimeBinding: resolution.binding,
+        commandFingerprint: createHash('sha256')
+          .update(JSON.stringify(LocalCodexFirstCommandSchema.parse(input())))
+          .digest('hex'),
       },
       command: expect.objectContaining({
         payload: { text: input().payload.text },
@@ -452,7 +470,7 @@ it('projects configuration-only eligible account tuples and published profiles w
     credentialRef: '/offline/login',
     email: 'fixture@example.test',
     planType: 'plus',
-    models: [{ id: 'fixture', label: 'Offline' }, ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : [])],
+    models: [{ id: 'fixture', label: 'Offline' }],
   };
   fixtures.profiles.mockReturnValue(
     new AccountProfiles(
@@ -647,7 +665,12 @@ it('combines trusted routes for the existing picker while retaining OpenShell as
   ).toBe(true);
 });
 
-function configuredShell(targetId = 'shell', includeLocal = false, presetConfigured = false, next = false) {
+function configuredShell(
+  targetId = 'shell',
+  includeLocal = false,
+  presetConfigured = false,
+  next = false,
+) {
   const config = {
     cli: '/fixture/openshell',
     image: 'fixture-image',
@@ -688,7 +711,10 @@ function configuredShell(targetId = 'shell', includeLocal = false, presetConfigu
               credentialRef: '/offline/login',
               email: 'fixture@example.test',
               planType: 'plus',
-              models: [{ id: 'fixture', label: 'Offline' }, ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : [])],
+              models: [
+                { id: 'fixture', label: 'Offline' },
+                ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : []),
+              ],
             },
           ]
         : []),
@@ -702,7 +728,10 @@ function configuredShell(targetId = 'shell', includeLocal = false, presetConfigu
         sandboxProviderType: 'openai-codex-oauth',
         sandboxProviderId: 'provider-id',
         sandboxGrantId: 'grant-id',
-        models: [{ id: 'fixture', label: 'Offline' }, ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : [])],
+        models: [
+          { id: 'fixture', label: 'Offline' },
+          ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : []),
+        ],
       },
     ],
     { codexEnabled: true },

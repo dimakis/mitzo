@@ -100,7 +100,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     'f719be5f15b168aee7069d0ad9d616426b4f5e88a6e9750b6b331b9e1b032b86',
   '../ordinary-local-codex-entry.ts':
-    '85d18a48c28abf5dff6e7db89bd39b1b30c60533375cdd8ff59a0a9b19052448',
+    '3affd30e3f613c1ebffd03a2d1fe482bce6e8f0b18dcc8a805a16e26fccfb908',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':
@@ -215,7 +215,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': 'a090f0ea5b5599c23719299a717c3a2de07f8b1beb51873e790471ba770e09d0',
+  '../chat.ts': '4622b2776102d5f6a12a9302454b5e286e9bd7a11ca3b19fe78226e7abcc534a',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     'd5b795c7cf178c0cfd3b8e2cb4a2470b4af25af276f02652ba878e09a9a3ca21',
@@ -505,11 +505,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-codex-agent-profile.ts':
     '4348e00569955b6b6ed5b342f56d14def1de1e2a56cbb930232a2384389a580d',
   '../native-responses-store.ts':
-    'fc7399c9536496d6b6807a5387c3e3a54a024c5cdd2a90870216fbb5ecb7d629',
+    '93258de3497a4d1d3c39fc73008c4d2d5d85e54fa1601ed1ee3e3f346ab7b12c',
   '../ordinary-local-responses-capabilities.ts':
     'cd24e1f31ced1015908efcd79066289f20f15760098f626403c036f077b3e390',
   '../ordinary-local-responses-owned-runtime.ts':
-    'e73cc73075c0fdb2982ddf9cb74fd2e0e3d6855793ad208755c39a76a9d8d8b4',
+    '8d793a42ffe22401440b062866e978a1107766814bc996883f7de923c0b9e711',
   '../ordinary-local-responses-queue.ts':
     'd2c8999d608bc7ff76eb9ea113094df3a55c9bf861e6c5ad9f876531fda36fd4',
   '../ordinary-runtime-capability-composition.ts':
@@ -547,9 +547,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Ordinary Codex continuation, persistent login revocation and physical custody.
   '../../frontend/src/components/CodexQueueStatus.tsx':
     'd184be19fe19f7b29b2376b767f0f383001ff40b87e76b3d723d0c0431ecf265',
-  '../ordinary-repository-preparation.ts': '92449a4b17e879447c81aa2e853537a4d3780edae04c730365bf2820af337490',
-  '../ordinary-repository-preparation-authority.ts': '553c8824142059cb15797f969d492f54ac2c0b79ebbd41734009228749a44a52',
-  '../../frontend/src/components/RepositoryChatPicker.tsx': '6eafd2ece6d8a288b62aff7b0be56edd435459b67d2eef9e542e0f595b77dfb4',
-  '../../frontend/src/hooks/useRepositoryChatPreparation.ts': '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
-  '../../frontend/src/lib/repository-chat-preparation.ts': 'd800d801ee8cd47bd102381a83e956b6d967db8480a8fa4e3cadc6f880d18786',
+  '../ordinary-repository-preparation.ts':
+    '92449a4b17e879447c81aa2e853537a4d3780edae04c730365bf2820af337490',
+  '../ordinary-repository-preparation-authority.ts':
+    '553c8824142059cb15797f969d492f54ac2c0b79ebbd41734009228749a44a52',
+  '../../frontend/src/components/RepositoryChatPicker.tsx':
+    '6eafd2ece6d8a288b62aff7b0be56edd435459b67d2eef9e542e0f595b77dfb4',
+  '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
+    '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
+  '../../frontend/src/lib/repository-chat-preparation.ts':
+    'd800d801ee8cd47bd102381a83e956b6d967db8480a8fa4e3cadc6f880d18786',
 });

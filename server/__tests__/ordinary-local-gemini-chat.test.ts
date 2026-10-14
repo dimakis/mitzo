@@ -48,9 +48,10 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   services.manager.resolveKey.mockClear();
 });
-it.each([false, true])(
+it.each([false, true, 'cold-queue'] as const)(
   'adopts Gemini through generic REST, qualified preparation A→B: %s, preserving frozen cold settings and signed history',
-  async (prepared) => {
+  async (variant) => {
+    const prepared = variant !== false;
     vi.resetModules();
     const { ownedResponsesRuntimeFixture } =
       await import('./fixtures/owned-local-responses-runtime.js');
@@ -153,7 +154,8 @@ it.each([false, true])(
       return result();
     });
     vi.stubGlobal('fetch', fetch);
-    const transport = { send: vi.fn(), isOpen: () => true };
+    let transportOpen = true;
+    const transport = { send: vi.fn(), isOpen: () => transportOpen };
     const router = (
       await import('../ordinary-local-codex-entry.js')
     ).createOwnedLocalCodexEntryRouter(
@@ -296,6 +298,218 @@ it.each([false, true])(
       role: 'model',
       parts: [{ text: 'answer-1', thoughtSignature: 'signature-1' }],
     });
+    if (variant === 'cold-queue') {
+      await vi.waitFor(() =>
+        expect(native.queue(f.reservation.conversationId, f.reservation.binding).active).toBeNull(),
+      );
+      const { OrdinaryLocalCodexSelectionOwner } =
+        await import('../ordinary-local-codex-selection-owner.js');
+      const originalCurrent = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;
+      let validating = false,
+        releaseValidation!: () => void,
+        expireEntry!: () => void;
+      const validationGate = new Promise<void>((resolve) => {
+        releaseValidation = resolve;
+      });
+      const selectionProbe = vi
+        .spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrent')
+        .mockImplementation(async function (
+          this: InstanceType<typeof OrdinaryLocalCodexSelectionOwner>,
+          expected,
+        ) {
+          validating = true;
+          await validationGate;
+          return originalCurrent.call(this, expected);
+        });
+      const originalTimer = globalThis.setTimeout;
+      const timerProbe = vi
+        .spyOn(globalThis, 'setTimeout')
+        .mockImplementation((handler, ms, ...args) => {
+          if (ms === 120000 && typeof handler === 'function') expireEntry = () => handler(...args);
+          return originalTimer(handler, ms, ...args);
+        });
+      const beforeWarm = native.queue(f.reservation.conversationId, f.reservation.binding);
+      const existingOwner = chat.registry.findBySessionId(f.reservation.conversationId)!.session
+        .ordinaryRuntimeOwner;
+      const expiredWarm = invoke('/continue', command('expired-warm', 'Preserve original owner'));
+      await vi.waitFor(() => expect(validating).toBe(true));
+      expireEntry();
+      releaseValidation();
+      await expect(expiredWarm).resolves.toMatchObject({ status: 409 });
+      expect(
+        chat.eventStore.getOrdinaryLocalResponsesCommandAdmission('expired-warm')?.state,
+      ).not.toBe('consumed');
+      expect(native.queue(f.reservation.conversationId, f.reservation.binding)).toEqual(beforeWarm);
+      expect(
+        chat.registry.findBySessionId(f.reservation.conversationId)!.session.ordinaryRuntimeOwner,
+      ).toBe(existingOwner);
+      expect(
+        chat.registry.findBySessionId(f.reservation.conversationId)!.session.abortController.signal
+          .aborted,
+      ).toBe(false);
+      selectionProbe.mockRestore();
+      timerProbe.mockRestore();
+      const queues = await import('../ordinary-local-responses-queue.js');
+      hold = true;
+      await expect(
+        invoke('/continue', command('held-full', 'Hold accepted turn')),
+      ).resolves.toMatchObject({ status: 202 });
+      await vi.waitFor(() => expect(requests).toHaveLength(4));
+      const accepted = Array.from({ length: 32 }, (_, i) =>
+        command(`cold-full-${i}`, `Frozen FIFO ${i}`),
+      );
+      for (const value of accepted)
+        await expect(invoke('/continue', value)).resolves.toMatchObject({ status: 202 });
+      await expect(invoke('/continue', accepted[31])).resolves.toMatchObject({
+        status: 202,
+        body: { dispatched: false },
+      });
+      await expect(invoke('/continue', command('overflow', 'Unadmitted'))).resolves.toMatchObject({
+        status: 409,
+      });
+      expect(chat.eventStore.getOrdinaryLocalResponsesCommandAdmission('overflow')).toBeUndefined();
+      const receipts = accepted.map((value) =>
+        chat.eventStore.getOrdinaryLocalResponsesCommandAdmission(value.clientMsgId),
+      );
+      await chat.registry.findBySessionId(f.reservation.conversationId)!.session.queryInstance!
+        .interrupt!();
+      chat.registry
+        .findBySessionId(f.reservation.conversationId)!
+        .session.ordinaryRuntimeOwner!.close();
+      await vi.waitFor(() =>
+        expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
+      );
+      const ids = accepted.map((value) => value.clientMsgId);
+      expect(native.queue(f.reservation.conversationId, f.reservation.binding).queued).toEqual(ids);
+      expect(
+        queues.readOwnedResponsesQueue(
+          chat.eventStore,
+          native,
+          f.reservation.conversationId,
+          f.reservation.binding,
+          false,
+          chat.canResumeOwnedLocalResponsesDriver(f.reservation.conversationId, f.auth.id),
+        ),
+      ).toMatchObject({ queued: 32, connected: false, canContinue: true });
+      const { ConnectionRegistry } = await import('@mitzo/harness');
+      const connections = new ConnectionRegistry();
+      connections.register(f.dependencies.operatorConnectionId, transport);
+      chat.setConnectionRegistry(connections);
+      cleanups.push(() => chat.setConnectionRegistry(new ConnectionRegistry()));
+      const resume = () =>
+        chat.continueOwnedLocalResponsesQueue(
+          f.reservation.conversationId,
+          f.auth,
+          f.dependencies.operatorConnectionId,
+        );
+      await expect(
+        chat.continueOwnedLocalResponsesQueue(
+          f.reservation.conversationId,
+          { ...f.auth, id: 'foreign' },
+          f.dependencies.operatorConnectionId,
+        ),
+      ).rejects.toThrow();
+      await expect(
+        chat.continueOwnedLocalResponsesQueue(f.reservation.conversationId, f.auth),
+      ).rejects.toThrow();
+      services.authId = 'foreign-sse';
+      await expect(resume()).rejects.toThrow();
+      services.authId = f.auth.id;
+      const signedState = native.load(f.reservation.conversationId, f.reservation.binding)!;
+      const changedState = {
+        ...signedState,
+        checkpoint: { ...signedState.checkpoint!, model: 'gemini-2.5-pro' },
+      };
+      native.save(f.reservation.conversationId, f.reservation.binding, changedState);
+      expect(chat.canResumeOwnedLocalResponsesDriver(f.reservation.conversationId, f.auth.id)).toBe(
+        false,
+      );
+      await expect(resume()).rejects.toThrow();
+      expect(native.load(f.reservation.conversationId, f.reservation.binding)).toEqual(
+        changedState,
+      );
+      expect(native.queue(f.reservation.conversationId, f.reservation.binding).queued).toEqual(ids);
+      native.save(f.reservation.conversationId, f.reservation.binding, signedState);
+      const { OrdinaryLocalResponsesOwnedRuntime } =
+        await import('../ordinary-local-responses-owned-runtime.js');
+      const actual = OrdinaryLocalResponsesOwnedRuntime.prototype.reopenRetainedQueue;
+      let releaseGate!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+      const pending = vi
+        .spyOn(OrdinaryLocalResponsesOwnedRuntime.prototype, 'reopenRetainedQueue')
+        .mockImplementation(async function (
+          this: InstanceType<typeof OrdinaryLocalResponsesOwnedRuntime>,
+        ) {
+          await gate;
+          return actual.call(this);
+        });
+      const timeout = globalThis.setTimeout;
+      let expire!: () => void;
+      const timer = vi
+        .spyOn(globalThis, 'setTimeout')
+        .mockImplementation((handler, ms, ...args) => {
+          if (ms === 120000 && typeof handler === 'function') expire = () => handler(...args);
+          return timeout(handler, ms, ...args);
+        });
+      const interrupted = resume();
+      const rejection = expect(interrupted).rejects.toThrow();
+      await vi.waitFor(() => expect(pending).toHaveBeenCalledTimes(1));
+      expire();
+      releaseGate();
+      await rejection;
+      timer.mockRestore();
+      pending.mockRestore();
+      expect(native.queue(f.reservation.conversationId, f.reservation.binding).queued).toEqual(ids);
+      expect(requests).toHaveLength(4);
+      let releaseReopen!: () => void;
+      const gate2 = new Promise<void>((resolve) => {
+        releaseReopen = resolve;
+      });
+      const reopening = vi
+        .spyOn(OrdinaryLocalResponsesOwnedRuntime.prototype, 'reopenRetainedQueue')
+        .mockImplementation(async function (
+          this: InstanceType<typeof OrdinaryLocalResponsesOwnedRuntime>,
+        ) {
+          await gate2;
+          return actual.call(this);
+        });
+      const resumed = resume();
+      await vi.waitFor(() => expect(reopening).toHaveBeenCalledTimes(1));
+      await expect(resume()).rejects.toThrow();
+      await expect(
+        invoke('/continue', command('racing', 'No fresh admission')),
+      ).resolves.toMatchObject({ status: 409 });
+      expect(chat.eventStore.getOrdinaryLocalResponsesCommandAdmission('racing')).toBeUndefined();
+      expect(native.queue(f.reservation.conversationId, f.reservation.binding).queued).toEqual(ids);
+      transportOpen = false;
+      releaseReopen();
+      await resumed;
+      reopening.mockRestore();
+      const reopened = chat.registry.findBySessionId(f.reservation.conversationId)!;
+      expect(chat.registry.isAttached(reopened.clientId)).toBe(false);
+      transportOpen = true;
+      expect(chat.reattachChat(reopened.clientId, transport)).toBe(true);
+      await vi.waitFor(() => expect(requests).toHaveLength(36), { timeout: 30000 });
+      await vi.waitFor(() =>
+        expect(native.queue(f.reservation.conversationId, f.reservation.binding).active).toBeNull(),
+      );
+      expect(
+        accepted.map((value) =>
+          chat.eventStore.getOrdinaryLocalResponsesCommandAdmission(value.clientMsgId),
+        ),
+      ).toEqual(receipts);
+      expect(
+        native.load(f.reservation.conversationId, f.reservation.binding)?.nativeSelection,
+      ).toEqual({ model: nativeModel, reasoningEffort: 'high' });
+      expect(requests[35].body.contents).toContainEqual({
+        role: 'model',
+        parts: [{ text: 'answer-1', thoughtSignature: 'signature-1' }],
+      });
+      expect(services.manager.resolveKey).not.toHaveBeenCalled();
+      return;
+    }
     hold = true;
     await expect(invoke('/continue', command('held', 'Hold turn'))).resolves.toMatchObject({
       status: 202,
@@ -371,7 +585,9 @@ it.each([false, true])(
       ),
     );
     expect(native.queue(f.reservation.conversationId, f.reservation.binding).paused).toBe(true);
-    const before = chat.eventStore.getLatestOrdinaryCommandAdmission(f.reservation.conversationId);
+    const before = chat.eventStore.getOrdinaryLocalResponsesCommandAdmission(
+      native.queue(f.reservation.conversationId, f.reservation.binding).active!,
+    );
     await writeFile(
       join(f.dependencies.privateRoot, 'google-adc.json'),
       JSON.stringify({
@@ -385,11 +601,13 @@ it.each([false, true])(
     await expect(
       invoke('/continue', command('authority-lost', 'No new effect')),
     ).resolves.toMatchObject({ status: 409 });
-    expect(chat.eventStore.getLatestOrdinaryCommandAdmission(f.reservation.conversationId)).toEqual(
-      before,
-    );
+    expect(
+      chat.eventStore.getOrdinaryLocalResponsesCommandAdmission(
+        native.queue(f.reservation.conversationId, f.reservation.binding).active!,
+      ),
+    ).toEqual(before);
     expect(requests).toHaveLength(6);
     expect(services.manager.resolveKey).not.toHaveBeenCalled();
   },
-  15000,
+  60000,
 );

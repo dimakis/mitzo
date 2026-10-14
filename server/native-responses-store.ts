@@ -17,7 +17,10 @@ export const OrdinaryResponsesCustodySchema = z
     workspace: OrdinaryLocalResponsesCommandAdmissionSchema.shape.workspace,
     credentialAuthority: VertexAdcCustodySchema.optional(),
     nativeSelection: z
-      .strictObject({ model: z.string().min(1), reasoningEffort: z.string().nullable() })
+      .strictObject({
+        model: z.string().min(1).max(200),
+        reasoningEffort: z.string().max(64).nullable(),
+      })
       .optional(),
   })
   .superRefine((custody, ctx) => {
@@ -131,6 +134,27 @@ export class NativeResponsesStore {
     if (row.binding !== this.bindingKey(binding))
       throw Error('Native Responses account/model binding changed');
     return z.enum(['running', 'idle', 'interrupted']).parse(row.status);
+  }
+  /** Bounded private settings projection; metadata qualification never reads signed history. */
+  frozenSettings(id: string, binding: AccountBinding) {
+    const row = this.db
+      .prepare(
+        "SELECT binding,json_extract(state,'$.nativeSelection') AS selection,json_extract(state,'$.checkpoint.model') AS model FROM native_responses WHERE conversation_id=?",
+      )
+      .get(id) as { binding: string; selection: string | null; model: string | null } | undefined;
+    if (!row) return undefined;
+    if (row.binding !== this.bindingKey(binding))
+      throw Error('Native Responses account/model binding changed');
+    if (!row.selection) return undefined;
+    return {
+      selection: z
+        .strictObject({
+          model: z.string().min(1).max(200),
+          reasoningEffort: z.string().max(64).nullable(),
+        })
+        .parse(JSON.parse(row.selection)),
+      checkpointModel: row.model === null ? undefined : z.string().min(1).parse(row.model),
+    };
   }
   /** Native scheduling identities only; immutable payload/settings stay in EventStore. */
   queue(id: string, binding: AccountBinding): NativeResponsesQueue {

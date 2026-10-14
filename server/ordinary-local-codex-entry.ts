@@ -595,7 +595,12 @@ export function createOwnedLocalCodexEntryRouter(
                 })
             : ['responses', 'gemini'].includes(input.runtime.harness)
               ? continuation && existingOwner
-                ? await sendOwnedLocalResponsesCommand({ sessionId, command, operatorConnectionId, signal: controller.signal })
+                ? await sendOwnedLocalResponsesCommand({
+                    sessionId,
+                    command,
+                    operatorConnectionId,
+                    signal: controller.signal,
+                  })
                 : await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
                     command,
                     reservation,

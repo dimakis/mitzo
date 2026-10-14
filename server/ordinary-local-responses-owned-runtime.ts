@@ -267,6 +267,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     );
     if (queue.active !== commandId && !queue.queued.includes(commandId)) throw unavailable();
     command.selection.assertCurrentSync(command.expected);
+    this.assertNativeSelection(command.expected.selection);
     this.manager();
     loadAccountProfiles().validateModelSelection(
       this.owners.reservation.binding,
@@ -541,7 +542,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     const target = this.#target.descriptor();
     if (
       custody.binding.execution.location !== 'local' ||
-      custody.binding.harness.implementation !== 'responses' ||
+      custody.binding.harness.implementation !== (this.#adc ? 'gemini' : 'responses') ||
       custody.binding.execution.targetId !== target.targetId ||
       custody.binding.execution.targetRevision !== target.targetRevision
     )
