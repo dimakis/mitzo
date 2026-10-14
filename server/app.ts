@@ -2507,10 +2507,10 @@ app.use(
       const binding = repositoryWorkspaceBinding(record.binding.accountId, record.binding.model);
       return { repositoryChat: service.chatPreparation(id, binding) };
     },
-    preview: (binding, connectionId, repository, signal) =>
-      getRepositoryWorkspaces().preview(binding, connectionId, repository, signal),
+    preview: (binding, connectionId, repository, signal, ordinaryRuntime) =>
+      getRepositoryWorkspaces().preview(binding, connectionId, repository, signal, ordinaryRuntime),
     prepare: (id, binding, signal) => getRepositoryWorkspaces().prepare(id, binding, signal),
-    status: (id, binding) => getRepositoryWorkspaces(true).status(id, binding),
+    status: (id, binding) => getRepositoryWorkspaces(true).qualifiedStatus(id, binding),
     discard: (id, binding) => getRepositoryWorkspaces(true).discard(id, binding),
   }),
 );

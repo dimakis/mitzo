@@ -1,4 +1,8 @@
-import { runtimeModelAccounts } from '../lib/chat-runtime-route';
+import {
+  runtimeModelAccounts,
+  preparedRuntimeModelEditable,
+  selectedRuntimeRoute,
+} from '../lib/chat-runtime-route';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
 import {
@@ -210,7 +214,7 @@ export function ChatView() {
   const repositoryAccountSelection = draftEnabled
     ? (accountSelection ?? stagedAccountSelection ?? retainedDraftAccount.current.selection)
     : accountSelection;
-  const repositoryScope = `${repositoryHandoff.present ? repositoryHandoff.scope : newChatDraft.draft.id}:${chatDraftRevision}:${repositoryAccountSelection?.accountId ?? ''}:${repositoryAccountSelection?.model ?? ''}`;
+  const repositoryScope = `${repositoryHandoff.present ? repositoryHandoff.scope : newChatDraft.draft.id}:${chatDraftRevision}:${repositoryAccountSelection?.accountId ?? ''}:${explicitNew ? '' : (repositoryAccountSelection?.model ?? '')}`;
   const [repositoryChoice, setRepositoryChoice] = useState<{
     scope: string;
     selection: RepositoryChatSelection | null;
@@ -241,6 +245,15 @@ export function ChatView() {
               savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
             ? { blocked: true }
             : null;
+  const preparedModelEditable =
+    explicitNew &&
+    !localCommand?.request &&
+    preparedRuntimeModelEditable(
+      localRuntime.intent,
+      localRuntime.inventory,
+      repositorySelection?.ordinaryRuntime ?? repositoryHandoff.preparation?.ordinaryRuntime,
+    );
+  const preparedExecutionLocked = !!repositorySelection?.repositoryWorkspaceId;
   const repositoryHandoffReason =
     (repositoryHandoff.present && (messages.running || sendStatus)
       ? 'Waiting for repository conversation confirmation…'
@@ -250,6 +263,7 @@ export function ChatView() {
       activeSessionId,
       accountSelection,
       repositorySelection,
+      preparedModelEditable,
     );
 
   const setModel = useCallback(
@@ -293,7 +307,8 @@ export function ChatView() {
         repositorySelection?.repositoryWorkspaceId &&
         selection &&
         binding &&
-        (binding.accountId !== selection.accountId || binding.model !== selection.model)
+        (binding.accountId !== selection.accountId ||
+          (!preparedModelEditable && binding.model !== selection.model))
       ) {
         setRepositoryAccountError({
           scope: newChatDraft.draft.id,
@@ -327,6 +342,7 @@ export function ChatView() {
       draftEnabled,
       newChatDraft.draft,
       repositorySelection?.repositoryWorkspaceId,
+      preparedModelEditable,
       setModel,
       storeSetModel,
       activeSessionId,
@@ -836,10 +852,10 @@ export function ChatView() {
                 initialSelection={
                   draftEnabled ? (newChatDraft.draft.settings.selection ?? undefined) : undefined
                 }
-                lockAccount={localBound}
-                lockAccountModel={draftEnabled && !!repositorySelection?.repositoryWorkspaceId}
+                lockAccount={localBound || preparedExecutionLocked}
+                lockAccountModel={draftEnabled && preparedExecutionLocked && !preparedModelEditable}
                 requiredSelection={
-                  !activeSessionId && repositoryHandoff.preparation
+                  !activeSessionId && repositoryHandoff.preparation && !preparedModelEditable
                     ? {
                         accountId: repositoryHandoff.preparation.accountId,
                         model: repositoryHandoff.preparation.model,
@@ -886,6 +902,7 @@ export function ChatView() {
               disabled={messages.running || controlsBlocked || localBound}
             />
             <ChatExecutionPicker
+              executionLocked={preparedExecutionLocked}
               runtime={localRuntime}
               disabled={
                 (messages.running && !localRuntime.continuation) ||
@@ -896,7 +913,9 @@ export function ChatView() {
               <div className="chat-agent-profile" role="status">
                 <span>
                   {localCommand.state === 'consumed'
-                    ? `Original ${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command dispatched.`
+                    ? localRuntime.continuation
+                      ? 'Conversation connected.'
+                      : `Original ${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command dispatched.`
                     : `${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command retained. Review its original choices before recovery.`}
                 </span>
                 {localCommand.request && (
@@ -1063,7 +1082,11 @@ export function ChatView() {
             {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
             {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
             {draftEnabled && repositorySelection?.repositoryWorkspaceId && (
-              <p role="status">Remove the repository preparation to change account or model.</p>
+              <p role="status">
+                {preparedModelEditable
+                  ? 'The prepared checkout keeps its account and environment. Model and thinking apply to the first message.'
+                  : 'Remove the repository preparation to change account or model.'}
+              </p>
             )}
             {newChatDraft.settingsError && (
               <div role="alert">Draft settings could not be saved on this device.</div>
@@ -1096,12 +1119,31 @@ export function ChatView() {
                 (repositoryHandoff.preparation &&
                   repositoryAccountSelection.accountId ===
                     repositoryHandoff.preparation.accountId &&
-                  repositoryAccountSelection.model === repositoryHandoff.preparation.model)) && (
+                  (preparedModelEditable ||
+                    repositoryAccountSelection.model === repositoryHandoff.preparation.model))) && (
                 <RepositoryChatPicker
                   key={repositoryScope}
                   accountId={repositoryAccountSelection.accountId}
                   model={repositoryAccountSelection.model}
                   draftScoped={draftEnabled}
+                  ordinaryRuntime={
+                    explicitNew &&
+                    localRuntime.intent.accountReference &&
+                    localRuntime.intent.execution.targetId &&
+                    selectedRuntimeRoute(localRuntime.intent, localRuntime.inventory)
+                      ? {
+                          runOn: localRuntime.intent.execution.location,
+                          runtime: {
+                            account: localRuntime.intent.accountReference,
+                            harness: selectedRuntimeRoute(
+                              localRuntime.intent,
+                              localRuntime.inventory,
+                            )!.harness,
+                            targetId: localRuntime.intent.execution.targetId,
+                          },
+                        }
+                      : undefined
+                  }
                   initialPreparationId={
                     repositoryHandoff.preparation?.id ?? initialRepositoryId ?? undefined
                   }

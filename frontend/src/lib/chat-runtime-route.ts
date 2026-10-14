@@ -1,3 +1,4 @@
+import type { SessionRuntimeBindingV2 } from '@mitzo/protocol';
 import type { ExplicitLocalInventory } from './explicit-local-chat';
 import type { ChatRuntimeSelection } from './chat-runtime-selection';
 const sameAccount = (
@@ -102,4 +103,31 @@ export function runtimeModelAccounts(
         : account.modelDiscovery,
     };
   });
+}
+
+/** Server-produced ready metadata qualifies editability, never dispatch authority. */
+export function preparedRuntimeModelEditable(
+  intent: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+  binding: SessionRuntimeBindingV2 | undefined,
+) {
+  if (
+    !binding ||
+    !intent.accountReference ||
+    !sameAccount(intent.accountReference, binding.account) ||
+    binding.execution.location !== intent.execution.location ||
+    binding.execution.targetId !== intent.execution.targetId
+  )
+    return false;
+  const route = selectedRuntimeRoute(intent, inventory);
+  return (
+    route?.harness === binding.harness.implementation &&
+    inventory?.targets.some(
+      (target) =>
+        target.targetId === binding.execution.targetId &&
+        target.targetRevision === binding.execution.targetRevision &&
+        target.location === binding.execution.location &&
+        target.harness === binding.harness.implementation,
+    ) === true
+  );
 }

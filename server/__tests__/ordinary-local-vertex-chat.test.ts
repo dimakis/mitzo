@@ -314,3 +314,217 @@ it('routes first, queued future and cold commands through the actual SDK owner w
 
   expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith('/health'))).toBe(true);
 }, 15_000);
+
+it('a qualified preparation A starts model B on its original checkout and exact retry cannot launch again', async () => {
+  vi.resetModules();
+  const { ownedVertexRuntimeFixture } = await import('./fixtures/owned-local-vertex-runtime.js');
+  const f = await ownedVertexRuntimeFixture(cleanups, {
+    chatRoute: true,
+    ordinaryPreparation: true,
+  });
+  services.workspace = f.workspace;
+  services.library = f.library;
+  services.authId = f.auth.id;
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw Error('No offline network');
+    }),
+  );
+  const { nativeStartupSessionId } = await import('../ordinary-repository-startup.js');
+  const selection = {
+    runOn: 'local' as const,
+    runtime: {
+      account: f.request.runtime.account,
+      harness: 'claude-sdk' as const,
+      targetId: 'local-mac',
+    },
+  };
+  const preview = await f.workspace.preview(
+    f.reservation.binding,
+    'fixture-github',
+    'example/repo',
+    f.signal.signal,
+    selection,
+  );
+  const ready = await f.workspace.prepare(preview.id, f.reservation.binding, f.signal.signal);
+  const original = f.workspace.get(ready.id);
+  expect(original.ordinaryPreparation?.originalBinding.model).toBe('fixture-model');
+  expect(ready.ordinaryRuntime?.account).toEqual(f.request.runtime.account);
+  expect(JSON.stringify(ready)).not.toMatch(
+    /credentialDigest|sourceIdentity|adc.json|refresh_token/,
+  );
+  const claim = vi.spyOn(f.workspace, 'claimReservedHostTask');
+  services.query.mockImplementation((request) => {
+    services.requests.push(request);
+    const id = request.options.sessionId ?? request.options.resume;
+    const process = request.options.spawnClaudeCodeProcess({
+      signal: request.options.abortController.signal,
+    });
+    return {
+      close: () => process.emit('close', 0, null),
+      interrupt: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        for await (const message of request.prompt) {
+          yield {
+            type: 'user',
+            uuid: `input-${message.mitzoMessageId}`,
+            message: { role: 'user', content: message.message.content },
+          };
+          yield {
+            type: 'result',
+            subtype: 'success',
+            result: 'Done',
+            is_error: false,
+            session_id: id,
+            uuid: `result-${message.mitzoMessageId}`,
+          };
+        }
+      },
+    };
+  });
+  const chat = await import('../chat.js');
+  const sessionId = nativeStartupSessionId(`repository:${ready.id}`);
+  cleanups.push(async () => {
+    chat.registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner?.close();
+    await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+    chat.eventStore.close();
+  });
+  const { createOwnedLocalCodexEntryRouter } = await import('../ordinary-local-codex-entry.js');
+  const router = createOwnedLocalCodexEntryRouter(
+    { isOpen: () => true, isOwnedBy: () => true } as never,
+    {
+      sessionRegistry: chat.registry,
+      eventStore: chat.eventStore,
+      connRegistry: {
+        get: () => ({ transport: { send: vi.fn(), isOpen: () => true } }),
+        watch: vi.fn(),
+        setActive: vi.fn(),
+      } as never,
+    },
+    true,
+  );
+  const invoke = (body: unknown, url = '/send') =>
+    new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+      let status = 200;
+      const req = {
+        method: 'POST',
+        url,
+        headers: { 'x-connection-id': f.dependencies.operatorConnectionId },
+        body,
+      };
+      const res = {
+        locals: { authSession: f.auth },
+        set() {
+          return this;
+        },
+        status(code: number) {
+          status = code;
+          return this;
+        },
+        json(value: Record<string, unknown>) {
+          resolve({ status, body: value });
+          return this;
+        },
+      };
+      (
+        router as import('express').Router & {
+          handle(req: unknown, res: unknown, next: (error?: unknown) => void): void;
+        }
+      ).handle(req, res, (error) => (error ? reject(error) : resolve({ status: 404, body: {} })));
+    });
+  const wire = {
+    ...f.request,
+    runOn: 'local',
+    repositoryWorkspaceId: ready.id,
+    clientMsgId: 'prepared-first-B',
+    selection: { ...f.request.selection, model: 'next-model', thinking: 'high' },
+  };
+  expect(
+    (
+      await invoke({
+        ...wire,
+        runtime: {
+          ...wire.runtime,
+          account: { ...wire.runtime.account, profileRevision: 'changed' },
+        },
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (await invoke({ ...wire, runtime: { ...wire.runtime, targetId: 'changed' } })).status,
+  ).toBe(409);
+  expect(services.requests).toHaveLength(0);
+  expect(f.workspace.get(ready.id).state).toBe('ready');
+  const accepted = await invoke(wire);
+  expect(accepted).toMatchObject({ status: 202, body: { state: 'consumed', sessionId } });
+  await vi.waitFor(() =>
+    expect(chat.eventStore.getSession(sessionId)?.executionPhase).toBe('TERMINAL'),
+  );
+  expect(services.requests[0].options.model).toBe('next-model');
+  expect(services.requests[0].options.effort).toBe('high');
+  const claimed = f.workspace.get(ready.id);
+  expect(claimed.binding.model).toBe('next-model');
+  expect(claimed.ordinaryPreparation?.originalBinding).toEqual(original.binding);
+  expect(claimed.featureBranch).toBe(original.featureBranch);
+  expect(claimed.sourceDigest).toBe(original.sourceDigest);
+  expect(claimed.directory).toBe(`${f.reservation.taskRoot}/repo-${ready.id}/mgmt`);
+  expect(chat.eventStore.getSession(sessionId)?.accountBinding?.model).toBe('next-model');
+  const retry = await invoke(wire);
+  expect(retry.status).toBe(202);
+  expect(claim).toHaveBeenCalledTimes(1);
+  expect(services.requests).toHaveLength(1);
+  expect((await invoke({ ...wire, payload: { text: 'different frozen command' } })).status).toBe(
+    409,
+  );
+  expect(
+    (
+      await invoke({
+        ...wire,
+        selection: { ...wire.selection, model: 'fixture-model', thinking: 'low' },
+      })
+    ).status,
+  ).toBe(409);
+  expect(services.requests).toHaveLength(1);
+  chat.registry.findBySessionId(sessionId)!.session.ordinaryRuntimeOwner!.close();
+  await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+  const revision = claimed.binding.profileRevision;
+  f.configuration[0].models = [
+    { id: 'future-C', label: 'Current supported C', reasoningEfforts: ['low'] },
+  ];
+  f.configuration[0].label = 'Updated display label';
+  f.writeProfiles();
+  const { loadAccountProfiles } = await import('../account-profiles.js');
+  expect(loadAccountProfiles().resolve('personal', 'future-C').profileRevision).toBe(revision);
+  const { localVertexCapabilities, OrdinaryLocalVertexTarget } =
+    await import('../ordinary-local-vertex-capabilities.js');
+  const current = localVertexCapabilities(loadAccountProfiles(), new OrdinaryLocalVertexTarget(), [
+    f.agentProfile,
+  ]).inventory();
+  const continued = await invoke(
+    {
+      ...wire,
+      clientMsgId: 'future-C',
+      sessionId,
+      capabilityRevision: current.capabilityRevision,
+      selection: { ...wire.selection, model: 'future-C', thinking: 'low' },
+    },
+    '/continue',
+  );
+  expect(continued).toMatchObject({ status: 202, body: { state: 'consumed', sessionId } });
+  await vi.waitFor(() => expect(services.requests).toHaveLength(2));
+  await vi.waitFor(() =>
+    expect(
+      chat.eventStore.getExecutionTerminalReason(
+        chat.eventStore.getExecutionAdmission(sessionId, 'future-C')!.token,
+      ),
+    ).toBe('completed'),
+  );
+  expect(services.requests[1].options.resume).toBe(sessionId);
+  expect(services.requests[1].options.model).toBe('future-C');
+  expect(f.workspace.get(ready.id).binding.model).toBe('next-model');
+  expect(f.workspace.get(ready.id).directory).toBe(claimed.directory);
+  expect(f.workspace.get(ready.id).ordinaryPreparation).toEqual(claimed.ordinaryPreparation);
+  expect(claim).toHaveBeenCalledTimes(1);
+}, 20000);

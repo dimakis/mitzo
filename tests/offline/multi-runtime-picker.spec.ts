@@ -5,8 +5,15 @@ import { multiRuntimeInventoryFixture } from '../../frontend/src/test-utils/mult
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
 
-async function offlinePicker(page: Page, appearance: 'light' | 'dark') {
-  const inventory = multiRuntimeInventoryFixture();
+async function offlinePicker(
+  page: Page,
+  appearance: 'light' | 'dark',
+  options: {
+    inventory?: ReturnType<typeof multiRuntimeInventoryFixture>;
+    getFixtures?: Record<string, unknown>;
+  } = {},
+) {
+  const inventory = options.inventory ?? multiRuntimeInventoryFixture();
   const forbidden: string[] = [];
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -79,6 +86,7 @@ async function offlinePicker(page: Page, appearance: 'light' | 'dark') {
         },
         '/api/home/briefing-chats': [],
         '/api/tasks/loop': { state: 'idle' },
+        ...options.getFixtures,
       };
       return route.fulfill({ json: fixtures[url.pathname] ?? [] });
     }
@@ -106,6 +114,133 @@ async function offlinePicker(page: Page, appearance: 'light' | 'dark') {
 }
 
 for (const appearance of ['light', 'dark'] as const) {
+  test(`A prepared checkout retains its identity when the first-message model changes (${appearance})`, async ({
+    page,
+  }, testInfo) => {
+    const inventory = multiRuntimeInventoryFixture();
+    inventory.accounts[0].models.push({
+      id: 'supported-next',
+      label: 'Supported next',
+      reasoningEfforts: ['low', 'high'],
+    });
+    const workspaceId = '00000000-0000-4000-8000-000000000100';
+    const draftId = `prepared-model-${appearance}`;
+    const image = {
+      data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4V0AAAAASUVORK5CYII=',
+      preview:
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4V0AAAAASUVORK5CYII=',
+      mediaType: 'image/png',
+    };
+    const selection = { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' };
+    const intent = {
+      version: 1,
+      account: selection,
+      accountReference: inventory.accounts[0].account,
+      agentProfile: { profileId: 'agent', revision: 1 },
+      execution: { location: 'local', targetId: 'mac' },
+      capabilityRevision: inventory.capabilityRevision,
+    };
+    const fixture = await offlinePicker(page, appearance, {
+      inventory,
+      getFixtures: {
+        '/api/repository-workspaces/catalog': { available: true, repositories: [] },
+        [`/api/repository-workspaces/${workspaceId}`]: {
+          id: workspaceId,
+          repository: 'fixture/repository',
+          baseBranch: 'main',
+          baseOid: 'a'.repeat(40),
+          featureBranch: `mitzo/repo-${workspaceId}`,
+          state: 'ready',
+          ordinaryRuntime: {
+            version: 2,
+            account: inventory.accounts[0].account,
+            harness: { implementation: 'codex' },
+            execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+          },
+        },
+      },
+    });
+    await page.addInitScript(
+      ({ draftId, workspaceId, selection, intent, image }) => {
+        localStorage.setItem(
+          `mitzo-chat-draft:${draftId}`,
+          JSON.stringify({
+            version: 1,
+            id: draftId,
+            text: 'Keep this prepared development draft',
+            images: [image],
+            contextBlocks: [],
+            updatedAt: Date.now(),
+            settings: {
+              selection,
+              runtimeSelection: intent,
+              retainRuntimeIntent: true,
+              repositoryWorkspaceId: workspaceId,
+              mode: 'agent',
+              isolation: true,
+              search: 'agentProfile=agent&profileRevision=1',
+              summary: null,
+            },
+          }),
+        );
+      },
+      { draftId, workspaceId, selection, intent, image },
+    );
+    if (testInfo.project.name.startsWith('mobile'))
+      await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/chat?draft=${draftId}&agentProfile=agent&profileRevision=1`);
+    await page.addStyleTag({ content: 'html { font-size: 20px; }' });
+    const account = page.getByRole('combobox', { name: 'Account', exact: true });
+    const model = page.getByRole('combobox', { name: 'Model', exact: true });
+    const thinking = page.getByRole('combobox', { name: 'Thinking', exact: true });
+    const environment = page.getByRole('combobox', { name: 'Run on', exact: true });
+    const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await expect(account).toHaveValue('personal');
+    await expect(account).toBeDisabled();
+    await expect(environment).toHaveValue('local');
+    await expect(environment).toBeDisabled();
+    await expect(model).toBeEnabled();
+    await model.selectOption('supported-next');
+    await expect(model).toHaveValue('supported-next');
+    await expect(model).toBeEnabled();
+    await expect(thinking).toHaveValue('high');
+    await expect(composer).toHaveValue('Keep this prepared development draft');
+    await expect(page.getByText('fixture/repository', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (draftId) => JSON.parse(localStorage.getItem(`mitzo-chat-draft:${draftId}`)!),
+          draftId,
+        ),
+      )
+      .toMatchObject({
+        text: 'Keep this prepared development draft',
+        images: [image],
+        contextBlocks: [],
+        settings: {
+          repositoryWorkspaceId: workspaceId,
+          runtimeSelection: {
+            account: { accountId: 'personal', model: 'supported-next', reasoningEffort: 'high' },
+            accountReference: inventory.accounts[0].account,
+            execution: { location: 'local', targetId: 'mac' },
+          },
+        },
+      });
+    await model.scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+    await expect(composer).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: testInfo.outputPath(`local-multi-runtime-prepared-model-${appearance}.png`),
+      fullPage: true,
+    });
+    expect(fixture.forbidden).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
+
   test(`Account and environment retain exact route, invalid choices and draft (${appearance})`, async ({
     page,
   }, testInfo) => {

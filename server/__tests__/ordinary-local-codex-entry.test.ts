@@ -121,7 +121,7 @@ const profiles = new AccountProfiles(
       credentialRef: '/offline/login',
       email: 'fixture@example.test',
       planType: 'plus',
-      models: [{ id: 'fixture', label: 'Offline' }],
+      models: [{ id: 'fixture', label: 'Offline' }, ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : [])],
     },
   ],
   { codexEnabled: true },
@@ -452,7 +452,7 @@ it('projects configuration-only eligible account tuples and published profiles w
     credentialRef: '/offline/login',
     email: 'fixture@example.test',
     planType: 'plus',
-    models: [{ id: 'fixture', label: 'Offline' }],
+    models: [{ id: 'fixture', label: 'Offline' }, ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : [])],
   };
   fixtures.profiles.mockReturnValue(
     new AccountProfiles(
@@ -647,7 +647,7 @@ it('combines trusted routes for the existing picker while retaining OpenShell as
   ).toBe(true);
 });
 
-function configuredShell(targetId = 'shell', includeLocal = false, presetConfigured = false) {
+function configuredShell(targetId = 'shell', includeLocal = false, presetConfigured = false, next = false) {
   const config = {
     cli: '/fixture/openshell',
     image: 'fixture-image',
@@ -688,7 +688,7 @@ function configuredShell(targetId = 'shell', includeLocal = false, presetConfigu
               credentialRef: '/offline/login',
               email: 'fixture@example.test',
               planType: 'plus',
-              models: [{ id: 'fixture', label: 'Offline' }],
+              models: [{ id: 'fixture', label: 'Offline' }, ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : [])],
             },
           ]
         : []),
@@ -702,7 +702,7 @@ function configuredShell(targetId = 'shell', includeLocal = false, presetConfigu
         sandboxProviderType: 'openai-codex-oauth',
         sandboxProviderId: 'provider-id',
         sandboxGrantId: 'grant-id',
-        models: [{ id: 'fixture', label: 'Offline' }],
+        models: [{ id: 'fixture', label: 'Offline' }, ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : [])],
       },
     ],
     { codexEnabled: true },
@@ -956,3 +956,138 @@ it('keeps Local inventory when the qualified OpenShell preset declaration become
   });
   expect(fixtures.shellTarget).toHaveBeenCalledTimes(2);
 });
+
+it('reserves a qualified OpenShell preparation model B before admission and an exact retry cannot claim or launch twice', async () => {
+  vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', '');
+  vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
+  const shell = configuredShell('shell', false, false, true);
+  const verify = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'verifySubscriptionSignIn')
+    .mockResolvedValue(Date.now() + 60000);
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-prepared-shell-')));
+  const source = join(root, 'source');
+  const git = (...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-C', source, ...args],
+      { encoding: 'utf8' },
+    ).trim();
+  let workspace: RepositoryWorkspaces | undefined;
+  try {
+    await mkdir(source);
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.name', 'Offline');
+    git('config', 'user.email', 'offline@example.invalid');
+    await writeFile(join(source, 'task.txt'), 'original prepared source');
+    git('add', '.');
+    git('commit', '-qm', 'offline');
+    const oid = git('rev-parse', 'HEAD');
+    const { captureOrdinaryRepositoryPreparation, assertOrdinaryRepositoryPreparation } =
+      await import('../ordinary-repository-preparation-authority.js');
+    workspace = new RepositoryWorkspaces(join(root, 'private'), {
+      authorize: async () => ({ revision: 1, allowedBaseBranches: ['main'] }),
+      inspect: async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid: oid }),
+      prepare: async (_preview, path, branch) => {
+        await cp(source, path, { recursive: true });
+        execFileSync('git', ['-C', path, 'checkout', '-qb', branch]);
+        return {
+          repository: 'example/repo',
+          baseBranch: 'main',
+          baseOid: oid,
+          directory: path,
+          featureBranch: branch,
+        };
+      },
+      ordinaryPreparation: {
+        capture: captureOrdinaryRepositoryPreparation,
+        assert: assertOrdinaryRepositoryPreparation,
+      },
+    });
+    fixtures.workspace.mockReturnValue(workspace);
+    const accountA = shell.shellProfiles.resolve('brokered', 'fixture');
+    const preview = await workspace.preview(
+      accountA,
+      'fixture-github',
+      'example/repo',
+      new AbortController().signal,
+      {
+        runOn: 'openshell',
+        runtime: { account: shell.request.runtime.account, harness: 'codex', targetId: 'shell' },
+      },
+    );
+    const ready = await workspace.prepare(preview.id, accountA, new AbortController().signal);
+    expect(ready.ordinaryRuntime?.execution.location).toBe('openshell');
+    const original = workspace.get(ready.id);
+    const claim = vi.spyOn(workspace, 'claim');
+    let launches = 0;
+    fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
+      const record = workspace!.get(ready.id);
+      expect(record.binding.model).toBe('supported-next');
+      expect(record.ordinaryPreparation?.originalBinding).toEqual(accountA);
+      expect(record.ordinaryFirstReservation?.conversationId).toBe(args.meta.sessionId);
+      const admission = {
+        clientMsgId: args.command.clientMsgId,
+        requestFingerprint: createHash('sha256').update(JSON.stringify(args.command)).digest('hex'),
+        selection: args.command.selection,
+        payload: args.command.payload,
+      };
+      const receipt = store.admitOrdinaryOpenShellCommand(
+        { ...args.meta, cwd: shell.config.workdir },
+        shell.admittedBinding as never,
+        admission,
+      );
+      if (receipt.admission.state === 'consumed')
+        return { dispatched: true, sessionId: args.meta.sessionId };
+      await workspace!.claim(
+        ready.id,
+        args.meta.accountBinding,
+        args.meta.sessionId,
+        '/unused/offline/sandbox-root',
+        true,
+      );
+      store.claimOrdinaryOpenShellCommandDispatch(admission.clientMsgId);
+      launches++;
+      store.completeOrdinaryOpenShellCommand(admission.clientMsgId);
+      return { dispatched: true, sessionId: args.meta.sessionId };
+    });
+    const request = {
+      ...shell.request,
+      repositoryWorkspaceId: ready.id,
+      selection: { ...shell.request.selection, model: 'supported-next' },
+    };
+    verify.mockResolvedValueOnce(Date.now() - 1);
+    expect((await invoke('POST', '/send', request)).status).toBe(409);
+    expect(workspace.get(ready.id)).toEqual(original);
+    expect(claim).not.toHaveBeenCalled();
+    expect(launches).toBe(0);
+    const accepted = await invoke('POST', '/send', request);
+    expect(accepted.status).toBe(202);
+    expect(verify).toHaveBeenCalled();
+    expect((await invoke('POST', '/send', request)).status).toBe(202);
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(launches).toBe(1);
+    expect(
+      (await invoke('POST', '/send', { ...request, payload: { text: 'different frozen command' } }))
+        .status,
+    ).toBe(409);
+    const claimed = workspace.get(ready.id);
+    expect(claimed.binding.model).toBe('supported-next');
+    expect(claimed.ordinaryPreparation?.originalBinding).toEqual(accountA);
+    expect(claimed.sourceDigest).toBe(original.sourceDigest);
+    expect(claimed.featureBranch).toBe(original.featureBranch);
+    expect(
+      (
+        await invoke('POST', '/send', {
+          ...request,
+          selection: { ...request.selection, model: 'fixture' },
+        })
+      ).status,
+    ).toBe(409);
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(launches).toBe(1);
+  } finally {
+    workspace?.close();
+    verify.mockRestore();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);

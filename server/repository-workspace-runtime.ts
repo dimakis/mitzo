@@ -1,3 +1,7 @@
+import {
+  captureOrdinaryRepositoryPreparation,
+  assertOrdinaryRepositoryPreparation,
+} from './ordinary-repository-preparation-authority.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,6 +25,17 @@ export function repositoryWorkspaceBinding(accountId: string, model: string) {
       process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1' &&
       profiles
         .ordinaryLocalVertexInventory()
+        .some(
+          (entry) =>
+            entry.account.accountId === binding.accountId &&
+            entry.account.profileRevision === binding.profileRevision,
+        )
+    ) &&
+    !(
+      binding.provider === 'google-vertex' &&
+      process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED === '1' &&
+      profiles
+        .ordinaryLocalGeminiInventory()
         .some(
           (entry) =>
             entry.account.accountId === binding.accountId &&
@@ -72,6 +87,10 @@ export function getRepositoryWorkspaces(readOnly = false) {
   )
     throw new Error('Repository preparation state is unavailable');
   service ??= new RepositoryWorkspaces(join(codexPrivateDirectory(), 'repository-sources'), {
+    ordinaryPreparation: {
+      capture: captureOrdinaryRepositoryPreparation,
+      assert: assertOrdinaryRepositoryPreparation,
+    },
     authorize: async (binding, connectionId, repository, signal) => {
       const profiles = loadAccountProfiles();
       profiles.resumeRouting(binding);
@@ -82,6 +101,17 @@ export function getRepositoryWorkspaces(readOnly = false) {
             process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1' &&
             profiles
               .ordinaryLocalVertexInventory()
+              .some(
+                (entry) =>
+                  entry.account.accountId === binding.accountId &&
+                  entry.account.profileRevision === binding.profileRevision,
+              )
+          ) &&
+          !(
+            binding.provider === 'google-vertex' &&
+            process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED === '1' &&
+            profiles
+              .ordinaryLocalGeminiInventory()
               .some(
                 (entry) =>
                   entry.account.accountId === binding.accountId &&

@@ -21,8 +21,19 @@ vi.mock('../../components/CommandCenter', () => ({ CommandCenter: () => null }))
 vi.mock('../../components/RepositoryChatPicker', () => ({
   RepositoryChatPicker: ({
     onChange,
+    ordinaryRuntime,
   }: {
-    onChange: (value: { blocked: boolean; repositoryWorkspaceId?: string }) => void;
+    onChange: (
+      value: import('../../components/RepositoryChatPicker').RepositoryChatSelection,
+    ) => void;
+    ordinaryRuntime?: {
+      runOn: 'local' | 'openshell';
+      runtime: {
+        account: import('@mitzo/protocol').SessionRuntimeBindingV2['account'];
+        harness: import('@mitzo/protocol').SessionRuntimeBindingV2['harness']['implementation'];
+        targetId: string;
+      };
+    };
   }) => (
     <>
       <button onClick={() => onChange({ blocked: true })}>Block repository launch</button>
@@ -35,6 +46,30 @@ vi.mock('../../components/RepositoryChatPicker', () => ({
         }
       >
         Ready repository launch
+      </button>
+      <button
+        onClick={() =>
+          onChange({
+            blocked: false,
+            repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+            ...(ordinaryRuntime
+              ? {
+                  ordinaryRuntime: {
+                    version: 2,
+                    account: ordinaryRuntime.runtime.account,
+                    harness: { implementation: ordinaryRuntime.runtime.harness },
+                    execution: {
+                      location: ordinaryRuntime.runOn,
+                      targetId: ordinaryRuntime.runtime.targetId,
+                      targetRevision: 'target-r1',
+                    },
+                  },
+                }
+              : {}),
+          })
+        }
+      >
+        Ready qualified repository launch
       </button>
     </>
   ),
@@ -592,6 +627,76 @@ for (const [name, Screen] of [
     });
     expect(screen.getByTestId('draft')).toHaveTextContent('hello');
     expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
+}
+
+for (const [name, Screen] of [
+  ['mobile', ChatView],
+  ['desktop', DesktopChatView],
+] as const) {
+  it(`${name}: a server-qualified ready checkout keeps account/environment while another first-message model retains the draft`, async () => {
+    const fixture = localInventoryFixture();
+    fixture.accounts[0].models.push({
+      id: 'supported-next',
+      label: 'Supported next',
+      reasoningEfforts: ['low', 'high'],
+    });
+    const { draft, localSend, legacySend } = setup(
+      Screen,
+      false,
+      false,
+      false,
+      false,
+      false,
+      fixture,
+    );
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    await screen.findByRole('combobox', { name: 'Account' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Run on' }), {
+      target: { value: 'local' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+      target: { value: 'personal' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking' }), {
+      target: { value: 'high' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), {
+      target: { value: JSON.stringify(['saved', 'agent', 1]) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Use these Local choices' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ready qualified repository launch' }));
+    expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Run on' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Model' })).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toBeEnabled();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'supported-next' },
+    });
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveValue('high');
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: 'hello',
+      images: draft.images,
+      contextBlocks: draft.contextBlocks,
+      settings: {
+        repositoryWorkspaceId: readyId,
+        runtimeSelection: {
+          account: { accountId: 'personal', model: 'supported-next', reasoningEffort: 'high' },
+        },
+      },
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(localSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryWorkspaceId: readyId,
+        runtime: expect.objectContaining({ account: fixture.accounts[0].account, targetId: 'mac' }),
+        selection: expect.objectContaining({ model: 'supported-next', thinking: 'high' }),
+      }),
+      expect.anything(),
+    );
     expect(legacySend).not.toHaveBeenCalled();
   });
 }

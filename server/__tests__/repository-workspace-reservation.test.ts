@@ -15,7 +15,7 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
-import type { AccountBinding } from '@mitzo/protocol';
+import { AccountBindingSchema, type AccountBinding } from '@mitzo/protocol';
 import { RepositoryWorkspaces, publicRepositoryWorkspace } from '../repository-workspaces.js';
 
 // Disposable Git/SQLite fixtures only. No backend, account sign-in or model call.
@@ -49,10 +49,10 @@ vi.mock('../repository-task-copy.js', async (original) => {
 });
 const roots: string[] = [];
 const services = new Set<RepositoryWorkspaces>();
-const binding: AccountBinding = {
+const binding = {
   accountId: 'offline-account',
   accountLabel: 'Offline',
-  provider: 'openai-codex',
+  provider: 'openai-codex' as const,
   model: 'fixture-model',
   profileRevision: 'profile-1',
 };
@@ -71,7 +71,7 @@ function deferred() {
   });
   return { promise, release };
 }
-async function fixture() {
+async function fixture(ordinary = false) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-workspace-reservation-')));
   roots.push(root);
   const source = join(root, 'source');
@@ -116,7 +116,45 @@ async function fixture() {
   const verify = vi.fn(async () => {});
   const privateRoot = join(root, 'private');
   const open = () => {
-    const service = new RepositoryWorkspaces(privateRoot, { authorize, inspect, prepare, verify });
+    const service = new RepositoryWorkspaces(privateRoot, {
+      authorize,
+      inspect,
+      prepare,
+      verify,
+      ...(ordinary
+        ? {
+            ordinaryPreparation: {
+              capture: async (
+                account: AccountBinding,
+                selection: import('../ordinary-repository-preparation.js').OrdinaryRepositoryRuntimeSelection,
+              ) => ({
+                version: 1 as const,
+                originalBinding: AccountBindingSchema.parse(account),
+                runtimeBinding: {
+                  version: 2 as const,
+                  account: selection.runtime.account,
+                  harness: { implementation: selection.runtime.harness },
+                  execution: {
+                    location: selection.runOn,
+                    targetId: selection.runtime.targetId,
+                    targetRevision: 'target-r1',
+                  },
+                },
+                credentialDigest: 'a'.repeat(64),
+              }),
+              assert: async (_proof: unknown, account: AccountBinding) => {
+                if (
+                  account.accountId !== binding.accountId ||
+                  account.provider !== binding.provider ||
+                  account.profileRevision !== binding.profileRevision ||
+                  !['fixture-model', 'supported-next'].includes(account.model)
+                )
+                  throw Error('Original source changed');
+              },
+            },
+          }
+        : {}),
+    });
     services.add(service);
     return service;
   };
@@ -125,7 +163,26 @@ async function fixture() {
   await mkdir(taskRoot, { mode: 0o700 });
   const ready = async () => {
     const signal = new AbortController().signal;
-    const preview = await service.preview(binding, 'connection', 'example/repo', signal);
+    const preview = await service.preview(
+      binding,
+      'connection',
+      'example/repo',
+      signal,
+      ordinary
+        ? {
+            runOn: 'local',
+            runtime: {
+              account: {
+                accountId: binding.accountId,
+                provider: binding.provider,
+                profileRevision: binding.profileRevision!,
+              },
+              harness: 'codex',
+              targetId: 'mac',
+            },
+          }
+        : undefined,
+    );
     return service.prepare(preview.id, binding, signal);
   };
   const prepared = await ready();
@@ -828,4 +885,114 @@ describe('durable host workspace reservation', () => {
     expect(sandbox.directory).toBeUndefined();
     expect(copy.calls).toHaveBeenCalledTimes(1);
   });
+});
+
+it('atomically freezes another supported first model on a qualified ready preparation without replacing source or ownership', async () => {
+  const f = await fixture(true);
+  const before = f.service.get(f.input.id);
+  const runtimeBinding = {
+    version: 2 as const,
+    account: {
+      accountId: binding.accountId,
+      provider: binding.provider,
+      profileRevision: binding.profileRevision!,
+    },
+    harness: { implementation: 'codex' as const },
+    execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'target-r1' },
+  };
+  const input = {
+    ...f.input,
+    binding: { ...binding, model: 'supported-next' },
+    runtimeBinding,
+    commandFingerprint: 'a'.repeat(64),
+  };
+  const reservation = await f.service.reserveHostTask(input);
+  expect(reservation.binding.model).toBe('supported-next');
+  const after = f.service.get(f.input.id);
+  expect(after.ordinaryPreparation?.originalBinding).toEqual(binding);
+  expect(after.sourceDigest).toBe(before.sourceDigest);
+  expect(after.featureBranch).toBe(before.featureBranch);
+  expect(after.connectionRevision).toBe(before.connectionRevision);
+  await expect(f.service.reserveHostTask(input)).resolves.toEqual(reservation);
+  await expect(f.service.reserveHostTask({ ...input, binding })).rejects.toThrow();
+  await expect(
+    f.service.reserveHostTask({
+      ...input,
+      runtimeBinding: {
+        ...runtimeBinding,
+        execution: { ...runtimeBinding.execution, targetId: 'other' },
+      },
+    }),
+  ).rejects.toThrow();
+  await expect(
+    f.service.reserveHostTask({ ...input, commandFingerprint: 'b'.repeat(64) }),
+  ).rejects.toThrow('Prepared first command is frozen');
+  expect(copy.calls).not.toHaveBeenCalled();
+});
+
+function ordinaryBinding() {
+  return {
+    version: 2 as const,
+    account: {
+      accountId: binding.accountId,
+      provider: binding.provider,
+      profileRevision: binding.profileRevision!,
+    },
+    harness: { implementation: 'codex' as const },
+    execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'target-r1' },
+  };
+}
+it('refuses changed provider/profile/target/source before first model adoption and leaves the original ready snapshot', async () => {
+  const f = await fixture(true);
+  const original = f.service.get(f.input.id);
+  const input = {
+    ...f.input,
+    binding: { ...binding, model: 'supported-next' },
+    runtimeBinding: ordinaryBinding(),
+    commandFingerprint: 'a'.repeat(64),
+  };
+  for (const changed of [
+    { ...input, binding: { ...input.binding, provider: 'openai' as const } },
+    { ...input, binding: { ...input.binding, profileRevision: 'replacement' } },
+    {
+      ...input,
+      runtimeBinding: {
+        ...input.runtimeBinding,
+        execution: { ...input.runtimeBinding.execution, targetRevision: 'replacement' },
+      },
+    },
+  ]) {
+    await expect(f.service.reserveHostTask(changed)).rejects.toThrow();
+    expect(f.service.get(f.input.id)).toEqual(original);
+  }
+  await writeFile(
+    join(f.privateRoot, f.input.id, 'mgmt', 'task.txt'),
+    'changed after qualification',
+  );
+  await expect(f.service.reserveHostTask(input)).rejects.toThrow(
+    'Prepared repository source changed',
+  );
+  expect(f.service.get(f.input.id)).toEqual(original);
+  expect(copy.calls).not.toHaveBeenCalled();
+});
+it('serializes competing first model claims and never rewrites the winner for a later attempt', async () => {
+  const f = await fixture(true);
+  const input = {
+    ...f.input,
+    runtimeBinding: ordinaryBinding(),
+    commandFingerprint: 'a'.repeat(64),
+  };
+  const other = { ...input, binding: { ...binding, model: 'supported-next' } };
+  const results = await Promise.allSettled([
+    f.service.reserveHostTask(input),
+    f.service.reserveHostTask(other),
+  ]);
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+  expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+  const winner = f.service.get(f.input.id).binding;
+  await expect(f.service.reserveHostTask({ ...input, binding: winner })).resolves.toMatchObject({
+    binding: winner,
+  });
+  expect(f.service.get(f.input.id).ordinaryPreparation?.originalBinding).toEqual(binding);
+  expect(copy.calls).not.toHaveBeenCalled();
 });

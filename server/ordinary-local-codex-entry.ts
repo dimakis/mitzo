@@ -171,6 +171,8 @@ function inventory(
   return { profiles, catalog, result, agentContextPresets: undefined };
 }
 
+export const ordinaryRepositoryRuntimeInventory = inventory;
+
 /** Composes the accepted projections; never creates another selection registry. */
 export function ordinaryCodexCapabilities() {
   const availableInventory = (
@@ -537,10 +539,27 @@ export function createOwnedLocalCodexEntryRouter(
           binding: continuation ? ctx.eventStore.getSession(sessionId)!.accountBinding! : binding,
           conversationId: sessionId,
           taskRoot: join(BASE_REPO, '.claude', 'repository-tasks'),
+          ...(!continuation
+            ? {
+                commandFingerprint: createHash('sha256')
+                  .update(JSON.stringify(input))
+                  .digest('hex'),
+              }
+            : {}),
+          runtimeBinding: (() => {
+            const resolved = catalog.resolve(input.runtime);
+            if (resolved.status !== 'compatible') throw Error(unavailable);
+            return resolved.binding;
+          })(),
         };
         authority.assertCurrent();
         if (!continuation && input.runOn === 'local')
           await getRepositoryWorkspaces(true).reserveHostTask({
+            ...reservation,
+            signal: controller.signal,
+          });
+        else if (!continuation)
+          await getRepositoryWorkspaces(true).reserveOrdinarySandboxTask({
             ...reservation,
             signal: controller.signal,
           });

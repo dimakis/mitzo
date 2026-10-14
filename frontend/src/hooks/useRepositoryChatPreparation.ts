@@ -104,6 +104,7 @@ export function repositoryChatSendDisabledReason(
   activeSessionId: string | null,
   selection: { accountId?: string; model: string } | null,
   repository: { blocked: boolean; repositoryWorkspaceId?: string } | null,
+  modelEditable = false,
 ): string | undefined {
   if (!handoff.present) return undefined;
   if (handoff.reason) return handoff.reason;
@@ -112,7 +113,7 @@ export function repositoryChatSendDisabledReason(
   if (
     !preparation ||
     selection?.accountId !== preparation.accountId ||
-    selection.model !== preparation.model
+    (!modelEditable && selection.model !== preparation.model)
   )
     return 'The prepared account and model must be available before sending.';
   if (repository?.blocked || repository?.repositoryWorkspaceId !== preparation.id)

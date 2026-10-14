@@ -239,3 +239,39 @@ it('does not claim software from an ambiguous unlocated target or imply another 
     screen.getByText(/Authentication and billing remain with the selected account/),
   ).toBeInTheDocument();
 });
+
+it('shows the original native constraint rather than promising unsupported future model changes', () => {
+  const data = localInventoryFixture();
+  const reason = 'This native conversation retains its original model and thinking.';
+  const runtime = {
+    visible: true,
+    bound: true,
+    continuation: true,
+    selectedLocal: true,
+    metadataUnavailable: false,
+    inventory: data,
+    intent: {
+      ...createChatRuntimeSelection(),
+      execution: { location: 'local', targetId: 'mac' },
+      account: { accountId: 'personal', model: 'luna-fixture' },
+      accountReference: data.accounts[0].account,
+    },
+    binding: {
+      version: 2,
+      account: data.accounts[0].account,
+      harness: { implementation: 'gemini' },
+      execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+    },
+    nativeConstraint: { model: 'luna-fixture', thinking: null, reason },
+    update: vi.fn(),
+    refresh: vi.fn(),
+    review: vi.fn(),
+  } as unknown as ReturnType<typeof useExplicitLocalChat>;
+  render(
+    <MemoryRouter>
+      <ChatExecutionPicker runtime={runtime} />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText(reason)).toBeInTheDocument();
+  expect(screen.queryByText('Model and thinking changes apply to the next message.')).toBeNull();
+});

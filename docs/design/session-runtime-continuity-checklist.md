@@ -119,3 +119,13 @@ unconfirmed outcome are covered by fake SDK regressions. Active nonterminal work
 cannot cold replay; no live credential renewal, native sandbox or provider
 qualification is claimed. Context recipes/packs, Vertex OpenShell and ordinary
 Gemini support remain separate.
+
+Prepared first-message model selection (source/offline)
+
+- [x] New qualified READY rows retain original preparation/source and private credential/runtime proof; legacy rows remain guarded.
+- [x] Local and ordinary OpenShell reserve a supported first-message model on the original checkout, then freeze the full first command before admission.
+- [x] Actual generic REST fake-SDK and fake-broker fixtures cover A→B, retained account/target/source, exact retry, expired grant refusal and immutable first-command payload.
+- [x] Terminal Claude cold continuation survives model catalogue retirement under unchanged routing and ADC custody; interrupted execution remains refused.
+- [x] Existing mobile/desktop controls preserve draft/images/thinking/preparation while Account and environment stay locked; constrained native conversations show their actual setting limit.
+- [ ] Hosted READY preparation visual fixtures and final combined exact-head CI/review.
+- [ ] Live credential renewal, native sandbox and physical orphan process qualification.

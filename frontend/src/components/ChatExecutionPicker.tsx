@@ -7,9 +7,11 @@ import './ChatAgentProfilePicker.css';
 export function ChatExecutionPicker({
   runtime,
   disabled = false,
+  executionLocked = false,
 }: {
   runtime: ReturnType<typeof useExplicitLocalChat>;
   disabled?: boolean;
+  executionLocked?: boolean;
 }) {
   const navigate = useNavigate();
   const [draftError, setDraftError] = useState('');
@@ -80,7 +82,10 @@ export function ChatExecutionPicker({
         {draftError && <span role="alert">{draftError}</span>}
         {runtime.continuation && (
           <>
-            <span>Model and thinking changes apply to the next message.</span>
+            <span>
+              {runtime.nativeConstraint?.reason ??
+                'Model and thinking changes apply to the next message.'}
+            </span>
             <button type="button" disabled={disabled} onClick={runtime.review}>
               Use these conversation choices
             </button>
@@ -94,7 +99,7 @@ export function ChatExecutionPicker({
         Run on
         <select
           aria-label="Run on"
-          disabled={disabled || !runtime.inventory}
+          disabled={disabled || executionLocked || !runtime.inventory}
           value={runtime.intent.execution.location}
           onChange={(e) => {
             runtime.update({

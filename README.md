@@ -44,6 +44,19 @@ unavailable reason when its original account has no compatible route. Local API,
 Vertex, workspace-based or brokered Local authentication, and native sandbox
 subscription routes are not advertised by this Codex contract.
 
+New ordinary-route READY repository preparations retain a private server-produced
+account, runtime, credential and source snapshot. Before the first command is
+reserved, Model and Thinking remain editable for supported choices while Account
+and Run on stay fixed. The same checkout admits the selected first-message model;
+the original preparation model, branch and source digest remain recorded. The
+atomic first reservation freezes the complete command and effective model, so
+retries, uncertain reservations and later ownership checks cannot reinterpret it.
+Legacy preparations keep their original full-selection guard. Catalogue and label
+updates do not change retained routing or credential authority; the native owner
+still validates each future command. These are source and offline-fixture checks,
+with hosted visual evidence pending and live credential renewal or orphan process
+recovery unqualified.
+
 Bound Codex queues require the original still-valid signed login for cancellation,
 continuation and recovery controls, including cold controls. Native retry helpers
 that synthesize a command outside ordinary admission remain unavailable; existing
