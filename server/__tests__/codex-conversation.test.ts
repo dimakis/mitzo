@@ -510,6 +510,7 @@ async function setup(
   disableProjectDocuments = false,
   shouldContinueAfterToolResult?: CodexConversationOptions['shouldContinueAfterToolResult'],
   canClaimCommand?: CodexConversationOptions['canClaimCommand'],
+  transportClosure?: CodexConversationOptions['transportClosure'],
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -600,6 +601,7 @@ async function setup(
     disableProjectDocuments,
     shouldContinueAfterToolResult,
     canClaimCommand,
+    transportClosure,
     onApplicationContextAccepted,
     beforeRuntimeAdmission,
     reconnectGuard,
@@ -1826,8 +1828,9 @@ it.each(['host', 'openshell'] as const)(
 );
 
 it('does not admit a new command after an owned terminal idle transport expires', async () => {
-  const f = await setup();
-  f.conversationOptions.transportClosure = 'terminal';
+  const args: Parameters<typeof setup> = [];
+  args[29] = 'terminal';
+  const f = await setup(...args);
   vi.useFakeTimers();
   f.rpc.request.mockImplementation(async () => new Promise(() => {}));
   const admission = f.c.admitExplicitSend({ id: 'terminal-expired', prompt: 'must not enqueue' });
