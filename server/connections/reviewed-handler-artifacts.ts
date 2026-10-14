@@ -463,19 +463,29 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-artifact-tools.ts': '560e27e41df29aa0b5e8a859731bc956b165e6309f9a0974c16da9ee2c2525e5',
   '../symposium-agent-context-authorization.ts':
     '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',
-  '../../packages/protocol/src/ordinary-openshell-admission.ts': 'd55a6266b2d5b4df95b9ab2e92526032de1ea6f080921f5adc4d182fced38f3f',
+  '../../packages/protocol/src/ordinary-openshell-admission.ts':
+    'd55a6266b2d5b4df95b9ab2e92526032de1ea6f080921f5adc4d182fced38f3f',
   '../host-codex-custody.ts': '6930fb706d35ff0975030592a7045f4e8f1a3b319d292800eb9590a32dd01174',
   '../interactive-auth-core.ts': '920d9ad2e146cf4de329d28ecfb13c0b235c2a379abf4472d4d0e37559a2cc29',
-  '../openshell-codex-custody.ts': 'f2f5c0e5f9f8c1cea55b2c16bff2fa404736226fe1db8ca4408e649d4d3b9985',
-  '../openshell-lifecycle-controller.ts': '28461779f5af5ffe1c1e3fdcb3567eb126888debc7ecc9d42c059d6434dab699',
-  '../ordinary-codex-continuation-status.ts': '74a66778c1265dce2ae43ba6b512a11d93902ddf037776dc963155c9915d7b92',
-  '../ordinary-openshell-codex-entry-owner.ts': 'b1f611e782fe8e21003e1546d3db87e2a2341663bf7a1785996beef25e0bce88',
-  '../ordinary-openshell-codex-entry.ts': '9a28e2c77f5ff7aa845dca7141286d2a72346a4c89f51580a32ba14bd0347d01',
-  '../ordinary-openshell-codex-owned-runtime.ts': '6d14ec7ad04aa6f5b3b70992e6f169c8e81a8f7b8b68c77d96af01eb9b3ff8dd',
-  '../ordinary-openshell-codex-route.ts': 'f0bfd42b4dd663d2577d77ca857fddb9a1ac67d6a894f440b08764b7b33191d2',
-  '../owned-openshell-codex-chat-admission.ts': '5ceacabb9affccfa83eb754e47885945ae50586685db5c886fd8a4e6dc967169',
+  '../openshell-codex-custody.ts':
+    'f2f5c0e5f9f8c1cea55b2c16bff2fa404736226fe1db8ca4408e649d4d3b9985',
+  '../openshell-lifecycle-controller.ts':
+    '28461779f5af5ffe1c1e3fdcb3567eb126888debc7ecc9d42c059d6434dab699',
+  '../ordinary-codex-continuation-status.ts':
+    '74a66778c1265dce2ae43ba6b512a11d93902ddf037776dc963155c9915d7b92',
+  '../ordinary-openshell-codex-entry-owner.ts':
+    'b1f611e782fe8e21003e1546d3db87e2a2341663bf7a1785996beef25e0bce88',
+  '../ordinary-openshell-codex-entry.ts':
+    '9a28e2c77f5ff7aa845dca7141286d2a72346a4c89f51580a32ba14bd0347d01',
+  '../ordinary-openshell-codex-owned-runtime.ts':
+    '6d14ec7ad04aa6f5b3b70992e6f169c8e81a8f7b8b68c77d96af01eb9b3ff8dd',
+  '../ordinary-openshell-codex-route.ts':
+    'f0bfd42b4dd663d2577d77ca857fddb9a1ac67d6a894f440b08764b7b33191d2',
+  '../owned-openshell-codex-chat-admission.ts':
+    '5ceacabb9affccfa83eb754e47885945ae50586685db5c886fd8a4e6dc967169',
   '../session-registry.ts': 'd91b89354926d0ec7355e73fcae4f41066008d63097ca00077f37022fc554ccf',
   '../approved-url-fetch.ts': '86e9a5200a452c3f43ed4578e5553c1595e479ded11359c7a2a8fc2838cad2ad',
-  '../owned-codex-queue-control.ts': '00c6dbf8ada1f6da8b519600380470a1a42090e125877b79a6149fd7d9667e9c',
+  '../owned-codex-queue-control.ts':
+    '00c6dbf8ada1f6da8b519600380470a1a42090e125877b79a6149fd7d9667e9c',
   '../public-web-fetch.ts': '805cfe93e5d8511920ec615334354afa23bac14561d6b7aff8c9117f8281c5d7',
 });
