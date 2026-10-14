@@ -1286,6 +1286,7 @@ async function openCodexChatBound(
     cwd: options.session.cwd!,
     profile: options.profile,
     storedBinding: options.binding,
+    route: options.binding?.provider === 'openai' ? 'openai-api' : 'chatgpt-subscription',
     store: privateStorage,
     deferToolSurfaceReplacement: !!runtimeManager,
     enableCapacityRecovery: !options.ownedLocal,

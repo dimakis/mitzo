@@ -20,10 +20,18 @@ interface TestSpan {
   events: RecordedEvent[];
   status: { code: number; message?: string };
   ended: boolean;
+  endCount: number;
 }
 
 function createTestSpan(name: string): TestSpan & OTelSpan {
-  const span: TestSpan = { name, attributes: {}, events: [], status: { code: 0 }, ended: false };
+  const span: TestSpan = {
+    name,
+    attributes: {},
+    events: [],
+    status: { code: 0 },
+    ended: false,
+    endCount: 0,
+  };
   return {
     ...span,
     setAttribute(k: string, v: unknown) {
@@ -44,6 +52,7 @@ function createTestSpan(name: string): TestSpan & OTelSpan {
     },
     end() {
       span.ended = true;
+      span.endCount += 1;
     },
     updateName(n: string) {
       span.name = n;
@@ -52,6 +61,15 @@ function createTestSpan(name: string): TestSpan & OTelSpan {
     isRecording: () => true,
     recordException: () => {},
     spanContext: () => ({ traceId: 'test', spanId: 'test', traceFlags: 1 }),
+    get ended() {
+      return span.ended;
+    },
+    get endCount() {
+      return span.endCount;
+    },
+    get status() {
+      return span.status;
+    },
     // Expose internals for assertions
     get _events() {
       return span.events;
@@ -2706,6 +2724,135 @@ describe('runQueryLoop', () => {
   describe('observability — span events for agent output', () => {
     beforeEach(() => {
       recordedSpans.length = 0;
+    });
+
+    it.each([false, true])(
+      'keeps tool span open until matching result (error=%s)',
+      async (isError) => {
+        const observations: boolean[] = [];
+        async function* stream() {
+          yield {
+            type: 'stream_event',
+            event: { type: 'message_start', message: { id: 'trace-tool' } },
+          };
+          yield {
+            type: 'stream_event',
+            event: {
+              type: 'content_block_start',
+              index: 0,
+              content_block: { type: 'tool_use', name: 'Read', id: 'trace-call' },
+            },
+          };
+          yield { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } };
+          const tool = recordedSpans.find((s) => s.name === 'tool.Read')!;
+          observations.push(tool.ended);
+          yield {
+            type: 'user',
+            message: {
+              content: [{ type: 'tool_result', tool_use_id: 'unrelated', content: 'ignored' }],
+            },
+          };
+          observations.push(tool.ended);
+          yield {
+            type: 'user',
+            message: {
+              content: [
+                {
+                  type: 'tool_result',
+                  tool_use_id: 'trace-call',
+                  content: 'done',
+                  is_error: isError,
+                },
+              ],
+            },
+          };
+          observations.push(tool.ended);
+          yield {
+            type: 'user',
+            message: {
+              content: [{ type: 'tool_result', tool_use_id: 'trace-call', content: 'duplicate' }],
+            },
+          };
+        }
+        await runQueryLoop(stream(), clientId, registry, abortController);
+        expect(observations).toEqual([false, false, true]);
+        const tool = recordedSpans.find((s) => s.name === 'tool.Read')!;
+        expect(tool.status.code).toBe(isError ? 2 : 1);
+        expect(tool.events.find((e) => e.name === 'tool.result')).toBeDefined();
+        expect(tool.endCount).toBe(1);
+      },
+    );
+
+    it('keeps subagent execution open through its assistant envelope until result', async () => {
+      const observations: boolean[] = [];
+      async function* stream() {
+        yield { type: 'stream_event', event: { type: 'message_start', message: { id: 'parent' } } };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', name: 'Agent', id: 'agent-call' },
+          },
+        };
+        yield {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-call',
+          event: { type: 'message_start', message: { id: 'child' } },
+        };
+        yield {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-call',
+          event: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', name: 'Read', id: 'child-call' },
+          },
+        };
+        yield {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-call',
+          event: { type: 'content_block_stop', index: 0 },
+        };
+        const tool = recordedSpans.find((s) => s.name === 'subagent.tool.Read')!;
+        observations.push(tool.ended);
+        yield { type: 'assistant', parent_tool_use_id: 'agent-call', message: { content: [] } };
+        observations.push(tool.ended);
+        yield {
+          type: 'user',
+          parent_tool_use_id: 'agent-call',
+          message: {
+            content: [{ type: 'tool_result', tool_use_id: 'child-call', content: 'done' }],
+          },
+        };
+        observations.push(tool.ended);
+      }
+      await runQueryLoop(stream(), clientId, registry, abortController);
+      expect(observations).toEqual([false, false, true]);
+      expect(recordedSpans.find((s) => s.name === 'subagent.tool.Read')!.endCount).toBe(1);
+    });
+
+    it('marks an unfinished tool span as incomplete on session cleanup', async () => {
+      await runQueryLoop(
+        eventStream([
+          { type: 'stream_event', event: { type: 'message_start', message: { id: 'incomplete' } } },
+          {
+            type: 'stream_event',
+            event: {
+              type: 'content_block_start',
+              index: 0,
+              content_block: { type: 'tool_use', name: 'Read', id: 'unfinished' },
+            },
+          },
+        ]),
+        clientId,
+        registry,
+        abortController,
+      );
+      const tool = recordedSpans.find((s) => s.name === 'tool.Read')!;
+      expect(tool.status.code).toBe(2);
+      expect(tool.attributes['tool.completion']).toBe('session_ended');
+      expect(tool.endCount).toBe(1);
     });
 
     it('records block.text span event on turn span for text blocks', async () => {

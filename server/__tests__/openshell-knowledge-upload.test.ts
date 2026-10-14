@@ -15,6 +15,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
+import { SpanStatusCode } from '@opentelemetry/api';
+import { tracer } from '../tracing.js';
 import { canonicalJsonPayload } from '../../scripts/verify-openshell-production.mjs';
 import {
   OpenShellRuntimeManager,
@@ -27,6 +29,7 @@ afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });
   root = '';
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 function publication(executable = false) {
@@ -187,7 +190,13 @@ it('rejects a self-consistent bundle changed after publisher policy verification
   expect(readdirSync(join(root, 'private/knowledge-uploads'))).toEqual([]);
 });
 it('adopts a verified knowledge view in a retained sandbox without replacing task files', async () => {
-  const config = publication();
+  const sourceConfig = publication();
+  const reconcile = vi.fn().mockResolvedValue({
+    seed: sourceConfig.seed,
+    sourceCommit: 'a'.repeat(40),
+    baselineSha256: digest(readFileSync(join(sourceConfig.seed, '..', 'baseline.json'), 'utf8')),
+  });
+  const config = { ...sourceConfig, knowledgeStore: { id: 'notes', reconcile } };
   const conversation = 'retained-chat';
   const owner = digest(conversation).slice(0, 63);
   const name = `mitzo-${digest(conversation).slice(0, 13)}`;
@@ -202,6 +211,7 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   );
   let present = false;
   let damaged = false;
+  let mutateHostDuringProbe = false;
   const ssh = vi.fn(async (args: readonly string[]) =>
     args.join(' ').includes('attest-knowledge-runtime.py')
       ? JSON.stringify(config.seedStackManifest.runtime)
@@ -253,7 +263,11 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   expect(uploads).toHaveLength(1);
   expect(uploads[0][0].at(-1)).toBe('/sandbox/workspaces/knowledge');
   present = true;
+  const uploadsRoot = join(root, 'private/knowledge-uploads');
+  rmSync(uploadsRoot, { recursive: true, force: true });
   await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
+  expect(existsSync(uploadsRoot)).toBe(false);
+  expect(reconcile).toHaveBeenCalledTimes(2);
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
   expect(ssh).toHaveBeenCalledTimes(9);
   present = true;
@@ -261,6 +275,7 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   vi.spyOn(resumed, 'compileContext').mockResolvedValue(await compile.mock.results[0].value);
   const reused = await resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
   expect(reused?.knowledgeRoot).toBe(first?.knowledgeRoot);
+  expect(existsSync(uploadsRoot)).toBe(false);
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
   expect(runtime.workdir).toBe('/sandbox/workspaces/mgmt');
   damaged = true;
@@ -268,7 +283,31 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
     const command = args.join(' ');
     if (command.includes('attest-knowledge-runtime.py'))
       return JSON.stringify(config.seedStackManifest.runtime);
-    if (command.includes('knowledge-cache-status')) return String(!damaged);
+    if (command.includes('knowledge-cache-status')) {
+      if (mutateHostDuringProbe) {
+        const content = 'Changed during remote probe';
+        writeFileSync(join(config.seed, 'memory/example.md'), content);
+        const baselinePath = join(config.seed, '..', 'baseline.json');
+        const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'));
+        baseline.files['memory/example.md'].sha256 = digest(content);
+        const payload = { ...baseline };
+        delete payload.payloadSha256;
+        baseline.payloadSha256 = digest(canonicalJsonPayload(payload));
+        const bytes = JSON.stringify(baseline);
+        writeFileSync(baselinePath, bytes);
+        const receiptPath = join(config.seed, '..', 'publication.json');
+        const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+        writeFileSync(
+          receiptPath,
+          JSON.stringify({
+            ...receipt,
+            payloadSha256: baseline.payloadSha256,
+            baselineSha256: digest(bytes),
+          }),
+        );
+      }
+      return String(!damaged);
+    }
     if (command.includes('os.path.lexists')) return String(present);
     if (command.includes('knowledge-cache-repair')) {
       damaged = false;
@@ -286,7 +325,133 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   expect(damaged).toBe(false);
   await resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(2);
+  writeFileSync(join(config.seed, 'memory/example.md'), 'Host changed after prior adoption');
+  await expect(
+    resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000)),
+  ).rejects.toThrow();
+  expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(2);
+  writeFileSync(join(config.seed, 'memory/example.md'), 'Accepted A');
+  damaged = true;
+  mutateHostDuringProbe = true;
+  await expect(
+    resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000)),
+  ).rejects.toThrow('Knowledge publication changed before upload');
+  expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(2);
+  expect(readdirSync(uploadsRoot)).toEqual([]);
+  expect(reconcile).toHaveBeenCalledTimes(7);
 });
+
+it.each(['success', 'failure'] as const)(
+  'keeps the upload span open until actual sandbox upload settles with %s',
+  async (outcome) => {
+    const config = publication();
+    const conversation = 'upload-span-chat';
+    const name = `mitzo-${digest(conversation).slice(0, 13)}`;
+    function span() {
+      return {
+        end: vi.fn(),
+        setStatus: vi.fn(),
+        setAttribute: vi.fn(),
+        recordException: vi.fn(),
+      };
+    }
+    const spans = new Map<string, ReturnType<typeof span>>();
+    vi.spyOn(tracer, 'startSpan').mockImplementation((name) => {
+      const created = span();
+      spans.set(name, created);
+      return created as unknown as ReturnType<typeof tracer.startSpan>;
+    });
+    let settle!: () => void;
+    const uploadGate = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    let entered!: () => void;
+    const uploading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const failure = new Error('private upload stderr with credentials and prompt contents');
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('upload')) {
+        entered();
+        await uploadGate;
+        if (outcome === 'failure') throw failure;
+        return '';
+      }
+      return JSON.stringify({
+        name,
+        id: 'physical-id',
+        workspace: 'mitzo',
+        phase: 'Ready',
+        labels: {
+          'mitzo.conversation': digest(conversation).slice(0, 63),
+          'mitzo.account_provider': 'openai-work',
+        },
+      });
+    });
+    const ssh = vi.fn(async (args: readonly string[]) => {
+      const command = args.join(' ');
+      if (command.includes('attest-knowledge-runtime.py'))
+        return JSON.stringify(config.seedStackManifest.runtime);
+      if (command.includes('knowledge-cache-status') || command.includes('os.path.lexists'))
+        return 'false';
+      return JSON.stringify({
+        sourceCommit: 'a'.repeat(40),
+        payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
+          .payloadSha256,
+      });
+    });
+    const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
+    vi.spyOn(manager, 'compileContext').mockResolvedValue({
+      type: 'boot_context',
+      scope: 'sandbox',
+      sourceCount: 1,
+      tokenCount: 2,
+      tokenBudget: 12000,
+      sources: [],
+      included: [],
+      trimmed: [],
+      fullMarkdown: 'Accepted context',
+    });
+    const pending = manager
+      .adoptKnowledge(
+        conversation,
+        {
+          sandboxName: name,
+          sandboxId: 'physical-id',
+          workdir: '/sandbox/workspaces/mgmt',
+          appServerCommand: '/sandbox/run-mitzo-app-server',
+          cli: 'openshell',
+          gateway: 'local',
+          workspace: 'mitzo',
+          gatewayInsecure: false,
+        },
+        AbortSignal.timeout(5000),
+      )
+      .then(
+        (result) => result,
+        (error: unknown) => error,
+      );
+    await uploading;
+    try {
+      expect(spans.get('knowledge.freeze_upload')?.end).toHaveBeenCalledOnce();
+      expect(spans.has('knowledge.upload')).toBe(true);
+      expect(spans.get('knowledge.upload')?.end).not.toHaveBeenCalled();
+    } finally {
+      settle();
+      await pending;
+    }
+    const result = await pending;
+    if (outcome === 'failure') expect(result).toBe(failure);
+    else expect(result).toMatchObject({ sourceCommit: 'a'.repeat(40) });
+    const upload = spans.get('knowledge.upload')!;
+    expect(upload.end).toHaveBeenCalledOnce();
+    expect(upload.setStatus).toHaveBeenCalledExactlyOnceWith({
+      code: outcome === 'failure' ? SpanStatusCode.ERROR : SpanStatusCode.OK,
+    });
+    expect(upload.setAttribute).not.toHaveBeenCalled();
+    expect(upload.recordException).not.toHaveBeenCalled();
+  },
+);
 
 it('keeps publication verification separate from a pinned profile context without compiling default context', async () => {
   const config = publication();

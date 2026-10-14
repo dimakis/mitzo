@@ -596,6 +596,15 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 
 **Observability**
 
+OpenShell Codex follow-ups probe an idle relay with a separate two-second deadline;
+active turns retain their existing RPC deadlines. A failed or cancelled probe
+retires its transport before another explicit send can recover. Valid retained
+knowledge views are verified each turn without copying an unused upload snapshot.
+Server traces separate idle probing, recovery, native dispatch, acknowledgement,
+first output and knowledge preparation/upload phases. Tool spans cover input
+generation through the matching result, including execution and approval wait;
+their `tool.latency_scope` is `input_to_result`.
+
 Browser and iOS tracing are opt-in. Set `VITE_OTEL_ENDPOINT=api` to export
 through `/api/telemetry/v1/traces` on the app's configured API origin. The
 relay requires normal Mitzo authentication and forwards only trace payloads
