@@ -232,6 +232,7 @@
 
 /* Compact workspace disclosure and composer. */
 .workspace-controls {
+  position: relative;
   flex-shrink: 0;
   border-bottom: 1px solid var(--workspace-line);
 }
@@ -1560,4 +1561,22 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-padding-block: var(--space-4);
+}
+
+/* When desktop flow cannot fit the actions and a row, use the same bounded overlay as phones. */
+.workspace-chat .workspace-controls > .workspace-controls-settings[data-constrained]:not([hidden]) {
+  position: absolute;
+  top: 100%;
+  left: var(--space-2);
+  right: var(--space-2);
+  z-index: 20;
+  width: auto;
+  max-height: min(
+    max(var(--workspace-disclosure-space, 60dvh), calc(6 * var(--control-height))),
+    var(--workspace-disclosure-viewport-space, calc(100dvh - 88px))
+  );
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-bg);
+  box-shadow: 0 var(--space-2) var(--space-6) var(--color-shadow);
 }

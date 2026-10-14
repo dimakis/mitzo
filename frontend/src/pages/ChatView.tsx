@@ -873,7 +873,7 @@ export function ChatView() {
       accountModel={accountModelControl}
       execution={executionControl}
       details={
-        activeSessionId && localBound ? (
+        activeSessionId ? (
           <details className="composer-session-details">
             <summary>Session details</summary>
             <dl>

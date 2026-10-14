@@ -310,8 +310,10 @@ Access cannot authorize a tool or start a session.
 
 On phones the Workspace summary truncates long text while its accessible name keeps
 the full account/model details. The expanded settings panel measures the space before launch actions or the composer and
-scrolls within that space. On short phones with a tall draft, it may overlap part of the
-composer to preserve room for the fixed header, Done action and usable settings rows.
+scrolls within that space. When desktop flow cannot fit the fixed header, Done action
+and a settings row, it switches to the same bounded overlay used on phones. The
+overlay may overlap part of a tall composer and remains above visible navigation.
+Closing it restores access to the retained draft.
 The settings body owns scrolling between those actions. A 60dvh cap is
 the fallback before measurement, bounded by the viewport. These bounds are structural overlay geometry;
 colors, type, spacing and controls remain shared.
@@ -517,4 +519,7 @@ not establish acceptance of unrelated routes or native keyboard behavior.
 Component captures show the [clear mobile composer](assets/chat-settings-mobile-dark.png)
 and [desktop settings disclosure](assets/chat-settings-desktop-light.png). The
 [short mobile capture](assets/chat-settings-short-mobile-dark.png) verifies reachable
-settings and fixed actions over a tall draft.
+settings and fixed actions over a tall draft. The same fallback is checked in a
+[short desktop window](assets/chat-settings-short-desktop-light.png). Existing mobile
+conversations retain their full account/agent/model/thinking/execution/workspace
+details in this top panel, including legacy conversations without a runtime binding.

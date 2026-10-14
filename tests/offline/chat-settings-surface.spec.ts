@@ -102,25 +102,30 @@ for (const appearance of ['dark', 'light'] as const) {
         window.visualViewport!.dispatchEvent(new Event('resize'));
       });
       await expect(page.getByRole('navigation')).toBeVisible();
-      await page.setViewportSize({ width: 320, height: 500 });
-      await input.evaluate((element) => {
-        element.style.height = '210px';
-      });
-      await trigger.click();
-      await expect(panel).toBeVisible();
-      await expect(input).toBeInViewport();
-      const local = panel.getByRole('button', { name: 'Local Mac', exact: true });
-      await local.scrollIntoViewIfNeeded();
-      const localBox = (await local.boundingBox())!;
-      const headerBox = (await panel.locator('.agent-settings-header').boundingBox())!;
-      const footerBox = (await panel.locator('.workspace-controls-footer').boundingBox())!;
-      expect(localBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
-      expect(localBox.y + localBox.height).toBeLessThanOrEqual(footerBox.y + 1);
-      await local.click();
-      await expect(panel.getByRole('button', { name: 'Close agent settings' })).toBeInViewport();
-      await expect(panel.getByText('Chat settings', { exact: true })).toBeInViewport();
-      await page.screenshot({ path: testInfo.outputPath(`short-chat-settings-${appearance}.png`) });
     }
+    await page.setViewportSize({ width: mobile ? 320 : 1280, height: mobile ? 500 : 400 });
+    await input.evaluate((element) => {
+      element.style.height = '210px';
+    });
+    await trigger.click();
+    await expect(panel).toBeVisible();
+    await expect(input).toBeInViewport();
+    const local = panel.getByRole('button', { name: 'Local Mac', exact: true });
+    await local.scrollIntoViewIfNeeded();
+    const localBox = (await local.boundingBox())!;
+    const headerBox = (await panel.locator('.agent-settings-header').boundingBox())!;
+    const footerBox = (await panel.locator('.workspace-controls-footer').boundingBox())!;
+    expect(localBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+    expect(localBox.y + localBox.height).toBeLessThanOrEqual(footerBox.y + 1);
+    await local.click();
+    await expect(panel.getByRole('button', { name: 'Close agent settings' })).toBeInViewport();
+    await expect(panel.getByText('Chat settings', { exact: true })).toBeInViewport();
+    expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    await page.screenshot({ path: testInfo.outputPath(`short-chat-settings-${appearance}.png`) });
+    await panel.getByRole('button', { name: 'Close agent settings' }).click();
+    await expect(panel).toBeHidden();
+    await expect(input).toHaveValue('Keep my draft');
+    await expect(input).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );

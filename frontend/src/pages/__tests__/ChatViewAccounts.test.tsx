@@ -637,7 +637,19 @@ it('keeps mobile session details inside the expanded workspace controls', async 
   expect(screen.getByText('Isolated workspace').closest('[hidden]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
   expect(screen.getByText('Isolated workspace').closest('[hidden]')).toBeNull();
-  const summary = screen.getByText('Session details', { selector: '.workspace-controls summary' });
+  const identity = document.querySelector('.composer-session-details');
+  expect(identity).not.toBeNull();
+  expect(Array.from(identity!.querySelectorAll('dt'), (item) => item.textContent)).toEqual([
+    'Account',
+    'Agent',
+    'Model',
+    'Thinking level',
+    'Run on',
+    'Agent software',
+    'Workspace',
+    'Branch',
+  ]);
+  const summary = screen.getByText('Session details', { selector: '.status-details summary' });
   fireEvent.click(summary);
   expect(summary.closest('details')?.textContent).toContain('session/mobile');
   expect(summary.closest('details')?.textContent).toContain('mobile-worktree');

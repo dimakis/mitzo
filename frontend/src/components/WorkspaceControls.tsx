@@ -113,6 +113,19 @@ export function WorkspaceControls({
             freeMessages);
       }
       panel.style.setProperty('--workspace-disclosure-space', `${Math.max(0, space)}px`);
+      const heading = owner.querySelector<HTMLElement>('.workspace-controls-heading');
+      const viewport = window.visualViewport;
+      const viewportBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+      const navigation = document.querySelector('.workspace-tabs')?.getBoundingClientRect();
+      const bottom = navigation?.height ? Math.min(viewportBottom, navigation.top) : viewportBottom;
+      panel.style.setProperty(
+        '--workspace-disclosure-viewport-space',
+        `${Math.max(0, bottom - (heading ?? owner).getBoundingClientRect().bottom)}px`,
+      );
+      const controlHeight = Number.parseFloat(
+        getComputedStyle(owner).getPropertyValue('--control-height'),
+      );
+      panel.toggleAttribute('data-constrained', space < 6 * controlHeight);
     };
     const observer = new ResizeObserver(measure);
     // Account selection and repository preparation can add a new launch surface
