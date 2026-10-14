@@ -22,6 +22,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Bounded Vertex response transport for complete approved website reads.
+  '../symposium-host-tool-bus.py':
+    '0a214810f54fd435ffb56adf80f917062c60e3cdf334f88e5aaf429c1f6eb44c',
+  '../symposium-host-tool-mcp.py':
+    '2cb79bc6ae7f3f02fa0156100c3cbc74524a0523279d873d1851d085a6b19cb5',
   // Explicit web-search budgets and inert readable-page extraction.
   '../web-page-content.ts': '9458f1d3d38a9e637a69edb0f38b727f93b7ed63db231bf382334e0f4c684d9d',
   '../request-web-access.ts': '592474d722988313871b11141c9d53fbd7a683ecea63afb586c4482d772cad42',

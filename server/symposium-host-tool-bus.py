@@ -5,8 +5,12 @@ claim, operation = sys.argv[1:]
 if not re.fullmatch('[a-f0-9]{64}', claim):
     raise ValueError('Invalid claim')
 DATA_LIMIT = 1024 * 1024
-raw = sys.stdin.buffer.read(DATA_LIMIT + 1)
-if len(raw) > DATA_LIMIT:
+# Trusted host replies include full page text, link metadata and JSON escaping.
+# Model requests and setup retain their existing narrower limits.
+RESPONSE_LIMIT = 32 * 1024 * 1024
+input_limit = RESPONSE_LIMIT if operation == 'put' else DATA_LIMIT
+raw = sys.stdin.buffer.read(input_limit + 1)
+if len(raw) > input_limit:
     raise ValueError('Input too large')
 data = json.loads(raw or b'{}')
 if operation == 'setup':
@@ -28,12 +32,12 @@ try:
             info = os.fstat(fd)
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > limit:
                 raise ValueError('Unsafe bus file')
-        def write(name, value):
+        def write(name, value, limit=DATA_LIMIT):
             encoded = value.encode('utf8')
-            if len(encoded) > DATA_LIMIT: raise ValueError('Output too large')
+            if len(encoded) > limit: raise ValueError('Output too large')
             fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=bus)
             try:
-                regular(fd, DATA_LIMIT)
+                regular(fd, limit)
                 with os.fdopen(fd, 'wb', closefd=False) as output: output.write(encoded)
             finally: os.close(fd)
         if operation == 'setup':
@@ -60,7 +64,7 @@ try:
         elif operation == 'put':
             identifier = data['id']
             if not re.fullmatch('[a-f0-9-]{36}', identifier): raise ValueError('Invalid call identity')
-            write(identifier + '.tmp', json.dumps(data['response']))
+            write(identifier + '.tmp', json.dumps(data['response']), RESPONSE_LIMIT)
             os.rename(identifier + '.tmp', identifier + '.response', src_dir_fd=bus, dst_dir_fd=bus)
             print('{}')
         elif operation == 'close':

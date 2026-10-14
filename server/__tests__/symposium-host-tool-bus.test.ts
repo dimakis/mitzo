@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import * as Bridge from '../symposium-host-tool-bridge.js';
 import { hostToolBusScript, hostToolMcpScript } from '../symposium-host-tool-bridge.js';
+import { fetchApprovedUrl } from '../approved-url-fetch.js';
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -26,6 +27,7 @@ async function fixture() {
         { maxBuffer: 1024 * 1024, cwd: root, env: { ...process.env, PYTHONPATH: root } },
         (error, stdout) => (error ? reject(error) : resolve(stdout)),
       );
+      child.stdin!.on('error', reject);
       child.stdin!.end(JSON.stringify(input));
     });
   return { root, digest, run, bus: join(root, digest, 'host-access') };
@@ -100,6 +102,64 @@ it('refuses linked request files instead of reading a path outside the claimed b
   await symlink(outside, join(f.bus, '12345678-1234-1234-1234-123456789abc.request'));
   await expect(f.run('take')).rejects.toThrow();
   expect(await readFile(outside, 'utf8')).toBe('secret');
+});
+
+it.each([
+  ['large readable page', 'Article text. '.repeat(90000)],
+  ['maximum page with JSON expansion', '\u0000'.repeat(2 * 1024 * 1024)],
+])('round-trips a %s through the actual host bus and MCP shim', async (_label, body) => {
+  const f = await fixture();
+  await f.run('setup', {
+    definitions: [
+      { name: 'RequestWebAccess', description: 'Read', input_schema: { type: 'object' } },
+    ],
+    shim: hostToolMcpScript,
+  });
+  const child = spawn('python3', [...Bridge.hostToolPythonFlags, join(f.bus, 'mcp.py'), f.bus], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { PATH: process.env.PATH },
+  });
+  let output = '';
+  child.stdout.on('data', (chunk) => {
+    output += chunk;
+  });
+  child.stdin.write(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: {
+        name: 'RequestWebAccess',
+        arguments: { operation: 'fetch', url: 'https://example.com/', reason: 'Read article' },
+      },
+    }) + '\n',
+  );
+  try {
+    let calls: { id: string }[] = [];
+    for (let tick = 0; tick < 100 && !calls.length; tick++) {
+      calls = JSON.parse(await f.run('take'));
+      if (!calls.length) await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(calls).toHaveLength(1);
+    const target = {
+      url: 'https://example.com/',
+      origin: 'https://example.com',
+      addresses: [{ address: '93.184.216.34', family: 4 }],
+    };
+    const content = await fetchApprovedUrl(target.url, target, new AbortController().signal, {
+      resolve: async () => target,
+      read: async () => ({ status: 200, type: 'text/plain', body }),
+    });
+    await f.run('put', { id: calls[0].id, response: { content, isError: false } });
+    for (let tick = 0; tick < 200 && !output.endsWith('\n'); tick++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    const response = JSON.parse(output);
+    expect(response.result.isError).toBe(false);
+    expect(response.result.content[0].text).toBe(content);
+  } finally {
+    child.kill();
+    await f.run('close');
+  }
 });
 
 it('ignores hostile workspace Python modules and PYTHONPATH in the controller helper', async () => {
