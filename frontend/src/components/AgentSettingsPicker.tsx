@@ -103,6 +103,27 @@ export function AgentSettingsPicker({
           pixels(surfaceStyle.rowGap) * Math.max(0, (surface?.children.length ?? 1) - 1)
         : 0;
       reserved += surfaceSpacing;
+      const chrome = [
+        ...panel.querySelectorAll<HTMLElement>('.agent-settings-header, .agent-settings-footer'),
+      ].reduce((height, element) => height + occupied(element), 0);
+      const panelStyle = getComputedStyle(panel);
+      const body = panel.querySelector<HTMLElement>('.agent-settings-scroll');
+      const bodyStyle = body ? getComputedStyle(body) : null;
+      const insets =
+        pixels(panelStyle.borderTopWidth) +
+        pixels(panelStyle.borderBottomWidth) +
+        (bodyStyle ? pixels(bodyStyle.paddingTop) + pixels(bodyStyle.paddingBottom) : 0);
+      const controls = [
+        ...(body?.querySelectorAll<HTMLElement>('select, input, button, a[href], textarea') ?? []),
+      ].filter((control) => !control.closest('[hidden], [aria-hidden="true"]'));
+      const controlHeight = controls.reduce(
+        (height, control) => Math.max(height, control.getBoundingClientRect().height),
+        pixels(panelStyle.getPropertyValue('--control-height')) || 44,
+      );
+      // Border-box chrome and scroll padding must leave a full control row.
+      // If it cannot fit, the surrounding composer owns the excess height.
+      const minimumHeight = chrome + insets + controlHeight;
+      const minimum = `${minimumHeight}px`;
       if (wrapper && !newConversation) {
         const outside = [...siblings]
           .filter((sibling) => !wrapper.contains(sibling))
@@ -111,12 +132,7 @@ export function AgentSettingsPicker({
           0,
           Math.min(boundary, surfaceBottom) - top - outside - surfaceSpacing,
         );
-        const chromeHeight = [
-          ...panel.querySelectorAll<HTMLElement>('.agent-settings-header, .agent-settings-footer'),
-        ].reduce((height, element) => height + occupied(element), 0);
-        const control = pixels(getComputedStyle(panel).getPropertyValue('--control-height')) || 44;
-        const fallback =
-          Math.min(boundary, surfaceBottom) - top - reserved < chromeHeight + control;
+        const fallback = Math.min(boundary, surfaceBottom) - top - reserved < minimumHeight;
         const maxHeight = fallback ? `${wrapperBudget}px` : previousWrapperStyle!.maxHeight;
         const overflowY = fallback ? 'auto' : previousWrapperStyle!.overflowY;
         const flexShrink = fallback ? '1' : previousWrapperStyle!.flexShrink;
@@ -128,6 +144,7 @@ export function AgentSettingsPicker({
         owner,
         ...[composer, wrapper, chat].filter((node): node is HTMLElement => !!node),
         ...siblings,
+        ...controls,
       ]);
       for (const node of next)
         if (!observed.has(node)) {
@@ -139,18 +156,9 @@ export function AgentSettingsPicker({
           observer?.unobserve(node);
           observed.delete(node);
         }
-      const chrome = [
-        ...panel.querySelectorAll<HTMLElement>('.agent-settings-header, .agent-settings-footer'),
-      ].reduce((height, element) => height + occupied(element), 0);
-      // A preparation card or large-text draft may consume all free space. Keep
-      // the dismissal controls and one scrollable control row intact; the
-      // surrounding conversation scroll surface then owns the extra height.
-      const controlHeight =
-        pixels(getComputedStyle(panel).getPropertyValue('--control-height')) || 44;
-      const minimum = `${chrome + controlHeight}px`;
       if (panel.style.getPropertyValue('--agent-settings-minimum') !== minimum)
         panel.style.setProperty('--agent-settings-minimum', minimum);
-      const available = `${Math.max(chrome + controlHeight, Math.min(boundary, surfaceBottom) - top - reserved)}px`;
+      const available = `${Math.max(minimumHeight, Math.min(boundary, surfaceBottom) - top - reserved)}px`;
       if (panel.style.getPropertyValue('--agent-settings-space') !== available)
         panel.style.setProperty('--agent-settings-space', available);
     };

@@ -199,6 +199,19 @@ it('reserves heading and repository space as preparation grows and the viewport 
 });
 
 it('keeps dismissal and a control row available when preparation consumes free space', () => {
+  const actualStyle = window.getComputedStyle.bind(window);
+  const styles = vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
+    const style = actualStyle(element);
+    if (element.classList.contains('agent-settings-panel')) {
+      Object.defineProperty(style, 'borderTopWidth', { value: '1px', configurable: true });
+      Object.defineProperty(style, 'borderBottomWidth', { value: '1px', configurable: true });
+    }
+    if (element.classList.contains('agent-settings-scroll')) {
+      Object.defineProperty(style, 'paddingTop', { value: '8px', configurable: true });
+      Object.defineProperty(style, 'paddingBottom', { value: '8px', configurable: true });
+    }
+    return style;
+  });
   const bounds = vi
     .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
     .mockImplementation(function (this: HTMLElement) {
@@ -213,7 +226,9 @@ it('keeps dismissal and a control row available when preparation consumes free s
               : this.classList.contains('agent-settings-header') ||
                   this.classList.contains('agent-settings-footer')
                 ? 60
-                : 0;
+                : this.tagName === 'SELECT'
+                  ? 56
+                  : 0;
       return {
         top: 0,
         bottom: height,
@@ -237,11 +252,15 @@ it('keeps dismissal and a control row available when preparation consumes free s
     );
     fireEvent.click(screen.getByRole('button', { name: /Luna, High, OpenShell/ }));
     const panel = screen.getByRole('region', { name: 'Agent settings' });
-    expect(panel.style.getPropertyValue('--agent-settings-minimum')).toBe('164px');
-    expect(panel.style.getPropertyValue('--agent-settings-space')).toBe('164px');
+    expect(panel.style.getPropertyValue('--agent-settings-minimum')).toBe('194px');
+    expect(panel.style.getPropertyValue('--agent-settings-space')).toBe('194px');
+    expect(
+      Number.parseFloat(panel.style.getPropertyValue('--agent-settings-space')) - 120 - 18,
+    ).toBe(56);
     fireEvent.click(screen.getByRole('button', { name: 'Close agent settings' }));
     expect(screen.queryByRole('region', { name: 'Agent settings' })).toBeNull();
   } finally {
+    styles.mockRestore();
     bounds.mockRestore();
   }
 });

@@ -635,8 +635,37 @@ test('Bound Agent settings keeps Close and Done reachable with a long draft in s
       name: 'Local Mac',
       exact: true,
     });
-    await local.scrollIntoViewIfNeeded();
-    await expect(local).toBeInViewport();
+    for (const control of [
+      panel.getByRole('combobox', { name: 'Account', exact: true }),
+      panel.getByRole('combobox', { name: 'Model', exact: true }),
+      local,
+    ]) {
+      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeInViewport();
+      const contained = await control.evaluate((element) => {
+        const body = element.closest<HTMLElement>('.agent-settings-scroll')!;
+        const style = getComputedStyle(body);
+        const viewport = body.getBoundingClientRect();
+        const field = element.getBoundingClientRect();
+        const top = viewport.top + body.clientTop + parseFloat(style.paddingTop);
+        const bottom =
+          viewport.top + body.clientTop + body.clientHeight - parseFloat(style.paddingBottom);
+        const left = viewport.left + body.clientLeft + parseFloat(style.paddingLeft);
+        const right =
+          viewport.left + body.clientLeft + body.clientWidth - parseFloat(style.paddingRight);
+        return {
+          usableHeight: bottom - top,
+          height: field.height,
+          top: field.top - top,
+          bottom: bottom - field.bottom,
+          left: field.left - left,
+          right: right - field.right,
+        };
+      });
+      expect(contained.usableHeight + 1).toBeGreaterThanOrEqual(contained.height);
+      for (const inset of [contained.top, contained.bottom, contained.left, contained.right])
+        expect(inset).toBeGreaterThanOrEqual(-1);
+    }
     const close = panel.getByRole('button', { name: 'Close agent settings', exact: true });
     await close.scrollIntoViewIfNeeded();
     await expect(close).toBeInViewport();

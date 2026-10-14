@@ -1,7 +1,7 @@
 import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { AdviserSubscriptions } from './AdviserSubscriptions';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import type { WorkspaceSummary } from '../types/workspace';
@@ -519,7 +519,7 @@ function SessionAccountModelPicker({
       ? { id: selection.accountId ?? '', label: 'Unavailable account', models: [] }
       : undefined);
   if (!account) return <span role="alert">Selected account is unavailable. Reopen the task.</span>;
-  return (
+  const fields = (
     <>
       {subscriptionLogin}
       {draftUnavailable && (
@@ -622,6 +622,7 @@ function SessionAccountModelPicker({
           {aliasError && <span role="alert">{aliasError}</span>}
         </form>
       )}
+
       <PickerField label="Model" visible={draftOnly || presentation === 'settings'}>
         <select
           disabled={disabled || !!requiredSelection || lockAccountModel}
@@ -678,6 +679,7 @@ function SessionAccountModelPicker({
           </select>
         </PickerField>
       )}
+
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
       )}
@@ -741,6 +743,28 @@ function SessionAccountModelPicker({
           Refresh models
         </button>
       )}
+    </>
+  );
+  if (presentation !== 'settings') return fields;
+  const children = Children.toArray(fields.props.children);
+  const modelIndex = children.findIndex(
+    (child) =>
+      isValidElement<{ label?: string }>(child) &&
+      child.type === PickerField &&
+      child.props.label === 'Model',
+  );
+  const thinkingIndex = children.findIndex(
+    (child) =>
+      isValidElement<{ label?: string }>(child) &&
+      child.type === PickerField &&
+      child.props.label === 'Thinking level',
+  );
+  const end = thinkingIndex >= 0 ? thinkingIndex + 1 : modelIndex + 1;
+  return (
+    <>
+      <div className="account-model-settings-account">{children.slice(0, modelIndex)}</div>
+      <div className="account-model-settings-pair">{children.slice(modelIndex, end)}</div>
+      <div className="account-model-settings-utilities">{children.slice(end)}</div>
     </>
   );
 }

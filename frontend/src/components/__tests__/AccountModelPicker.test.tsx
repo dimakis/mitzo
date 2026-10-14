@@ -1266,3 +1266,42 @@ it('reports editable staged settings separately while the new account awaits con
     reasoningEffort: 'high',
   });
 });
+
+it('settings keeps Model and Thinking paired while legacy-route account alias utilities open', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          models: [{ id: 'luna', label: 'Luna', reasoningEfforts: ['low', 'high'] }],
+        },
+      ]),
+    ),
+  );
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="luna"
+      presentation="settings"
+      onChange={vi.fn()}
+    />,
+  );
+  const model = await screen.findByRole('combobox', { name: 'Model' });
+  const thinking = screen.getByRole('combobox', { name: 'Thinking level' });
+  const pair = model.closest('.account-model-settings-pair');
+  expect(pair).not.toBeNull();
+  expect(pair).toBe(thinking.closest('.account-model-settings-pair'));
+  expect(pair?.contains(screen.getByRole('button', { name: 'Edit account alias' }))).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit account alias' }));
+  expect(
+    screen
+      .getByRole('textbox', { name: 'Account alias' })
+      .closest('.account-model-settings-account'),
+  ).toBeTruthy();
+  expect(pair?.contains(screen.getByRole('textbox', { name: 'Account alias' }))).toBe(false);
+  expect(model.closest('.account-model-settings-pair')).toBe(pair);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('textbox', { name: 'Account alias' })).toBeNull();
+  expect(model.closest('.account-model-settings-pair')).toBe(pair);
+});

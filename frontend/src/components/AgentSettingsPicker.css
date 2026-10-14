@@ -222,3 +222,41 @@
     grid-row: 1;
   }
 }
+
+.agent-settings-panel .chat-agent-profile label {
+  align-items: stretch;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+.agent-settings-panel .chat-agent-profile select {
+  width: 100%;
+  max-width: 100%;
+}
+
+.agent-settings-account-model > .account-model-settings-account,
+.agent-settings-account-model > .account-model-settings-pair,
+.agent-settings-account-model > .account-model-settings-utilities {
+  grid-column: 1 / -1;
+}
+.account-model-settings-account,
+.account-model-settings-utilities {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.account-model-settings-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+}
+.account-model-settings-utilities:empty {
+  display: none;
+}
+@container agent-settings (max-width: 450px) {
+  .account-model-settings-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

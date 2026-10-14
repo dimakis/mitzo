@@ -288,3 +288,111 @@ test('References: historical links and observed tools are not outputs', async ({
   await page.screenshot({ path: testInfo.outputPath('references.png'), animations: 'disabled' });
   expect(errors).toEqual([]);
 });
+
+test('Ordinary legacy Agent settings keeps Model and Thinking paired while saving an account alias', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const width = isMobile ? 390 : 1280;
+  await page.setViewportSize({ width, height: isMobile ? 844 : 900 });
+  const errors = await fixture(page);
+  const sends: string[] = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'POST' && /^\/api\/chat\/(?:runtime\/|local-codex\/)?send$/.test(path))
+      sends.push(path);
+  });
+  await page.route('**/api/accounts', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'fixture-account',
+          label: 'Fixture account',
+          provider: 'anthropic-vertex',
+          models: [
+            {
+              id: 'fixture-model',
+              label: 'Fixture model',
+              reasoningEfforts: ['low', 'high'],
+              defaultReasoningEffort: 'high',
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  const aliasWrites: unknown[] = [];
+  await page.route('**/api/accounts/fixture-account/alias', (route) => {
+    expect(route.request().method()).toBe('PUT');
+    aliasWrites.push(route.request().postDataJSON());
+    return route.fulfill({ json: { label: 'Reviewed billing account' } });
+  });
+  await page.goto('/chat');
+  const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+  const draft = 'Retain this unsent draft while reviewing the billing alias';
+  await input.fill(draft);
+  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+  const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
+  await expect(panel).toBeVisible();
+  const account = panel.getByRole('combobox', { name: 'Account', exact: true });
+  const model = panel.getByRole('combobox', { name: 'Model', exact: true });
+  const thinking = panel.getByRole('combobox', { name: 'Thinking level', exact: true });
+  await expect(account).toHaveValue('fixture-account');
+  await expect(model).toHaveValue('fixture-model');
+  await expect(thinking).toHaveValue('high');
+  const send = page.getByRole('button', { name: 'Start session', exact: true });
+  await expect(send).toBeDisabled();
+  async function assertFields() {
+    const modelBox = (await model.boundingBox())!;
+    const thinkingBox = (await thinking.boundingBox())!;
+    const accountBox = (await account.boundingBox())!;
+    if (isMobile) {
+      expect(thinkingBox.y).toBeGreaterThan(modelBox.y);
+      expect(Math.abs(thinkingBox.x - modelBox.x)).toBeLessThanOrEqual(1);
+    } else {
+      expect(Math.abs(thinkingBox.y - modelBox.y)).toBeLessThanOrEqual(1);
+      expect(thinkingBox.x).toBeGreaterThan(modelBox.x + modelBox.width);
+      expect(accountBox.width).toBeGreaterThan(modelBox.width);
+    }
+    expect(Math.abs(accountBox.x - modelBox.x)).toBeLessThanOrEqual(1);
+    expect(modelBox.y).toBeGreaterThan(accountBox.y + accountBox.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await expect(input).toHaveValue(draft);
+  }
+  await assertFields();
+  const rename = panel.getByRole('button', { name: 'Edit account alias', exact: true });
+  const renameBox = (await rename.boundingBox())!;
+  expect(renameBox.y + renameBox.height).toBeLessThanOrEqual((await model.boundingBox())!.y);
+  await rename.click();
+  const alias = panel.getByRole('textbox', { name: 'Account alias', exact: true });
+  await expect(alias).toHaveValue('Fixture account');
+  await alias.fill('Reviewed billing account');
+  expect((await alias.boundingBox())!.y + (await alias.boundingBox())!.height).toBeLessThanOrEqual(
+    (await model.boundingBox())!.y,
+  );
+  await assertFields();
+  await page.screenshot({
+    path: testInfo.outputPath(`local-approved-agent-settings-legacy-alias-${width}-editor.png`),
+    fullPage: true,
+  });
+  await panel.getByRole('button', { name: 'Save alias', exact: true }).click();
+  await expect(alias).toHaveCount(0);
+  await expect(account.locator('option:checked')).toHaveText('Reviewed billing account');
+  await expect(send).toBeDisabled();
+  await assertFields();
+  await account.selectOption('fixture-account');
+  await expect(send).toBeEnabled();
+  await expect(model).toHaveValue('fixture-model');
+  await expect(thinking).toHaveValue('high');
+  await expect(input).toHaveValue(draft);
+  expect(aliasWrites).toEqual([{ alias: 'Reviewed billing account' }]);
+  expect(sends).toEqual([]);
+  await page.screenshot({
+    path: testInfo.outputPath(`local-approved-agent-settings-legacy-alias-${width}-saved.png`),
+    fullPage: true,
+  });
+  expect(errors).toEqual([]);
+});

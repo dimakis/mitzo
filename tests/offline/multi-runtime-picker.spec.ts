@@ -195,6 +195,102 @@ async function narrowMobileEvidence(
   await page.setViewportSize({ width: 390, height: 844 });
 }
 
+test('Approved composer clean saved-design reference aligns Agent and Account fields', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offlinePicker(page, 'light');
+  const mobile = testInfo.project.name.startsWith('mobile');
+  const width = mobile ? 390 : 1280;
+  const height = mobile ? 844 : 900;
+  await page.setViewportSize({ width, height });
+  await page.addInitScript(() => {
+    localStorage.setItem('mitzo-accent', 'lavender');
+    localStorage.setItem('mitzo-font', 'system');
+    localStorage.setItem('mitzo-workspace-controls-expanded', '0');
+  });
+  await page.goto('/chat?agentProfile=agent&profileRevision=1');
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  if ((await workspace.getAttribute('aria-expanded')) === 'true') await workspace.click();
+  const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+  const draft =
+    'Refine the approvals flow in Mitzo. Keep the mobile layout consistent with Connections.';
+  await input.fill(draft);
+  await openAgentSettings(page);
+  const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
+  const agent = panel.getByRole('combobox', { name: 'Agent', exact: true });
+  const account = panel.getByRole('combobox', { name: 'Account', exact: true });
+  await account.selectOption('api');
+  const model = panel.getByRole('combobox', { name: 'Model', exact: true });
+  await model.selectOption('shell-model');
+  await panel.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await panel.getByRole('button', { name: 'Done', exact: true }).click();
+  await openAgentSettings(page);
+  await expect(panel.getByRole('combobox')).toHaveCount(4);
+  expect(
+    await panel
+      .getByRole('combobox')
+      .evaluateAll((controls) => controls.map((control) => control.getAttribute('aria-label'))),
+  ).toEqual(['Agent', 'Account', 'Model', 'Thinking level']);
+  await expect(agent).toHaveValue(JSON.stringify(['saved', 'agent', 1]));
+  await expect(account).toHaveValue('api');
+  await expect(model).toHaveValue('shell-model');
+  await expect(panel.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
+    'high',
+  );
+  const body = panel.locator('.agent-settings-body');
+  await body.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(agent).toBeInViewport();
+  const geometry = await agent.evaluate((element) => {
+    const label = element.closest('label')!.getBoundingClientRect();
+    const accountLabel = document
+      .querySelector<HTMLSelectElement>('.agent-settings-panel select[aria-label="Account"]')!
+      .closest('label')!
+      .getBoundingClientRect();
+    const field = element.getBoundingClientRect();
+    return {
+      labels: Math.abs(label.left - accountLabel.left),
+      field: Math.abs(label.width - field.width),
+    };
+  });
+  expect(geometry.labels).toBeLessThanOrEqual(1);
+  expect(geometry.field).toBeLessThanOrEqual(1);
+  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toHaveCount(0);
+  await expect(input).toBeInViewport();
+  await expect(page.getByRole('navigation', { name: 'Main navigation' }).first()).toBeInViewport();
+  const bounds = (await panel.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(height);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath(`local-approved-agent-settings-clean-${width}-top.png`),
+    fullPage: true,
+  });
+  const runOn = panel.getByRole('group', { name: 'Run on', exact: true });
+  await expect(runOn.getByRole('button')).toHaveCount(2);
+  await expect(runOn.getByRole('button', { name: 'OpenShell', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  const local = runOn.getByRole('button', { name: 'Local Mac', exact: true });
+  await local.scrollIntoViewIfNeeded();
+  await expect(local).toBeInViewport();
+  await expect(panel.getByText('Runs with Codex', { exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
+  await expect(input).toHaveValue(draft);
+  await expect(input).toBeInViewport();
+  await expect(page.getByRole('navigation', { name: 'Main navigation' }).first()).toBeInViewport();
+  await page.screenshot({
+    path: testInfo.outputPath(`local-approved-agent-settings-clean-${width}-cards.png`),
+    fullPage: true,
+  });
+  expect(fixture.forbidden).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 test('Approved composer retains a long trusted agent name without horizontal overflow', async ({
   page,
 }, testInfo) => {

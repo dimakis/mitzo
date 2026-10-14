@@ -54,7 +54,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/client-store.ts':
     '74b4fb663607649429a29639ab1a7c5ad8f5a35d5564e1e475e965f13121d974',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    '63981ce704b29e7f880ecd45b3e070901d8c30d066eb6c285149d5402bf32adc',
+    'dd5cc07732c38dc72d277e0ada85ac3a9b4b6407108ab3d65befe75d2146b49f',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
     '168cd6ef908fbdf1876e2efd28c5af8121cb1a7feeac07e12c0e7f4e1a795e76',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
@@ -564,9 +564,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f6b45e7b9dd2d365fe3bb162cb08ecc4e07604ce468936cc21d634f0a8d70062',
   // Ordinary Codex continuation, persistent login revocation and physical custody.
   '../../frontend/src/components/AgentSettingsPicker.css':
-    '9b689f7e47b61b7b3a13f801702187579c5a36f99f85c8249d1fb2dcdf40e588',
+    '3387b3aac6fdd0c6a8e9811130a4b132addbef1597066754bf1d0c43aeb5eb10',
   '../../frontend/src/components/AgentSettingsPicker.tsx':
-    '571473d94e619446d608cc3b339a279403c69c3b20e32fb1c1a876db264884d8',
+    '17f2b1abbfaf196142ce41309ce8a5fea5846be7c91c80b61c8c493e935a1fdd',
   '../../frontend/src/components/UiIcon.tsx':
     '811a15dfb81c1a21b6fa29b7418b753edca17a7cc7c3ad1453b48121c1fd89df',
 });
