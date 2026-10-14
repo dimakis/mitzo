@@ -77,7 +77,20 @@ for (const appearance of ['dark', 'light'] as const) {
     await expect(input).toBeFocused();
     await expect(input).toHaveValue('Keep my draft');
     if (mobile) {
+      await expect(page.getByRole('navigation')).toBeVisible();
+      await page.evaluate(() => {
+        Object.defineProperty(window.visualViewport!, 'height', {
+          value: innerHeight - 280,
+          configurable: true,
+        });
+        window.visualViewport!.dispatchEvent(new Event('resize'));
+      });
       await expect(page.getByRole('navigation')).toBeHidden();
+      await page.evaluate(() => {
+        Reflect.deleteProperty(window.visualViewport!, 'height');
+        window.visualViewport!.dispatchEvent(new Event('resize'));
+      });
+      await expect(page.getByRole('navigation')).toBeVisible();
       await page.setViewportSize({ width: 320, height: 500 });
       await trigger.click();
       await expect(panel).toBeVisible();

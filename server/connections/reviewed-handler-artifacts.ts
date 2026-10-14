@@ -51,7 +51,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-artifact-route-composition.ts':
     '8d9e87e2a2873f0dc841429a5b9a43b93aa194237e4f9594b572e87bff27142b',
   '../../frontend/src/styles/workspace-chat.css':
-    'e19a0a1e79700403d95ed1b5a0ddb30b23033c154e7a86734f9d53afac58fac9',
+    '5b06c675bb3b3e922398dea0162772770adda724de8d6bd7872402eed20d5c75',
   // Explicit Local draft selection, exact-request delivery and bound conversation controls.
   '../../frontend/src/client-store.ts':
     '74b4fb663607649429a29639ab1a7c5ad8f5a35d5564e1e475e965f13121d974',
@@ -61,6 +61,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '168cd6ef908fbdf1876e2efd28c5af8121cb1a7feeac07e12c0e7f4e1a795e76',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     'd857eabe124ac2ae9bdf9d40c7aedfd06e9d0a9b50ae26b83d58f56e7da7317a',
+  '../../frontend/src/lib/keyboard.ts':
+    'e381be95aa3388afc2e179455aa8ea6ffce5632668e1736d5b0903d08164dbf5',
   '../../frontend/src/components/ChatInput.tsx':
     '2e859b30e540dea4cb54e1270ce644953f9a9c2792b1c4c1cf39853e0bf38bb2',
   '../../frontend/src/components/ComposerTools.tsx':

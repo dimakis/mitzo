@@ -140,8 +140,10 @@ account confirmation, runtime binding and preparation locks still apply.
 The dropdown scrolls within the available space above the composer on phones.
 The shared fields, motion presence, UiIcon, semantic colors, spacing/type/radius
 scales and 44px control targets remain in use. New phone sessions and restored
-drafts do not request keyboard focus on mount. While typing, the mobile navigation
-yields its height to the conversation and composer.
+drafts do not request keyboard focus on mount. While the software keyboard is visible, mobile navigation yields its height to
+the conversation and composer. Native keyboard events or the browser visual
+viewport determine that state; ordinary focus, browser chrome and pinch zoom
+must not toggle navigation or shift the composer.
 
 Workspace remains for conversation details and operational controls. OpenShell is
 the default; Local Mac is deliberate. Resolve only pristine unselected target

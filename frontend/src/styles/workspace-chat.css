@@ -1453,8 +1453,7 @@
   font: inherit;
 }
 @media (max-width: 767px) {
-  body:has(.chat-page.keyboard-open) .workspace-tabs,
-  body:has(.chat-page .chat-input-field:focus) .workspace-tabs {
+  body:has(.chat-page.keyboard-open) .workspace-tabs {
     display: none;
   }
 }
@@ -1510,8 +1509,7 @@
   margin-right: var(--space-1);
 }
 @media (max-width: 767px) {
-  .chat-page.workspace-chat.keyboard-open,
-  .chat-page.workspace-chat:has(.chat-input-field:focus) {
+  .chat-page.workspace-chat.keyboard-open {
     bottom: 0;
   }
   .workspace-chat .workspace-controls > .motion-disclosure:not([hidden]) {
