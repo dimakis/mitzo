@@ -128,7 +128,12 @@ mobile and desktop. Reuse its workspace controls and token styles. OpenShell is
 the default; Local Mac is deliberate. Resolve only pristine unselected target
 intent from trusted inventory, and preserve stale/unavailable account, model,
 thinking and target choices with a useful reason. Runs with describes the derived
-software rather than adding another runtime control.
+software rather than adding another runtime control. An unbound retained
+account whose exact reference is missing or changed displays a disabled confirmation
+option in the existing Account select. Selecting the real catalogue account
+explicitly confirms its current tuple in one step, retaining model, thinking and
+draft content. Opening the control, changing other settings or reviewing execution
+choices never confirms billing; bound accounts stay locked.
 
 Bound ordinary Codex, Responses, Claude and Gemini conversations lock account, exact profile identity and execution target. Supported Codex/Responses/Claude scope enables model/thinking edits for future commands, normal guarded follow-ups and the native queue. Gemini shows its original-model/thinking constraint and retains changed intent with explicit refusal; it does not promise unsupported future settings. Each queued
 request keeps its original settings snapshot. Consumed receipt settings are labelled Last submitted command, distinct from the future picker selection. Unsupported mode/context/web helpers

@@ -829,6 +829,7 @@ export function ChatView() {
                   explicitNew || localRuntime.continuation
                     ? {
                         accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
+                        accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
                         selection: localRuntime.intent.account,
                         onAccountChange: (selection) =>
                           localRuntime.update(

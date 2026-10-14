@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
+import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -275,3 +276,55 @@ it('shows the original native constraint rather than promising unsupported futur
   expect(screen.getByText(reason)).toBeInTheDocument();
   expect(screen.queryByText('Model and thinking changes apply to the next message.')).toBeNull();
 });
+
+it.each([false, true])(
+  'offers one explicit Account confirmation while retaining invalid settings and locked binding (%s)',
+  async (locked) => {
+    const accountChanged = vi.fn(),
+      settingsChanged = vi.fn();
+    const data = localInventoryFixture();
+    render(
+      <AccountModelPicker
+        sessionId={null}
+        preferredModel=""
+        onChange={settingsChanged}
+        lockAccount={locked}
+        controlled={{
+          accounts: data.accounts.map((entry) => ({ ...entry, id: entry.account.accountId })),
+          selection: {
+            accountId: 'personal',
+            model: 'removed-model',
+            reasoningEffort: 'removed-thinking',
+          },
+          accountNeedsConfirmation: true,
+          onChange: settingsChanged,
+          onAccountChange: accountChanged,
+        }}
+      />,
+    );
+    const account = screen.getByRole('combobox', { name: 'Account' });
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('removed-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveValue('removed-thinking');
+    if (locked) {
+      expect(account).toHaveValue('personal');
+      expect(account).toBeDisabled();
+      expect(screen.queryByRole('option', { name: /^Confirm account:/ })).toBeNull();
+    } else {
+      expect(account).not.toHaveValue('personal');
+      expect(
+        screen.getByRole('option', { name: 'Confirm account: Personal ChatGPT' }),
+      ).toBeDisabled();
+      await userEvent.setup().click(account);
+      expect(accountChanged).not.toHaveBeenCalled();
+      expect(settingsChanged).not.toHaveBeenCalled();
+      await userEvent.setup().selectOptions(account, 'personal');
+      expect(accountChanged).toHaveBeenCalledOnce();
+      expect(accountChanged).toHaveBeenCalledWith({
+        accountId: 'personal',
+        model: 'removed-model',
+        reasoningEffort: 'removed-thinking',
+      });
+    }
+    expect(settingsChanged).not.toHaveBeenCalled();
+  },
+);

@@ -12,6 +12,7 @@ import { localInventoryFixture } from '../../test-utils/local-inventory-fixture'
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { getChatDraft } from '../../lib/chat-drafts';
 import '@testing-library/jest-dom/vitest';
+import userEvent from '@testing-library/user-event';
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ center }: { center: React.ReactNode }) => <div>{center}</div>,
 }));
@@ -636,7 +637,7 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
-  it(`${name}: a one-account legacy draft confirms billing only through clear and explicit Account replacement`, async () => {
+  it(`${name}: a one-account legacy draft confirms billing through one explicit Account choice`, async () => {
     const fixture = localInventoryFixture();
     const replacement = {
       ...fixture.accounts[0].account,
@@ -648,7 +649,8 @@ for (const [name, Screen] of [
       accounts: [
         { ...fixture.accounts[0], label: 'Replacement API account', account: replacement },
       ],
-      routes: [{ ...fixture.routes[0], account: replacement }],
+      targets: [{ ...fixture.targets[0], harness: 'responses' as const }],
+      routes: [{ ...fixture.routes[0], account: replacement, harness: 'responses' as const }],
     };
     const { draft, localSend, legacySend } = setup(Screen, true, false, false, false, false, data);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
@@ -658,13 +660,17 @@ for (const [name, Screen] of [
     expect(screen.getAllByText(/account identity is unconfirmed/i).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: 'Use these Local choices' }));
     expect(getChatDraft(draft.id)?.settings.runtimeSelection?.accountReference).toBeFalsy();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: '' } });
-    expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('');
+    const accountControl = screen.getByRole('combobox', { name: 'Account' });
+    const pending = screen.getByRole('option', {
+      name: 'Confirm account: Replacement API account',
+    });
+    expect(pending).toBeDisabled();
+    expect(accountControl).not.toHaveValue('personal');
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection?.account?.accountId).toBe('personal');
     expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('luna-fixture');
     expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveValue('low');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
-      target: { value: 'personal' },
-    });
+    await userEvent.setup().selectOptions(accountControl, 'personal');
+    expect(accountControl).toHaveValue('personal');
     expect(getChatDraft(draft.id)?.settings.runtimeSelection).toMatchObject({
       accountReference: replacement,
       account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },

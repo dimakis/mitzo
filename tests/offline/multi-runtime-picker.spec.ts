@@ -341,9 +341,41 @@ for (const appearance of ['light', 'dark'] as const) {
     page,
   }, testInfo) => {
     const fixture = await offlinePicker(page, appearance, { inventory: mixedGoogleInventory() });
+    const confirmationDraftId = `account-confirm-${appearance}`;
+    await page.addInitScript((id) => {
+      const account = { accountId: 'api', model: 'shell-model', reasoningEffort: 'high' };
+      localStorage.setItem(
+        `mitzo-chat-draft:${id}`,
+        JSON.stringify({
+          version: 1,
+          id,
+          text: 'Keep this development draft across environments',
+          images: [],
+          contextBlocks: [],
+          updatedAt: Date.now(),
+          settings: {
+            selection: account,
+            retainRuntimeIntent: true,
+            repositoryWorkspaceId: null,
+            mode: 'agent',
+            isolation: true,
+            search: 'agentProfile=agent&profileRevision=1',
+            summary: null,
+            runtimeSelection: {
+              version: 1,
+              account,
+              accountReference: null,
+              agentProfile: { profileId: 'agent', revision: 1 },
+              execution: { location: 'openshell', targetId: null },
+              capabilityRevision: null,
+            },
+          },
+        }),
+      );
+    }, confirmationDraftId);
     if (testInfo.project.name.startsWith('mobile'))
       await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/chat?agentProfile=agent&profileRevision=1');
+    await page.goto(`/chat?draft=${confirmationDraftId}&agentProfile=agent&profileRevision=1`);
     // Exercise larger text without changing the application's shared token palette.
     await page.addStyleTag({ content: 'html { font-size: 20px; }' });
     const account = page.getByRole('combobox', { name: 'Account', exact: true });
@@ -353,7 +385,38 @@ for (const appearance of ['light', 'dark'] as const) {
     const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
     await expect(environment).toHaveValue('openshell');
     await expect(environment.locator('option')).toHaveText(['OpenShell', 'Local Mac']);
+    await expect(account.locator('option:checked')).toHaveText('Confirm account: API billing');
+    await expect(account.locator('option:checked')).toHaveAttribute('disabled', '');
+    await expect(account).not.toHaveValue('api');
+    await expect(model).toHaveValue('shell-model');
+    await expect(thinking).toHaveValue('high');
+    await expect(composer).toHaveValue('Keep this development draft across environments');
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (id) =>
+            JSON.parse(localStorage.getItem(`mitzo-chat-draft:${id}`)!).settings.runtimeSelection,
+          confirmationDraftId,
+        ),
+      )
+      .toMatchObject({
+        accountReference: null,
+        account: { accountId: 'api', model: 'shell-model', reasoningEffort: 'high' },
+      });
     await account.selectOption('api');
+    await expect(account).toHaveValue('api');
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (id) =>
+            JSON.parse(localStorage.getItem(`mitzo-chat-draft:${id}`)!).settings.runtimeSelection,
+          confirmationDraftId,
+        ),
+      )
+      .toMatchObject({
+        accountReference: { accountId: 'api', provider: 'openai', profileRevision: 'api-r1' },
+        account: { accountId: 'api', model: 'shell-model', reasoningEffort: 'high' },
+      });
     await model.selectOption('shell-model');
     await thinking.selectOption('high');
     await composer.fill('Keep this development draft across environments');

@@ -429,6 +429,7 @@ it('retains copied account routing identity when the same ID changes billing unt
   const { result } = renderHook(() => useExplicitLocalChat('elsewhere', saved, null, true));
   await waitFor(() => expect(result.current.inventory).not.toBeNull());
   expect(result.current.intent.execution.targetId).toBeNull();
+  expect(result.current.accountNeedsConfirmation).toBe(true);
   expect(result.current.intent.accountReference).toEqual(original);
   expect(result.current.reason).toBe(
     'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.',
@@ -451,6 +452,7 @@ it('retains copied account routing identity when the same ID changes billing unt
     ),
   );
   expect(result.current.intent.accountReference).toEqual(changed.accounts[0].account);
+  expect(result.current.accountNeedsConfirmation).toBe(false);
   expect(result.current.reason).toBeUndefined();
 });
 

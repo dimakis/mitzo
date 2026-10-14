@@ -818,6 +818,7 @@ export function DesktopChatView() {
                             localRuntime.intent,
                             localRuntime.inventory,
                           ),
+                          accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
                           selection: localRuntime.intent.account,
                           onAccountChange: (selection) =>
                             localRuntime.update(

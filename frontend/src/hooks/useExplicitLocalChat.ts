@@ -333,6 +333,18 @@ export function useExplicitLocalChat(
                         ? 'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.'
                         : 'The selected account configuration changed. Choose the account again before sending.'
                       : evaluation.issues[0]?.message;
+  const selectedAccountId = selectedIntent.account?.accountId;
+  const accountNeedsConfirmation =
+    !bound &&
+    !!selectedAccountId &&
+    !!inventory?.accounts.some((entry) => entry.account.accountId === selectedAccountId) &&
+    !inventory.accounts.some(
+      (entry) =>
+        entry.account.accountId === selectedAccountId &&
+        entry.account.accountId === selectedIntent.accountReference?.accountId &&
+        entry.account.provider === selectedIntent.accountReference?.provider &&
+        entry.account.profileRevision === selectedIntent.accountReference?.profileRevision,
+    );
   const update = (next: ChatRuntimeSelection, explicitAccountChoice = false) => {
     const identityChanged =
       explicitAccountChoice ||
@@ -389,6 +401,7 @@ export function useExplicitLocalChat(
     agentContext: currentMeta?.agentContext,
     mode: currentMeta?.mode,
     nativeConstraint: currentMeta?.nativeConstraint,
+    accountNeedsConfirmation,
     visible,
     selectedLocal,
     bound,

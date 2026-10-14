@@ -81,6 +81,7 @@ export function AccountModelPicker(
       selection: AccountSelection | null;
       onChange(selection: AccountSelection): void;
       onAccountChange?(selection: AccountSelection): void;
+      accountNeedsConfirmation?: boolean;
     };
   },
 ) {
@@ -747,22 +748,28 @@ function ControlledAccountModelPicker({
   lockAccountModel,
   lockAccount,
   onAccountChange,
+  accountNeedsConfirmation = false,
 }: {
   accounts: Account[];
   selection: AccountSelection | null;
   onChange(selection: AccountSelection): void;
   onAccountChange?(selection: AccountSelection): void;
+  accountNeedsConfirmation?: boolean;
   disabled?: boolean;
   lockAccountModel?: boolean;
   lockAccount?: boolean;
 }) {
   const account = accounts.find((a) => a.id === selection?.accountId);
   const model = account?.models.find((m) => m.id === selection?.model);
+  const pendingAccount = accountNeedsConfirmation && !!account && !lockAccount && !lockAccountModel;
+  let pendingAccountValue = '__mitzo_confirm_account__';
+  while (accounts.some((entry) => entry.id === pendingAccountValue)) pendingAccountValue += '_';
   const field = (
     label: string,
     value: string,
     entries: { id: string; label: string }[],
     change: (value: string) => void,
+    pendingLabel?: string,
   ) => (
     <PickerField label={label} visible>
       <select
@@ -779,7 +786,7 @@ function ControlledAccountModelPicker({
         <option value="">Choose {label.toLowerCase()}</option>
         {value && !entries.some((e) => e.id === value) && (
           <option disabled value={value}>
-            Unavailable {label.toLowerCase()}: {value}
+            {pendingLabel ?? `Unavailable ${label.toLowerCase()}: ${value}`}
           </option>
         )}
         {entries.map((entry) => (
@@ -792,19 +799,25 @@ function ControlledAccountModelPicker({
   );
   return (
     <>
-      {field('Account', selection?.accountId ?? '', accounts, (id) => {
-        if (!id && selection) {
-          (onAccountChange ?? onChange)({ ...selection, accountId: undefined });
-          return;
-        }
-        const chosen = accounts.find((a) => a.id === id);
-        if (chosen)
-          (onAccountChange ?? onChange)({
-            accountId: id,
-            model: selection?.model ?? chosen.models[0]?.id ?? '',
-            reasoningEffort: selection?.reasoningEffort ?? null,
-          });
-      })}
+      {field(
+        'Account',
+        pendingAccount ? pendingAccountValue : (selection?.accountId ?? ''),
+        accounts,
+        (id) => {
+          if (!id && selection) {
+            (onAccountChange ?? onChange)({ ...selection, accountId: undefined });
+            return;
+          }
+          const chosen = accounts.find((a) => a.id === id);
+          if (chosen)
+            (onAccountChange ?? onChange)({
+              accountId: id,
+              model: selection?.model ?? chosen.models[0]?.id ?? '',
+              reasoningEffort: selection?.reasoningEffort ?? null,
+            });
+        },
+        pendingAccount ? `Confirm account: ${account!.label}` : undefined,
+      )}
       {field('Model', selection?.model ?? '', account?.models ?? [], (id) => {
         if (selection && id) onChange({ ...selection, model: id });
       })}
