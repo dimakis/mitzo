@@ -88,3 +88,11 @@ location and software. Identical target IDs across environments cannot change th
 selected route or software. Older ambiguous projections refuse selection. These
 changes preserve the picker and retain authentication/billing with the selected
 account. Fresh hosted evidence and independent review are required for this head.
+
+Accepted main's prompt preparation and transport latency changes preserve the
+guarded queue and final host effect fences. After integration, 430 focused offline
+checks passed across native conversation, host effects, query retirement,
+knowledge preparation, original queue custody and the development round trip.
+Saved Claude workspace recovery uses the actual persisted `anthropic-vertex`
+provider; both durable history APIs now recover its original workspace. Current
+head hosted CI and independent source acceptance remain required.
