@@ -123,16 +123,11 @@ export function useExplicitLocalChat(
         const next = ExplicitLocalInventorySchema.parse(body);
         setInventory(next);
         const pendingIntent = latestIntent.current;
-        const pendingReference =
-          pendingIntent.accountReference ??
-          next.accounts.find(
-            (entry) => entry.account.accountId === pendingIntent.account?.accountId,
-          )?.account ??
-          null;
-        const targetId = resolveRuntimeTarget(
-          { ...pendingIntent, accountReference: pendingReference },
-          next,
-        );
+        const pendingReference = pendingIntent.accountReference ?? null;
+        const targetId =
+          pendingIntent.account?.accountId && !pendingReference
+            ? null
+            : resolveRuntimeTarget(pendingIntent, next);
         if (
           !scope.current.sessionId &&
           pendingIntent.capabilityRevision === null &&
@@ -293,70 +288,69 @@ export function useExplicitLocalChat(
             : undefined
           : enrollment !== 'on'
             ? error || 'Execution choices are unavailable. Refresh to retry.'
-            : selectedIntent.execution.location === 'openshell' &&
-                inventory?.locations.some(
-                  (entry) => entry.location === 'openshell' && entry.status === 'unavailable',
-                )
-              ? ((inventory &&
-                  normalizeLocalInventory(inventory).locations.find(
-                    (location) => location.location === 'openshell' && !location.available,
-                  )?.reason) ??
-                evaluation.issues[0]?.message)
-              : !selectedIntent.agentProfile
-                ? 'Choose a published agent revision before sending.'
-                : selectedIntent.accountReference &&
-                    inventory?.accounts.some(
-                      (entry) =>
-                        entry.account.accountId === selectedIntent.accountReference!.accountId &&
-                        (entry.account.provider !== selectedIntent.accountReference!.provider ||
-                          entry.account.profileRevision !==
-                            selectedIntent.accountReference!.profileRevision),
-                    )
-                  ? inventory.accounts.find(
-                      (entry) =>
-                        entry.account.accountId === selectedIntent.accountReference!.accountId,
-                    )?.account.provider !== selectedIntent.accountReference.provider
-                    ? 'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.'
-                    : 'The selected account configuration changed. Choose the account again before sending.'
-                  : evaluation.issues[0]?.message;
+            : selectedIntent.account?.accountId && !selectedIntent.accountReference
+              ? 'The selected account identity is unconfirmed. Choose the account again to confirm authentication and billing before sending.'
+              : selectedIntent.execution.location === 'openshell' &&
+                  inventory?.locations.some(
+                    (entry) => entry.location === 'openshell' && entry.status === 'unavailable',
+                  )
+                ? ((inventory &&
+                    normalizeLocalInventory(inventory).locations.find(
+                      (location) => location.location === 'openshell' && !location.available,
+                    )?.reason) ??
+                  evaluation.issues[0]?.message)
+                : !selectedIntent.agentProfile
+                  ? 'Choose a published agent revision before sending.'
+                  : selectedIntent.accountReference &&
+                      inventory?.accounts.some(
+                        (entry) =>
+                          entry.account.accountId === selectedIntent.accountReference!.accountId &&
+                          (entry.account.provider !== selectedIntent.accountReference!.provider ||
+                            entry.account.profileRevision !==
+                              selectedIntent.accountReference!.profileRevision),
+                      )
+                    ? inventory.accounts.find(
+                        (entry) =>
+                          entry.account.accountId === selectedIntent.accountReference!.accountId,
+                      )?.account.provider !== selectedIntent.accountReference.provider
+                      ? 'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.'
+                      : 'The selected account configuration changed. Choose the account again before sending.'
+                    : evaluation.issues[0]?.message;
   const update = (next: ChatRuntimeSelection, explicitAccountChoice = false) => {
     const identityChanged =
       explicitAccountChoice ||
       next.account?.accountId !== selectedIntent.account?.accountId ||
       next.execution.location !== selectedIntent.execution.location;
-    const referenced = {
-      ...next,
-      accountReference:
-        explicitAccountChoice ||
-        !next.accountReference ||
-        next.accountReference.accountId !== next.account?.accountId
-          ? (inventory?.accounts.find(
-              (entry) => entry.account.accountId === next.account?.accountId,
-            )?.account ?? next.accountReference)
-          : next.accountReference,
-    };
+    const matchingAccounts = inventory?.accounts.filter(
+      (entry) => entry.account.accountId === next.account?.accountId,
+    );
+    // Only the Account action can accept a current public identity. Capability
+    // review, environment/model edits and hydration cannot adopt unknown billing.
+    const accountReference = !next.account?.accountId
+      ? null
+      : explicitAccountChoice
+        ? matchingAccounts?.length === 1
+          ? matchingAccounts[0].account
+          : null
+        : next.accountReference?.accountId === next.account.accountId
+          ? next.accountReference
+          : null;
+    const referenced = { ...next, accountReference };
     const reviewed = inventory
       ? {
-          ...next,
-          accountReference: !next.account?.accountId
-            ? null
-            : explicitAccountChoice ||
-                !next.accountReference ||
-                next.accountReference.accountId !== next.account?.accountId
-              ? (inventory.accounts.find(
-                  (entry) => entry.account.accountId === next.account?.accountId,
-                )?.account ?? next.accountReference)
-              : next.accountReference,
+          ...referenced,
           execution: {
             ...next.execution,
             targetId:
               identityChanged || next.execution.targetId === null
-                ? resolveRuntimeTarget(referenced, inventory)
+                ? next.account?.accountId && !accountReference
+                  ? null
+                  : resolveRuntimeTarget(referenced, inventory)
                 : next.execution.targetId,
           },
           capabilityRevision: inventory.capabilityRevision,
         }
-      : next;
+      : referenced;
     if (sessionId) {
       if (
         continuation &&

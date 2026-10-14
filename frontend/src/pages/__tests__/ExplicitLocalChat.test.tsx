@@ -547,3 +547,51 @@ for (const [name, Screen] of [
     expect(store.getState().sessions.active).toBeNull();
   });
 }
+
+for (const [name, Screen] of [
+  ['mobile', ChatView],
+  ['desktop', DesktopChatView],
+] as const) {
+  it(`${name}: a one-account legacy draft confirms billing only through clear and explicit Account replacement`, async () => {
+    const fixture = localInventoryFixture();
+    const replacement = {
+      ...fixture.accounts[0].account,
+      provider: 'openai' as const,
+      profileRevision: 'replacement-api',
+    };
+    const data = {
+      ...fixture,
+      accounts: [
+        { ...fixture.accounts[0], label: 'Replacement API account', account: replacement },
+      ],
+      routes: [{ ...fixture.routes[0], account: replacement }],
+    };
+    const { draft, localSend, legacySend } = setup(Screen, true, false, false, false, false, data);
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    await screen.findByRole('option', { name: 'Replacement API account' });
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    expect(screen.getAllByText(/account identity is unconfirmed/i).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Use these Local choices' }));
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection?.accountReference).toBeFalsy();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: '' } });
+    expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('luna-fixture');
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveValue('low');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+      target: { value: 'personal' },
+    });
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection).toMatchObject({
+      accountReference: replacement,
+      account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+    });
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: 'hello',
+      images: draft.images,
+      contextBlocks: draft.contextBlocks,
+    });
+    expect(screen.getByTestId('draft')).toHaveTextContent('hello');
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
+}

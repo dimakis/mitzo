@@ -76,7 +76,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
     '4c009cd0b30ef5c507c47310a535c5f94be85f553d6224eac04db37383db73d7',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    'f3722ab485f72fd6f09baaa542e1088ed65781e9aebf1daeb0c9e0365e7d28ac',
+    '2dfc038f291773b59cc86fc65d76c8479d569f8aa887350206457cc10619ce4a',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '63427b971465eab55442c1f38cf99e9cf546cb0853ec552a45fc1191758150ae',
   '../../frontend/src/lib/chat-drafts.ts':
