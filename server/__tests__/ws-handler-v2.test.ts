@@ -2957,6 +2957,37 @@ describe('dispatchV2Message', () => {
     expect(stopChat).toHaveBeenCalledWith('driver-1');
   });
 
+  it.each([
+    { type: 'session_event_applied', sessionId: 'sess-1', seq: 6 },
+    {
+      type: 'reconnect_snapshot_applied',
+      sessionId: 'sess-1',
+      cursor: 5,
+      offerId: '12345678-1234-4123-8123-123456789abc',
+    },
+  ])('does not queue $type behind provider admission', async (message) => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    const ack =
+      message.type === 'session_event_applied'
+        ? vi.spyOn(ctx.connRegistry, 'ackAppliedEvent').mockReturnValue(true)
+        : vi.spyOn(ctx.connRegistry, 'ackAppliedSnapshot').mockReturnValue(true);
+    const stalledAdmission = new Promise<void>(() => {});
+    const errors: unknown[] = [];
+    const result = scheduleV2Message(
+      stalledAdmission,
+      'c1',
+      transport,
+      JSON.stringify(message),
+      ctx,
+      (error) => errors.push(error),
+    );
+    expect(ack).toHaveBeenCalledOnce();
+    expect(result).toBe(stalledAdmission);
+    expect(errors).toEqual([]);
+  });
+
   it('lets stop bypass a pending send while ordinary messages remain FIFO', async () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();

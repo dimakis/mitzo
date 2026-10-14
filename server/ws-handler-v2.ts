@@ -2101,7 +2101,7 @@ export async function dispatchV2Message(
 
 /**
  * Keep ordinary messages in receive order, while allowing controls that can
- * break a stalled provider admission to run immediately.
+ * break a stalled provider admission or confirm delivery to run immediately.
  */
 export function scheduleV2Message(
   chain: Promise<void>,
@@ -2117,7 +2117,11 @@ export function scheduleV2Message(
     const parsed = IncomingWsMessageV2.safeParse(rawMessage);
     isControl =
       rawMessage.type === 'permission_response' ||
-      (parsed.success && (parsed.data.type === 'stop' || parsed.data.type === 'interrupt'));
+      (parsed.success &&
+        (parsed.data.type === 'stop' ||
+          parsed.data.type === 'interrupt' ||
+          parsed.data.type === 'session_event_applied' ||
+          parsed.data.type === 'reconnect_snapshot_applied'));
   } catch {
     // Malformed messages stay on the ordinary FIFO and are ignored by dispatch.
   }
