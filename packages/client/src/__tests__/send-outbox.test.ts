@@ -11,6 +11,24 @@ const ack = (id = 'one') =>
 afterEach(() => vi.useRealTimers());
 
 describe('send outbox', () => {
+  it.each([429, 500, 503])(
+    'preserves HTTP %s backoff despite verified stream connectivity',
+    async (status) => {
+      vi.useFakeTimers();
+      const fetch = vi.fn().mockResolvedValueOnce({ status }).mockResolvedValueOnce(ack());
+      const outbox = new SendOutbox({ fetch, notify: vi.fn(), url: '/send' });
+      outbox.start();
+      outbox.enqueue(prompt, 0);
+      await vi.advanceTimersByTimeAsync(0);
+      outbox.wake();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
+      outbox.stop();
+    },
+  );
   it('wakes a saved retry on verified connectivity without overlapping delivery or changing identity', async () => {
     vi.useFakeTimers();
     let resolve!: (response: Response) => void;
