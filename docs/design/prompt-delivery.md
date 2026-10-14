@@ -144,6 +144,14 @@ send suppression and authentication loss. The deterministic HTTP integration
 fixture verifies lost acknowledgements produce one SDK input after reconnect.
 No real model call is required for these contracts.
 
+The reviewed Connections runtime revision advances to `v1.0.119`, with only the
+four changed runtime source fingerprints updated. Source fingerprint checks and
+provider policy versions remain enforced. Guarded host/OpenShell runtime contract
+identities include that reviewed code closure; activation must qualify the
+selected source-bound runtime configuration through its existing owning
+procedure. No retained private runtime receipt or staging configuration is
+rewritten by this source change.
+
 Runtime acceptance remains separate. The canonical staging check refused with
 uncertain custodian state both inside and outside Seatbelt. Its retained
 owned-custodian topology is also outside the ordinary readiness pipeline's
