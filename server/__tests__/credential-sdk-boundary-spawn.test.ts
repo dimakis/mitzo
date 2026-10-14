@@ -141,7 +141,7 @@ it('permits selected ADC reads while OS policy denies authority writes in arbitr
     expect(payload.config.filesystem.denyWrite).toContain(directory);
     expect(payload.config.filesystem.denyRead).not.toContain(directory);
     expect(payload.config.filesystem.denyRead).not.toContain(adc);
-    expect(payload.env.GOOGLE_APPLICATION_CREDENTIALS).toBe(adc);
+    expect(payload.env?.GOOGLE_APPLICATION_CREDENTIALS).toBe(adc);
     expect(payload.authority).toBeDefined();
   } finally {
     handle.emit('close', 0, null);
