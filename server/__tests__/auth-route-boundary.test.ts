@@ -53,9 +53,14 @@ describe('authentication HTTP failure boundary', () => {
       maxAgeHours: 1,
       cookieName: 'test_auth',
     });
-    const session = (await auth.authenticateToken((await auth.login('offline passphrase'))!))!;
+    const token = (await auth.login('offline passphrase'))!;
+    const session = (await auth.authenticateToken(token))!;
+    let readUnavailable = true;
     auth.setRevocationStore({
-      isAuthSessionRevoked: () => false,
+      isAuthSessionRevoked: () => {
+        if (readUnavailable) throw Error('private database read failure');
+        return false;
+      },
       revokeAuthSession: () => {
         throw Error('private database path');
       },
@@ -63,7 +68,7 @@ describe('authentication HTTP failure boundary', () => {
     const response = await invoke(
       authenticationRoute(
         async (_req, res) => {
-          auth.revokeOperatorSessions([session]);
+          auth.revokeOperatorSessions([await auth.verifyLogoutToken(token)]);
           res.json({ ok: true });
         },
         { warn: vi.fn(), logoutCookie: 'test_auth' },
@@ -77,6 +82,7 @@ describe('authentication HTTP failure boundary', () => {
       httpOnly: true,
       sameSite: 'strict',
     });
+    readUnavailable = false;
     expect(auth.isSessionRevoked(session)).toBe(true);
   });
 });

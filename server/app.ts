@@ -226,6 +226,7 @@ import {
   operatorAuthMiddleware,
   registerAuthSession,
   revokeOperatorSessions,
+  verifyLogoutToken,
   COOKIE_NAME,
   MAX_AGE_HOURS,
   type AuthSession,
@@ -1030,7 +1031,7 @@ app.post(
       const tokens = [
         ...new Set([bearer, cookie].filter((token): token is string => Boolean(token))),
       ];
-      const sessions = await Promise.all(tokens.map((token) => authenticateToken(token)));
+      const sessions = await Promise.all(tokens.map((token) => verifyLogoutToken(token)));
       revokeOperatorSessions(sessions, (id) => custodianControllerClient?.invalidate(id));
       res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
       res.json({ ok: true });
