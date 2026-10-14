@@ -2575,6 +2575,7 @@ test('failed briefing registration survives a completed turn and reload without 
   await page.reload();
   await expect(retry).toBeVisible();
   await retained();
+  await page.getByText('More options', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
   const alert = page.getByRole('alert').filter({ has: retry });
   const geometry = await alert.evaluate((element) => {
@@ -2968,6 +2969,7 @@ test('profile draft cards appear in conversation and save without opening Worksp
           'data-motion-active',
           'true',
         );
+        await page.getByText('More options', { exact: true }).click();
         await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
         if (next === 'empty')
           await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
