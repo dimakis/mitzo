@@ -5916,6 +5916,7 @@ export async function sendOwnedLocalResponsesCommand(input: {
   sessionId: string;
   command: unknown;
   operatorConnectionId: string;
+  signal?: AbortSignal;
 }) {
   const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
   captured.assertCurrent();
@@ -5928,7 +5929,7 @@ export async function sendOwnedLocalResponsesCommand(input: {
     eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation !== 'responses'
   )
     throw Error('Owned Local Responses unavailable');
-  const result = await owner.admit(input.command);
+  const result = await owner.admit(input.command, input.signal);
   return { ...result, sessionId: input.sessionId };
 }
 export async function startOwnedLocalResponsesCommand(
@@ -6052,8 +6053,8 @@ export async function startOwnedLocalResponsesCommand(
         authSessionId: owner.authSessionId,
         identity: owner,
         initialCommandId: selected.commandId,
-        admit: async (raw) => {
-          const result = await owner.admitContinuation(raw);
+        admit: async (raw, preparationSignal) => {
+          const result = await owner.admitContinuation(raw, preparationSignal);
           if (result.dispatched) {
             echo((raw as { clientMsgId: string }).clientMsgId);
             void pump();

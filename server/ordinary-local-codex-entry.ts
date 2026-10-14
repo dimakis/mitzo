@@ -496,7 +496,12 @@ export function createOwnedLocalCodexEntryRouter(
         const resultCommand =
           input.runtime.harness === 'responses'
             ? continuation && existingOwner
-              ? await sendOwnedLocalResponsesCommand({ sessionId, command, operatorConnectionId })
+              ? await sendOwnedLocalResponsesCommand({
+                  sessionId,
+                  command,
+                  operatorConnectionId,
+                  signal: controller.signal,
+                })
               : await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
                   command,
                   reservation,

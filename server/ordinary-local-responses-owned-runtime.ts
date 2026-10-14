@@ -479,15 +479,20 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
   admitResume(input: unknown) {
     return this.admitCommand(input, true, true);
   }
-  admitContinuation(input: unknown) {
-    return this.admitCommand(input, true, false);
+  admitContinuation(input: unknown, preparationSignal?: AbortSignal) {
+    return this.admitCommand(input, true, false, preparationSignal);
   }
   private async admitCommand(
     raw: unknown,
     continuation: boolean,
     resume: boolean,
+    preparationSignal?: AbortSignal,
   ): Promise<{ dispatched: boolean }> {
-    this.assertOwner();
+    const assertAdmissionCurrent = () => {
+      preparationSignal?.throwIfAborted();
+      this.assertOwner();
+    };
+    assertAdmissionCurrent();
     this.manager();
     this.pruneCancelledAuthorities();
     const request = OrdinaryLocalResponsesCommandRequestSchema.parse(raw);
@@ -573,7 +578,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       ) =>
         operation({
           assertCurrent: async () => {
-            this.assertOwner();
+            assertAdmissionCurrent();
             this.manager();
             loadAccountProfiles().validateModelSelection(
               original,
@@ -581,7 +586,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
               expected.selection.thinking,
             );
             await selected.assertCurrent(expected);
-            this.assertOwner();
+            assertAdmissionCurrent();
           },
         }),
     };
@@ -594,8 +599,12 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       declaration: this.#target.admissionDeclaration(),
       authority,
       store: {
-        admitOrdinaryLocalCommand: events.admitOrdinaryLocalResponsesCommand.bind(events),
+        admitOrdinaryLocalCommand: (meta, binding, input) => {
+          assertAdmissionCurrent();
+          return events.admitOrdinaryLocalResponsesCommand(meta, binding, input);
+        },
         admitOrdinaryLocalContinuation: (meta, binding, input) => {
+          assertAdmissionCurrent();
           if (
             !events.getOrdinaryLocalResponsesCommandAdmission(input.clientMsgId) &&
             this.owners.nativeStore.queue(this.owners.reservation.conversationId, original).queued
@@ -604,9 +613,14 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
             throw unavailable();
           return events.admitOrdinaryLocalResponsesContinuation(meta, binding, input);
         },
-        claimOrdinaryLocalCommandDispatch:
-          events.claimOrdinaryLocalResponsesCommandDispatch.bind(events),
-        completeOrdinaryLocalCommand: events.completeOrdinaryLocalResponsesCommand.bind(events),
+        claimOrdinaryLocalCommandDispatch: (id) => {
+          assertAdmissionCurrent();
+          return events.claimOrdinaryLocalResponsesCommandDispatch(id);
+        },
+        completeOrdinaryLocalCommand: (id) => {
+          assertAdmissionCurrent();
+          return events.completeOrdinaryLocalResponsesCommand(id);
+        },
       },
     });
     const meta = {
@@ -626,7 +640,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
         : coordinator.admit.bind(coordinator)
     )(meta, admittedRequest, {
       prepareWorkspace: async (expected) => {
-        this.assertOwner();
+        assertAdmissionCurrent();
         if (continuation) {
           await this.owners.workspace.validateHostTask(meta.sessionId, expected.workspace.cwd);
           workspace = this.owners.workspace.getForConversation(meta.sessionId);
@@ -635,7 +649,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
             ...this.owners.reservation,
             signal: this.#signal,
           });
-        this.assertOwner();
+        assertAdmissionCurrent();
         if (
           !workspace ||
           workspace.state !== 'claimed' ||
@@ -645,7 +659,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
           throw unavailable();
       },
       dispatch: async (expected, commandId) => {
-        this.assertOwner();
+        assertAdmissionCurrent();
         const custody = {
           version: 1 as const,
           authSessionId: this.authSessionId,
@@ -666,6 +680,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
           payload: structuredClone(frozenPayload),
         });
         this.owners.nativeStore.enqueueCommand(meta.sessionId, original, commandId);
+        assertAdmissionCurrent();
         await (continuation && !resume ? this.owners.dispatchContinuation! : this.owners.dispatch)({
           owner: this,
           expected,

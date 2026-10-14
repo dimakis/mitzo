@@ -44,7 +44,7 @@ export interface ManagedSession {
     authSessionId: string;
     identity: object;
     initialCommandId: string;
-    admit(command: unknown): Promise<{ dispatched: boolean }>;
+    admit(command: unknown, preparationSignal?: AbortSignal): Promise<{ dispatched: boolean }>;
     retryInitial(command: unknown): Promise<{ dispatched: boolean }>;
     close(): void;
   };

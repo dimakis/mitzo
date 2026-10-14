@@ -432,6 +432,66 @@ it('dispatches consumed API commands through the actual chat owner and retains t
     }),
   ).resolves.toMatchObject({ status: 202 });
   await vi.waitFor(() => expect(requests).toHaveLength(9));
+  const { OrdinaryLocalCodexSelectionOwner } =
+    await import('../ordinary-local-codex-selection-owner.js');
+  const originalCurrent = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;
+  let validatingFollowup = false,
+    releaseFollowup!: () => void,
+    entryDeadline!: () => void;
+  const followupGate = new Promise<void>((resolve) => {
+    releaseFollowup = resolve;
+  });
+  const selectionProbe = vi
+    .spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrent')
+    .mockImplementation(async function (
+      this: InstanceType<typeof OrdinaryLocalCodexSelectionOwner>,
+      expected,
+    ) {
+      if (expected.selection.model === 'next-model') {
+        validatingFollowup = true;
+        await followupGate;
+      }
+      return originalCurrent.call(this, expected);
+    });
+  const originalTimer = globalThis.setTimeout;
+  const timerProbe = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    callback: () => void,
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (delay === 120000) entryDeadline = callback;
+    return originalTimer(callback, delay, ...args);
+  }) as typeof setTimeout);
+  const beforeDeadlineQueue = native.queue(f.reservation.conversationId, f.reservation.binding);
+  const activeOwner = chat.registry.findBySessionId(f.reservation.conversationId)!.session
+    .ordinaryRuntimeOwner;
+  const deadlineFollowup = invoke('/continue', {
+    ...wire,
+    sessionId: f.reservation.conversationId,
+    clientMsgId: 'expired-live-followup',
+    selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
+    payload: { text: 'Do not accept expired request' },
+  });
+  await vi.waitFor(() => expect(validatingFollowup).toBe(true));
+  entryDeadline();
+  releaseFollowup();
+  await expect(deadlineFollowup).resolves.toMatchObject({ status: 409 });
+  expect(
+    chat.eventStore.getOrdinaryLocalResponsesCommandAdmission('expired-live-followup')?.state,
+  ).not.toBe('consumed');
+  expect(native.queue(f.reservation.conversationId, f.reservation.binding)).toEqual(
+    beforeDeadlineQueue,
+  );
+  expect(
+    chat.registry.findBySessionId(f.reservation.conversationId)!.session.ordinaryRuntimeOwner,
+  ).toBe(activeOwner);
+  expect(
+    chat.registry.findBySessionId(f.reservation.conversationId)!.session.abortController.signal
+      .aborted,
+  ).toBe(false);
+  expect(requests).toHaveLength(9);
+  selectionProbe.mockRestore();
+  timerProbe.mockRestore();
   const accepted: Array<{
     clientMsgId: string;
     selection: { model: string; thinking: string | null };

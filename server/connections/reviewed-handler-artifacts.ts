@@ -91,7 +91,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9f3f6cc54fe2a0972949518e228fa008fdd4bb61b89c0706e0204dc776005265',
   '../ordinary-local-codex-entry.ts':
-    '5a902cc670e59bc0deaebd498b52ec37644df5613871eddd6f8d35a2384ede91',
+    '93c2f8b27eccd73ed5c283f2f80f073e900fa97bc3ec6d611cfcbd2f25beb2db',
   '../ordinary-local-codex-metadata.ts':
     '95eeb702ef71016448c62d73649cdfa43f5265839509347775755e70cf608fa2',
   '../ordinary-repository-startup.ts':
@@ -206,10 +206,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': 'a15d8cdcbf3fb016318916c1d2dc90796bce520bdd51a0ffa6753ee7851a4fba',
+  '../chat.ts': 'f2e6a108e8a4bb2e8132f32435438bde8ec93db178bdfa60818d7a6c39e6bf68',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
-    'bccd81b31e6a1444a2b53c67f8ef11524c08bb4f4d95fa3f76c6b79ab4e443f8',
+    'd5b795c7cf178c0cfd3b8e2cb4a2470b4af25af276f02652ba878e09a9a3ca21',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
@@ -500,7 +500,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-responses-capabilities.ts':
     '22c442f7804e3d80a4482427cb2eace8778825d5876b6167686a96f07f65fead',
   '../ordinary-local-responses-owned-runtime.ts':
-    '6d4bba15685033907422257bf30ec68f37d4db8564e3a291878ba42dd58ca859',
+    '62a75399ca13fbfe1577a914abdbf3bad76aca4a05153e3da726de015b9d6146',
   '../ordinary-local-responses-queue.ts':
     '554f9a1352641f367f8a513cd5fde00ce3187465fc03ce2c5f35df807d59ad85',
   '../ordinary-runtime-capability-composition.ts':
