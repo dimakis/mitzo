@@ -161,11 +161,17 @@ The collapsed preview retains delegated-agent counts, running state and failures
 including failures inside nested agents. Permission requests stay outside the
 section so they remain actionable.
 
-Ordinary conversations do not show an **Outputs** panel or **Keep as output**
-controls. Stored output references, contributor histories and their APIs remain
-available; removing the chat panel does not delete existing work. Independent
-outputs and ordinary contributors remain an implementation slice requiring
-separate canonical staging and live acceptance before activation.
+Ordinary conversations keep output selection out of the transcript. Open
+**Workspace → Collaborate** to select a finalized draft, keep its exact
+conversation reference and invite an independent contributor using an eligible
+existing account. Work is loaded only when you open that view. Contributors keep
+separate conversations, attributed replies and Stop controls, including when they
+reuse one account. API contributors on the configured ordinary Codex/OpenShell
+route require Agent or Auto mode. Closing the view does not stop accepted work.
+The parent chat remains ordinary; a conversation reference is not independently
+retained content. Runtime-bound conversations need their own contributor adapter.
+Separate canonical staging enrollment and live acceptance remain required before
+activation; full runtime-picker parity and dedicated setup retirement remain open.
 
 ## Repository-backed chats (opt-in)
 
@@ -186,7 +192,7 @@ Initial support covers regular-file GitHub projects up to 10,000 files and 64 Mi
 - **Connections with clear account evidence** — setup, authentication checks and last successful use are shown separately. Services show identity, configured permissions and scope; older credential checks do not imply a broken connection. Distinct GitHub providers are labelled, unused integrations produce no warning cards, and web access is explained separately. See [Connections](docs/features/connections.md).
 - **Connect services from your chat** — ask for a task that needs Home Assistant or a documented REST API. The assistant prepares the connection and opens a focused secure credential form; Mitzo verifies the key privately and returns readiness to the originating chat. Authentication settings stay out of the ordinary flow, and detailed agent guidance loads only when needed. See [Chat-led service connections](docs/features/chat-led-connections.md).
 
-Experimental [Symposium conversations](docs/features/symposium.md) combine independently configured contributors with selected context, attributed results and explicit Stop controls. The current direction puts artifacts first and reuses ordinary account/session execution; that integration is not yet accepted. The [current acceptance checklist](docs/features/symposium-integrated-acceptance.md) distinguishes the next conversation slice from historical review/publication work. Provider sign-in, physical runtime admission and live acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
+Experimental [Symposium conversations](docs/features/symposium.md) combine independently configured contributors with selected context, attributed results and explicit Stop controls. The current direction puts artifacts first and reuses ordinary account/session execution; the full runtime-picker and legacy-retirement cutover remains unfinished. The [current acceptance checklist](docs/features/symposium-integrated-acceptance.md) distinguishes the next conversation slice from historical review/publication work. Provider sign-in, physical runtime admission and live acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
 
 Choose **Create with advisor** in Agent Library to open **Agent Builder**, then describe the agent you need. The builder can inspect existing profiles and create editable draft cards in ordinary OpenAI API, Gemini/Vertex, Claude SDK and Codex chats. Pending drafts appear directly in the conversation on mobile and desktop, with **Save reusable profile** and a confirmation linking to the Library. New profiles receive an ID automatically. **Workspace → Reusable profile drafts** retains manual drafting and loading/empty/error feedback. Saving makes the profile available for new chats; existing chats keep their selected revision. See [reusable profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes).
 

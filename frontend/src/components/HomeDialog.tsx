@@ -3,6 +3,25 @@ import { createPortal } from 'react-dom';
 import { UiIcon } from './UiIcon';
 import '../styles/home.css';
 
+const bodyScrollLocks = new WeakMap<HTMLElement, { owners: Set<symbol>; overflow: string }>();
+
+function lockBodyScroll() {
+  const body = document.body;
+  const lock = bodyScrollLocks.get(body) ?? {
+    owners: new Set<symbol>(),
+    overflow: body.style.overflow,
+  };
+  bodyScrollLocks.set(body, lock);
+  const owner = Symbol();
+  lock.owners.add(owner);
+  body.style.overflow = 'hidden';
+  return () => {
+    if (!lock.owners.delete(owner) || lock.owners.size) return;
+    body.style.overflow = lock.overflow;
+    bodyScrollLocks.delete(body);
+  };
+}
+
 export function HomeDialog({
   title,
   onClose,
@@ -21,12 +40,11 @@ export function HomeDialog({
   useEffect(() => {
     const dialog = dialogRef.current!;
     const focus = restoreFocus.current;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     dialog.showModal();
+    const releaseScroll = lockBodyScroll();
     return () => {
       dialog.close();
-      document.body.style.overflow = overflow;
+      releaseScroll();
       if (focus instanceof HTMLElement && focus.isConnected) focus.focus();
     };
   }, []);
@@ -40,6 +58,7 @@ export function HomeDialog({
       onKeyDown={(event) => event.stopPropagation()}
       onCancel={(event) => {
         event.preventDefault();
+        event.stopPropagation();
         onClose();
       }}
       onClick={(event) => {

@@ -37,6 +37,7 @@ import {
 import { RepositoryChatDraftNotice } from '../components/RepositoryChatDraftNotice';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
+import { OrdinaryCollaborationEntry } from '../components/OrdinaryCollaborationEntry';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { SessionAccess } from '../components/SessionAccess';
 import { WorkspaceControls } from '../components/WorkspaceControls';
@@ -1116,9 +1117,14 @@ export function DesktopChatView() {
                 />
               )}
               <div className="workspace-session-actions">
-                {activeSessionId && !controlsBlocked && !localBound && (
-                  <AddAgentSheet sessionId={activeSessionId} />
-                )}
+                {activeSessionId &&
+                  !controlsBlocked &&
+                  !localBound &&
+                  (ordinaryControls ? (
+                    <OrdinaryCollaborationEntry sessionId={activeSessionId} />
+                  ) : isSymposium ? (
+                    <AddAgentSheet sessionId={activeSessionId} />
+                  ) : null)}
                 {activeSessionId && (
                   <SymposiumReviewEntry
                     key={activeSessionId}

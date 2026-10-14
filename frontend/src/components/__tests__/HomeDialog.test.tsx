@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { HomeDialog } from '../HomeDialog';
+import { useState } from 'react';
 
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -50,4 +51,84 @@ it('makes a retained closing surface inert and hidden from assistive technology'
   expect(dialog.hasAttribute('inert')).toBe(true);
   expect(dialog.getAttribute('aria-hidden')).toBe('true');
   expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
+});
+
+it('keeps nested cancellation inside its form, including a busy dismissal guard', () => {
+  const outerClose = vi.fn();
+  const innerClose = vi.fn();
+  const view = render(
+    <HomeDialog title="Selected work" onClose={outerClose}>
+      <HomeDialog title="Add contributor" onClose={innerClose}>
+        <input aria-label="Contributor name" />
+      </HomeDialog>
+    </HomeDialog>,
+  );
+  fireEvent(
+    screen.getByRole('dialog', { name: 'Add contributor' }),
+    new Event('cancel', { bubbles: true, cancelable: true }),
+  );
+  expect(innerClose).toHaveBeenCalledOnce();
+  expect(outerClose).not.toHaveBeenCalled();
+  view.rerender(
+    <HomeDialog title="Selected work" onClose={outerClose}>
+      <HomeDialog title="Add contributor" onClose={() => {}}>
+        <input aria-label="Contributor name" />
+      </HomeDialog>
+    </HomeDialog>,
+  );
+  const cancel = new Event('cancel', { bubbles: true, cancelable: true });
+  fireEvent(screen.getByRole('dialog', { name: 'Add contributor' }), cancel);
+  expect(cancel.defaultPrevented).toBe(true);
+  expect(outerClose).not.toHaveBeenCalled();
+  expect(screen.getAllByRole('dialog')).toHaveLength(2);
+});
+
+it('restores the original scroll state when a nested view unmounts together', () => {
+  document.body.style.overflow = 'auto';
+  function View() {
+    const [nested, setNested] = useState(false);
+    return (
+      <HomeDialog title="Selected work" onClose={() => {}}>
+        <button onClick={() => setNested(true)}>Keep output</button>
+        {nested && (
+          <HomeDialog title="Keep output" onClose={() => {}}>
+            Draft
+          </HomeDialog>
+        )}
+      </HomeDialog>
+    );
+  }
+  const view = render(<View />);
+  fireEvent.click(screen.getByRole('button', { name: 'Keep output' }));
+  expect(document.body.style.overflow).toBe('hidden');
+  view.unmount();
+  expect(document.body.style.overflow).toBe('auto');
+  document.body.style.overflow = '';
+});
+
+it('keeps scrolling locked until the last sibling or nested owner closes', () => {
+  function View() {
+    const [outer, setOuter] = useState(true);
+    return (
+      <>
+        {outer && (
+          <HomeDialog title="First" onClose={() => setOuter(false)}>
+            First
+          </HomeDialog>
+        )}
+        <HomeDialog title="Second" onClose={() => {}}>
+          Second
+        </HomeDialog>
+      </>
+    );
+  }
+  const view = render(<View />);
+  fireEvent(
+    screen.getByRole('dialog', { name: 'First' }),
+    new Event('cancel', { bubbles: true, cancelable: true }),
+  );
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  expect(document.body.style.overflow).toBe('hidden');
+  view.unmount();
+  expect(document.body.style.overflow).toBe('');
 });
