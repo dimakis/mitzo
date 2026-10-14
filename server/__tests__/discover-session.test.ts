@@ -80,7 +80,7 @@ describe('importSdkConversation', () => {
       isActive: true,
       summary: 'Controller title',
       cwd: '/controller/worktree',
-      accountBinding: { accountId: 'selected-account', provider: 'anthropic' },
+      accountBinding: { accountId: 'selected-account', provider: 'anthropic-vertex' },
     };
     mockGetSession.mockReturnValue(active);
     mockGetSessionInfo.mockResolvedValue({
@@ -342,7 +342,7 @@ it.each(['getMessages', 'getSessionTranscript'] as const)(
     mockGetSession.mockReturnValue({
       sessionId: 'persisted',
       cwd: null,
-      accountBinding: { provider: 'anthropic' },
+      accountBinding: { provider: 'anthropic-vertex' },
       summary: 'Keep title',
     });
     mockGetSessionInfo.mockResolvedValue({ cwd: '/projects/existing-worktree' });

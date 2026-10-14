@@ -5604,7 +5604,7 @@ async function recoverSessionWorkspace(sessionId: string, dirs?: string[]) {
   // Only Claude SDK history can supply legacy workspace metadata. In
   // particular, a native provider's missing cwd must not scan Claude files.
   const provider = session?.accountBinding?.provider;
-  if (provider && provider !== 'anthropic') return;
+  if (provider && provider !== 'anthropic-vertex') return;
   // Discover directories only after the cheap metadata checks above.
   for (const dir of dirs ?? getSessionDirs()) {
     try {
