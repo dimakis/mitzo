@@ -5,7 +5,7 @@ import type { Request, Response } from 'express';
 import ts from 'typescript';
 import { expect, it, vi } from 'vitest';
 import { ConnectionRegistry } from '@mitzo/harness';
-import { SseConnection } from '../../packages/client/src/sse-connection.js';
+import { SseConnection } from '@mitzo/client';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { SseTransport } from '../sse-transport.js';
 

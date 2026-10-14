@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.127';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.128';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -186,7 +186,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14',
   '../url-access-tool.ts': '5ffa93b5a0d2160d19e144248b679cfea7b120cfe27fbe7cdf6029392eafbb59',
   '../web-access-tool.ts': 'b1444e725ed36a8f9a1d12dc812df56a34e1fd84f86aa4559f521ac0b9c58668',
-  '../index.ts': 'f4352b0f02f16fdc6880ed65dce54a3424fb037a93fc0b84ddf4c1da11be0038',
+  '../index.ts': 'c25c4845e9953c84240601420dbf18b224b05848acb9d60bda526d32d3db321e',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
 
@@ -240,7 +240,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
   '../symposium-production-review-composition.ts':
     '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
-  '../ws-handler-v2.ts': 'd5a44abb1e7561aa3c3f1a731ea3d7ef358d5495b7184a80a157b7548b65486b',
+  '../ws-handler-v2.ts': 'f1420c62d6067a236ce01d5fe4c7704f8c9fa23dde9da778ffc1c30e7757bb5a',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
