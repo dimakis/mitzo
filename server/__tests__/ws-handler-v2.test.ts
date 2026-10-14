@@ -1835,6 +1835,39 @@ describe('handleSendV2 auto-watch', () => {
     expect(callArgs[1]).toBe('c1:sess-resume');
   });
 
+  it.each(['sess-selected', null])(
+    'keeps explicit selection %s after an older launch resolves',
+    async (selection) => {
+      (startChat as ReturnType<typeof vi.fn>).mockClear();
+      const eventStore = mockEventStore();
+      eventStore.getSession.mockImplementation((sessionId: string) => ({
+        sessionId,
+        mode: 'agent',
+      }));
+      const ctx = createContext({
+        eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+      });
+      const transport = mockTransport();
+      ctx.connRegistry.register('c1', transport);
+      await handleSendV2(
+        'c1',
+        transport,
+        {
+          type: 'send',
+          sessionId: null,
+          prompt: 'original launch',
+          clientMsgId: 'late-launch',
+        },
+        ctx,
+      );
+      const options = (startChat as ReturnType<typeof vi.fn>).mock.calls[0][3];
+      await handleSwitchSession('c1', { type: 'switch_session', sessionId: selection }, ctx);
+      options.onSessionResolved('original-session');
+      expect(ctx.connRegistry.get('c1')!.activeSession).toBe(selection);
+      expect(startChat).toHaveBeenCalledOnce();
+    },
+  );
+
   it('passes onSessionResolved callback and uses unique composite clientId on create path', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     const ctx = createContext();
@@ -2957,6 +2990,66 @@ describe('dispatchV2Message', () => {
     expect(stopChat).toHaveBeenCalledWith('driver-1');
   });
 
+  it('keeps navigation newer than a queued send when that send eventually launches', async () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'selected', mode: 'agent' });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    let release!: () => void;
+    const stalled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = scheduleV2Message(
+      stalled,
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'send',
+        sessionId: null,
+        prompt: 'queued launch',
+        clientMsgId: 'queued-launch',
+      }),
+      ctx,
+      (error) => {
+        throw error;
+      },
+    );
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'selected' }, ctx);
+    release();
+    await queued;
+    const options = (startChat as ReturnType<typeof vi.fn>).mock.calls[0][3];
+    options.onSessionResolved('queued-original');
+    expect(ctx.connRegistry.get('c1')!.activeSession).toBe('selected');
+    expect(startChat).toHaveBeenCalledOnce();
+  });
+
+  it('applies navigation and subscription controls while provider admission is pending', () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'selected', mode: 'agent' });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    const stalled = new Promise<void>(() => {});
+    const errors: unknown[] = [];
+    const schedule = (message: Record<string, unknown>) =>
+      scheduleV2Message(stalled, 'c1', transport, JSON.stringify(message), ctx, (error) =>
+        errors.push(error),
+      );
+    expect(schedule({ type: 'switch_session', sessionId: 'selected' })).toBe(stalled);
+    expect(ctx.connRegistry.get('c1')!.activeSession).toBe('selected');
+    expect(schedule({ type: 'watch', sessionId: 'watched' })).toBe(stalled);
+    expect(ctx.connRegistry.get('c1')!.watchedSessions.has('watched')).toBe(true);
+    expect(schedule({ type: 'unwatch', sessionId: 'watched' })).toBe(stalled);
+    expect(ctx.connRegistry.get('c1')!.watchedSessions.has('watched')).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
   it.each([
     { type: 'session_event_applied', sessionId: 'sess-1', seq: 6 },
     {
@@ -3000,7 +3093,7 @@ describe('dispatchV2Message', () => {
     );
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
-    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
     });
@@ -3040,19 +3133,21 @@ describe('dispatchV2Message', () => {
       sendChain,
       'c1',
       transport,
-      JSON.stringify({ type: 'watch', sessionId: 'later-session' }),
+      JSON.stringify({
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'next ordinary input',
+        clientMsgId: 'later-send',
+      }),
       ctx,
       (error) => errors.push(error),
     );
-    expect(transport.sent).not.toContainEqual(
-      expect.objectContaining({ type: 'watched', sessionId: 'later-session' }),
-    );
+    expect(sendToChat).toHaveBeenCalledOnce();
 
     admit(true);
     await ordinaryChain;
-    expect(transport.sent).toContainEqual(
-      expect.objectContaining({ type: 'watched', sessionId: 'later-session' }),
-    );
+    expect(sendToChat).toHaveBeenCalledTimes(2);
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
   it('routes reconnect messages and produces reconnected summary', async () => {

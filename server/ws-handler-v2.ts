@@ -545,12 +545,31 @@ export function handleWatch(connectionId: string, msg: WatchMsg, ctx: V2HandlerC
 }
 
 export function handleUnwatch(connectionId: string, msg: UnwatchMsg, ctx: V2HandlerContext): void {
+  advanceViewGeneration(connectionId, ctx);
   ctx.connRegistry.unwatch(connectionId, msg.sessionId);
   ctx.connRegistry.get(connectionId)?.transport.send({
     type: 'unwatched',
     sessionId: msg.sessionId,
   });
   log.info('unwatch', { connectionId, sessionId: msg.sessionId });
+}
+
+// Connection objects are lifecycle identities; weak keys release generations on close.
+const viewGenerations = new WeakMap<object, number>();
+interface ViewSelection {
+  connection: object;
+  generation: number;
+}
+function captureViewSelection(
+  connectionId: string,
+  ctx: V2HandlerContext,
+): ViewSelection | undefined {
+  const connection = ctx.connRegistry.get(connectionId);
+  return connection ? { connection, generation: viewGenerations.get(connection) ?? 0 } : undefined;
+}
+function advanceViewGeneration(connectionId: string, ctx: V2HandlerContext): void {
+  const conn = ctx.connRegistry.get(connectionId);
+  if (conn) viewGenerations.set(conn, (viewGenerations.get(conn) ?? 0) + 1);
 }
 
 export async function handleSwitchSession(
@@ -563,6 +582,7 @@ export async function handleSwitchSession(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'null' },
     async () => {
       if (msg.sessionId === null) {
+        advanceViewGeneration(connectionId, ctx);
         const prev = ctx.connRegistry.get(connectionId)?.activeSession;
         if (prev) {
           ctx.connRegistry.unwatch(connectionId, prev);
@@ -584,6 +604,7 @@ export async function handleSwitchSession(
         return;
       }
 
+      advanceViewGeneration(connectionId, ctx);
       const prev = ctx.connRegistry.get(connectionId)?.activeSession;
       if (prev && prev !== msg.sessionId) {
         ctx.connRegistry.unwatch(connectionId, prev);
@@ -699,8 +720,19 @@ export function handleSendV2(
     awaitStartupAdmission?: boolean;
     receiptAdmitted?: boolean;
     identityClaimed?: boolean;
+    viewSelection?: ViewSelection;
   },
 ): Promise<'native' | void> {
+  const selection = delivery?.viewSelection ?? captureViewSelection(connectionId, ctx);
+  const viewConnection = selection?.connection;
+  const viewGeneration = selection?.generation ?? 0;
+  const selectionStillCurrent = () =>
+    !!viewConnection &&
+    ctx.connRegistry.get(connectionId) === viewConnection &&
+    (viewGenerations.get(viewConnection) ?? 0) === viewGeneration;
+  const selectForSend = (sessionId: string) => {
+    if (selectionStillCurrent()) ctx.connRegistry.setActive(connectionId, sessionId);
+  };
   return withSpanAsync<'native' | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
@@ -918,8 +950,7 @@ export function handleSendV2(
                           else ctx.eventStore.markSessionInactive(commandSessionId);
                         }
                         ctx.connRegistry.watch(connectionId, commandSessionId);
-                        if (msg.sessionId)
-                          ctx.connRegistry.setActive(connectionId, commandSessionId);
+                        if (msg.sessionId) selectForSend(commandSessionId);
                         admitted();
                       },
                     },
@@ -1026,7 +1057,7 @@ export function handleSendV2(
             });
             if (duplicate) {
               ctx.connRegistry.watch(connectionId, sessionId);
-              ctx.connRegistry.setActive(connectionId, sessionId);
+              selectForSend(sessionId);
               log.info('duplicate cold provider send', { connectionId, sessionId });
               return;
             }
@@ -1090,7 +1121,7 @@ export function handleSendV2(
               });
             }
             ctx.connRegistry.watch(connectionId, sessionId);
-            ctx.connRegistry.setActive(connectionId, sessionId);
+            selectForSend(sessionId);
             if (duplicate) {
               log.info('duplicate send', { connectionId, sessionId });
               return;
@@ -1153,7 +1184,7 @@ export function handleSendV2(
           // Resume from history.
           const sessionClientId = `${connectionId}:${sessionId}`;
           ctx.connRegistry.watch(connectionId, sessionId);
-          ctx.connRegistry.setActive(connectionId, sessionId);
+          selectForSend(sessionId);
           span.setAttribute('routing.decision', 'resume');
           startChat(startupTransport, sessionClientId, prompt, {
             resume: sessionId,
@@ -1205,7 +1236,7 @@ export function handleSendV2(
               sessionId: startupSessionId,
             });
             ctx.connRegistry.watch(connectionId, startupSessionId);
-            ctx.connRegistry.setActive(connectionId, startupSessionId);
+            selectForSend(startupSessionId);
             transport.send({
               type: 'session_id',
               sessionId: startupSessionId,
@@ -1216,8 +1247,9 @@ export function handleSendV2(
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
           const onSessionResolved = (resolvedId: string) => {
+            if (!selectionStillCurrent()) return;
             ctx.connRegistry.watch(connectionId, resolvedId);
-            ctx.connRegistry.setActive(connectionId, resolvedId);
+            selectForSend(resolvedId);
           };
           startChat(startupTransport, sessionClientId, prompt, {
             initialSessionId: msg.repositoryWorkspaceId
@@ -1997,6 +2029,7 @@ export async function dispatchV2Message(
   transport: SessionTransport,
   raw: string,
   ctx: V2HandlerContext,
+  viewSelection?: ViewSelection,
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -2063,7 +2096,7 @@ export async function dispatchV2Message(
         handleSessionClose(connectionId, msg, ctx);
         break;
       case 'send':
-        await handleSendV2(connectionId, transport, msg, ctx);
+        await handleSendV2(connectionId, transport, msg, ctx, { viewSelection });
         break;
       case 'stop':
         handleStopV2(connectionId, msg, ctx);
@@ -2121,12 +2154,18 @@ export function scheduleV2Message(
         (parsed.data.type === 'stop' ||
           parsed.data.type === 'interrupt' ||
           parsed.data.type === 'session_event_applied' ||
-          parsed.data.type === 'reconnect_snapshot_applied'));
+          parsed.data.type === 'reconnect_snapshot_applied' ||
+          parsed.data.type === 'switch_session' ||
+          parsed.data.type === 'watch' ||
+          parsed.data.type === 'unwatch'));
   } catch {
     // Malformed messages stay on the ordinary FIFO and are ignored by dispatch.
   }
 
-  const dispatch = () => dispatchV2Message(connectionId, transport, raw, ctx);
+  // Retain receive order for a queued send's view claim, even when its
+  // dispatch begins after a later navigation control has already completed.
+  const viewSelection = captureViewSelection(connectionId, ctx);
+  const dispatch = () => dispatchV2Message(connectionId, transport, raw, ctx, viewSelection);
   if (isControl) {
     void dispatch().catch(onError);
     return chain;
