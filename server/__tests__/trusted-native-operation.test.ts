@@ -14,7 +14,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { executeTrustedGitCommit, trustedGitHubReadRequest } from '../trusted-native-operation.js';
 
 describe('trusted native Git operation', () => {
@@ -23,6 +23,65 @@ describe('trusted native Git operation', () => {
     if (root) await rm(root, { recursive: true, force: true });
   });
 
+  it('refuses publication after repository grant revocation during prepared commit authority refresh', async () => {
+    root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-'));
+    const repo = join(root, 'repo');
+    execFileSync('git', ['init', '-q', repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Mitzo Test']);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
+    await writeFile(join(repo, 'file.txt'), 'original');
+    execFileSync('git', ['-C', repo, 'add', 'file.txt']);
+    execFileSync('git', ['-C', repo, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'original']);
+    const head = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+    const worktree = join(root, 'worktree');
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', 'test-branch', worktree]);
+    const indexPath = join(repo, '.git/worktrees/worktree/index');
+    const index = await readFile(indexPath);
+    const objects = await readdir(join(repo, '.git/objects'), { recursive: true });
+    const grant = join(root, 'grant');
+    await writeFile(grant, 'allowed');
+    await writeFile(join(worktree, 'file.txt'), 'approved edit');
+    let entered = false,
+      refreshes = 0,
+      release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pending = executeTrustedGitCommit(
+      worktree,
+      ['file.txt'],
+      'revoked publication',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {},
+      async () => {
+        if (++refreshes === 1) return;
+        entered = true;
+        await gate;
+        if ((await readFile(grant, 'utf8')) !== 'allowed') throw Error('Repository grant revoked');
+      },
+    );
+    const outcome = pending.then(
+      () => 'published',
+      (error: Error) => error.message,
+    );
+    try {
+      await vi.waitFor(() => expect(entered).toBe(true));
+      await writeFile(grant, 'revoked');
+    } finally {
+      release();
+    }
+    expect(await outcome).toBe('Repository grant revoked');
+    expect(execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' })).toBe(
+      head,
+    );
+    expect(await readFile(indexPath)).toEqual(index);
+    expect(await readdir(join(repo, '.git/objects'), { recursive: true })).toEqual(objects);
+    await expect(readFile(join(repo, '.git/index.lock'))).rejects.toThrow();
+  });
   it('creates objects for an exact file list in a linked worktree', async () => {
     root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-'));
     const repo = join(root, 'repo');

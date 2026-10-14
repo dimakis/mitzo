@@ -796,6 +796,30 @@ describe('native tool execution through session permissions', () => {
       ).toMatchObject({ is_error: true, content: expect.stringContaining('permissions changed') });
     },
   );
+  it('refuses revoked repository authority after awaited sandbox preparation', async () => {
+    registry.setMode('client', 'auto');
+    const grant = join(root, 'repository-grant');
+    await writeFile(grant, 'allowed');
+    const assertRuntimeCurrentAsync = async () => {
+      if ((await readFile(grant, 'utf8')) !== 'allowed') throw Error('Repository grant revoked');
+    };
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      await writeFile(grant, 'revoked');
+      await options.beforeSpawnAsync?.();
+      options.beforeSpawn?.();
+      await writeFile(join(root, 'worktree/forbidden'), 'executed');
+      return { content: 'executed', isError: false };
+    });
+    const execute = createNativeToolExecutor('client', registry, {
+      env: {},
+      assertRuntimeCurrentAsync,
+      assertRuntimeCurrent: () => {},
+    });
+    expect(await execute(call('Bash', { command: 'touch forbidden' }), abort.signal)).toMatchObject(
+      { is_error: true, content: expect.stringContaining('Repository grant revoked') },
+    );
+    await expect(readFile(join(root, 'worktree/forbidden'))).rejects.toThrow();
+  });
   it('rechecks Ask and skill downgrades at the final sandbox spawn boundary', async () => {
     registry.setMode('client', 'auto');
     vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {

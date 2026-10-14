@@ -138,7 +138,8 @@ it('dispatches consumed API commands through the actual chat owner and retains t
       return response(body.model);
     }),
   );
-  const transport = { send: vi.fn(), isOpen: () => true };
+  let transportOpen = true;
+  const transport = { send: vi.fn(), isOpen: () => transportOpen };
   const options = {
     command: f.request,
     reservation: f.reservation,
@@ -637,10 +638,15 @@ it('dispatches consumed API commands through the actual chat owner and retains t
       accepted.map((command) => command.clientMsgId),
     );
   } finally {
+    transportOpen = false;
     releaseReopen();
   }
   await expect(firstContinue).resolves.toMatchObject({ status: 200 });
   reopening.mockRestore();
+  const reopenedClientId = chat.registry.findBySessionId(f.reservation.conversationId)!.clientId;
+  expect(chat.registry.isAttached(reopenedClientId)).toBe(false);
+  transportOpen = true;
+  expect(chat.reattachChat(reopenedClientId, transport)).toBe(true);
   const reopenedSession = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
   expect(reopenedSession.ordinaryRuntimeOwner?.authSessionId).toBe(f.auth.id);
   expect(reopenedSession.queryInstance?.interrupt).toBeTypeOf('function');

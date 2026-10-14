@@ -18,6 +18,7 @@ export interface SandboxedCommandOptions {
   timeoutMs?: number;
   maxOutputBytes?: number;
   beforeSpawn?: () => void;
+  beforeSpawnAsync?: () => Promise<void>;
 }
 
 function contains(root: string, path: string) {
@@ -188,6 +189,7 @@ export async function executeSandboxedCommand(
     }
     Object.assign(env, { HOME: home, TMPDIR: scratch, CLAUDE_CODE_TMPDIR: scratch });
     options.signal.throwIfAborted();
+    await options.beforeSpawnAsync?.();
     return await new Promise((resolveResult) => {
       options.signal.throwIfAborted();
       options.beforeSpawn?.();

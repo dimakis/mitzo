@@ -271,9 +271,11 @@ export function createNativeToolExecutor(
             options.maxOutputBytes,
             new Map(input.files.map((file) => [file, approvedIdentities.get(file) ?? null])),
             task,
-            ...(options.assertRuntimeCurrent
-              ? ([options.assertRuntimeCurrent] as const)
-              : ([] as const)),
+            ...(options.assertRuntimeCurrentAsync
+              ? ([options.assertRuntimeCurrent, options.assertRuntimeCurrentAsync] as const)
+              : options.assertRuntimeCurrent
+                ? ([options.assertRuntimeCurrent] as const)
+                : ([] as const)),
           ),
         );
       }
@@ -333,6 +335,7 @@ export function createNativeToolExecutor(
           signal,
           timeoutMs: options.timeoutMs,
           maxOutputBytes: options.maxOutputBytes,
+          beforeSpawnAsync: options.assertRuntimeCurrentAsync,
           beforeSpawn: () => {
             options.assertRuntimeCurrent?.();
             if (

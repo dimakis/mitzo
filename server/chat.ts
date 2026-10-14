@@ -5907,6 +5907,14 @@ export async function continueOwnedLocalResponsesQueue(
       resumeQueue: true,
     });
   } finally {
+    try {
+      if (!transport.isOpen()) {
+        const current = registry.findBySessionId(sessionId);
+        if (current) detachChatIfCurrentTransport(current.clientId, transport);
+      }
+    } catch {
+      log.warn('Responses chat attachment cleanup remains unconfirmed', { sessionId });
+    }
     clearTimeout(timer);
     preparation.abort();
     releaseStartup();

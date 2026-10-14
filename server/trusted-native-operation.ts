@@ -22,7 +22,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 
 const pathEnv = '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin';
 
-function run(
+async function run(
   file: string,
   args: readonly string[],
   options: {
@@ -33,8 +33,11 @@ function run(
     env?: Record<string, string>;
     input?: Buffer;
     assertRuntimeCurrent?: () => void;
+    assertRuntimeCurrentAsync?: () => Promise<void>;
   },
 ): Promise<string> {
+  await options.assertRuntimeCurrentAsync?.();
+  options.signal.throwIfAborted();
   return new Promise((resolveRun, reject) => {
     options.assertRuntimeCurrent?.();
     const child = execFile(
@@ -112,12 +115,17 @@ const sameIdentity = async (path: string, expected: Identity) => {
     throw new Error('Git metadata changed during the approved operation');
 };
 
-async function promoteQuarantinedObjects(quarantine: string, objectStore: string) {
+async function promoteQuarantinedObjects(
+  quarantine: string,
+  objectStore: string,
+  assertCurrent: () => Promise<void>,
+) {
   for (const fanout of await readdir(quarantine, { withFileTypes: true })) {
     if (!/^[0-9a-f]{2}$/.test(fanout.name) || !fanout.isDirectory())
       throw new Error('Unexpected entry in quarantined Git object store');
     const sourceDirectory = join(quarantine, fanout.name);
     const targetDirectory = join(objectStore, fanout.name);
+    await assertCurrent();
     await mkdir(targetDirectory).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error;
     });
@@ -140,6 +148,7 @@ async function promoteQuarantinedObjects(quarantine: string, objectStore: string
       }
       // Loose objects are immutable and content-addressed. Exclusive, no-follow
       // creation prevents replacing an existing object or following a leaf symlink.
+      await assertCurrent();
       const destination = await open(
         target,
         constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
@@ -150,7 +159,9 @@ async function promoteQuarantinedObjects(quarantine: string, objectStore: string
         throw error;
       });
       try {
-        await destination.writeFile(await readFile(source));
+        const content = await readFile(source);
+        await assertCurrent();
+        await destination.writeFile(content);
       } finally {
         await destination.close();
       }
@@ -305,11 +316,18 @@ export async function executeTrustedGitCommit(
   approvedIdentities?: ReadonlyMap<string, ApprovedGitFileIdentity>,
   task?: RepositoryTaskCheckout,
   assertRuntimeCurrent?: () => void,
+  assertRuntimeCurrentAsync?: () => Promise<void>,
 ): Promise<string> {
+  const assertCurrent = async () => {
+    signal.throwIfAborted();
+    await assertRuntimeCurrentAsync?.();
+    signal.throwIfAborted();
+    assertRuntimeCurrent?.();
+  };
   cwd = await realpath(cwd);
   validateCommitFiles(files);
   const metadata = await linkedMetadata(cwd, task);
-  assertRuntimeCurrent?.();
+  await assertCurrent();
   const indexLock = metadata.index + '.lock';
   const lock = await open(indexLock, 'wx', 0o600).catch(() => {
     throw new Error('Git index is busy; retry after the other operation finishes');
@@ -460,12 +478,16 @@ export async function executeTrustedGitCommit(
       sameIdentity(metadata.common, metadata.identities.common),
       sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects),
     ]);
-    assertRuntimeCurrent?.();
-    await promoteQuarantinedObjects(quarantineObjects, join(metadata.common, 'objects'));
+    await assertCurrent();
+    await promoteQuarantinedObjects(
+      quarantineObjects,
+      join(metadata.common, 'objects'),
+      assertCurrent,
+    );
     await sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects);
     await validateRefUpdatePaths(metadata.common, metadata.branch);
     const promotedIndex = await readFile(index);
-    assertRuntimeCurrent?.();
+    await assertCurrent();
     await lock.writeFile(promotedIndex);
     await run(
       'git',
@@ -481,6 +503,7 @@ export async function executeTrustedGitCommit(
       ],
       {
         assertRuntimeCurrent,
+        assertRuntimeCurrentAsync,
         cwd,
         signal,
         timeoutMs,
@@ -488,6 +511,7 @@ export async function executeTrustedGitCommit(
         env: baseEnv,
       },
     );
+    await assertCurrent();
     await rename(indexLock, metadata.index);
     ownsIndexLock = false;
     return `[${metadata.branch} ${commit.slice(0, 7)}] ${message}`;
