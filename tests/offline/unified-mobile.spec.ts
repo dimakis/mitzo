@@ -2505,6 +2505,7 @@ test('failed briefing registration survives a completed turn and reload without 
   const profile = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(profile).toBeEnabled();
   await expect(profile).toHaveValue('');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
   await expect(retry).toBeVisible();

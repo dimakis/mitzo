@@ -811,8 +811,12 @@ test('OpenShell conversation: default route starts and continues without legacy 
   ]);
   await openAgentSettings(page);
   await page.getByRole('button', { name: 'New session on Local Mac' }).click();
-  await openAgentSettings(page);
+  await expect(page).toHaveURL(/\/chat\?draft=/);
   await expect.poll(() => fixture.attachments.at(-1)).toBe(null);
+  const newWorkspace = page.getByRole('button', { name: /^Workspace controls/ });
+  await expect(newWorkspace.locator('.conversation-state')).toHaveText('First command');
+  await expect(newWorkspace).toHaveAttribute('aria-expanded', 'false');
+  await openAgentSettings(page);
   await expect(page.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
