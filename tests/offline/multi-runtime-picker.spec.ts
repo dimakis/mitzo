@@ -134,7 +134,10 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(account).toHaveValue('api');
     await expect(model).toHaveValue('shell-model');
     await expect(thinking).toHaveValue('high');
-    await expect(model.locator('option[value="shell-model"]')).toBeDisabled();
+    await expect(model.locator('option[value="shell-model"]')).toHaveAttribute('disabled', '');
+    await expect(model.locator('option[value="shell-model"]')).toHaveText(
+      'Unavailable model: shell-model',
+    );
     await expect(model.locator('option[value="local-model"]')).toHaveCount(1);
     await expect(composer).toHaveValue('Keep this development draft across environments');
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
@@ -148,7 +151,8 @@ for (const appearance of ['light', 'dark'] as const) {
     // Replacement is explicit; it must not discard an unsupported thinking choice.
     await model.selectOption('local-model');
     await expect(thinking).toHaveValue('high');
-    await expect(thinking.locator('option[value="high"]')).toBeDisabled();
+    await expect(thinking.locator('option[value="high"]')).toHaveAttribute('disabled', '');
+    await expect(thinking.locator('option[value="high"]')).toHaveText('Unavailable thinking: high');
     await thinking.selectOption('low');
     await account.selectOption('vertex');
     await expect(page.getByText('Runs with Claude', { exact: true })).toBeVisible();
