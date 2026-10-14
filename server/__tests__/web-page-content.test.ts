@@ -88,3 +88,52 @@ it('separates table cells and preserves preformatted code indentation', () => {
   expect(output).toMatch(/2026\.10\s+Released/);
   expect(output).toContain('def example():\n    if ready:\n        return True');
 });
+
+it.each([false, true])(
+  'keeps generated link metadata proportional to source size (unique=%s)',
+  (unique) => {
+    const source = 'https://example.com/' + 'a'.repeat(3970);
+    const body =
+      '<main>' +
+      Array.from({ length: 2000 }, (_, i) => `<a href="#${unique ? i : ''}">Link ${i}</a>`).join(
+        '',
+      ) +
+      '<p>Article end.</p></main>';
+    const output = webPageContent(body, 'text/html', source);
+    expect(output.length).toBeLessThan(body.length * 5 + source.length);
+    expect(output).toContain('Link 1999');
+    expect(output).toContain('Article end.');
+    if (unique) {
+      expect(output).toContain('URL reference: #1999');
+      expect(output).toContain(source);
+    }
+  },
+);
+
+it('uses the first valid document base and keeps rejecting unsafe link protocols and credentials', () => {
+  const output = webPageContent(
+    '<head><base href="javascript:bad"><base href="/docs/v2/"><base href="/other/"></head><body><main><a href="setup">Setup</a><a href="https://user:secret@example.com">Private</a></main></body>',
+    'text/html',
+    target.url,
+  );
+  expect(output).toContain('https://example.com/docs/v2/setup');
+  expect(output).not.toContain('https://example.com/other/setup');
+  expect(output).not.toContain('secret');
+});
+
+it('ignores HTML-named elements in foreign namespaces when selecting the main content and base', () => {
+  const output = webPageContent(
+    '<svg><main>Not the article</main><base href="/wrong/" /></svg><main><a href="setup">Setup</a></main>',
+    'text/html',
+    target.url,
+  );
+  expect(output).toContain('https://example.com/setup');
+  expect(output).not.toContain('/wrong/setup');
+  expect(output).not.toContain('Not the article');
+});
+
+it('preserves XHTML source including self-closing non-void elements', () => {
+  const body =
+    '<html xmlns="http://www.w3.org/1999/xhtml"><head><script src="app.js" /></head><body><p>Article</p></body></html>';
+  expect(webPageContent(body, 'application/xhtml+xml; charset=utf-8', target.url)).toBe(body);
+});
