@@ -28,6 +28,7 @@ function Consumer() {
   return (
     <>
       <div>{notifications.feed?.needsYou ?? 'waiting'}</div>
+      {notifications.error && <p role="alert">{notifications.error}</p>}
       <button onClick={() => notifications.setFilter('archived')}>Archived</button>
       <button onClick={() => void notifications.refresh()}>Refresh</button>
       <button onClick={() => void notifications.mutate('/read-updates')}>Mark read</button>
@@ -48,7 +49,10 @@ beforeEach(() => {
     )
     .mockResolvedValue(feed(2));
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 function show() {
   render(
     <NotificationProvider>
@@ -57,6 +61,25 @@ function show() {
   );
 }
 describe('notification refresh request coordination', () => {
+  it('releases a stalled read after its deadline and fences its late result after recovery', async () => {
+    vi.useFakeTimers();
+    show();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(vi.mocked(apiFetch).mock.calls[0][1]?.signal?.aborted).toBe(true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    });
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('2')).toBeTruthy();
+    await act(async () => {
+      finish(feed(99));
+    });
+    expect(screen.queryByText('99')).toBeNull();
+  });
+
   it('shares pending reads across foreground, native refresh and SSE reconnect', async () => {
     show();
     await act(async () => {
@@ -109,7 +132,10 @@ describe('notification refresh request coordination', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Archived' }));
     });
     expect(apiFetch).toHaveBeenCalledTimes(2);
-    expect(apiFetch).toHaveBeenLastCalledWith(expect.stringContaining('filter=archived'));
+    expect(apiFetch).toHaveBeenLastCalledWith(
+      expect.stringContaining('filter=archived'),
+      expect.anything(),
+    );
     await act(async () => {
       finish(feed(99));
     });

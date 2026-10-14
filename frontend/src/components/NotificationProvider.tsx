@@ -11,6 +11,7 @@ import {
 import type { NotificationFeed, NotificationFilter } from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
+import { readApiJson } from '../lib/api-json-read';
 import { syncNotificationBadge } from '../lib/notification-badge';
 interface NotificationContext {
   feed: NotificationFeed | null;
@@ -39,6 +40,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const sequence = useRef(0);
   const inFlight = useRef<{
     generation: number;
+    controller: AbortController;
     promise: Promise<void>;
     followUp?: Promise<void>;
   } | null>(null);
@@ -57,15 +59,18 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         return pending.followUp;
       }
       const seq = ++sequence.current;
-      const next = { generation: gen, promise: Promise.resolve() };
+      const next = {
+        generation: gen,
+        controller: new AbortController(),
+        promise: Promise.resolve(),
+      };
       inFlight.current = next;
       next.promise = (async () => {
         try {
-          const response = await apiFetch(
+          const data = await readApiJson<NotificationFeed>(
             `/api/notifications?${new URLSearchParams({ filter, offset: String(offset), limit: '50' })}`,
+            next.controller.signal,
           );
-          if (!response.ok) throw new Error('Cannot load notifications. Try again.');
-          const data = (await response.json()) as NotificationFeed;
           if (gen !== generation.current || seq !== sequence.current || blocked.current) return;
           if (offset > 0 && offset >= data.total) {
             setOffset(Math.max(0, Math.floor((data.total - 1) / 50) * 50));
@@ -89,6 +94,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   );
   useEffect(() => {
     const lost = () => {
+      inFlight.current?.controller.abort();
       generation.current++;
       blocked.current = true;
       setFeed(null);
@@ -120,6 +126,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === 'visible') void refresh();
     }, 30000);
     return () => {
+      inFlight.current?.controller.abort();
       generation.current++;
       clearInterval(timer);
       unsubscribe();
