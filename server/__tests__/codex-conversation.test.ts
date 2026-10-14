@@ -1685,6 +1685,64 @@ it('recovers an idle dead transport before persisting the explicit send', async 
   expect(onTransportClosed).toHaveBeenCalledWith({ activeTurn: false, reason: 'closed' });
 });
 
+it.each(['timeout', 'cancel'] as const)(
+  'settles an idle probe %s and closes its generation when a recovery observer throws',
+  async (phase) => {
+    const beforeReconnect = vi.fn(async () => {});
+    const f = await setup(undefined, undefined, undefined, undefined, undefined, beforeReconnect);
+    vi.useFakeTimers();
+    f.conversationOptions.onTransportClosed = () => {
+      throw new Error('private observer failure');
+    };
+    f.rpc.request.mockImplementation(async () => new Promise(() => {}));
+    const controller = new AbortController();
+    const admission = f.c.admitExplicitSend(
+      { id: 'observer-failed', prompt: 'must not dispatch' },
+      controller.signal,
+    );
+    const check =
+      phase === 'cancel'
+        ? expect(admission).rejects.toMatchObject({ name: 'AbortError' })
+        : expect(admission).rejects.toThrow('Codex idle transport recovery failed');
+    await vi.advanceTimersByTimeAsync(0);
+    if (phase === 'cancel') controller.abort();
+    else await vi.advanceTimersByTimeAsync(2000);
+    await check;
+    expect(f.rpc.close).toHaveBeenCalledOnce();
+    expect(f.c.queue()).toEqual([]);
+    expect(beforeReconnect).not.toHaveBeenCalled();
+    f.callbacks.onNotification('turn/started', {
+      threadId: 'provider-thread',
+      turn: { id: 'late-old' },
+    });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(f.rpc.close).toHaveBeenCalledOnce();
+  },
+);
+
+it('rejects idle admission when recovery persistence fails even if the error observer returns', async () => {
+  const f = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    vi.fn(async () => {}),
+  );
+  vi.useFakeTimers();
+  vi.spyOn(f.conversationOptions.store, 'pauseForRecovery').mockImplementation(() => {
+    throw new Error('private persistence failure');
+  });
+  f.rpc.request.mockImplementation(async () => new Promise(() => {}));
+  const admission = f.c.admitExplicitSend({ id: 'persistence-failed', prompt: 'must not enqueue' });
+  const check = expect(admission).rejects.toThrow('Codex idle transport recovery failed');
+  await vi.advanceTimersByTimeAsync(2000);
+  await check;
+  expect(f.rpc.close).toHaveBeenCalledOnce();
+  expect(f.c.queue()).toEqual([]);
+});
+
 it('bounds a silent idle probe, retires it before reconnect, and ignores its late reply', async () => {
   const beforeReconnect = vi.fn(async () => {});
   const f = await setup(

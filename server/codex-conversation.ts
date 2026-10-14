@@ -398,7 +398,7 @@ export class CodexConversation {
       onClose: (error) => this.transportClosed(generation, error),
     });
   }
-  private transportClosed(generation: number, error: Error) {
+  private transportClosed(generation: number, error: Error, requireRecoveryPersistence = false) {
     if (this.closed || generation !== this.transportGeneration) return;
     if (this.opts.transportClosure === 'terminal') {
       try {
@@ -426,6 +426,7 @@ export class CodexConversation {
     if (commandId) this.opts.onProviderComplete?.(commandId, status);
     this.active?.abort.abort();
     this.active = undefined;
+    let recoveryPersistenceFailed = false;
     try {
       if (this.binding)
         this.opts.store.pauseForRecovery(
@@ -439,6 +440,7 @@ export class CodexConversation {
           true,
         );
     } catch (persistenceError) {
+      recoveryPersistenceFailed = true;
       this.opts.onError?.(
         persistenceError instanceof Error
           ? persistenceError
@@ -456,6 +458,8 @@ export class CodexConversation {
             ? 'protocol'
             : 'closed',
     });
+    if (requireRecoveryPersistence && recoveryPersistenceFailed)
+      throw new Error('Codex idle transport recovery failed');
     // An idle connection can expire between sends. The pre-send probe reconnects
     // it before dispatch; no provider turn has failed in that case.
     if (active)
@@ -1060,15 +1064,30 @@ export class CodexConversation {
     const configured = this.opts.idleProbeTimeoutMs ?? 2000;
     const deadline = Number.isFinite(configured) && configured > 0 ? configured : 2000;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let retirementFailed = false;
+    const retire = (error: Error) => {
+      try {
+        this.transportClosed(generation, error, true);
+      } catch {
+        retirementFailed = true;
+      } finally {
+        // Observers and persistence reporting are outside transport custody.
+        // Neither may keep a dead generation or its RPC timers alive.
+        try {
+          client.close();
+        } catch {
+          retirementFailed = true;
+        }
+      }
+    };
     try {
       const expired = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           const error = new CodexTransportError('timeout');
           // Invalidate callbacks before close: a synchronous late notification
           // or a delayed old RPC can never settle the replacement generation.
-          this.transportClosed(generation, error);
-          client.close();
-          reject(error);
+          retire(error);
+          reject(retirementFailed ? new Error('Codex idle transport recovery failed') : error);
         }, deadline);
       });
       await raceWithAbort(
@@ -1089,11 +1108,13 @@ export class CodexConversation {
         // could otherwise close a later successfully dispatched turn. Retire
         // this owned idle generation; only a later explicit send reconnects.
         if (generation === this.transportGeneration) {
-          this.transportClosed(generation, new CodexTransportError('connection'));
-          client.close();
+          retire(new CodexTransportError('connection'));
         }
+        if (retirementFailed) span.setAttribute('mitzo.probe.recovery', 'failed');
         throw error;
       }
+      if (retirementFailed)
+        throw new Error('Codex idle transport recovery failed', { cause: error });
       // The transport close callback owns recovery persistence. If it ran,
       // continue so this explicit send can acknowledge recovery and reconnect.
       if (generation !== this.transportGeneration && this.paused) return;
