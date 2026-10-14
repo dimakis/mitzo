@@ -2,7 +2,7 @@
 
 ## Evidence and boundaries
 
-The reported incident is a 5–15 second unusable return to Mitzo, including an authentication screen, page switches and approvals. Investigation used independent source at accepted `210784cd`, compared with the installed release `c125be29`, read-only incident logs and Jaeger traces, and deterministic offline regressions. No production deployment, provider enrollment or model calls were performed.
+The reported incident is a 5–15 second unusable return to Mitzo, including an authentication screen, page switches and approvals. Investigation used independent source at accepted `210784cd`, compared with the installed release `c125be29`, read-only incident logs and Jaeger traces, and deterministic offline regressions. The final branch also integrates accepted main `223af70f`. No production deployment, provider enrollment or model calls were performed.
 
 The canonical staging check refused with uncertain custody. Its retained owner error explicitly says cleanup is unconfirmed and resources remain quarantined. No listener was observed on 3190. No lock, registry, owner record, launcher or native resource was changed. A valid retained-owner recovery and normal pipeline admission remain prerequisites to live acceptance.
 
@@ -106,7 +106,7 @@ The fixes do not inspect model names; they apply below model selection. That est
 
 Focused regressions exercise cold/warm authentication, visibility and native resume, concurrent history restore, slow provider admission with newer navigation, exact snapshot offers, multi-batch durable replay, rejected/stalled acknowledgements, stale connections, account binding, enrollment rotation, web-access approval, canceled policy reservations, unavailable notification reads and operational logger worker failure. The logger fixture injects `ENOSPC` in an isolated worker; it does not fill a disk. HTTP fixtures use temporary local listeners and mocked provider dependencies. No test invoked a real model.
 
-The dedicated account/runtime parity run passed 233 tests across ten files. Protocol, harness and client project TypeScript compilation passed. Focused UI tests include the shared design guards. Changed offline browser scenarios cover auth/recovery and calendar/attention/outcome failures, but listing those scenarios is not execution or visual verification. Final full CI and Centaur review are still outstanding.
+The final combined regression run passed 1,356 tests across 41 files in 31.31 seconds with one worker and a 1 GiB heap. The dedicated account/runtime parity run passed 233 tests across ten files. Protocol, harness and client project TypeScript compilation passed after the final transcript change. Focused UI tests include the shared design guards. Changed offline browser scenarios cover auth/recovery and calendar/attention/outcome failures, but listing those scenarios is not execution or visual verification. Changed-file lint passed with zero errors and two existing NotificationProvider warnings; formatting and whitespace checks passed. All 336 source fingerprints match runtime revision `v1.0.127`. Final full CI and Centaur review are still outstanding.
 
 ### Acceptance sequence
 
