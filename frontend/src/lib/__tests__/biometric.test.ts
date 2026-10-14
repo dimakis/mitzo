@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@capacitor/core', () => ({
   Capacitor: { isNativePlatform: vi.fn() },
@@ -35,6 +35,10 @@ import {
   saveCredentials,
   deleteCredentials,
 } from '../biometric';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -143,6 +147,10 @@ describe('biometricLogin', () => {
 
     const token = await biometricLogin();
     expect(token).toBe('stored-jwt');
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/auth/check',
+      expect.objectContaining({ headers: { Authorization: 'Bearer stored-jwt' } }),
+    );
     expect(localStorage.getItem('mitzo_auth_token')).toBe('stored-jwt');
   });
 
@@ -186,7 +194,7 @@ describe('biometricLogin', () => {
     const pending = biometricLogin();
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     localStorage.setItem('mitzo_auth_token', 'fresh-login');
-    resolveValidation({ ok: false } as Response);
+    resolveValidation({ ok: false, status: 401 } as Response);
 
     expect(await pending).toBeNull();
     expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-login');
@@ -201,7 +209,7 @@ describe('biometricLogin', () => {
       password: 'stale-keychain-token',
     });
     localStorage.setItem('mitzo_auth_token', 'valid-local-token');
-    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: false } as Response);
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: false, status: 401 } as Response);
 
     expect(await biometricLogin()).toBeNull();
     expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-local-token');
@@ -214,10 +222,45 @@ describe('biometricLogin', () => {
       username: 'mitzo-user',
       password: 'stale-keychain-token',
     });
-    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: false } as Response);
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: false, status: 401 } as Response);
 
     expect(await biometricLogin()).toBeNull();
     expect(NativeBiometric.deleteCredentials).toHaveBeenCalledOnce();
+  });
+
+  it.each([500, 503])(
+    'retains credentials after a temporary server failure (%s)',
+    async (status) => {
+      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+      vi.mocked(NativeBiometric.verifyIdentity).mockResolvedValue(undefined as never);
+      vi.mocked(NativeBiometric.getCredentials).mockResolvedValue({
+        username: 'mitzo-user',
+        password: 'stored-jwt',
+      });
+      localStorage.setItem('mitzo_auth_token', 'stored-jwt');
+      vi.spyOn(global, 'fetch').mockResolvedValue(new Response('{}', { status }));
+      expect(await biometricLogin()).toBeNull();
+      expect(localStorage.getItem('mitzo_auth_token')).toBe('stored-jwt');
+      expect(NativeBiometric.deleteCredentials).not.toHaveBeenCalled();
+    },
+  );
+
+  it('bounds an unreachable validation request and retains credentials', async () => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeBiometric.verifyIdentity).mockResolvedValue(undefined as never);
+    vi.mocked(NativeBiometric.getCredentials).mockResolvedValue({
+      username: 'mitzo-user',
+      password: 'stored-jwt',
+    });
+    localStorage.setItem('mitzo_auth_token', 'stored-jwt');
+    vi.spyOn(global, 'fetch').mockReturnValue(new Promise(() => {}));
+    const validation = biometricLogin();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await validation).toBeNull();
+    expect(vi.mocked(fetch).mock.calls[0][1]?.signal?.aborted).toBe(true);
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('stored-jwt');
+    expect(NativeBiometric.deleteCredentials).not.toHaveBeenCalled();
   });
 
   it('returns null when verification fails', async () => {
