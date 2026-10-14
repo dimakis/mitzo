@@ -1025,7 +1025,7 @@ export class CodexConversation {
     const admission = this.explicitEnqueue.then(() =>
       context.with(sendContext, async () => {
         if (signal?.aborted) throw sendCancelledError();
-        await this.probeOpenShellTransport(signal);
+        await this.probeIdleTransport(signal);
         if (signal?.aborted) throw sendCancelledError();
         return this.enqueue(input);
       }),
@@ -1050,13 +1050,16 @@ export class CodexConversation {
     await this.resumeAfterExplicitSend();
   }
   /**
-   * An idle SSH relay can look healthy until its next write. Probe it before
+   * An idle provider process or SSH relay can look healthy until its next write. Probe it before
    * persisting a new user command so transport recovery cannot turn that
    * command into an ambiguous interrupted turn.
    */
-  private async probeOpenShellTransport(signal?: AbortSignal) {
+  private async probeIdleTransport(signal?: AbortSignal) {
     if (
-      !this.opts.beforeReconnect ||
+      // Guarded host commands have a separate terminal owner and must reach
+      // its enqueue fence without a legacy transport preflight. OpenShell's
+      // enrolled recovery path keeps its existing workspace lifecycle guard.
+      (this.opts.beforeEnqueue && !this.opts.beforeReconnect) ||
       this.paused ||
       !this.ready ||
       this.closed ||
@@ -1081,7 +1084,7 @@ export class CodexConversation {
         // Observers and persistence reporting are outside transport custody.
         // Neither may keep a dead generation or its RPC timers alive.
         try {
-          client.close();
+          if (!this.closed) client.close();
         } catch {
           retirementFailed = true;
         }

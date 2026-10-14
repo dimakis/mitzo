@@ -18,6 +18,8 @@ import { isAbsolute, posix } from 'node:path';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
+import { tracer } from './tracing.js';
+import { SpanStatusCode } from '@opentelemetry/api';
 
 export const SUPPORTED_CODEX_CLI_VERSION = readFileSync(
   new URL('../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
@@ -604,7 +606,16 @@ export class CodexAppServerClient {
   private sendRequest(method: string, params: JsonObject): Promise<unknown> {
     if (this.closed) return Promise.reject(new CodexTransportError('connection'));
     const id = ++this.sequence;
-    return new Promise((resolve, reject) => {
+    // initialize and request's allowlist supply bounded method names. Frames,
+    // response bodies and upstream exception text never enter telemetry.
+    const span = tracer.startSpan('codex.rpc', {
+      attributes: {
+        'rpc.system': 'jsonrpc',
+        'rpc.method': method,
+        'rpc.timeout_ms': this.timeoutMs,
+      },
+    });
+    return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(
         () =>
           this.close(
@@ -620,7 +631,24 @@ export class CodexAppServerClient {
       } catch {
         this.close();
       }
-    });
+    }).then(
+      (result) => {
+        span.setStatus({ code: SpanStatusCode.OK });
+        span.end();
+        return result;
+      },
+      (error: unknown) => {
+        span.setAttribute(
+          'rpc.failure.category',
+          error instanceof CodexTransportError || error instanceof CodexRequestError
+            ? error.category
+            : 'unknown',
+        );
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        span.end();
+        throw error;
+      },
+    );
   }
 
   private write(value: JsonObject) {

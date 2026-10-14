@@ -89,7 +89,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    '1907f288a670bb60003badb9ff439b8be2dbca9cae007ef80d7f29989ea6f838',
+    'f9cb6f55604bee6739ba32f783f9ae79e4d4db20c4c9384a499cb1917edccdee',
 
   // Explicit authenticated Local entry, immutable request and shared startup ownership.
   '../../packages/protocol/src/local-codex-first-command.ts':
@@ -147,7 +147,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sandboxed-command.ts': '869823153e5588ee18ce6e16303bd4e8567f52c636e1f3bc4ba3951fba7802be',
   // Shared approval scopes, transport custody and provider environment delivery.
   '../../packages/client/src/sse-connection.ts':
-    'a8e6f572e9de9ac4fef778b039d5fa1af44ebc2a5268944a7833574103e7bc3c',
+    'e4430bf4bd58c5c8356ddfd15f0bac02f78d0fc1ed006d1194eacadc4a135950',
   '../../packages/client/src/store.ts':
     '37c17263d92130aaa54ffc6e2b05d99dea5b2a02190449284042e2c35640490a',
   '../../packages/harness/src/permission-handler.ts':
@@ -157,7 +157,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-approval-scope.ts':
     'dae13365f4eb821d9563e5a3da65c60135f2081e319a34c7dad3ef27b02ea733',
   '../codex-app-server-client.ts':
-    'b6e4f8b618c7364cba4d1f8a98f1406a97e64d7b79a6b8c77d389aee687b5c7b',
+    'f9237e6f3bd200722044be249bedd48ff5ccbdabf68f92e4775901092493d8e6',
   '../codex-mcp-tools.ts': '375851fb458c8d930a52a1d3bc32460b2a6174a64a4516af4f68084b1ba484de',
   '../codex-runtime-diagnostics.ts':
     '80730e66ff8aa543acfb4ce035c7cf2fbe936172498d3b8ed0d868143bee4513',
@@ -247,7 +247,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'ed8c9d13e9ded7e0ff7237a57c0e94f52527745fac562e7217bbfa57c6703060',
+  '../codex-conversation.ts': '05bf7267b161d84a21eea669dc4f65e699a622346b6d77edde48884ac6902cd6',
   '../codex-conversation-store.ts':
     'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
