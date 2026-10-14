@@ -19,7 +19,7 @@ import {
 import { nativeStartupSessionId } from '../../ordinary-repository-startup.js';
 export async function ownedResponsesRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
-  options: { contextRecipe?: boolean; chatRoute?: boolean; dual?: boolean } = {},
+  options: { contextRecipe?: boolean; chatRoute?: boolean; dual?: boolean; gemini?: boolean } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
@@ -38,7 +38,9 @@ export async function ownedResponsesRuntimeFixture(
     targetId: 'local-mac',
     label: 'Local Mac',
     hostId: hostname(),
-    runtimeContractRevision: ordinaryLocalResponsesContractRevision(),
+    runtimeContractRevision: ordinaryLocalResponsesContractRevision(
+      options.gemini ? 'gemini' : 'responses',
+    ),
   };
   await writeFile(targetPath, JSON.stringify(target), { mode: 0o600 });
   const configPath = join(root, 'profiles.json');
@@ -46,24 +48,52 @@ export async function ownedResponsesRuntimeFixture(
     {
       id: 'personal',
       label: 'Personal',
-      provider: 'openai',
+      provider: options.gemini ? 'google-vertex' : 'openai',
       ...(options.dual
         ? { sandboxProvider: 'same-api-provider', sandboxProviderId: 'offline-api-provider-id' }
         : {}),
-      credentialRef: { provider: 'keychain', service: 'offline', account: 'api' },
+      ...(options.gemini
+        ? {
+            projectId: 'original-project',
+            region: 'europe-west1',
+            credentialRef: join(privateRoot, 'google-adc.json'),
+          }
+        : { credentialRef: { provider: 'keychain', service: 'offline', account: 'api' } }),
       models: [
-        { id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] },
-        { id: 'next-model', label: 'Next model', reasoningEfforts: ['high'] },
+        {
+          id: options.gemini ? 'gemini-2.5-pro' : 'fixture-model',
+          label: 'Fixture model',
+          reasoningEfforts: ['low'],
+        },
+        {
+          id: options.gemini ? 'gemini-2.5-flash' : 'next-model',
+          label: 'Next model',
+          reasoningEfforts: ['high'],
+        },
       ],
     },
   ];
   const writeProfiles = () =>
     writeFileSync(configPath, JSON.stringify(configuration), { mode: 0o600 });
   writeProfiles();
+  if (options.gemini)
+    await writeFile(
+      join(privateRoot, 'google-adc.json'),
+      JSON.stringify({
+        type: 'authorized_user',
+        client_id: 'offline-client',
+        client_secret: 'offline-secret',
+        refresh_token: 'offline-refresh',
+      }),
+      { mode: 0o600 },
+    );
   vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', configPath);
   vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
   vi.stubEnv('MITZO_CODEX_ENABLED', '1');
-  const binding = loadAccountProfiles().resolve('personal', 'fixture-model');
+  const binding = loadAccountProfiles().resolve(
+    'personal',
+    options.gemini ? 'gemini-2.5-pro' : 'fixture-model',
+  );
   const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
   const events = new EventStore(eventPath);
   const library = new AgentLibraryStore(eventPath);
@@ -147,15 +177,27 @@ export async function ownedResponsesRuntimeFixture(
   const detach = bindAgentLibraryTransport(operatorConnectionId, auth);
   cleanups.push(detach);
   const env = {
-    MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE: targetPath,
+    ...(options.gemini
+      ? { MITZO_ORDINARY_LOCAL_GEMINI_TARGET_FILE: targetPath }
+      : { MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE: targetPath }),
   };
   if (options.chatRoute) {
-    vi.stubEnv('MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED', '1');
-    vi.stubEnv('MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE', targetPath);
+    vi.stubEnv(
+      options.gemini
+        ? 'MITZO_ORDINARY_LOCAL_GEMINI_ENABLED'
+        : 'MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED',
+      '1',
+    );
+    vi.stubEnv(
+      options.gemini
+        ? 'MITZO_ORDINARY_LOCAL_GEMINI_TARGET_FILE'
+        : 'MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE',
+      targetPath,
+    );
   }
   const catalog = localResponsesCapabilities(
     loadAccountProfiles(),
-    new OrdinaryLocalResponsesTarget(env),
+    new OrdinaryLocalResponsesTarget(env, options.gemini ? 'gemini' : 'responses'),
   );
   const commandId = randomUUID();
   const request = {
@@ -163,7 +205,7 @@ export async function ownedResponsesRuntimeFixture(
     capabilityRevision: catalog.inventory().capabilityRevision,
     runtime: {
       account: catalog.inventory().accounts[0].account,
-      harness: 'responses' as const,
+      harness: options.gemini ? ('gemini' as const) : ('responses' as const),
       targetId: 'local-mac',
       mode: 'agent' as const,
     },
@@ -172,7 +214,7 @@ export async function ownedResponsesRuntimeFixture(
       agent: { profileId: 'developer', revision: 1 },
       context: { source: 'none' as const, revision: null },
       permission: { mode: 'agent' as const, revision: 0 },
-      model: 'fixture-model',
+      model: options.gemini ? 'gemini-2.5-pro' : 'fixture-model',
       thinking: 'low',
     },
     payload: { text: 'Implement the task', intent: 'Original user intent' },

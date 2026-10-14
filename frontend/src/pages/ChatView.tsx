@@ -558,6 +558,7 @@ export function ChatView() {
         mode: localRuntime.mode ?? 'agent',
         retainedAgentProfile: localRuntime.agentProfile,
         retainedAgentContext: localRuntime.agentContext,
+        nativeConstraint: localRuntime.nativeConstraint,
         text,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
@@ -1129,6 +1130,7 @@ export function ChatView() {
                         mode: localRuntime.mode ?? 'agent',
                         retainedAgentProfile: localRuntime.agentProfile,
                         retainedAgentContext: localRuntime.agentContext,
+                        nativeConstraint: localRuntime.nativeConstraint,
                         text,
                         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
                       }).reason

@@ -94,6 +94,7 @@ export class NativeResponsesRunner {
       if (
         !options.gemini ||
         options.apiKey ||
+        options.getApiKey ||
         options.gemini.accountId !== options.binding.accountId
       )
         throw new Error('Explicit Google Vertex account is required');
@@ -143,6 +144,24 @@ export class NativeResponsesRunner {
         history: [],
       },
     );
+    if (this.options.gemini) {
+      const original = state.nativeSelection ?? {
+        model: state.checkpoint?.model ?? this.options.binding.model,
+        reasoningEffort: this.options.reasoningEffort ?? null,
+      };
+      const selected = {
+        model: selection?.model ?? this.selectedModel,
+        reasoningEffort:
+          selection && 'reasoningEffort' in selection
+            ? (selection.reasoningEffort ?? null)
+            : (this.reasoningEffort ?? null),
+      };
+      if (!isDeepStrictEqual(original, selected))
+        throw Error(
+          'Continue with the original Gemini model and thinking. Start another conversation to change them.',
+        );
+      state.nativeSelection = original;
+    }
     if (state.status === 'running')
       throw new Error('Native Responses conversation already running');
     state.status = 'running';
@@ -161,6 +180,8 @@ export class NativeResponsesRunner {
     if (this.active) throw new Error('Native Responses conversation already running');
     signal?.throwIfAborted();
     const opts = this.options;
+    if (opts.gemini && this.selectedModel !== opts.binding.model)
+      throw Error('Continue with the original Gemini model.');
     const prepared = messageId ? this.prepared.get(messageId) : undefined;
     if (messageId && (!prepared || !isDeepStrictEqual(prepared.prompt, prompt)))
       throw new Error('Native Responses prepared message identity changed');
@@ -169,7 +190,28 @@ export class NativeResponsesRunner {
       opts.commandAuthority.assertStart(messageId);
     }
     if (messageId) this.prepared.delete(messageId);
+    if (opts.gemini) {
+      const retained = prepared?.state ?? opts.store.load(opts.conversationId, opts.binding);
+      const original = retained?.nativeSelection ?? {
+        model: retained?.checkpoint?.model ?? opts.binding.model,
+        reasoningEffort: opts.reasoningEffort ?? null,
+      };
+      const selected = {
+        model: prepared?.selection?.model ?? this.selectedModel,
+        reasoningEffort:
+          prepared?.selection && 'reasoningEffort' in prepared.selection
+            ? (prepared.selection.reasoningEffort ?? null)
+            : (this.reasoningEffort ?? null),
+      };
+      if (!isDeepStrictEqual(original, selected))
+        throw Error('Continue with the original Gemini model and thinking.');
+    }
     const state = prepared?.state ?? opts.store.begin(opts.conversationId, opts.binding);
+    if (opts.gemini)
+      state.nativeSelection ??= {
+        model: opts.binding.model,
+        reasoningEffort: opts.reasoningEffort ?? null,
+      };
     const abort = new AbortController();
     this.active = abort;
     const onAbort = () => abort.abort();
@@ -189,7 +231,7 @@ export class NativeResponsesRunner {
       const previousModel = this.selectedModel;
       const selectedModel = prepared?.selection?.model ?? previousModel;
       const checkpoint =
-        state.checkpoint && state.checkpoint.model !== selectedModel
+        !opts.gemini && state.checkpoint && state.checkpoint.model !== selectedModel
           ? {
               ...state.checkpoint,
               model: selectedModel,

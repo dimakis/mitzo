@@ -7,6 +7,8 @@ import {
   AgentContextSnapshotSchema,
   type AgentLibraryVersion,
   type AgentContextSnapshot,
+  NativeContinuationConstraintSchema,
+  type NativeContinuationConstraint,
   type SessionRuntimeBinding,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -91,6 +93,7 @@ export function useExplicitLocalChat(
     mode?: 'ask' | 'agent' | 'auto';
     agentProfile?: AgentLibraryVersion;
     agentContext?: AgentContextSnapshot;
+    nativeConstraint?: NativeContinuationConstraint;
   } | null>(null);
   const scope = useRef({ draftId, sessionId });
   scope.current = { draftId, sessionId };
@@ -175,6 +178,13 @@ export function useExplicitLocalChat(
         setMeta({
           sessionId,
           binding: parsed,
+          ...(parsed?.harness.implementation === 'gemini'
+            ? {
+                nativeConstraint: NativeContinuationConstraintSchema.parse(
+                  body.runtimeNativeConstraint,
+                ),
+              }
+            : {}),
           firstCommand:
             body.runtimeCommandScope === 'first-command-only' ||
             (!!parsed && body.runtimeCommandScope !== 'conversation'),
@@ -239,7 +249,7 @@ export function useExplicitLocalChat(
   const continuation =
     bound &&
     !currentMeta?.firstCommand &&
-    ['codex', 'responses', 'claude-sdk'].includes(
+    ['codex', 'responses', 'claude-sdk', 'gemini'].includes(
       currentMeta?.binding?.harness.implementation ?? '',
     );
   const [future, setFuture] = useState<{ sessionId: string; intent: ChatRuntimeSelection } | null>(
@@ -275,47 +285,54 @@ export function useExplicitLocalChat(
     selectedIntent,
     inventory ? normalizeLocalInventory(inventory) : null,
   );
-  const reason = metadataPending
-    ? (metadataError ?? 'Loading conversation settings…')
-    : bound && !continuation
-      ? (currentMeta?.reason ??
-        `This ${currentMeta?.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local'} conversation supports its first command only. Start a new chat for another command.`)
-      : sessionId && !currentMeta
-        ? (metadataError ?? 'Loading conversation settings…')
-        : !visible
-          ? enabled && !sessionId && enrollment === 'loading'
-            ? 'Checking execution choices…'
-            : undefined
-          : enrollment !== 'on'
-            ? error || 'Execution choices are unavailable. Refresh to retry.'
-            : selectedIntent.account?.accountId && !selectedIntent.accountReference
-              ? 'The selected account identity is unconfirmed. Choose the account again to confirm authentication and billing before sending.'
-              : selectedIntent.execution.location === 'openshell' &&
-                  inventory?.locations.some(
-                    (entry) => entry.location === 'openshell' && entry.status === 'unavailable',
-                  )
-                ? ((inventory &&
-                    normalizeLocalInventory(inventory).locations.find(
-                      (location) => location.location === 'openshell' && !location.available,
-                    )?.reason) ??
-                  evaluation.issues[0]?.message)
-                : !selectedIntent.agentProfile
-                  ? 'Choose a published agent revision before sending.'
-                  : selectedIntent.accountReference &&
-                      inventory?.accounts.some(
-                        (entry) =>
-                          entry.account.accountId === selectedIntent.accountReference!.accountId &&
-                          (entry.account.provider !== selectedIntent.accountReference!.provider ||
-                            entry.account.profileRevision !==
-                              selectedIntent.accountReference!.profileRevision),
-                      )
-                    ? inventory.accounts.find(
-                        (entry) =>
-                          entry.account.accountId === selectedIntent.accountReference!.accountId,
-                      )?.account.provider !== selectedIntent.accountReference.provider
-                      ? 'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.'
-                      : 'The selected account configuration changed. Choose the account again before sending.'
-                    : evaluation.issues[0]?.message;
+  const nativeMismatch =
+    currentMeta?.nativeConstraint &&
+    (selectedIntent.account?.model !== currentMeta.nativeConstraint.model ||
+      (selectedIntent.account?.reasoningEffort ?? null) !== currentMeta.nativeConstraint.thinking);
+  const reason = nativeMismatch
+    ? currentMeta!.nativeConstraint!.reason
+    : metadataPending
+      ? (metadataError ?? 'Loading conversation settings…')
+      : bound && !continuation
+        ? (currentMeta?.reason ??
+          `This ${currentMeta?.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local'} conversation supports its first command only. Start a new chat for another command.`)
+        : sessionId && !currentMeta
+          ? (metadataError ?? 'Loading conversation settings…')
+          : !visible
+            ? enabled && !sessionId && enrollment === 'loading'
+              ? 'Checking execution choices…'
+              : undefined
+            : enrollment !== 'on'
+              ? error || 'Execution choices are unavailable. Refresh to retry.'
+              : selectedIntent.account?.accountId && !selectedIntent.accountReference
+                ? 'The selected account identity is unconfirmed. Choose the account again to confirm authentication and billing before sending.'
+                : selectedIntent.execution.location === 'openshell' &&
+                    inventory?.locations.some(
+                      (entry) => entry.location === 'openshell' && entry.status === 'unavailable',
+                    )
+                  ? ((inventory &&
+                      normalizeLocalInventory(inventory).locations.find(
+                        (location) => location.location === 'openshell' && !location.available,
+                      )?.reason) ??
+                    evaluation.issues[0]?.message)
+                  : !selectedIntent.agentProfile
+                    ? 'Choose a published agent revision before sending.'
+                    : selectedIntent.accountReference &&
+                        inventory?.accounts.some(
+                          (entry) =>
+                            entry.account.accountId ===
+                              selectedIntent.accountReference!.accountId &&
+                            (entry.account.provider !== selectedIntent.accountReference!.provider ||
+                              entry.account.profileRevision !==
+                                selectedIntent.accountReference!.profileRevision),
+                        )
+                      ? inventory.accounts.find(
+                          (entry) =>
+                            entry.account.accountId === selectedIntent.accountReference!.accountId,
+                        )?.account.provider !== selectedIntent.accountReference.provider
+                        ? 'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.'
+                        : 'The selected account configuration changed. Choose the account again before sending.'
+                      : evaluation.issues[0]?.message;
   const update = (next: ChatRuntimeSelection, explicitAccountChoice = false) => {
     const identityChanged =
       explicitAccountChoice ||
@@ -371,6 +388,7 @@ export function useExplicitLocalChat(
     agentProfile: currentMeta?.agentProfile,
     agentContext: currentMeta?.agentContext,
     mode: currentMeta?.mode,
+    nativeConstraint: currentMeta?.nativeConstraint,
     visible,
     selectedLocal,
     bound,

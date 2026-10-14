@@ -37,7 +37,7 @@ export function ordinaryCodexContinuationStatus(
     if (
       !binding ||
       binding.version !== 2 ||
-      !['codex', 'responses', 'claude-sdk'].includes(binding.harness.implementation) ||
+      !['codex', 'responses', 'claude-sdk', 'gemini'].includes(binding.harness.implementation) ||
       !meta
     )
       return { available: false };
@@ -52,9 +52,11 @@ export function ordinaryCodexContinuationStatus(
       (location === 'local'
         ? binding.harness.implementation === 'claude-sdk'
           ? process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED
-          : binding.harness.implementation === 'responses'
-            ? process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED
-            : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
+          : binding.harness.implementation === 'gemini'
+            ? process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED
+            : binding.harness.implementation === 'responses'
+              ? process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED
+              : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
         : process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED) !== '1'
     )
       return blocked('This conversation’s execution route is not enabled.');
@@ -70,10 +72,14 @@ export function ordinaryCodexContinuationStatus(
       resolved = localVertexCapabilities(profiles, new OrdinaryLocalVertexTarget()).resolve(
         request,
       );
-    else if (binding.harness.implementation === 'responses')
-      resolved = localResponsesCapabilities(profiles, new OrdinaryLocalResponsesTarget()).resolve(
-        request,
-      );
+    else if (['responses', 'gemini'].includes(binding.harness.implementation))
+      resolved = localResponsesCapabilities(
+        profiles,
+        new OrdinaryLocalResponsesTarget(
+          process.env,
+          binding.harness.implementation === 'gemini' ? 'gemini' : 'responses',
+        ),
+      ).resolve(request);
     else if (location === 'local')
       resolved = new OrdinaryLocalCodexCapabilityCatalog(
         profiles,
@@ -101,7 +107,7 @@ export function ordinaryCodexContinuationStatus(
         ? { available: true }
         : blocked('This conversation belongs to another login.');
     if (
-      ['responses', 'claude-sdk'].includes(binding.harness.implementation) &&
+      ['responses', 'claude-sdk', 'gemini'].includes(binding.harness.implementation) &&
       meta.executionPhase &&
       meta.executionPhase !== 'TERMINAL'
     )
@@ -112,7 +118,7 @@ export function ordinaryCodexContinuationStatus(
       location === 'local'
         ? binding.harness.implementation === 'claude-sdk'
           ? canResumeOwnedLocalVertexDriver(sessionId, authSessionId)
-          : binding.harness.implementation === 'responses'
+          : ['responses', 'gemini'].includes(binding.harness.implementation)
             ? canResumeOwnedLocalResponsesDriver(sessionId, authSessionId)
             : canResumeOwnedLocalCodexDriver(sessionId, authSessionId)
         : canResumeOwnedOpenShellCodexDriver(sessionId, authSessionId);

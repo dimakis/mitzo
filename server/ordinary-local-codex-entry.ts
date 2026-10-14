@@ -77,7 +77,7 @@ const log = createLogger('local-codex-entry');
 /** Pure configured projection. Every dispatch still qualifies the actual host/account. */
 function inventory(
   location: 'local' | 'openshell' = 'local',
-  harness: 'codex' | 'responses' | 'claude-sdk' = 'codex',
+  harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini' = 'codex',
 ) {
   const profiles = loadAccountProfiles();
   if (harness === 'claude-sdk') {
@@ -94,10 +94,18 @@ function inventory(
     );
     return { profiles, catalog, result: catalog.inventory() };
   }
-  if (harness === 'responses') {
-    if (location !== 'local' || process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED !== '1')
+  if (harness === 'responses' || harness === 'gemini') {
+    if (
+      location !== 'local' ||
+      (harness === 'gemini'
+        ? process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED
+        : process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED) !== '1'
+    )
       throw Error(unavailable);
-    const catalog = localResponsesCapabilities(profiles, new OrdinaryLocalResponsesTarget());
+    const catalog = localResponsesCapabilities(
+      profiles,
+      new OrdinaryLocalResponsesTarget(process.env, harness),
+    );
     return { profiles, catalog, result: catalog.inventory() };
   }
   if (location === 'openshell') {
@@ -167,7 +175,7 @@ function inventory(
 export function ordinaryCodexCapabilities() {
   const availableInventory = (
     location: 'local' | 'openshell',
-    harness: 'codex' | 'responses' | 'claude-sdk' = 'codex',
+    harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini' = 'codex',
   ) => {
     try {
       return inventory(location, harness).result;
@@ -188,12 +196,16 @@ export function ordinaryCodexCapabilities() {
     process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1'
       ? availableInventory('local', 'claude-sdk')
       : undefined;
+  const gemini =
+    process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED === '1'
+      ? availableInventory('local', 'gemini')
+      : undefined;
   const shell =
     process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED === '1'
       ? availableInventory('openshell')
       : undefined;
   const { accounts, routes } = composeOrdinaryRuntimeCapabilities(
-    [local, shell, responses, vertex].map(
+    [local, shell, responses, vertex, gemini].map(
       (source) =>
         source && {
           ...source,
@@ -218,6 +230,7 @@ export function ordinaryCodexCapabilities() {
           shell?.capabilityRevision ?? null,
           responses?.capabilityRevision ?? null,
           vertex?.capabilityRevision ?? null,
+          gemini?.capabilityRevision ?? null,
         ]),
       )
       .digest('hex'),
@@ -227,10 +240,11 @@ export function ordinaryCodexCapabilities() {
       ...(shell?.targets ?? []),
       ...(responses?.targets ?? []),
       ...(vertex?.targets ?? []),
+      ...(gemini?.targets ?? []),
     ],
     routes,
     locations: [
-      [local, responses, vertex]
+      [local, responses, vertex, gemini]
         .find((source) =>
           source?.locations.some(
             (entry) => entry.location === 'local' && entry.status === 'configured',
@@ -239,13 +253,15 @@ export function ordinaryCodexCapabilities() {
         ?.locations.find((entry) => entry.location === 'local') ??
         local?.locations.find((entry) => entry.location === 'local') ??
         responses?.locations[0] ??
-        vertex?.locations[0] ?? {
+        vertex?.locations[0] ??
+        gemini?.locations[0] ?? {
           location: 'local',
           status: 'unavailable',
           reason: [
             process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED,
             process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED,
             process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED,
+            process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED,
           ].includes('1')
             ? 'The configured Local Mac route is unavailable.'
             : 'Local Mac is not enabled.',
@@ -282,7 +298,8 @@ export function createOwnedLocalCodexEntryRouter(
         (!general ||
           (process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED !== '1' &&
             process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED !== '1' &&
-            process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED !== '1'))) ||
+            process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED !== '1' &&
+            process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED !== '1'))) ||
       custodianControllerMode ||
       custodianOwnerMode
     )
@@ -337,7 +354,9 @@ export function createOwnedLocalCodexEntryRouter(
               route.account.provider,
               target.location,
               presets,
-              route.harness === 'responses' ? { contextRecipes: 'none' } : undefined,
+              ['responses', 'gemini', 'claude-sdk'].includes(route.harness)
+                ? { contextRecipes: 'none' }
+                : undefined,
             ),
           };
         }),
@@ -398,8 +417,10 @@ export function createOwnedLocalCodexEntryRouter(
         (input.runOn === 'local'
           ? input.runtime.harness === 'claude-sdk'
             ? process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED
-            : input.runtime.harness === 'responses'
-              ? process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED
+            : ['responses', 'gemini'].includes(input.runtime.harness)
+              ? input.runtime.harness === 'gemini'
+                ? process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED
+                : process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED
               : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
           : process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED) !== '1'
       )
@@ -423,7 +444,7 @@ export function createOwnedLocalCodexEntryRouter(
             !(input.runOn === 'local'
               ? input.runtime.harness === 'claude-sdk'
                 ? canResumeOwnedLocalVertexDriver(sessionId, auth.id)
-                : input.runtime.harness === 'responses'
+                : ['responses', 'gemini'].includes(input.runtime.harness)
                   ? canResumeOwnedLocalResponsesDriver(sessionId, auth.id)
                   : canResumeOwnedLocalCodexDriver(sessionId, auth.id)
               : canResumeOwnedOpenShellCodexDriver(sessionId, auth.id))) ||
@@ -548,7 +569,7 @@ export function createOwnedLocalCodexEntryRouter(
                   signal: controller.signal,
                   resume: continuation,
                 })
-            : input.runtime.harness === 'responses'
+            : ['responses', 'gemini'].includes(input.runtime.harness)
               ? continuation && existingOwner
                 ? await sendOwnedLocalResponsesCommand({ sessionId, command, operatorConnectionId, signal: controller.signal })
                 : await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {

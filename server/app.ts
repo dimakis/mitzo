@@ -7,6 +7,7 @@ import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
 import { getNativeResponsesStore } from './responses-chat-session.js';
 import { continueOwnedLocalResponsesQueue, canResumeOwnedLocalResponsesDriver } from './chat.js';
 import {
+  readOwnedNativeContinuationConstraint,
   readOwnedResponsesQueue,
   readOwnedResponsesQueueOverview,
   cancelOwnedResponsesQueuedCommand,
@@ -2714,6 +2715,16 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   const runtimeMetadata = {
     ...ownedLocalCodexMetadata(eventStore, meta.sessionId, continuationStatus.available),
     ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
+    ...(meta.accountBinding?.provider === 'google-vertex' &&
+    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'gemini'
+      ? {
+          runtimeNativeConstraint: readOwnedNativeContinuationConstraint(
+            getNativeResponsesStore(),
+            meta.sessionId,
+            meta.accountBinding,
+          ),
+        }
+      : {}),
   };
   const lastAdmittedSelection = eventStore.getLatestOrdinaryCommandAdmission?.(
     meta.sessionId,
@@ -2726,8 +2737,9 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     (meta.accountBinding?.provider === 'openai-codex' ||
       (meta.accountBinding?.provider === 'openai' &&
         !!meta.cwd?.startsWith('/sandbox/workspaces/')));
-  const responsesBacked =
-    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'responses';
+  const responsesBacked = ['responses', 'gemini'].includes(
+    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation ?? '',
+  );
   const vertexBacked =
     eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'claude-sdk';
   const codexQueue = vertexBacked
@@ -2833,7 +2845,11 @@ async function reattachCodexQueue(
   waitForReady = false,
   deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
 ): Promise<'ready' | 'reattaching' | 'unavailable'> {
-  if (eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses')
+  if (
+    ['responses', 'gemini'].includes(
+      eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
+    )
+  )
     return 'unavailable';
   const existing = registry.findBySessionId(id)?.session;
   // Bound cold continuation must reacquire its original owning route through runtime admission.
@@ -2889,7 +2905,7 @@ function assertQueueOperator(id: string, authorization?: import('./auth.js').Aut
         )
           return eventStore.getOrdinaryLocalVertexCustody(sessionId);
         if (
-          binding.harness.implementation === 'responses' &&
+          ['responses', 'gemini'].includes(binding.harness.implementation) &&
           binding.execution.location === 'local'
         )
           return getNativeResponsesStore().readOrdinaryCustody(sessionId, account);
@@ -2913,7 +2929,7 @@ app.use(
       const meta = eventStore.getSession(sessionId);
       const binding = meta?.accountBinding;
       return binding &&
-        (['responses', 'claude-sdk'].includes(
+        (['responses', 'claude-sdk', 'gemini'].includes(
           eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation ?? '',
         ) ||
           binding.provider === 'openai-codex' ||
@@ -2924,13 +2940,17 @@ app.use(
     overview: (id, binding) =>
       eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk'
         ? readOwnedVertexQueueOverview(eventStore, id)
-        : eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses'
+        : ['responses', 'gemini'].includes(
+              eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
+            )
           ? readOwnedResponsesQueueOverview(eventStore, getNativeResponsesStore(), id, binding)
           : readCodexQueueOverview(id, binding),
     cancel: (id, binding, commandId, authorization) =>
       eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk'
         ? cancelOwnedVertexQueuedCommand(eventStore, id, commandId, authorization)
-        : eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'responses'
+        : ['responses', 'gemini'].includes(
+              eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
+            )
           ? cancelOwnedResponsesQueuedCommand(
               eventStore,
               getNativeResponsesStore(),
@@ -2984,7 +3004,11 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
       .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
     return;
   }
-  if (eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation === 'responses') {
+  if (
+    ['responses', 'gemini'].includes(
+      eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation ?? '',
+    )
+  ) {
     try {
       await continueOwnedLocalResponsesQueue(
         sessionId,

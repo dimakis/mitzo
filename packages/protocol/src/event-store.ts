@@ -481,7 +481,9 @@ export class EventStore {
   }
   getOrdinaryLocalResponsesCommandAdmission(clientMsgId: string) {
     const receipt = this.getOrdinaryCommandAdmission(clientMsgId);
-    return receipt?.binding.harness.implementation === 'responses' ? receipt : undefined;
+    return receipt && ['responses', 'gemini'].includes(receipt.binding.harness.implementation)
+      ? receipt
+      : undefined;
   }
   claimOrdinaryLocalResponsesCommandDispatch(clientMsgId: string): boolean {
     if (!this.getOrdinaryLocalResponsesCommandAdmission(clientMsgId))
@@ -829,7 +831,7 @@ export class EventStore {
     const schema =
       raw?.binding?.harness?.implementation === 'claude-sdk'
         ? OrdinaryLocalVertexCommandAdmissionSchema
-        : raw?.binding?.harness?.implementation === 'responses'
+        : ['responses', 'gemini'].includes(raw?.binding?.harness?.implementation)
           ? OrdinaryLocalResponsesCommandAdmissionSchema
           : raw?.binding?.execution?.location === 'openshell'
             ? OrdinaryOpenShellCommandAdmissionSchema

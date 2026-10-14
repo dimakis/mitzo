@@ -41,6 +41,12 @@ export const OrdinaryLocalVertexCommandRequestSchema =
       harness: z.literal('claude-sdk'),
     }),
   });
+export const OrdinaryLocalGeminiCommandRequestSchema =
+  OrdinaryLocalResponsesCommandRequestSchema.extend({
+    runtime: OrdinaryLocalResponsesCommandRequestSchema.shape.runtime.extend({
+      harness: z.literal('gemini'),
+    }),
+  });
 const Request = OrdinaryLocalCodexCommandRequestSchema;
 export type OrdinaryLocalCodexCommandRequest = z.infer<typeof Request>;
 export interface OrdinaryLocalCodexAdmissionExpectation {
@@ -127,7 +133,7 @@ function reconcileSessionMetadata(
   meta: Meta,
   request: Omit<OrdinaryLocalCodexCommandRequest, 'runtime'> & {
     runtime: Omit<OrdinaryLocalCodexCommandRequest['runtime'], 'harness'> & {
-      harness: 'codex' | 'responses' | 'claude-sdk';
+      harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini';
     };
   },
 ): void {
@@ -204,7 +210,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
   constructor(
     private readonly dependencies: {
       enabled: boolean;
-      adapter?: 'responses' | 'claude-sdk';
+      adapter?: 'responses' | 'claude-sdk' | 'gemini';
       store: Store;
       catalog: {
         inventory(): {
@@ -218,7 +224,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         resolve(input: unknown): ReturnType<typeof resolveOrdinarySessionRuntime>;
       };
       declaration: Omit<ReturnType<OrdinaryLocalCodexTarget['admissionDeclaration']>, 'harness'> & {
-        harness: 'codex' | 'responses' | 'claude-sdk';
+        harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini';
       };
       authority?: OrdinaryLocalCodexAdmissionAuthority;
       bootstrapAuthority?: OrdinaryLocalCodexBootstrapAuthority;
@@ -314,9 +320,11 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     const parsed = (
       d.adapter === 'claude-sdk'
         ? OrdinaryLocalVertexCommandRequestSchema
-        : d.adapter === 'responses'
-          ? OrdinaryLocalResponsesCommandRequestSchema
-          : Request
+        : d.adapter === 'gemini'
+          ? OrdinaryLocalGeminiCommandRequestSchema
+          : d.adapter === 'responses'
+            ? OrdinaryLocalResponsesCommandRequestSchema
+            : Request
     ).safeParse(input);
     if (!parsed.success) fail('invalid_request');
     const request = structuredClone(parsed.data);
@@ -334,9 +342,11 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       binding.account.provider !==
         (d.adapter === 'claude-sdk'
           ? 'anthropic-vertex'
-          : d.adapter === 'responses'
-            ? 'openai'
-            : 'openai-codex') ||
+          : d.adapter === 'gemini'
+            ? 'google-vertex'
+            : d.adapter === 'responses'
+              ? 'openai'
+              : 'openai-codex') ||
       binding.harness.implementation !== (d.adapter ?? 'codex') ||
       binding.execution.location !== 'local' ||
       binding.execution.targetId !== d.declaration.targetId ||

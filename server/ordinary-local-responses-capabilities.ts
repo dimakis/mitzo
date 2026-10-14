@@ -19,33 +19,36 @@ const Configuration = z.strictObject({
   hostId: reference,
   runtimeContractRevision: reference,
 });
-export const ordinaryLocalResponsesContractRevision = () =>
+export const ordinaryLocalResponsesContractRevision = (
+  harness: 'responses' | 'gemini' = 'responses',
+) =>
   digest([
-    'ordinary-local-responses-v1',
+    `ordinary-local-${harness}-v1`,
     Object.entries(reviewedHandlerSourceArtifacts).sort(([a], [b]) => a.localeCompare(b)),
   ]);
 /** Explicit private operator declaration; no environment/default inferred from credentials. */
 export class OrdinaryLocalResponsesTarget {
   readonly #configuration;
-  constructor(private readonly env: Readonly<NodeJS.ProcessEnv> = process.env) {
+  constructor(
+    private readonly env: Readonly<NodeJS.ProcessEnv> = process.env,
+    readonly harness: 'responses' | 'gemini' = 'responses',
+  ) {
     this.env = { ...env };
-    this.#configuration = Configuration.parse(
-      readPrivateRuntimeSettings(this.env.MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE),
-    );
+    this.#configuration = Configuration.parse(readPrivateRuntimeSettings(this.targetFile()));
     this.assertCurrentSync();
-    registerWorkspaceRuntimeAuthorityPaths(
-      [this.env.MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE!],
-      [this.env.MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE!],
-    );
+    registerWorkspaceRuntimeAuthorityPaths([this.targetFile()!], [this.targetFile()!]);
+  }
+  private targetFile() {
+    return this.harness === 'gemini'
+      ? this.env.MITZO_ORDINARY_LOCAL_GEMINI_TARGET_FILE
+      : this.env.MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE;
   }
   assertCurrentSync() {
-    const current = Configuration.parse(
-      readPrivateRuntimeSettings(this.env.MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE),
-    );
+    const current = Configuration.parse(readPrivateRuntimeSettings(this.targetFile()));
     if (
       JSON.stringify(current) !== JSON.stringify(this.#configuration) ||
       current.hostId !== hostname() ||
-      current.runtimeContractRevision !== ordinaryLocalResponsesContractRevision()
+      current.runtimeContractRevision !== ordinaryLocalResponsesContractRevision(this.harness)
     )
       throw Error('Local Responses target unavailable');
   }
@@ -53,10 +56,10 @@ export class OrdinaryLocalResponsesTarget {
     const c = this.#configuration;
     return {
       targetId: c.targetId,
-      targetRevision: digest(['ordinary-local-responses-target-v1', c]),
+      targetRevision: digest([`ordinary-local-${this.harness}-target-v1`, c]),
       label: c.label,
       location: 'local' as const,
-      harness: 'responses' as const,
+      harness: this.harness,
     };
   }
   admissionDeclaration() {
@@ -71,15 +74,19 @@ export function localResponsesCapabilities(
   profiles: AccountProfiles,
   target: OrdinaryLocalResponsesTarget,
 ) {
-  const accounts = profiles.ordinaryLocalResponsesInventory();
+  const accounts =
+    target.harness === 'gemini'
+      ? profiles.ordinaryLocalGeminiInventory()
+      : profiles.ordinaryLocalResponsesInventory();
   const targets = [target.descriptor()];
   const catalog: OrdinarySessionRuntimeCatalog = {
     deployment: 'ordinary',
-    enabledHarnesses: ['responses'],
-    accounts: accounts.map(({ account }) => ({
-      ...account,
-      auth: { kind: 'api-credential', openshellTargetIds: [] },
-    })),
+    enabledHarnesses: [target.harness],
+    accounts: accounts.map(({ account }) =>
+      account.provider === 'google-vertex'
+        ? { ...account, auth: { kind: 'vertex-adc' as const } }
+        : { ...account, auth: { kind: 'api-credential' as const, openshellTargetIds: [] } },
+    ),
     targets: targets.map(({ targetId, targetRevision, location }) => ({
       targetId,
       targetRevision,
@@ -96,7 +103,7 @@ export function localResponsesCapabilities(
     routes: accounts.map(({ account }) => ({
       account,
       targetId: targets[0].targetId,
-      harness: 'responses' as const,
+      harness: target.harness,
       modes: ['ask', 'agent', 'auto'] as const,
       skillCeiling: 'unsupported' as const,
     })),

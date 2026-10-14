@@ -379,6 +379,31 @@ export class AccountProfiles {
   }
 
   /** Local API configuration projection; enrollment custody remains the owning gate. */
+  ordinaryLocalGeminiInventory() {
+    return this.profiles.flatMap((profile) => {
+      if (profile.provider !== 'google-vertex') return [];
+      const discovered = cachedModels(JSON.stringify(profile));
+      return [
+        {
+          account: {
+            accountId: profile.id,
+            provider: 'google-vertex' as const,
+            profileRevision: routingRevision(profile),
+          },
+          label: profile.label,
+          models: structuredClone(
+            supportedModels(profile.provider, discovered?.models ?? profile.models),
+          ),
+          modelDiscovery: {
+            source: discovered?.models ? ('cached' as const) : ('configured' as const),
+            stale: !!discovered?.error,
+            ...(discovered?.updatedAt === undefined ? {} : { updatedAt: discovered.updatedAt }),
+          },
+        },
+      ];
+    });
+  }
+
   ordinaryLocalResponsesInventory() {
     return this.profiles.flatMap((profile) => {
       if (profile.provider !== 'openai' || !this.isEnrolledOpenAIAccount(profile.id)) return [];

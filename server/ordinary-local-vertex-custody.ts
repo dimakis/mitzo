@@ -12,7 +12,10 @@ import { isAbsolute, dirname } from 'node:path';
 import { VertexAdcCustodySchema, type VertexAdcCustodySnapshot } from '@mitzo/protocol';
 export { VertexAdcCustodySchema, type VertexAdcCustodySnapshot };
 const unavailable = () => new Error('Original Vertex credential authority unavailable');
-function observe(env: Readonly<Record<string, string | undefined>>): VertexAdcCustodySnapshot {
+function observe(
+  env: Readonly<Record<string, string | undefined>>,
+  onCredentials?: (credentials: Record<string, unknown>) => void,
+): VertexAdcCustodySnapshot {
   const path = env.GOOGLE_APPLICATION_CREDENTIALS;
   if (
     !path ||
@@ -89,6 +92,7 @@ function observe(env: Readonly<Record<string, string | undefined>>): VertexAdcCu
         'ctimeNs',
       ] as const)
         if (current[field] !== stat[field]) throw unavailable();
+    onCredentials?.(parsed);
     return VertexAdcCustodySchema.parse({
       version: 1,
       project: env.ANTHROPIC_VERTEX_PROJECT_ID,
@@ -125,6 +129,19 @@ export class VertexAdcCustody {
   }
   snapshot() {
     return structuredClone(this.retained);
+  }
+  credentials(env: Readonly<Record<string, string | undefined>>): Record<string, unknown> {
+    try {
+      let credentials: Record<string, unknown> | undefined;
+      const observed = observe(env, (value) => {
+        credentials = value;
+      });
+      if (JSON.stringify(observed) !== JSON.stringify(this.retained) || !credentials)
+        throw unavailable();
+      return structuredClone(credentials);
+    } catch {
+      throw unavailable();
+    }
   }
   assertCurrent(env: Readonly<Record<string, string | undefined>>) {
     try {

@@ -16,7 +16,7 @@ interface Source {
     account: Account;
     targetId: string;
     location?: 'local' | 'openshell';
-    harness: 'codex' | 'responses' | 'claude-sdk';
+    harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini';
     modes: readonly ('ask' | 'agent' | 'auto')[];
     skillCeiling?: 'unsupported';
     agentProfiles?: AgentProfileSelection[];

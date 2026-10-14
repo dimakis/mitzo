@@ -1,3 +1,4 @@
+import { NativeContinuationConstraintSchema } from '@mitzo/protocol';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { NativeResponsesStore } from './native-responses-store.js';
@@ -80,4 +81,21 @@ export function cancelOwnedResponsesQueuedCommand(
   )
     return 'not_queued' as const;
   return native.cancelQueuedCommand(id, binding, commandId);
+}
+
+export function readOwnedNativeContinuationConstraint(
+  native: NativeResponsesStore,
+  id: string,
+  binding: AccountBinding,
+) {
+  if (binding.provider !== 'google-vertex') return undefined;
+  const custody = native.readOrdinaryCustody(id, binding);
+  if (!custody?.credentialAuthority || !custody.nativeSelection)
+    throw Error('Original Gemini custody unavailable');
+  return NativeContinuationConstraintSchema.parse({
+    model: custody.nativeSelection.model,
+    thinking: custody.nativeSelection.reasoningEffort,
+    reason:
+      'Continue with the original Gemini model and thinking. Start another conversation to change them.',
+  });
 }

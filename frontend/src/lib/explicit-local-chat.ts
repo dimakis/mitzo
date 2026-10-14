@@ -2,6 +2,8 @@ import { selectedRuntimeRoute } from './chat-runtime-route';
 import { sha256Hex } from './browser-crypto';
 import { z } from 'zod';
 import {
+  NativeContinuationConstraintSchema,
+  type NativeContinuationConstraint,
   AgentLibraryVersionSchema,
   AgentProfileSelectionSchema,
   type AgentLibraryVersion,
@@ -17,7 +19,7 @@ import {
 } from './chat-runtime-selection';
 const ref = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
 const account = SessionRuntimeBindingV1Schema.shape.account
-  .extend({ provider: z.enum(['openai-codex', 'openai', 'anthropic-vertex']) })
+  .extend({ provider: z.enum(['openai-codex', 'openai', 'anthropic-vertex', 'google-vertex']) })
   .strict();
 const model = z.strictObject({
   id: ref,
@@ -52,7 +54,7 @@ export const ExplicitLocalInventorySchema = z
           targetRevision: ref,
           label: z.string().min(1).max(256),
           location: z.enum(['local', 'openshell']),
-          harness: z.enum(['codex', 'responses', 'claude-sdk']),
+          harness: z.enum(['codex', 'responses', 'claude-sdk', 'gemini']),
         }),
       )
       .max(64),
@@ -62,7 +64,7 @@ export const ExplicitLocalInventorySchema = z
           account,
           targetId: ref,
           location: z.enum(['local', 'openshell']).optional(),
-          harness: z.enum(['codex', 'responses', 'claude-sdk']),
+          harness: z.enum(['codex', 'responses', 'claude-sdk', 'gemini']),
           modes: z.array(z.enum(['ask', 'agent', 'auto'])).max(3),
           skillCeiling: z.literal('unsupported').optional(),
           agentProfiles: z.array(AgentProfileSelectionSchema).max(256).optional(),
@@ -179,6 +181,7 @@ export function prepareLocalFirstCommand(
     images?: { data: string; mediaType: string }[];
     retainedAgentProfile?: AgentLibraryVersion;
     retainedAgentContext?: AgentContextSnapshot;
+    nativeConstraint?: NativeContinuationConstraint;
   },
 ) {
   if (!inventory || !selection.agentProfile)
@@ -298,6 +301,28 @@ export function prepareLocalContinuationCommand(
   inventory: ExplicitLocalInventory | null,
   input: Parameters<typeof prepareLocalFirstCommand>[2] & { sessionId: string },
 ) {
+  const gemini =
+    input.nativeConstraint !== undefined ||
+    selection.accountReference?.provider === 'google-vertex' ||
+    inventory?.routes.some(
+      (route) =>
+        route.harness === 'gemini' &&
+        route.account.accountId === selection.account?.accountId &&
+        route.targetId === selection.execution.targetId,
+    );
+  if (gemini) {
+    const constraint = NativeContinuationConstraintSchema.safeParse(input.nativeConstraint);
+    if (!constraint.success)
+      return {
+        request: null,
+        reason: 'Original Gemini continuation settings are unavailable. Refresh before sending.',
+      };
+    if (
+      selection.account?.model !== constraint.data.model ||
+      (selection.account?.reasoningEffort ?? null) !== constraint.data.thinking
+    )
+      return { request: null, reason: constraint.data.reason };
+  }
   const first = prepareLocalFirstCommand(selection, inventory, input);
   if (!first.request) return first;
   const parsed = OrdinaryRuntimeContinuationCommandSchema.safeParse({

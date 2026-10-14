@@ -80,6 +80,20 @@ Stop without a native terminal result retains unconfirmed work and refuses cold
 replay. Context recipes, packs, Vertex OpenShell and ordinary Gemini adoption
 remain outside this Claude checkpoint.
 
+Local Google Vertex accounts have a gated [Gemini source route](docs/design/ordinary-local-gemini-source-status.md)
+through the same picker and runtime endpoints. It reuses NativeResponses history,
+ordinary admission, independent checkout and signed operator custody for first
+commands, FIFO, Stop and completed-turn cold continuation. Explicit parsed ADC
+credentials bind the original private file, project and region; ambient Google
+project/quota controls and changed ADC are refused. Model and thinking stay fixed
+for the native conversation. An invalid future choice remains visible with a reason
+until explicitly replaced or a new conversation is started. Images, context
+recipes, packs and OpenShell Gemini remain unavailable.
+
+- [x] Gemini source120 checkpoint: 292 unique reviewed artifacts with zero drift;
+      188 offline checks, scoped types and commit hooks passed. Live provider behavior,
+      ADC renewal and staging qualification remain outstanding.
+
 Configuration remains operator-owned and disabled by default. Local requires
 `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and separately reviewed target/native files.
 OpenShell requires `MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED=1`, the existing reviewed

@@ -6023,17 +6023,16 @@ export function canResumeOwnedLocalResponsesDriver(
   authSessionId: string,
 ): boolean {
   try {
-    if (
-      process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED !== '1' ||
-      !hasPersistentRevocationAuthority()
-    )
-      return false;
+    if (!hasPersistentRevocationAuthority()) return false;
     const meta = eventStore.getSession(sessionId),
       runtime = eventStore.getSessionRuntimeBinding(sessionId);
     if (
       !meta?.accountBinding ||
       !runtime ||
-      runtime.harness.implementation !== 'responses' ||
+      !['responses', 'gemini'].includes(runtime.harness.implementation) ||
+      (runtime.harness.implementation === 'gemini'
+        ? process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED
+        : process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED) !== '1' ||
       runtime.execution.location !== 'local' ||
       (meta.executionPhase && meta.executionPhase !== 'TERMINAL') ||
       eventStore.hasUncertainOrdinaryCommand(sessionId)
@@ -6041,6 +6040,7 @@ export function canResumeOwnedLocalResponsesDriver(
       return false;
     const native = getNativeResponsesStore(),
       custody = native.readOrdinaryCustody(sessionId, meta.accountBinding);
+    OrdinaryLocalResponsesOwnedRuntime.assertRetainedCredential(meta.accountBinding, custody);
     return (
       !!custody &&
       custody.authSessionId === authSessionId &&
@@ -6144,7 +6144,9 @@ export async function sendOwnedLocalResponsesCommand(input: {
     !session ||
     !owner ||
     owner.authSessionId !== captured.auth.id ||
-    eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation !== 'responses'
+    !['responses', 'gemini'].includes(
+      eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation ?? '',
+    )
   )
     throw Error('Owned Local Responses unavailable');
   const result = await owner.admit(input.command, input.signal);
@@ -6177,7 +6179,9 @@ export async function startOwnedLocalResponsesCommand(
       live.authSessionId !== options.ownerAuthSessionId ||
       live.initialCommandId !== command.clientMsgId ||
       options.resume ||
-      eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation !== 'responses'
+      !['responses', 'gemini'].includes(
+        eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation ?? '',
+      )
     )
       throw Error('Responses owner already exists');
     return { ...(await live.retryInitial(options.command)), sessionId };
@@ -6245,12 +6249,16 @@ export async function startOwnedLocalResponsesCommand(
         resume: selected.resume,
         conversationId: sessionId,
         binding: selected.binding,
-        getApiKey: (signal) => {
-          signal?.throwIfAborted();
-          const active = owner.activeCommandId();
-          if (!active) throw Error('Responses command unavailable');
-          return owner.resolveKey(active, signal);
-        },
+        ...(selected.binding.provider === 'google-vertex'
+          ? { gemini: owner.geminiOptions() }
+          : {
+              getApiKey: (signal?: AbortSignal) => {
+                signal?.throwIfAborted();
+                const active = owner.activeCommandId();
+                if (!active) throw Error('Responses command unavailable');
+                return owner.resolveKey(active, signal);
+              },
+            }),
         selectedModel: selected.expected.selection.model,
         reasoningEffort: selected.expected.selection.thinking,
         session,
@@ -6294,7 +6302,10 @@ export async function startOwnedLocalResponsesCommand(
     }
   };
   const owner = new OrdinaryLocalResponsesOwnedRuntime({
-    enabled: process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED === '1',
+    enabled:
+      (options.reservation.binding.provider === 'google-vertex'
+        ? process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED
+        : process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED) === '1',
     eventStore,
     library: getAgentLibrary(),
     workspace: getRepositoryWorkspaces(true),
