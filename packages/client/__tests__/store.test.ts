@@ -2808,6 +2808,43 @@ describe('task CRUD actions', () => {
 });
 
 describe('foreground recovery', () => {
+  it('keeps a pending session switch as the single history owner on foreground', async () => {
+    const transport = mockTransport();
+    let finish!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url.includes('/messages')
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ ok: true, json: async () => [] }),
+    );
+    const store = createReadyStore(transport);
+    const opening = store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({ type: '_foreground' });
+    expect(
+      (transport.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) =>
+        String(url).includes('/messages'),
+      ),
+    ).toHaveLength(1);
+    finish({
+      ok: true,
+      json: async () => ({
+        messages: [{ messageId: 'saved', role: 'assistant', blocks: [], isStreaming: false }],
+        current: null,
+        cursor: 12,
+      }),
+    });
+    await opening;
+    expect(store.getState().historyLoading).toBe(false);
+    expect(store.getState().historyError).toBeNull();
+    expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual(['saved']);
+    expect(lastWs.parsedSent()).toContainEqual({
+      type: 'switch_session',
+      sessionId: 'sess-1',
+      historyCursor: 12,
+    });
+  });
+
   it('keeps loaded messages visible without history loading while foreground recovery is pending', async () => {
     const transport = mockTransport();
     let finish!: (value: unknown) => void;

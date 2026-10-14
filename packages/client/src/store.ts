@@ -1668,8 +1668,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // evicted it from memory, losing in-memory state), re-fetch messages from
     // the REST API if we have an active session but no messages in the store.
     if (msg.type === '_foreground') {
-      const { sessions } = store.getState();
-      if (sessions.active) {
+      const { sessions, historyLoading } = store.getState();
+      // An opening transcript or bounded reconnect already owns history. A
+      // second foreground restore would invalidate that request and can leave
+      // its loading flag stuck while duplicating the full transcript work.
+      if (sessions.active && !historyLoading) {
         fetchAndRestoreMessages(sessions.active);
         // syncRunningState removed — state events handle this
       }
