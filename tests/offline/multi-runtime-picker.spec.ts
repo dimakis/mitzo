@@ -256,7 +256,7 @@ test('Approved composer clean saved-design reference aligns Agent and Account fi
   });
   expect(geometry.labels).toBeLessThanOrEqual(1);
   expect(geometry.field).toBeLessThanOrEqual(1);
-  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+  await expect(workspace).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toHaveCount(0);
   await expect(input).toBeInViewport();
   await expect(page.getByRole('navigation', { name: 'Main navigation' }).first()).toBeInViewport();

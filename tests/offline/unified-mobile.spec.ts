@@ -2796,6 +2796,8 @@ test('saved chat identity failures lock model controls until an explicit success
       await retry.click();
       await expect(retry).toHaveCount(0);
       expect(reads).toBeGreaterThan(before);
+      await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+      await openAgentSettings(page);
       if (recovered === 'briefing') {
         await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
         await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();

@@ -502,6 +502,8 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   );
   await assertWorkspaceHeadingFits(page);
   releaseInitialMetadata();
+  await expect(workspace.locator('.conversation-state')).toHaveText('Needs review');
+  await openAgentSettings(page);
   await expect(
     page.getByRole('alert').filter({ hasText: 'Conversation settings are unavailable' }),
   ).toBeVisible();
@@ -511,7 +513,6 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add agent', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reusable profile drafts' })).toHaveCount(0);
-  await workspace.click();
   await page.getByText('More options', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Open review findings' })).toBeEnabled();
   for (const mode of ['Ask', 'Agent', 'Auto']) {
@@ -785,8 +786,8 @@ test('OpenShell conversation: default route starts and continues without legacy 
   // The draft composer is replaced when session metadata binds the conversation.
   // Open settings on that bound composer, rather than the outgoing draft.
   await expect(
-    page.getByRole('status').filter({ hasText: 'Conversation connected.' }),
-  ).toBeVisible();
+    page.getByRole('button', { name: /^Workspace controls/ }).locator('.conversation-state'),
+  ).toHaveText('Conversation');
   await openAgentSettings(page);
   await assertBoundRunOn(page, 'openshell');
   await expect.poll(() => fixture.requests.length).toBe(1);

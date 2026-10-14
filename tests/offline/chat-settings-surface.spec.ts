@@ -95,9 +95,19 @@ for (const appearance of ['dark', 'light'] as const) {
       });
       await expect(page.getByRole('navigation')).toBeVisible();
       await page.setViewportSize({ width: 320, height: 500 });
+      await input.evaluate((element) => {
+        element.style.height = '210px';
+      });
       await trigger.click();
       await expect(panel).toBeVisible();
       await expect(input).toBeInViewport();
+      const local = panel.getByRole('button', { name: 'Local Mac', exact: true });
+      await local.scrollIntoViewIfNeeded();
+      const localBox = (await local.boundingBox())!;
+      const headerBox = (await panel.locator('.agent-settings-header').boundingBox())!;
+      const footerBox = (await panel.locator('.workspace-controls-footer').boundingBox())!;
+      expect(localBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+      expect(localBox.y + localBox.height).toBeLessThanOrEqual(footerBox.y + 1);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,

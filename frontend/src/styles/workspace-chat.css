@@ -1539,7 +1539,7 @@
 @media (max-width: 767px) {
   .workspace-chat .workspace-controls > .motion-disclosure:not([hidden]) {
     max-height: min(
-      var(--workspace-disclosure-space, 60dvh),
+      max(var(--workspace-disclosure-space, 60dvh), calc(6 * var(--control-height))),
       calc(100dvh - 88px - env(safe-area-inset-bottom))
     );
   }
@@ -1556,4 +1556,9 @@
 }
 .workspace-controls-footer {
   bottom: 0;
+}
+
+/* Keep scrolled controls clear of the sticky header and Done action. */
+.workspace-controls > .motion-disclosure {
+  scroll-padding-block: calc(var(--control-height) + 2 * var(--space-4));
 }
