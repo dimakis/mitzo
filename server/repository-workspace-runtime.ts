@@ -1,3 +1,7 @@
+import {
+  captureOrdinaryRepositoryPreparation,
+  assertOrdinaryRepositoryPreparation,
+} from './ordinary-repository-preparation-authority.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,8 +18,32 @@ export function repositoryWorkspacesEnabled() {
 export function repositoryWorkspaceBinding(accountId: string, model: string) {
   const profiles = loadAccountProfiles();
   const binding = profiles.resolve(accountId, model);
-  if (!['openai', 'openai-codex'].includes(binding.provider))
-    throw new Error('Initial repository chats require an OpenAI account');
+  if (
+    !['openai', 'openai-codex'].includes(binding.provider) &&
+    !(
+      binding.provider === 'anthropic-vertex' &&
+      process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1' &&
+      profiles
+        .ordinaryLocalVertexInventory()
+        .some(
+          (entry) =>
+            entry.account.accountId === binding.accountId &&
+            entry.account.profileRevision === binding.profileRevision,
+        )
+    ) &&
+    !(
+      binding.provider === 'google-vertex' &&
+      process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED === '1' &&
+      profiles
+        .ordinaryLocalGeminiInventory()
+        .some(
+          (entry) =>
+            entry.account.accountId === binding.accountId &&
+            entry.account.profileRevision === binding.profileRevision,
+        )
+    )
+  )
+    throw new Error('Selected account is unavailable for repository chats');
   if (binding.provider === 'openai-codex' && profiles.codexProfile(binding).nativeAuth)
     throw new Error('Native Symposium accounts are unavailable for ordinary repository chats');
   return binding;
@@ -59,11 +87,37 @@ export function getRepositoryWorkspaces(readOnly = false) {
   )
     throw new Error('Repository preparation state is unavailable');
   service ??= new RepositoryWorkspaces(join(codexPrivateDirectory(), 'repository-sources'), {
+    ordinaryPreparation: {
+      capture: captureOrdinaryRepositoryPreparation,
+      assert: assertOrdinaryRepositoryPreparation,
+    },
     authorize: async (binding, connectionId, repository, signal) => {
       const profiles = loadAccountProfiles();
       profiles.resumeRouting(binding);
       if (
-        !['openai', 'openai-codex'].includes(binding.provider) ||
+        (!['openai', 'openai-codex'].includes(binding.provider) &&
+          !(
+            binding.provider === 'anthropic-vertex' &&
+            process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1' &&
+            profiles
+              .ordinaryLocalVertexInventory()
+              .some(
+                (entry) =>
+                  entry.account.accountId === binding.accountId &&
+                  entry.account.profileRevision === binding.profileRevision,
+              )
+          ) &&
+          !(
+            binding.provider === 'google-vertex' &&
+            process.env.MITZO_ORDINARY_LOCAL_GEMINI_ENABLED === '1' &&
+            profiles
+              .ordinaryLocalGeminiInventory()
+              .some(
+                (entry) =>
+                  entry.account.accountId === binding.accountId &&
+                  entry.account.profileRevision === binding.profileRevision,
+              )
+          )) ||
         (binding.provider === 'openai-codex' && profiles.codexRoutingProfile(binding).nativeAuth)
       )
         throw new Error('Repository AI account changed');

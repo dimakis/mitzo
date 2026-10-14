@@ -322,6 +322,43 @@ export class AccountProfiles {
   /** Configuration/cache metadata for the dormant local capability snapshot.
    * Never refreshes discovery, checks sign-in or opens a provider connection.
    */
+  /** Selected file-backed ADC profiles only; configuration/cache projection performs no credential I/O. */
+  ordinaryLocalVertexInventory() {
+    return this.profiles
+      .filter(
+        (profile) =>
+          profile.provider === 'anthropic-vertex' &&
+          !profile.sandboxProvider &&
+          !profile.sandboxProviderId,
+      )
+      .map((profile) => {
+        const discovered = cachedModels(JSON.stringify(profile));
+        return {
+          account: {
+            accountId: profile.id,
+            provider: 'anthropic-vertex' as const,
+            profileRevision: routingRevision(profile),
+          },
+          label: profile.label,
+          models: structuredClone(discovered?.models ?? profile.models).map((model) => ({
+            ...model,
+            ...(model.reasoningEfforts
+              ? {
+                  reasoningEfforts: model.reasoningEfforts.filter((effort) =>
+                    ['low', 'medium', 'high', 'xhigh', 'max'].includes(effort),
+                  ),
+                }
+              : {}),
+          })),
+          modelDiscovery: {
+            source: discovered?.models ? ('cached' as const) : ('configured' as const),
+            stale: !!discovered?.error,
+            ...(discovered?.updatedAt === undefined ? {} : { updatedAt: discovered.updatedAt }),
+          },
+        };
+      });
+  }
+
   ordinaryLocalCodexInventory() {
     return this.ordinaryLocalCodexAccounts().map((account) => {
       const profile = this.profiles.find((candidate) => candidate.id === account.accountId)!;
@@ -342,6 +379,31 @@ export class AccountProfiles {
   }
 
   /** Local API configuration projection; enrollment custody remains the owning gate. */
+  ordinaryLocalGeminiInventory() {
+    return this.profiles.flatMap((profile) => {
+      if (profile.provider !== 'google-vertex') return [];
+      const discovered = cachedModels(JSON.stringify(profile));
+      return [
+        {
+          account: {
+            accountId: profile.id,
+            provider: 'google-vertex' as const,
+            profileRevision: routingRevision(profile),
+          },
+          label: profile.label,
+          models: structuredClone(
+            supportedModels(profile.provider, discovered?.models ?? profile.models),
+          ),
+          modelDiscovery: {
+            source: discovered?.models ? ('cached' as const) : ('configured' as const),
+            stale: !!discovered?.error,
+            ...(discovered?.updatedAt === undefined ? {} : { updatedAt: discovered.updatedAt }),
+          },
+        },
+      ];
+    });
+  }
+
   ordinaryLocalResponsesInventory() {
     return this.profiles.flatMap((profile) => {
       if (profile.provider !== 'openai' || !this.isEnrolledOpenAIAccount(profile.id)) return [];
@@ -1006,7 +1068,7 @@ export class AccountProfiles {
   }
 
   sdkEnv(binding: AccountBinding, base: Record<string, string>): Record<string, string> {
-    this.resume(binding);
+    this.resumeRouting(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId)!;
     if (profile.provider === 'openai-codex')
       throw new Error('Codex accounts require the subscription runtime');
@@ -1018,7 +1080,9 @@ export class AccountProfiles {
     // Remove inherited alternate billing/routing controls before setting the chosen profile.
     for (const key of Object.keys(env)) {
       if (
-        /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_USE_|CLAUDE_CODE_SKIP_|VERTEX_REGION_)/.test(key) ||
+        /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_USE_|CLAUDE_CODE_SKIP_|VERTEX_REGION_|GOOGLE_|GCLOUD_)/.test(
+          key,
+        ) ||
         [
           // Controller-only publishing authority is independent of inference routing.
           'GH_TOKEN',
@@ -1027,6 +1091,9 @@ export class AccountProfiles {
           'CLAUDE_CODE_OAUTH_TOKEN',
           'GOOGLE_API_KEY',
           'GOOGLE_APPLICATION_CREDENTIALS',
+          'GOOGLE_CLOUD_QUOTA_PROJECT',
+          'GOOGLE_CLOUD_PROJECT',
+          'GCLOUD_PROJECT',
         ].includes(key)
       )
         delete env[key];

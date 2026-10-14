@@ -1,0 +1,262 @@
+.agent-settings-picker {
+  container-type: inline-size;
+  container-name: agent-settings;
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+.agent-settings-trigger {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-3);
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+}
+.agent-settings-trigger > strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.agent-settings-trigger > span {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.agent-settings-panel {
+  position: relative;
+  margin-top: var(--space-2);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: var(--agent-settings-minimum, calc(var(--control-height) * 3));
+  max-height: max(
+    var(--agent-settings-minimum, calc(var(--control-height) * 3)),
+    min(70dvh, var(--agent-settings-space, 45dvh))
+  );
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 var(--space-2) var(--space-6) var(--color-shadow);
+  overflow: hidden;
+  font-family: var(--font-ui);
+}
+.agent-settings-panel[hidden] {
+  display: none;
+}
+.agent-settings-header,
+.agent-settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: var(--space-2) var(--space-4);
+}
+.agent-settings-footer {
+  justify-content: flex-end;
+}
+.agent-settings-panel button {
+  min-height: var(--control-height);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  padding: var(--space-2) var(--space-3);
+}
+.agent-settings-header button {
+  border-color: transparent;
+  background: transparent;
+}
+.agent-settings-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.agent-settings-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.agent-settings-agent .chat-agent-profile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+.agent-settings-panel label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+.agent-settings-panel select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+}
+.agent-settings-account-model {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.agent-settings-account-model > :first-child {
+  grid-column: 1 / -1;
+}
+.agent-settings-panel :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-1);
+}
+.agent-settings-panel button:disabled {
+  opacity: 0.6;
+}
+.agent-execution-settings {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.agent-execution-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.agent-execution-heading span,
+.agent-execution-description,
+.agent-execution-software {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+.agent-execution-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.agent-settings-panel .agent-execution-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  text-align: left;
+}
+.agent-settings-panel .agent-execution-card[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-panel);
+}
+.agent-execution-card-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.agent-execution-card-heading > .ui-icon:last-child {
+  margin-left: auto;
+}
+.agent-execution-software {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+@media (max-width: 600px) {
+  .agent-settings-trigger {
+    width: 100%;
+  }
+}
+@container agent-settings (max-width: 450px) {
+  .agent-settings-account-model {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The approved phone breakpoint is 380px. A 300px composer reaches the
+   same card minimum in a narrow desktop panel after the shared page gutters. */
+@media (max-width: 380px) {
+  .agent-execution-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container agent-settings (max-width: 300px) {
+  .agent-execution-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container agent-settings (max-width: 450px) {
+  .agent-settings-trigger {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .agent-settings-trigger > span {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .agent-settings-trigger > .ui-icon:last-child {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+.agent-settings-panel .chat-agent-profile label {
+  align-items: stretch;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+.agent-settings-panel .chat-agent-profile select {
+  width: 100%;
+  max-width: 100%;
+}
+
+.agent-settings-account-model > .account-model-settings-account,
+.agent-settings-account-model > .account-model-settings-pair,
+.agent-settings-account-model > .account-model-settings-utilities {
+  grid-column: 1 / -1;
+}
+.account-model-settings-account,
+.account-model-settings-utilities {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.account-model-settings-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+}
+.account-model-settings-utilities:empty {
+  display: none;
+}
+@container agent-settings (max-width: 450px) {
+  .account-model-settings-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

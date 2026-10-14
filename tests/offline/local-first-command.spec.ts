@@ -25,6 +25,7 @@ async function offline(
   continuation = false,
   location: 'local' | 'openshell' = 'local',
 ) {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   const requests: unknown[] = [];
   const attachments: Array<string | null> = [];
   const controls: string[] = [];
@@ -277,6 +278,46 @@ async function emitLocalState(page: Page, state: 'running' | 'idle') {
     { sessionId, state },
   );
 }
+
+async function openAgentSettings(page: Page) {
+  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+  await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+}
+async function assertBoundRunOn(page: Page, location: 'local' | 'openshell', firstCommand = false) {
+  const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
+  const cards = panel.getByRole('group', { name: 'Run on', exact: true });
+  await expect(cards.getByRole('button')).toHaveCount(2);
+  for (const [value, name] of [
+    ['local', 'Local Mac'],
+    ['openshell', 'OpenShell'],
+  ] as const) {
+    const card = cards.getByRole('button', { name, exact: true });
+    await expect(card).toHaveAttribute('aria-pressed', String(value === location));
+    await expect(card).toBeDisabled();
+  }
+  await expect(panel.getByText('Fixed for this conversation', { exact: true })).toBeVisible();
+  if (firstCommand) {
+    await expect(panel.getByRole('status')).toHaveText(
+      `This ${location === 'local' ? 'Local' : 'OpenShell'} conversation supports its first command only. Start a new chat for another command.`,
+    );
+    await expect(
+      page.getByRole('button', { name: /^Workspace controls/ }).locator('.conversation-state'),
+    ).toHaveText('First command');
+  }
+}
+async function assertSettingsGeometry(page: Page) {
+  const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
+  const bounds = await panel.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeInViewport();
+  await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+}
+
 for (const appearance of ['light', 'dark'] as const) {
   test(`Local first command: exact choices, preparation and bound controls (${appearance})`, async ({
     page,
@@ -290,30 +331,30 @@ for (const appearance of ['light', 'dark'] as const) {
     if (testInfo.project.name.startsWith('mobile'))
       await page.setViewportSize({ width: 320, height: 740 });
     await page.goto('/chat');
-    await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('openshell');
-    await page.getByRole('combobox', { name: 'Run on' }).focus();
-    await expect(page.getByRole('combobox', { name: 'Run on' })).toBeFocused();
-    const runOnBounds = await page.getByRole('combobox', { name: 'Run on' }).boundingBox();
+    await openAgentSettings(page);
+    await expect(page.getByRole('button', { name: 'OpenShell', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await page.getByRole('button', { name: 'OpenShell', exact: true }).focus();
+    await expect(page.getByRole('button', { name: 'OpenShell', exact: true })).toBeFocused();
+    const runOnBounds = await page
+      .getByRole('button', { name: 'OpenShell', exact: true })
+      .boundingBox();
     expect(runOnBounds?.height).toBeGreaterThanOrEqual(44);
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
-    await page.getByRole('combobox', { name: 'Run on' }).selectOption('local:mac');
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toBeDisabled();
+    await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
     await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
-    await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('low');
+    await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
     await page
       .getByRole('combobox', { name: 'Agent', exact: true })
       .selectOption(JSON.stringify(['saved', 'agent', 1]));
-    await page.getByRole('button', { name: 'Use these Local choices' }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     const repository = page.getByRole('button', { name: 'Add repository' });
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
     await expect(repository).toBeInViewport();
-    const panel = page.locator('.workspace-controls > .motion-disclosure');
-    const panelBounds = await panel.boundingBox();
-    const repositoryBounds = await page.locator('.repository-chat-picker').boundingBox();
-    if (testInfo.project.name.startsWith('mobile')) {
-      expect(panelBounds!.y + panelBounds!.height).toBeLessThanOrEqual(repositoryBounds!.y);
-    } else {
-      expect(panelBounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height * 0.45);
-    }
     await repository.click();
     await page
       .getByRole('combobox', { name: 'GitHub repository' })
@@ -321,8 +362,9 @@ for (const appearance of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Preview repository' }).click();
     await page.getByRole('button', { name: 'Prepare repository' }).click();
     await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Inspect the repository');
-    await page.getByRole('button', { name: 'Use these Local choices' }).scrollIntoViewIfNeeded();
-    await expect(page.getByRole('button', { name: 'Use these Local choices' })).toBeInViewport();
+    await openAgentSettings(page);
+    await page.getByRole('button', { name: 'Done', exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
     await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeInViewport();
     expect(
@@ -332,7 +374,8 @@ for (const appearance of ['light', 'dark'] as const) {
       path: testInfo.outputPath(`local-reviewed-${appearance}.png`),
       fullPage: true,
     });
-    await page.getByRole('button', { name: 'Send message', exact: true }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }).click();
     await expect.poll(() => fixture.requests.length).toBe(1);
     expect(fixture.requests[0]).toMatchObject({
       runOn: 'local',
@@ -349,8 +392,19 @@ for (const appearance of ['light', 'dark'] as const) {
       payload: { text: 'Inspect the repository' },
     });
     await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}`));
-    await expect(page.getByText('Run on: Local · first command only')).toBeVisible();
-    await expect(page.getByText('Repository helper · r1', { exact: true })).toBeVisible();
+    await openAgentSettings(page);
+    await assertBoundRunOn(page, 'local', true);
+    await expect(
+      page
+        .getByRole('region', { name: 'Agent settings', exact: true })
+        .getByText('Repository helper · r1', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole('region', { name: 'Agent settings', exact: true })
+        .getByRole('combobox', { name: 'Agent', exact: true }),
+    ).toHaveCount(0);
+    await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
     await emitLocalState(page, 'running');
     await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Keep this follow-up draft');
     await page.getByRole('textbox', { name: 'Message Mitzo' }).press('Enter');
@@ -358,7 +412,9 @@ for (const appearance of ['light', 'dark'] as const) {
       'Keep this follow-up draft',
     );
     await expect(page.getByRole('button', { name: 'Stop generation' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Interrupt and send now' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Queue message' })).toHaveCount(0);
     await emitLocalState(page, 'idle');
@@ -366,7 +422,9 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
       'Keep this follow-up draft',
     );
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+    ).toBeDisabled();
     await page.screenshot({
       path: testInfo.outputPath(`local-bound-${appearance}.png`),
       fullPage: true,
@@ -382,20 +440,25 @@ test('Local first command: restored Local remains visible and blocked with gate 
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 320, height: 740 });
   await page.goto('/chat?draft=local-restored');
-  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('local:mac');
+  await openAgentSettings(page);
+  await expect(page.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await expect(page.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
     JSON.stringify(['saved', 'agent', 1]),
   );
-  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
-  const restoredPanel = await page
-    .locator('.workspace-controls > .motion-disclosure')
-    .boundingBox();
-  const restoredRepository = await page.locator('.repository-chat-picker').boundingBox();
-  if (testInfo.project.name.startsWith('mobile'))
-    expect(restoredPanel!.y + restoredPanel!.height).toBeLessThanOrEqual(restoredRepository!.y);
-  await page.getByRole('button', { name: 'Refresh execution choices' }).focus();
-  await expect(page.getByRole('button', { name: 'Refresh execution choices' })).toBeFocused();
-  await expect(page.getByRole('button', { name: 'Refresh execution choices' })).toBeInViewport();
+  await expect(
+    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+  ).toBeDisabled();
+  await assertSettingsGeometry(page);
+  await page.getByRole('button', { name: 'Close agent settings', exact: true }).focus();
+  await expect(
+    page.getByRole('button', { name: 'Close agent settings', exact: true }),
+  ).toBeFocused();
+  await expect(
+    page.getByRole('button', { name: 'Close agent settings', exact: true }),
+  ).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath('local-restored-disabled.png'),
     fullPage: true,
@@ -446,7 +509,9 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   await expect(
     page.getByRole('alert').filter({ hasText: 'Conversation settings are unavailable' }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+  ).toBeDisabled();
   await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add agent', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reusable profile drafts' })).toHaveCount(0);
@@ -461,10 +526,13 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   await page.screenshot({ path: testInfo.outputPath('local-metadata-error.png'), fullPage: true });
   recovered = true;
   await page.getByRole('button', { name: 'Retry conversation settings' }).press('Enter');
-  await expect(page.getByText('Run on: Local · first command only')).toBeVisible();
+  await openAgentSettings(page);
+  await assertBoundRunOn(page, 'local', true);
   await expect(workspace.locator('.conversation-state')).toHaveText('First command');
   await assertWorkspaceHeadingFits(page);
-  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+  ).toBeDisabled();
   await page.screenshot({
     path: testInfo.outputPath('local-metadata-recovered.png'),
     fullPage: true,
@@ -494,6 +562,15 @@ test('Local first command: oversized complete command retains its image and enab
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 320, height: 740 });
   await page.goto('/chat?draft=local-restored');
+  await openAgentSettings(page);
+  // This size fixture deliberately starts with a legacy unconfirmed account.
+  // Explicitly confirm its existing enrolled candidate before freezing preparation.
+  const account = page.getByRole('combobox', { name: 'Account', exact: true });
+  await expect(account.locator('option:checked')).toHaveText('Confirm account: Personal ChatGPT');
+  await expect(account.locator('option:checked')).toHaveAttribute('disabled', '');
+  await account.selectOption('personal');
+  await expect(account).toHaveValue('personal');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Add repository' }).click();
   await page
     .getByRole('combobox', { name: 'GitHub repository' })
@@ -501,7 +578,9 @@ test('Local first command: oversized complete command retains its image and enab
   await page.getByRole('button', { name: 'Preview repository' }).click();
   await page.getByRole('button', { name: 'Prepare repository' }).click();
   await expect(page.getByText(/Local commands must fit within 1 MiB/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+  ).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toBeVisible();
   await page.getByRole('textbox', { name: 'Message Mitzo' }).press('Enter');
   expect(fixture.requests).toEqual([]);
@@ -513,7 +592,119 @@ test('Local first command: oversized complete command retains its image and enab
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
     'Inspect the repository',
   );
-  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+  ).toBeEnabled();
+  expect(fixture.requests).toEqual([]);
+  expect(fixture.forbidden).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('Bound Agent settings keeps Close and Done reachable with a long draft in short viewports', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offline(page, false, false, true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/chat/${sessionId}`);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '20px';
+  });
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  if ((await workspace.getAttribute('aria-expanded')) === 'true') await workspace.click();
+  const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+  const draft = Array.from(
+    { length: 12 },
+    (_, index) =>
+      `Retain planning line ${index + 1} while reviewing the original bound session settings.`,
+  ).join('\n');
+  await input.fill(draft);
+  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
+  for (const [width, height] of [
+    [390, 844],
+    [320, 480],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await openAgentSettings(page);
+    await assertBoundRunOn(page, 'local');
+    await expect(panel.getByRole('combobox', { name: 'Account', exact: true })).toBeDisabled();
+    await expect(panel.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
+      'personal',
+    );
+    const local = panel.getByRole('group', { name: 'Run on', exact: true }).getByRole('button', {
+      name: 'Local Mac',
+      exact: true,
+    });
+    for (const control of [
+      panel.getByRole('combobox', { name: 'Account', exact: true }),
+      panel.getByRole('combobox', { name: 'Model', exact: true }),
+      local,
+    ]) {
+      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeInViewport();
+      const contained = await control.evaluate((element) => {
+        const body = element.closest<HTMLElement>('.agent-settings-scroll')!;
+        const style = getComputedStyle(body);
+        const viewport = body.getBoundingClientRect();
+        const field = element.getBoundingClientRect();
+        const top = viewport.top + body.clientTop + parseFloat(style.paddingTop);
+        const bottom =
+          viewport.top + body.clientTop + body.clientHeight - parseFloat(style.paddingBottom);
+        const left = viewport.left + body.clientLeft + parseFloat(style.paddingLeft);
+        const right =
+          viewport.left + body.clientLeft + body.clientWidth - parseFloat(style.paddingRight);
+        return {
+          usableHeight: bottom - top,
+          height: field.height,
+          top: field.top - top,
+          bottom: bottom - field.bottom,
+          left: field.left - left,
+          right: right - field.right,
+        };
+      });
+      expect(contained.usableHeight + 1).toBeGreaterThanOrEqual(contained.height);
+      for (const inset of [contained.top, contained.bottom, contained.left, contained.right])
+        expect(inset).toBeGreaterThanOrEqual(-1);
+    }
+    const close = panel.getByRole('button', { name: 'Close agent settings', exact: true });
+    await close.scrollIntoViewIfNeeded();
+    await expect(close).toBeInViewport();
+    await expect(workspace).toBeInViewport();
+    await expect(
+      page.getByRole('navigation', { name: 'Main navigation' }).first(),
+    ).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await expect(input).toHaveValue(draft);
+    await close.click();
+    await expect(panel).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await input.scrollIntoViewIfNeeded();
+    await expect(input).toBeInViewport();
+    await input.focus();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(draft);
+    await openAgentSettings(page);
+    const done = panel.getByRole('button', { name: 'Done', exact: true });
+    await done.scrollIntoViewIfNeeded();
+    await expect(done).toBeInViewport();
+    await expect(workspace).toBeInViewport();
+    await expect(
+      page.getByRole('navigation', { name: 'Main navigation' }).first(),
+    ).toBeInViewport();
+    await page.screenshot({
+      path: testInfo.outputPath(`local-approved-agent-settings-bound-${width}.png`),
+      fullPage: true,
+    });
+    await done.click();
+    await expect(panel).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await input.scrollIntoViewIfNeeded();
+    await input.focus();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(draft);
+  }
   expect(fixture.requests).toEqual([]);
   expect(fixture.forbidden).toEqual([]);
   expect(fixture.errors).toEqual([]);
@@ -526,17 +717,19 @@ test('Local conversation: future thinking and queued command retain independent 
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/chat/${sessionId}`);
-  await expect(page.getByText('Run on: Local Mac · fixed for this conversation')).toBeVisible();
+  await openAgentSettings(page);
+  await assertBoundRunOn(page, 'local');
   await expect(page.getByRole('combobox', { name: 'Account' })).toBeDisabled();
   await expect(page.getByText('Runs with Codex')).toBeVisible();
-  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('high');
-  await page.getByRole('button', { name: 'Use these conversation choices' }).click();
+  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('First follow-up');
-  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }).click();
   await expect.poll(() => fixture.requests.length).toBe(1);
   await emitLocalState(page, 'running');
-  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('low');
-  await page.getByRole('button', { name: 'Use these conversation choices' }).click();
+  await openAgentSettings(page);
+  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Queued follow-up');
   await page.getByRole('button', { name: 'Queue message', exact: true }).click();
   await expect.poll(() => fixture.requests.length).toBe(2);
@@ -559,9 +752,13 @@ test('OpenShell conversation: default route starts and continues without legacy 
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/chat');
-  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('openshell:sandbox');
+  await openAgentSettings(page);
+  await expect(page.getByRole('button', { name: 'OpenShell', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
-  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('low');
+  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
   await page
     .getByRole('combobox', { name: 'Agent', exact: true })
     .selectOption(JSON.stringify(['saved', 'agent', 1]));
@@ -571,12 +768,14 @@ test('OpenShell conversation: default route starts and continues without legacy 
       .getByRole('status')
       .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
   ).not.toHaveCount(0);
-  await page.getByRole('button', { name: 'Use these OpenShell choices' }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await openAgentSettings(page);
   await expect(
     page
       .getByRole('status')
       .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
   ).toHaveCount(0);
+  await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
   await page.getByRole('button', { name: 'Add repository' }).click();
   await page
     .getByRole('combobox', { name: 'GitHub repository' })
@@ -584,12 +783,16 @@ test('OpenShell conversation: default route starts and continues without legacy 
   await page.getByRole('button', { name: 'Preview repository' }).click();
   await page.getByRole('button', { name: 'Prepare repository' }).click();
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Inspect OpenShell checkout');
-  await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await expect(page.getByText('Run on: OpenShell · fixed for this conversation')).toBeVisible();
+  await page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }).click();
+  await openAgentSettings(page);
+  await assertBoundRunOn(page, 'openshell');
   await expect.poll(() => fixture.requests.length).toBe(1);
-  await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('high');
+  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Continue in this checkout');
-  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+  ).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Queue message', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Queue message', exact: true }).click();
   await expect.poll(() => fixture.requests.length).toBe(2);
@@ -602,13 +805,20 @@ test('OpenShell conversation: default route starts and continues without legacy 
       selection: { thinking: 'high' },
     },
   ]);
+  await openAgentSettings(page);
   await page.getByRole('button', { name: 'New session on Local Mac' }).click();
+  await openAgentSettings(page);
   await expect.poll(() => fixture.attachments.at(-1)).toBe(null);
-  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('local:mac');
+  await expect(page.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
     'personal',
   );
-  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+  ).toBeDisabled();
   expect(fixture.controls).toEqual([]);
   expect(fixture.requests).toHaveLength(2);
   await page.screenshot({

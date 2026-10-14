@@ -141,16 +141,18 @@ for (const Page of [ChatView, DesktopChatView]) {
       expect(prepareSignal?.aborted).toBe(false);
       expect((screen.getByLabelText('Account') as HTMLSelectElement).disabled).toBe(true);
       expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
-      expect((screen.getByLabelText('Thinking') as HTMLSelectElement).disabled).toBe(false);
+      expect((screen.getByLabelText('Thinking level') as HTMLSelectElement).disabled).toBe(false);
       await act(async () =>
         resolvePrepare(new Response(JSON.stringify({ ...preview, state: 'ready' }))),
       );
       await screen.findByText(/Ready for your first prompt/);
       expect(prepareSignal?.aborted).toBe(false);
       expect(
-        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+        (screen.getByRole('button', { name: 'Start session' }) as HTMLButtonElement).disabled,
       ).toBe(false);
       failCatalog = true;
+      const settings = screen.getByRole('button', { name: /^Agent settings,/ });
+      if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
       fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
       await screen.findByRole('button', { name: 'Retry accounts' });
       view.unmount();

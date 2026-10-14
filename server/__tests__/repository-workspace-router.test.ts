@@ -72,6 +72,35 @@ it('requires an authenticated same-origin operator and resolves account binding 
     ).status,
   ).toBe(400);
   expect(prepare).not.toHaveBeenCalled();
+  const ordinaryRuntime = {
+    runOn: 'local',
+    runtime: {
+      account: { accountId: 'account', provider: 'openai', profileRevision: 'revision' },
+      harness: 'responses',
+      targetId: 'mac',
+    },
+  };
+  expect(
+    (
+      await request(app)
+        .post('/repositories/preview')
+        .send({ ...body, ordinaryRuntime })
+    ).status,
+  ).toBe(200);
+  expect(preview).toHaveBeenLastCalledWith(
+    binding,
+    'connection',
+    'example/repo',
+    expect.any(AbortSignal),
+    ordinaryRuntime,
+  );
+  expect(
+    (
+      await request(app)
+        .post('/repositories/preview')
+        .send({ ...body, ordinaryRuntime: { ...ordinaryRuntime, modelEditable: true } })
+    ).status,
+  ).toBe(400);
 });
 
 it('loads a durable chat draft through operator authentication without accepting another account selection', async () => {

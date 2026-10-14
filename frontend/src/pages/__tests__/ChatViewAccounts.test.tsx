@@ -8,6 +8,17 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 
+function openAgentSettings() {
+  const trigger = screen.getByRole('button', { name: /^Agent settings,/ });
+  if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+}
+async function confirmAccount(accountId: string) {
+  openAgentSettings();
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
+    target: { value: accountId },
+  });
+}
+
 vi.mock('../../components/ChatAgentProfilePicker', () => ({ ChatAgentProfilePicker: () => null }));
 
 vi.mock('../../components/RepositoryChatPicker', () => ({
@@ -98,6 +109,8 @@ vi.mock('../../components/ChatInput', () => ({
     running,
     sendDisabledReason,
     composerGeneration,
+    settings,
+    sendLabel,
   }: {
     initialText?: string;
     onStop: () => void;
@@ -111,9 +124,13 @@ vi.mock('../../components/ChatInput', () => ({
     ) => boolean;
     sendDisabledReason?: string;
     composerGeneration?: number;
+    settings?: React.ReactNode;
+    sendLabel?: string;
   }) => (
     <>
       <div data-testid="draft">{initialText}</div>
+      {settings}
+      <span data-testid="send-label">{sendLabel}</span>
       <span data-testid="composer-running">{String(running)}</span>
       <span data-testid="composer-generation">{composerGeneration}</span>
       <button onClick={onStop}>Test Stop</button>
@@ -249,9 +266,10 @@ it('keeps the reviewed briefing account locked and labels the rich chat with the
     </MitzoStoreProvider>,
   );
   await screen.findByRole('heading', { name: 'Jeeves' });
+  openAgentSettings();
   expect((screen.getByLabelText('Account') as HTMLSelectElement).disabled).toBe(true);
   expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
-  expect((screen.getByLabelText('Thinking') as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Thinking level') as HTMLSelectElement).disabled).toBe(true);
   expect(localStorage.getItem('mitzo-preferred-model')).toBe('saved-general-model');
   expect(screen.getByRole('link', { name: /Read briefing/ }).getAttribute('href')).toContain(
     '/briefings/2026-10-09',
@@ -293,10 +311,13 @@ it('waits for briefing identity before allowing inline model changes on a restor
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
+  openAgentSettings();
   const model = (await screen.findByLabelText('Model')) as HTMLSelectElement;
   expect(model.disabled).toBe(true);
   await act(async () => resolveBinding(new Response('[]')));
-  await waitFor(() => expect(model.disabled).toBe(false));
+  await waitFor(() =>
+    expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(false),
+  );
 });
 
 it('keeps inline account and model changes locked after identity lookup failure until retry confirms an ordinary chat', async () => {
@@ -325,7 +346,8 @@ it('keeps inline account and model changes locked after identity lookup failure 
     </MitzoStoreProvider>,
   );
   const retry = await screen.findByRole('button', { name: 'Retry briefing lookup' });
-  expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
+  openAgentSettings();
+  expect(((await screen.findByLabelText('Model')) as HTMLSelectElement).disabled).toBe(true);
   expect(screen.getByText('Work OpenAI', { selector: '.chat-account-binding' })).toBeTruthy();
   fireEvent.click(retry);
   await waitFor(() =>
@@ -438,6 +460,7 @@ it.each(['before', 'after'])(
     );
     if (screen.getByRole('button', { name: /Workspace/ }).getAttribute('aria-expanded') === 'false')
       fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
+    openAgentSettings();
     await screen.findByRole('alert');
     if (timing === 'after')
       act(() =>
@@ -446,8 +469,9 @@ it.each(['before', 'after'])(
     await waitFor(() => expect(store.getState().pendingSession?.prompt).toBe('Review this task'));
     expect(screen.getByText('Review this task')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
-    await screen.findByText('Work');
-    fireEvent.click(screen.getByRole('button', { name: 'Use Work · Sonnet' }));
+    openAgentSettings();
+    await screen.findByRole('option', { name: 'Work' });
+    await confirmAccount('work');
     expect(sendMessage).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
     await waitFor(() =>
@@ -475,10 +499,11 @@ it('reviews distinct launches with identical prompt text before sending', async 
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
-  await screen.findByText('Work');
+  openAgentSettings();
+  await screen.findByRole('option', { name: 'Work' });
   if (screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false')
     fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Use Work · Sonnet' }));
+  await confirmAccount('work');
   for (const telosTaskId of ['task-a', 'task-b']) {
     act(() =>
       store
@@ -490,7 +515,7 @@ it('reviews distinct launches with identical prompt text before sending', async 
       expect(
         (screen.getByRole('button', { name: 'Send launch prompt' }) as HTMLButtonElement).disabled,
       ).toBe(true);
-      fireEvent.click(await screen.findByRole('button', { name: 'Use Work · Sonnet' }));
+      await confirmAccount('work');
     }
     fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
     await waitFor(() =>
@@ -551,7 +576,7 @@ it('clears a failed unassigned turn when a fresh chat route opens', async () => 
   expect(store.getState().modeChangeReady).toBe(true);
 });
 
-it('keeps mobile account and permission controls in one collapsible workspace section', async () => {
+it('keeps ordinary account settings in one composer panel and permission controls in Workspace', async () => {
   localStorage.removeItem('mitzo-workspace-controls-expanded');
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
@@ -566,12 +591,21 @@ it('keeps mobile account and permission controls in one collapsible workspace se
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
-  expect(screen.getByRole('button', { name: /Workspace/ }).getAttribute('aria-expanded')).toBe(
-    'false',
-  );
+  const workspace = screen.getByRole('button', { name: /Workspace controls/ });
+  expect(workspace.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
-  expect(await screen.findByRole('combobox', { name: 'Model' })).toBeTruthy();
+  openAgentSettings();
+  const panel = await screen.findByRole('region', { name: 'Agent settings' });
+  expect(await within(panel).findByRole('combobox', { name: 'Account' })).toBeTruthy();
+  expect(within(panel).getByRole('combobox', { name: 'Model' })).toBeTruthy();
+  expect(screen.getAllByRole('region', { name: 'Agent settings' })).toHaveLength(1);
+  const advanced = screen.getByTestId('web-search-connection');
+  expect(advanced.closest('[hidden]')).toBeTruthy();
+  fireEvent.click(workspace);
+  expect(advanced.closest('[hidden]')).toBeNull();
+  expect(
+    within(workspace.parentElement!.parentElement!).queryByRole('combobox', { name: 'Account' }),
+  ).toBeNull();
   expect(screen.getByRole('button', { name: 'Agent' })).toBeTruthy();
 });
 
@@ -601,7 +635,7 @@ it('keeps mobile session details inside the expanded workspace controls', async 
   expect(screen.getByText('Isolated workspace').closest('[hidden]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
   expect(screen.getByText('Isolated workspace').closest('[hidden]')).toBeNull();
-  const summary = screen.getByText('Session details');
+  const summary = screen.getByText('Session details', { selector: '.workspace-controls summary' });
   fireEvent.click(summary);
   expect(summary.closest('details')?.textContent).toContain('session/mobile');
   expect(summary.closest('details')?.textContent).toContain('mobile-worktree');
@@ -624,7 +658,7 @@ it('shows conversation history loading explicitly', async () => {
   expect(screen.queryByText('Loading conversation…')).toBeNull();
 });
 
-it('shows the profile, model and thinking in the collapsed workspace header', async () => {
+it('shows the profile, model and thinking in the collapsed composer Agent settings summary', async () => {
   localStorage.removeItem('mitzo-workspace-controls-expanded');
   const catalog = [
     {
@@ -649,10 +683,11 @@ it('shows the profile, model and thinking in the collapsed workspace header', as
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
-  const toggle = screen.getByRole('button', { name: /Workspace controls/ });
-  expect(await within(toggle).findByText('Work Vertex')).toBeTruthy();
-  expect(within(toggle).getByText('Luna')).toBeTruthy();
-  expect(within(toggle).getByText('Thinking: high')).toBeTruthy();
+  const toggle = screen.getByRole('button', { name: /^Agent settings,/ });
+  await waitFor(() =>
+    expect(toggle.getAttribute('aria-label')).toContain('Work Vertex, Luna, Thinking: high'),
+  );
+  expect(toggle.querySelector('strong')).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });
@@ -733,10 +768,17 @@ it('requires a fresh account confirmation when New chat replaces an unsent draft
   );
   const workspace = screen.getByRole('button', { name: /Workspace controls/ });
   if (workspace.getAttribute('aria-expanded') === 'false') fireEvent.click(workspace);
-  fireEvent.click(await screen.findByRole('button', { name: 'Use Personal · Luna' }));
-  expect(screen.queryByRole('button', { name: 'Use Personal · Luna' })).toBeNull();
+  await confirmAccount('personal');
+  expect((screen.getByLabelText('Account') as HTMLSelectElement).value).toBe('personal');
   fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
-  expect(await screen.findByRole('button', { name: 'Use Personal · Luna' })).toBeTruthy();
+  openAgentSettings();
+  await waitFor(() =>
+    expect((screen.getByRole('button', { name: 'Test send' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    ),
+  );
+  await confirmAccount('personal');
+  expect((screen.getByLabelText('Account') as HTMLSelectElement).value).toBe('personal');
 });
 
 it('blocks an unprepared repository and forwards its receipt with the first prompt', async () => {
@@ -756,7 +798,7 @@ it('blocks an unprepared repository and forwards its receipt with the first prom
   );
   if (screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false')
     fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Use Work · Sonnet' }));
+  await confirmAccount('work');
   fireEvent.click(await screen.findByRole('button', { name: 'Block repository launch' }));
   expect((screen.getByRole('button', { name: 'Test send' }) as HTMLButtonElement).disabled).toBe(
     true,
@@ -793,7 +835,7 @@ it('blocks a saved repository before the picker reports any selection', async ()
   );
   if (screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false')
     fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Use Work · Sonnet' }));
+  await confirmAccount('work');
 
   expect((screen.getByRole('button', { name: 'Test send' }) as HTMLButtonElement).disabled).toBe(
     true,
@@ -830,7 +872,7 @@ it.each([true, false])(
       screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false'
     )
       fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Use Work · Sonnet' }));
+    await confirmAccount('work');
     fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
     expect(sendMessage).toHaveBeenCalledWith(

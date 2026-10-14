@@ -100,6 +100,9 @@ export type OrdinaryCodexContinuationCommand = z.infer<
 export const LocalResponsesFirstCommandSchema = z
   .strictObject({
     ...LocalCodexFirstCommandSchema.shape,
+    selection: LocalCodexFirstCommandSchema.shape.selection.extend({
+      agent: AgentProfileSelectionSchema,
+    }),
     runtime: LocalCodexFirstCommandSchema.shape.runtime.extend({
       account: LocalCodexFirstCommandSchema.shape.runtime.shape.account.extend({
         provider: z.literal('openai'),
@@ -111,12 +114,71 @@ export const LocalResponsesFirstCommandSchema = z
 export const LocalResponsesContinuationCommandSchema = LocalResponsesFirstCommandSchema.safeExtend({
   sessionId: reference,
 });
+/** Ordinary Local SDK intent only; ADC, SDK history and physical paths remain server-private. */
+export const LocalVertexClaudeFirstCommandSchema = z
+  .strictObject({
+    ...LocalCodexFirstCommandSchema.shape,
+    selection: LocalCodexFirstCommandSchema.shape.selection
+      .extend({
+        agent: AgentProfileSelectionSchema,
+        context: z.strictObject({ source: z.literal('none'), revision: z.null() }),
+      })
+      .strict(),
+    runtime: z.strictObject({
+      ...LocalCodexFirstCommandSchema.shape.runtime.shape,
+      account: LocalCodexFirstCommandSchema.shape.runtime.shape.account
+        .extend({ provider: z.literal('anthropic-vertex') })
+        .strict(),
+      harness: z.literal('claude-sdk'),
+    }),
+  })
+  .superRefine((request, ctx) => {
+    if (request.runtime.mode !== request.selection.permission.mode)
+      ctx.addIssue({ code: 'custom', message: 'Permission selection mismatch' });
+    if (new TextEncoder().encode(JSON.stringify(request)).length > 1048576)
+      ctx.addIssue({ code: 'custom', message: 'Command exceeds bound' });
+  });
+export const LocalVertexClaudeContinuationCommandSchema =
+  LocalVertexClaudeFirstCommandSchema.safeExtend({
+    sessionId: z.string().min(1).max(200).regex(/^\S+$/),
+  });
+export type LocalVertexClaudeFirstCommand = z.infer<typeof LocalVertexClaudeFirstCommandSchema>;
+export type LocalVertexClaudeContinuationCommand = z.infer<
+  typeof LocalVertexClaudeContinuationCommandSchema
+>;
+
+export const LocalGeminiFirstCommandSchema = z
+  .strictObject({
+    ...LocalResponsesFirstCommandSchema.shape,
+    runtime: LocalResponsesFirstCommandSchema.shape.runtime.extend({
+      account: LocalResponsesFirstCommandSchema.shape.runtime.shape.account.extend({
+        provider: z.literal('google-vertex'),
+      }),
+      harness: z.literal('gemini'),
+    }),
+  })
+  .superRefine(validateCommandBounds)
+  .superRefine((request, ctx) => {
+    if (request.payload.images?.length)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['payload', 'images'],
+        message: 'Gemini image attachments are unsupported',
+      });
+  });
+export const LocalGeminiContinuationCommandSchema = LocalGeminiFirstCommandSchema.safeExtend({
+  sessionId: reference,
+});
 export const OrdinaryRuntimeFirstCommandSchema = OrdinaryCodexFirstCommandSchema.or(
   LocalResponsesFirstCommandSchema,
-);
+)
+  .or(LocalGeminiFirstCommandSchema)
+  .or(LocalVertexClaudeFirstCommandSchema);
 export const OrdinaryRuntimeContinuationCommandSchema = OrdinaryCodexContinuationCommandSchema.or(
   LocalResponsesContinuationCommandSchema,
-);
+)
+  .or(LocalGeminiContinuationCommandSchema)
+  .or(LocalVertexClaudeContinuationCommandSchema);
 export type OrdinaryRuntimeFirstCommand = z.infer<typeof OrdinaryRuntimeFirstCommandSchema>;
 export type OrdinaryRuntimeContinuationCommand = z.infer<
   typeof OrdinaryRuntimeContinuationCommandSchema

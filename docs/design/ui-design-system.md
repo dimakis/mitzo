@@ -48,7 +48,7 @@ the corresponding routes and run in CI when host pressure prevents a broad build
 
 Chats shows a counted Drafts destination when saved drafts exist, separate from active and recent conversations. The shortcut disappears when the last draft is removed. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
 
-Empty messages with a repository preparation retain their exact receipt and account/model binding. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
+Empty messages with a repository preparation retain their exact receipt. Legacy preparations keep their account/model binding. New server-qualified READY preparations keep account and environment locked while allowing a supported first-message model before reservation; original source and preparation model stay recorded and the first reservation freezes the effective command. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
 
 Settings owns the Updates destination and its availability summary. The dedicated update panel uses the shared surface, accent action and secondary controls; commit/build metadata remains secondary. Review update opens the existing configured prompt for user review. Loading, unavailable configuration and failed checks must remain distinct from an up-to-date release. Both pages inherit theme, accent, font, shell scrolling and navigation motion; neither defines another palette or wordmark.
 
@@ -123,17 +123,39 @@ direct Web Animations calls outside the shared helper.
 
 ## Ordinary conversation runtime selection
 
-The existing shared picker owns Agent, Account, Model, Thinking and Run on across
-mobile and desktop. Reuse its workspace controls and token styles. OpenShell is
+The approved ordinary composer exposes one compact, agent-led Agent settings
+summary and one settings panel on mobile and desktop. The panel orders Agent,
+Account, the paired Model/Thinking level fields, then Run on. OpenShell and Local
+Mac are descriptive selection cards with accessible pressed state; Runs with
+reports derived software. Done reviews the current execution capability intent
+and closes the panel; Close and Escape dismiss without reviewing or confirming
+billing and return focus to the summary. `AgentSettingsPicker` renders the panel
+inside `ChatInput` between its textarea and toolbar. The shared AccountModelPicker
+and ChatAgentProfilePicker keep one mounted control set. Model/Thinking level pair
+on desktop and stack on phones; location cards pair at ordinary 390px and desktop
+widths and stack in the narrowest composer. Run on cards carry icons,
+selection ticks, descriptions and `aria-pressed`; no separate Run on select or
+Refresh/Use control belongs in this ordinary panel. New ordinary drafts show
+What are we working on? and Start session; bound chats keep Send.
+
+The panel uses `useMotionPresence`, shared `UiIcon`, semantic surface/accent/border
+colors, `--font-ui`, spacing/type/radius scales and `--control-height`. Its body
+scrolls while header/footer stay reachable. The viewport cap and measured remaining
+composer space are structural geometry: they reserve the textarea, attachments,
+toolbar and shell navigation rather than introducing another spacing scale.
+Workspace remains for conversation details and operational controls. OpenShell is
 the default; Local Mac is deliberate. Resolve only pristine unselected target
 intent from trusted inventory, and preserve stale/unavailable account, model,
 thinking and target choices with a useful reason. Runs with describes the derived
-software rather than adding another runtime control.
+software rather than adding another runtime control. An unbound retained
+account whose exact reference is missing or changed displays a disabled confirmation
+option in the existing Account select. Selecting the real catalogue account
+explicitly confirms its current tuple in one step, retaining model, thinking and
+draft content. Opening the control, changing other settings or reviewing execution
+choices never confirms billing; bound accounts stay locked.
 
-Bound ordinary Codex conversations lock account, exact published user profile and
-execution target. Server-supported conversation scope enables model/thinking edits
-for future commands, normal guarded follow-ups and the native queue. Each queued
-request keeps its original settings snapshot. Unsupported mode/context/web helpers
+Bound ordinary Codex, Responses, Claude and Gemini conversations lock account, exact profile identity and execution target. Supported Codex/Responses/Claude scope enables model/thinking edits for future commands, normal guarded follow-ups and the native queue. Gemini shows its original-model/thinking constraint and retains changed intent with explicit refusal; it does not promise unsupported future settings. Each queued
+request keeps its original settings snapshot. Consumed receipt settings are labelled Last submitted command, distinct from the future picker selection. Unsupported mode/context/web helpers
 remain independently disabled. Metadata loading/failure never enables legacy
 fallback; Retry preserves the conversation and draft.
 
@@ -143,6 +165,12 @@ that blank draft recoverable without changing ordinary empty-draft behavior. Its
 separate preparation creates a separate checkout. The original conversation,
 provider history, branch and pending work remain under their existing owners.
 Unavailable cold custody is a visible server reason, not a replacement environment.
+
+Repository preparation cards share the chat column's available flex space with
+the non-shrinking composer. Long branch/details/actions scroll inside the existing
+card instead of pushing attachments and the message field beneath navigation.
+The Workspace disclosure observes that card's geometry; no fixed viewport-height
+cap or reset of settings, focus or draft is required.
 
 The existing motion boundaries, drafts and focus remain mounted. Expanded settings
 must scroll at 390 × 844 and with larger text while shell navigation stays reachable.
@@ -377,7 +405,11 @@ also covers enabled and legacy policy on mobile WebKit/Chromium and desktop
 Chromium; broad build/browser acceptance runs in CI when local memory pressure
 prevents the full suite.
 
-## Explicit Local first-command selection
+## Historical explicit Local first-command selection
+
+This section records the guarded first-command checkpoint. The current ordinary
+conversation contract above applies to qualified continuation routes; these limits
+remain the fallback for unsupported or unqualified scopes.
 
 The gated ordinary-chat entry extends the existing Workspace disclosure and
 account/profile pickers with controlled metadata and Run on. It uses native labelled
@@ -421,3 +453,14 @@ to the Playwright artifact output paths for review. Component/hook/client regres
 require no backend, credential, native provider or model. Rendered browser acceptance
 and inspection remain required in hosted CI when local memory pressure precludes
 building or browser execution; fixture presence alone is not visual acceptance.
+
+## Approved Agent settings fidelity checkpoint
+
+The saved approved mock is `mitzo-agent-picker.html` in the runtime separation
+handover. Source implementation and behavioral qualification are separate from
+rendered fidelity. The hosted offline runtime fixtures now target the approved
+composer hierarchy, card descriptions, dismissal/focus, retained images and
+settings, bounded internal scrolling at 390 × 844 and 320 × 740 with larger
+text, and desktop light/dark Mint/Georgia with Reduce Motion. Final current-head
+hosted screenshots, visual inspection and independent acceptance remain pending;
+this source checkpoint is not a claim that the approved layout has passed.

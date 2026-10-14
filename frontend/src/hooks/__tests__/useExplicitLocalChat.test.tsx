@@ -316,11 +316,14 @@ it('keeps OpenShell as default and resolves its sole trusted target without extr
   await waitFor(() => expect(result.current.inventory).not.toBeNull());
   expect(result.current.intent.execution).toEqual({ location: 'openshell', targetId: 'sandbox' });
   act(() =>
-    result.current.update({
-      ...result.current.intent,
-      account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
-      agentProfile: { profileId: 'agent', revision: 1 },
-    }),
+    result.current.update(
+      {
+        ...result.current.intent,
+        account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+        agentProfile: { profileId: 'agent', revision: 1 },
+      },
+      true,
+    ),
   );
   expect(result.current.intent.execution).toEqual({ location: 'openshell', targetId: 'sandbox' });
   expect(result.current.reason).toBeUndefined();
@@ -424,7 +427,9 @@ it('retains copied account routing identity when the same ID changes billing unt
   };
   vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(changed)));
   const { result } = renderHook(() => useExplicitLocalChat('elsewhere', saved, null, true));
-  await waitFor(() => expect(result.current.intent.execution.targetId).toBe('sandbox'));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.intent.execution.targetId).toBeNull();
+  expect(result.current.accountNeedsConfirmation).toBe(true);
   expect(result.current.intent.accountReference).toEqual(original);
   expect(result.current.reason).toBe(
     'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.',
@@ -447,6 +452,7 @@ it('retains copied account routing identity when the same ID changes billing unt
     ),
   );
   expect(result.current.intent.accountReference).toEqual(changed.accounts[0].account);
+  expect(result.current.accountNeedsConfirmation).toBe(false);
   expect(result.current.reason).toBeUndefined();
 });
 
@@ -471,4 +477,115 @@ it('leaves legacy Agent-only launches on their existing picker when runtime enro
     kind: 'builtin',
   });
   expect(result.current.intent.execution.location).toBe('openshell');
+});
+it('resolves an account native tuple per environment without changing billing or invalid model intent', async () => {
+  const { multiRuntimeInventoryFixture } =
+    await import('../../test-utils/multi-runtime-inventory-fixture');
+  const data = multiRuntimeInventoryFixture();
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(data)));
+  const saved = {
+    ...createChatRuntimeSelection(),
+    agentProfile: { profileId: 'agent', revision: 1 },
+    account: { accountId: 'api', model: 'shell-model', reasoningEffort: null },
+    accountReference: data.accounts[1].account,
+  };
+  const { result } = renderHook(() => useExplicitLocalChat('multi', saved, null, true));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.intent.execution.targetId).toBe('shell');
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      execution: { location: 'local', targetId: null },
+    }),
+  );
+  expect(result.current.intent.execution.targetId).toBe('responses');
+  expect(result.current.intent.account).toEqual(saved.account);
+  expect(result.current.intent.accountReference).toEqual(saved.accountReference);
+  expect(result.current.reason).toMatch(/model/i);
+  act(() =>
+    result.current.update(
+      {
+        ...result.current.intent,
+        account: { accountId: 'vertex', model: 'claude-model', reasoningEffort: null },
+      },
+      true,
+    ),
+  );
+  expect(result.current.intent.execution.targetId).toBe('claude');
+  expect(result.current.intent.accountReference).toEqual(data.accounts[2].account);
+});
+
+it('does not adopt reused billing identity for a restored legacy draft without an account reference', async () => {
+  const data: import('../../lib/explicit-local-chat').ExplicitLocalInventory =
+    localInventoryFixture();
+  const replacement = {
+    ...data.accounts[0].account,
+    provider: 'openai' as const,
+    profileRevision: 'replacement-api',
+  };
+  data.accounts[0].account = replacement;
+  data.routes[0].account = replacement;
+  const saved = {
+    ...createChatRuntimeSelection(),
+    account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+    agentProfile: { profileId: 'agent', revision: 1 },
+    execution: { location: 'local' as const, targetId: null },
+  };
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(data)));
+  const { result } = renderHook(() => useExplicitLocalChat('legacy-retained', saved, null, true));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.intent.accountReference).toBeFalsy();
+  expect(result.current.intent.account).toEqual(saved.account);
+  expect(result.current.intent.execution.targetId).toBeNull();
+  act(() => result.current.review());
+  expect(result.current.intent.accountReference).toBeFalsy();
+  expect(result.current.reason).toMatch(/account.*identity.*choose the account again/i);
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      execution: { location: 'openshell', targetId: null },
+    }),
+  );
+  expect(result.current.intent.accountReference).toBeFalsy();
+  act(() =>
+    result.current.update(
+      { ...result.current.intent, execution: { location: 'local', targetId: null } },
+      true,
+    ),
+  );
+  expect(result.current.intent.accountReference).toEqual(replacement);
+  expect(result.current.intent.account).toEqual(saved.account);
+});
+it('requires explicit Account replacement if an early choice lacked trusted identity when capabilities arrived', async () => {
+  const data = localInventoryFixture();
+  let deliver!: (response: Response) => void;
+  vi.mocked(apiFetch).mockReturnValue(
+    new Promise<Response>((resolve) => {
+      deliver = resolve;
+    }),
+  );
+  const { result } = renderHook(() => useExplicitLocalChat('early-choice', null, null, true));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  act(() =>
+    result.current.update(
+      {
+        ...result.current.intent,
+        account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+        execution: { location: 'local', targetId: null },
+        agentProfile: { profileId: 'agent', revision: 1 },
+      },
+      true,
+    ),
+  );
+  await act(async () => {
+    deliver(new Response(JSON.stringify(data)));
+  });
+  expect(result.current.intent.accountReference).toBeFalsy();
+  expect(result.current.intent.execution.targetId).toBeNull();
+  act(() => result.current.review());
+  expect(result.current.intent.accountReference).toBeFalsy();
+  expect(result.current.reason).toMatch(/account.*identity.*choose the account again/i);
+  act(() => result.current.update(result.current.intent, true));
+  expect(result.current.intent.accountReference).toEqual(data.accounts[0].account);
+  expect(result.current.intent.execution.targetId).toBe('mac');
 });

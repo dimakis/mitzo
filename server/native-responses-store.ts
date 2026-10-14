@@ -1,17 +1,40 @@
 import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
-import { OrdinaryLocalResponsesCommandAdmissionSchema } from '@mitzo/protocol';
+import {
+  OrdinaryLocalResponsesCommandAdmissionSchema,
+  VertexAdcCustodySchema,
+} from '@mitzo/protocol';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { ConversationMessage, ResponsesCheckpoint } from '@mitzo/harness';
 
-export const OrdinaryResponsesCustodySchema = z.strictObject({
-  version: z.literal(1),
-  authSessionId: z.string().min(1).max(200),
-  binding: OrdinaryLocalResponsesCommandAdmissionSchema.shape.binding,
-  workspace: OrdinaryLocalResponsesCommandAdmissionSchema.shape.workspace,
-});
+export const OrdinaryResponsesCustodySchema = z
+  .strictObject({
+    version: z.literal(1),
+    authSessionId: z.string().min(1).max(200),
+    binding: OrdinaryLocalResponsesCommandAdmissionSchema.shape.binding,
+    workspace: OrdinaryLocalResponsesCommandAdmissionSchema.shape.workspace,
+    credentialAuthority: VertexAdcCustodySchema.optional(),
+    nativeSelection: z
+      .strictObject({
+        model: z.string().min(1).max(200),
+        reasoningEffort: z.string().max(64).nullable(),
+      })
+      .optional(),
+  })
+  .superRefine((custody, ctx) => {
+    const google = custody.binding.account.provider === 'google-vertex';
+    if (
+      google
+        ? !custody.credentialAuthority || !custody.nativeSelection
+        : custody.credentialAuthority !== undefined || custody.nativeSelection !== undefined
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Native credential and model custody does not match the owning provider',
+      });
+  });
 export type OrdinaryResponsesCustody = z.infer<typeof OrdinaryResponsesCustodySchema>;
 const QueueSchema = z.strictObject({
   queued: z.array(z.string().min(1).max(200).regex(/^\S+$/)).max(32),
@@ -22,6 +45,7 @@ const QueueSchema = z.strictObject({
 export type NativeResponsesQueue = z.infer<typeof QueueSchema>;
 export interface NativeResponsesState {
   status: 'running' | 'idle' | 'interrupted';
+  nativeSelection?: { model: string; reasoningEffort: string | null };
   checkpoint?: ResponsesCheckpoint;
   history: ConversationMessage[];
 }
@@ -110,6 +134,27 @@ export class NativeResponsesStore {
     if (row.binding !== this.bindingKey(binding))
       throw Error('Native Responses account/model binding changed');
     return z.enum(['running', 'idle', 'interrupted']).parse(row.status);
+  }
+  /** Bounded private settings projection; metadata qualification never reads signed history. */
+  frozenSettings(id: string, binding: AccountBinding) {
+    const row = this.db
+      .prepare(
+        "SELECT binding,json_extract(state,'$.nativeSelection') AS selection,json_extract(state,'$.checkpoint.model') AS model FROM native_responses WHERE conversation_id=?",
+      )
+      .get(id) as { binding: string; selection: string | null; model: string | null } | undefined;
+    if (!row) return undefined;
+    if (row.binding !== this.bindingKey(binding))
+      throw Error('Native Responses account/model binding changed');
+    if (!row.selection) return undefined;
+    return {
+      selection: z
+        .strictObject({
+          model: z.string().min(1).max(200),
+          reasoningEffort: z.string().max(64).nullable(),
+        })
+        .parse(JSON.parse(row.selection)),
+      checkpointModel: row.model === null ? undefined : z.string().min(1).parse(row.model),
+    };
   }
   /** Native scheduling identities only; immutable payload/settings stay in EventStore. */
   queue(id: string, binding: AccountBinding): NativeResponsesQueue {
@@ -263,7 +308,12 @@ export class NativeResponsesStore {
       .run(
         conversationId,
         this.bindingKey(binding),
-        JSON.stringify({ status: state.status, history: state.history, checkpoint }),
+        JSON.stringify({
+          status: state.status,
+          history: state.history,
+          checkpoint,
+          ...(state.nativeSelection ? { nativeSelection: state.nativeSelection } : {}),
+        }),
       );
     if (result.changes !== 1) throw new Error('Native Responses account/model binding changed');
   }

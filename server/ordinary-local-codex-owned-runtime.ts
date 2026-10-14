@@ -59,6 +59,7 @@ export interface OrdinaryLocalCodexOwnedDispatch {
   sessionId: string;
   commandId: string;
   resume?: boolean;
+  preparationSignal?: AbortSignal;
 }
 interface Owners {
   enabled: boolean;
@@ -414,9 +415,16 @@ export class OrdinaryLocalCodexOwnedRuntime {
   /** Admit a new explicit user command into the original live native FIFO.
    * This cannot reopen a closed owner or replay a retained uncertain command.
    */
-  async admitContinuation(raw: unknown): Promise<{ dispatched: boolean }> {
-    try {
+  async admitContinuation(
+    raw: unknown,
+    preparationSignal?: AbortSignal,
+  ): Promise<{ dispatched: boolean }> {
+    const assertAdmissionCurrent = () => {
+      preparationSignal?.throwIfAborted();
       this.assertCurrent();
+    };
+    try {
+      assertAdmissionCurrent();
       const lease = this.#lease,
         admission = this.#admission,
         original = this.#expected,
@@ -435,7 +443,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
       const assertSelection = async (
         expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
       ) => {
-        this.assertCurrent();
+        assertAdmissionCurrent();
         admission.assertCurrentSync();
         if (
           !isDeepStrictEqual(expected.binding, original.binding) ||
@@ -465,11 +473,14 @@ export class OrdinaryLocalCodexOwnedRuntime {
           expected.selection.thinking,
         );
         await lease.assertCurrent();
+        assertAdmissionCurrent();
         let pages = 0;
         const models = await readCodexModels({
           request: async (method, params) => {
+            assertAdmissionCurrent();
             if (++pages > 16) throw unavailable();
             const response = await lease.client.request(method, params);
+            assertAdmissionCurrent();
             admission.assertCurrentSync();
             if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576) throw unavailable();
             z.object({
@@ -487,13 +498,30 @@ export class OrdinaryLocalCodexOwnedRuntime {
             : !model.reasoningEfforts?.includes(expected.selection.thinking))
         )
           throw unavailable();
-        this.assertCurrent();
+        assertAdmissionCurrent();
         admission.assertCurrentSync();
       };
       const target = this.#runtime.target();
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
         enabled: this.owners.enabled,
-        store: this.owners.eventStore,
+        store: {
+          admitOrdinaryLocalContinuation: (...args) => {
+            assertAdmissionCurrent();
+            return this.owners.eventStore.admitOrdinaryLocalContinuation(...args);
+          },
+          admitOrdinaryLocalCommand: (...args) => {
+            assertAdmissionCurrent();
+            return this.owners.eventStore.admitOrdinaryLocalCommand(...args);
+          },
+          claimOrdinaryLocalCommandDispatch: (...args) => {
+            assertAdmissionCurrent();
+            return this.owners.eventStore.claimOrdinaryLocalCommandDispatch(...args);
+          },
+          completeOrdinaryLocalCommand: (...args) => {
+            assertAdmissionCurrent();
+            return this.owners.eventStore.completeOrdinaryLocalCommand(...args);
+          },
+        },
         catalog: new OrdinaryLocalCodexCapabilityCatalog(profiles, target, 'ordinary'),
         declaration: target.admissionDeclaration(),
         authority: {
@@ -518,9 +546,12 @@ export class OrdinaryLocalCodexOwnedRuntime {
         { ...request, payload },
         {
           prepareWorkspace: async () => {
+            assertAdmissionCurrent();
             await admission.assertCurrent();
+            assertAdmissionCurrent();
           },
           dispatch: async (expected, commandId) => {
+            assertAdmissionCurrent();
             admission.admitContinuation(commandId, expected);
             await this.owners.dispatchContinuation!({
               admission,
@@ -531,7 +562,9 @@ export class OrdinaryLocalCodexOwnedRuntime {
               payload,
               sessionId: this.#reservation.conversationId,
               commandId,
+              preparationSignal,
             });
+            assertAdmissionCurrent();
           },
         },
       );

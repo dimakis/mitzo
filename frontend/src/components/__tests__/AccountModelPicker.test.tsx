@@ -3,6 +3,44 @@ import { it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
 
+it('settings labels Thinking level without changing bound account and model guards', () => {
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="luna"
+      onChange={onChange}
+      presentation="settings"
+      lockAccountModel
+      controlled={{
+        accounts: [
+          {
+            id: 'personal',
+            label: 'Personal',
+            models: [{ id: 'luna', label: 'Luna', reasoningEfforts: ['medium', 'high'] }],
+          },
+        ],
+        selection: { accountId: 'personal', model: 'luna', reasoningEffort: 'medium' },
+        onChange,
+      }}
+    />,
+  );
+  expect((screen.getByRole('combobox', { name: 'Account' }) as HTMLSelectElement).disabled).toBe(
+    true,
+  );
+  expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).disabled).toBe(
+    true,
+  );
+  const thinking = screen.getByRole('combobox', { name: 'Thinking level' });
+  expect((thinking as HTMLSelectElement).disabled).toBe(false);
+  fireEvent.change(thinking, { target: { value: 'high' } });
+  expect(onChange).toHaveBeenCalledWith({
+    accountId: 'personal',
+    model: 'luna',
+    reasoningEffort: 'high',
+  });
+});
+
 it('restricts contributor selection to eligible ordinary accounts without changing the default', async () => {
   const onChange = vi.fn();
   localStorage.setItem(
@@ -1227,4 +1265,43 @@ it('reports editable staged settings separately while the new account awaits con
     model: 'luna',
     reasoningEffort: 'high',
   });
+});
+
+it('settings keeps Model and Thinking paired while legacy-route account alias utilities open', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          models: [{ id: 'luna', label: 'Luna', reasoningEfforts: ['low', 'high'] }],
+        },
+      ]),
+    ),
+  );
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="luna"
+      presentation="settings"
+      onChange={vi.fn()}
+    />,
+  );
+  const model = await screen.findByRole('combobox', { name: 'Model' });
+  const thinking = screen.getByRole('combobox', { name: 'Thinking level' });
+  const pair = model.closest('.account-model-settings-pair');
+  expect(pair).not.toBeNull();
+  expect(pair).toBe(thinking.closest('.account-model-settings-pair'));
+  expect(pair?.contains(screen.getByRole('button', { name: 'Edit account alias' }))).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit account alias' }));
+  expect(
+    screen
+      .getByRole('textbox', { name: 'Account alias' })
+      .closest('.account-model-settings-account'),
+  ).toBeTruthy();
+  expect(pair?.contains(screen.getByRole('textbox', { name: 'Account alias' }))).toBe(false);
+  expect(model.closest('.account-model-settings-pair')).toBe(pair);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('textbox', { name: 'Account alias' })).toBeNull();
+  expect(model.closest('.account-model-settings-pair')).toBe(pair);
 });

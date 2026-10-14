@@ -44,9 +44,19 @@ export const OrdinaryLocalResponsesCommandAdmissionSchema =
   OrdinaryLocalCommandAdmissionSchema.extend({
     binding: SessionRuntimeBindingV2Schema.refine(
       (b) =>
-        b.account.provider === 'openai' &&
-        b.harness.implementation === 'responses' &&
+        ((b.account.provider === 'openai' && b.harness.implementation === 'responses') ||
+          (b.account.provider === 'google-vertex' && b.harness.implementation === 'gemini')) &&
         b.execution.location === 'local',
       'Ordinary Local Responses route required',
     ),
   });
+
+/** Safe metadata for native signed-history consumers; no credential or resource identity. */
+export const NativeContinuationConstraintSchema = z.strictObject({
+  model: reference,
+  thinking: z.string().min(1).max(64).nullable(),
+  reason: z.literal(
+    'Continue with the original Gemini model and thinking. Start another conversation to change them.',
+  ),
+});
+export type NativeContinuationConstraint = z.infer<typeof NativeContinuationConstraintSchema>;

@@ -1,7 +1,7 @@
 import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { AdviserSubscriptions } from './AdviserSubscriptions';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import type { WorkspaceSummary } from '../types/workspace';
@@ -81,6 +81,7 @@ export function AccountModelPicker(
       selection: AccountSelection | null;
       onChange(selection: AccountSelection): void;
       onAccountChange?(selection: AccountSelection): void;
+      accountNeedsConfirmation?: boolean;
     };
   },
 ) {
@@ -91,6 +92,7 @@ export function AccountModelPicker(
         disabled={props.disabled}
         lockAccountModel={props.lockAccountModel}
         lockAccount={props.lockAccount}
+        presentation={props.presentation}
       />
     );
   const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}:${JSON.stringify(props.allowedAccountIds?.slice().sort() ?? null)}`;
@@ -114,7 +116,9 @@ function SessionAccountModelPicker({
   lockAccountModel = false,
   onDraftSelectionChange,
   allowedAccountIds,
+  presentation = 'default',
 }: {
+  presentation?: 'default' | 'settings';
   draftOnly?: boolean;
   preferWorkOpenAI?: boolean;
   initialSelection?: AccountSelection;
@@ -515,7 +519,7 @@ function SessionAccountModelPicker({
       ? { id: selection.accountId ?? '', label: 'Unavailable account', models: [] }
       : undefined);
   if (!account) return <span role="alert">Selected account is unavailable. Reopen the task.</span>;
-  return (
+  const fields = (
     <>
       {subscriptionLogin}
       {draftUnavailable && (
@@ -528,7 +532,7 @@ function SessionAccountModelPicker({
       ) : legacy ? (
         <span>Legacy server account</span>
       ) : (
-        <PickerField label="Account" visible={draftOnly}>
+        <PickerField label="Account" visible={draftOnly || presentation === 'settings'}>
           <select
             disabled={disabled || !!requiredSelection || lockAccountModel}
             aria-label="Account"
@@ -618,7 +622,8 @@ function SessionAccountModelPicker({
           {aliasError && <span role="alert">{aliasError}</span>}
         </form>
       )}
-      <PickerField label="Model" visible={draftOnly}>
+
+      <PickerField label="Model" visible={draftOnly || presentation === 'settings'}>
         <select
           disabled={disabled || !!requiredSelection || lockAccountModel}
           aria-label="Model"
@@ -647,9 +652,12 @@ function SessionAccountModelPicker({
         </select>
       </PickerField>
       {!!account.models.find((m) => m.id === selection.model)?.reasoningEfforts?.length && (
-        <PickerField label="Thinking" visible={draftOnly}>
+        <PickerField
+          label={presentation === 'settings' ? 'Thinking level' : 'Thinking'}
+          visible={draftOnly || presentation === 'settings'}
+        >
           <select
-            aria-label="Thinking"
+            aria-label={presentation === 'settings' ? 'Thinking level' : 'Thinking'}
             className="chat-model-select"
             disabled={disabled}
             value={selection.reasoningEffort ?? ''}
@@ -671,6 +679,7 @@ function SessionAccountModelPicker({
           </select>
         </PickerField>
       )}
+
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
       )}
@@ -736,6 +745,28 @@ function SessionAccountModelPicker({
       )}
     </>
   );
+  if (presentation !== 'settings') return fields;
+  const children = Children.toArray(fields.props.children);
+  const modelIndex = children.findIndex(
+    (child) =>
+      isValidElement<{ label?: string }>(child) &&
+      child.type === PickerField &&
+      child.props.label === 'Model',
+  );
+  const thinkingIndex = children.findIndex(
+    (child) =>
+      isValidElement<{ label?: string }>(child) &&
+      child.type === PickerField &&
+      child.props.label === 'Thinking level',
+  );
+  const end = thinkingIndex >= 0 ? thinkingIndex + 1 : modelIndex + 1;
+  return (
+    <>
+      <div className="account-model-settings-account">{children.slice(0, modelIndex)}</div>
+      <div className="account-model-settings-pair">{children.slice(modelIndex, end)}</div>
+      <div className="account-model-settings-utilities">{children.slice(end)}</div>
+    </>
+  );
 }
 
 /** A bounded chat route keeps invalid intent visible until an explicit edit. */
@@ -747,64 +778,82 @@ function ControlledAccountModelPicker({
   lockAccountModel,
   lockAccount,
   onAccountChange,
+  accountNeedsConfirmation = false,
+  presentation = 'default',
 }: {
+  presentation?: 'default' | 'settings';
   accounts: Account[];
   selection: AccountSelection | null;
   onChange(selection: AccountSelection): void;
   onAccountChange?(selection: AccountSelection): void;
+  accountNeedsConfirmation?: boolean;
   disabled?: boolean;
   lockAccountModel?: boolean;
   lockAccount?: boolean;
 }) {
   const account = accounts.find((a) => a.id === selection?.accountId);
   const model = account?.models.find((m) => m.id === selection?.model);
+  const pendingAccount = accountNeedsConfirmation && !!account && !lockAccount && !lockAccountModel;
+  let pendingAccountValue = '__mitzo_confirm_account__';
+  while (accounts.some((entry) => entry.id === pendingAccountValue)) pendingAccountValue += '_';
   const field = (
-    label: string,
+    identity: 'Account' | 'Model' | 'Thinking',
     value: string,
     entries: { id: string; label: string }[],
     change: (value: string) => void,
-  ) => (
-    <PickerField label={label} visible>
-      <select
-        aria-label={label}
-        className="chat-model-select"
-        disabled={
-          disabled ||
-          (label !== 'Thinking' && lockAccountModel) ||
-          (label === 'Account' && lockAccount)
-        }
-        value={value}
-        onChange={(e) => change(e.target.value)}
-      >
-        <option value="">Choose {label.toLowerCase()}</option>
-        {value && !entries.some((e) => e.id === value) && (
-          <option disabled value={value}>
-            Unavailable {label.toLowerCase()}: {value}
-          </option>
-        )}
-        {entries.map((entry) => (
-          <option key={entry.id} value={entry.id}>
-            {entry.label}
-          </option>
-        ))}
-      </select>
-    </PickerField>
-  );
+    pendingLabel?: string,
+  ) => {
+    const label =
+      identity === 'Thinking' && presentation === 'settings' ? 'Thinking level' : identity;
+    return (
+      <PickerField label={label} visible>
+        <select
+          aria-label={label}
+          className="chat-model-select"
+          disabled={
+            disabled ||
+            (identity !== 'Thinking' && lockAccountModel) ||
+            (identity === 'Account' && lockAccount)
+          }
+          value={value}
+          onChange={(e) => change(e.target.value)}
+        >
+          <option value="">Choose {label.toLowerCase()}</option>
+          {value && !entries.some((e) => e.id === value) && (
+            <option disabled value={value}>
+              {pendingLabel ?? `Unavailable ${label.toLowerCase()}: ${value}`}
+            </option>
+          )}
+          {entries.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+      </PickerField>
+    );
+  };
   return (
     <>
-      {field('Account', selection?.accountId ?? '', accounts, (id) => {
-        if (!id && selection) {
-          (onAccountChange ?? onChange)({ ...selection, accountId: undefined });
-          return;
-        }
-        const chosen = accounts.find((a) => a.id === id);
-        if (chosen)
-          (onAccountChange ?? onChange)({
-            accountId: id,
-            model: selection?.model ?? chosen.models[0].id,
-            reasoningEffort: selection?.reasoningEffort ?? null,
-          });
-      })}
+      {field(
+        'Account',
+        pendingAccount ? pendingAccountValue : (selection?.accountId ?? ''),
+        accounts,
+        (id) => {
+          if (!id && selection) {
+            (onAccountChange ?? onChange)({ ...selection, accountId: undefined });
+            return;
+          }
+          const chosen = accounts.find((a) => a.id === id);
+          if (chosen)
+            (onAccountChange ?? onChange)({
+              accountId: id,
+              model: selection?.model ?? chosen.models[0]?.id ?? '',
+              reasoningEffort: selection?.reasoningEffort ?? null,
+            });
+        },
+        pendingAccount ? `Confirm account: ${account!.label}` : undefined,
+      )}
       {field('Model', selection?.model ?? '', account?.models ?? [], (id) => {
         if (selection && id) onChange({ ...selection, model: id });
       })}

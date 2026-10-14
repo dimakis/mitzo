@@ -1,4 +1,8 @@
 import {
+  OrdinaryLocalVertexCustodySchema,
+  type OrdinaryLocalVertexCustody,
+} from './ordinary-local-vertex-custody.js';
+import {
   SessionMetadataStore,
   rowToSession,
   REGISTERED_CONVERSATION_SQL,
@@ -45,6 +49,7 @@ export type {
   ProviderAttemptTransitionResult,
   ProviderAttemptRecord,
 } from './execution-ledger.js';
+import { OrdinaryLocalVertexCommandAdmissionSchema } from './ordinary-local-vertex-admission.js';
 import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
 import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -409,6 +414,15 @@ export class EventStore {
     getSessionState: Database.Statement;
   };
 
+  /** Original ordinary command in this session's existing admission ledger. */
+  getOrdinaryInitialCommandId(sessionId: string): string | undefined {
+    return (
+      this.db!.prepare(
+        'SELECT client_msg_id FROM send_commands WHERE session_id=? AND ordinary_admission IS NOT NULL ORDER BY rowid LIMIT 1',
+      ).get(sessionId) as { client_msg_id: string } | undefined
+    )?.client_msg_id;
+  }
+
   getSendCommand(clientMsgId: string): SendCommandReceipt | undefined {
     const row = this.db!.prepare('SELECT * FROM send_commands WHERE client_msg_id = ?').get(
       clientMsgId,
@@ -423,13 +437,6 @@ export class EventStore {
         error: row.error,
       }
     );
-  }
-
-  ordinaryCommandPreview(clientMsgId: string, sessionId: string): string | undefined {
-    const row = this.db!.prepare(
-      "SELECT substr(json_extract(payload, '$.text'),1,160) AS preview FROM send_commands WHERE client_msg_id=? AND session_id=?",
-    ).get(clientMsgId, sessionId) as { preview: string | null } | undefined;
-    return row?.preview ?? undefined;
   }
 
   hasRecentSendCommandForSession(sessionId: string, since: number): boolean {
@@ -483,7 +490,9 @@ export class EventStore {
   }
   getOrdinaryLocalResponsesCommandAdmission(clientMsgId: string) {
     const receipt = this.getOrdinaryCommandAdmission(clientMsgId);
-    return receipt?.binding.harness.implementation === 'responses' ? receipt : undefined;
+    return receipt && ['responses', 'gemini'].includes(receipt.binding.harness.implementation)
+      ? receipt
+      : undefined;
   }
   claimOrdinaryLocalResponsesCommandDispatch(clientMsgId: string): boolean {
     if (!this.getOrdinaryLocalResponsesCommandAdmission(clientMsgId))
@@ -494,6 +503,142 @@ export class EventStore {
     if (!this.getOrdinaryLocalResponsesCommandAdmission(clientMsgId))
       throw Error('Ordinary Local Responses command required');
     this.completeOrdinaryCommand(clientMsgId);
+  }
+
+  /** Original native SDK custody lives on the existing conversation row, never in public metadata. */
+  retainOrdinaryLocalVertexCustody(value: unknown): OrdinaryLocalVertexCustody {
+    const custody = OrdinaryLocalVertexCustodySchema.parse(value);
+    this.db!.transaction(() => {
+      const admission = this.getOrdinaryLocalVertexCommandAdmission(custody.initialCommandId);
+      if (
+        !admission ||
+        this.getSendCommand(custody.initialCommandId)?.sessionId !== custody.sessionId ||
+        admission.workspace.workspaceId !== custody.repositoryWorkspaceId ||
+        admission.workspace.cwd !== custody.cwd ||
+        !isDeepStrictEqual(admission.binding, custody.binding)
+      )
+        throw Error('Original SDK custody unavailable');
+      const retained = this.getOrdinaryLocalVertexCustody(custody.sessionId);
+      if (retained && !isDeepStrictEqual(retained, custody))
+        throw Error('Original SDK custody is immutable');
+      if (!retained)
+        this.db!.prepare(
+          'UPDATE sessions SET ordinary_local_vertex_custody=? WHERE session_id=?',
+        ).run(JSON.stringify(custody), custody.sessionId);
+    }).immediate();
+    return structuredClone(custody);
+  }
+  getOrdinaryLocalVertexCustody(sessionId: string): OrdinaryLocalVertexCustody | undefined {
+    const row = this.db!.prepare(
+      'SELECT ordinary_local_vertex_custody FROM sessions WHERE session_id=?',
+    ).get(sessionId) as { ordinary_local_vertex_custody: string | null } | undefined;
+    if (!row?.ordinary_local_vertex_custody) return undefined;
+    const custody = OrdinaryLocalVertexCustodySchema.parse(
+      JSON.parse(row.ordinary_local_vertex_custody),
+    );
+    const binding = this.getSessionRuntimeBinding(sessionId);
+    const meta = this.getSession(sessionId);
+    if (
+      !binding ||
+      !meta ||
+      custody.sessionId !== sessionId ||
+      meta.cwd !== custody.cwd ||
+      meta.repositoryWorkspaceId !== custody.repositoryWorkspaceId ||
+      !isDeepStrictEqual(binding, custody.binding)
+    )
+      throw Error('Original SDK custody unavailable');
+    return custody;
+  }
+
+  admitOrdinaryLocalVertexCommand(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+  ) {
+    return this.admitOrdinaryCommand(meta, binding, input, 'vertex');
+  }
+  admitOrdinaryLocalVertexContinuation(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+  ) {
+    return this.admitOrdinaryContinuation(meta, binding, input, 'vertex');
+  }
+  /** Existing send-ledger order is the durable native SDK FIFO; never replay uncertain entries. */
+  ordinaryCommandPreview(commandId: string, sessionId: string): string | undefined {
+    const row = this.db!.prepare(
+      "SELECT substr(json_extract(payload,'$.text'),1,180) AS preview FROM send_commands WHERE client_msg_id=? AND session_id=?",
+    ).get(commandId, sessionId) as { preview?: string } | undefined;
+    return row?.preview;
+  }
+  getCancelledOrdinaryLocalVertexCommandIds(sessionId: string): string[] {
+    return (
+      this.db!.prepare(
+        "SELECT client_msg_id FROM send_commands WHERE session_id=? AND error='Cancelled before SDK dispatch' ORDER BY rowid",
+      ).all(sessionId) as Array<{ client_msg_id: string }>
+    ).map((row) => row.client_msg_id);
+  }
+  cancelOrdinaryLocalVertexQueuedCommand(
+    sessionId: string,
+    commandId: string,
+  ): 'cancelled' | 'not_queued' | 'not_found' {
+    return this.db!.transaction(() => {
+      const receipt = this.getSendCommand(commandId);
+      if (!receipt || receipt.sessionId !== sessionId) return 'not_found';
+      if (
+        receipt.error ||
+        this.getOrdinaryLocalVertexCommandAdmission(commandId)?.state !== 'consumed' ||
+        this.getExecutionAdmission(sessionId, commandId)
+      )
+        return 'not_queued';
+      this.failSendCommand(commandId, 'Cancelled before SDK dispatch');
+      return 'cancelled';
+    }).immediate();
+  }
+  beginOrdinaryLocalVertexCommandExecution(sessionId: string, commandId: string) {
+    return this.db!.transaction(() => {
+      const receipt = this.getSendCommand(commandId),
+        admission = this.getOrdinaryLocalVertexCommandAdmission(commandId);
+      if (
+        !receipt ||
+        receipt.sessionId !== sessionId ||
+        receipt.error ||
+        !admission ||
+        !['uncertain', 'consumed'].includes(admission.state)
+      )
+        throw Error('Original SDK command unavailable');
+      return this.beginExecution(sessionId, undefined, commandId, admission.requestFingerprint);
+    }).immediate();
+  }
+  getPendingOrdinaryLocalVertexCommandIds(sessionId: string): string[] {
+    this.assertConversationIdentity(sessionId);
+    const rows = this.db!.prepare(
+      'SELECT client_msg_id FROM send_commands WHERE session_id=? AND ordinary_admission IS NOT NULL AND error IS NULL ORDER BY rowid',
+    ).all(sessionId) as Array<{ client_msg_id: string }>;
+    return rows
+      .filter(
+        (row) =>
+          this.getOrdinaryLocalVertexCommandAdmission(row.client_msg_id) &&
+          this.getOrdinaryLocalVertexCommandAdmission(row.client_msg_id)?.state === 'consumed' &&
+          !this.getExecutionAdmission(sessionId, row.client_msg_id),
+      )
+      .map((row) => row.client_msg_id);
+  }
+  getOrdinaryLocalVertexCommandAdmission(id: string) {
+    const admission = this.getOrdinaryCommandAdmission(id);
+    return admission?.binding.harness.implementation === 'claude-sdk'
+      ? OrdinaryLocalVertexCommandAdmissionSchema.parse(admission)
+      : undefined;
+  }
+  claimOrdinaryLocalVertexCommandDispatch(id: string) {
+    if (!this.getOrdinaryLocalVertexCommandAdmission(id))
+      throw Error('Ordinary Vertex command required');
+    return this.claimOrdinaryCommandDispatch(id);
+  }
+  completeOrdinaryLocalVertexCommand(id: string) {
+    if (!this.getOrdinaryLocalVertexCommandAdmission(id))
+      throw Error('Ordinary Vertex command required');
+    this.completeOrdinaryCommand(id);
   }
 
   admitOrdinaryOpenShellCommand(
@@ -513,14 +658,16 @@ export class EventStore {
       selection: OrdinaryLocalCommandSelection;
       payload: Record<string, unknown>;
     },
-    location: 'local' | 'openshell' | 'responses',
+    location: 'local' | 'openshell' | 'responses' | 'vertex',
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     const schema =
-      location === 'responses'
-        ? OrdinaryLocalResponsesCommandAdmissionSchema
-        : location === 'local'
-          ? OrdinaryLocalCommandAdmissionSchema
-          : OrdinaryOpenShellCommandAdmissionSchema;
+      location === 'vertex'
+        ? OrdinaryLocalVertexCommandAdmissionSchema
+        : location === 'responses'
+          ? OrdinaryLocalResponsesCommandAdmissionSchema
+          : location === 'local'
+            ? OrdinaryLocalCommandAdmissionSchema
+            : OrdinaryOpenShellCommandAdmissionSchema;
     const admission = schema.parse({
       version: 1,
       binding,
@@ -581,14 +728,16 @@ export class EventStore {
     meta: SessionUpsert,
     binding: unknown,
     input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
-    location: 'local' | 'openshell' | 'responses',
+    location: 'local' | 'openshell' | 'responses' | 'vertex',
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     const schema =
-      location === 'responses'
-        ? OrdinaryLocalResponsesCommandAdmissionSchema
-        : location === 'local'
-          ? OrdinaryLocalCommandAdmissionSchema
-          : OrdinaryOpenShellCommandAdmissionSchema;
+      location === 'vertex'
+        ? OrdinaryLocalVertexCommandAdmissionSchema
+        : location === 'responses'
+          ? OrdinaryLocalResponsesCommandAdmissionSchema
+          : location === 'local'
+            ? OrdinaryLocalCommandAdmissionSchema
+            : OrdinaryOpenShellCommandAdmissionSchema;
     const admission = schema.parse({
       version: 1,
       binding,
@@ -689,11 +838,13 @@ export class EventStore {
     if (!row || row.ordinary_admission === null) return undefined;
     const raw = JSON.parse(row.ordinary_admission);
     const schema =
-      raw?.binding?.harness?.implementation === 'responses'
-        ? OrdinaryLocalResponsesCommandAdmissionSchema
-        : raw?.binding?.execution?.location === 'openshell'
-          ? OrdinaryOpenShellCommandAdmissionSchema
-          : OrdinaryLocalCommandAdmissionSchema;
+      raw?.binding?.harness?.implementation === 'claude-sdk'
+        ? OrdinaryLocalVertexCommandAdmissionSchema
+        : ['responses', 'gemini'].includes(raw?.binding?.harness?.implementation)
+          ? OrdinaryLocalResponsesCommandAdmissionSchema
+          : raw?.binding?.execution?.location === 'openshell'
+            ? OrdinaryOpenShellCommandAdmissionSchema
+            : OrdinaryLocalCommandAdmissionSchema;
     const admission = schema.parse(raw);
     const runtime = this.getSessionRuntimeBinding(row.session_id);
     const session = this.getSession(row.session_id);
@@ -1190,6 +1341,8 @@ export class EventStore {
 
   private migrateSessionRuntimeBinding(db: Database.Database): void {
     const columns = db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'ordinary_local_vertex_custody'))
+      db.exec('ALTER TABLE sessions ADD COLUMN ordinary_local_vertex_custody TEXT');
     if (!columns.some((column) => column.name === 'runtime_binding')) {
       db.exec('ALTER TABLE sessions ADD COLUMN runtime_binding TEXT');
       this.log.info('migrated sessions table: added runtime_binding');

@@ -1,3 +1,4 @@
+import { SessionRuntimeBindingV2Schema, type SessionRuntimeBindingV2 } from '@mitzo/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
@@ -11,6 +12,7 @@ import {
 export interface RepositoryChatSelection {
   repositoryWorkspaceId?: string;
   blocked: boolean;
+  ordinaryRuntime?: SessionRuntimeBindingV2;
 }
 const workspaceSchema = z.object({
   id: z.uuid(),
@@ -20,6 +22,7 @@ const workspaceSchema = z.object({
   featureBranch: z.string(),
   state: z.enum(['preview', 'preparing', 'ready', 'claiming', 'claimed', 'failed', 'discarded']),
   conversationId: z.uuid().optional(),
+  ordinaryRuntime: SessionRuntimeBindingV2Schema.optional(),
 });
 type Workspace = z.infer<typeof workspaceSchema>;
 const catalogSchema = z.object({
@@ -39,6 +42,7 @@ export function RepositoryChatPicker({
   onChange,
   initialPreparationId,
   draftScoped = false,
+  ordinaryRuntime,
 }: {
   accountId: string;
   model: string;
@@ -46,6 +50,14 @@ export function RepositoryChatPicker({
   initialPreparationId?: string;
   /** Ordinary saved drafts never borrow another draft’s per-account preparation. */
   draftScoped?: boolean;
+  ordinaryRuntime?: {
+    runOn: 'local' | 'openshell';
+    runtime: {
+      account: SessionRuntimeBindingV2['account'];
+      harness: SessionRuntimeBindingV2['harness']['implementation'];
+      targetId: string;
+    };
+  };
 }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [opened, setOpened] = useState(
@@ -112,7 +124,11 @@ export function RepositoryChatPicker({
         setOpened(true);
         callback.current(
           ready.state === 'ready' && data.available
-            ? { repositoryWorkspaceId: ready.id, blocked: false }
+            ? {
+                repositoryWorkspaceId: ready.id,
+                blocked: false,
+                ordinaryRuntime: ready.ordinaryRuntime,
+              }
             : { blocked: true, ...(draftScoped ? { repositoryWorkspaceId: ready.id } : {}) },
         );
       })
@@ -178,6 +194,7 @@ export function RepositoryChatPicker({
             ? {
                 connectionId: selection.connectionId,
                 repository: selected === 'url' ? url : selection.repository,
+                ...(ordinaryRuntime ? { ordinaryRuntime } : {}),
               }
             : {}),
         }),
@@ -196,7 +213,11 @@ export function RepositoryChatPicker({
         } catch {
           /* The current draft still holds the receipt. */
         }
-        callback.current({ repositoryWorkspaceId: result.id, blocked: false });
+        callback.current({
+          repositoryWorkspaceId: result.id,
+          blocked: false,
+          ordinaryRuntime: result.ordinaryRuntime,
+        });
       }
     } catch (failure) {
       if (!controller.signal.aborted)

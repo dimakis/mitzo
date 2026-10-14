@@ -1,4 +1,8 @@
 import { readOrdinaryCodexAgentProfile as readResponsesAgentProfile } from './ordinary-codex-agent-profile.js';
+import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
+import { GoogleAuth } from 'google-auth-library';
+import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import type { GeminiOptions } from './gemini-session.js';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { LocalResponsesFirstCommandSchema, type AccountBinding } from '@mitzo/protocol';
@@ -22,6 +26,7 @@ import {
 import {
   OrdinaryLocalCodexAdmissionCoordinator,
   OrdinaryLocalResponsesCommandRequestSchema,
+  OrdinaryLocalGeminiCommandRequestSchema,
   type OrdinaryLocalCodexAdmissionExpectation,
 } from './ordinary-local-codex-admission.js';
 import { OrdinaryLocalCodexSelectionOwner } from './ordinary-local-codex-selection-owner.js';
@@ -56,6 +61,11 @@ interface Owners {
   dispatchContinuation?(input: OrdinaryLocalResponsesOwnedDispatch): Promise<void>;
 }
 const unavailable = () => Error('Owned Local Responses runtime unavailable');
+const googleProjectOverrides = [
+  'GOOGLE_CLOUD_QUOTA_PROJECT',
+  'GOOGLE_CLOUD_PROJECT',
+  'GCLOUD_PROJECT',
+] as const;
 /** Owns admission on existing command, repository, credential and private history stores. */
 export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAuthority {
   readonly #controller = new AbortController();
@@ -71,6 +81,8 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       payload: OrdinaryLocalResponsesOwnedDispatch['payload'];
     }
   >();
+  readonly #adc?: VertexAdcCustody;
+  readonly #adcEnv?: Readonly<Record<string, string | undefined>>;
   #closed = false;
   #initialized = false;
   #active?: string;
@@ -86,15 +98,53 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     captured.assertCurrent();
     this.authSessionId = captured.auth.id;
     this.#signal = AbortSignal.any([owners.signal, this.#controller.signal]);
-    this.#target = new OrdinaryLocalResponsesTarget(owners.env);
+    const google = owners.reservation.binding.provider === 'google-vertex';
+    this.#target = new OrdinaryLocalResponsesTarget(owners.env, google ? 'gemini' : 'responses');
+    if (google) {
+      const profile = loadAccountProfiles().googleProfile(owners.reservation.binding);
+      this.#adcEnv = {
+        CLAUDE_CODE_USE_VERTEX: '1',
+        GOOGLE_APPLICATION_CREDENTIALS: profile.credentialRef,
+        ANTHROPIC_VERTEX_PROJECT_ID: profile.projectId,
+        CLOUD_ML_REGION: profile.region,
+      };
+      const retained = owners.nativeStore.readOrdinaryCustody(
+        owners.reservation.conversationId,
+        owners.reservation.binding,
+      );
+      this.#adc = retained
+        ? VertexAdcCustody.reopen(retained.credentialAuthority, this.#adcEnv)
+        : VertexAdcCustody.capture(this.#adcEnv);
+      registerWorkspaceRuntimeAuthorityPaths([profile.credentialRef], [profile.credentialRef]);
+    }
     this.#operator = retainAgentContextAuthority({ ...captured.auth }, this.#controller);
     this.#signal.addEventListener('abort', () => this.close(), { once: true });
     try {
-      this.#operator.assertCurrent();
+      this.assertOwner();
     } catch (error) {
       this.#operator.release();
       throw error;
     }
+  }
+  static assertRetainedCredential(
+    binding: AccountBinding,
+    custody: ReturnType<NativeResponsesStore['readOrdinaryCustody']>,
+  ) {
+    if (binding.provider !== 'google-vertex') return;
+    if (googleProjectOverrides.some((key) => !!process.env[key])) throw unavailable();
+    if (
+      !custody?.credentialAuthority ||
+      !custody.nativeSelection ||
+      custody.nativeSelection.model !== binding.model
+    )
+      throw unavailable();
+    const profile = loadAccountProfiles().googleProfile(binding);
+    VertexAdcCustody.reopen(custody.credentialAuthority, {
+      CLAUDE_CODE_USE_VERTEX: '1',
+      GOOGLE_APPLICATION_CREDENTIALS: profile.credentialRef,
+      ANTHROPIC_VERTEX_PROJECT_ID: profile.projectId,
+      CLOUD_ML_REGION: profile.region,
+    });
   }
   close() {
     if (this.#closed) return;
@@ -108,10 +158,29 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     this.#signal.throwIfAborted();
     this.#operator.assertCurrent();
     this.#target.assertCurrentSync();
+    if (
+      this.#adc &&
+      googleProjectOverrides.some((key) => !!process.env[key] || !!this.owners.env?.[key])
+    )
+      throw Error(
+        'Original Google project authority unavailable: ambient project or quota override',
+      );
+    this.#adc?.assertCurrent(this.#adcEnv!);
   }
   private manager() {
     const profiles = loadAccountProfiles(),
       binding = this.owners.reservation.binding;
+    if (binding.provider === 'google-vertex') {
+      const profile = profiles.googleProfile(binding);
+      if (
+        profile.projectId !== this.#adcEnv?.ANTHROPIC_VERTEX_PROJECT_ID ||
+        profile.region !== this.#adcEnv?.CLOUD_ML_REGION ||
+        profile.credentialRef !== this.#adcEnv?.GOOGLE_APPLICATION_CREDENTIALS
+      )
+        throw unavailable();
+      this.#adc!.assertCurrent(this.#adcEnv!);
+      return undefined;
+    }
     profiles.apiRoutingProfile(binding);
     const manager = getConnectionsRuntime()?.openAIEnrollmentAuthority;
     if (
@@ -121,12 +190,63 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       throw unavailable();
     return manager;
   }
+  geminiOptions(): GeminiOptions {
+    this.assertOwner();
+    this.manager();
+    if (!this.#adc || !this.#adcEnv) throw unavailable();
+    return {
+      accountId: this.owners.reservation.binding.accountId,
+      projectId: this.#adcEnv.ANTHROPIC_VERTEX_PROJECT_ID!,
+      region: this.#adcEnv.CLOUD_ML_REGION!,
+      getAccessToken: async () => {
+        const commandId = this.activeCommandId();
+        if (!commandId) throw unavailable();
+        await this.assertEffect(commandId);
+        const auth = new GoogleAuth({
+          credentials: this.#adc!.credentials(this.#adcEnv!),
+          projectId: this.#adcEnv!.ANTHROPIC_VERTEX_PROJECT_ID,
+          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+        });
+        const token = await auth.getAccessToken();
+        await this.assertEffect(commandId);
+        if (!token) throw unavailable();
+        return token;
+      },
+    };
+  }
+  private assertNativeSelection(selection: { model: string; thinking: string | null }) {
+    if (!this.#adc) return;
+    const custody = this.owners.nativeStore.readOrdinaryCustody(
+      this.owners.reservation.conversationId,
+      this.owners.reservation.binding,
+    );
+    const state = this.owners.nativeStore.load(
+      this.owners.reservation.conversationId,
+      this.owners.reservation.binding,
+    );
+    if (
+      selection.model !== this.owners.reservation.binding.model ||
+      (custody &&
+        (!custody.nativeSelection ||
+          custody.nativeSelection.model !== selection.model ||
+          custody.nativeSelection.reasoningEffort !== selection.thinking)) ||
+      (state?.checkpoint && state.checkpoint.model !== selection.model) ||
+      (state?.nativeSelection &&
+        (state.nativeSelection.model !== selection.model ||
+          state.nativeSelection.reasoningEffort !== selection.thinking))
+    )
+      throw Error(
+        'Continue with the original Gemini model and thinking. Start another conversation to change them.',
+      );
+  }
   async resolveKey(commandId: string, signal?: AbortSignal): Promise<string> {
     const credentialSignal = signal ? AbortSignal.any([this.#signal, signal]) : this.#signal;
     credentialSignal.throwIfAborted();
     await this.assertEffect(commandId);
     credentialSignal.throwIfAborted();
-    const key = await this.manager().resolveKey(
+    const manager = this.manager();
+    if (!manager) throw unavailable();
+    const key = await manager.resolveKey(
       this.owners.reservation.binding.accountId,
       credentialSignal,
     );
@@ -147,6 +267,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     );
     if (queue.active !== commandId && !queue.queued.includes(commandId)) throw unavailable();
     command.selection.assertCurrentSync(command.expected);
+    this.assertNativeSelection(command.expected.selection);
     this.manager();
     loadAccountProfiles().validateModelSelection(
       this.owners.reservation.binding,
@@ -198,6 +319,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     )
       throw unavailable();
     command.selection.assertCurrentSync(command.expected);
+    this.assertNativeSelection(command.expected.selection);
     this.manager();
     loadAccountProfiles().validateModelSelection(
       this.owners.reservation.binding,
@@ -354,6 +476,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
         receipt.workspace.cwd !== meta.cwd
       )
         throw unavailable();
+      this.assertNativeSelection(receipt.selection);
       const { systemPrompt, ...rawPayload } = send.payload;
       const payload = {
         ...Payload.parse(rawPayload),
@@ -419,7 +542,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     const target = this.#target.descriptor();
     if (
       custody.binding.execution.location !== 'local' ||
-      custody.binding.harness.implementation !== 'responses' ||
+      custody.binding.harness.implementation !== (this.#adc ? 'gemini' : 'responses') ||
       custody.binding.execution.targetId !== target.targetId ||
       custody.binding.execution.targetRevision !== target.targetRevision
     )
@@ -495,12 +618,19 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     assertAdmissionCurrent();
     this.manager();
     this.pruneCancelledAuthorities();
-    const request = OrdinaryLocalResponsesCommandRequestSchema.parse(raw);
+    const request = (
+      this.#adc
+        ? OrdinaryLocalGeminiCommandRequestSchema
+        : OrdinaryLocalResponsesCommandRequestSchema
+    ).parse(raw);
+    this.assertNativeSelection(request.selection);
     if ((!continuation || resume) && request.clientMsgId !== this.owners.commandId)
       throw unavailable();
     if (continuation && !resume && (!this.#initialized || !this.owners.dispatchContinuation))
       throw unavailable();
     const payload = Payload.parse(request.payload);
+    if (this.#adc && payload.images?.length)
+      throw Error('Google Vertex image attachments are unsupported');
     responsesUserContent(payload.text, payload.images);
     const profiles = loadAccountProfiles(),
       original = this.owners.reservation.binding;
@@ -514,7 +644,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
         },
         request.runtime.account,
       ) ||
-      account.provider !== 'openai' ||
+      account.provider !== (this.#adc ? 'google-vertex' : 'openai') ||
       (!continuation && !isDeepStrictEqual(account, original))
     )
       throw unavailable();
@@ -552,7 +682,9 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       !profile ||
       profile.definition.contextRecipe !== undefined ||
       (profile.definition.recipe !== undefined &&
-        !profile.definition.recipe.compatibleProviders.includes('openai')) ||
+        !profile.definition.recipe.compatibleProviders.some(
+          (provider) => provider === original.provider,
+        )) ||
       request.selection.context.source !== 'none' ||
       request.selection.context.revision !== null ||
       request.selection.permission.revision !== 0
@@ -594,7 +726,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       events = this.owners.eventStore;
     const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
       enabled: true,
-      adapter: 'responses',
+      adapter: this.#adc ? 'gemini' : 'responses',
       catalog,
       declaration: this.#target.admissionDeclaration(),
       authority,
@@ -665,6 +797,15 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
           authSessionId: this.authSessionId,
           binding: expected.binding,
           workspace: expected.workspace,
+          ...(this.#adc
+            ? {
+                credentialAuthority: this.#adc.snapshot(),
+                nativeSelection: {
+                  model: expected.selection.model,
+                  reasoningEffort: expected.selection.thinking,
+                },
+              }
+            : {}),
         };
         this.owners.nativeStore.setOrdinaryCustody(meta.sessionId, original, custody);
         if (resume) {

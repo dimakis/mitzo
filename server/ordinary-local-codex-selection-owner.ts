@@ -42,6 +42,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       /** Cold owner independently verified original native custody before construction. */
       continuation?: boolean;
       responses?: boolean;
+      vertex?: boolean;
     },
   ) {
     this.#reservation = structuredClone(owners.reservation);
@@ -135,9 +136,11 @@ export class OrdinaryLocalCodexSelectionOwner {
       }
       const session = this.owners.events.getSession(reservation.conversationId);
       if (session) {
-        const admission = this.owners.responses
-          ? this.owners.events.getOrdinaryLocalResponsesCommandAdmission(this.owners.commandId)
-          : this.owners.events.getOrdinaryLocalCommandAdmission(this.owners.commandId);
+        const admission = this.owners.vertex
+          ? this.owners.events.getOrdinaryLocalVertexCommandAdmission(this.owners.commandId)
+          : this.owners.responses
+            ? this.owners.events.getOrdinaryLocalResponsesCommandAdmission(this.owners.commandId)
+            : this.owners.events.getOrdinaryLocalCommandAdmission(this.owners.commandId);
         if (
           (!admission && !this.owners.continuation) ||
           admission?.state === 'reserved' ||
@@ -146,6 +149,7 @@ export class OrdinaryLocalCodexSelectionOwner {
               !isDeepStrictEqual(admission.selection, expected.selection) ||
               !isDeepStrictEqual(admission.workspace, expected.workspace) ||
               (!this.owners.responses &&
+                !this.owners.vertex &&
                 expected.bootstrapId !==
                   ordinaryLocalCodexBootstrapId(
                     reservation.conversationId,

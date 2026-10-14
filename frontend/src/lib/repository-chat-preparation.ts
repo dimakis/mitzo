@@ -1,3 +1,4 @@
+import { SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
 import { z } from 'zod';
 import { getToolStatus, type ToolBlock } from './tool-status';
 
@@ -19,6 +20,7 @@ export const repositoryChatPreparationSchema = z
     prompt: z.string().min(1).max(100000),
     setupUrl: z.string(),
     conversationId: z.string().min(1).max(200).optional(),
+    ordinaryRuntime: SessionRuntimeBindingV2Schema.optional(),
   })
   .refine((value) => value.setupUrl === `/chat?repositoryPreparation=${value.id}`)
   .refine((value) => value.state !== 'claimed' || !!value.conversationId);

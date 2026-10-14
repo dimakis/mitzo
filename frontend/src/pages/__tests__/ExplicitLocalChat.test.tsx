@@ -1,8 +1,8 @@
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
@@ -12,6 +12,7 @@ import { localInventoryFixture } from '../../test-utils/local-inventory-fixture'
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { getChatDraft } from '../../lib/chat-drafts';
 import '@testing-library/jest-dom/vitest';
+import userEvent from '@testing-library/user-event';
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ center }: { center: React.ReactNode }) => <div>{center}</div>,
 }));
@@ -21,8 +22,19 @@ vi.mock('../../components/CommandCenter', () => ({ CommandCenter: () => null }))
 vi.mock('../../components/RepositoryChatPicker', () => ({
   RepositoryChatPicker: ({
     onChange,
+    ordinaryRuntime,
   }: {
-    onChange: (value: { blocked: boolean; repositoryWorkspaceId?: string }) => void;
+    onChange: (
+      value: import('../../components/RepositoryChatPicker').RepositoryChatSelection,
+    ) => void;
+    ordinaryRuntime?: {
+      runOn: 'local' | 'openshell';
+      runtime: {
+        account: import('@mitzo/protocol').SessionRuntimeBindingV2['account'];
+        harness: import('@mitzo/protocol').SessionRuntimeBindingV2['harness']['implementation'];
+        targetId: string;
+      };
+    };
   }) => (
     <>
       <button onClick={() => onChange({ blocked: true })}>Block repository launch</button>
@@ -35,6 +47,30 @@ vi.mock('../../components/RepositoryChatPicker', () => ({
         }
       >
         Ready repository launch
+      </button>
+      <button
+        onClick={() =>
+          onChange({
+            blocked: false,
+            repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+            ...(ordinaryRuntime
+              ? {
+                  ordinaryRuntime: {
+                    version: 2,
+                    account: ordinaryRuntime.runtime.account,
+                    harness: { implementation: ordinaryRuntime.runtime.harness },
+                    execution: {
+                      location: ordinaryRuntime.runOn,
+                      targetId: ordinaryRuntime.runtime.targetId,
+                      targetRevision: 'target-r1',
+                    },
+                  },
+                }
+              : {}),
+          })
+        }
+      >
+        Ready qualified repository launch
       </button>
     </>
   ),
@@ -101,13 +137,16 @@ vi.mock('../../components/ChatArea', () => ({
 vi.mock('../../components/ChatInput', () => ({
   ChatInput: ({
     initialText,
+    savedChatDraft,
     onSend,
     onStop,
     running,
     sendDisabledReason,
     composerGeneration,
+    settings,
   }: {
     initialText?: string;
+    savedChatDraft?: import('../../lib/chat-drafts').ChatDraft;
     onStop: () => void;
     running: boolean;
     onSend?: (
@@ -119,9 +158,13 @@ vi.mock('../../components/ChatInput', () => ({
     ) => boolean;
     sendDisabledReason?: string;
     composerGeneration?: number;
+    settings?: React.ReactNode;
   }) => (
     <>
-      <div data-testid="draft">{initialText}</div>
+      <div className="chat-input" data-testid="composer-settings">
+        {settings}
+      </div>
+      <div data-testid="draft">{initialText ?? savedChatDraft?.text}</div>
       <span data-testid="composer-running">{String(running)}</span>
       <span data-testid="composer-generation">{composerGeneration}</span>
       <button onClick={onStop}>Test Stop</button>
@@ -150,6 +193,12 @@ afterEach(() => {
 });
 
 const readyId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
+function AssignmentRouteProbe() {
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => navigate('/chat/unknown-session')}>Navigate before assignment</button>
+  );
+}
 function setup(
   Screen: typeof ChatView,
   savedLocal = false,
@@ -157,10 +206,21 @@ function setup(
   bound = false,
   metadataFailed = false,
   continuation = false,
+  suppliedFixture?: import('../../lib/explicit-local-chat').ExplicitLocalInventory,
 ) {
-  const fixture = localInventoryFixture();
+  const fixture = suppliedFixture ?? localInventoryFixture();
   const draft = createChatDraft();
   draft.text = 'hello';
+  if (suppliedFixture) {
+    draft.images = [
+      {
+        data: 'b2ZmbGluZQ==',
+        preview: 'data:image/png;base64,b2ZmbGluZQ==',
+        mediaType: 'image/png',
+      },
+    ];
+    draft.contextBlocks = ['Retained context'];
+  }
   const intent = {
     ...createChatRuntimeSelection(),
     account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
@@ -225,6 +285,7 @@ function setup(
   render(
     <MitzoStoreProvider value={store}>
       <MemoryRouter initialEntries={[bound ? '/chat/bound-session' : `/chat?draft=${draft.id}`]}>
+        <AssignmentRouteProbe />
         <Routes>
           <Route path="/chat" element={<Screen />} />
           <Route path="/chat/:sessionId" element={<Screen />} />
@@ -247,26 +308,198 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${name}: mounts one agent-led settings panel in the composer`, async () => {
+    setup(Screen, true);
+    const trigger = await screen.findByRole('button', { name: /^Agent settings/ });
+    expect(trigger.closest('[data-testid="composer-settings"]')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /^Agent settings/ })).toHaveLength(1);
+    if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+    const agent = screen.getByRole('combobox', { name: 'Agent' });
+    const account = screen.getByRole('combobox', { name: 'Account' });
+    expect(agent.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(account.closest('.workspace-controls')).toBeNull();
+    expect(screen.getByRole('group', { name: 'Run on' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Local Mac' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByTestId('draft')).toHaveTextContent('hello');
+  });
+  it(`${name}: cold-open bound details retain eight trusted identities while future thinking changes`, async () => {
+    const { localSend, legacySend } = setup(Screen, false, false, true, false, true);
+    const trigger = await screen.findByRole('button', { name: /^Agent settings/ });
+    if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+    const account = await screen.findByRole('combobox', { name: 'Account' });
+    await waitFor(() => expect(account).toBeDisabled());
+    const details = document.querySelector('.composer-session-details')!;
+    const fields = Array.from(details.querySelectorAll('dt')).map((term) => term.textContent);
+    expect(fields).toEqual([
+      'Account',
+      'Agent',
+      'Model',
+      'Thinking level',
+      'Run on',
+      'Agent software',
+      'Workspace',
+      'Branch',
+    ]);
+    const value = (label: string) =>
+      Array.from(details.querySelectorAll('dt')).find((term) => term.textContent === label)
+        ?.nextElementSibling?.textContent;
+    expect(value('Account')).toBe('Personal ChatGPT');
+    expect(value('Model')).toBe('Luna fixture');
+    expect(value('Thinking level')).toBe('low');
+    expect(value('Run on')).toBe('Local Mac');
+    expect(value('Agent software')).toBe('Codex');
+    expect(value('Workspace')).toBe(readyId);
+    expect(value('Branch')).toBe('Unavailable');
+    expect(screen.getByRole('combobox', { name: 'Agent' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Local Mac' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'OpenShell' })).toBeDisabled();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
+      target: { value: 'high' },
+    });
+    expect(value('Thinking level')).toBe('high');
+    expect(value('Account')).toBe('Personal ChatGPT');
+    expect(value('Agent software')).toBe('Codex');
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
+  it(`${name}: retains known Symposium classification through picker remount and guards the next unknown session`, async () => {
+    const { store, localSend, legacySend } = setup(Screen);
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (String(url).includes('unknown-session')) return new Promise<Response>(() => {});
+      if (String(url).includes('/symposium/status'))
+        return new Response(
+          JSON.stringify({ sessionId: 'symposium-session', config: null, seats: [] }),
+        );
+      if (String(url).includes('/meta'))
+        return new Response(JSON.stringify({ sessionType: 'symposium' }));
+      return new Response('[]');
+    });
+    act(() =>
+      store.setState({ sessions: { ...store.getState().sessions, active: 'symposium-session' } }),
+    );
+    await screen.findByText('Agent chat');
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^Agent settings/ })).toBeNull(),
+    );
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    expect((await screen.findByText('Symposium')).closest('.workspace-controls')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
+    act(() => store.setState({ switchSession: async () => {} }));
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate before assignment' }));
+    expect(store.getState().sessions.active).toBe('symposium-session');
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBeDisabled(),
+    );
+    expect(screen.queryByText('Agent chat')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
+  it(`${name}: guards a requested unknown route before the previous ordinary session is replaced`, async () => {
+    const { store, localSend, legacySend } = setup(Screen, false, false, true, false, true);
+    const previous = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation((url, options) =>
+      String(url).includes('unknown-session')
+        ? new Promise<Response>(() => {})
+        : previous(url, options),
+    );
+    const trigger = await screen.findByRole('button', { name: /^Agent settings/ });
+    if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+    await screen.findByRole('combobox', { name: 'Account' });
+    act(() => store.setState({ switchSession: async () => {} }));
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate before assignment' }));
+    expect(store.getState().sessions.active).toBe('bound-session');
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBeDisabled(),
+    );
+    expect(screen.queryByTitle('Close session')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
+  it(`${name}: displays the trusted model label while continuation keeps the exact model id`, async () => {
+    const { localSend } = setup(Screen, false, false, true, false, true);
+    const trigger = await screen.findByRole('button', { name: /^Agent settings.*Luna fixture/ });
+    expect(trigger).toHaveAccessibleName(/Luna fixture/);
+    if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+    const details = document.querySelector('.composer-session-details')!;
+    const modelTerm = Array.from(details.querySelectorAll('dt')).find(
+      (term) => term.textContent === 'Model',
+    )!;
+    expect(modelTerm.nextElementSibling).toHaveTextContent('Luna fixture');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('luna-fixture');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(localSend).toHaveBeenCalledWith(
+      expect.objectContaining({ selection: expect.objectContaining({ model: 'luna-fixture' }) }),
+      expect.anything(),
+    );
+  });
+  it(`${name}: a legacy display summary cannot bypass pending conversation classification`, async () => {
+    const { store, localSend, legacySend } = setup(Screen);
+    let resolveClassification!: (response: Response) => void;
+    const pendingClassification = new Promise<Response>((resolve) => {
+      resolveClassification = resolve;
+    });
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (String(url).includes('/symposium/status')) return pendingClassification;
+      if (String(url).includes('/meta')) return new Response('{}');
+      return new Response('[]');
+    });
+    act(() =>
+      store.setState({
+        sessions: { ...store.getState().sessions, active: 'unclassified-session' },
+      }),
+    );
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    await screen.findByRole('button', { name: /^Workspace controls.*Legacy account/ });
+    expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBeDisabled();
+    expect(document.querySelector('.chat-input[aria-busy="true"]')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    await act(async () =>
+      resolveClassification(
+        new Response(
+          JSON.stringify({ sessionId: 'unclassified-session', config: null, seats: [] }),
+        ),
+      ),
+    );
+    await screen.findByRole('button', { name: 'Test send' });
+    expect(document.querySelector('.chat-input[aria-busy="true"]')).toBeNull();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
   it(`${name}: untouched OpenShell stays blocked, explicit Local dispatches only exact dedicated intent`, async () => {
     const { localSend, legacySend } = setup(Screen);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    await screen.findByRole('option', { name: 'Local · This Mac' });
-    expect(screen.getByRole('combobox', { name: 'Run on' })).toHaveValue('openshell');
+    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
+    await screen.findByRole('button', { name: 'Local Mac' });
+    expect(screen.getByRole('button', { name: 'OpenShell' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Run on' }), {
-      target: { value: 'local:mac' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Local Mac' }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
       target: { value: 'personal' },
     });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
       target: { value: 'low' },
     });
     fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), {
       target: { value: JSON.stringify(['saved', 'agent', 1]) },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Use these Local choices' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
@@ -292,8 +525,13 @@ for (const [name, Screen] of [
     const { localSend, legacySend, draft } = setup(Screen, true, true);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: 'Run on' })).toHaveValue('local:mac'),
+      expect(screen.getByRole('button', { name: 'Local Mac' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
     );
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Agent' })).toHaveValue(
@@ -319,6 +557,8 @@ for (const [name, Screen] of [
     );
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
     const retry = await screen.findByRole('button', { name: 'Retry conversation settings' });
     expect(screen.queryByRole('combobox', { name: 'Run on' })).toBeNull();
@@ -339,7 +579,7 @@ for (const [name, Screen] of [
     expect(legacySend).not.toHaveBeenCalled();
     recoverMetadata();
     fireEvent.click(retry);
-    await screen.findByText('Run on: Local · first command only');
+    await screen.findByText('Fixed for this conversation');
     expect(workspace.querySelector('.conversation-state')).toHaveTextContent('First command');
     expect(workspace).toHaveAccessibleDescription('First command');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
@@ -405,20 +645,74 @@ for (const [name, Screen] of [
       }),
     );
   });
+  it(`${name}: labels consumed receipt settings as historical while future model intent stays distinct`, async () => {
+    const fixture = localInventoryFixture();
+    fixture.accounts[0].models.push({
+      id: 'next-model',
+      label: 'Next model',
+      reasoningEfforts: ['low', 'high'],
+    });
+    const { store } = setup(Screen, false, false, true, false, true, fixture);
+    const { LocalCodexFirstCommandSchema } = await import('@mitzo/protocol');
+    const receipt = LocalCodexFirstCommandSchema.parse({
+      runOn: 'local',
+      clientMsgId: 'previous-command',
+      repositoryWorkspaceId: readyId,
+      capabilityRevision: fixture.capabilityRevision,
+      runtime: {
+        account: fixture.accounts[0].account,
+        harness: 'codex',
+        targetId: 'mac',
+        mode: 'agent',
+      },
+      selection: {
+        version: 1,
+        agent: { profileId: 'agent', revision: 1 },
+        context: { source: 'none', revision: null },
+        permission: { mode: 'agent', revision: 0 },
+        model: 'luna-fixture',
+        thinking: 'low',
+      },
+      payload: { text: 'Previously submitted' },
+    });
+    act(() =>
+      store.setState({
+        localCommand: { state: 'consumed', sessionId: 'bound-session', request: receipt },
+      }),
+    );
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
+    await screen.findByText('Fixed for this conversation');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'next-model' },
+    });
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('next-model');
+    expect(
+      screen.getByText(
+        /Last submitted command: Account: personal · Model: luna-fixture · Thinking: low/,
+      ),
+    ).toBeInTheDocument();
+    expect(store.getState().localCommand?.request).toEqual(receipt);
+  });
   it(`${name}: supported continuation freezes selected thinking and never sends through legacy routing`, async () => {
     const { localSend, legacySend } = setup(Screen, false, false, true, false, true);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    await screen.findByText('Run on: Local Mac · fixed for this conversation');
+    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
+    await screen.findByText('Fixed for this conversation');
     expect(workspace).toHaveAccessibleName(/Personal ChatGPT, luna-fixture, low, local/);
     expect(workspace.querySelector('.conversation-state')).toHaveTextContent('Conversation');
     expect(workspace).toHaveAccessibleDescription('Conversation');
     expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Thinking' })).toBeEnabled();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking' }), {
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toBeEnabled();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
       target: { value: 'high' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Use these conversation choices' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
     expect(workspace).toHaveAccessibleName(/Personal ChatGPT, luna-fixture, high, local/);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
@@ -437,13 +731,224 @@ for (const [name, Screen] of [
     const { legacySend } = setup(Screen, false, false, true);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    await screen.findByText('Run on: Local · first command only');
+    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
+    await screen.findByText('Fixed for this conversation');
     expect(workspace.querySelector('.conversation-state')).toHaveTextContent('First command');
     expect(workspace).toHaveAccessibleDescription('First command');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     await waitFor(() => expect(screen.getByRole('button', { name: /^Agent$/ })).toBeDisabled());
     expect(screen.queryByTestId('web-search-connection')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(legacySend).not.toHaveBeenCalled();
+  });
+}
+
+for (const [name, Screen] of [
+  ['mobile', ChatView],
+  ['desktop', DesktopChatView],
+] as const) {
+  it(`${name}: environment changes derive API Responses or Claude without losing draft or adopting another billing account`, async () => {
+    const { multiRuntimeInventoryFixture } =
+      await import('../../test-utils/multi-runtime-inventory-fixture');
+    const { store, localSend, legacySend, draft } = setup(
+      Screen,
+      false,
+      false,
+      false,
+      false,
+      false,
+      multiRuntimeInventoryFixture(),
+    );
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
+    await screen.findByRole('option', { name: 'API billing' });
+    expect(screen.getByRole('button', { name: 'OpenShell' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Local Mac' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+      target: { value: 'api' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'shell-model' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
+      target: { value: 'high' },
+    });
+    expect(screen.getByText('Runs with Codex')).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Local model' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Local Mac' }));
+    expect(screen.getByText('Runs with Mitzo Responses')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('api');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+    expect(
+      screen.getByRole('option', { name: 'Unavailable model: shell-model' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Local model' })).toBeInTheDocument();
+    expect(screen.getByTestId('draft')).toHaveTextContent('hello');
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+      target: { value: 'vertex' },
+    });
+    expect(screen.getByText('Runs with Claude')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+    expect(screen.getByRole('option', { name: 'Claude model' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Local model' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'OpenShell' }));
+    expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('vertex');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+    expect(screen.queryByRole('option', { name: 'Shell model' })).toBeNull();
+    expect(screen.queryByText('Runs with Codex')).toBeNull();
+    expect(screen.getByTestId('draft')).toHaveTextContent('hello');
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection).toMatchObject({
+      account: { accountId: 'vertex', model: 'shell-model', reasoningEffort: 'high' },
+      accountReference: {
+        accountId: 'vertex',
+        provider: 'anthropic-vertex',
+        profileRevision: 'vertex-r1',
+      },
+      execution: { location: 'openshell', targetId: null },
+    });
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: 'hello',
+      images: draft.images,
+      contextBlocks: draft.contextBlocks,
+    });
+    expect(store.getState().sessions.active).toBeNull();
+  });
+}
+
+for (const [name, Screen] of [
+  ['mobile', ChatView],
+  ['desktop', DesktopChatView],
+] as const) {
+  it(`${name}: a one-account legacy draft confirms billing through one explicit Account choice`, async () => {
+    const fixture = localInventoryFixture();
+    const replacement = {
+      ...fixture.accounts[0].account,
+      provider: 'openai' as const,
+      profileRevision: 'replacement-api',
+    };
+    const data = {
+      ...fixture,
+      accounts: [
+        { ...fixture.accounts[0], label: 'Replacement API account', account: replacement },
+      ],
+      targets: [{ ...fixture.targets[0], harness: 'responses' as const }],
+      routes: [{ ...fixture.routes[0], account: replacement, harness: 'responses' as const }],
+    };
+    const { draft, localSend, legacySend } = setup(Screen, true, false, false, false, false, data);
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
+    await screen.findByRole('option', { name: 'Replacement API account' });
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    expect(screen.getAllByText(/account identity is unconfirmed/i).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection?.accountReference).toBeFalsy();
+    const accountControl = screen.getByRole('combobox', { name: 'Account' });
+    const pending = screen.getByRole('option', {
+      name: 'Confirm account: Replacement API account',
+    });
+    expect(pending).toBeDisabled();
+    expect(accountControl).not.toHaveValue('personal');
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection?.account?.accountId).toBe('personal');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('luna-fixture');
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('low');
+    await userEvent.setup().selectOptions(accountControl, 'personal');
+    expect(accountControl).toHaveValue('personal');
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection).toMatchObject({
+      accountReference: replacement,
+      account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+    });
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: 'hello',
+      images: draft.images,
+      contextBlocks: draft.contextBlocks,
+    });
+    expect(screen.getByTestId('draft')).toHaveTextContent('hello');
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
+}
+
+for (const [name, Screen] of [
+  ['mobile', ChatView],
+  ['desktop', DesktopChatView],
+] as const) {
+  it(`${name}: a server-qualified ready checkout keeps account/environment while another first-message model retains the draft`, async () => {
+    const fixture = localInventoryFixture();
+    fixture.accounts[0].models.push({
+      id: 'supported-next',
+      label: 'Supported next',
+      reasoningEfforts: ['low', 'high'],
+    });
+    const { draft, localSend, legacySend } = setup(
+      Screen,
+      false,
+      false,
+      false,
+      false,
+      false,
+      fixture,
+    );
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
+    await screen.findByRole('combobox', { name: 'Account' });
+    fireEvent.click(screen.getByRole('button', { name: 'Local Mac' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+      target: { value: 'personal' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
+      target: { value: 'high' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), {
+      target: { value: JSON.stringify(['saved', 'agent', 1]) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ready qualified repository launch' }));
+    expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Local Mac' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'OpenShell' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Model' })).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toBeEnabled();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'supported-next' },
+    });
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: 'hello',
+      images: draft.images,
+      contextBlocks: draft.contextBlocks,
+      settings: {
+        repositoryWorkspaceId: readyId,
+        runtimeSelection: {
+          account: { accountId: 'personal', model: 'supported-next', reasoningEffort: 'high' },
+        },
+      },
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(localSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryWorkspaceId: readyId,
+        runtime: expect.objectContaining({ account: fixture.accounts[0].account, targetId: 'mac' }),
+        selection: expect.objectContaining({ model: 'supported-next', thinking: 'high' }),
+      }),
+      expect.anything(),
+    );
     expect(legacySend).not.toHaveBeenCalled();
   });
 }

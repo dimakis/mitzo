@@ -25,7 +25,18 @@ Ordinary OpenShell Codex chats reserve their account-bound native ledger before 
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
-## Explicit ordinary Codex conversations
+## Explicit ordinary conversations
+
+Ordinary chats use one agent-led **Agent settings** summary in the composer. Its
+panel orders Agent, Account, Model and Thinking level, followed by the configured
+OpenShell and Local Mac cards and derived agent software. Done reviews the current
+choices without sending a message; Close and Escape preserve the draft. New chats
+show **What are we working on?** and **Start session**. Reopened conversations expose
+their eight identity and setting fields under Session details, retaining unknown
+values explicitly. Workspace keeps advanced conversation controls. The panel
+reuses shared appearance and motion, and scrolls within the space left by the
+message, repository preparation and navigation. Final hosted visual evidence is
+required before claiming fidelity to the saved approved design.
 
 The existing Agent, Account, Model, Thinking and Run on picker supports gated
 Local Mac and ordinary OpenShell Codex source routes. OpenShell is the new-chat
@@ -43,6 +54,22 @@ enrolled on OpenShell, and changing environment retains that choice with an
 unavailable reason when its original account has no compatible route. Local API,
 Vertex, workspace-based or brokered Local authentication, and native sandbox
 subscription routes are not advertised by this Codex contract.
+
+New ordinary-route READY repository preparations retain a private server-produced
+account, runtime, credential and source snapshot. Before the first command is
+reserved, Model and Thinking remain editable for supported choices while Account
+and Run on stay fixed. The same checkout admits the selected first-message model;
+the original preparation model, branch and source digest remain recorded. The
+atomic first reservation freezes the complete command and effective model, so
+retries, uncertain reservations and later ownership checks cannot reinterpret it.
+Entry preparation deadlines fence awaited checkout, native setup and live
+admission before receipts or queue effects. An expired incoming command keeps
+prior admitted work healthy; its request signal is never retained as conversation
+lifetime or frozen command data. Legacy preparations keep their original full-selection guard. Catalogue and label
+updates do not change retained routing or credential authority; the native owner
+still validates each future command. These are source and offline-fixture checks,
+with hosted visual evidence pending and live credential renewal or orphan process
+recovery unqualified.
 
 Bound Codex queues require the original still-valid signed login for cancellation,
 continuation and recovery controls, including cold controls. Native retry helpers
@@ -63,6 +90,36 @@ profiles and the canonical Agent Builder namespace are supported; reusable
 context recipes remain explicitly unavailable. An unfinished provider execution
 after restart remains held for outcome recovery. No live account qualification or
 activation is claimed by this source increment.
+
+Local Anthropic Vertex accounts have a separately gated [Claude SDK source route](docs/design/ordinary-local-vertex-source-status.md)
+through the same picker and generic runtime endpoints. Run on has exactly two
+choices, OpenShell and Local Mac; software and model catalogs derive from the
+selected account's native route. The Claude route supports plain compatible
+Library profiles and canonical builtin identity, frozen FIFO model/effort choices,
+original SDK thread/workspace custody and completed-turn cold continuation.
+Original signed login custody also guards cold queue cancellation. It requires
+`MITZO_ORDINARY_LOCAL_VERTEX_ENABLED=1`, a separately reviewed private
+`MITZO_ORDINARY_LOCAL_VERTEX_TARGET_FILE`, and explicit account configuration with
+project, region and selected ADC. Inherited Google project/quota controls are not
+adopted. ADC identity/content changes refuse continuation; credential renewal,
+native process isolation and live provider behavior remain unqualified. Active
+Stop without a native terminal result retains unconfirmed work and refuses cold
+replay. Context recipes, packs, Vertex OpenShell and ordinary Gemini adoption
+remain outside this Claude checkpoint.
+
+Local Google Vertex accounts have a gated [Gemini source route](docs/design/ordinary-local-gemini-source-status.md)
+through the same picker and runtime endpoints. It reuses NativeResponses history,
+ordinary admission, independent checkout and signed operator custody for first
+commands, FIFO, Stop and completed-turn cold continuation. Explicit parsed ADC
+credentials bind the original private file, project and region; ambient Google
+project/quota controls and changed ADC are refused. Model and thinking stay fixed
+for the native conversation. An invalid future choice remains visible with a reason
+until explicitly replaced or a new conversation is started. Images, context
+recipes, packs and OpenShell Gemini remain unavailable.
+
+- [x] Combined ordinary conversation and approved picker source123 checkpoint: 308 unique reviewed artifacts with zero drift;
+      496 affected UI checks and 21 Vertex lifecycle checks passed with scoped types and signing hooks. Fresh combined-head hosted/source acceptance remains required. Live provider behavior,
+      ADC renewal and staging qualification remain outstanding.
 
 Configuration remains operator-owned and disabled by default. Local requires
 `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and separately reviewed target/native files.

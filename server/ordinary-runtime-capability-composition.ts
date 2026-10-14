@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { AgentProfileSelection, SessionRuntimeBindingV2 } from '@mitzo/protocol';
+import type { SessionRuntimeBindingV2, AgentProfileSelection } from '@mitzo/protocol';
 type Account = SessionRuntimeBindingV2['account'];
 type Model = {
   id: string;
@@ -16,7 +16,7 @@ interface Source {
     account: Account;
     targetId: string;
     location?: 'local' | 'openshell';
-    harness: 'codex' | 'responses';
+    harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini';
     modes: readonly ('ask' | 'agent' | 'auto')[];
     skillCeiling?: 'unsupported';
     agentProfiles?: AgentProfileSelection[];

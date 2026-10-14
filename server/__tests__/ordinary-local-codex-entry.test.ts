@@ -1,5 +1,20 @@
+import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
+import { canonicalJson } from '../connections/capabilities/input-validation.js';
+import { openShellPhysicalCustodyFingerprint } from '../openshell-codex-custody.js';
+import type { ArtifactRuntime } from '../codex-conversation-store.js';
+import {
+  ordinaryLocalCommandFingerprint,
+  ordinaryLocalCodexBootstrapId,
+} from '../ordinary-local-codex-admission.js';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { RepositoryWorkspaces } from '../repository-workspaces.js';
+import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import { contextDigest } from '../agent-context-compiler.js';
-import { PROFILE_BUILDER_ID } from '@mitzo/protocol';
+import { LocalCodexFirstCommandSchema, PROFILE_BUILDER_ID } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import { AccountProfiles } from '../account-profiles.js';
@@ -32,6 +47,7 @@ import {
 
 const fixtures = vi.hoisted(() => ({
   reserve: vi.fn(),
+  reserveSandbox: vi.fn(),
   continue: vi.fn(),
   start: vi.fn(),
   startShell: vi.fn(),
@@ -44,6 +60,27 @@ const fixtures = vi.hoisted(() => ({
   controller: false,
   owner: false,
   root: '/offline/task-host',
+  shellCustody: vi.fn(),
+  shellArtifact: vi.fn(),
+}));
+vi.mock('../codex-chat-session.js', () => ({
+  getCodexConversationStore: () => ({
+    readHostCustody: (sessionId: string) => ({
+      authSessionId: auth.id,
+      bootstrapId: ordinaryLocalCodexBootstrapId(
+        sessionId,
+        store.getOrdinaryCommandAdmission(store.getOrdinaryInitialCommandId(sessionId)!)!
+          .requestFingerprint,
+      ),
+    }),
+    readOpenShellCustody: fixtures.shellCustody,
+    readArtifactRuntime: fixtures.shellArtifact,
+    read: (conversationId: string) => ({
+      conversationId,
+      cwd: fixtures.shellArtifact() ? '/sandbox/workspaces/task' : '/offline/checkout',
+      threadId: 'offline-retained-thread',
+    }),
+  }),
 }));
 vi.mock('../chat.js', () => ({
   startOwnedLocalCodexCommand: fixtures.start,
@@ -163,12 +200,19 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixtures.shellTarget.mockReturnValue(undefined);
   fixtures.shellResumable = false;
+  fixtures.shellCustody.mockReturnValue(null);
+  fixtures.shellArtifact.mockReturnValue(null);
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   fixtures.controller = fixtures.owner = false;
   auth = { id: `owned-entry-login-${++sequence}`, expiresAt: Date.now() + 600_000 };
   fixtures.profiles.mockReturnValue(profiles);
   fixtures.library.mockReturnValue({ version: () => publishedProfile });
-  fixtures.workspace.mockReturnValue({ reserveHostTask: fixtures.reserve });
+  fixtures.workspace.mockReturnValue({
+    get: () => ({ state: 'claimed' }),
+    reserveHostTask: fixtures.reserve,
+    reserveOrdinarySandboxTask: fixtures.reserveSandbox,
+  });
+  fixtures.reserveSandbox.mockResolvedValue(undefined);
   fixtures.reserve.mockResolvedValue({ state: 'reserved' });
   fixtures.start.mockImplementation(async (_transport, _client, args) => {
     const resolved = catalog.resolve(args.command.runtime);
@@ -183,7 +227,9 @@ beforeEach(() => {
       resolved.binding,
       {
         clientMsgId: args.commandId,
-        requestFingerprint: 'offline-command',
+        requestFingerprint: ordinaryLocalCommandFingerprint('codex', args.command, {
+          workspace: { workspaceId, cwd: '/offline/checkout' },
+        }),
         selection: args.command.selection,
         payload: args.command.payload,
       },
@@ -254,6 +300,8 @@ it('dispatches explicit Local with server-owned identities through the existing 
   const response = await send();
   expect(response.status).toBe(202);
   const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
+  const resolution = catalog.resolve(input().runtime);
+  if (resolution.status !== 'compatible') throw Error('Expected configured fixture route');
   expect(fixtures.reserve).toHaveBeenCalledWith(
     expect.objectContaining({
       id: workspaceId,
@@ -274,6 +322,10 @@ it('dispatches explicit Local with server-owned identities through the existing 
         binding,
         conversationId: sessionId,
         taskRoot: '/offline/task-host/.claude/repository-tasks',
+        runtimeBinding: resolution.binding,
+        commandFingerprint: createHash('sha256')
+          .update(JSON.stringify(LocalCodexFirstCommandSchema.parse(input())))
+          .digest('hex'),
       },
       command: expect.objectContaining({
         payload: { text: input().payload.text },
@@ -414,10 +466,7 @@ it('aborts retained preparation on logout before bootstrap/dispatch', async () =
 it('returns an exact consumed duplicate without changing original receipt', async () => {
   expect((await send()).status).toBe(202);
   const original = store.getOrdinaryLocalCommandAdmission(input().clientMsgId);
-  fixtures.start.mockResolvedValueOnce({
-    dispatched: false,
-    sessionId: nativeStartupSessionId(`repository:${workspaceId}`),
-  });
+
   const response = await send();
   expect(response.body).toEqual(
     expect.objectContaining({ ok: true, dispatched: false, state: 'consumed' }),
@@ -647,7 +696,12 @@ it('combines trusted routes for the existing picker while retaining OpenShell as
   ).toBe(true);
 });
 
-function configuredShell(targetId = 'shell', includeLocal = false, presetConfigured = false) {
+function configuredShell(
+  targetId = 'shell',
+  includeLocal = false,
+  presetConfigured = false,
+  next = false,
+) {
   const config = {
     cli: '/fixture/openshell',
     image: 'fixture-image',
@@ -688,7 +742,10 @@ function configuredShell(targetId = 'shell', includeLocal = false, presetConfigu
               credentialRef: '/offline/login',
               email: 'fixture@example.test',
               planType: 'plus',
-              models: [{ id: 'fixture', label: 'Offline' }],
+              models: [
+                { id: 'fixture', label: 'Offline' },
+                ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : []),
+              ],
             },
           ]
         : []),
@@ -702,7 +759,10 @@ function configuredShell(targetId = 'shell', includeLocal = false, presetConfigu
         sandboxProviderType: 'openai-codex-oauth',
         sandboxProviderId: 'provider-id',
         sandboxGrantId: 'grant-id',
-        models: [{ id: 'fixture', label: 'Offline' }],
+        models: [
+          { id: 'fixture', label: 'Offline' },
+          ...(next ? [{ id: 'supported-next', label: 'Supported next' }] : []),
+        ],
       },
     ],
     { codexEnabled: true },
@@ -956,3 +1016,180 @@ it('keeps Local inventory when the qualified OpenShell preset declaration become
   });
   expect(fixtures.shellTarget).toHaveBeenCalledTimes(2);
 });
+
+it('reserves a qualified OpenShell preparation model B before admission and an exact retry cannot claim or launch twice', async () => {
+  vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', '');
+  vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
+  const shell = configuredShell('shell', false, false, true);
+  const verify = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'verifySubscriptionSignIn')
+    .mockResolvedValue(Date.now() + 60000);
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-prepared-shell-')));
+  const source = join(root, 'source');
+  const git = (...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-C', source, ...args],
+      { encoding: 'utf8' },
+    ).trim();
+  let workspace: RepositoryWorkspaces | undefined;
+  try {
+    await mkdir(source);
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.name', 'Offline');
+    git('config', 'user.email', 'offline@example.invalid');
+    await writeFile(join(source, 'task.txt'), 'original prepared source');
+    git('add', '.');
+    git('commit', '-qm', 'offline');
+    const oid = git('rev-parse', 'HEAD');
+    const { captureOrdinaryRepositoryPreparation, assertOrdinaryRepositoryPreparation } =
+      await import('../ordinary-repository-preparation-authority.js');
+    workspace = new RepositoryWorkspaces(join(root, 'private'), {
+      authorize: async () => ({ revision: 1, allowedBaseBranches: ['main'] }),
+      inspect: async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid: oid }),
+      prepare: async (_preview, path, branch) => {
+        await cp(source, path, { recursive: true });
+        execFileSync('git', ['-C', path, 'checkout', '-qb', branch]);
+        return {
+          repository: 'example/repo',
+          baseBranch: 'main',
+          baseOid: oid,
+          directory: path,
+          featureBranch: branch,
+        };
+      },
+      ordinaryPreparation: {
+        capture: captureOrdinaryRepositoryPreparation,
+        assert: assertOrdinaryRepositoryPreparation,
+      },
+    });
+    fixtures.workspace.mockReturnValue(workspace);
+    const accountA = shell.shellProfiles.resolve('brokered', 'fixture');
+    const preview = await workspace.preview(
+      accountA,
+      'fixture-github',
+      'example/repo',
+      new AbortController().signal,
+      {
+        runOn: 'openshell',
+        runtime: { account: shell.request.runtime.account, harness: 'codex', targetId: 'shell' },
+      },
+    );
+    const ready = await workspace.prepare(preview.id, accountA, new AbortController().signal);
+    expect(ready.ordinaryRuntime?.execution.location).toBe('openshell');
+    const original = workspace.get(ready.id);
+    const claim = vi.spyOn(workspace, 'claim');
+    let launches = 0;
+    fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
+      const record = workspace!.get(ready.id);
+      expect(record.binding.model).toBe('supported-next');
+      expect(record.ordinaryPreparation?.originalBinding).toEqual(accountA);
+      expect(record.ordinaryFirstReservation?.conversationId).toBe(args.meta.sessionId);
+      const artifact = {
+        runtime: {
+          sandboxName: 'offline-owned',
+          sandboxId: 'offline-resource',
+          workdir: shell.config.workdir,
+          appServerCommand: '/sandbox/run-mitzo-subscription-app-server',
+          cli: shell.config.cli,
+          gateway: shell.config.gateway,
+          workspace: shell.config.workspace,
+          gatewayInsecure: false,
+        },
+        route: {
+          kind: 'chatgpt-subscription',
+          provider: 'provider',
+          providerType: 'openai-codex-oauth',
+          providerId: 'provider-id',
+          grantId: 'grant-id',
+          model: args.command.selection.model,
+        },
+      } satisfies ArtifactRuntime;
+      fixtures.shellArtifact.mockReturnValue(artifact);
+      fixtures.shellCustody.mockReturnValue({
+        authSessionId: auth.id,
+        binding: shell.admittedBinding,
+        workspace: { workspaceId: ready.id, cwd: shell.config.workdir },
+        physicalIdentitySha256: openShellPhysicalCustodyFingerprint(artifact),
+      });
+      const command = {
+        ...args.command,
+        payload: {
+          ...args.command.payload,
+          systemPrompt: buildAgentProfilePrompt(args.meta.agentProfile.definition),
+        },
+      };
+      const expected = {
+        binding: shell.admittedBinding,
+        workspace: { workspaceId: ready.id, cwd: shell.config.workdir },
+        selection: args.command.selection,
+        agentProfile: args.meta.agentProfile,
+      };
+      const admission = {
+        clientMsgId: args.command.clientMsgId,
+        requestFingerprint: `ordinary-openshell-codex-v1:${createHash('sha256')
+          .update(canonicalJson(JSON.parse(JSON.stringify({ request: command, expected }))))
+          .digest('hex')}`,
+        selection: args.command.selection,
+        payload: command.payload,
+      };
+      const receipt = store.admitOrdinaryOpenShellCommand(
+        { ...args.meta, cwd: shell.config.workdir },
+        shell.admittedBinding as never,
+        admission,
+      );
+      if (receipt.admission.state === 'consumed')
+        return { dispatched: true, sessionId: args.meta.sessionId };
+      await workspace!.claim(
+        ready.id,
+        args.meta.accountBinding,
+        args.meta.sessionId,
+        '/unused/offline/sandbox-root',
+        true,
+      );
+      store.claimOrdinaryOpenShellCommandDispatch(admission.clientMsgId);
+      launches++;
+      store.completeOrdinaryOpenShellCommand(admission.clientMsgId);
+      return { dispatched: true, sessionId: args.meta.sessionId };
+    });
+    const request = {
+      ...shell.request,
+      repositoryWorkspaceId: ready.id,
+      selection: { ...shell.request.selection, model: 'supported-next' },
+    };
+    verify.mockResolvedValueOnce(Date.now() - 1);
+    expect((await invoke('POST', '/send', request)).status).toBe(409);
+    expect(workspace.get(ready.id)).toEqual(original);
+    expect(claim).not.toHaveBeenCalled();
+    expect(launches).toBe(0);
+    const accepted = await invoke('POST', '/send', request);
+    expect(accepted.status).toBe(202);
+    expect(verify).toHaveBeenCalled();
+    expect((await invoke('POST', '/send', request)).status).toBe(202);
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(launches).toBe(1);
+    expect(
+      (await invoke('POST', '/send', { ...request, payload: { text: 'different frozen command' } }))
+        .status,
+    ).toBe(409);
+    const claimed = workspace.get(ready.id);
+    expect(claimed.binding.model).toBe('supported-next');
+    expect(claimed.ordinaryPreparation?.originalBinding).toEqual(accountA);
+    expect(claimed.sourceDigest).toBe(original.sourceDigest);
+    expect(claimed.featureBranch).toBe(original.featureBranch);
+    expect(
+      (
+        await invoke('POST', '/send', {
+          ...request,
+          selection: { ...request.selection, model: 'fixture' },
+        })
+      ).status,
+    ).toBe(409);
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(launches).toBe(1);
+  } finally {
+    workspace?.close();
+    verify.mockRestore();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);

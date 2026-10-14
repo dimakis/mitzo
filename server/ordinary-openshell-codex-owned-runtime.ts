@@ -34,6 +34,7 @@ export interface OrdinaryOpenShellCodexOwnedDispatch {
   sessionId: string;
   resume?: true;
   commandId: string;
+  preparationSignal?: AbortSignal;
   expected: OrdinaryOpenShellCodexExpectation;
   workspace: Awaited<ReturnType<RepositoryWorkspaces['claim']>>;
   payload: ReturnType<typeof OwnedOpenShellCodexPayloadSchema.parse>;
@@ -82,12 +83,18 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
   async admit(
     meta: SessionUpsert,
     request: unknown,
+    preparationSignal?: AbortSignal,
   ): Promise<{ dispatched: boolean; sessionId: string }> {
-    const operation = this.#tail.then(() => this.admitExclusive(meta, request));
+    const operation = this.#tail.then(() => this.admitExclusive(meta, request, preparationSignal));
     this.#tail = operation.catch(() => {});
     return operation;
   }
-  private async admitExclusive(metaInput: SessionUpsert, requestInput: unknown) {
+  private async admitExclusive(
+    metaInput: SessionUpsert,
+    requestInput: unknown,
+    preparationSignal?: AbortSignal,
+  ) {
+    preparationSignal?.throwIfAborted();
     const o = this.owners;
     if (!o.enabled || this.#closed) throw unavailable();
     o.signal.throwIfAborted();
@@ -237,6 +244,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     }
     o.assertCurrentSync(expected);
     await o.assertCurrent(expected);
+    preparationSignal?.throwIfAborted();
     o.signal.throwIfAborted();
     o.assertCurrentSync(expected);
     // claim(true) CAS-reserves exact account/conversation/source before sandbox
@@ -248,6 +256,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       o.taskRoot,
       true,
     );
+    preparationSignal?.throwIfAborted();
     if (
       workspace.state !== 'claimed' ||
       !workspace.sandbox ||
@@ -265,6 +274,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       selection: expected.selection,
       payload: request.payload,
     };
+    preparationSignal?.throwIfAborted();
     const receipt =
       this.#origin || o.resume
         ? o.events.admitOrdinaryOpenShellContinuation(admittedMeta, binding, input)
@@ -272,8 +282,10 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     if (receipt.admission.state !== 'reserved')
       return { dispatched: false, sessionId: o.sessionId };
     await o.assertCurrent(expected);
+    preparationSignal?.throwIfAborted();
     o.signal.throwIfAborted();
     o.assertCurrentSync(expected);
+    preparationSignal?.throwIfAborted();
     if (!o.events.claimOrdinaryOpenShellCommandDispatch(request.clientMsgId))
       return { dispatched: false, sessionId: o.sessionId };
     if (!this.#admission) {
@@ -326,6 +338,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       sessionId: o.sessionId,
       ...(!this.#origin && o.resume ? { resume: true as const } : {}),
       commandId: request.clientMsgId,
+      preparationSignal,
       expected,
       workspace,
       payload: OwnedOpenShellCodexPayloadSchema.parse(request.payload),
@@ -334,7 +347,9 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       admission: this.#admission,
     };
     // Failure preserves the existing uncertain receipt; never automatically replay.
+    preparationSignal?.throwIfAborted();
     await (this.#origin ? o.dispatchContinuation(dispatch) : o.dispatch(dispatch));
+    preparationSignal?.throwIfAborted();
     o.events.completeOrdinaryOpenShellCommand(request.clientMsgId);
     this.#origin ??= structuredClone(expected);
     return { dispatched: true, sessionId: o.sessionId };

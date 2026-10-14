@@ -30,7 +30,14 @@ export function ChatAgentProfilePicker(
   },
 ) {
   if (props.controlled)
-    return <ControlledAgentProfilePicker {...props.controlled} disabled={props.disabled} />;
+    return (
+      <ControlledAgentProfilePicker
+        {...props.controlled}
+        disabled={props.disabled}
+        label={props.label}
+        onLabelChange={props.onLabelChange}
+      />
+    );
   return <LibraryChatAgentProfilePicker {...props} />;
 }
 function LibraryChatAgentProfilePicker({
@@ -40,7 +47,11 @@ function LibraryChatAgentProfilePicker({
   disabled = false,
   updateSearchParams = true,
   allowedRoles,
+  label = 'Agent profile',
+  onLabelChange,
 }: {
+  label?: string;
+  onLabelChange?(label: string | undefined): void;
   sessionId: string | null;
   search: string;
   disabled?: boolean;
@@ -141,6 +152,24 @@ function LibraryChatAgentProfilePicker({
       live = false;
     };
   }, [sessionId, requiredId, requiredRevision, requiredKind, allowedRoles]);
+  useEffect(() => {
+    const trusted = sessionId
+      ? pinned
+      : versions.find(
+          (v) =>
+            optionKey(v) === (selected ? optionKey(selected) : '') &&
+            (!allowedRoles || allowedRoles.includes(v.definition.role)),
+        );
+    onLabelChange?.(
+      loading || error
+        ? undefined
+        : trusted
+          ? agentProfileLabel(trusted.definition)
+          : selected
+            ? undefined
+            : 'Default Mitzo',
+    );
+  }, [sessionId, pinned, versions, selected, allowedRoles, loading, error, onLabelChange]);
   if (sessionId)
     return pinned ? (
       <div className="chat-agent-profile">
@@ -175,8 +204,9 @@ function LibraryChatAgentProfilePicker({
   return (
     <div className="chat-agent-profile">
       <label>
-        Agent profile
+        {label}
         <select
+          aria-label={label}
           disabled={disabled || loading}
           value={selected ? optionKey(selected) : ''}
           onChange={(e) => {
@@ -237,20 +267,30 @@ function ControlledAgentProfilePicker({
   selection,
   onChange,
   disabled,
+  label = 'Agent',
+  onLabelChange,
 }: {
+  label?: string;
+  onLabelChange?(label: string | undefined): void;
   versions: AgentLibraryVersion[];
   selection: AgentProfileSelection | null;
   onChange(selection: AgentProfileSelection | null): void;
   disabled?: boolean;
 }) {
   const [, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const trusted = versions.find(
+      (v) => selection && controlledProfileKey(v) === controlledProfileKey(selection),
+    );
+    onLabelChange?.(trusted ? agentProfileLabel(trusted.definition) : undefined);
+  }, [versions, selection, onLabelChange]);
   const value = selection ? controlledProfileKey(selection) : '';
   return (
     <div className="chat-agent-profile">
       <label>
-        Agent
+        {label}
         <select
-          aria-label="Agent"
+          aria-label={label}
           value={value}
           disabled={disabled}
           onChange={(e) => {

@@ -1,3 +1,4 @@
+import { resolveRuntimeTarget } from '../lib/chat-runtime-route';
 import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
@@ -6,6 +7,8 @@ import {
   AgentContextSnapshotSchema,
   type AgentLibraryVersion,
   type AgentContextSnapshot,
+  NativeContinuationConstraintSchema,
+  type NativeContinuationConstraint,
   type SessionRuntimeBinding,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -90,6 +93,7 @@ export function useExplicitLocalChat(
     mode?: 'ask' | 'agent' | 'auto';
     agentProfile?: AgentLibraryVersion;
     agentContext?: AgentContextSnapshot;
+    nativeConstraint?: NativeContinuationConstraint;
   } | null>(null);
   const scope = useRef({ draftId, sessionId });
   scope.current = { draftId, sessionId };
@@ -122,18 +126,21 @@ export function useExplicitLocalChat(
         const next = ExplicitLocalInventorySchema.parse(body);
         setInventory(next);
         const pendingIntent = latestIntent.current;
-        const targets = next.targets.filter(
-          (target) => target.location === pendingIntent.execution.location,
-        );
+        const pendingReference = pendingIntent.accountReference ?? null;
+        const targetId =
+          pendingIntent.account?.accountId && !pendingReference
+            ? null
+            : resolveRuntimeTarget(pendingIntent, next);
         if (
           !scope.current.sessionId &&
           pendingIntent.capabilityRevision === null &&
           pendingIntent.execution.targetId === null &&
-          targets.length === 1
+          targetId !== null
         ) {
           const resolved = {
             ...pendingIntent,
-            execution: { ...pendingIntent.execution, targetId: targets[0].targetId },
+            accountReference: pendingReference,
+            execution: { ...pendingIntent.execution, targetId },
             capabilityRevision: next.capabilityRevision,
           };
           setChoice({ draftId: scope.current.draftId, intent: resolved });
@@ -171,6 +178,13 @@ export function useExplicitLocalChat(
         setMeta({
           sessionId,
           binding: parsed,
+          ...(parsed?.harness.implementation === 'gemini'
+            ? {
+                nativeConstraint: NativeContinuationConstraintSchema.parse(
+                  body.runtimeNativeConstraint,
+                ),
+              }
+            : {}),
           firstCommand:
             body.runtimeCommandScope === 'first-command-only' ||
             (!!parsed && body.runtimeCommandScope !== 'conversation'),
@@ -235,7 +249,9 @@ export function useExplicitLocalChat(
   const continuation =
     bound &&
     !currentMeta?.firstCommand &&
-    ['codex', 'responses'].includes(currentMeta?.binding?.harness.implementation ?? '');
+    ['codex', 'responses', 'claude-sdk', 'gemini'].includes(
+      currentMeta?.binding?.harness.implementation ?? '',
+    );
   const [future, setFuture] = useState<{ sessionId: string; intent: ChatRuntimeSelection } | null>(
     null,
   );
@@ -269,54 +285,101 @@ export function useExplicitLocalChat(
     selectedIntent,
     inventory ? normalizeLocalInventory(inventory) : null,
   );
-  const reason = metadataPending
-    ? (metadataError ?? 'Loading conversation settings…')
-    : bound && !continuation
-      ? (currentMeta?.reason ??
-        `This ${currentMeta?.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local'} conversation supports its first command only. Start a new chat for another command.`)
-      : sessionId && !currentMeta
-        ? (metadataError ?? 'Loading conversation settings…')
-        : !visible
-          ? enabled && !sessionId && enrollment === 'loading'
-            ? 'Checking execution choices…'
-            : undefined
-          : enrollment !== 'on'
-            ? error || 'Execution choices are unavailable. Refresh to retry.'
-            : selectedIntent.execution.location === 'openshell' &&
-                inventory?.locations.some(
-                  (entry) => entry.location === 'openshell' && entry.status === 'unavailable',
-                )
-              ? ((inventory &&
-                  normalizeLocalInventory(inventory).locations.find(
-                    (location) => location.location === 'openshell' && !location.available,
-                  )?.reason) ??
-                evaluation.issues[0]?.message)
-              : !selectedIntent.agentProfile
-                ? 'Choose a published agent revision before sending.'
-                : evaluation.issues[0]?.message;
+  const nativeMismatch =
+    currentMeta?.nativeConstraint &&
+    (selectedIntent.account?.model !== currentMeta.nativeConstraint.model ||
+      (selectedIntent.account?.reasoningEffort ?? null) !== currentMeta.nativeConstraint.thinking);
+  const reason = nativeMismatch
+    ? currentMeta!.nativeConstraint!.reason
+    : metadataPending
+      ? (metadataError ?? 'Loading conversation settings…')
+      : bound && !continuation
+        ? (currentMeta?.reason ??
+          `This ${currentMeta?.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local'} conversation supports its first command only. Start a new chat for another command.`)
+        : sessionId && !currentMeta
+          ? (metadataError ?? 'Loading conversation settings…')
+          : !visible
+            ? enabled && !sessionId && enrollment === 'loading'
+              ? 'Checking execution choices…'
+              : undefined
+            : enrollment !== 'on'
+              ? error || 'Execution choices are unavailable. Refresh to retry.'
+              : selectedIntent.account?.accountId && !selectedIntent.accountReference
+                ? 'The selected account identity is unconfirmed. Choose the account again to confirm authentication and billing before sending.'
+                : selectedIntent.execution.location === 'openshell' &&
+                    inventory?.locations.some(
+                      (entry) => entry.location === 'openshell' && entry.status === 'unavailable',
+                    )
+                  ? ((inventory &&
+                      normalizeLocalInventory(inventory).locations.find(
+                        (location) => location.location === 'openshell' && !location.available,
+                      )?.reason) ??
+                    evaluation.issues[0]?.message)
+                  : !selectedIntent.agentProfile
+                    ? 'Choose a published agent revision before sending.'
+                    : selectedIntent.accountReference &&
+                        inventory?.accounts.some(
+                          (entry) =>
+                            entry.account.accountId ===
+                              selectedIntent.accountReference!.accountId &&
+                            (entry.account.provider !== selectedIntent.accountReference!.provider ||
+                              entry.account.profileRevision !==
+                                selectedIntent.accountReference!.profileRevision),
+                        )
+                      ? inventory.accounts.find(
+                          (entry) =>
+                            entry.account.accountId === selectedIntent.accountReference!.accountId,
+                        )?.account.provider !== selectedIntent.accountReference.provider
+                        ? 'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.'
+                        : 'The selected account configuration changed. Choose the account again before sending.'
+                      : evaluation.issues[0]?.message;
+  const selectedAccountId = selectedIntent.account?.accountId;
+  const accountNeedsConfirmation =
+    !bound &&
+    !!selectedAccountId &&
+    !!inventory?.accounts.some((entry) => entry.account.accountId === selectedAccountId) &&
+    !inventory.accounts.some(
+      (entry) =>
+        entry.account.accountId === selectedAccountId &&
+        entry.account.accountId === selectedIntent.accountReference?.accountId &&
+        entry.account.provider === selectedIntent.accountReference?.provider &&
+        entry.account.profileRevision === selectedIntent.accountReference?.profileRevision,
+    );
   const update = (next: ChatRuntimeSelection, explicitAccountChoice = false) => {
-    const targets =
-      inventory?.targets.filter((target) => target.location === next.execution.location) ?? [];
+    const identityChanged =
+      explicitAccountChoice ||
+      next.account?.accountId !== selectedIntent.account?.accountId ||
+      next.execution.location !== selectedIntent.execution.location;
+    const matchingAccounts = inventory?.accounts.filter(
+      (entry) => entry.account.accountId === next.account?.accountId,
+    );
+    // Only the Account action can accept a current public identity. Capability
+    // review, environment/model edits and hydration cannot adopt unknown billing.
+    const accountReference = !next.account?.accountId
+      ? null
+      : explicitAccountChoice
+        ? matchingAccounts?.length === 1
+          ? matchingAccounts[0].account
+          : null
+        : next.accountReference?.accountId === next.account.accountId
+          ? next.accountReference
+          : null;
+    const referenced = { ...next, accountReference };
     const reviewed = inventory
       ? {
-          ...next,
-          accountReference: !next.account?.accountId
-            ? null
-            : explicitAccountChoice ||
-                !next.accountReference ||
-                next.accountReference.accountId !== next.account?.accountId
-              ? (inventory.accounts.find(
-                  (entry) => entry.account.accountId === next.account?.accountId,
-                )?.account ?? next.accountReference)
-              : next.accountReference,
+          ...referenced,
           execution: {
             ...next.execution,
             targetId:
-              next.execution.targetId ?? (targets.length === 1 ? targets[0].targetId : null),
+              identityChanged || next.execution.targetId === null
+                ? next.account?.accountId && !accountReference
+                  ? null
+                  : resolveRuntimeTarget(referenced, inventory)
+                : next.execution.targetId,
           },
           capabilityRevision: inventory.capabilityRevision,
         }
-      : next;
+      : referenced;
     if (sessionId) {
       if (
         continuation &&
@@ -337,6 +400,8 @@ export function useExplicitLocalChat(
     agentProfile: currentMeta?.agentProfile,
     agentContext: currentMeta?.agentContext,
     mode: currentMeta?.mode,
+    nativeConstraint: currentMeta?.nativeConstraint,
+    accountNeedsConfirmation,
     visible,
     selectedLocal,
     bound,
@@ -348,17 +413,12 @@ export function useExplicitLocalChat(
     refresh: () => setAttempt((value) => value + 1),
     update,
     review: () => {
-      const targets =
-        inventory?.targets.filter(
-          (target) => target.location === selectedIntent.execution.location,
-        ) ?? [];
       update({
         ...selectedIntent,
         execution: {
           ...selectedIntent.execution,
           targetId:
-            selectedIntent.execution.targetId ??
-            (targets.length === 1 ? targets[0].targetId : null),
+            selectedIntent.execution.targetId ?? resolveRuntimeTarget(selectedIntent, inventory),
         },
         capabilityRevision: inventory?.capabilityRevision ?? null,
       });

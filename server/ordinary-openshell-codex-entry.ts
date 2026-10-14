@@ -55,6 +55,7 @@ export async function sendOwnedOpenShellCodexCommand(input: {
   sessionId: string;
   command: unknown;
   operatorConnectionId: string;
+  signal?: AbortSignal;
 }) {
   const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
   captured.assertCurrent();
@@ -67,7 +68,7 @@ export async function sendOwnedOpenShellCodexCommand(input: {
     session?.ownedLocalAuthSessionId !== captured.auth.id
   )
     throw unavailable();
-  const result = await owner.admit(structuredClone(input.command));
+  const result = await owner.admit(structuredClone(input.command), input.signal);
   captured.assertCurrent();
   if (result.dispatched) {
     const native = getCodexRuntime(session);
@@ -186,8 +187,11 @@ export async function startOwnedOpenShellCodexCommand(
             model: dispatch.expected.selection.model,
             reasoningEffort: dispatch.expected.selection.thinking,
           },
-          live.abortController.signal,
+          dispatch.preparationSignal
+            ? AbortSignal.any([live.abortController.signal, dispatch.preparationSignal])
+            : live.abortController.signal,
         );
+        dispatch.preparationSignal?.throwIfAborted();
         echoOwnedCodexCommand(sessionId, dispatch.commandId, dispatch.payload);
       },
       close,
@@ -205,9 +209,9 @@ export async function startOwnedOpenShellCodexCommand(
       authSessionId: captured.auth.id,
       identity: driver,
       initialCommandId: initial.command.clientMsgId,
-      admit: (raw) => {
+      admit: (raw, signal) => {
         const next = derive(raw);
-        return driver.admit(next.meta, next.command);
+        return driver.admit(next.meta, next.command, signal);
       },
       retryInitial: (raw) => {
         const next = derive(raw);

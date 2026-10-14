@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
+import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -239,3 +240,91 @@ it('does not claim software from an ambiguous unlocated target or imply another 
     screen.getByText(/Authentication and billing remain with the selected account/),
   ).toBeInTheDocument();
 });
+
+it('shows the original native constraint rather than promising unsupported future model changes', () => {
+  const data = localInventoryFixture();
+  const reason = 'This native conversation retains its original model and thinking.';
+  const runtime = {
+    visible: true,
+    bound: true,
+    continuation: true,
+    selectedLocal: true,
+    metadataUnavailable: false,
+    inventory: data,
+    intent: {
+      ...createChatRuntimeSelection(),
+      execution: { location: 'local', targetId: 'mac' },
+      account: { accountId: 'personal', model: 'luna-fixture' },
+      accountReference: data.accounts[0].account,
+    },
+    binding: {
+      version: 2,
+      account: data.accounts[0].account,
+      harness: { implementation: 'gemini' },
+      execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+    },
+    nativeConstraint: { model: 'luna-fixture', thinking: null, reason },
+    update: vi.fn(),
+    refresh: vi.fn(),
+    review: vi.fn(),
+  } as unknown as ReturnType<typeof useExplicitLocalChat>;
+  render(
+    <MemoryRouter>
+      <ChatExecutionPicker runtime={runtime} />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText(reason)).toBeInTheDocument();
+  expect(screen.queryByText('Model and thinking changes apply to the next message.')).toBeNull();
+});
+
+it.each([false, true])(
+  'offers one explicit Account confirmation while retaining invalid settings and locked binding (%s)',
+  async (locked) => {
+    const accountChanged = vi.fn(),
+      settingsChanged = vi.fn();
+    const data = localInventoryFixture();
+    render(
+      <AccountModelPicker
+        sessionId={null}
+        preferredModel=""
+        onChange={settingsChanged}
+        lockAccount={locked}
+        controlled={{
+          accounts: data.accounts.map((entry) => ({ ...entry, id: entry.account.accountId })),
+          selection: {
+            accountId: 'personal',
+            model: 'removed-model',
+            reasoningEffort: 'removed-thinking',
+          },
+          accountNeedsConfirmation: true,
+          onChange: settingsChanged,
+          onAccountChange: accountChanged,
+        }}
+      />,
+    );
+    const account = screen.getByRole('combobox', { name: 'Account' });
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('removed-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveValue('removed-thinking');
+    if (locked) {
+      expect(account).toHaveValue('personal');
+      expect(account).toBeDisabled();
+      expect(screen.queryByRole('option', { name: /^Confirm account:/ })).toBeNull();
+    } else {
+      expect(account).not.toHaveValue('personal');
+      expect(
+        screen.getByRole('option', { name: 'Confirm account: Personal ChatGPT' }),
+      ).toBeDisabled();
+      await userEvent.setup().click(account);
+      expect(accountChanged).not.toHaveBeenCalled();
+      expect(settingsChanged).not.toHaveBeenCalled();
+      await userEvent.setup().selectOptions(account, 'personal');
+      expect(accountChanged).toHaveBeenCalledOnce();
+      expect(accountChanged).toHaveBeenCalledWith({
+        accountId: 'personal',
+        model: 'removed-model',
+        reasoningEffort: 'removed-thinking',
+      });
+    }
+    expect(settingsChanged).not.toHaveBeenCalled();
+  },
+);
