@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.119';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.120';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Explicit web-search budgets and inert readable-page extraction.
-  '../web-page-content.ts': '00da369d4489d3ebf10854ec81bcfbfa92f051ceed52fc430597c4d1f2c55c5d',
+  '../web-page-content.ts': '9458f1d3d38a9e637a69edb0f38b727f93b7ed63db231bf382334e0f4c684d9d',
   '../request-web-access.ts': '592474d722988313871b11141c9d53fbd7a683ecea63afb586c4482d772cad42',
   '../web-search-adapters.ts': 'a1033a174a8015776b583e2dbb624e67966ab2eefc62de42a019cddfdc750018',
   '../../packages/harness/src/index.ts':

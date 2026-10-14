@@ -121,6 +121,17 @@ it('uses the first valid document base and keeps rejecting unsafe link protocols
   expect(output).not.toContain('secret');
 });
 
+it('honors an empty first base href and empty same-document anchor href', () => {
+  const output = webPageContent(
+    '<head><base href=""><base href="/other/"></head><main><a href="setup">Setup</a><a href="">Self</a></main>',
+    'text/html',
+    target.url,
+  );
+  expect(output).toContain('https://example.com/setup');
+  expect(output).toContain('https://example.com/release');
+  expect(output).not.toContain('/other/setup');
+});
+
 it('ignores HTML-named elements in foreign namespaces when selecting the main content and base', () => {
   const output = webPageContent(
     '<svg><main>Not the article</main><base href="/wrong/" /></svg><main><a href="setup">Setup</a></main>',

@@ -54,7 +54,7 @@ export function webPageContent(body: string, contentType: string, sourceUrl: str
       }
       if (!foundBase && node.tagName === 'base') {
         const href = node.attrs.find((attr) => attr.name === 'href')?.value;
-        if (href) {
+        if (href !== undefined) {
           try {
             const candidate = new URL(href, sourceUrl);
             if (
@@ -102,7 +102,7 @@ export function webPageContent(body: string, contentType: string, sourceUrl: str
         }
       }
       references = true;
-      return ` (URL reference: ${href})`;
+      return ` (URL reference: ${href === '' ? '""' : href})`;
     } catch {
       return;
     }
@@ -140,7 +140,7 @@ export function webPageContent(body: string, contentType: string, sourceUrl: str
       }
       if (node.tagName === 'a') {
         const href = node.attrs.find((attr) => attr.name === 'href')?.value;
-        if (href) {
+        if (href !== undefined) {
           const suffix = linkSuffix(href);
           if (suffix) pending.push(suffix);
         }
