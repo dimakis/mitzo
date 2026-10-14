@@ -312,7 +312,8 @@ On phones the Workspace summary truncates long text while its accessible name ke
 the full account/model details. The expanded settings panel measures the space before launch actions or the composer and
 scrolls within that space. When desktop flow cannot fit the fixed header, Done action
 and a settings row, it switches to the same bounded overlay used on phones. The
-overlay may overlap part of a tall composer and remains above visible navigation.
+overlay may overlap part of a tall composer and remains above visible navigation
+and the chat/desktop center's clipping boundary, including its separate status row.
 Closing it restores access to the retained draft.
 The settings body owns scrolling between those actions. A 60dvh cap is
 the fallback before measurement, bounded by the viewport. These bounds are structural overlay geometry;
@@ -519,7 +520,8 @@ not establish acceptance of unrelated routes or native keyboard behavior.
 Component captures show the [clear mobile composer](assets/chat-settings-mobile-dark.png)
 and [desktop settings disclosure](assets/chat-settings-desktop-light.png). The
 [short mobile capture](assets/chat-settings-short-mobile-dark.png) verifies reachable
-settings and fixed actions over a tall draft. The same fallback is checked in a
-[short desktop window](assets/chat-settings-short-desktop-light.png). Existing mobile
+settings and fixed actions over a tall draft. The same fallback is checked inside
+the real DesktopShell at 300px height, with its separate status row, in the
+[short desktop capture](assets/chat-settings-short-desktop-light.png). Existing mobile
 conversations retain their full account/agent/model/thinking/execution/workspace
 details in this top panel, including legacy conversations without a runtime binding.

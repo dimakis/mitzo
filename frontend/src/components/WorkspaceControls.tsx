@@ -117,7 +117,13 @@ export function WorkspaceControls({
       const viewport = window.visualViewport;
       const viewportBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
       const navigation = document.querySelector('.workspace-tabs')?.getBoundingClientRect();
-      const bottom = navigation?.height ? Math.min(viewportBottom, navigation.top) : viewportBottom;
+      const center = chat.closest('.desktop-center')?.getBoundingClientRect();
+      const bottom = Math.min(
+        viewportBottom,
+        chat.getBoundingClientRect().bottom,
+        center?.bottom ?? viewportBottom,
+        navigation?.height ? navigation.top : viewportBottom,
+      );
       panel.style.setProperty(
         '--workspace-disclosure-viewport-space',
         `${Math.max(0, bottom - (heading ?? owner).getBoundingClientRect().bottom)}px`,

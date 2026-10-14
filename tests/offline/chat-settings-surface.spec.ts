@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
-// Bundle only the real changed controls. No backend, provider, full app build or model.
+// Bundle the changed controls with the real desktop shell. No backend, provider or model.
 const output = build({
   entryPoints: [resolve('tests/fixtures/chat-settings-surface.tsx')],
   bundle: true,
@@ -10,7 +11,11 @@ const output = build({
   outfile: '/tmp/mitzo-chat-settings.js',
   jsx: 'automatic',
   minify: true,
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
+  alias: {
+    '@mitzo/client': resolve('packages/client/src/index.ts'),
+    '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
+  },
 });
 for (const appearance of ['dark', 'light'] as const) {
   test(`single top chat settings: outside dismissal and compact composer (${appearance})`, async ({
@@ -28,6 +33,10 @@ for (const appearance of ['dark', 'light'] as const) {
           body: file.text,
           contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
         });
+      if (path === '/mitzo-wordmark.png' || path === '/mitzo-icon.png')
+        return readFile(resolve('frontend/public', path.slice(1))).then((body) =>
+          route.fulfill({ body, contentType: 'image/png' }),
+        );
       if (path !== '/') return route.abort();
       return route.fulfill({
         contentType: 'text/html',
@@ -103,7 +112,7 @@ for (const appearance of ['dark', 'light'] as const) {
       });
       await expect(page.getByRole('navigation')).toBeVisible();
     }
-    await page.setViewportSize({ width: mobile ? 320 : 1280, height: mobile ? 500 : 400 });
+    await page.setViewportSize({ width: mobile ? 320 : 1280, height: mobile ? 500 : 300 });
     await input.evaluate((element) => {
       element.style.height = '210px';
     });
@@ -121,8 +130,13 @@ for (const appearance of ['dark', 'light'] as const) {
     await expect(panel.getByRole('button', { name: 'Close agent settings' })).toBeInViewport();
     await expect(panel.getByText('Chat settings', { exact: true })).toBeInViewport();
     expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    if (!mobile) {
+      const center = (await page.locator('.desktop-center').boundingBox())!;
+      expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(center.y + center.height);
+      await expect(page.locator('.desktop-status-row')).toBeInViewport();
+    }
     await page.screenshot({ path: testInfo.outputPath(`short-chat-settings-${appearance}.png`) });
-    await panel.getByRole('button', { name: 'Close agent settings' }).click();
+    await panel.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(panel).toBeHidden();
     await expect(input).toHaveValue('Keep my draft');
     await expect(input).toBeInViewport();
