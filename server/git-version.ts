@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 
 const GIT_TIMEOUT_MS = 5_000;
 const REMOTE = 'origin';
@@ -17,27 +17,40 @@ export function getLocalCommit(): string | null {
   }
 }
 
-export function getRemoteCommit(): string | null {
-  try {
-    execFileSync('git', ['fetch', REMOTE, BRANCH, '--quiet'], {
-      stdio: 'pipe',
-      timeout: GIT_TIMEOUT_MS,
+function git(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { encoding: 'utf8', timeout: GIT_TIMEOUT_MS }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout.trim());
     });
-    return execFileSync('git', ['rev-parse', `${REMOTE}/${BRANCH}`], {
-      stdio: 'pipe',
-      timeout: GIT_TIMEOUT_MS,
-    })
-      .toString()
-      .trim();
+  });
+}
+
+export async function getRemoteCommit(): Promise<string | null> {
+  try {
+    await git(['fetch', REMOTE, BRANCH, '--quiet']);
+    return await git(['rev-parse', `${REMOTE}/${BRANCH}`]);
   } catch {
     return null;
   }
 }
 
-export function isUpdateAvailable(): boolean {
-  const local = getLocalCommit();
-  if (!local) return false;
-  const remote = getRemoteCommit();
-  if (!remote) return false;
-  return local !== remote;
+let pendingUpdateCheck: Promise<boolean> | undefined;
+
+/** Network Git operations must never block HTTP, streaming or approval delivery. */
+export function isUpdateAvailable(): Promise<boolean> {
+  if (pendingUpdateCheck) return pendingUpdateCheck;
+  pendingUpdateCheck = (async () => {
+    try {
+      const local = await git(['rev-parse', 'HEAD']);
+      if (!local) return false;
+      const remote = await getRemoteCommit();
+      return !!remote && local !== remote;
+    } catch {
+      return false;
+    }
+  })().finally(() => {
+    pendingUpdateCheck = undefined;
+  });
+  return pendingUpdateCheck;
 }

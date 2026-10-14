@@ -715,9 +715,10 @@ export function broadcastInboxUpdate() {
   onInboxUpdated?.();
 }
 
-export function runUpdateCheck() {
+export async function runUpdateCheck() {
+  const available = await isUpdateAvailable();
   const wasAvailable = updateAvailable;
-  updateAvailable = isUpdateAvailable();
+  updateAvailable = available;
   if (updateAvailable && !wasAvailable) {
     log.info('update available — broadcasting to clients');
     onUpdateAvailable?.();
@@ -730,8 +731,8 @@ app.get('/api/version', (_req, res) =>
   res.json({ hash: buildHash, commit: startupCommit, updateAvailable }),
 );
 
-app.post('/api/version/check', authMiddleware, (_req, res) => {
-  runUpdateCheck();
+app.post('/api/version/check', authMiddleware, async (_req, res) => {
+  await runUpdateCheck();
   res.json({ updateAvailable });
 });
 
