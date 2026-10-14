@@ -347,7 +347,7 @@ for (const [name, Screen] of [
       Array.from(details.querySelectorAll('dt')).find((term) => term.textContent === label)
         ?.nextElementSibling?.textContent;
     expect(value('Account')).toBe('Personal ChatGPT');
-    expect(value('Model')).toBe('luna-fixture');
+    expect(value('Model')).toBe('Luna fixture');
     expect(value('Thinking level')).toBe('low');
     expect(value('Run on')).toBe('Local Mac');
     expect(value('Agent software')).toBe('Codex');
@@ -420,6 +420,25 @@ for (const [name, Screen] of [
     expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
     expect(localSend).not.toHaveBeenCalled();
     expect(legacySend).not.toHaveBeenCalled();
+  });
+  it(`${name}: displays the trusted model label while continuation keeps the exact model id`, async () => {
+    const { localSend } = setup(Screen, false, false, true, false, true);
+    const trigger = await screen.findByRole('button', { name: /^Agent settings.*Luna fixture/ });
+    expect(trigger).toHaveAccessibleName(/Luna fixture/);
+    if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+    const details = document.querySelector('.composer-session-details')!;
+    const modelTerm = Array.from(details.querySelectorAll('dt')).find(
+      (term) => term.textContent === 'Model',
+    )!;
+    expect(modelTerm.nextElementSibling).toHaveTextContent('Luna fixture');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('luna-fixture');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(localSend).toHaveBeenCalledWith(
+      expect.objectContaining({ selection: expect.objectContaining({ model: 'luna-fixture' }) }),
+      expect.anything(),
+    );
   });
   it(`${name}: untouched OpenShell stays blocked, explicit Local dispatches only exact dedicated intent`, async () => {
     const { localSend, legacySend } = setup(Screen);

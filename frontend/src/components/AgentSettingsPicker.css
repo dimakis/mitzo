@@ -21,6 +21,11 @@
   color: var(--color-text);
   font: inherit;
 }
+.agent-settings-trigger > strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .agent-settings-trigger > span {
   flex: 1;
   min-width: 0;

@@ -848,6 +848,11 @@ export function ChatView() {
       }
     />
   );
+  const runtimeModelLabel =
+    runtimeModelAccounts(localRuntime.intent, localRuntime.inventory)
+      .find((account) => account.id === localRuntime.intent.account?.accountId)
+      ?.models.find((model) => model.id === localRuntime.intent.account?.model)?.label ??
+    localRuntime.intent.account?.model;
   const agentHarness = localRuntime.bound
     ? localRuntime.binding?.harness.implementation
     : selectedRuntimeRoute(localRuntime.intent, localRuntime.inventory)?.harness;
@@ -872,9 +877,7 @@ export function ChatView() {
               )?.label ?? (localRuntime.intent.account ? 'Unavailable account' : 'Choose account'))
             : workspaceSummary?.profile,
         model:
-          explicitNew || localRuntime.continuation
-            ? localRuntime.intent.account?.model
-            : workspaceSummary?.model,
+          explicitNew || localRuntime.continuation ? runtimeModelLabel : workspaceSummary?.model,
         thinking:
           explicitNew || localRuntime.continuation
             ? (localRuntime.intent.account?.reasoningEffort ?? undefined)
@@ -904,7 +907,9 @@ export function ChatView() {
               <dd>{agentLabel ?? 'Unavailable'}</dd>
               <dt>Model</dt>
               <dd>
-                {localRuntime.intent.account?.model ?? workspaceSummary?.model ?? 'Unavailable'}
+                {localRuntime.bound
+                  ? (runtimeModelLabel ?? 'Unavailable')
+                  : (workspaceSummary?.model ?? 'Unavailable')}
               </dd>
               <dt>Thinking level</dt>
               <dd>

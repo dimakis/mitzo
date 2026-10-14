@@ -1,6 +1,8 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
+import { sha256Hex } from '../../frontend/src/lib/browser-crypto';
+import { SymposiumProfileDefinitionSchema } from '../../packages/protocol/src/symposium';
 import { multiRuntimeInventoryFixture } from '../../frontend/src/test-utils/multi-runtime-inventory-fixture';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
@@ -192,6 +194,66 @@ async function narrowMobileEvidence(
   await page.screenshot({ path: testInfo.outputPath(`${stem}-320.png`), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
 }
+
+test('Approved composer retains a long trusted agent name without horizontal overflow', async ({
+  page,
+}, testInfo) => {
+  const inventory = multiRuntimeInventoryFixture();
+  const profile = inventory.agentProfiles[0];
+  // The portable name schema requires nonempty trimmed text, with no upper cap.
+  // Keep this representative unbroken name valid and rehash its trusted definition.
+  const name = 'ArchitecturalReviewAssistant'.repeat(4);
+  profile.definition.name = name;
+  expect(SymposiumProfileDefinitionSchema.safeParse(profile.definition).success).toBe(true);
+  profile.contentHash = sha256Hex(JSON.stringify(profile.definition));
+  const fixture = await offlinePicker(page, 'light', { inventory });
+  await page.addInitScript(() => {
+    localStorage.setItem('mitzo-accent', 'lavender');
+    localStorage.setItem('mitzo-font', 'system');
+  });
+  await page.goto('/chat?agentProfile=agent&profileRevision=1');
+  const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+  const draft = 'Keep this draft while the full agent name wraps';
+  await composer.fill(draft);
+  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  await expect(trigger.locator('strong')).toHaveText(name);
+  await expect(trigger).toHaveAccessibleName(new RegExp(`^Agent settings, ${name}(?:,|$)`));
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 740 });
+    const geometry = await trigger.evaluate((element) => {
+      const summary = element.getBoundingClientRect();
+      const owner = element.closest('.chat-input')!.getBoundingClientRect();
+      const label = element.querySelector('strong')!.getBoundingClientRect();
+      return {
+        left: summary.left - owner.left,
+        right: owner.right - summary.right,
+        labelLeft: label.left - summary.left,
+        labelRight: summary.right - label.right,
+        overflow: element.scrollWidth > element.clientWidth,
+      };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeGreaterThanOrEqual(0);
+    expect(geometry.labelLeft).toBeGreaterThanOrEqual(0);
+    expect(geometry.labelRight).toBeGreaterThanOrEqual(0);
+    expect(geometry.overflow).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await expect(composer).toBeInViewport();
+    await expect(composer).toHaveValue(draft);
+    await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+    await expect(
+      page.getByRole('link', { name: /^(Back to chats|Chats)$/ }).first(),
+    ).toBeInViewport();
+    await page.screenshot({
+      path: testInfo.outputPath(`local-approved-agent-settings-long-name-${width}.png`),
+      fullPage: true,
+    });
+  }
+  expect(fixture.forbidden).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
 
 for (const appearance of ['light', 'dark'] as const) {
   test(`Approved composer Agent settings structure, dismissal and bounded scrolling (${appearance})`, async ({
