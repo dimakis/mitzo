@@ -5887,20 +5887,25 @@ export async function continueOwnedLocalResponsesQueue(
   const head = getNativeResponsesStore().queue(sessionId, meta.accountBinding!).queued[0];
   if (!head || !meta.repositoryWorkspaceId || !BASE_REPO || !isAbsolute(BASE_REPO))
     throw Error('Saved Responses queue unavailable');
-  await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
-    command: { clientMsgId: head },
-    reservation: {
-      id: meta.repositoryWorkspaceId,
-      conversationId: sessionId,
-      binding: meta.accountBinding!,
-      taskRoot: join(BASE_REPO, '.claude', 'repository-tasks'),
-    },
-    operatorConnectionId: connectionId,
-    ownerConnectionId: connectionId,
-    ownerAuthSessionId: authorization.id,
-    resume: true,
-    resumeQueue: true,
-  });
+  const releaseStartup = reserveRepositoryStartup(sessionId);
+  try {
+    await startOwnedLocalResponsesCommand(transport, `${connectionId}:${sessionId}`, {
+      command: { clientMsgId: head },
+      reservation: {
+        id: meta.repositoryWorkspaceId,
+        conversationId: sessionId,
+        binding: meta.accountBinding!,
+        taskRoot: join(BASE_REPO, '.claude', 'repository-tasks'),
+      },
+      operatorConnectionId: connectionId,
+      ownerConnectionId: connectionId,
+      ownerAuthSessionId: authorization.id,
+      resume: true,
+      resumeQueue: true,
+    });
+  } finally {
+    releaseStartup();
+  }
 }
 export async function sendOwnedLocalResponsesCommand(input: {
   sessionId: string;

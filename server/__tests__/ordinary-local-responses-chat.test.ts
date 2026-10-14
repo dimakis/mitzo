@@ -530,9 +530,67 @@ it('dispatches consumed API commands through the actual chat owner and retains t
   expect(native.queue(f.reservation.conversationId, f.reservation.binding).queued).toEqual(
     accepted.map((command) => command.clientMsgId),
   );
+  const { OrdinaryLocalResponsesOwnedRuntime } =
+    await import('../ordinary-local-responses-owned-runtime.js');
+  const originalReopen = OrdinaryLocalResponsesOwnedRuntime.prototype.reopenRetainedQueue;
+  let releaseReopen!: () => void;
+  const reopenGate = new Promise<void>((resolve) => {
+    releaseReopen = resolve;
+  });
+  const reopening = vi
+    .spyOn(OrdinaryLocalResponsesOwnedRuntime.prototype, 'reopenRetainedQueue')
+    .mockImplementation(async function (
+      this: InstanceType<typeof OrdinaryLocalResponsesOwnedRuntime>,
+    ) {
+      await reopenGate;
+      return originalReopen.call(this);
+    });
+  const firstContinue = invoke(
+    `/${f.reservation.conversationId}/codex-queue/continue`,
+    {},
+    queueRouter,
+  );
+  await vi.waitFor(() => expect(reopening).toHaveBeenCalledTimes(1));
+  try {
+    let racingQueueResult: { status: number } | undefined;
+    const racingQueue = invoke(
+      `/${f.reservation.conversationId}/codex-queue/continue`,
+      {},
+      queueRouter,
+    ).then((result) => {
+      racingQueueResult = result;
+      return result;
+    });
+    await vi.waitFor(() => {
+      expect(reopening).toHaveBeenCalledTimes(1);
+      expect(racingQueueResult).toMatchObject({ status: 409 });
+    });
+    await racingQueue;
+    await expect(
+      invoke('/continue', { ...accepted[31], clientMsgId: 'racing-cold-command' }),
+    ).resolves.toMatchObject({ status: 409 });
+    expect(reopening).toHaveBeenCalledTimes(1);
+    expect(
+      chat.eventStore.getOrdinaryLocalResponsesCommandAdmission('racing-cold-command'),
+    ).toBeUndefined();
+    expect(native.queue(f.reservation.conversationId, f.reservation.binding).queued).toEqual(
+      accepted.map((command) => command.clientMsgId),
+    );
+  } finally {
+    releaseReopen();
+  }
+  await expect(firstContinue).resolves.toMatchObject({ status: 200 });
+  reopening.mockRestore();
+  const reopenedSession = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+  expect(reopenedSession.ordinaryRuntimeOwner?.authSessionId).toBe(f.auth.id);
+  expect(reopenedSession.queryInstance?.interrupt).toBeTypeOf('function');
   await expect(
-    invoke(`/${f.reservation.conversationId}/codex-queue/continue`, {}, queueRouter),
-  ).resolves.toMatchObject({ status: 200 });
+    chat.continueOwnedLocalResponsesQueue(
+      f.reservation.conversationId,
+      { ...f.auth, id: 'foreign-after-reopen' },
+      f.dependencies.operatorConnectionId,
+    ),
+  ).rejects.toThrow('Original');
   await vi.waitFor(() => expect(requests).toHaveLength(41), { timeout: 15000 });
   await vi.waitFor(() =>
     expect(native.queue(f.reservation.conversationId, f.reservation.binding).active).toBeNull(),
