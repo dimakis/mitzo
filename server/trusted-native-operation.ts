@@ -3,10 +3,21 @@ import {
   type RepositoryTaskCheckout,
 } from './repository-task-checkout.js';
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { constants } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { inflateSync } from 'node:zlib';
+import {
+  constants,
+  lstatSync,
+  realpathSync,
+  unlinkSync,
+  openSync,
+  fstatSync,
+  readFileSync,
+  closeSync,
+} from 'node:fs';
 import {
   lstat,
+  link,
   mkdir,
   mkdtemp,
   open,
@@ -34,12 +45,14 @@ async function run(
     input?: Buffer;
     assertRuntimeCurrent?: () => void;
     assertRuntimeCurrentAsync?: () => Promise<void>;
+    onStart?: () => void;
   },
 ): Promise<string> {
   await options.assertRuntimeCurrentAsync?.();
   options.signal.throwIfAborted();
   return new Promise((resolveRun, reject) => {
     options.assertRuntimeCurrent?.();
+    options.onStart?.();
     const child = execFile(
       file,
       [...args],
@@ -119,6 +132,7 @@ async function promoteQuarantinedObjects(
   quarantine: string,
   objectStore: string,
   assertCurrent: () => Promise<void>,
+  assertPhysical: () => void,
 ) {
   for (const fanout of await readdir(quarantine, { withFileTypes: true })) {
     if (!/^[0-9a-f]{2}$/.test(fanout.name) || !fanout.isDirectory())
@@ -126,45 +140,114 @@ async function promoteQuarantinedObjects(
     const sourceDirectory = join(quarantine, fanout.name);
     const targetDirectory = join(objectStore, fanout.name);
     await assertCurrent();
+    assertPhysical();
     await mkdir(targetDirectory).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error;
     });
-    const targetDirectoryInfo = await lstat(targetDirectory);
-    if (!targetDirectoryInfo.isDirectory() || (await realpath(targetDirectory)) !== targetDirectory)
-      throw new Error('Git object fanout must be a real directory inside the object store');
+    const directoryIdentity = await lstat(targetDirectory, { bigint: true });
+    const assertDirectory = () => {
+      assertPhysical();
+      const current = lstatSync(targetDirectory, { bigint: true });
+      if (
+        !current.isDirectory() ||
+        current.dev !== directoryIdentity.dev ||
+        current.ino !== directoryIdentity.ino ||
+        realpathSync(targetDirectory) !== targetDirectory
+      )
+        throw Error(
+          'Git object fanout must be a real directory inside the object store; authority changed',
+        );
+    };
+    assertDirectory();
     for (const object of await readdir(sourceDirectory, { withFileTypes: true })) {
       if (!/^(?:[0-9a-f]{38}|[0-9a-f]{62})$/.test(object.name) || !object.isFile())
         throw new Error('Unexpected quarantined Git object');
-      const source = join(sourceDirectory, object.name);
+      const content = await readFile(join(sourceDirectory, object.name));
       const target = join(targetDirectory, object.name);
-      const existing = await lstat(target).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== 'ENOENT') throw error;
-        return null;
-      });
-      if (existing) {
-        if (!existing.isFile() || (await realpath(target)) !== target)
-          throw new Error('Existing Git object must be a real file inside the object store');
+      const verifyExisting = async () => {
+        const existing = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          if (!(await existing.stat()).isFile())
+            throw Error('Existing Git object must be a real file');
+          const bytes = await existing.readFile();
+          if (!bytes.equals(content)) {
+            const expected = inflateSync(content);
+            if (!inflateSync(bytes, { maxOutputLength: expected.length }).equals(expected))
+              throw Error('Existing Git object content does not match the approved object');
+          }
+        } finally {
+          await existing.close();
+        }
+      };
+      if (
+        await lstat(target).then(
+          () => true,
+          (error: NodeJS.ErrnoException) => {
+            if (error.code !== 'ENOENT') throw error;
+            return false;
+          },
+        )
+      ) {
+        await verifyExisting();
         continue;
       }
-      // Loose objects are immutable and content-addressed. Exclusive, no-follow
-      // creation prevents replacing an existing object or following a leaf symlink.
+      // Only a fully written immutable inode is published under an object hash.
+      const temporaryPath = join(targetDirectory, `.mitzo-object-${randomUUID()}`);
       await assertCurrent();
-      const destination = await open(
-        target,
+      assertDirectory();
+      const temporary = await open(
+        temporaryPath,
         constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-        0o444,
-      ).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === 'EEXIST')
-          throw new Error('Git object changed while promoting the approved commit');
-        throw error;
-      });
+        0o600,
+      );
+      const temporaryIdentity = await temporary.stat({ bigint: true });
+      let operationFailed = false,
+        operationError: unknown,
+        cleanupError: unknown;
       try {
-        const content = await readFile(source);
         await assertCurrent();
-        await destination.writeFile(content);
+        await temporary.writeFile(content);
+        await temporary.sync();
+        await temporary.chmod(0o444);
+        await assertCurrent();
+        assertDirectory();
+        const currentTemporary = lstatSync(temporaryPath, { bigint: true });
+        if (
+          !currentTemporary.isFile() ||
+          currentTemporary.dev !== temporaryIdentity.dev ||
+          currentTemporary.ino !== temporaryIdentity.ino ||
+          currentTemporary.size !== BigInt(content.length)
+        )
+          throw Error('Prepared Git object authority changed');
+        await link(temporaryPath, target).catch(async (error: NodeJS.ErrnoException) => {
+          if (error.code !== 'EEXIST') throw error;
+          await verifyExisting();
+        });
+      } catch (error) {
+        operationFailed = true;
+        operationError = error;
       } finally {
-        await destination.close();
+        await temporary.close().catch((error: unknown) => {
+          cleanupError = error;
+        });
+        // Never remove a foreign/replaced temporary or a published object hash.
+        try {
+          assertDirectory();
+          const current = lstatSync(temporaryPath, { bigint: true });
+          if (current.dev === temporaryIdentity.dev && current.ino === temporaryIdentity.ino)
+            unlinkSync(temporaryPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') cleanupError = error;
+        }
       }
+      if (operationFailed && cleanupError)
+        throw new AggregateError(
+          [operationError, cleanupError],
+          'Git object publication failed; owned temporary cleanup is unconfirmed',
+        );
+      if (operationFailed) throw operationError;
+      if (cleanupError)
+        throw Error('Owned Git object temporary cleanup is unconfirmed', { cause: cleanupError });
     }
   }
 }
@@ -327,13 +410,57 @@ export async function executeTrustedGitCommit(
   cwd = await realpath(cwd);
   validateCommitFiles(files);
   const metadata = await linkedMetadata(cwd, task);
+  const headPath = join(metadata.admin, 'HEAD');
+  const headDescriptor = openSync(headPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const headIdentity = fstatSync(headDescriptor, { bigint: true });
+  try {
+    if (
+      !headIdentity.isFile() ||
+      readFileSync(headDescriptor, 'utf8').trim() !== `ref: ${metadata.branch}`
+    )
+      throw Error('Original Git checkout branch authority changed');
+  } finally {
+    closeSync(headDescriptor);
+  }
+  const assertPhysical = () => {
+    for (const [path, expected] of [
+      [metadata.marker, metadata.identities.marker],
+      [metadata.admin, metadata.identities.admin],
+      [metadata.common, metadata.identities.common],
+      [join(metadata.common, 'objects'), metadata.identities.objects],
+    ] as const) {
+      const current = lstatSync(path, { bigint: true });
+      if (
+        current.dev !== expected.dev ||
+        current.ino !== expected.ino ||
+        realpathSync(path) !== path
+      )
+        throw Error('Git metadata changed during the approved operation');
+    }
+    const descriptor = openSync(headPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const current = fstatSync(descriptor, { bigint: true });
+      if (
+        !current.isFile() ||
+        current.dev !== headIdentity.dev ||
+        current.ino !== headIdentity.ino ||
+        realpathSync(headPath) !== headPath ||
+        readFileSync(descriptor, 'utf8').trim() !== `ref: ${metadata.branch}`
+      )
+        throw Error('Original Git checkout branch authority changed');
+    } finally {
+      closeSync(descriptor);
+    }
+  };
   await assertCurrent();
+  assertPhysical();
   const indexLock = metadata.index + '.lock';
   const lock = await open(indexLock, 'wx', 0o600).catch(() => {
     throw new Error('Git index is busy; retry after the other operation finishes');
   });
   const lockIdentity = await lock.stat({ bigint: true });
   let ownsIndexLock = true;
+  let retainIndexLock = false;
   const temporary = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-'));
   try {
     const gitDir = join(temporary, 'git');
@@ -483,41 +610,121 @@ export async function executeTrustedGitCommit(
       quarantineObjects,
       join(metadata.common, 'objects'),
       assertCurrent,
+      assertPhysical,
     );
     await sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects);
     await validateRefUpdatePaths(metadata.common, metadata.branch);
     const promotedIndex = await readFile(index);
     await assertCurrent();
     await lock.writeFile(promotedIndex);
-    await run(
-      'git',
-      [
-        '-c',
-        `core.hooksPath=${hooks}`,
-        '--git-dir',
-        metadata.admin,
-        'update-ref',
-        metadata.branch,
-        commit,
-        oldCommit,
-      ],
-      {
-        assertRuntimeCurrent,
-        assertRuntimeCurrentAsync,
-        cwd,
-        signal,
-        timeoutMs,
-        maxOutputBytes,
-        env: baseEnv,
-      },
-    );
-    await assertCurrent();
-    await rename(indexLock, metadata.index);
-    ownsIndexLock = false;
+    await lock.sync();
+    let refStarted = false;
+    let refError: unknown;
+    try {
+      await run(
+        'git',
+        [
+          '-c',
+          `core.hooksPath=${hooks}`,
+          '--git-dir',
+          metadata.admin,
+          'update-ref',
+          metadata.branch,
+          commit,
+          oldCommit,
+        ],
+        {
+          assertRuntimeCurrent,
+          assertRuntimeCurrentAsync,
+          onStart: () => {
+            refStarted = true;
+            retainIndexLock = true;
+            assertPhysical();
+          },
+          cwd,
+          signal,
+          timeoutMs,
+          maxOutputBytes,
+          env: baseEnv,
+        },
+      );
+    } catch (error) {
+      refError = error;
+    }
+    if (refError) {
+      if (!refStarted) throw refError;
+      let observed: string | undefined;
+      try {
+        assertPhysical();
+        await validateRefUpdatePaths(metadata.common, metadata.branch);
+        observed = await run(
+          'git',
+          ['--git-dir', metadata.admin, 'rev-parse', '--verify', metadata.branch],
+          {
+            signal: new AbortController().signal,
+            timeoutMs,
+            maxOutputBytes,
+            env: baseEnv,
+            assertRuntimeCurrent: assertPhysical,
+          },
+        );
+        assertPhysical();
+      } catch {
+        /* Unconfirmed ref outcome retains its original owned prepared index. */
+      }
+      if (observed === oldCommit) {
+        retainIndexLock = false;
+        throw refError;
+      }
+      if (observed !== commit)
+        throw Error('Git ref outcome is unconfirmed; original prepared index.lock retained', {
+          cause: refError,
+        });
+    }
+    // Once the exact ref effect is confirmed, installing its already prepared
+    // index is consistency finalization under original physical custody.
+    try {
+      await validateRefUpdatePaths(metadata.common, metadata.branch);
+      const finalRef = await run(
+        'git',
+        ['--git-dir', metadata.admin, 'rev-parse', '--verify', metadata.branch],
+        {
+          signal: new AbortController().signal,
+          timeoutMs,
+          maxOutputBytes,
+          env: baseEnv,
+          assertRuntimeCurrent: assertPhysical,
+        },
+      );
+      if (finalRef !== commit)
+        throw Error(
+          'Git ref changed before consistency finalization; original prepared index.lock retained',
+        );
+      await sameIdentity(indexLock, { dev: lockIdentity.dev, ino: lockIdentity.ino });
+      if (!(await readFile(indexLock)).equals(promotedIndex))
+        throw Error('Prepared Git index authority changed');
+      assertPhysical();
+      const currentLock = lstatSync(indexLock, { bigint: true });
+      if (currentLock.dev !== lockIdentity.dev || currentLock.ino !== lockIdentity.ino)
+        throw Error('Prepared Git index authority changed');
+      await rename(indexLock, metadata.index);
+      ownsIndexLock = false;
+      retainIndexLock = false;
+    } catch (error) {
+      throw Error(
+        'Git ref was published; prepared index consistency is unconfirmed and requires explicit recovery',
+        { cause: error },
+      );
+    }
+    if (refError)
+      throw Error(
+        'Git ref was published and its prepared index finalized; update-ref response was unconfirmed',
+        { cause: refError },
+      );
     return `[${metadata.branch} ${commit.slice(0, 7)}] ${message}`;
   } finally {
     await lock.close().catch(() => {});
-    if (ownsIndexLock) {
+    if (ownsIndexLock && !retainIndexLock) {
       const current = await lstat(indexLock, { bigint: true }).catch(() => null);
       if (current && current.dev === lockIdentity.dev && current.ino === lockIdentity.ino)
         await rm(indexLock, { force: true }).catch(() => {});
