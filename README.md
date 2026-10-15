@@ -50,9 +50,12 @@ account/runtime guides below when setting up a new installation.
 
 ## Build and run locally
 
-These commands build a standalone local checkout. On the configured Mitzo
-development Mac, use [canonical staging](docs/operations/canonical-staging.md)
-instead of starting another backend or borrowing production configuration.
+These commands are for a standalone installation. On the configured Mitzo
+development Mac, canonical staging and its pipeline are stood down. Use offline
+tests, review and CI; live testing requires a separately authorized target. The
+[retained staging procedures](docs/operations/canonical-staging.md) are historical,
+and reactivation requires a new explicit request. Do not borrow production
+configuration or start another backend against it.
 
 ```bash
 git clone https://github.com/dimakis/mitzo.git
@@ -133,19 +136,19 @@ Capacitor app and Xcode setup.
 
 ## Documentation
 
-| Topic                                     | Start here                                                                |
-| ----------------------------------------- | ------------------------------------------------------------------------- |
-| Agent profiles and reusable context       | [Agent Library](docs/features/agent-library.md)                           |
-| Reference documents                       | [Knowledge Library](docs/operations/knowledge-library.md)                 |
-| Outcomes and progress                     | [Telos workflow](docs/operations/telos-artifacts.md)                      |
-| Account and service inventory             | [Connections](docs/features/connections.md)                               |
-| Authenticated APIs and credential storage | [Keychain connections](docs/keychain-connections.md)                      |
-| Tool approvals and execution limits       | [Unified chat permissions](docs/design/unified-chat-permissions.md)       |
-| Collaboration and its current limits      | [Symposium source guide](docs/features/symposium.md)                      |
-| OpenShell host configuration              | [OpenShell operations](infra/openshell/README.md)                         |
-| Production releases                       | [Guarded release and deployment script](scripts/create-release.sh)        |
-| Development staging                       | [Canonical staging](docs/operations/canonical-staging.md)                 |
-| Backups and recovery                      | [Encrypted ecosystem backups](docs/operations/icloud-ecosystem-backup.md) |
+| Topic                                     | Start here                                                                    |
+| ----------------------------------------- | ----------------------------------------------------------------------------- |
+| Agent profiles and reusable context       | [Agent Library](docs/features/agent-library.md)                               |
+| Reference documents                       | [Knowledge Library](docs/operations/knowledge-library.md)                     |
+| Outcomes and progress                     | [Telos workflow](docs/operations/telos-artifacts.md)                          |
+| Account and service inventory             | [Connections](docs/features/connections.md)                                   |
+| Authenticated APIs and credential storage | [Keychain connections](docs/keychain-connections.md)                          |
+| Tool approvals and execution limits       | [Unified chat permissions](docs/design/unified-chat-permissions.md)           |
+| Collaboration and its current limits      | [Symposium source guide](docs/features/symposium.md)                          |
+| OpenShell host configuration              | [OpenShell operations](infra/openshell/README.md)                             |
+| Production releases                       | [Guarded release and deployment script](scripts/create-release.sh)            |
+| Staging history (stood down)              | [Retained canonical staging procedures](docs/operations/canonical-staging.md) |
+| Backups and recovery                      | [Encrypted ecosystem backups](docs/operations/icloud-ecosystem-backup.md)     |
 
 `npm run deploy` is a guarded macOS service deployment, with release-manifest and
 runtime prerequisites. It is not a fresh-clone installation command. Follow the
