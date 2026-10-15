@@ -513,7 +513,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '9733d55cd1cb15dcf68dd844fd85861bf4fece6f3d46e1926ec9c416dd59d7f2',
   // Task command inventory and workflow routing share the runtime review contract.
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
-  '../openshell-runtime.ts': '5bc32b0ab8b8c2cb4205c6df3b639d0ea7892fef4669b25221842ad83a3d8e37',
+  // Batched knowledge admission preserves verification and retention under the lifecycle fence.
+  '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
+  '../openshell-runtime.ts': '21ac0d12d50ff0fbb317f60fc112072c86c60a5211cfe16c0faa59098901f05b',
   '../codex-chat-session.ts': '6fbc4b7d6aaf2823fbf0d1dea9d46e12adeaa21dd7548019c5ed4acbe7d1e060',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
