@@ -81,3 +81,8 @@ it('refuses missing connection dependencies before exposing an unusable selected
     runtime.setCredentialConnectionsRuntime(current);
   }
 });
+
+it('keeps the offline browser inventory aligned with authoritative registrations', async () => {
+  const { default: fixture } = await import('../../tests/fixtures/agent-tool-catalog.json');
+  expect(fixture).toEqual(agentToolCatalog());
+});
