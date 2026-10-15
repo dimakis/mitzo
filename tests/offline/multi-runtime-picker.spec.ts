@@ -337,9 +337,10 @@ test('Approved composer retains a long trusted agent name without horizontal ove
     expect(geometry.labelLeft).toBeGreaterThanOrEqual(0);
     expect(geometry.labelRight).toBeGreaterThanOrEqual(0);
     expect(geometry.overflow).toBe(false);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
+    // The desktop route switches to the mobile screen after matchMedia updates.
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      .toBe(true);
     await expect(composer).toBeInViewport();
     await expect(composer).toHaveValue(draft);
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
