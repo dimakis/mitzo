@@ -21,6 +21,7 @@ export function AgentCreationAdvisor({
   disabled: boolean;
 }) {
   const [selection, setSelection] = useState<AccountSelection | null>(null);
+  const previousSelection = useRef<AccountSelection | null>(null);
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestion, setSuggestion] = useState<{
@@ -39,6 +40,16 @@ export function AgentCreationAdvisor({
     if (conversation.current) conversation.current.scrollTop = conversation.current.scrollHeight;
   }, [messages]);
   const chooseAccount = useCallback((next: AccountSelection | null) => {
+    const previous = previousSelection.current;
+    if (
+      next &&
+      previous &&
+      next.accountId === previous.accountId &&
+      next.model === previous.model &&
+      (next.reasoningEffort ?? null) === (previous.reasoningEffort ?? null)
+    )
+      return;
+    previousSelection.current = next;
     request.current?.abort();
     setAsking(false);
     setSelection(next);

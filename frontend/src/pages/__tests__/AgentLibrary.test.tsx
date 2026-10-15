@@ -9,9 +9,14 @@ import userEvent from '@testing-library/user-event';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../../components/AccountModelPicker', () => ({
   AccountModelPicker: ({ onChange }: { onChange: (value: unknown) => void }) => (
-    <button onClick={() => onChange({ accountId: 'work', model: 'luna' })}>
-      Choose advisor account
-    </button>
+    <>
+      <button onClick={() => onChange({ accountId: 'work', model: 'luna' })}>
+        Choose advisor account
+      </button>
+      <button onClick={() => onChange({ accountId: 'personal', model: 'luna' })}>
+        Choose another advisor account
+      </button>
+    </>
   ),
 }));
 afterEach(() => {
@@ -247,6 +252,8 @@ it('opens the advisor above the editor without navigating away or losing edits',
   );
   fireEvent.click(screen.getByRole('button', { name: 'Ask advisor' }));
   await screen.findByText('Clarify the output.');
+  fireEvent.click(screen.getByRole('button', { name: 'Choose advisor account' }));
+  expect(screen.getByText('Clarify the output.')).toBeTruthy();
   expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Working Bob');
   const call = vi.mocked(apiFetch).mock.calls.find(([path]) => path.endsWith('/advice'))!;
   expect(JSON.parse(call[1]!.body as string)).toMatchObject({
@@ -298,7 +305,7 @@ it('retains failed questions and prevents a late proposal from overwriting newer
     true,
   );
   expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'My newer name');
-  fireEvent.click(screen.getByRole('button', { name: 'Choose advisor account' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose another advisor account' }));
   expect(screen.queryByText('A suggestion.')).toBeNull();
 });
 
