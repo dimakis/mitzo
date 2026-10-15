@@ -98,3 +98,19 @@ The browser tests intercept all requests and WebSockets, serving the compiled ap
 and fixture data without a backend, provider credentials, or model calls. They
 cover mobile WebKit, mobile Chromium, and desktop Chromium. Use the broader
 `npm run test:ui` suite to check responsive layouts after changing shared surfaces.
+
+## Conversation wordmark waterfall
+
+ChatWelcome owns a decorative canvas outside the transcript and dispatch lifecycle.
+It samples the existing wordmark into bounded 3px tiles and samples random drift,
+splash and hop parameters once per replay. Frames do no random sampling or DOM
+layout reads. Canvas dimensions cap device pixel ratio at two. Pixels fall to the
+actual composer's top border, bounce and spread within its horizontal bounds,
+then disappear; they never enter the input. The composer remains interactive.
+
+First submission plays the outward fall without delaying send. Double tap or
+keyboard activation replays the fall, waits, and reverses exactly the sampled path.
+The duration, pause and return use the three `--motion-duration-waterfall*` tokens.
+Reduce Motion immediately shows/hides the wordmark without particles; preference
+changes, conversation reset and unmount cancel the active animation frame.
+Frame tests verify boundary clipping, reversible trajectories and sampling once.

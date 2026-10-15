@@ -234,7 +234,7 @@ for (const provider of providers) {
     await expect(dialog).toBeHidden();
     await expect(preview).toBeFocused();
     await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
-    await page.getByRole('button', { name: 'Sources 1', exact: true }).click();
+    await page.getByRole('tab', { name: 'Sources', exact: true }).click();
     const source = page.getByRole('button', { name: 'Preview pasted image 1', exact: true });
     await source.scrollIntoViewIfNeeded();
     await page.screenshot({
@@ -283,7 +283,10 @@ for (const provider of providers) {
     await expect(dialog).toBeHidden();
     await expect(source).toBeFocused();
     await expect(source.locator('img')).not.toHaveAttribute('src', original!);
-    await page.getByRole('button', { name: 'Close session tray', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Resources', exact: true })
+      .getByRole('button', { name: 'Close', exact: true })
+      .click();
     const annotated = await preview.locator('img').getAttribute('src');
     expect(annotated).toMatch(/^data:image\/png;base64,/);
     await expect(input).toHaveValue('Please inspect the highlighted area');
@@ -324,7 +327,10 @@ for (const provider of providers) {
     await expectTarget(removeSource);
     await removeSource.click();
     await expect(preview).toHaveCount(0);
-    await page.getByRole('button', { name: 'Close session tray', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Resources', exact: true })
+      .getByRole('button', { name: 'Close', exact: true })
+      .click();
     await pasteSyntheticImage(page);
     await page.getByRole('button', { name: 'Remove attachment 1', exact: true }).click();
     await expect(preview).toHaveCount(0);

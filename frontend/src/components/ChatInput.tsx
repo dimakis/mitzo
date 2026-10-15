@@ -16,13 +16,14 @@ import { resizeImage } from '../lib/resizeImage';
 import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
-import { SessionTray } from './SessionTray';
+import { SessionResourcesDialog } from './SessionResourcesDialog';
 import { ImageAttachmentEditor } from './ImageAttachmentEditor';
 import { ComposerTools } from './ComposerTools';
 import { UiIcon } from './UiIcon';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
+import { insertComposerCommand } from '../lib/composer-command';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { useDraft, type DraftSessionAssignment } from '../hooks/useDraft';
@@ -81,7 +82,12 @@ interface Props {
   composerGeneration?: number;
   /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
   externalContextBlocks?: string[];
+  onExternalContextBlockToggle?: (name: string) => void;
   tokenState?: TokenState;
+  collaboration?: ReactNode;
+  compactions?: import('@mitzo/protocol').ContextCompaction[];
+  compactionError?: string;
+  compactionTruncated?: boolean;
   messages?: FinishedMessage[];
   current?: StreamingMessage | null;
   bootContext?: BootContextMeta | null;
@@ -115,7 +121,12 @@ export function ChatInput({
   sessionId,
   composerGeneration = 0,
   externalContextBlocks,
+  onExternalContextBlockToggle,
   tokenState,
+  collaboration,
+  compactions,
+  compactionError,
+  compactionTruncated,
   messages = EMPTY_MESSAGES,
   current,
   bootContext,
@@ -464,15 +475,15 @@ export function ChatInput({
       return;
     }
     const trimmed = text.trimStart();
-    if (trimmed.startsWith('/') && !trimmed.includes(' ')) {
+    if (trimmed.startsWith('/') && !/\s/.test(trimmed)) {
       setShowSlashPicker(true);
-    } else if (!trimmed.startsWith('/')) {
+    } else {
       setShowSlashPicker(false);
     }
   }, [text, boundedFirstCommand, guardedConversation]);
 
   function handleSlashSelect(name: string) {
-    setText((draft) => `/${name} ${draft.trimStart().startsWith('/') ? '' : draft}`);
+    setText((draft) => insertComposerCommand(draft, name));
     setShowSlashPicker(false);
     textareaRef.current?.focus();
   }
@@ -508,6 +519,18 @@ export function ChatInput({
   function handleKeyDown(e: KeyboardEvent) {
     if (previewOpen) {
       if (e.key === 'Enter') e.preventDefault();
+      return;
+    }
+    if (showSlashPicker && ['Enter', 'ArrowDown', 'Escape'].includes(e.key) && !e.shiftKey) {
+      e.preventDefault();
+      if (e.key === 'Escape') setShowSlashPicker(false);
+      else {
+        const choice = textareaRef.current
+          ?.closest('.chat-input')
+          ?.querySelector<HTMLButtonElement>('.slash-picker-item');
+        if (e.key === 'Enter') choice?.click();
+        else choice?.focus();
+      }
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -817,12 +840,22 @@ export function ChatInput({
         <SlashPicker
           query={text.trimStart()}
           onSelect={handleSlashSelect}
-          onClose={() => setShowSlashPicker(false)}
+          onClose={(reason) => {
+            if (reason === 'escape') textareaRef.current?.focus();
+            setShowSlashPicker(false);
+          }}
           cwd={cwd}
         />
       </MotionPresence>
       {voice?.recording && voice.partialTranscript && (
-        <div className="voice-partial">{voice.partialTranscript}</div>
+        <div
+          className="voice-partial"
+          role="status"
+          aria-live="polite"
+          aria-label="Live transcription"
+        >
+          <em>{voice.partialTranscript}</em>
+        </div>
       )}
       {queuedMessages.map((q, i) => (
         <div key={i} className="chat-input-queued">
@@ -904,20 +937,28 @@ export function ChatInput({
               onChange={handleFileChange}
               className="sr-only"
             />
-            {!useExternal && (
-              <SessionTray
+            {(!useExternal || onExternalContextBlockToggle) && (
+              <SessionResourcesDialog
+                sessionId={sessionId}
+                compactions={compactions}
+                compactionError={compactionError}
+                compactionTruncated={compactionTruncated}
                 placement="toolbar"
                 contextRemovalOnly={boundedFirstCommand || guardedConversation}
                 messages={messages}
                 current={current}
                 bootContext={bootContext}
                 sessionContext={sessionContext}
-                selectedContextBlocks={contextBlocks}
+                selectedContextBlocks={activeContextBlocks}
                 draftImages={images}
-                onToggleContextBlock={(name) =>
-                  setContextBlocks((prev) =>
-                    prev.includes(name) ? prev.filter((value) => value !== name) : [...prev, name],
-                  )
+                onToggleContextBlock={
+                  onExternalContextBlockToggle ??
+                  ((name) =>
+                    setContextBlocks((prev) =>
+                      prev.includes(name)
+                        ? prev.filter((value) => value !== name)
+                        : [...prev, name],
+                    ))
                 }
                 onAddImages={() => fileInputRef.current?.click()}
                 onRemoveImage={removeImage}
@@ -925,9 +966,26 @@ export function ChatInput({
                 getDraftImageKey={imageKey}
               />
             )}
+            {collaboration ?? (
+              <button
+                type="button"
+                className="chat-input-btn"
+                aria-label="Symposium collaboration"
+                title="Start a supported chat to use Symposium collaboration"
+                disabled
+              >
+                <UiIcon name="agents" />
+              </button>
+            )}
           </div>
           <div className="composer-actions">
-            {tokenState && <TokenBar tokenState={tokenState} />}
+            {tokenState && (
+              <TokenBar
+                tokenState={tokenState}
+                alwaysVisible
+                userTurns={messages.filter((message) => message.role === 'user').length}
+              />
+            )}
             {micProps && <MicButton {...micProps} />}
             {running ? (
               <>
@@ -950,7 +1008,7 @@ export function ChatInput({
                     onClick={handleQueue}
                     title="Queue — send after current turn"
                   >
-                    <UiIcon name="send" />
+                    <UiIcon name="queue" />
                   </button>
                 )}
                 <button
@@ -969,8 +1027,7 @@ export function ChatInput({
                 aria-label={sendLabel}
                 disabled={!canSend || !!sendDisabledReason}
               >
-                <UiIcon name="send" />
-                {sendLabel === 'Start session' && <span>{sendLabel}</span>}
+                <UiIcon name="sendPrompt" />
               </button>
             )}
           </div>

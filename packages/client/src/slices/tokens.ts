@@ -1,4 +1,4 @@
-import type { ModelTokenLimits } from '@mitzo/protocol';
+import type { ContextCompaction, ModelTokenLimits } from '@mitzo/protocol';
 
 export interface TokensState {
   agentContext: number;
@@ -10,6 +10,7 @@ export interface TokensState {
   numTurns: number;
   turnIndex: number;
   numCompactions: number;
+  compactionPhase?: ContextCompaction['phase'];
 }
 
 // Zero means unreported; there is no universal model capacity.

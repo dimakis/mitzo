@@ -1,7 +1,7 @@
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { HomeDialog } from './HomeDialog';
 import type { BootContextMeta, SectionMeta } from '@mitzo/client';
 
 interface Props {
@@ -61,6 +61,7 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
     if (!showModal) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
         e.stopImmediatePropagation();
         setShowModal(false);
       }
@@ -295,36 +296,17 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
         </MotionPresence>
       </div>
 
-      {showModal &&
-        bootContext?.fullMarkdown &&
-        createPortal(
-          <div
-            className="boot-context-modal-overlay"
-            onClick={() => setShowModal(false)}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <div
-              className="boot-context-modal"
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-              aria-label="Boot context full markdown"
-            >
-              <div className="boot-context-modal-header">
-                <h3>Boot Context (Full Markdown)</h3>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="boot-context-modal-close"
-                  aria-label="Close boot context"
-                >
-                  <UiIcon name="close" size={16} />
-                </button>
-              </div>
-              <pre className="boot-context-modal-content">{bootContext.fullMarkdown}</pre>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {showModal && bootContext?.fullMarkdown && (
+        <HomeDialog
+          title="Boot Context (Full Markdown)"
+          ariaLabel="Boot context full markdown"
+          closeLabel="Close boot context"
+          className="chat-resource-dialog"
+          onClose={() => setShowModal(false)}
+        >
+          <pre className="boot-context-modal-content">{bootContext.fullMarkdown}</pre>
+        </HomeDialog>
+      )}
     </>
   );
 }

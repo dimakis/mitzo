@@ -119,6 +119,9 @@ async function openAgentSettings(page: Page) {
   const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+  const advanced = page.locator('.chat-settings-advanced');
+  if ((await advanced.getAttribute('open')) === null)
+    await advanced.locator(':scope > summary').click();
 }
 
 /** Fixture-only Google enrollment; no production catalogue or provider is consulted. */
@@ -230,7 +233,7 @@ test('Approved composer clean saved-design reference aligns Agent and Account fi
     await panel
       .getByRole('combobox')
       .evaluateAll((controls) => controls.map((control) => control.getAttribute('aria-label'))),
-  ).toEqual(['Agent', 'Account', 'Model', 'Thinking level']);
+  ).toEqual(['Account', 'Model', 'Thinking level', 'Agent']);
   await expect(agent).toHaveValue(JSON.stringify(['saved', 'agent', 1]));
   await expect(account).toHaveValue('api');
   await expect(model).toHaveValue('shell-model');
@@ -241,6 +244,7 @@ test('Approved composer clean saved-design reference aligns Agent and Account fi
   await body.evaluate((element) => {
     element.scrollTop = 0;
   });
+  await agent.scrollIntoViewIfNeeded();
   await expect(agent).toBeInViewport();
   const geometry = await agent.evaluate((element) => {
     const label = element.closest('label')!.getBoundingClientRect();
@@ -333,9 +337,10 @@ test('Approved composer retains a long trusted agent name without horizontal ove
     expect(geometry.labelLeft).toBeGreaterThanOrEqual(0);
     expect(geometry.labelRight).toBeGreaterThanOrEqual(0);
     expect(geometry.overflow).toBe(false);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
+    // The desktop route switches to the mobile screen after matchMedia updates.
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      .toBe(true);
     await expect(composer).toBeInViewport();
     await expect(composer).toHaveValue(draft);
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
@@ -406,9 +411,7 @@ for (const appearance of ['light', 'dark'] as const) {
     const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
     const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
     const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
-    await expect(
-      page.getByRole('heading', { name: 'What are we working on?', exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Replay Mitzo waterfall' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeVisible();
     await expect(trigger).toHaveCount(1);
     // One top summary owns settings; the writing surface has no duplicate picker.
@@ -425,7 +428,7 @@ for (const appearance of ['light', 'dark'] as const) {
       await panel
         .getByRole('combobox')
         .evaluateAll((controls) => controls.map((control) => control.getAttribute('aria-label'))),
-    ).toEqual(['Agent', 'Account', 'Model', 'Thinking level']);
+    ).toEqual(['Account', 'Model', 'Thinking level', 'Agent']);
     await expect(
       page.locator('.workspace-controls').getByRole('combobox', {
         name: /^(Agent|Account|Model|Thinking level)$/,
@@ -448,7 +451,8 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(openshell).toHaveAccessibleDescription('Run tools in an isolated sandbox.');
     await expect(local).toHaveAccessibleDescription('Run tools on this Mac.');
     await expect(panel.getByText('Runs with Codex', { exact: true })).toBeVisible();
-    await expect(openshell.locator('svg')).toHaveCount(2);
+    await expect(openshell.locator('.openshell-brand')).toHaveCount(1);
+    await expect(openshell.locator('svg')).toHaveCount(1);
     await expect(local.locator('svg')).toHaveCount(1);
     await expect(panel.getByRole('combobox', { name: 'Run on', exact: true })).toHaveCount(0);
     await expect(
@@ -714,11 +718,16 @@ for (const appearance of ['light', 'dark'] as const) {
     });
     if (testInfo.project.name.startsWith('mobile')) {
       await page.setViewportSize({ width: 320, height: 740 });
-      await page.getByRole('button', { name: /^Workspace controls,/ }).click();
+      await openAgentSettings(page);
       const repository = page.getByRole('region', { name: 'Repository for new chat' });
+      await repository.scrollIntoViewIfNeeded();
       await expect(repository).toBeInViewport();
       await expect
-        .poll(() => repository.evaluate((element) => element.scrollHeight > element.clientHeight))
+        .poll(() =>
+          page
+            .locator('.workspace-controls-content')
+            .evaluate((element) => element.scrollHeight > element.clientHeight),
+        )
         .toBe(true);
       await page
         .getByRole('button', { name: 'Refresh preparation status', exact: true })

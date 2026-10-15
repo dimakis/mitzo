@@ -59,6 +59,10 @@
   --motion-distance-sheet: 12px;
   --motion-duration-spin: 800ms;
   --motion-duration-status: 1200ms;
+  /* Optional decorative wordmark splash; input never waits for these timings. */
+  --motion-duration-waterfall: 3200ms;
+  --motion-duration-waterfall-pause: 2200ms;
+  --motion-duration-waterfall-return: 1900ms;
 
   /* Compatibility names resolve to the same semantic theme. Keep these aliases
      while existing chat, workspace and task components migrate incrementally. */

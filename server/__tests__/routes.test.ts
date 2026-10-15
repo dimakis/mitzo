@@ -100,6 +100,7 @@ vi.mock('../chat.js', async () => {
       setSessionState: vi.fn(),
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),
+      getEventsOfType: vi.fn().mockReturnValue([]),
       getLatestWorktreePath: vi.fn().mockReturnValue(null),
       searchSessions: vi.fn().mockReturnValue([
         {
@@ -1191,6 +1192,35 @@ describe('skills routes', () => {
     const res = await request(app).get('/api/skills').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+  });
+  it('GET /api/commands lists only recognized app commands behind operator authentication', async () => {
+    expect((await request(app).get('/api/commands')).status).toBe(401);
+    const response = await request(app).get('/api/commands').set('Cookie', authCookie);
+    expect(response.status).toBe(200);
+    expect(response.body.map((entry: { name: string }) => entry.name).sort()).toEqual([
+      'deliberate',
+      'fuse',
+      'models',
+      'skills',
+    ]);
+    expect(response.body.every((entry: { scope: string }) => entry.scope === 'native')).toBe(true);
+  });
+  it('GET /api/sessions/:id/compactions requires authentication and projects only the selected session history', async () => {
+    expect((await request(app).get('/api/sessions/s1/compactions')).status).toBe(401);
+    const response = await request(app)
+      .get('/api/sessions/artifact-session/compactions')
+      .set('Cookie', authCookie);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ records: [], truncated: false });
+    expect(eventStore.getEventsOfType).toHaveBeenCalledWith(
+      'artifact-session',
+      'context_compaction',
+      513,
+    );
+    expect(
+      (await request(app).get('/api/sessions/missing/compactions').set('Cookie', authCookie))
+        .status,
+    ).toBe(404);
   });
 
   it('GET /api/skills — defaults to BASE_REPO when cwd omitted', async () => {

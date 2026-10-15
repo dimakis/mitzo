@@ -319,9 +319,9 @@ test('motion: composer popover and resource sheet animate without losing the dra
   await page.getByRole('button', { name: 'More composer actions', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeHidden();
   await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Close session tray', exact: true })).toBeVisible();
-  await expect.poll(() => motionKinds(page)).toContain('mitzo:sheet');
-  const tray = await page.locator('.session-tray--toolbar').boundingBox();
+  await expect(page.getByRole('dialog', { name: 'Resources', exact: true })).toBeVisible();
+  // Resources uses the shared native dialog; composer tool popovers retain motion.
+  const tray = await page.locator('.chat-resource-dialog').boundingBox();
   expect(tray!.x).toBeGreaterThanOrEqual(0);
   expect(tray!.x + tray!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await page.screenshot({
@@ -338,9 +338,10 @@ test('motion: composer popover and resource sheet animate without losing the dra
     animations: 'disabled',
   });
   await page
-    .getByRole('button', { name: 'Dismiss session tray', exact: true })
-    .click({ position: { x: 8, y: 8 } });
-  await expect(page.getByRole('button', { name: 'Close session tray', exact: true })).toBeHidden();
+    .getByRole('dialog', { name: 'Resources', exact: true })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  await expect(page.getByRole('dialog', { name: 'Resources', exact: true })).toBeHidden();
   await expect(draft).toHaveValue('Keep this draft');
   await expect(
     page.getByRole('button', { name: 'More composer actions', exact: true }),
@@ -472,7 +473,7 @@ test('composer: commands use a quiet icon with discoverable labels', async ({ pa
   await expect(commands).toBeVisible();
   const bounds = (await commands.boundingBox())!;
   expect(bounds.width).toBeLessThanOrEqual(bounds.height + 1);
-  await expect(commands.locator('[data-icon="list"]')).toBeVisible();
+  await expect(commands.locator('[data-icon="command"]')).toBeVisible();
   await expect(commands.locator('.chat-input-command-label')).toBeHidden();
   await commands.focus();
   await expect(commands.locator('.chat-input-command-label')).toBeVisible();
@@ -3581,8 +3582,7 @@ test('sandbox boot context is not presented as a fallback in Outputs / Sources',
   await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
   await expect.poll(() => !!sendBoot).toBe(true);
   sendBoot!();
-  const sources = page.getByRole('button', { name: /^Sources \d/ });
-  if ((await sources.getAttribute('aria-expanded')) !== 'true') await sources.click();
+  await page.getByRole('tab', { name: 'Context', exact: true }).click();
   const header = page.getByRole('button', { name: /7 sources/ });
   await expect(header).toBeVisible();
   await header.click();
@@ -4093,7 +4093,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: /Workspace controls/ }).click();
   await page.getByText('More options', { exact: true }).click();
-  const action = page.getByRole('button', { name: 'Collaborate', exact: true });
+  const action = page.getByRole('button', { name: 'Symposium collaboration', exact: true });
   const originalOverflow = await page.evaluate(() => document.body.style.overflow);
   await expect(action).toBeVisible();
   await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
@@ -4167,7 +4167,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   expect(forbidden).toEqual([]);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   const workspace = page.getByRole('button', { name: /^Workspace controls/ });
-  await expect(workspace).toBeFocused();
+  await expect(action).toBeFocused();
   await expect(workspace).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
   failReads = true;

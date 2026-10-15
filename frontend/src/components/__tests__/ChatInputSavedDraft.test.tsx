@@ -5,7 +5,7 @@ import { ChatInput } from '../ChatInput';
 import { renderToString } from 'react-dom/server';
 import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 vi.mock('../MicButton', () => ({ MicButton: () => null }));
 vi.mock('../../lib/haptics', () => ({ impactMedium: vi.fn() }));
 afterEach(() => {

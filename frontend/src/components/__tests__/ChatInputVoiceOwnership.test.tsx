@@ -18,7 +18,7 @@ vi.mock('../MicButton', () => ({
   },
 }));
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 afterEach(() => {
   cleanup();
   localStorage.clear();

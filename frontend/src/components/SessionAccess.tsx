@@ -155,6 +155,13 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
           Observed {new Date(evidence.observedAt).toLocaleTimeString()}
         </p>
       )}
+      {sessionId && !loading && evidence?.state === 'unknown' && (
+        <p className="workspace-muted">
+          This view currently reports live Claude/Vertex sessions. Other routes and unavailable
+          historical sessions return Unknown. That does not mean access is blocked; refreshing
+          cannot supply evidence the runtime does not report.
+        </p>
+      )}
       <section className="access-detail-card">
         <h3>{sessionId ? 'Session access' : 'Selected route'}</h3>
         <dl className="access-resource-facts">
@@ -266,7 +273,7 @@ export function SessionAccess(props: Props) {
         <span className="session-access-label">Access</span>
       </button>
       {open && (
-        <HomeDialog title="Access" onClose={() => setOpen(false)}>
+        <HomeDialog title="Access" className="chat-access-dialog" onClose={() => setOpen(false)}>
           <AccessContent
             key={props.sessionId ?? 'empty'}
             {...props}

@@ -1,3 +1,4 @@
+import { projectCompactions } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
   readOwnedVertexQueueOverview,
@@ -2572,6 +2573,22 @@ app.get('/api/skills', (req, res) => {
   res.json(skillRegistry.listPublic());
 });
 
+app.get('/api/commands', (_req, res) => {
+  const descriptions: Record<string, string> = {
+    skills: 'List skills, or inspect a named skill',
+    models: 'List account models; accepts “refresh”',
+    deliberate: 'Deliberate on a task using multiple models; may incur model charges',
+    fuse: 'Combine model perspectives on a task; may incur model charges',
+  };
+  res.json(
+    [...NATIVE_COMMAND_NAMES].map((name) => ({
+      name,
+      description: descriptions[name] ?? name,
+      scope: 'native',
+    })),
+  );
+});
+
 app.get('/api/sessions/active', (_req, res) => {
   res.json(registry.getActiveSessions());
 });
@@ -3091,6 +3108,17 @@ app.get('/api/sessions/:id/events', (req, res) => {
   }
   const events = eventStore.getEventsAfter(req.params.id, afterSeq);
   res.json(events.map(storedEventToClientMessage));
+});
+
+app.get('/api/sessions/:id/compactions', (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  if (!eventStore.getSession(req.params.id))
+    return res.status(404).json({ error: 'Conversation not registered' });
+  const events = eventStore.getEventsOfType(req.params.id, 'context_compaction', 513);
+  res.json({
+    records: projectCompactions(events.slice(0, 512).reverse()),
+    truncated: events.length > 512,
+  });
 });
 
 app.delete('/api/sessions', (_req, res) => {

@@ -12,8 +12,8 @@ const { trayMessageRefs } = vi.hoisted(() => ({ trayMessageRefs: [] as unknown[]
 vi.mock('../SlashPicker', () => ({
   SlashPicker: () => null,
 }));
-vi.mock('../SessionTray', () => ({
-  SessionTray: ({
+vi.mock('../SessionResourcesDialog', () => ({
+  SessionResourcesDialog: ({
     selectedContextBlocks,
     messages,
   }: {

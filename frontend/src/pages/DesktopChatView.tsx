@@ -1,3 +1,5 @@
+import { useCompactionHistory } from '../hooks/useCompactionHistory';
+import { ChatWelcome } from '../components/ChatWelcome';
 import {
   runtimeModelAccounts,
   preparedRuntimeModelEditable,
@@ -736,6 +738,10 @@ export function DesktopChatView() {
     navigate('/chat');
   }, [navigate, storeNewSession]);
 
+  const compactionHistory = useCompactionHistory(
+    activeSessionId,
+    `${tokens.numCompactions}:${tokens.compactionPhase ?? ''}:${messages.running}`,
+  );
   const [agentLabel, setAgentLabel] = useState<string | undefined>(undefined);
   const accountModelControl =
     !repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
@@ -851,8 +857,48 @@ export function DesktopChatView() {
           : agentHarness === 'gemini'
             ? 'Gemini'
             : undefined;
+  const repositoryControl = !activeSessionId &&
+    repositoryAccountSelection?.accountId &&
+    (!repositoryHandoff.present ||
+      (repositoryHandoff.preparation &&
+        repositoryAccountSelection.accountId === repositoryHandoff.preparation.accountId &&
+        repositoryAccountSelection.model === repositoryHandoff.preparation.model)) && (
+      <RepositoryChatPicker
+        key={repositoryScope}
+        accountId={repositoryAccountSelection.accountId}
+        model={repositoryAccountSelection.model}
+        draftScoped={draftEnabled}
+        ordinaryRuntime={
+          explicitNew &&
+          localRuntime.intent.accountReference &&
+          localRuntime.intent.execution.targetId &&
+          selectedRuntimeRoute(localRuntime.intent, localRuntime.inventory)
+            ? {
+                runOn: localRuntime.intent.execution.location,
+                runtime: {
+                  account: localRuntime.intent.accountReference,
+                  harness: selectedRuntimeRoute(localRuntime.intent, localRuntime.inventory)!
+                    .harness,
+                  targetId: localRuntime.intent.execution.targetId,
+                },
+              }
+            : undefined
+        }
+        initialPreparationId={repositoryHandoff.preparation?.id ?? initialRepositoryId ?? undefined}
+        onChange={(selection) => {
+          setRepositoryChoice({ scope: repositoryScope, selection });
+          if (!selection) {
+            setRepositoryAccountError(null);
+            setRemovedRepositoryScope(newChatDraft.draft.id);
+          }
+          if (repositoryHandoff.present && !selection) navigate('/chat', { replace: true });
+        }}
+      />
+    );
+
   const settings = !isSymposium ? (
     <AgentSettingsFields
+      repository={repositoryControl}
       agent={agentControl}
       accountModel={accountModelControl}
       execution={executionControl}
@@ -1103,9 +1149,7 @@ export function DesktopChatView() {
                 {activeSessionId &&
                   !controlsBlocked &&
                   !localBound &&
-                  (ordinaryControls ? (
-                    <OrdinaryCollaborationEntry sessionId={activeSessionId} />
-                  ) : isSymposium ? (
+                  (ordinaryControls ? null : isSymposium ? (
                     <AddAgentSheet sessionId={activeSessionId} />
                   ) : null)}
                 {activeSessionId && (
@@ -1143,6 +1187,15 @@ export function DesktopChatView() {
             </div>
           )}
           <ScrollFab scrollRef={scrollRef} />
+          <ChatWelcome
+            active={
+              !activeSessionId &&
+              !briefingChat.isBriefing &&
+              !messages.running &&
+              messages.messages.length === 0 &&
+              !messages.current
+            }
+          />
           <SymposiumConversation
             ordinaryConfirmed={
               (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
@@ -1152,6 +1205,7 @@ export function DesktopChatView() {
             readOnly={controlsBlocked || localBound}
             sessionId={sessionId ?? activeSessionId}
             chat={{
+              compactions: compactionHistory.records,
               sessionId: sessionId || activeSessionId || undefined,
               messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,
               current: sessionId && sessionId !== activeSessionId ? null : messages.current,
@@ -1169,11 +1223,6 @@ export function DesktopChatView() {
               <div
                 className={`conversation-composer${!activeSessionId ? ' conversation-composer--new' : ''}`}
               >
-                {!activeSessionId && !briefingChat.isBriefing && (
-                  <div className="composer-start-heading">
-                    <h2>What are we working on?</h2>
-                  </div>
-                )}
                 <RepositoryChatDraftNotice handoff={repositoryHandoff} />
                 {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
                 {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
@@ -1210,53 +1259,17 @@ export function DesktopChatView() {
                     <button onClick={dismissLaunch}>Dismiss launch</button>
                   </div>
                 )}
-                {!activeSessionId &&
-                  repositoryAccountSelection?.accountId &&
-                  (!repositoryHandoff.present ||
-                    (repositoryHandoff.preparation &&
-                      repositoryAccountSelection.accountId ===
-                        repositoryHandoff.preparation.accountId &&
-                      repositoryAccountSelection.model ===
-                        repositoryHandoff.preparation.model)) && (
-                    <RepositoryChatPicker
-                      key={repositoryScope}
-                      accountId={repositoryAccountSelection.accountId}
-                      model={repositoryAccountSelection.model}
-                      draftScoped={draftEnabled}
-                      ordinaryRuntime={
-                        explicitNew &&
-                        localRuntime.intent.accountReference &&
-                        localRuntime.intent.execution.targetId &&
-                        selectedRuntimeRoute(localRuntime.intent, localRuntime.inventory)
-                          ? {
-                              runOn: localRuntime.intent.execution.location,
-                              runtime: {
-                                account: localRuntime.intent.accountReference,
-                                harness: selectedRuntimeRoute(
-                                  localRuntime.intent,
-                                  localRuntime.inventory,
-                                )!.harness,
-                                targetId: localRuntime.intent.execution.targetId,
-                              },
-                            }
-                          : undefined
-                      }
-                      initialPreparationId={
-                        repositoryHandoff.preparation?.id ?? initialRepositoryId ?? undefined
-                      }
-                      onChange={(selection) => {
-                        setRepositoryChoice({ scope: repositoryScope, selection });
-                        if (!selection) {
-                          setRepositoryAccountError(null);
-                          setRemovedRepositoryScope(newChatDraft.draft.id);
-                        }
-                        if (repositoryHandoff.present && !selection)
-                          navigate('/chat', { replace: true });
-                      }}
-                    />
-                  )}
+
                 {!controlsBlocked && <CodexQueueStatus sessionId={activeSessionId} />}
                 <ChatInput
+                  collaboration={
+                    activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
+                      <OrdinaryCollaborationEntry sessionId={activeSessionId} compact />
+                    ) : undefined
+                  }
+                  compactions={compactionHistory.records}
+                  compactionError={compactionHistory.error}
+                  compactionTruncated={compactionHistory.truncated}
                   sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
                   boundedFirstCommand={localFirstCommand || controlsBlocked}
                   guardedConversation={localRuntime.continuation}

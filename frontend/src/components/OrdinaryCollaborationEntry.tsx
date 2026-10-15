@@ -50,23 +50,32 @@ export function OrdinaryCollaborationHost({
 }
 
 /** Explicit ordinary entry; does not open dedicated native Symposium setup. */
-export function OrdinaryCollaborationEntry({ sessionId }: { sessionId: string }) {
+export function OrdinaryCollaborationEntry({
+  sessionId,
+  compact = false,
+}: {
+  sessionId: string;
+  compact?: boolean;
+}) {
   const flow = useContext(CollaborationContext);
   if (!flow || flow.sessionId !== sessionId)
     return (
       <OrdinaryCollaborationHost sessionId={sessionId}>
-        <OrdinaryCollaborationEntry sessionId={sessionId} />
+        <OrdinaryCollaborationEntry sessionId={sessionId} compact={compact} />
       </OrdinaryCollaborationHost>
     );
   return (
     <button
       type="button"
+      className={compact ? 'chat-input-btn' : undefined}
+      aria-label={compact ? 'Symposium collaboration' : undefined}
+      title={compact ? 'Symposium collaboration' : undefined}
       onClick={(event) => {
         event.currentTarget.focus();
         flow.open();
       }}
     >
-      Collaborate
+      {compact ? <UiIcon name="agents" /> : 'Collaborate'}
     </button>
   );
 }

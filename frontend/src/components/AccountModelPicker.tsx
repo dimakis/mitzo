@@ -564,7 +564,7 @@ function SessionAccountModelPicker({
           </select>
         </PickerField>
       )}
-      {scope === 'chat' && !legacy && !draftOnly && (
+      {scope === 'chat' && !legacy && !draftOnly && presentation !== 'settings' && (
         <button
           disabled={disabled}
           aria-label="Edit account alias"

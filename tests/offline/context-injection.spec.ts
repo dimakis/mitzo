@@ -163,9 +163,12 @@ test('context selection is visible on send, echoed content collapses, and replay
   const transport = await fixture(page);
   await page.goto('/chat/context-fixture');
   await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
-  await page.getByRole('button', { name: 'Sources 0', exact: true }).click();
+  await page.getByRole('tab', { name: 'Context', exact: true }).click();
   await page.getByRole('button', { name: /^Jira Essentials/ }).click();
-  await page.getByRole('button', { name: 'Close session tray', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Resources', exact: true })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
   await page.getByLabel('Message Mitzo', { exact: true }).fill(question);
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   const selected = page.getByRole('button', { name: /Context selected/ });
@@ -233,9 +236,12 @@ test('long unbroken context names wrap without displacing the copy action', asyn
   const transport = await fixture(page, name);
   await page.goto('/chat/context-fixture');
   await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
-  await page.getByRole('button', { name: 'Sources 0', exact: true }).click();
+  await page.getByRole('tab', { name: 'Context', exact: true }).click();
   await page.getByRole('button', { name: new RegExp(`^${name}`) }).click();
-  await page.getByRole('button', { name: 'Close session tray', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Resources', exact: true })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
   await page.getByLabel('Message Mitzo', { exact: true }).fill(question);
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await expect.poll(() => transport.sent.length).toBe(1);

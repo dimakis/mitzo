@@ -1267,7 +1267,7 @@ it('reports editable staged settings separately while the new account awaits con
   });
 });
 
-it('settings keeps Model and Thinking paired while legacy-route account alias utilities open', async () => {
+it('settings keeps Model and Thinking paired and leaves shared account renaming to Connections', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     new Response(
       JSON.stringify([
@@ -1292,16 +1292,6 @@ it('settings keeps Model and Thinking paired while legacy-route account alias ut
   const pair = model.closest('.account-model-settings-pair');
   expect(pair).not.toBeNull();
   expect(pair).toBe(thinking.closest('.account-model-settings-pair'));
-  expect(pair?.contains(screen.getByRole('button', { name: 'Edit account alias' }))).toBe(false);
-  fireEvent.click(screen.getByRole('button', { name: 'Edit account alias' }));
-  expect(
-    screen
-      .getByRole('textbox', { name: 'Account alias' })
-      .closest('.account-model-settings-account'),
-  ).toBeTruthy();
-  expect(pair?.contains(screen.getByRole('textbox', { name: 'Account alias' }))).toBe(false);
-  expect(model.closest('.account-model-settings-pair')).toBe(pair);
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(screen.queryByRole('textbox', { name: 'Account alias' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit account alias' })).toBeNull();
   expect(model.closest('.account-model-settings-pair')).toBe(pair);
 });

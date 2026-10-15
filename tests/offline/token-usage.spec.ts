@@ -185,11 +185,13 @@ test('token usage separates capacity from cumulative usage with reachable help',
   await expect(panel).toBeHidden();
 });
 
-test('token usage stays hidden until usage is reported', async ({ page }) => {
+test('token usage remains inspectable when usage is not reported', async ({ page }) => {
   await fixtureUsage(page, false);
   await page.goto('/chat/token-fixture');
   await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Token usage', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Token usage', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Token usage', exact: true }).click();
+  await expect(page.getByText('Context usage not reported', { exact: true })).toHaveCount(1);
 });
 
 test('token usage fits the narrow desktop center with both sidebars expanded', async ({

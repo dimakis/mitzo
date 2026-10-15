@@ -12,9 +12,11 @@ function getContextColor(ratio: number): string {
 
 interface Props {
   tokenState: TokenState;
+  userTurns?: number;
+  alwaysVisible?: boolean;
 }
 
-export function TokenBar({ tokenState }: Props) {
+export function TokenBar({ tokenState, userTurns, alwaysVisible = false }: Props) {
   const [, refreshExpiry] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const summaryId = useId();
@@ -39,7 +41,12 @@ export function TokenBar({ tokenState }: Props) {
   }, [expiry]);
 
   // Don't render until we have data
-  if (tokenState.turnIndex === 0 && !tokenState.agentContext && !tokenState.sessionTotal)
+  if (
+    !alwaysVisible &&
+    tokenState.turnIndex === 0 &&
+    !tokenState.agentContext &&
+    !tokenState.sessionTotal
+  )
     return null;
 
   // Legacy replay events can carry the former hardcoded ceiling. Capacity must
@@ -71,6 +78,10 @@ export function TokenBar({ tokenState }: Props) {
       <button
         className={`token-bar token-bar--${color}`}
         onClick={() => setExpanded((v) => !v)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setExpanded((value) => !value);
+        }}
         aria-label="Token usage"
         aria-expanded={expanded}
         aria-describedby={summaryId}
@@ -134,6 +145,26 @@ export function TokenBar({ tokenState }: Props) {
                 : 'Input context from the latest model request, including cached input.'}
             </p>
           </section>
+          {userTurns !== undefined && (
+            <div className="token-bar-detail-row">
+              <span>User turns</span>
+              <span>{userTurns}</span>
+            </div>
+          )}
+          <div className="token-bar-detail-row">
+            <span>{nativeUsage ? 'Runtime turns' : 'Agent turns'}</span>
+            <span>
+              {tokenState.numTurns > 0
+                ? `${tokenState.numTurns} ${tokenState.numTurns === 1 ? 'turn' : 'turns'}`
+                : 'Not reported'}
+            </span>
+          </div>
+          <div className="token-bar-detail-row">
+            <span>Compactions</span>
+            <span>
+              {tokenState.compactionPhase === 'compacting' ? 'In progress' : numCompactions}
+            </span>
+          </div>
           <section className="token-bar-metric">
             <div className="token-bar-detail-row">
               <span>Cumulative usage</span>
@@ -166,6 +197,13 @@ export function TokenBar({ tokenState }: Props) {
             <p>
               Compaction reduces retained history as the current context grows. Cumulative usage
               does not trigger compaction.
+            </p>
+            <p>
+              User turns count submitted messages in this transcript. Agent/runtime turns follow the
+              runtime’s definition and can include multiple model requests and tools. Website count
+              is not a token count. Context blocks, instructions and retained tool results occupy
+              the current window; cumulative usage counts repeated input and generated output over
+              time.
             </p>
             <p>
               Repeated context and large tool results can reveal optimization opportunities. Compare
@@ -221,20 +259,6 @@ export function TokenBar({ tokenState }: Props) {
                 </div>
               )}
             </>
-          )}
-          {tokenState.numTurns > 0 && (
-            <div className="token-bar-detail-row">
-              <span>{nativeUsage ? 'Runtime turns' : 'Agent turns'}</span>
-              <span>
-                {tokenState.numTurns} {tokenState.numTurns === 1 ? 'turn' : 'turns'}
-              </span>
-            </div>
-          )}
-          {numCompactions > 0 && (
-            <div className="token-bar-detail-row">
-              <span>Compactions</span>
-              <span>{numCompactions}</span>
-            </div>
           )}
           {!nativeUsage && (
             <div className="token-bar-detail-row">

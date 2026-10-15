@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { ChatInput } from '../ChatInput';
 import type { UseVoiceReturn } from '../../hooks/useVoice';
@@ -7,6 +7,15 @@ import type { UseVoiceReturn } from '../../hooks/useVoice';
 vi.mock('../SlashPicker', () => ({
   SlashPicker: () => null,
 }));
+
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+});
 
 afterEach(() => {
   cleanup();
@@ -39,6 +48,32 @@ const noop = () => true;
 const noopVoid = () => {};
 
 describe('ChatInput command strip', () => {
+  it('keeps send icon-only even for a new session and distinguishes live dictation', () => {
+    const { container, rerender } = render(
+      <ChatInput
+        onSend={noop}
+        onStop={noopVoid}
+        running={false}
+        initialText="Keep the draft"
+        sendLabel="Start session"
+        voice={makeVoice({ recording: true, partialTranscript: 'Words arrive' })}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Start session' }).textContent).toBe('');
+    expect(container.querySelector('.voice-partial em')?.textContent).toBe('Words arrive');
+    rerender(
+      <ChatInput
+        onSend={noop}
+        onStop={noopVoid}
+        running={false}
+        voice={makeVoice({ recording: true, partialTranscript: 'Words arrive one by one' })}
+      />,
+    );
+    expect(container.querySelector('.voice-partial em')?.textContent).toBe(
+      'Words arrive one by one',
+    );
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Keep the draft');
+  });
   it('keeps agent settings between the message and toolbar without changing the draft', () => {
     const { container, rerender } = render(
       <ChatInput
@@ -94,8 +129,8 @@ describe('ChatInput command strip', () => {
     expect(session.closest('.composer-toolbar')).toBeTruthy();
     fireEvent.click(session);
     expect(session.closest('.composer-toolbar')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Close session tray' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss session tray' }));
+    expect(screen.getByRole('dialog', { name: 'Resources' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Close$/ }));
     expect(session.getAttribute('aria-expanded')).toBe('false');
   });
 
@@ -189,7 +224,7 @@ describe('ChatInput command strip', () => {
     expect(screen.getByRole('button', { name: 'Commands' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Attach image' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
-    expect(screen.getByRole('button', { name: 'Add source' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add images' })).toBeTruthy();
   });
 
   it('keeps technical branch and session identifiers out of the composer', () => {
@@ -212,7 +247,7 @@ describe('ChatInput command strip', () => {
   it('uses the shared command-list icon and keeps its name discoverable', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     const commands = screen.getByRole('button', { name: 'Commands' });
-    expect(commands.querySelector('.ui-icon[data-icon="list"]')).toBeTruthy();
+    expect(commands.querySelector('.ui-icon[data-icon="command"]')).toBeTruthy();
     expect(commands.getAttribute('title')).toBe('Commands');
     expect(commands.querySelector('[aria-hidden="true"]')?.textContent).not.toBe('/');
     const input = screen.getByRole('textbox') as HTMLTextAreaElement;

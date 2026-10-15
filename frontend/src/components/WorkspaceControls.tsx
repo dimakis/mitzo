@@ -6,6 +6,8 @@ import type { WorkspaceSummary } from '../types/workspace';
 export function WorkspaceControls({
   children,
   actions,
+  leading,
+  trailing,
   status,
   summary,
   agent,
@@ -23,12 +25,15 @@ export function WorkspaceControls({
   attention?: boolean;
   children: ReactNode;
   actions?: ReactNode;
+  leading?: ReactNode;
+  trailing?: ReactNode;
   status: string;
   summary?: WorkspaceSummary | null;
 }) {
   const id = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const hasSettings = !!settings;
   useEffect(() => setOpen(false), [scopeKey]);
   const { ref, present } = useMotionPresence(open, 'disclosure', false);
   useEffect(() => {
@@ -62,10 +67,12 @@ export function WorkspaceControls({
     const measure = () => {
       const composer = chat.querySelector<HTMLElement>('.chat-input');
       const messages = chat.querySelector<HTMLElement>('.chat-messages');
-      const boundary =
+      const boundaryCandidate =
         chat.querySelector<HTMLElement>('.chat-launch-prompt')?.parentElement ??
         chat.querySelector<HTMLElement>('.repository-chat-picker') ??
         composer;
+      const boundary =
+        boundaryCandidate && panel.contains(boundaryCandidate) ? composer : boundaryCandidate;
       // Composer growth can move the repository row without resizing that row.
       const next = new Set<Element>([
         owner,
@@ -83,37 +90,36 @@ export function WorkspaceControls({
           observed.add(node);
         }
       if (!boundary) return;
-      let space: number;
-      if (getComputedStyle(panel).position === 'absolute') {
-        const heading = owner.querySelector<HTMLElement>('.workspace-controls-heading');
-        const gap = heading ? Number.parseFloat(getComputedStyle(heading).gap) || 0 : 0;
-        space = boundary.getBoundingClientRect().top - owner.getBoundingClientRect().bottom - gap;
-      } else {
-        if (!composer) return;
-        const style = messages ? getComputedStyle(messages) : null;
-        const minimumMessages = style
-          ? ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce(
-              (height, property) =>
-                height +
-                (Number.parseFloat(style[property as keyof CSSStyleDeclaration] as string) || 0),
-              0,
-            )
-          : 0;
-        const freeMessages = messages
-          ? Math.max(0, messages.getBoundingClientRect().height - minimumMessages)
-          : 0;
-        // Reserve the actual repository/composer flow, even when a hidden ancestor
-        // has been scrolled by textarea focus. Flexible transcript space can shrink.
-        space =
-          chat.clientHeight -
-          (composer.getBoundingClientRect().bottom -
-            chat.getBoundingClientRect().top +
-            chat.scrollTop -
-            panel.getBoundingClientRect().height -
-            freeMessages);
-      }
-      panel.style.setProperty('--workspace-disclosure-space', `${Math.max(0, space)}px`);
+      if (!composer) return;
+      const style = messages ? getComputedStyle(messages) : null;
+      const minimumMessages = style
+        ? ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce(
+            (height, property) =>
+              height +
+              (Number.parseFloat(style[property as keyof CSSStyleDeclaration] as string) || 0),
+            0,
+          )
+        : 0;
+      const freeMessages = messages
+        ? Math.max(0, messages.getBoundingClientRect().height - minimumMessages)
+        : 0;
       const heading = owner.querySelector<HTMLElement>('.workspace-controls-heading');
+      const headingGap = heading ? Number.parseFloat(getComputedStyle(heading).gap) || 0 : 0;
+      // Settings measure the same structural space in both modes. Switching to an overlay
+      // removes only the panel's flow contribution; it must not change the threshold
+      // calculation and repeatedly switch the panel back into flow.
+      const overlay = getComputedStyle(panel).position === 'absolute';
+      const panelFlowHeight = overlay ? 0 : panel.getBoundingClientRect().height;
+      const space =
+        !hasSettings && overlay
+          ? boundary.getBoundingClientRect().top - owner.getBoundingClientRect().bottom - headingGap
+          : chat.clientHeight -
+            (composer.getBoundingClientRect().bottom -
+              chat.getBoundingClientRect().top +
+              chat.scrollTop -
+              panelFlowHeight -
+              freeMessages);
+      panel.style.setProperty('--workspace-disclosure-space', `${Math.max(0, space)}px`);
       const viewport = window.visualViewport;
       const viewportBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
       const navigation = document.querySelector('.workspace-tabs')?.getBoundingClientRect();
@@ -147,10 +153,11 @@ export function WorkspaceControls({
       window.removeEventListener('resize', measure);
       window.visualViewport?.removeEventListener('resize', measure);
     };
-  }, [open, attention, ref]);
+  }, [open, attention, ref, hasSettings]);
   return (
-    <section className="workspace-controls">
+    <section className={`workspace-controls${leading ? ' workspace-controls--navigation' : ''}`}>
       <div className="workspace-controls-heading">
+        {leading}
         <button
           ref={triggerRef}
           type="button"
@@ -169,7 +176,10 @@ export function WorkspaceControls({
           aria-describedby={`${id}-status`}
           aria-expanded={open}
           aria-controls={id}
-          onClick={() => setOpen(!open)}
+          onClick={(event) => {
+            event.currentTarget.focus();
+            setOpen(!open);
+          }}
         >
           <UiIcon name={agent ? 'bot' : 'settings'} />
           <span className="workspace-controls-summary">
@@ -191,12 +201,17 @@ export function WorkspaceControls({
               <span>Loading profile…</span>
             )}
           </span>
-          <span id={`${id}-status`} className="conversation-state" title={status}>
+          <span
+            id={`${id}-status`}
+            className={`conversation-state${leading ? ' sr-only' : ''}`}
+            title={status}
+          >
             {status}
           </span>
           <UiIcon name={open ? 'up' : 'down'} />
         </button>
         {actions}
+        {trailing}
       </div>
       <div
         id={id}
