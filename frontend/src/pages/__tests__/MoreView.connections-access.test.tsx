@@ -38,7 +38,7 @@ it('offers the per-chat mockup collections from More', () => {
       <MoreView />
     </MemoryRouter>,
   );
-  expect(screen.getByRole('link', { name: 'Mockups', exact: true }).getAttribute('href')).toBe(
+  expect(screen.getByRole('link', { name: 'Mockups' }).getAttribute('href')).toBe(
     '/mockups',
   );
 });
