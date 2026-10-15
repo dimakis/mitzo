@@ -79,9 +79,10 @@ export function launchDeliveryState(id: string | null | undefined) {
   }
 }
 export function launchDraftSnapshot(id: string | null | undefined) {
+  const draft = id ? getChatDraft(id) : null;
   return JSON.stringify({
     state: launchDeliveryState(id),
-    selection: id ? getChatDraft(id)?.settings.selection : null,
+    draft: draft?.settings.launch ? draft : null,
   });
 }
 export function subscribeLaunchDrafts(listener: () => void) {

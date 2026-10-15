@@ -6,7 +6,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import type { SendMessageOptions } from '@mitzo/client';
-import { deleteChatDraft, getChatDraft, saveChatDraft } from '../lib/chat-drafts';
+import { deleteChatDraft, getChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-drafts';
 import {
   briefingRegistrationCapacityAvailable,
   registerBriefing,
@@ -15,7 +15,9 @@ import {
 
 /** Launch chrome belongs to the explicitly opened saved draft. */
 export function usePendingLaunch(requestedDraftId?: string | null) {
-  useSyncExternalStore(subscribeLaunchDrafts, () => launchDraftSnapshot(requestedDraftId));
+  const snapshot = useSyncExternalStore(subscribeLaunchDrafts, () =>
+    launchDraftSnapshot(requestedDraftId),
+  );
   const launchDeliveryPending = !!launchDeliveryState(requestedDraftId);
   const [accountError, setLaunchAccountError] = useState<{
     draftId: string;
@@ -27,15 +29,21 @@ export function usePendingLaunch(requestedDraftId?: string | null) {
   const clearLaunch = useMitzoStore((s) => s.clearPendingSession);
   const stage = useMitzoStore((s) => s.setPendingSession);
   const newSession = useMitzoStore((s) => s.newSession);
-  const saved = requestedDraftId ? getChatDraft(requestedDraftId) : null;
+  const saved = useMemo(
+    () => (JSON.parse(snapshot) as { draft: ChatDraft | null }).draft,
+    [snapshot],
+  );
   const restoredRequest = useRef<string | null | undefined>(undefined);
   const restoring = saved?.settings.launch && restoredRequest.current !== requestedDraftId;
-  const ownedLaunch =
-    pending && (!pending.draftId || pending.draftId === requestedDraftId)
-      ? pending
-      : restoring
-        ? { ...saved.settings.launch!, draftId: saved.id }
-        : null;
+  const ownedLaunch = useMemo(
+    () =>
+      pending && (!pending.draftId || pending.draftId === requestedDraftId)
+        ? pending
+        : restoring
+          ? { ...saved.settings.launch!, draftId: saved.id }
+          : null,
+    [pending, requestedDraftId, restoring, saved],
+  );
   const launchAccountError =
     accountError && accountError.draftId === ownedLaunch?.draftId ? accountError.message : '';
   const selectedAccountId = saved?.settings.selection?.accountId;

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.139';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.140';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -125,12 +125,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '63427b971465eab55442c1f38cf99e9cf546cb0853ec552a45fc1191758150ae',
   '../../frontend/src/lib/launch-draft-delivery.ts':
-    'b3a960b93c42f7ee5cdb8d916e90b2c33e2195fbd5d80ca580cacfd49546c851',
+    '88b02b396b8222b978d6307ea7a0470123c799c46b3e0e48e9f017fc1bf72b4a',
   '../../frontend/src/hooks/useDraft.ts':
     '1b98e2c6fcf8864ebf2fb45984b926e2ba9fe21f71aa6368de7545d7dd161b62',
   // Saved contextual launches retain their exact source and delivery owner.
   '../../frontend/src/hooks/usePendingLaunch.ts':
-    '82e3ce5821cd75dac5ebf77d51f248deaca09a36c35dd622755dcf62bfa6ea5e',
+    '50d02ac129734f1944e464361413f85afc6ef0fbcbc1ab232de9a7e7a513f779',
   '../../frontend/src/hooks/useStageChatLaunch.ts':
     '607b783bd86d52b78df4e814a13df8f1c0c212c6df34a69026379ebee715bc72',
   '../../frontend/src/hooks/useBriefingChat.ts':
