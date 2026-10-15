@@ -89,35 +89,31 @@ export function WorkspaceControls({
           observed.add(node);
         }
       if (!boundary) return;
-      let space: number;
-      if (getComputedStyle(panel).position === 'absolute') {
-        const heading = owner.querySelector<HTMLElement>('.workspace-controls-heading');
-        const gap = heading ? Number.parseFloat(getComputedStyle(heading).gap) || 0 : 0;
-        space = boundary.getBoundingClientRect().top - owner.getBoundingClientRect().bottom - gap;
-      } else {
-        if (!composer) return;
-        const style = messages ? getComputedStyle(messages) : null;
-        const minimumMessages = style
-          ? ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce(
-              (height, property) =>
-                height +
-                (Number.parseFloat(style[property as keyof CSSStyleDeclaration] as string) || 0),
-              0,
-            )
-          : 0;
-        const freeMessages = messages
-          ? Math.max(0, messages.getBoundingClientRect().height - minimumMessages)
-          : 0;
-        // Reserve the actual repository/composer flow, even when a hidden ancestor
-        // has been scrolled by textarea focus. Flexible transcript space can shrink.
-        space =
-          chat.clientHeight -
-          (composer.getBoundingClientRect().bottom -
-            chat.getBoundingClientRect().top +
-            chat.scrollTop -
-            panel.getBoundingClientRect().height -
-            freeMessages);
-      }
+      if (!composer) return;
+      const style = messages ? getComputedStyle(messages) : null;
+      const minimumMessages = style
+        ? ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce(
+            (height, property) =>
+              height +
+              (Number.parseFloat(style[property as keyof CSSStyleDeclaration] as string) || 0),
+            0,
+          )
+        : 0;
+      const freeMessages = messages
+        ? Math.max(0, messages.getBoundingClientRect().height - minimumMessages)
+        : 0;
+      // Measure the same structural space in both modes. Switching to an overlay
+      // removes only the panel's flow contribution; it must not change the threshold
+      // calculation and repeatedly switch the panel back into flow.
+      const panelFlowHeight =
+        getComputedStyle(panel).position === 'absolute' ? 0 : panel.getBoundingClientRect().height;
+      const space =
+        chat.clientHeight -
+        (composer.getBoundingClientRect().bottom -
+          chat.getBoundingClientRect().top +
+          chat.scrollTop -
+          panelFlowHeight -
+          freeMessages);
       panel.style.setProperty('--workspace-disclosure-space', `${Math.max(0, space)}px`);
       const heading = owner.querySelector<HTMLElement>('.workspace-controls-heading');
       const viewport = window.visualViewport;
