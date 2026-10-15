@@ -30,10 +30,12 @@ reference material, not an installed runtime. This inventory takes precedence ov
 in that knowledge. Use exposed service tools or an approved, present CLI after connection access.
 Apply instructions already supplied in context without rereading their entry files. Retrieve only
 missing task-specific guidance and relevant evidence rather than enumerating the workspace.
-After one classified failure (missing command/dependency, missing credentials, or denied access),
+After one classified failure using an advertised workflow or service (missing command/dependency,
+missing credentials, or denied access),
 record the limitation and continue with available evidence. Do not inspect Git, enumerate environment
 variables, install dependencies, retry through alternate transports, or repair integrations unless
-the user requested runtime diagnosis or setup. Preserve any useful partial result.\n`;
+the user requested runtime diagnosis or setup. Development and test work retain the build,
+dependency and debugging steps required by the user's coding request. Preserve any useful partial result.\n`;
 }
 
 export const meetingPrepGuidance = `\n# Meeting preparation workflow\nFor a meeting-preparation request, resolve the calendar event first using approved access. Read the

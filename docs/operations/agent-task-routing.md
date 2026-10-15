@@ -13,7 +13,8 @@ deadline and runs under the existing sandbox lifecycle fence.
 Runtime guidance takes precedence over command examples in published documents.
 After one classified command, dependency, credential or permission failure, the
 agent names the limitation and continues with available evidence. Runtime setup
-and diagnosis requests retain their normal troubleshooting scope. These are
+and diagnosis requests retain their normal troubleshooting scope. Coding and test
+requests retain required build, dependency and debugging work. These are
 agent instructions, not a new permission grant or tool execution policy.
 
 Meeting-preparation guidance starts with the calendar invite, attendees and linked
