@@ -94,6 +94,30 @@ describe('durable native Responses turns', () => {
       ...selection,
     });
   }
+  it('supplies HTML authoring capabilities at the owned provider boundary without changing the frozen profile prompt', async () => {
+    const options = {
+      conversationId: 'owned-capabilities',
+      binding,
+      getApiKey: async () => 'offline-test-credential',
+      systemPrompt: 'Frozen profile instructions',
+      maxTokens: 100,
+      store,
+      executeTool: vi.fn(),
+      commandAuthority: {
+        assertPrepare: vi.fn(),
+        assertStart: vi.fn(),
+        assertEffect: vi.fn(async () => {}),
+      },
+    };
+    const native = new NativeResponsesRunner(options);
+    native.prepare('mockup-command', 'Explore a clickable mockup');
+    await collect(native.run('Explore a clickable mockup', undefined, 'mockup-command'));
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.instructions).toContain('Frozen profile instructions');
+    expect(body.instructions).toContain('<mitzo_capabilities>');
+    expect(body.instructions).toContain('clickable mockup');
+    expect(options.systemPrompt).toBe('Frozen profile instructions');
+  });
   it.each(['openai', 'google-vertex'] as const)(
     'revalidates source grants after credentials resolve before HTTP dispatch (%s)',
     async (provider) => {
