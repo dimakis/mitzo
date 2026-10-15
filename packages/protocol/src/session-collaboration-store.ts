@@ -80,9 +80,12 @@ export class SessionCollaborationStore {
         )
           throw new SessionCollaborationError('conflict');
         if (!current && ids.length < 2) throw new SessionCollaborationError('invalid_membership');
-        for (const member of ids)
-          if (!isLinkable(member)) throw new SessionCollaborationError('not_found');
         if (current && same) return current;
+        const retained = new Set(current?.participantSessionIds);
+        // Availability gates new links; retained references survive participant loss.
+        for (const member of ids)
+          if (!retained.has(member) && !isLinkable(member))
+            throw new SessionCollaborationError('not_found');
         const result = SessionCollaborationSchema.parse({
           version: 1,
           collaborationId: id,

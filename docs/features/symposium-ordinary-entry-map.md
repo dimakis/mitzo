@@ -23,6 +23,9 @@ existing SQLite connection. Membership validates inside the same immediate
 transaction as its revision check. There is no coordinator conversation, parent
 chat foreign key or new runtime/account registry. The relationship survives
 participant unavailability; explicit removal changes only association metadata.
+Exact last retries remain readable after a participant becomes unavailable.
+Edits can retain unavailable references while changing other members; availability
+is checked only for newly added participants, including re-adding a removed one.
 Reads do not allocate anything, and stored corruption fails closed.
 
 This slice supports the shared boundary between Telos `c0851ba23fcc5d04` and

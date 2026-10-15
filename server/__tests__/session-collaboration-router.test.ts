@@ -75,6 +75,27 @@ it('links, reopens and unlinks real existing sessions without executing or creat
   expect(store.getSession('first')).toMatchObject({ sessionId: 'first', isHidden: true });
   expect(store.getSessionEvents('local')).toEqual([]);
 });
+it('recovers accepted updates and edits other members while preserving an unavailable reference', async () => {
+  const accepted = await request(app).put(path).set('x-operator', 'yes').send(body);
+  expect(accepted.status).toBe(200);
+  store.hideSession('first');
+  const retry = await request(app).put(path).set('x-operator', 'yes').send(body);
+  expect(retry.status).toBe(200);
+  expect(retry.body).toEqual(accepted.body);
+  const updated = await request(app)
+    .put(path)
+    .set('x-operator', 'yes')
+    .send({ expectedRevision: 1, participantSessionIds: ['first', 'sandbox'] });
+  expect(updated.status).toBe(200);
+  expect(updated.body).toMatchObject({ revision: 2, participantSessionIds: ['first', 'sandbox'] });
+  expect((await request(app).get(path).set('x-operator', 'yes')).body).toEqual({
+    ...updated.body,
+    unavailableParticipantSessionIds: ['first'],
+  });
+  expect((await request(app).put(path).set('x-operator', 'yes').send(body)).status).toBe(409);
+  expect(store.getSessionEvents('sandbox')).toEqual([]);
+});
+
 it('rejects cross-origin writes, stale revisions, unknown participants and execution fields', async () => {
   expect(
     (

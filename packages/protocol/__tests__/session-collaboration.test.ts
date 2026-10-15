@@ -203,6 +203,41 @@ it('retains an unavailable reference until explicitly removed', () => {
   expect(() => store.setSessionCollaboration(id, selection(['local'], 1))).not.toThrow();
 });
 
+it('recovers the exact last mutation after a participant becomes unavailable and the store restarts', () => {
+  const input = selection(['first', 'local']);
+  const accepted = store.setSessionCollaboration(id, input);
+  store.hideSession('first');
+  store.close();
+  store = new EventStore(path);
+  expect(store.setSessionCollaboration(id, input)).toEqual(accepted);
+  expect(store.setSessionCollaboration(id, selection(['local', 'first'], 1))).toEqual(accepted);
+  const db = new Database(path);
+  expect(db.prepare('SELECT count(*) AS n FROM session_collaboration_revisions').get()).toEqual({
+    n: 1,
+  });
+  db.close();
+});
+
+it('edits other membership while retaining an unavailable reference, but refuses to add it again', () => {
+  store.setSessionCollaboration(id, selection(['first', 'local']));
+  store.hideSession('first');
+  expect(
+    store.setSessionCollaboration(id, selection(['first', 'local', 'sandbox'], 1)),
+  ).toMatchObject({
+    revision: 2,
+    participantSessionIds: ['first', 'local', 'sandbox'],
+  });
+  expect(store.setSessionCollaboration(id, selection(['first', 'sandbox'], 2))).toMatchObject({
+    revision: 3,
+    participantSessionIds: ['first', 'sandbox'],
+  });
+  const removed = store.setSessionCollaboration(id, selection(['sandbox'], 3));
+  expect(() => store.setSessionCollaboration(id, selection(['first', 'sandbox'], 4))).toThrow(
+    'Conversation not found',
+  );
+  expect(store.getSessionCollaboration(id)).toEqual(removed);
+});
+
 it('rediscovers membership from an existing session after restart without making it the group owner', () => {
   const secondId = randomUUID();
   store.setSessionCollaboration(id, selection(['first', 'local']));
