@@ -187,9 +187,26 @@ the exact verified baseline digest, and admission requires the frozen upload's
 baseline to match it. Replacing a bundle with another self-consistent bundle after
 path-policy verification therefore blocks delivery.
 
-New ordinary OpenShell Codex sandboxes reconcile before seed selection. Existing
-enrolled chats reconcile before each safe turn, wait for conversion of the selected
-accepted revision, and deliver it through a separate protected knowledge root.
+New ordinary OpenShell Codex sandboxes reconcile before seed selection. For an
+explicit initial command whose sandbox is created by that same admission, the
+manager pins this verified immutable publication to the exact command,
+conversation, physical sandbox, account/store and runtime configuration. Its first
+turn consumes that selection once rather than running a second publisher/adapter
+pass. A publication accepted after this command's selection is available to the
+next command; it does not silently replace the initial command's pinned revision.
+Host baseline/source verification, physical ownership, runtime attestation and
+remote knowledge integrity remain mandatory before delivery. The receipt is
+private in-memory metadata and is not an adoption ACK or a cross-session cache.
+
+Existing enrolled chats and subsequent commands reconcile before each safe turn,
+wait for conversion of the selected accepted revision, and deliver it through a
+separate protected knowledge root. A mismatch, another ensure call, reattach,
+recovery, creation conflict, external seed, or missing initial command identity
+cannot reuse creation's selection. Consumption precedes awaits, so failed and
+cancelled first attempts also reconcile afresh on retry. A warmup without a user
+command cannot preselect knowledge for a future claim; that claim needs its own
+fresh selection. `knowledge.reuse_initial_selection` identifies the short reuse
+step without carrying private paths, prompts or credentials.
 Mitzo verifies actual runtime/compiler/recipe identities and sends compiled context
 on the existing native provider thread. An in-progress turn remains on its earlier
 selection. Reconciliation or compatibility failure blocks admission instead of
