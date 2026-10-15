@@ -30,7 +30,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionResourcesDialog.tsx':
     '3488013ed4e2240e379ff66f386f4add8f105e58378d68ba798e8c1366f91b31',
   '../../frontend/src/components/SessionAccess.tsx':
-    'e6b5f190fb7ceb42a6e81141f25c002afa2311619d2e2af17cf44246b8259a29',
+    'ea432fe32be3cd61aedc2d4fd8035950e2a3f0eda949733356b22512b9d9db33',
   '../../frontend/src/components/SessionBanner.tsx':
     '1c53c85a30dfb1898ab1d29edc9a40652c1fe7f6a2d52f4a74dad702b8854060',
   '../../frontend/src/components/TokenBar.tsx':

@@ -94,6 +94,8 @@ describe('ordinary Access', () => {
       }),
     });
     await screen.findByText(/Unknown — live evidence is unavailable/);
+    expect(screen.getByText(/This runtime has not supplied current session evidence/)).toBeTruthy();
+    expect(screen.queryByText(/currently reports live Claude/)).toBeNull();
     expect(screen.queryByText('Wrong account')).toBeNull();
   });
 });

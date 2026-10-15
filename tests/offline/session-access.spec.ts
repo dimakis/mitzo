@@ -36,7 +36,7 @@ const inventory = {
     { id: 'google', state: 'unavailable', reason: 'Google could not be checked.' },
   ],
 };
-async function fixture(page: Page, existing = false, pending = true) {
+async function fixture(page: Page, existing = false, pending = true, unknown = false) {
   const errors: string[] = [];
   let reads = 0;
   page.on('pageerror', (error) => errors.push(error.message));
@@ -140,6 +140,8 @@ async function fixture(page: Page, existing = false, pending = true) {
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'No writes in this fixture' } });
       if (url.pathname === `/api/sessions/${sessionId}/access`) {
+        if (unknown)
+          return route.fulfill({ json: { sessionId, observedAt: Date.now(), state: 'unknown' } });
         reads++;
         if (reads > 2) return route.fulfill({ status: 503, json: { error: 'Unavailable' } });
         return route.fulfill({
@@ -268,6 +270,36 @@ test('Access: pending request, unknown capability and stale refresh', async ({
   await expect(dialog.getByRole('button', { name: 'View pending approvals' })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('stale-access.png'), animations: 'disabled' });
   await dialog.press('Escape');
+  expect(errors).toEqual([]);
+});
+
+test('Access: missing runtime evidence is independent of provider', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 800 });
+  const errors = await fixture(page, true, false, true);
+  await page.goto(`/chat/${sessionId}`);
+  await page.getByRole('button', { name: 'Access', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Access' });
+  await expect(
+    dialog.getByText(/This runtime has not supplied current session evidence/),
+  ).toBeVisible();
+  await expect(dialog.getByText(/currently reports live Claude/)).toHaveCount(0);
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'light' ? 'teal' : 'lavender';
+      document.documentElement.dataset.font = theme === 'light' ? 'georgia' : 'system';
+    }, theme);
+    await page.screenshot({
+      path: testInfo.outputPath(`unknown-runtime-${theme}.png`),
+      animations: 'disabled',
+    });
+  }
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Access', exact: true })).toBeFocused();
   expect(errors).toEqual([]);
 });
 
