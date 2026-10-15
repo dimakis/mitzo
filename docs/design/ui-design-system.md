@@ -630,3 +630,15 @@ Inspected captures show [new agent creation on mobile](assets/agent-creation-mob
 and [the desktop advisor above the profile form](assets/agent-creation-desktop-light.png).
 These are fully intercepted fixtures; no live model, backend or production service
 was used.
+
+## Agent tool selection
+
+Agent Library keeps its advisor above the editor. The Tools tab and Tool library
+view reuse the existing collection heading, tabs, form controls and grouped quiet
+rows. The inline picker uses MotionPresence, labelled search and Add/Remove
+actions, Escape/Done focus return and the existing control-height touch targets.
+Colors, type, spacing, focus and radii come from tokens.css. Compatibility and
+connection requirements are visible beside each tool; selection does not grant
+access. Offline Agent Library fixtures cover selection recovery, publication,
+exports, usage references and the picker at 320px and desktop across light/dark
+themes with Lavender/System and Teal/Georgia.
