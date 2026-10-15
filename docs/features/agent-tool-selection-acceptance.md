@@ -70,6 +70,16 @@ reproduced and the corrected locator passed Chromium and WebKit offline. A local
 full-app bundle attempt exceeded the required 1 GiB heap, so the complete fixture
 rerun remains a current-head CI gate.
 
+The next review round keeps creation actions in Agent library and waits for the
+profile catalog before reporting Tool library usage. Loading and failed catalog
+requests now show explicit status or Retry profiles rather than an empty usage
+claim. After reconciling accepted main and those fixes, 212 focused runtime,
+source-pin, UI and design tests passed. The selection browser matrix passed eight
+checks and the separate usage/loading/retry matrix passed eight checks, each
+including two browser startup checks. Mobile error and desktop loading captures
+were inspected. Current-head CI and exact-head review must run again after this
+parent reconciliation; live qualification remains unperformed and Phase 1 active.
+
 ## Operational limits and remaining gates
 
 On 2026-10-15 the required canonical staging check refused:

@@ -87,6 +87,8 @@ const normalize = (definition: SymposiumProfileDefinition): SymposiumProfileDefi
 export function AgentLibrary() {
   const [recovered] = useState(loadAgentLibraryWorkingCopy);
   const [catalog, setCatalog] = useState<AgentLibraryCatalog | null>(null);
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogAttempt, setCatalogAttempt] = useState(0);
   const [editor, setEditor] = useState<Editor | null>(recovered?.editor ?? null);
   const [advisorOpen, setAdvisorOpen] = useState(
     !!recovered && !recovered.editor.publishedRevision,
@@ -164,6 +166,7 @@ export function AgentLibrary() {
   };
   useEffect(() => {
     let live = true;
+    setCatalogError('');
     read<AgentLibraryCatalog>('/api/agent-library')
       .then((rows) => {
         if (!live) return;
@@ -174,12 +177,12 @@ export function AgentLibrary() {
         if (first && !recovered) adopt(first);
       })
       .catch((cause: unknown) => {
-        if (live) setError(cause instanceof Error ? cause.message : 'Library unavailable');
+        if (live) setCatalogError(cause instanceof Error ? cause.message : 'Library unavailable');
       });
     return () => {
       live = false;
     };
-  }, [recovered]);
+  }, [recovered, catalogAttempt]);
   const execute = async (action: () => Promise<void>) => {
     setBusy(true);
     setError('');
@@ -333,6 +336,15 @@ export function AgentLibrary() {
             Browse implemented tools. Selection grants no access; compatibility and current session
             permissions still apply.
           </p>
+          {catalogError && (
+            <p role="alert" className="agent-library-error">
+              {catalogError}{' '}
+              <button onClick={() => setCatalogAttempt((value) => value + 1)}>
+                Retry profiles
+              </button>
+            </p>
+          )}
+          {!catalog && !catalogError && <p role="status">Loading profile usage…</p>}
           <label>
             Search tool library
             <input
@@ -362,32 +374,34 @@ export function AgentLibrary() {
                       : 'Explicit selection unsupported on its runtime'}
                   </p>
                   <p>{tool.requirement}</p>
-                  <details>
-                    <summary>Profiles using this tool</summary>
-                    {[...(catalog?.drafts ?? []), ...(catalog?.versions ?? [])]
-                      .filter((profile) =>
-                        profile.definition.tools?.some(
-                          (ref) => ref.id === tool.id && ref.version === tool.version,
-                        ),
-                      )
-                      .map((profile) => (
-                        <p
-                          key={`${profile.profileId}:${'version' in profile ? 'draft' : profile.revision}`}
-                        >
-                          {agentProfileLabel(profile.definition)} ·{' '}
-                          {'version' in profile ? 'Draft' : `r${profile.revision}`}
-                        </p>
-                      ))}
-                    {![catalog?.drafts ?? [], catalog?.versions ?? []]
-                      .flat()
-                      .some((profile) =>
-                        profile.definition.tools?.some(
-                          (ref) => ref.id === tool.id && ref.version === tool.version,
-                        ),
-                      ) && (
-                      <p>No explicit references. Legacy profiles use their runtime catalog.</p>
-                    )}
-                  </details>
+                  {catalog && (
+                    <details>
+                      <summary>Profiles using this tool</summary>
+                      {[...catalog.drafts, ...catalog.versions]
+                        .filter((profile) =>
+                          profile.definition.tools?.some(
+                            (ref) => ref.id === tool.id && ref.version === tool.version,
+                          ),
+                        )
+                        .map((profile) => (
+                          <p
+                            key={`${profile.profileId}:${'version' in profile ? 'draft' : profile.revision}`}
+                          >
+                            {agentProfileLabel(profile.definition)} ·{' '}
+                            {'version' in profile ? 'Draft' : `r${profile.revision}`}
+                          </p>
+                        ))}
+                      {![catalog.drafts, catalog.versions]
+                        .flat()
+                        .some((profile) =>
+                          profile.definition.tools?.some(
+                            (ref) => ref.id === tool.id && ref.version === tool.version,
+                          ),
+                        ) && (
+                        <p>No explicit references. Legacy profiles use their runtime catalog.</p>
+                      )}
+                    </details>
+                  )}
                 </div>
               </article>
             ))}
@@ -423,8 +437,14 @@ export function AgentLibrary() {
             {error}
           </p>
         )}
+        {catalogError && (
+          <p role="alert" className="agent-library-error">
+            {catalogError}{' '}
+            <button onClick={() => setCatalogAttempt((value) => value + 1)}>Retry profiles</button>
+          </p>
+        )}
         {notice && <p role="status">{notice}</p>}
-        {!catalog && !error && <p role="status">Loading Agent Library…</p>}
+        {!catalog && !catalogError && <p role="status">Loading Agent Library…</p>}
         {importing && (
           <section className="agent-library-import" aria-label="Import a profile">
             <label>

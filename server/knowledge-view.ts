@@ -32,6 +32,34 @@ print('true' if result.returncode==0 else 'false')`;
   return `/usr/bin/python3 -c ${quote(script)}`;
 }
 
+/** One remote read distinguishes an absent cache from a damaged entry needing repair. */
+export function knowledgeCacheProbeCommand(root: string, manifestSha256: string) {
+  const command = knowledgeVerificationCommand(root, manifestSha256);
+  const script = `# knowledge-cache-probe
+import json,os,subprocess,sys
+present=os.path.lexists(sys.argv[1])
+valid=present and subprocess.run(['/bin/sh','-c',${JSON.stringify(command)}],capture_output=True).returncode==0
+print(json.dumps({'valid':valid,'present':present}))`;
+  return `/usr/bin/python3 -c ${quote(script)} ${quote(root)}`;
+}
+
+/** Keep verification, optional compilation and retention in one SSH exchange.
+ * Every child must succeed before a receipt is returned; no failure falls through
+ * to compilation or cleanup. The caller still checks physical ownership afterward. */
+export function knowledgeDeliveryCommand(root: string, manifestSha256: string, compile: boolean) {
+  const verify = knowledgeVerificationCommand(root, manifestSha256);
+  const cleanup = knowledgeCleanupCommand(`${root}/mgmt`);
+  const script = `# knowledge-delivery
+import json,subprocess,sys
+receipt=json.loads(subprocess.check_output(['/bin/sh','-c',${JSON.stringify(verify)}]))
+result={'receipt':receipt}
+if sys.argv[2]=='compile':
+ result['context']=json.loads(subprocess.check_output(['/usr/bin/node','/sandbox/compile-mgmt-context.mjs',sys.argv[1]+'/mgmt','12000']))
+subprocess.run(['/bin/sh','-c',${JSON.stringify(cleanup)}],check=True,capture_output=True)
+print(json.dumps(result))`;
+  return `/usr/bin/python3 -c ${quote(script)} ${quote(root)} ${compile ? 'compile' : 'cached'}`;
+}
+
 /** Remove only the selected invalid, content-addressed cache under its fixed root. */
 export function knowledgeCacheRepairCommand(root: string) {
   if (!/^\/sandbox\/workspaces\/knowledge\/knowledge-[a-f0-9]{64}$/.test(root))

@@ -12,7 +12,7 @@ import {
   existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import {
   knowledgeVerificationCommand,
@@ -21,6 +21,8 @@ import {
   knowledgeCleanupCommand,
   knowledgeCacheStatusCommand,
   knowledgeCacheRepairCommand,
+  knowledgeCacheProbeCommand,
+  knowledgeDeliveryCommand,
 } from '../knowledge-view.js';
 
 let root = '';
@@ -28,6 +30,87 @@ afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });
 });
 const sha = (bytes: string) => createHash('sha256').update(bytes).digest('hex');
+
+it('distinguishes absent and damaged caches in one probe, including dangling symlinks', () => {
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'knowledge-probe-')));
+  const cache = join(root, 'cache');
+  const probe = () =>
+    JSON.parse(
+      execFileSync('/bin/sh', ['-c', knowledgeCacheProbeCommand(cache, sha('manifest'))], {
+        encoding: 'utf8',
+      }),
+    );
+  expect(probe()).toEqual({ valid: false, present: false });
+  execFileSync('ln', ['-s', join(root, 'missing'), cache]);
+  expect(probe()).toEqual({ valid: false, present: true });
+});
+
+it.each(['valid', 'content', 'mode', 'manifest', 'compiler'])(
+  'batches delivery and stops dependent work for state=%s',
+  (state) => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'knowledge-delivery-')));
+    const cache = join(root, "quoted' parent", `knowledge-${sha('active')}`);
+    mkdirSync(join(cache, 'mgmt'), { recursive: true });
+    const note = join(cache, 'mgmt/note.md');
+    writeFileSync(note, 'accepted');
+    chmodSync(note, 0o644);
+    const view = knowledgeViewManifest({
+      startingCommit: 'a'.repeat(40),
+      payloadSha256: 'b'.repeat(64),
+      files: { 'note.md': { sha256: sha('accepted'), mode: '0644' } },
+    });
+    const bytes = JSON.stringify(view);
+    writeFileSync(join(cache, 'knowledge-view.json'), bytes);
+    const expired = Array.from({ length: 12 }, (_, i) =>
+      join(dirname(cache), `knowledge-${sha(String(i))}`),
+    );
+    const old = new Date(Date.now() - 40 * 86400 * 1000);
+    for (const version of expired) {
+      mkdirSync(version);
+      utimesSync(version, old, old);
+    }
+    const context = { fullMarkdown: 'compiled context' };
+    const marker = join(root, 'compiled');
+    const compiler = join(root, 'compiler.cjs');
+    writeFileSync(
+      compiler,
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, process.argv[2]); ${state === 'compiler' ? 'process.exit(1)' : `console.log(${JSON.stringify(JSON.stringify(context))})`}`,
+    );
+    if (state === 'content') writeFileSync(note, 'damaged');
+    if (state === 'mode') chmodSync(note, 0o755);
+    if (state === 'manifest') writeFileSync(join(cache, 'knowledge-view.json'), '{}');
+    const command = knowledgeDeliveryCommand(cache, sha(bytes), true)
+      .replace('/usr/bin/node', process.execPath)
+      .replace('/sandbox/compile-mgmt-context.mjs', compiler);
+    if (state === 'valid') {
+      expect(JSON.parse(execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8' }))).toEqual({
+        receipt: { sourceCommit: view.sourceCommit, payloadSha256: view.payloadSha256 },
+        context,
+      });
+      expect(readFileSync(marker, 'utf8')).toBe(join(cache, 'mgmt'));
+      expect(expired.filter(existsSync)).toHaveLength(9);
+      expect(
+        JSON.parse(
+          execFileSync('/bin/sh', ['-c', knowledgeCacheProbeCommand(cache, sha(bytes))], {
+            encoding: 'utf8',
+          }),
+        ),
+      ).toEqual({ valid: true, present: true });
+      const withoutCompile = knowledgeDeliveryCommand(cache, sha(bytes), false);
+      rmSync(marker);
+      expect(
+        JSON.parse(execFileSync('/bin/sh', ['-c', withoutCompile], { encoding: 'utf8' })),
+      ).toEqual({
+        receipt: { sourceCommit: view.sourceCommit, payloadSha256: view.payloadSha256 },
+      });
+      expect(existsSync(marker)).toBe(false);
+    } else {
+      expect(() => execFileSync('/bin/sh', ['-c', command], { stdio: 'pipe' })).toThrow();
+      expect(existsSync(marker)).toBe(state === 'compiler');
+      expect(expired.every(existsSync)).toBe(true);
+    }
+  },
+);
 
 it('reclaims only expired unreferenced content-addressed sandbox views', () => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'knowledge-retention-')));

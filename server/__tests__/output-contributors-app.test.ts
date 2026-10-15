@@ -4,6 +4,7 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import type { EventStore } from '../event-store.js';
 import { AccountProfiles } from '../account-profiles.js';
 let currentAccounts: AccountProfiles;
@@ -16,7 +17,10 @@ vi.mock('../auth.js', async (original) => ({
   ...(await original<object>()),
   authMiddleware: (_req: Request, _res: Response, next: NextFunction) => next(),
   operatorAuthMiddleware: (req: Request, res: Response, next: NextFunction) => {
-    if (req.header('x-operator') === 'browser') return next();
+    if (req.header('x-operator') === 'browser') {
+      res.locals.authSession = { id: 'operator', expiresAt: Date.now() + 60000 };
+      return next();
+    }
     res.status(403).json({ error: 'Interactive operator authentication is required' });
   },
 }));
@@ -66,6 +70,24 @@ afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+
+it('mounts existing-session collaboration links behind interactive auth without starting a provider', async () => {
+  for (const sessionId of ['linked-local', 'linked-openshell'])
+    store.upsertSession({ sessionId, conversationSource: 'mitzo' });
+  const path = `/api/session-collaborations/${randomUUID()}`;
+  const body = { expectedRevision: 0, participantSessionIds: ['linked-local', 'linked-openshell'] };
+  expect(
+    (await request(app).put(path).set('x-internal-token', 'internal-only').send(body)).status,
+  ).toBe(403);
+  const saved = await request(app).put(path).set('x-operator', 'browser').send(body);
+  expect(saved.status).toBe(200);
+  expect((await request(app).get(path).set('x-operator', 'browser')).body).toEqual({
+    ...saved.body,
+    unavailableParticipantSessionIds: [],
+  });
+  expect(store.getSessionEvents('linked-local')).toEqual([]);
+  expect(store.getSessionRuntimeBinding('linked-local')).toBeNull();
 });
 
 it('mounts exact reference registration under interactive operator auth without converting the source chat', async () => {

@@ -748,3 +748,15 @@ catalog error/retry. Inspected captures show [mobile selection](assets/agent-too
 [desktop tool browsing](assets/tool-library-desktop-dark.png). These isolate the
 actual page from the shell, use a fixture checked against the real registrations,
 and start no backend or model. Full-app fixtures remain a separate CI gate.
+
+The Tool library keeps profile creation actions in the Agent library view. Profile
+usage remains unavailable while its catalog loads or fails; the shared status and
+error patterns show loading or an explicit Retry profiles action before usage
+references or an empty result appear. The actual-page offline review fixture
+`tests/offline/agent-tool-library-review.spec.ts` covers pending, failed, retried,
+referenced and unreferenced states on 320px mobile WebKit/Chromium and 1280px
+desktop Chromium in both themes, Lavender/System and Teal/Georgia. Inspected
+captures show the [mobile profile usage error and retry](assets/tool-library-profile-error-mobile.png)
+and [desktop profile usage loading state](assets/tool-library-profile-loading-desktop.png).
+These isolated renders use intercepted requests and no backend or model. The
+full-app Agent Library fixture retains its separate CI acceptance journey.
