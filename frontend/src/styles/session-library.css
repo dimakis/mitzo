@@ -324,6 +324,9 @@
   border-radius: var(--radius-control);
 }
 .conversation-library .session-item-summary {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
   white-space: normal;
   overflow-wrap: anywhere;
   font-size: var(--text-base);

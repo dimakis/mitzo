@@ -146,6 +146,7 @@ for (const theme of ['dark', 'light'])
       name: `${isMobile ? 'Open' : 'Preview'} ${sessions[0].summary}`,
     });
     if (isMobile) {
+      await expect(first.locator('.session-item-summary')).toHaveCSS('display', 'block');
       const box = await first.boundingBox();
       await first.evaluate(
         (element, point) => {
@@ -203,9 +204,17 @@ for (const theme of ['dark', 'light'])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
+    await page.goto('/');
+    await expect(page.getByRole('meter', { name: 'Context used' }).first()).toHaveAttribute(
+      'aria-valuenow',
+      '24',
+    );
+    await page.screenshot({ path: testInfo.outputPath(`session-context-${theme}.png`) });
     await page.goto('/settings');
     const toggle = page.getByRole('checkbox', { name: 'Show session context on Today' });
     await expect(toggle).toBeChecked();
+    await toggle.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`session-appearance-${theme}.png`) });
     await toggle.uncheck();
     await page.goto('/');
     await expect(page.locator('.session-context-usage')).toHaveCount(0);
