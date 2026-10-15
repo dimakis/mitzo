@@ -159,21 +159,33 @@ it('keeps actions outside the conversation navigation control', async () => {
   expect(screen.getByRole('dialog', { name: 'Preview Review UI' })).toBeTruthy();
 });
 
-it('clears active search when conversation history is cleared', () => {
-  mocks.search.clear.mockClear();
-  mocks.list.clearAll.mockClear();
-  const previous = mocks.search.active;
-  mocks.search.active = true;
-  try {
-    mount();
-    fireEvent.click(screen.getByLabelText('Conversation options'));
-    fireEvent.click(screen.getByRole('button', { name: 'Clear conversation history' }));
-    expect(mocks.search.clear).toHaveBeenCalledOnce();
-    expect(mocks.list.clearAll).toHaveBeenCalledOnce();
-  } finally {
-    mocks.search.active = previous;
-  }
-});
+it.each([true, false])(
+  'clears active search only after confirmed history deletion (success=%s)',
+  async (ok) => {
+    mocks.search.clear.mockClear();
+    let finish!: (success: boolean) => void;
+    mocks.list.clearAll.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const previous = mocks.search.active;
+    mocks.search.active = true;
+    try {
+      mount();
+      fireEvent.click(screen.getByLabelText('Conversation options'));
+      fireEvent.click(screen.getByRole('button', { name: 'Clear conversation history' }));
+      expect(mocks.search.clear).not.toHaveBeenCalled();
+      await act(async () => finish(ok));
+      expect(mocks.search.clear).toHaveBeenCalledTimes(ok ? 1 : 0);
+      expect(mocks.list.clearAll).toHaveBeenCalledOnce();
+    } finally {
+      mocks.search.active = previous;
+      mocks.list.clearAll.mockClear();
+    }
+  },
+);
 
 it.each(['delete', 'clear'] as const)(
   'keeps hook-provided rows visible until %s is confirmed',
