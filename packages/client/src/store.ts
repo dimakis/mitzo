@@ -320,7 +320,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         url: options.reviewedSendConfig.url,
         storage: options.reviewedSendConfig.storage,
         fetch: options.transport.fetch.bind(options.transport),
-        requireDurableBriefings: true,
+        durableLaunches: true,
         notify(event) {
           wsListener(event);
           if (
@@ -1103,8 +1103,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const reviewed =
         !!reviewedOutbox &&
         msg.sessionId === null &&
-        Array.isArray(msg.sourceSnapshots) &&
-        msg.sourceSnapshots[0]?.kind === 'briefing';
+        (!!opts?.launchDraftId ||
+          (Array.isArray(msg.sourceSnapshots) && msg.sourceSnapshots[0]?.kind === 'briefing'));
       const sent = reviewed
         ? reviewedAuthenticated && reviewedOutbox!.enqueue(msg, reviewedSendScope++)
         : connection.send(msg);

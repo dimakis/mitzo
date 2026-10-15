@@ -598,6 +598,8 @@ so its briefing header, launch panel and composer guidance cannot follow the use
 Drafts restores that launch only when its own record is opened. Acceptance consumes
 only the submitted draft revision; failed sends keep it, and outstanding sends stay
 locked across reloads when their draft is reopened, using the original command ID.
+Briefing and generic launch commands share durable recovery across tab replacement;
+each remains a separate new conversation even after a client restarts.
 Generic launch drafts retain account/model edits; acceptance preserves unsent
 follow-up text as a separate draft, including pending composer saves. These changes reuse existing draft rows,
 conversation controls and briefing surfaces without new styling or motion.

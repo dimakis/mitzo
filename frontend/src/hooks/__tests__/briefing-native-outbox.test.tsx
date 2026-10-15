@@ -320,9 +320,13 @@ it('recovers a browser SSE reviewed launch after a fresh context loses sessionSt
   await expect(localBriefingConversation(source, selection)).resolves.toBe('sse-fresh');
 });
 
-it.each([false, true])(
-  'locks an opened launch after cold recovery (SSE=%s) until its original command is accepted',
-  async (sse) => {
+it.each(
+  [false, true].flatMap((sse) =>
+    ['briefing', 'meeting', 'work', 'inbox'].map((kind) => [sse, kind] as const),
+  ),
+)(
+  'locks an opened launch after cold recovery (SSE=%s, kind=%s) until its original command is accepted',
+  async (sse, kind) => {
     vi.useFakeTimers();
     const commands: Record<string, unknown>[] = [];
     let accepting = false;
@@ -345,9 +349,11 @@ it.each([false, true])(
     const launch = {
       prompt: 'Discuss original report',
       context: 'Briefing',
-      briefing: { date: source.date, revision: source.revision },
       accountSelection: selection,
-      sourceSnapshots: [source],
+      contextBlocks: ['Exact preparation context'],
+      ...(kind === 'briefing'
+        ? { briefing: { date: source.date, revision: source.revision }, sourceSnapshots: [source] }
+        : { telosTaskId: kind === 'work' ? 'task' : undefined }),
     };
     const draft = createChatDraft();
     draft.text = launch.prompt;

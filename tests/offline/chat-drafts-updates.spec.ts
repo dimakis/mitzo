@@ -1436,3 +1436,64 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });
+
+test('launch drafts: generic command survives tab replacement and keeps its original receipt identity', async ({
+  page,
+  context,
+}) => {
+  const fixture = await offline(page);
+  const base = savedDraft('generic-delivery', 'Prepare the selected work item');
+  const launch = {
+    prompt: base.text,
+    context: 'Work preparation',
+    telosTaskId: 'task-fixture',
+    accountSelection: base.settings.selection,
+  };
+  const draft = {
+    ...base,
+    images: [],
+    contextBlocks: [],
+    settings: { ...base.settings, search: '', launch },
+  };
+  await seed(page, { 'mitzo-chat-draft:generic-delivery': JSON.stringify(draft) });
+  const commands: Record<string, unknown>[] = [];
+  let release: (() => void) | undefined;
+  async function intercept(target: Page) {
+    await target.route('**/api/chat/send', async (route) => {
+      const command = route.request().postDataJSON();
+      commands.push(command);
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await route
+        .fulfill({
+          status: 202,
+          json: { accepted: true, clientMsgId: command.clientMsgId, sessionId: 'generic-assigned' },
+        })
+        .catch(() => {});
+    });
+  }
+  await intercept(page);
+  await page.goto('/chat?draft=generic-delivery');
+  await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+  await expect.poll(() => commands.length).toBe(1);
+  await page.close();
+  release?.();
+  const fresh = await context.newPage();
+  const recovered = await offline(fresh);
+  await intercept(fresh);
+  await fresh.goto('/chat?draft=generic-delivery');
+  await expect.poll(() => commands.length).toBe(2);
+  await expect(
+    fresh.getByRole('button', { name: 'Send launch prompt', exact: true }),
+  ).toBeDisabled();
+  expect(commands[1]).toEqual(commands[0]);
+  expect(commands[1]).toMatchObject({ sessionId: null, telosTaskId: 'task-fixture' });
+  release?.();
+  await expect
+    .poll(() => fresh.evaluate(() => localStorage.getItem('mitzo-chat-draft:generic-delivery')))
+    .toBeNull();
+  expect(commands).toHaveLength(2);
+  expect(fixture.errors).toEqual([]);
+  expect(recovered.errors).toEqual([]);
+});

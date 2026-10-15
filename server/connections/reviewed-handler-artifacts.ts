@@ -142,7 +142,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/explicit-local-chat.ts':
     'cda08df9bf19cf6a392332e9052cc3811a077d93a6459c8f0b2c9c496d41110b',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
-    'dba8f9db6e85204da9bea2380e10b1bc0e1a00fe15ac598bcf8e6cd685a66b22',
+    'f27a25d30f2890a67aa2b15c7da54ceedc73317aadced7bc2b27371287bbb98c',
   '../../frontend/src/pages/ChatView.tsx':
     'b02403418da496d2a03458247a9f65cb398ae5d3c72d641bb7de125250bdb80a',
   '../../frontend/src/pages/DesktopChatView.tsx':
@@ -150,7 +150,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    'f9cb6f55604bee6739ba32f783f9ae79e4d4db20c4c9384a499cb1917edccdee',
+    '77957e6cb36b67306416fa1f46d31a34c6f7d72f46621ce1039042286cf645c9',
 
   // Explicit authenticated Local entry, immutable request and shared startup ownership.
   '../../packages/protocol/src/local-codex-first-command.ts':
@@ -210,7 +210,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    'bf0bee3858fb882a6bfcfc31b6bbe8808f3d7af5b0ab9ca718f348f95538d2ea',
+    '32ddeeac4956678ed920f150acfb314fdacc8a6afb743eb34d3183d7e6699fb4',
   '../../packages/harness/src/permission-handler.ts':
     '20d09ccadeb668c91008713b45aaffd5762d34c0a6dc1651b3e234732743a7fa',
   '../../packages/harness/src/permissions.ts':
