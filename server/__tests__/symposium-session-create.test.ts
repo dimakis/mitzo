@@ -360,16 +360,22 @@ it('does not let noncanonical custodian paths reach the actual child creation/ar
   expect(invoke).not.toHaveBeenCalled();
 });
 
-it('refuses an explicitly selected tool profile before allocating an unsupported native session', async () => {
-  const base = profiles.get('user', 'builder', 1)!;
-  profiles.save('user', {
-    profileId: 'selected',
-    expectedRevision: 0,
-    idempotencyKey: 'selected',
-    definition: { ...base.definition, tools: [] },
-  });
-  const result = await post({ ...body, profileSelection: { profileId: 'selected', revision: 1 } });
-  expect(result.status).toBe(409);
-  expect(result.body.error).toMatch(/not supported/i);
-  expect(store.listSessions()).toHaveLength(0);
-});
+it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
+  'refuses an explicit tool selection before native Symposium draft allocation: %j',
+  async ({ tools }) => {
+    const saved = profiles.get('user', 'builder', 1)!;
+    profiles.save('user', {
+      profileId: 'selected-builder',
+      expectedRevision: 0,
+      idempotencyKey: 'selected-seed',
+      definition: { ...saved.definition, tools },
+    });
+    const response = await post({
+      ...body,
+      profileSelection: { profileId: 'selected-builder', revision: 1 },
+    });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain('tool selection is not supported');
+    expect(store.listSessions()).toHaveLength(0);
+  },
+);

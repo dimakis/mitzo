@@ -88,7 +88,7 @@ export function createSymposiumSessionRouter(deps: {
       if (!profile || profile.definition.role !== selection.role)
         throw new Error('Select a saved profile revision matching the supported seat role');
       const definition = profile.definition;
-      assertAgentToolRoute(definition, 'symposium');
+      assertAgentToolRoute(definition, 'native-symposium');
       const config = {
         version: 2,
         revision: 1,

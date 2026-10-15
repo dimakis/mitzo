@@ -687,22 +687,25 @@ it('uses trusted recipe sources while retaining an original read-only role ceili
   expect(config.state).toBe('draft');
 });
 
-it('refuses profile tool selection before minting unsupported native seat grants', () => {
-  grants.close();
-  const deps = makeDeps();
-  const profile = deps.resolveProfile({ profileId: 'owner-review', revision: 2 })!;
-  deps.resolveProfile.mockReturnValue({
-    ...profile,
-    definition: { ...profile.definition, tools: [] },
-  } as never);
-  grants = new SymposiumHostGrants(join(directory, 'events.db'), deps);
-  expect(() =>
-    grants.activate({
-      sessionId: 'chat',
-      expectedRevision: 1,
-      actor: 'owner',
-      profileSelections: { reviewer: { profileId: 'owner-review', revision: 2 } },
-    }),
-  ).toThrow(/not supported/i);
-  expect(config.revision).toBe(1);
-});
+it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
+  'refuses explicit tools before minting a native seat grant: %j',
+  ({ tools }) => {
+    grants.close();
+    const deps = makeDeps();
+    const selected = deps.resolveProfile({ profileId: 'owner-review', revision: 2 })!;
+    grants = new SymposiumHostGrants(join(directory, 'events.db'), {
+      ...deps,
+      resolveProfile: () => ({ ...selected, definition: { ...selected.definition, tools } }),
+    });
+    expect(() =>
+      grants.activate({
+        sessionId: 'chat',
+        expectedRevision: 1,
+        actor: 'owner',
+        profileSelections: { reviewer: { profileId: 'owner-review', revision: 2 } },
+      }),
+    ).toThrow('tool selection is not supported');
+    expect(config.state).toBe('draft');
+    expect(config.seats.every((seat) => !seat.authorityGrant)).toBe(true);
+  },
+);

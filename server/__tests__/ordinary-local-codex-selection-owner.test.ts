@@ -23,7 +23,7 @@ import { RepositoryWorkspaces } from '../repository-workspaces.js';
 
 const fixtures: Array<() => void> = [];
 afterEach(() => fixtures.splice(0).forEach((close) => close()));
-function fixture() {
+function fixture(tools?: Array<{ id: string; version: number }>, responses = false) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-selection-owner-')));
   const taskRoot = join(root, 'tasks');
   mkdirSync(taskRoot, { mode: 0o700 });
@@ -47,6 +47,7 @@ function fixture() {
       expectedOutput: 'An answer',
       acceptanceCriteria: ['Preserve ownership'],
       modelPolicyRole: 'agent',
+      ...(tools === undefined ? {} : { tools }),
     },
   });
   const profile = library.publish('user', {
@@ -57,7 +58,7 @@ function fixture() {
   const binding = {
     accountId: 'personal',
     accountLabel: 'Personal',
-    provider: 'openai-codex' as const,
+    provider: responses ? ('openai' as const) : ('openai-codex' as const),
     profileRevision: 'p1',
     model: 'fixture',
   };
@@ -110,12 +111,13 @@ function fixture() {
     operator,
     signal: abort.signal,
     commandId: 'command',
+    responses,
   });
   const expected: OrdinaryLocalCodexAdmissionExpectation = {
     binding: {
       version: 2,
-      account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'p1' },
-      harness: { implementation: 'codex' },
+      account: { accountId: 'personal', provider: binding.provider, profileRevision: 'p1' },
+      harness: { implementation: responses ? 'responses' : 'codex' },
       execution: { location: 'local', targetId: 'mac', targetRevision: 't1' },
     },
     hostId: 'host',
@@ -334,3 +336,23 @@ it('preserves legitimate edits and commits in the same retained checkout and Git
   expect(() => f.owner.assertCurrentSync(f.expected)).not.toThrow();
   await expect(f.owner.assertCurrent(f.expected)).resolves.toBeUndefined();
 });
+
+it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
+  'refuses a published selected-tool snapshot before owned runtime bootstrap effects: %j',
+  async ({ tools }) => {
+    const f = fixture(tools);
+    await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
+    expect(f.workspace.reserveHostTask).not.toHaveBeenCalled();
+  },
+);
+
+it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
+  'admits a published selected-tool snapshot on the enrolled API owner: %j',
+  async ({ tools }) => {
+    const f = fixture(tools, true);
+    await expect(f.owner.assertCurrent(f.expected)).resolves.toBeUndefined();
+    expect(f.workspace.reserveHostTask).toHaveBeenCalledOnce();
+    f.revoke();
+    expect(() => f.owner.assertCurrentSync(f.expected)).toThrow('selection unavailable');
+  },
+);

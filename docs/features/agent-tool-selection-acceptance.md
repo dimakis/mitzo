@@ -47,6 +47,22 @@ One local broad server typecheck exhausted the required 1 GiB heap, so no succes
 is claimed for that command. Workspace package and frontend typechecks passed;
 current-head broad checks and rendered evidence remain CI gates.
 
+## Review follow-up
+
+Blocking review `CEN-596B055D0694` identified that a schema-only slice could
+accept explicit tools while an existing startup path ignored them. Ten startup
+regressions first failed for empty and subset selections; catalog/schema now
+refuses them on unenrolled routes before API/Codex startup, owned admission or
+native Symposium allocation/grant activation. The runtime slice enrolls the
+shared local API runner explicitly. Its published empty/subset regressions cover
+both OpenAI and Vertex cold resume and reject optional tools, aliases and wrappers.
+
+After propagating those fixes into this acceptance slice, all 91 focused
+runtime/catalog/snapshot/source-pin/editor/reviewer tests and all eight actual-page
+offline browser checks passed. This preserves the two-tool guide lifecycle test,
+missing-connection checks and immutable admitted definitions. These are offline
+results; Phase 1 remains active with the remaining gates below.
+
 ## Operational limits and remaining gates
 
 On 2026-10-15 the required canonical staging check refused:
