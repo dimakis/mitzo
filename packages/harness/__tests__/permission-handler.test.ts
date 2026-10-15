@@ -432,6 +432,12 @@ describe('buildPermissionHandler', () => {
     ['TelosCreateOutcome', 'TelosSaveArtifact'],
     ['TelosSaveArtifact', 'mcp__telos__TelosCreateOutcome'],
     ['mcp__telos__TelosSaveArtifact', 'TelosCreateOutcome'],
+    ['TelosCreateOutcome', 'TelosUpdateItem'],
+    ['TelosSaveArtifact', 'TelosUpdateItem'],
+    ['TelosUpdateItem', 'TelosSaveArtifact'],
+    ['mcp__telos__TelosUpdateItem', 'TelosUpdateItem'],
+    ['TelosUpdateItem', 'mcp__telos__TelosCreateOutcome'],
+    ['TelosCreateOutcome', 'TelosGetItem'],
   ])('shares the advertised Telos session scope between %s and %s', async (initial, next) => {
     const transport = fakeTransport();
     const allowList = new Set<string>();

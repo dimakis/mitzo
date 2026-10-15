@@ -11,6 +11,12 @@ import {
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
+  telosItemDefinitions,
+  telosItemSchemas,
+  executeTelosItemTool,
+  type TelosItemToolName,
+} from './telos-item-tools.js';
+import {
   executeTelosCreateOutcome,
   telosOutcomeShape,
   TELOS_CREATE_OUTCOME_TOOL,
@@ -56,6 +62,20 @@ for (const definition of telosArtifactDefinitions) {
     { description: definition.description, inputSchema: shape },
     async (input: Record<string, unknown>) => {
       const result = await executeTelosArtifactTool(baseUrl, clientId, token, name, input);
+      return {
+        content: [{ type: 'text' as const, text: result.content }],
+        ...(result.isError ? { isError: true } : {}),
+      };
+    },
+  );
+}
+for (const definition of telosItemDefinitions) {
+  const name = definition.name as TelosItemToolName;
+  server.registerTool(
+    name,
+    { description: definition.description, inputSchema: telosItemSchemas[name].shape },
+    async (input: Record<string, unknown>) => {
+      const result = await executeTelosItemTool(baseUrl, clientId, token, name, input);
       return {
         content: [{ type: 'text' as const, text: result.content }],
         ...(result.isError ? { isError: true } : {}),
