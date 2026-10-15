@@ -3192,9 +3192,9 @@ textarea:focus {
   align-self: flex-start;
   width: 100%;
   overflow: hidden;
-  border-left: 3px solid var(--color-warning);
-  border-radius: 6px;
-  margin: 0.4em 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  margin: var(--space-2) 0;
 }
 
 .html-preview-card-header {
@@ -3206,10 +3206,11 @@ textarea:focus {
 .html-preview-card-toggle {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: var(--space-2);
   flex: 1;
   min-width: 0;
-  padding: 0.35rem 0.6rem;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
   color: var(--text);
   background: transparent;
   border: 0;
@@ -3220,13 +3221,13 @@ textarea:focus {
 
 .html-preview-card-icon {
   flex-shrink: 0;
-  padding: 1px 4px;
-  color: var(--color-warning);
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-  border-radius: 3px;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-accent);
+  background: var(--color-panel);
+  border-radius: var(--radius-control);
   font-family: var(--code-font);
   font-size: var(--text-xxs);
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .html-preview-card-name {
@@ -3243,17 +3244,18 @@ textarea:focus {
 .html-preview-card-chevron {
   flex-shrink: 0;
   color: var(--text-dim);
-  font-size: 0.6rem;
 }
 
 .html-preview-card-open {
   flex-shrink: 0;
-  padding: 2px 6px;
-  margin-right: 0.4rem;
+  min-height: var(--control-height);
+  min-width: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  margin-right: var(--space-2);
   color: var(--accent);
   background: transparent;
   border: 0;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   font: inherit;
   font-size: var(--text-xxs);
   cursor: pointer;
@@ -3265,7 +3267,7 @@ textarea:focus {
 }
 
 .html-preview-card-status {
-  padding: 0.4rem 0.6rem;
+  padding: var(--space-2) var(--space-3);
   margin: 0;
   color: var(--text-dim);
   background: var(--code-bg);

@@ -86,6 +86,35 @@ or Save. Discard remains a visibly labelled destructive action; Done remains
 neutral. Save, loading, error and conflict states retain the existing behavior.
 Colors, fonts, spacing, focus, radii and motion come from the shared token source.
 
+## Interactive HTML previews
+
+Standalone HTML file links in assistant paragraphs use the shared `HtmlPreviewCard`
+and open inline automatically. The header uses semantic surface/border/accent roles,
+shared type/spacing/radius tokens, `UiIcon`, and 44px controls. Artifact content keeps
+its own design on the existing neutral preview canvas. The bounded frame height is
+structural viewport geometry; Open leads to the existing full Files viewer.
+
+The disclosure uses `useMotionPresence` with retained DOM, so collapsing removes
+input and accessibility access immediately while preserving the same iframe and
+its local selections. A new file/session identity starts a fresh preview. Loading
+uses a status announcement, failed reads expose an alert and Retry preview, and an
+empty HTML file remains a valid blank document. Network, form submission and parent
+access restrictions remain those of `HtmlPreview`.
+
+The offline `html-mockup` fixture renders actual assistant Markdown and checks
+inline loading, native keyboard/form interaction, variants, retained state,
+read failure/retry, empty files, session-scoped reads and sandbox isolation on
+320px mobile and desktop with dark/light Mint/Georgia appearance and larger text.
+It intercepts every request and starts no backend or model.
+Messages containing these previews bypass prose truncation so its fade and Show
+more overlay cannot cover interactive content. Captures show the
+[320px mobile dark preview](assets/html-mockup-mobile-dark.png) and
+[desktop light preview](assets/html-mockup-desktop-light.png), both with Mint/Georgia
+and larger host text. These isolated transcript checks omit the application shell;
+full-app build/browser acceptance remains in CI when local memory pressure prevents
+the broad suite. The sandbox blocks native form submission in Chromium before a
+submit handler can run; simulated forms use button click handlers and local validation.
+
 ## Token usage
 
 The conversation token popover groups latest context/request capacity separately
