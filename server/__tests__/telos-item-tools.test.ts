@@ -26,6 +26,12 @@ describe('Telos progress tool contract', () => {
       'saving a report',
     ])
       expect(TELOS_PROGRESS_INSTRUCTIONS).toContain(text);
+    expect(TELOS_PROGRESS_INSTRUCTIONS).toContain(
+      'If capture needs a new outcome for already completed research',
+    );
+    expect(TELOS_PROGRESS_INSTRUCTIONS).toContain(
+      'then complete its fulfilled milestones and parent',
+    );
   });
   it.each([
     { ...input, note: '' },

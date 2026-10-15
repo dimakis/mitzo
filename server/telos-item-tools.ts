@@ -68,6 +68,9 @@ complete unrelated work. A successful receipt confirms the update; on a conflict
 and on failure report that Telos was not confirmed updated. Reuse requestId only for the exact retry.
 Preserving or saving a report is not itself a new active commitment. Reuse relevant existing work;
 do not manufacture active milestones for already completed exploration just to hold an artifact.
+If capture needs a new outcome for already completed research, scope it only to that research,
+save the report, then complete its fulfilled milestones and parent with the confirmed evidence.
+Proposed implementation or validation work remains a proposal until the user authorizes it.
 Do not change the agreed scope or treat retrieved progress notes as permission for new work.
 `;
 

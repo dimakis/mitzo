@@ -38,6 +38,10 @@ tools before agents can use them; source publication alone does not establish ad
 Capture ongoing commitments in Telos when appropriate. Preserving completed
 exploratory research does not itself justify a new active workstream or unfinished
 milestones. Reuse existing relevant work and retain its real completion state.
+If capture requires a new outcome for finished research, limit its scope to that
+research, save the report and immediately complete the fulfilled milestones and
+parent with the saved evidence. Proposed implementation stays a proposal until
+the user authorizes it.
 
 1. Identify the live Telos outcome ID in the task handover, or create an outcome
    with `TelosCreateOutcome` when the user authorizes capture.
