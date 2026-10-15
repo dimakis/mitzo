@@ -56,12 +56,18 @@ swap). No lock, registry, owner, credentials or service was modified. No second
 backend, custodian or background preview was created. No production interaction
 or deployment occurred.
 
-Live model qualification has not run. It requires canonical stage integrity and
-current-source admission, independently reviewed provider/runtime enrollment,
-a supported Luna model and an explicit exact model/charged-account declaration
-before execution. Do not use a different model or production fallback. The existing
-queue/controller owns any accepted stage update; feature sessions do not replace
-its baseline. Production deployment needs a separate explicit user action.
+As of 15 October 2026, the user has stood down canonical staging and its
+pipeline. The earlier check above is historical evidence, not a request to
+investigate, reactivate or recover it. No further staging check, queue submission,
+deployment, restart, recovery or recreation is authorized by this feature work.
+Retained custody, operation and diagnostic records must be preserved.
+
+Live model qualification has not run. Any future live test requires a separately
+selected and explicitly authorized target, a supported Luna model, and an exact
+model/charged-account declaration before the call. Do not borrow production
+credentials or use production as an automatic fallback. Production deployment
+requires a separate explicit user action. Current work uses offline tests,
+review and CI.
 
 The focused actual-page browser matrix passed all six desktop/mobile theme cases
 plus two browser startup checks. Captures were inspected at 320px in mobile WebKit
@@ -74,7 +80,8 @@ the full-app intercepted fixture remains a separate CI check. See
 [desktop library](../design/assets/tool-library-desktop-dark.png).
 
 Remaining gates are current-head green broad CI/full-app browser checks, required
-exact-head review, accepted source and safe canonical staging qualification. Native Codex, Claude SDK, OpenShell, native reviewer/search routes
+exact-head review and accepted source. Live qualification remains a separate gap
+requiring a newly selected and authorized target. Native Codex, Claude SDK, OpenShell, native reviewer/search routes
 and configured MCP selection remain explicitly unsupported in this cut. Existing
 legacy profiles keep their original behavior on those routes. Arbitrary executable
 tools, server installation, API builders and Tool Builder remain later phases.

@@ -160,6 +160,10 @@ for (const theme of ['dark', 'light'])
     });
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await page.getByRole('button', { name: 'Publish revision', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Use as reviewer', exact: true })).toBeDisabled();
+    await expect(
+      page.getByText('Reviewer sessions do not yet support explicit tool selections.'),
+    ).toBeVisible();
     expect(catalog.versions[0].definition.tools).toEqual([
       { id: 'mitzo:GetConnectionGuide', version: 1 },
       { id: 'mitzo:Read', version: 1 },

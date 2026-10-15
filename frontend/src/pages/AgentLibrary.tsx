@@ -716,6 +716,11 @@ export function AgentLibrary() {
                           Export profile
                         </button>
                         <AgentReviewerLauncher
+                          unsupportedReason={
+                            editor.definition.tools === undefined
+                              ? undefined
+                              : 'Reviewer sessions do not yet support explicit tool selections.'
+                          }
                           key={`${editor.profileId}:${editor.publishedRevision}`}
                           selection={{
                             profileId: editor.profileId,

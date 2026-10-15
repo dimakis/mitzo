@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.153';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.154';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -361,7 +361,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    '5b0884b02b420722e746a369fa98de9317e0def01de7214f9b29fd26c95e9595',
+    'f09b460d41c2c97210610a619effb5e16b2a6ffe4e11d2d3ed2739f894f65e59',
   '../../frontend/src/styles/agent-library.css':
     '56294ff4dbd0af5f343aa6d885db9b5f2daba5a0860daa4984eb7cc12587ec7d',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
