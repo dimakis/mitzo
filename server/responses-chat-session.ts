@@ -243,13 +243,15 @@ export async function openResponsesChat(options: Options) {
     WEB_ACCESS_INSTRUCTIONS +
     GITHUB_PUBLISHING_INSTRUCTIONS +
     (startup.context ? `\n\n${startup.context}` : '');
-  const definitions = filterAgentTools(options.session, [
-    ...connectionTools.definitions,
-    ...nativeToolDefinitions,
-    ...mcp.definitions,
-    webAccessDefinition,
-    githubPublishingDefinition,
-  ]);
+  const definitions = structuredClone(
+    filterAgentTools(options.session, [
+      ...connectionTools.definitions,
+      ...nativeToolDefinitions,
+      ...mcp.definitions,
+      webAccessDefinition,
+      githubPublishingDefinition,
+    ]),
+  );
   if (agentProfile?.definition.tools !== undefined) {
     try {
       privateStorage.bindAgentTools(

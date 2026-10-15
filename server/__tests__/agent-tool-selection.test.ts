@@ -61,6 +61,11 @@ it('publishes a subset, exposes it, and rejects an unselected optional invocatio
       new AbortController().signal,
     ),
   ).toMatchObject({ isError: true, content: expect.stringMatching(/not selected/i) });
+  const guide = await tools.execute('GetConnectionGuide', {}, new AbortController().signal);
+  expect(JSON.parse(guide!.content).tools.sort()).toEqual([
+    'GetConnectionGuide',
+    'ListConnections',
+  ]);
   expect(request).not.toHaveBeenCalled();
   library.close();
 });

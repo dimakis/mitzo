@@ -86,7 +86,7 @@ export function assertAgentToolAvailability(
     if (
       names.has('mitzo:HomeAssistantDashboard') &&
       !active.some((connection) =>
-        ['read', 'read-write'].includes(connection.homeAssistantDashboards),
+        ['read', 'read-write'].includes(connection.homeAssistantDashboards ?? 'disabled'),
       )
     )
       throw Error(

@@ -75,11 +75,11 @@ vi.mock('../native-responses-runner.js', () => ({
   },
 }));
 vi.mock('../codex-mcp-tools.js', () => ({
-  connectCodexMcpTools: async () => ({
+  connectCodexMcpTools: vi.fn(async () => ({
     definitions: [],
     close: async () => {},
     displayName: (name: string) => name,
-  }),
+  })),
 }));
 import { openResponsesChat, trackResponsesProviderAdmission } from '../responses-chat-session.js';
 import {
@@ -1738,6 +1738,13 @@ it.each(['agent', 'ask'] as const)(
       { secret: 'jira-private-token' },
     );
     service.grant('jira-read-chat', connection.id, connection.revision);
+    const { bindAgentToolSelection } = await import('../agent-tool-selection.js');
+    bindAgentToolSelection(registry.get('jira-read-client')!, {
+      tools: ['ListConnections', 'RequestConnectionAccess', 'ConnectionRequest'].map((name) => ({
+        id: `mitzo:${name}`,
+        version: 1,
+      })),
+    } as never);
     const input = new AsyncQueue<{ message: { content: string } }>();
     input.close();
     const chat = await openResponsesChat({
@@ -1842,6 +1849,8 @@ it.each(['openai', 'google-vertex'] as const)(
       store: {} as never,
     });
     try {
+      const { connectCodexMcpTools } = await import('../codex-mcp-tools.js');
+      expect(connectCodexMcpTools).toHaveBeenLastCalledWith({}, expect.any(Object));
       const opts = calls.options.at(-1)! as {
         tools: { name: string }[];
         executeTool(
