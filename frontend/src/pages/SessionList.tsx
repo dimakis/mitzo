@@ -436,6 +436,7 @@ export function SessionList() {
         <div className="conversation-header-actions">
           <button
             className="hero-chat-btn workspace-primary"
+            aria-label="New chat"
             onClick={() => {
               selectionChanged();
               navigate('/chat');

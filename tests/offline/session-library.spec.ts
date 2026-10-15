@@ -141,6 +141,7 @@ for (const theme of ['dark', 'light'])
     await page.setViewportSize({ width: isMobile ? 390 : 1280, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/sessions');
+    await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
     const pinned = page.getByRole('region', { name: 'Pinned conversations' });
     await expect(pinned.locator('.conversation-pin-row')).toHaveCount(6);
     expect(await pinned.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);

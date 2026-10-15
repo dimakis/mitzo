@@ -464,7 +464,9 @@ test('chats: retained conversations stay usable while auxiliary requests and rev
   ]);
   fixture.state('loading');
   await page.goto('/sessions');
-  await expect(page.getByText('Fix calendar sync', { exact: true })).toBeVisible();
+  await expect(
+    page.locator('.session-list-scroll').getByText('Fix calendar sync', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
   await expect.poll(() => fixture.connections()).toBeGreaterThan(0);
   const checksBeforeNavigation = fixture.authChecks();
@@ -485,18 +487,22 @@ test('chats: retained conversations stay usable while auxiliary requests and rev
       },
     });
   });
-  await page.getByRole('button', { name: '+ New chat' }).click();
+  await page.getByRole('button', { name: 'New chat' }).click();
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
   await page.goBack();
   await expect.poll(() => refetches).toBeGreaterThan(0);
-  await expect(page.getByText('Fix calendar sync', { exact: true })).toBeVisible();
+  await expect(
+    page.locator('.session-list-scroll').getByText('Fix calendar sync', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
   await page.screenshot({
     path: testInfo.outputPath('chats-retained-during-refresh.png'),
     animations: 'disabled',
   });
   finish();
-  await expect(page.getByText('Updated calendar title', { exact: true })).toBeVisible();
+  await expect(
+    page.locator('.session-list-scroll').getByText('Updated calendar title', { exact: true }),
+  ).toBeVisible();
   expect(fixture.authChecks()).toBe(checksBeforeNavigation);
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
@@ -520,13 +526,21 @@ test('chats: a failed refresh retains the loaded list and retry restores it', as
     await page.evaluate((theme) => {
       document.documentElement.setAttribute('data-theme', theme);
     }, theme);
-    await expect(page.getByText('Already loaded conversation', { exact: true })).toBeVisible();
+    await expect(
+      page
+        .locator('.session-list-scroll')
+        .getByText('Already loaded conversation', { exact: true }),
+    ).toBeVisible();
     fixture.failSessions(true);
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await expect(page.getByRole('alert')).toContainText(
       'Couldn’t refresh chats. Showing the last loaded list.',
     );
-    await expect(page.getByText('Already loaded conversation', { exact: true })).toBeVisible();
+    await expect(
+      page
+        .locator('.session-list-scroll')
+        .getByText('Already loaded conversation', { exact: true }),
+    ).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`chat-refresh-${theme}.png`) });
     fixture.failSessions(false);
     await page.getByRole('button', { name: 'Try again', exact: true }).click();
@@ -541,7 +555,7 @@ test('drafts: Chats hides the shortcut with no saved drafts', async ({ page }, t
   await page.goto('/sessions');
   await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /Drafts/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '+ New chat' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('chats-no-drafts.png'),
     animations: 'disabled',

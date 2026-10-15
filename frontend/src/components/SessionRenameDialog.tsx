@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Session } from '../types/chat';
 import { HomeDialog } from './HomeDialog';
 export function SessionRenameDialog({
@@ -11,6 +11,12 @@ export function SessionRenameDialog({
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(session.summary);
+  const input = useRef<HTMLInputElement>(null);
+  // The native dialog opens in its effect, after React's initial autofocus.
+  useEffect(() => {
+    input.current?.focus();
+    input.current?.select();
+  }, []);
   return (
     <HomeDialog title="Rename conversation" onClose={onClose}>
       <form
@@ -23,7 +29,12 @@ export function SessionRenameDialog({
       >
         <label className="home-search">
           Conversation name
-          <input value={title} onChange={(event) => setTitle(event.target.value)} autoFocus />
+          <input
+            ref={input}
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            autoFocus
+          />
         </label>
         <footer>
           <button type="button" className="home-secondary" onClick={onClose}>

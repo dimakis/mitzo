@@ -36,7 +36,9 @@ test('session hold previews history and keeps actions reachable in small viewpor
   });
   await page.clock.install();
   await page.goto('/sessions');
-  const row = page.getByRole('link', { name: 'Open Review UI' });
+  const row = page.getByRole(isMobile ? 'link' : 'button', {
+    name: `${isMobile ? 'Open' : 'Preview'} Review UI`,
+  });
   // Wait for a stable row before dispatching synthetic touch input in Vite's
   // StrictMode build; its initial effect cleanup cancels pending holds.
   await row.scrollIntoViewIfNeeded();
@@ -45,6 +47,22 @@ test('session hold previews history and keeps actions reachable in small viewpor
     await page.clock.runFor(500);
   } else {
     await row.click({ button: 'right' });
+  }
+  if (!isMobile) {
+    const inspector = page.getByRole('complementary', { name: 'Conversation preview' });
+    await expect(inspector.getByRole('heading', { name: 'Latest answer' })).toBeVisible();
+    const menu = page.getByRole('menu', { name: 'Session actions' });
+    await expect(menu.getByRole('menuitem', { name: 'Delete conversation' })).toBeInViewport();
+    await expect(menu.getByRole('menuitem', { name: 'Preview conversation' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(row).toBeFocused();
+    await row.press('Shift+F10');
+    await expect(menu).toBeVisible();
+    await menu.getByRole('menuitem', { name: 'Rename', exact: true }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Rename conversation' }).getByRole('textbox'),
+    ).toBeFocused();
+    return;
   }
   const dialog = page.getByRole('dialog', { name: 'Preview Review UI' });
   await expect(dialog).toBeVisible();
