@@ -655,7 +655,9 @@ export function parseServerMessage(
       if (
         msg.compactionPhase === 'compacting' ||
         msg.compactionPhase === 'completed' ||
-        msg.compactionPhase === 'failed'
+        msg.compactionPhase === 'failed' ||
+        msg.compactionPhase === 'interrupted' ||
+        msg.compactionPhase === 'unknown'
       )
         tu.compactionPhase = msg.compactionPhase;
       result.tokensUpdate = tu;

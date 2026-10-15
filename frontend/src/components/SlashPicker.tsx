@@ -15,7 +15,7 @@ interface Props {
   /** Called when the user selects a skill */
   onSelect: (name: string) => void;
   /** Called when the picker should close */
-  onClose: () => void;
+  onClose: (reason: 'escape' | 'outside') => void;
   /** Base URL for the API (defaults to empty string for same-origin) */
   cwd?: string;
 }
@@ -67,7 +67,7 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        onClose();
+        onClose('outside');
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -103,7 +103,7 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
         if (event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
-          onClose();
+          onClose('escape');
           return;
         }
         if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;

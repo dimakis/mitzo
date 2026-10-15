@@ -3,7 +3,7 @@ export interface ContextCompaction {
   id: string;
   seq: number;
   observedAt: number;
-  phase: 'compacting' | 'completed' | 'failed';
+  phase: 'compacting' | 'completed' | 'failed' | 'interrupted' | 'unknown';
   afterMessageId: string | null;
   turnIndex: number | null;
   beforeTokens: number | null;

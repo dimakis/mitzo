@@ -1,4 +1,4 @@
-import type { SourceSnapshot } from '@mitzo/protocol';
+import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
 import { randomUUID } from 'node:crypto';
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
@@ -349,8 +349,16 @@ async function _runQueryLoopInner(
   let loopFinished = false;
   let nativeUsage = false;
   let observedSessionTokens: number | undefined;
-  const emitTokenUpdate = (data: Record<string, unknown>) =>
-    emit(v2('token_update', { ...data, tokenLimits }));
+  let compactionPhase: ContextCompaction['phase'] | undefined;
+  const emitTokenUpdate = (data: Record<string, unknown>, sessionId?: string) =>
+    emit(
+      v2('token_update', {
+        ...(compactionPhase ? { compactionPhase, numCompactions } : {}),
+        ...data,
+        tokenLimits,
+      }),
+      sessionId,
+    );
   const nativeUsageFields = () =>
     nativeUsage
       ? {
@@ -372,6 +380,24 @@ async function _runQueryLoopInner(
   let latestCacheCreationTokens = 0;
   const sessionStartedAt = Date.now(); // wall-clock start for fallback duration
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
+  function closeUnconfirmedCompaction(sessionId = resolvedSessionId) {
+    if (!activeCompactionId) return;
+    const phase = abortController.signal.aborted ? 'interrupted' : 'unknown';
+    compactionPhase = phase;
+    emit(v2('context_compaction', { id: activeCompactionId, phase }), sessionId);
+    activeCompactionId = null;
+    emitTokenUpdate(
+      {
+        agentContext: agentContextTokens,
+        contextCeiling,
+        turnIndex,
+        numCompactions,
+        compactionPhase: phase,
+        ...nativeUsageFields(),
+      },
+      sessionId,
+    );
+  }
 
   function modelLimitScope(model: string) {
     const binding = currentOwnerSession()?.accountBinding;
@@ -782,6 +808,7 @@ async function _runQueryLoopInner(
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
           forceFlushPendingMessage(currentSession);
+          closeUnconfirmedCompaction();
           doneSent = true;
 
           // Extract usage data from SDK result event
@@ -1604,6 +1631,7 @@ async function _runQueryLoopInner(
                   ? 'failed'
                   : 'completed';
               if (!(phase === 'completed' && completedCompactions.has(id))) {
+                compactionPhase = phase;
                 const metadata = (msg.compact_metadata ?? {}) as Record<string, unknown>;
                 const retained = metadata.preserved_messages as { uuids?: unknown } | undefined;
                 emit(
@@ -1871,6 +1899,9 @@ async function _runQueryLoopInner(
       const finalSession =
         currentOwnerSession() ?? (abortController.signal.aborted ? ownedSession : undefined);
       if (finalSession) {
+        // Abort may remove registry ownership before the iterator unwinds. Use
+        // the same exact-session fence as session_end for durable/watch delivery.
+        closeUnconfirmedCompaction(finalSession.sessionId ?? resolvedSessionId);
         finalSession.currentSnapshot = null;
         if (!doneSent) {
           // Use sendOrBuffer to persist to EventStore (not just send) so that

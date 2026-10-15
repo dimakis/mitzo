@@ -24,7 +24,9 @@ export function useCompactionHistory(sessionId: string | null | undefined, refre
             (record) =>
               typeof record.id === 'string' &&
               Number.isSafeInteger(record.seq) &&
-              ['compacting', 'completed', 'failed'].includes(record.phase) &&
+              ['compacting', 'completed', 'failed', 'interrupted', 'unknown'].includes(
+                record.phase,
+              ) &&
               Number.isFinite(record.observedAt) &&
               (record.afterMessageId === null || typeof record.afterMessageId === 'string') &&
               [record.turnIndex, record.beforeTokens, record.afterTokens].every(

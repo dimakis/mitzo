@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
-import { runQueryLoop } from '../query-loop.js';
+import { runQueryLoop, type QueryLoopOptions } from '../query-loop.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import { EventStore } from '../event-store.js';
 import { projectCompactions } from '../compaction-history.js';
@@ -808,6 +808,72 @@ describe('token_update emission', () => {
       store.close();
     }
   });
+
+  it.each(['abort', 'abort-removed', 'error', 'end', 'result'] as const)(
+    'closes unconfirmed compaction on %s without claiming success or reduced context',
+    async (ending) => {
+      const store = new EventStore(':memory:');
+      async function* interrupted() {
+        yield {
+          type: 'stream_event',
+          parent_tool_use_id: null,
+          event: {
+            type: 'message_start',
+            message: { id: 'before-compaction', usage: { input_tokens: 180000 } },
+          },
+        };
+        yield { type: 'assistant', message: { content: [] }, session_id: 'sess-unconfirmed' };
+        yield {
+          type: 'system',
+          subtype: 'status',
+          status: 'compacting',
+          session_id: 'sess-unconfirmed',
+        };
+        if (ending.startsWith('abort')) {
+          abortController.abort();
+          if (ending === 'abort-removed') registry.remove(clientId);
+        } else if (ending === 'error') throw new Error('Provider stream failed');
+        else if (ending === 'result') yield { type: 'result', session_id: 'sess-unconfirmed' };
+      }
+      const connRegistry = {
+        hasOpenWatchers: () => true,
+        broadcast: (_sid: string, event: Record<string, unknown>) => transport.sent.push(event),
+        getConnectionsWatching: () => [],
+      } as unknown as QueryLoopOptions['connRegistry'];
+      try {
+        await runQueryLoop(interrupted(), clientId, registry, abortController, store, undefined, {
+          connRegistry,
+        });
+        const phase = ending.startsWith('abort') ? 'interrupted' : 'unknown';
+        const durable = store.getEventsOfType('sess-unconfirmed', 'context_compaction').reverse();
+        expect(durable.map((event) => event.payload.phase)).toEqual(['compacting', phase]);
+        expect(durable[1].payload.id).toBe(durable[0].payload.id);
+        const records = projectCompactions(durable);
+        expect(records).toEqual([
+          expect.objectContaining({
+            phase,
+            afterMessageId: durable[0].payload.afterMessageId,
+            beforeTokens: null,
+            afterTokens: null,
+            condensedRange: null,
+            summary: null,
+          }),
+        ]);
+        expect(records[0].afterMessageId).toBeTruthy();
+        const updates = transport.sent.filter((event) => event.type === 'token_update');
+        expect(updates.filter((event) => event.compactionPhase).at(-1)).toMatchObject({
+          compactionPhase: phase,
+          numCompactions: 0,
+          agentContext: 180000,
+        });
+        expect(store.getEventsOfType('sess-unconfirmed', 'token_update')[0].payload).toMatchObject({
+          compactionPhase: phase,
+        });
+      } finally {
+        store.close();
+      }
+    },
+  );
 
   it('handles missing usage on message_start gracefully', async () => {
     const events: Record<string, unknown>[] = [

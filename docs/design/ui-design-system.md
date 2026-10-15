@@ -559,7 +559,9 @@ usage and shows user turns, agent requests and compactions. Positioned compactio
 markers and Context history share a detail view. The durable lifecycle endpoint
 reads bounded compaction events, not the transcript, and refreshes on lifecycle
 changes. Exact condensed ranges, retained summaries or token figures remain
-explicitly unavailable when the adapter did not report them. Historical sessions
+explicitly unavailable when the adapter did not report them. If execution ends
+during compaction, its marker records interruption or an unknown outcome, clears
+the active wheel state, and never claims successful context reduction. Historical sessions
 can have counts without positioned records. Access likewise explains Unknown
 when the selected runtime cannot report live access evidence.
 

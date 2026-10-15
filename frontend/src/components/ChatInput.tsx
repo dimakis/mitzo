@@ -840,7 +840,10 @@ export function ChatInput({
         <SlashPicker
           query={text.trimStart()}
           onSelect={handleSlashSelect}
-          onClose={() => setShowSlashPicker(false)}
+          onClose={(reason) => {
+            if (reason === 'escape') textareaRef.current?.focus();
+            setShowSlashPicker(false);
+          }}
           cwd={cwd}
         />
       </MotionPresence>

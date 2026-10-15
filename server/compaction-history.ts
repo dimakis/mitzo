@@ -7,7 +7,7 @@ export function projectCompactions(events: StoredEvent[]): ContextCompaction[] {
     const value = event.payload;
     if (
       typeof value.id !== 'string' ||
-      !['compacting', 'completed', 'failed'].includes(String(value.phase))
+      !['compacting', 'completed', 'failed', 'interrupted', 'unknown'].includes(String(value.phase))
     )
       continue;
     const previous = records.get(value.id);

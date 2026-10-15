@@ -92,6 +92,16 @@ for (const theme of ['dark', 'light'] as const)
       });
       await input.click();
     }
+    await input.fill('/');
+    const command = page.getByRole('button', { name: /\/simplify/ });
+    await expect(command).toBeVisible();
+    await input.press('ArrowDown');
+    await expect(command).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(input).toBeFocused();
+    await page.keyboard.type(' keep typing');
+    await expect(input).toHaveValue('/ keep typing');
+    await expect(command).toBeHidden();
     await input.fill('Keep this draft');
     if (isMobile) await page.getByRole('button', { name: 'More composer actions' }).click();
     await page.getByRole('button', { name: 'Commands', exact: true }).click();

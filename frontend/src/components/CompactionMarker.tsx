@@ -16,6 +16,12 @@ export function CompactionDetails({
       <p role="status">
         {compactionLabel(record)} · {new Date(record.observedAt).toLocaleTimeString()}
       </p>
+      {(record.phase === 'interrupted' || record.phase === 'unknown') && (
+        <p>
+          Execution ended before the runtime reported a compaction result. Completion and any
+          context reduction are unconfirmed.
+        </p>
+      )}
       <p>
         {record.turnIndex !== null
           ? `Recorded at agent request ${record.turnIndex}.`

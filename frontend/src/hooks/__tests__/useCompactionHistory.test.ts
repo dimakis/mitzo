@@ -49,3 +49,20 @@ it('rejects incomplete lifecycle evidence instead of rendering missing fields', 
   await waitFor(() => expect(result.current.error).toBeDefined());
   expect(result.current.records).toEqual([]);
 });
+
+it.each(['interrupted', 'unknown'])(
+  'refreshes an active compaction to %s at the same position',
+  async (phase) => {
+    const active = { ...record, phase: 'compacting', afterTokens: null };
+    const terminal = { ...active, phase };
+    vi.mocked(readApiJson).mockResolvedValueOnce({ records: [active], truncated: false });
+    const { result, rerender } = renderHook(({ key }) => useCompactionHistory('s', key), {
+      initialProps: { key: 'compacting:0' },
+    });
+    await waitFor(() => expect(result.current.records).toEqual([active]));
+    vi.mocked(readApiJson).mockResolvedValueOnce({ records: [terminal], truncated: false });
+    rerender({ key: `${phase}:0` });
+    await waitFor(() => expect(result.current.records).toEqual([terminal]));
+    expect(result.current.error).toBeUndefined();
+  },
+);

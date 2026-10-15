@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatWelcome.tsx':
     'be4dd3a9269459ddbfeeab8daa3b55c3fdc12bad84f12446a4dece772036ae5f',
   '../../frontend/src/components/CompactionMarker.tsx':
-    '4aa0dd9e1dcee2064f49b9c596362e0363de1df81184c093586e4e1119cc7929',
+    '46cdcf5b79952216b2a134a47a1605d7e9c7872377dab8505779366f6955c173',
   '../../frontend/src/components/SessionResourcesDialog.tsx':
     '3488013ed4e2240e379ff66f386f4add8f105e58378d68ba798e8c1366f91b31',
   '../../frontend/src/components/SessionAccess.tsx':
@@ -38,20 +38,20 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatArea.tsx':
     'ba186b5dc3d2ee5160c54be5acebcb4e6bc2b5bd3a149713142e39bfb80b6467',
   '../../frontend/src/components/SlashPicker.tsx':
-    '4fd8eb89d065b46f6fb891966e56e01c0f43fed5a62590b9ffe9b34e2d4541c4',
+    'f4df78552197d0add98192e11e6d1014f9067c9686837132d954989c4a31bac3',
   '../../frontend/src/hooks/useCompactionHistory.ts':
-    'e6a52bfa5a061e3e7211ed540f90f3774d950bab83003c9ab59b874c0eab5e76',
+    'ff7eca395fa6f00f1eafdc923f6a30d0534ca9dffb6d3e6f2a51a3d559e61f6b',
   '../../frontend/src/lib/session-resources.ts':
     'f7b341a60ea6a27017f065a6bb852bf279e8d69be72b66d5d6c9a96f18773afa',
   '../../frontend/src/lib/composer-command.ts':
     '32437a1cfec0294f41e36125456cc0319f2baf63ed5b0369f048556345b735ae',
   '../../frontend/src/lib/compaction-presentation.ts':
-    'b0fc3a7fdc7fcb7d47da8cda7cef1cdd1af84fba33e8c9d3f0a39d884243b6f6',
+    '55f00e4c70eb1595614cbb4c57178f15aa96e18b7ce53ee38748068208f322c1',
   '../../frontend/src/lib/waterfall.ts':
     '1147ff7a54279264c4573fb85baeb3d4cff826974f36794d0f28ca13113f2575',
   '../../packages/protocol/src/context-compaction.ts':
-    '124115e7de02e0b54d065046240875db06ace974a3359b9c0ed050147d90f8b8',
-  '../compaction-history.ts': '809257979bd1fe37f15d1419dbfd4cb1a8d0b5b98f04ab5244b799a12c9bcb89',
+    '7e616eb57676b49caaaf6f70b41c59aa3dbc4e11ce475d796714f694cc12291d',
+  '../compaction-history.ts': '404dff36f9f1f57d8d7124e876ccba8c315e2989041a096eb440ed69f1e0534e',
   // Shared provider search errors and result authority.
   '../web-search-errors.ts': '059b6e418ef97abe994ad92fd37302844ecf11f0dc05e861569be21a49d0f022',
   // Bounded Vertex response transport for complete approved website reads.
@@ -94,7 +94,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    '70d5c7dadc7733bda6575719e87446a4ba68ac18ffcaae75c5126127efd11b0f',
+    '295898d37acd714d8b0a0cf4a7f044854d89e002b6335b6ed7540ff616da33bd',
   '../../frontend/src/components/ComposerTools.tsx':
     '932d2f492cb6f82d8bd5fe45223ac61386390774249e73c2d64b649a8419cd6a',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -226,7 +226,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
 
   '../chat-rest-handler.ts': '4154270493f9d370f4661c8853f03c8da778effb7858c9b502116786e1908844',
   // Contributor live-query capture and exact output ownership share runtime admission.
-  '../query-loop.ts': '617d22ddd743a6e9f8e95a6b0ea3d84abdbb3538b8cc26975d327f7c55d3a020',
+  '../query-loop.ts': 'c4b8d036dfd418981cb6e4643143d6b4928645e529ba1bf79fdaaf3840df698c',
   '../account-profiles.ts': 'd3aa20df7e55c236e59fe3a8e7a3bfe40eb390460aa9745c65c718651452cc41',
   '../ordinary-turn-lifecycle.ts':
     'a138e83ba1a2ec8ceaef967858fb926d5de83658d21f555f32c98174afd4064b',
@@ -463,7 +463,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-seat-authorization.ts':
     '26006d392e10e68c695e00039935332c28fb7146feaa057e482afa38c4f1fa21',
   '../../packages/client/src/protocol-parser.ts':
-    '901fef0d8b9c76c4520e45f990b604e81dc18831b54dde687d308f445ff295c0',
+    'ccbc13b4b3b902b54b52befdb304b3b0e9af2dc284f2e62039d05424fc0bc99b',
   '../../packages/client/src/slices/messages.ts':
     '4bed61fceaa9a34613c2c923bbc6e2c74d6dc66ff04d8b897a513d41af66a9e2',
   '../../packages/harness/src/providers/responses-session.ts':

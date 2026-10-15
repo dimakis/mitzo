@@ -4,4 +4,8 @@ export const compactionLabel = (record: ContextCompaction) =>
     ? 'Compacting context…'
     : record.phase === 'failed'
       ? 'Compaction failed'
-      : 'Context compacted';
+      : record.phase === 'interrupted'
+        ? 'Compaction interrupted'
+        : record.phase === 'unknown'
+          ? 'Compaction outcome unknown'
+          : 'Context compacted';

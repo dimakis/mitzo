@@ -612,6 +612,18 @@ describe('task system messages', () => {
 // ─── Token updates ───────────────────────────────────────────────────────────
 
 describe('token_update', () => {
+  it.each(['interrupted', 'unknown'] as const)(
+    'preserves the terminal compaction phase %s',
+    (phase) => {
+      const parsed = parseServerMessage(
+        { type: 'token_update', compactionPhase: phase, agentContext: 180000, turnIndex: 1 },
+        makeState(),
+        makeCallbacks(),
+        POOL_KEY,
+      );
+      expect(parsed.tokensUpdate).toMatchObject({ compactionPhase: phase, agentContext: 180000 });
+    },
+  );
   it('produces tokensUpdate with all fields', () => {
     const r = parseServerMessage(
       {
