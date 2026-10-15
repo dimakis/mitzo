@@ -4,7 +4,7 @@ import {
   selectedRuntimeRoute,
 } from '../lib/chat-runtime-route';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
-import { AgentSettingsPicker } from '../components/AgentSettingsPicker';
+import { AgentSettingsFields } from '../components/AgentSettingsPicker';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
 import {
   buildLocalFirstCommand,
@@ -852,26 +852,7 @@ export function DesktopChatView() {
             ? 'Gemini'
             : undefined;
   const settings = !isSymposium ? (
-    <AgentSettingsPicker
-      summary={{
-        agent: agentLabel ?? 'Unavailable agent',
-        account:
-          explicitNew || localRuntime.continuation
-            ? (localRuntime.inventory?.accounts.find(
-                (item) => item.account.accountId === localRuntime.intent.account?.accountId,
-              )?.label ?? (localRuntime.intent.account ? 'Unavailable account' : 'Choose account'))
-            : workspaceSummary?.profile,
-        model:
-          explicitNew || localRuntime.continuation ? runtimeModelLabel : workspaceSummary?.model,
-        thinking:
-          explicitNew || localRuntime.continuation
-            ? (localRuntime.intent.account?.reasoningEffort ?? undefined)
-            : workspaceSummary?.thinking,
-        location:
-          explicitNew || localRuntime.continuation
-            ? localRuntime.intent.execution.location
-            : workspaceSummary?.location,
-      }}
+    <AgentSettingsFields
       agent={agentControl}
       accountModel={accountModelControl}
       execution={executionControl}
@@ -924,8 +905,6 @@ export function DesktopChatView() {
           </details>
         ) : undefined
       }
-      attention={!!localRuntime.reason}
-      onDone={explicitNew || localRuntime.continuation ? localRuntime.review : undefined}
     />
   ) : undefined;
 
@@ -962,6 +941,10 @@ export function DesktopChatView() {
             lookupLoading={briefingChat.loading}
           />
           <WorkspaceControls
+            settings={settings}
+            agent={!isSymposium ? (agentLabel ?? 'Mitzo') : undefined}
+            scopeKey={activeSessionId ?? newChatDraft.draft.id}
+            onDone={explicitNew || localRuntime.continuation ? localRuntime.review : undefined}
             actions={
               <SessionAccess
                 sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
@@ -969,7 +952,7 @@ export function DesktopChatView() {
                 connected={connected}
               />
             }
-            attention={!!launch || repositoryHandoff.present}
+            attention={!!launch || repositoryHandoff.present || !!localRuntime.reason}
             summary={
               explicitNew || localRuntime.continuation
                 ? {
@@ -977,7 +960,7 @@ export function DesktopChatView() {
                       localRuntime.inventory?.accounts.find(
                         (a) => a.account.accountId === localRuntime.intent.account?.accountId,
                       )?.label ?? 'Choose account',
-                    model: localRuntime.intent.account?.model,
+                    model: runtimeModelLabel,
                     thinking: localRuntime.intent.account?.reasoningEffort ?? undefined,
                     location: localRuntime.intent.execution.location,
                   }
@@ -1165,7 +1148,6 @@ export function DesktopChatView() {
               (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
             }
             ordinaryExcluded={isSymposium}
-            pendingSettings={settings}
             profileToolsTarget={profileToolsTarget}
             readOnly={controlsBlocked || localBound}
             sessionId={sessionId ?? activeSessionId}
@@ -1275,7 +1257,6 @@ export function DesktopChatView() {
                   )}
                 {!controlsBlocked && <CodexQueueStatus sessionId={activeSessionId} />}
                 <ChatInput
-                  settings={settings}
                   sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
                   boundedFirstCommand={localFirstCommand || controlsBlocked}
                   guardedConversation={localRuntime.continuation}

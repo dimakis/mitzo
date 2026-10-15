@@ -45,7 +45,15 @@ export function HomeDialog({
     return () => {
       dialog.close();
       releaseScroll();
-      if (focus instanceof HTMLElement && focus.isConnected) focus.focus();
+      if (focus instanceof HTMLElement && focus.isConnected) {
+        const concealed = focus.closest('[inert], [hidden]');
+        const trigger = concealed?.id
+          ? Array.from(document.querySelectorAll<HTMLElement>('[aria-controls]')).find(
+              (element) => element.getAttribute('aria-controls') === concealed.id,
+            )
+          : null;
+        (trigger ?? focus).focus({ preventScroll: true });
+      }
     };
   }, []);
   return createPortal(

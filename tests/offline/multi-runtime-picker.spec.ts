@@ -116,7 +116,7 @@ async function offlinePicker(
 }
 
 async function openAgentSettings(page: Page) {
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
 }
@@ -237,7 +237,7 @@ test('Approved composer clean saved-design reference aligns Agent and Account fi
   await expect(panel.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
     'high',
   );
-  const body = panel.locator('.agent-settings-body');
+  const body = panel.locator('.workspace-controls-content');
   await body.evaluate((element) => {
     element.scrollTop = 0;
   });
@@ -256,7 +256,7 @@ test('Approved composer clean saved-design reference aligns Agent and Account fi
   });
   expect(geometry.labels).toBeLessThanOrEqual(1);
   expect(geometry.field).toBeLessThanOrEqual(1);
-  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+  await expect(workspace).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toHaveCount(0);
   await expect(input).toBeInViewport();
   await expect(page.getByRole('navigation', { name: 'Main navigation' }).first()).toBeInViewport();
@@ -311,15 +311,15 @@ test('Approved composer retains a long trusted agent name without horizontal ove
   const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
   const draft = 'Keep this draft while the full agent name wraps';
   await composer.fill(draft);
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
-  await expect(trigger.locator('strong')).toHaveText(name);
-  await expect(trigger).toHaveAccessibleName(new RegExp(`^Agent settings, ${name}(?:,|$)`));
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
+  await expect(trigger.locator('.workspace-controls-profile')).toHaveText(name);
+  await expect(trigger).toHaveAccessibleName(new RegExp(`^Workspace controls, ${name}(?:,|$)`));
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 740 });
     const geometry = await trigger.evaluate((element) => {
       const summary = element.getBoundingClientRect();
-      const owner = element.closest('.chat-input')!.getBoundingClientRect();
-      const label = element.querySelector('strong')!.getBoundingClientRect();
+      const owner = element.closest('.workspace-controls')!.getBoundingClientRect();
+      const label = element.querySelector('.workspace-controls-profile')!.getBoundingClientRect();
       return {
         left: summary.left - owner.left,
         right: owner.right - summary.right,
@@ -403,7 +403,7 @@ for (const appearance of ['light', 'dark'] as const) {
     if (mobile) await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/chat?draft=${draftId}&agentProfile=agent&profileRevision=1`);
     await page.addStyleTag({ content: 'html { font-size: 20px; }' });
-    const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+    const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
     const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
     const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
     await expect(
@@ -411,33 +411,15 @@ for (const appearance of ['light', 'dark'] as const) {
     ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeVisible();
     await expect(trigger).toHaveCount(1);
-    // The visual summary must lead with the selected agent inside the actual composer.
-    await expect(trigger.locator('strong')).toHaveText('Repository helper');
+    // One top summary owns settings; the writing surface has no duplicate picker.
+    await expect(trigger.locator('.workspace-controls-profile')).toHaveText('Repository helper');
     await expect(trigger).toHaveAccessibleName(
-      /Agent settings, Repository helper, API billing, Shell model, High, OpenShell/,
+      /Workspace controls, Repository helper, API billing, Shell model, high/,
     );
-    expect(
-      await trigger.evaluate((element) =>
-        element
-          .closest('.chat-input, .desktop-input-area')
-          ?.contains(document.querySelector('[aria-label="Message Mitzo"]')),
-      ),
-    ).toBe(true);
+    await expect(page.locator('.chat-input .agent-settings-picker')).toHaveCount(0);
     await openAgentSettings(page);
     await expect(panel).toHaveCount(1);
-    expect(
-      await panel.evaluate((element) => {
-        const owner = element.closest('.chat-input-row');
-        const textarea = owner?.querySelector('textarea');
-        const toolbar = owner?.querySelector('.composer-toolbar');
-        return Boolean(
-          textarea &&
-          toolbar &&
-          textarea.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING &&
-          element.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING,
-        );
-      }),
-    ).toBe(true);
+    expect(await panel.evaluate((element) => !!element.closest('.workspace-controls'))).toBe(true);
     await expect(panel.getByRole('combobox')).toHaveCount(4);
     expect(
       await panel
@@ -448,7 +430,7 @@ for (const appearance of ['light', 'dark'] as const) {
       page.locator('.workspace-controls').getByRole('combobox', {
         name: /^(Agent|Account|Model|Thinking level)$/,
       }),
-    ).toHaveCount(0);
+    ).toHaveCount(4);
     const modelFields = panel.locator('.agent-settings-account-model');
     await expect(modelFields.getByRole('combobox', { name: 'Account', exact: true })).toHaveCount(
       1,
@@ -480,7 +462,7 @@ for (const appearance of ['light', 'dark'] as const) {
       expect(bounds.y).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
       expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-      const body = panel.locator('.agent-settings-body');
+      const body = panel.locator('.workspace-controls-content');
       if (mobile) {
         await expect
           .poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
@@ -561,7 +543,7 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toBeVisible();
     await openAgentSettings(page);
     await expect(thinking).toHaveValue('low');
-    await panel.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+    await trigger.click();
     await expect(panel).toBeHidden();
     await expect(trigger).toBeFocused();
     await openAgentSettings(page);
@@ -570,7 +552,7 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(trigger).toBeFocused();
     await openAgentSettings(page);
     await expect(thinking).toHaveValue('low');
-    await panel.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+    await trigger.click();
     await expect(trigger).toBeFocused();
     await expect
       .poll(() =>
@@ -732,7 +714,7 @@ for (const appearance of ['light', 'dark'] as const) {
     });
     if (testInfo.project.name.startsWith('mobile')) {
       await page.setViewportSize({ width: 320, height: 740 });
-      await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+      await page.getByRole('button', { name: /^Workspace controls,/ }).click();
       const repository = page.getByRole('region', { name: 'Repository for new chat' });
       await expect(repository).toBeInViewport();
       await expect

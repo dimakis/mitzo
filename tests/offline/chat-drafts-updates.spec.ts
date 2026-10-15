@@ -271,7 +271,7 @@ async function offline(page: Page, sessions: unknown[] = []) {
   };
 }
 async function agentSettings(page: Page) {
-  const toggle = page.getByRole('button', { name: /^Agent settings,/ });
+  const toggle = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
 }
 
@@ -640,6 +640,7 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   );
   const workspace = page.getByRole('button', { name: /^Workspace controls/ });
   if ((await workspace.getAttribute('aria-expanded')) !== 'true') await workspace.click();
+  await page.getByText('More options', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Ask', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',

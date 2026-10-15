@@ -321,7 +321,11 @@ export function ChatInput({
 
   useEffect(() => {
     // Returning routes may mount after a user has focused a file control.
-    if (document.activeElement === document.body) textareaRef.current?.focus();
+    if (
+      !window.matchMedia?.('(max-width: 767px), (pointer: coarse)').matches &&
+      document.activeElement === document.body
+    )
+      textareaRef.current?.focus();
   }, []);
 
   useEffect(() => {
@@ -329,7 +333,8 @@ export function ChatInput({
       initialApplied.current = true;
       requestAnimationFrame(() => {
         autoResize();
-        textareaRef.current?.focus();
+        if (!window.matchMedia?.('(max-width: 767px), (pointer: coarse)').matches)
+          textareaRef.current?.focus();
       });
     }
   }, [initialText, autoResize]);

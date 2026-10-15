@@ -274,7 +274,7 @@ async function motionKinds(page: Page) {
 }
 
 async function openAgentSettings(page: Page) {
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
 }
@@ -2207,7 +2207,7 @@ async function exerciseBriefingReloadRecovery(
     'href',
     `/briefings/${binding.date}?revision=${binding.revision}`,
   );
-  const workspace = page.getByRole('button', { name: /^Agent settings,/ });
+  const workspace = page.getByRole('button', { name: /^Workspace controls,/ });
   async function openWorkspace() {
     await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
     await expect(workspace).toBeVisible();
@@ -2324,12 +2324,12 @@ test('reviewed launches let users dismiss Agent settings and reach Send at a sho
     document.documentElement.dataset.accent = 'teal';
   });
   await openAgentSettings(page);
-  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   await expect(settings).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
     'luna-fixture',
   );
-  await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+  await page.getByRole('button', { name: /^Workspace controls,/ }).click();
   await expect(settings).toHaveAttribute('aria-expanded', 'false');
   await expect(settings).toBeFocused();
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeHidden();
@@ -2505,6 +2505,7 @@ test('failed briefing registration survives a completed turn and reload without 
   const profile = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(profile).toBeEnabled();
   await expect(profile).toHaveValue('');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
   await expect(retry).toBeVisible();
@@ -2575,6 +2576,7 @@ test('failed briefing registration survives a completed turn and reload without 
   await page.reload();
   await expect(retry).toBeVisible();
   await retained();
+  await page.getByText('More options', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
   const alert = page.getByRole('alert').filter({ has: retry });
   const geometry = await alert.evaluate((element) => {
@@ -2795,6 +2797,8 @@ test('saved chat identity failures lock model controls until an explicit success
       await retry.click();
       await expect(retry).toHaveCount(0);
       expect(reads).toBeGreaterThan(before);
+      await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+      await openAgentSettings(page);
       if (recovered === 'briefing') {
         await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
         await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
@@ -2968,6 +2972,7 @@ test('profile draft cards appear in conversation and save without opening Worksp
           'data-motion-active',
           'true',
         );
+        await page.getByText('More options', { exact: true }).click();
         await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
         if (next === 'empty')
           await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
@@ -4087,12 +4092,14 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   });
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: /Workspace controls/ }).click();
+  await page.getByText('More options', { exact: true }).click();
   const action = page.getByRole('button', { name: 'Collaborate', exact: true });
   const originalOverflow = await page.evaluate(() => document.body.style.overflow);
   await expect(action).toBeVisible();
   await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
   expect(workReads).toHaveLength(0);
-  await action.click();
+  await action.focus();
+  await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Collaborate on selected work' });
   await expect(
     dialog.getByRole('heading', { name: 'Selected decision draft', exact: true }),
@@ -4159,9 +4166,13 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   expect(catalogScopes).toContain('chat');
   expect(forbidden).toEqual([]);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await expect(action).toBeFocused();
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  await expect(workspace).toBeFocused();
+  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
   failReads = true;
+  await workspace.click();
+  await action.focus();
   await action.click();
   await expect(dialog.getByRole('alert')).toContainText('Work is temporarily unavailable');
   failReads = false;
@@ -4171,6 +4182,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   empty = false;
+  await workspace.click();
   await action.click();
   await dialog.getByRole('button', { name: 'Add contributor', exact: true }).click();
   await expect(add).toBeVisible();
