@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.141';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.142';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/AgentToolsEditor.tsx':
+    '1d5bbbdc8066ffc882150951f5bae12ebb935fec2736bd62bc8ea536ddf507c6',
   '../../packages/protocol/src/agent-tools.ts':
     'd4f76bbc478cdac274c1bd9ff75d0d007e86c710614d2836d0c1a9c65d54ed2d',
   '../agent-tool-selection.ts': '303088af203b17844c9bc8b2b1773c2ff93de2496774c7bb125b9a62d93cb4d0',
@@ -330,16 +332,16 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-custodian-http.ts':
     '5f829b51dde43d1c7615c572ac73b2745c676de0f4f9c39dfd5a2704adc83850',
   // Inline agent creation uses explicit adviser selection and inference-only profile proposals.
-  '../agent-library-adviser.ts': '92211ccb5be4d398020a115aeb54a9126c8f34a0b61722bc10886186aae702a0',
+  '../agent-library-adviser.ts': '55df1630714da3195653087beec4744af6e3042ec79f73760fa33288ae47ff98',
   '../terminal-adviser.ts': 'cd67017b760d81455fa8bf272b169d649b93c898d0da05552a92ba39f80f5529',
   '../terminal-adviser-model.ts':
     'a94fe40748606b2ca1627579aa7c7d5b341402f3c83db27cdff18b4818808447',
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    'af3350d7444fd03f050a576bafee26f21d285794a8385d2e33ab43f8cbba9d47',
+    '3322b9fd6f8f90ad79b13fa2c96d97bb62edc07784185ef48871e4539112ef58',
   '../../frontend/src/styles/agent-library.css':
-    '6a9b6d5f637d5f298cf5b5969ae1da125fcca7d376922b011298cbfeb1a29fc5',
+    'cc2cc1c200c22b1b4fc996a82865bc6bb25dc599cfb796f8bb08d2bb4afcfbe4',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     '71fa6b5d798815b452b26f7df5c58733abb793222bfa21ec71926b8bba2d8e74',
@@ -347,14 +349,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-library-transport.ts':
     '1ddf221a25d11c991b669007ef900140056c321f8bb67d12218940a7dd4c4ec2',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
-  '../agent-library-router.ts': '321d376836273f7c6a447a27adbd29e8e2c220bc9f11e494ec68c527ed49cdfc',
+  '../agent-library-router.ts': '09788a2df86f8bda237bcce03306639b526e37a4bfbdbd20d5de1d069d66ae6f',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',
   '../agent-library-prompt.ts': '3be39c6cd2fb12c744c5f53e45b8c8b306398146edfcb2af479d4fa1c9159c28',
   '../symposium-profile-portability.ts':
     'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
-    'e08ea302eb178b8588d3622129e9be49b549b065ed6cf0482f1ca3e0de402559',
+    '00506e883764e397c1c81babfd6def1d3660098c7e1c09974c1aa7c4590c345f',
   '../symposium-custodian-proxy.ts':
     '59f78245236ef2c05f5f2e9c610629c1f513fedb32b4dae753c6275bd434b3a9',
   '../../packages/protocol/src/agent-library.ts':
