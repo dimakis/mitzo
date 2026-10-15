@@ -63,9 +63,18 @@ before execution. Do not use a different model or production fallback. The exist
 queue/controller owns any accepted stage update; feature sessions do not replace
 its baseline. Production deployment needs a separate explicit user action.
 
-Remaining gates are current-head green CI, inspected offline desktop/mobile
-screenshots, required exact-head review, accepted source and safe canonical staging
-qualification. Native Codex, Claude SDK, OpenShell, native reviewer/search routes
+The focused actual-page browser matrix passed all six desktop/mobile theme cases
+plus two browser startup checks. Captures were inspected at 320px in mobile WebKit
+and at 1280px in desktop Chromium; they use dark Lavender/System and light
+Teal/Georgia. These renders isolate the actual page from the application shell;
+the full-app intercepted fixture remains a separate CI check. See
+[mobile selection](../design/assets/agent-tools-mobile-dark.png),
+[desktop selection](../design/assets/agent-tools-desktop-light.png),
+[mobile library](../design/assets/tool-library-mobile-light.png) and
+[desktop library](../design/assets/tool-library-desktop-dark.png).
+
+Remaining gates are current-head green broad CI/full-app browser checks, required
+exact-head review, accepted source and safe canonical staging qualification. Native Codex, Claude SDK, OpenShell, native reviewer/search routes
 and configured MCP selection remain explicitly unsupported in this cut. Existing
 legacy profiles keep their original behavior on those routes. Arbitrary executable
 tools, server installation, API builders and Tool Builder remain later phases.
