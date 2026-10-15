@@ -294,23 +294,29 @@ export function AgentLibrary() {
     <main className="workspace-page agent-library-page">
       <WorkspacePageHeading
         title={view === 'agents' ? 'Agent Library' : 'Tool library'}
-        description="Give an agent a job. Use it wherever you work."
+        description={
+          view === 'agents'
+            ? 'Give an agent a job. Use it wherever you work.'
+            : 'Browse existing tools and the profiles that use them.'
+        }
         actions={
-          <>
-            <button
-              type="button"
-              disabled={!catalog || busy}
-              onClick={() => {
-                if (!editor) create();
-                setAdvisorOpen(true);
-              }}
-            >
-              Create with advisor
-            </button>
-            <button className="btn-primary" disabled={busy || dirty || !catalog} onClick={create}>
-              New agent
-            </button>
-          </>
+          view === 'agents' && (
+            <>
+              <button
+                type="button"
+                disabled={!catalog || busy}
+                onClick={() => {
+                  if (!editor) create();
+                  setAdvisorOpen(true);
+                }}
+              >
+                Create with advisor
+              </button>
+              <button className="btn-primary" disabled={busy || dirty || !catalog} onClick={create}>
+                New agent
+              </button>
+            </>
+          )
         }
       />
       <div className="agent-library-tabs" aria-label="Library views">

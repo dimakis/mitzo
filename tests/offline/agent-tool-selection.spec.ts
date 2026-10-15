@@ -151,6 +151,9 @@ for (const theme of ['dark', 'light'])
     await page.reload();
     await page.getByRole('tab', { name: 'Tools', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Remove Read', exact: true })).toBeVisible();
+    await page
+      .locator('.agent-library-detail')
+      .evaluate((element) => element.scrollIntoView({ block: 'start' }));
     await page.screenshot({
       path: info.outputPath(`agent-tools-${theme}.png`),
       animations: 'disabled',
@@ -162,6 +165,7 @@ for (const theme of ['dark', 'light'])
       { id: 'mitzo:Read', version: 1 },
     ]);
     await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'New agent', exact: true })).toHaveCount(0);
     await page
       .getByRole('searchbox', { name: 'Search tool library', exact: true })
       .fill('GetConnectionGuide');
@@ -173,6 +177,9 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByRole('region', { name: 'Tool library', exact: true })).toContainText(
       'Library reader',
     );
+    await page
+      .getByRole('heading', { name: 'Tool library', exact: true })
+      .evaluate((element) => element.scrollIntoView({ block: 'start' }));
     await page.screenshot({
       path: info.outputPath(`tool-library-${theme}.png`),
       animations: 'disabled',
