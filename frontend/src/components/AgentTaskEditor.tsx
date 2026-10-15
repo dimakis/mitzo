@@ -207,8 +207,8 @@ export function AgentTaskEditor({
         </fieldset>
       </form>
       <p>
-        Incomplete settings are retained on this device. Run admission and scheduling arrive in
-        later slices; no work starts on save.
+        Incomplete settings are retained on this device. Execution and schedules are not available
+        yet; saving does not start work.
       </p>
     </section>
   );

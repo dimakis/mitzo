@@ -30,7 +30,7 @@ export function AgentTaskList({
             <div className="agent-library-heading">
               <h3>{d.name}</h3>
               <span>
-                {task.configuration.state === 'draft' ? 'Draft' : 'Blocked · admission unavailable'}
+                {task.configuration.state === 'draft' ? 'Draft' : 'Blocked · execution unavailable'}
               </span>
             </div>
             <p>{d.objective || 'No objective yet.'}</p>
