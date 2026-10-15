@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
 import { credentialConnectionToolDefinitions } from '../credential-connection-tools.js';
@@ -83,6 +84,8 @@ it('refuses missing connection dependencies before exposing an unusable selected
 });
 
 it('keeps the offline browser inventory aligned with authoritative registrations', async () => {
-  const { default: fixture } = await import('../../tests/fixtures/agent-tool-catalog.json');
+  const fixture = JSON.parse(
+    readFileSync(new URL('../../tests/fixtures/agent-tool-catalog.json', import.meta.url), 'utf8'),
+  );
   expect(fixture).toEqual(agentToolCatalog());
 });
