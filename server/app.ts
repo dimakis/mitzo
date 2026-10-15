@@ -2736,6 +2736,8 @@ app.use(
         id,
         registry.findBySessionId(id)?.session,
         getPendingRequestsBySession(id),
+        undefined,
+        { binding: eventStore.getSessionRuntimeBinding(id) },
       ),
   }),
 );
