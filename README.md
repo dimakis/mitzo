@@ -141,6 +141,7 @@ Capacitor app and Xcode setup.
 | Agent profiles and reusable context       | [Agent Library](docs/features/agent-library.md)                               |
 | Reference documents                       | [Knowledge Library](docs/operations/knowledge-library.md)                     |
 | Outcomes and progress                     | [Telos workflow](docs/operations/telos-artifacts.md)                          |
+| Assigned agent tasks (backend API)        | [Persistence and current limits](docs/features/agent-tasks.md)                |
 | Account and service inventory             | [Connections](docs/features/connections.md)                                   |
 | Authenticated APIs and credential storage | [Keychain connections](docs/keychain-connections.md)                          |
 | Tool approvals and execution limits       | [Unified chat permissions](docs/design/unified-chat-permissions.md)           |

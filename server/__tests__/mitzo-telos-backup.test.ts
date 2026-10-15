@@ -7,6 +7,8 @@ import { EventStore } from '../event-store.js';
 import { TaskStore } from '../task-store.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
 import { captureMitzoTelosCore } from '../backup/mitzo-telos.js';
+import { AgentLibraryStore } from '../agent-library-store.js';
+import { AgentTaskStore } from '../agent-task-store.js';
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn();
@@ -33,6 +35,77 @@ async function fixture() {
   });
   return { root, path, owners, destination: join(root, 'capture') };
 }
+it('includes assigned tasks, immutable profile bindings and write receipts in the existing event-owner capture', async () => {
+  const f = await fixture();
+  const path = join(f.root, 'events.db');
+  const library = new AgentLibraryStore(path);
+  const tasks = new AgentTaskStore(path);
+  cleanup.push(async () => {
+    library.close();
+    tasks.close();
+  });
+  const draft = library.saveDraft('user', {
+    profileId: 'existing',
+    expectedVersion: 0,
+    expectedRevision: 0,
+    idempotencyKey: 'draft',
+    definition: {
+      name: 'Existing',
+      role: 'reviewer',
+      instructions: 'Review',
+      expectedOutput: 'Findings',
+      acceptanceCriteria: ['Evidence'],
+      modelPolicyRole: 'reviewer',
+    },
+  });
+  const profile = library.publish('user', {
+    profileId: 'existing',
+    expectedVersion: draft.version,
+    idempotencyKey: 'publish',
+  });
+  const write = {
+    taskId: 'assigned',
+    expectedRevision: 0,
+    idempotencyKey: 'create',
+    definition: {
+      name: 'Draft assignment',
+      objective: '',
+      profile: {
+        profileId: profile.profileId,
+        revision: profile.revision,
+        contentHash: profile.contentHash,
+      },
+      execution: null,
+      workspace: null,
+      schedule: null,
+      notificationPolicy: 'results',
+      outputPolicy: 'session',
+    },
+  };
+  const saved = tasks.save('user', write);
+  await captureMitzoTelosCore({ owners: f.owners, destination: f.destination });
+  const snapshot = join(f.destination, 'mitzo-events', 'store.db');
+  const restored = new AgentTaskStore(snapshot);
+  const profiles = new AgentLibraryStore(snapshot);
+  try {
+    expect(restored.get('user', saved.taskId)).toEqual(saved);
+    expect(restored.save('user', write)).toEqual(saved);
+    expect(profiles.version('user', 'existing', 1)).toEqual(profile);
+  } finally {
+    restored.close();
+    profiles.close();
+  }
+  const original = f.owners.telos.backupSnapshot.bind(f.owners.telos);
+  vi.spyOn(f.owners.telos, 'backupSnapshot').mockImplementation(async (destination) => {
+    await original(destination);
+    tasks.save('user', { ...write, expectedRevision: 1, idempotencyKey: 'during-backup' });
+  });
+  const candidate = join(f.root, 'concurrent-capture');
+  await expect(captureMitzoTelosCore({ owners: f.owners, destination: candidate })).rejects.toThrow(
+    'capture',
+  );
+  await expect(access(candidate)).rejects.toThrow();
+});
 it('restores actual owner stores with DB-only Telos relationships, artifact bytes and task links', async () => {
   const f = await fixture();
   f.owners.events.append('session-a', 'message_start', { messageId: 'm1' });
