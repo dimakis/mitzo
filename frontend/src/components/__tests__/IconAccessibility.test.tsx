@@ -14,7 +14,7 @@ import { HtmlPreviewCard } from '../HtmlPreviewCard';
 import type { TodoItem } from '../../types/todo';
 
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 const outcomes: TodoItem[] = [];
 vi.mock('../../hooks/useTodoData', () => ({
   useTodoData: () => ({

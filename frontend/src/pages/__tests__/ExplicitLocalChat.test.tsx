@@ -319,7 +319,8 @@ for (const [name, Screen] of [
     if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
     const agent = screen.getByRole('combobox', { name: 'Agent' });
     const account = screen.getByRole('combobox', { name: 'Account' });
-    expect(agent.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(account.compareDocumentPosition(agent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByText('Advanced', { exact: true }));
     expect(account.closest('.workspace-controls')).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Run on' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Local Mac' })).toHaveAttribute(

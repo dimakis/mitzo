@@ -35,7 +35,7 @@ vi.mock('../../components/SessionPanel', () => ({
 vi.mock('../../components/CommandCenter', () => ({ CommandCenter: () => null }));
 vi.mock('../../components/ScrollFab', () => ({ ScrollFab: () => null }));
 vi.mock('../../components/SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../../components/SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../../components/SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 vi.mock('../../components/MicButton', () => ({ MicButton: () => null }));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
 vi.mock('../../components/WebSearchConsent', () => ({ WebSearchConsent: () => null }));
@@ -124,6 +124,8 @@ for (const Page of [ChatView, DesktopChatView]) {
           </MemoryRouter>
         </MitzoStoreProvider>,
       );
+      const controls = await screen.findByRole('button', { name: /^Workspace controls/ });
+      if (controls.getAttribute('aria-expanded') !== 'true') fireEvent.click(controls);
       await screen.findByRole('button', { name: 'Add repository' });
       const draftId = listChatDrafts()[0].id;
       fireEvent.click(screen.getByRole('button', { name: 'Add repository' }));

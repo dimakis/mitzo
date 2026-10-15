@@ -1,4 +1,6 @@
 import { SeatLabel } from './SeatLabel';
+import { CompactionMarker } from './CompactionMarker';
+import type { ContextCompaction } from '@mitzo/protocol';
 import { seatAccentColor } from '../lib/seat-color';
 import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
@@ -33,6 +35,7 @@ export interface SymposiumContextItem {
 }
 
 export interface ChatAreaProps {
+  compactions?: ContextCompaction[];
   sessionId?: string;
   messages: FinishedMessage[];
   current: StreamingMessage | null;
@@ -91,6 +94,7 @@ function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
 }
 
 export function ChatArea({
+  compactions = [],
   sessionId,
   messages,
   current,
@@ -407,6 +411,25 @@ export function ChatArea({
     },
   );
 
+  // The lifecycle carries the last app message identity. Unknown positions stay
+  // explicit at the end rather than being attributed to an invented message.
+  const rowsWithCompactions = [...transcriptRows];
+  for (const record of [...compactions].reverse()) {
+    let position = -1;
+    if (record.afterMessageId)
+      for (let index = 0; index < rowsWithCompactions.length; index++) {
+        const key = rowsWithCompactions[index].key;
+        if (key === record.afterMessageId || key.includes(`:${record.afterMessageId}:`))
+          position = index;
+      }
+    const marker = {
+      key: `compaction:${record.id}`,
+      scope: 'compaction',
+      value: <CompactionMarker record={record} positionKnown={position >= 0} />,
+    };
+    rowsWithCompactions.splice(position < 0 ? rowsWithCompactions.length : position + 1, 0, marker);
+  }
+
   return (
     <>
       <div
@@ -421,7 +444,7 @@ export function ChatArea({
           contextItems.length === 0 &&
           !running && <p className="chat-empty">Send a message to start</p>}
 
-        {groupActivityRows(transcriptRows).map((item) =>
+        {groupActivityRows(rowsWithCompactions).map((item) =>
           item.type === 'activity' ? (
             <AgentActivity
               key={item.key}

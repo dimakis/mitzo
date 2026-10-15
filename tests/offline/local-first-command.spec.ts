@@ -283,6 +283,9 @@ async function openAgentSettings(page: Page) {
   const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+  const advanced = page.locator('.chat-settings-advanced');
+  if ((await advanced.getAttribute('open')) === null)
+    await advanced.locator(':scope > summary').click();
 }
 async function assertBoundRunOn(page: Page, location: 'local' | 'openshell', firstCommand = false) {
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
@@ -352,8 +355,10 @@ for (const appearance of ['light', 'dark'] as const) {
       .getByRole('combobox', { name: 'Agent', exact: true })
       .selectOption(JSON.stringify(['saved', 'agent', 1]));
     await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await openAgentSettings(page);
     const repository = page.getByRole('button', { name: 'Add repository' });
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+    await repository.scrollIntoViewIfNeeded();
     await expect(repository).toBeInViewport();
     await repository.click();
     await page
@@ -570,6 +575,7 @@ test('Local first command: oversized complete command retains its image and enab
   await account.selectOption('personal');
   await expect(account).toHaveValue('personal');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await openAgentSettings(page);
   await page.getByRole('button', { name: 'Add repository' }).click();
   await page
     .getByRole('combobox', { name: 'GitHub repository' })
@@ -774,7 +780,6 @@ test('OpenShell conversation: default route starts and continues without legacy 
       .getByRole('status')
       .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
   ).toHaveCount(0);
-  await page.getByRole('button', { name: /^Workspace controls,/ }).click();
   await page.getByRole('button', { name: 'Add repository' }).click();
   await page
     .getByRole('combobox', { name: 'GitHub repository' })

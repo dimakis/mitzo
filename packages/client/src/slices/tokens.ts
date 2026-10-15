@@ -10,6 +10,7 @@ export interface TokensState {
   numTurns: number;
   turnIndex: number;
   numCompactions: number;
+  compactionPhase?: 'compacting' | 'completed' | 'failed';
 }
 
 // Zero means unreported; there is no universal model capacity.

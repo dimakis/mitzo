@@ -151,6 +151,18 @@ export function ComposerTools({
               <span className="composer-tools-label">Terminal</span>
             </a>
           ))}
+        {!terminalHref && (
+          <button
+            type="button"
+            className="chat-input-btn"
+            disabled
+            aria-label="Terminal"
+            title="Terminal is unavailable before a supported session or for this runtime"
+          >
+            <UiIcon name="terminal" />
+            <span className="composer-tools-label">Terminal · unavailable for this route</span>
+          </button>
+        )}
         {onIsolationChange && (
           <button
             type="button"

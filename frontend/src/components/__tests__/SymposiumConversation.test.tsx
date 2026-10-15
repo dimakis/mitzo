@@ -73,7 +73,7 @@ vi.mock('../SymposiumAccessRequests', () => ({
 }));
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
-vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../ChatArea', () => ({
   ChatArea: ({

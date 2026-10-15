@@ -1,3 +1,4 @@
+import { projectCompactions } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
   readOwnedVertexQueueOverview,
@@ -3107,6 +3108,17 @@ app.get('/api/sessions/:id/events', (req, res) => {
   }
   const events = eventStore.getEventsAfter(req.params.id, afterSeq);
   res.json(events.map(storedEventToClientMessage));
+});
+
+app.get('/api/sessions/:id/compactions', (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  if (!eventStore.getSession(req.params.id))
+    return res.status(404).json({ error: 'Conversation not registered' });
+  const events = eventStore.getEventsOfType(req.params.id, 'context_compaction', 513);
+  res.json({
+    records: projectCompactions(events.slice(0, 512).reverse()),
+    truncated: events.length > 512,
+  });
 });
 
 app.delete('/api/sessions', (_req, res) => {

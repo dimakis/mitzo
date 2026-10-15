@@ -6,6 +6,8 @@ import type { WorkspaceSummary } from '../types/workspace';
 export function WorkspaceControls({
   children,
   actions,
+  leading,
+  trailing,
   status,
   summary,
   agent,
@@ -23,6 +25,8 @@ export function WorkspaceControls({
   attention?: boolean;
   children: ReactNode;
   actions?: ReactNode;
+  leading?: ReactNode;
+  trailing?: ReactNode;
   status: string;
   summary?: WorkspaceSummary | null;
 }) {
@@ -62,10 +66,12 @@ export function WorkspaceControls({
     const measure = () => {
       const composer = chat.querySelector<HTMLElement>('.chat-input');
       const messages = chat.querySelector<HTMLElement>('.chat-messages');
-      const boundary =
+      const boundaryCandidate =
         chat.querySelector<HTMLElement>('.chat-launch-prompt')?.parentElement ??
         chat.querySelector<HTMLElement>('.repository-chat-picker') ??
         composer;
+      const boundary =
+        boundaryCandidate && panel.contains(boundaryCandidate) ? composer : boundaryCandidate;
       // Composer growth can move the repository row without resizing that row.
       const next = new Set<Element>([
         owner,
@@ -149,8 +155,9 @@ export function WorkspaceControls({
     };
   }, [open, attention, ref]);
   return (
-    <section className="workspace-controls">
+    <section className={`workspace-controls${leading ? ' workspace-controls--navigation' : ''}`}>
       <div className="workspace-controls-heading">
+        {leading}
         <button
           ref={triggerRef}
           type="button"
@@ -169,7 +176,10 @@ export function WorkspaceControls({
           aria-describedby={`${id}-status`}
           aria-expanded={open}
           aria-controls={id}
-          onClick={() => setOpen(!open)}
+          onClick={(event) => {
+            event.currentTarget.focus();
+            setOpen(!open);
+          }}
         >
           <UiIcon name={agent ? 'bot' : 'settings'} />
           <span className="workspace-controls-summary">
@@ -191,12 +201,17 @@ export function WorkspaceControls({
               <span>Loading profile…</span>
             )}
           </span>
-          <span id={`${id}-status`} className="conversation-state" title={status}>
+          <span
+            id={`${id}-status`}
+            className={`conversation-state${leading ? ' sr-only' : ''}`}
+            title={status}
+          >
             {status}
           </span>
           <UiIcon name={open ? 'up' : 'down'} />
         </button>
         {actions}
+        {trailing}
       </div>
       <div
         id={id}

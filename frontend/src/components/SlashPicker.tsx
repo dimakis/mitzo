@@ -96,7 +96,31 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
   if (!loaded) return null;
 
   return (
-    <div className="slash-picker" ref={pickerRef}>
+    <div
+      className="slash-picker"
+      ref={pickerRef}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+          return;
+        }
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        const choices = [
+          ...pickerRef.current!.querySelectorAll<HTMLButtonElement>('button'),
+        ].filter((choice) => !choice.closest('[hidden]'));
+        const index = choices.indexOf(document.activeElement as HTMLButtonElement);
+        const next =
+          event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? choices.length - 1
+              : (index + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length;
+        choices[next]?.focus();
+      }}
+    >
       {sorted.length === 0 ? (
         <div className="slash-picker-empty">
           {filterText ? `No commands matching "/${filterText}"` : 'No skills available'}

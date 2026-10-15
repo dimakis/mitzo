@@ -109,6 +109,7 @@ vi.mock('../../components/ChatInput', () => ({
     onStop,
     running,
     composerGeneration,
+    collaboration,
     settings,
     sendLabel,
   }: {
@@ -117,6 +118,7 @@ vi.mock('../../components/ChatInput', () => ({
     onStop: () => void;
     running: boolean;
     composerGeneration?: number;
+    collaboration?: React.ReactNode;
     settings?: React.ReactNode;
     sendLabel?: string;
     onSend: (
@@ -130,6 +132,7 @@ vi.mock('../../components/ChatInput', () => ({
     <div data-testid="chat-input">
       <span>{sendDisabledReason}</span>
       {settings}
+      {collaboration}
       <span data-testid="send-label">{sendLabel}</span>
       <span data-testid="composer-running">{String(running)}</span>
       <span data-testid="composer-generation">{composerGeneration}</span>
@@ -614,7 +617,9 @@ it('offers explicit collaboration for an ordinary desktop conversation without a
   );
   expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Collaborate' })).toBeTruthy());
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Symposium collaboration' })).toBeTruthy(),
+  );
   expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
   expect(requests.some((url) => /\/(outputs|contributors)(?:\?|$)/.test(url))).toBe(false);
 });

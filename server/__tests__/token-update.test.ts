@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
 import { runQueryLoop } from '../query-loop.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
+import { EventStore } from '../event-store.js';
+import { projectCompactions } from '../compaction-history.js';
 import type { SessionRegistry } from '../session-registry.js';
 
 /** Create a fake SessionTransport that records sent messages */
@@ -737,7 +739,18 @@ describe('token_update emission', () => {
       },
       { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
       { type: 'assistant', message: { content: [] }, session_id: 'sess-compact' },
-      // SDK system status: compaction completed
+      { type: 'system', subtype: 'status', status: 'compacting', session_id: 'sess-compact' },
+      {
+        type: 'system',
+        subtype: 'compact_boundary',
+        session_id: 'sess-compact',
+        compact_metadata: {
+          pre_tokens: 180000,
+          post_tokens: 40000,
+          preserved_messages: { uuids: ['provider-retained'] },
+        },
+      },
+      // Some SDKs report both a boundary and success. Count it once.
       {
         type: 'system',
         subtype: 'status',
@@ -771,12 +784,29 @@ describe('token_update emission', () => {
       },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController);
-
-    const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
-    // The final token_update should include numCompactions: 1
-    const last = tokenUpdates[tokenUpdates.length - 1];
-    expect(last).toMatchObject({ numCompactions: 1 });
+    const store = new EventStore(':memory:');
+    try {
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
+      const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
+      expect(tokenUpdates.at(-1)).toMatchObject({ numCompactions: 1 });
+      const durable = store.getEventsOfType('sess-compact', 'context_compaction').reverse();
+      expect(durable.map((event) => event.payload.phase)).toEqual(['compacting', 'completed']);
+      expect(durable[1].payload.id).toBe(durable[0].payload.id);
+      const before = transport.sent.find((event) => event.type === 'message_start');
+      expect(projectCompactions(durable)).toEqual([
+        expect.objectContaining({
+          phase: 'completed',
+          afterMessageId: before!.messageId,
+          turnIndex: 1,
+          beforeTokens: 180000,
+          afterTokens: 40000,
+          condensedRange: null,
+          retainedProviderMessageIds: ['provider-retained'],
+        }),
+      ]);
+    } finally {
+      store.close();
+    }
   });
 
   it('handles missing usage on message_start gracefully', async () => {

@@ -16,6 +16,7 @@ export class CodexSessionEvents {
   private startedTurns = new Set<string>();
   private compacted = new Set<string>();
   private lastAnonymousCompaction?: string;
+  private lastCompactionId?: string;
   private commandTools = new Map<string, string>();
   private runtimeTools = new Map<string, string>();
   private replayingReasoning = false;
@@ -117,7 +118,7 @@ export class CodexSessionEvents {
   flush() {
     for (const [id] of this.texts) this.complete(id);
   }
-  private compaction(method: string, params: ObjectValue, item?: ObjectValue) {
+  private compaction(method: string, params: ObjectValue, item?: ObjectValue, started = false) {
     const privateId =
       typeof item?.id === 'string'
         ? item.id
@@ -125,9 +126,10 @@ export class CodexSessionEvents {
           ? params.compactionId
           : typeof params.id === 'string'
             ? params.id
-            : undefined;
+            : this.lastCompactionId;
     if (privateId) {
-      const key = `${method}:${privateId}`;
+      this.lastCompactionId = privateId;
+      const key = `${privateId}:${started ? 'started' : 'completed'}`;
       if (this.compacted.has(key)) return;
       this.compacted.add(key);
     } else {
@@ -138,8 +140,9 @@ export class CodexSessionEvents {
       type: 'system',
       subtype: 'status',
       session_id: this.conversationId,
-      status: 'Context compacted',
-      compact_result: 'success',
+      status: started ? 'compacting' : 'Context compacted',
+      ...(!started ? { compact_result: 'success' } : {}),
+      ...(privateId ? { compaction_id: privateId } : {}),
     });
   }
   notification(method: string, params: ObjectValue, providerFailure?: ProviderFailure) {
@@ -149,7 +152,10 @@ export class CodexSessionEvents {
       method === 'contextCompaction' ||
       ((method === 'item/started' || method === 'item/completed') &&
         object(params.item).type === 'contextCompaction');
-    if (!isCompactionNotification) this.lastAnonymousCompaction = undefined;
+    if (!isCompactionNotification) {
+      this.lastAnonymousCompaction = undefined;
+      this.lastCompactionId = undefined;
+    }
     if (method === 'turn/started') {
       this.turnFinished = false;
       const turnId = object(params.turn).id;
@@ -178,7 +184,7 @@ export class CodexSessionEvents {
       (method === 'item/started' || method === 'item/completed') &&
       commandItem.type === 'contextCompaction'
     ) {
-      this.compaction('contextCompaction', params, commandItem);
+      this.compaction('contextCompaction', params, commandItem, method === 'item/started');
       return;
     }
     if (

@@ -258,7 +258,11 @@ function assertPullRequest(
     return reject('GitHub pull request result is invalid');
   return value;
 }
-function output(pr: GithubPullRequest, inspection: GithubSandboxInspection): JsonValue {
+function output(
+  pr: GithubPullRequest,
+  inspection: GithubSandboxInspection,
+  created: boolean,
+): JsonValue {
   return {
     repository: pr.repository,
     sourceBranch: pr.sourceBranch,
@@ -266,6 +270,15 @@ function output(pr: GithubPullRequest, inspection: GithubSandboxInspection): Jso
     baseBranch: pr.baseBranch,
     pullRequestUrl: pr.url,
     pullRequestId: pr.id,
+    created,
+    ...(pr.state
+      ? {
+          pullRequestState: pr.state,
+          draft: pr.draft,
+          merged: pr.merged ?? false,
+          observedAt: Date.now(),
+        }
+      : {}),
     commitsAhead: inspection.commitsAhead,
     ...(inspection.seededPublication ?? {}),
     changedFiles: inspection.changedFiles.slice(0, GITHUB_PUBLISH_MAX_CHANGED_FILES),
@@ -584,7 +597,7 @@ export function createGithubArtifactPublishPrExecutor(
           },
         );
         assertRequestedMetadata(pr, state.input);
-        return { output: output(pr, state.inspection), externalResultId: pr.url };
+        return { output: output(pr, state.inspection, !existing), externalResultId: pr.url };
       } finally {
         if (cleanupDirectory) await deps.host.cleanup(cleanupDirectory);
       }

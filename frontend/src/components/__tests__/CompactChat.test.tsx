@@ -8,7 +8,7 @@ import { ChatInput } from '../ChatInput';
 import { StatusBar } from '../StatusBar';
 
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => <div>Available commands</div> }));
-vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
 

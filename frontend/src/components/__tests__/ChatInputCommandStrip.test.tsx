@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { ChatInput } from '../ChatInput';
 import type { UseVoiceReturn } from '../../hooks/useVoice';
@@ -7,6 +7,15 @@ import type { UseVoiceReturn } from '../../hooks/useVoice';
 vi.mock('../SlashPicker', () => ({
   SlashPicker: () => null,
 }));
+
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+});
 
 afterEach(() => {
   cleanup();
@@ -120,8 +129,8 @@ describe('ChatInput command strip', () => {
     expect(session.closest('.composer-toolbar')).toBeTruthy();
     fireEvent.click(session);
     expect(session.closest('.composer-toolbar')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Close session tray' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss session tray' }));
+    expect(screen.getByRole('dialog', { name: 'Resources' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Close$/ }));
     expect(session.getAttribute('aria-expanded')).toBe('false');
   });
 
@@ -215,7 +224,7 @@ describe('ChatInput command strip', () => {
     expect(screen.getByRole('button', { name: 'Commands' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Attach image' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
-    expect(screen.getByRole('button', { name: 'Add source' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add images' })).toBeTruthy();
   });
 
   it('keeps technical branch and session identifiers out of the composer', () => {

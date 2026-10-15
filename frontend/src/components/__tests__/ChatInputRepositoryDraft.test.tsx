@@ -3,7 +3,7 @@ import { cleanup, render, screen, fireEvent, act } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatInput } from '../ChatInput';
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 vi.mock('../MicButton', () => ({ MicButton: () => null }));
 vi.mock('../../lib/haptics', () => ({ impactMedium: vi.fn() }));
 afterEach(() => {

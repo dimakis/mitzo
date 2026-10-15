@@ -7,8 +7,8 @@ import { ChatInput } from '../ChatInput';
 
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../MicButton', () => ({ MicButton: () => null }));
-vi.mock('../SessionTray', () => ({
-  SessionTray: ({
+vi.mock('../SessionResourcesDialog', () => ({
+  SessionResourcesDialog: ({
     selectedContextBlocks,
     onToggleContextBlock,
   }: {
@@ -539,7 +539,7 @@ it('locks queued and direct ordinary sends while an interrupt remains uncertain 
 it('accepts a native command only from its correlated result, leaving later input untouched', async () => {
   const f = await fixture();
   await f.compose('/skills');
-  fireEvent.keyDown(f.input(), { key: 'Enter' });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   const c = f.command();
   f.receive({
     type: 'native_command_result',

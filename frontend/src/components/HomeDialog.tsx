@@ -28,12 +28,16 @@ export function HomeDialog({
   children,
   className,
   inactive = false,
+  ariaLabel,
+  closeLabel = 'Close',
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   className?: string;
   inactive?: boolean;
+  ariaLabel?: string;
+  closeLabel?: string;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocus = useRef(document.activeElement);
@@ -60,7 +64,7 @@ export function HomeDialog({
     <dialog
       ref={dialogRef}
       className={['home-dialog', className].filter(Boolean).join(' ')}
-      aria-label={title}
+      aria-label={ariaLabel ?? title}
       inert={inactive || undefined}
       aria-hidden={inactive || undefined}
       onKeyDown={(event) => event.stopPropagation()}
@@ -76,7 +80,12 @@ export function HomeDialog({
       <div className="home-dialog-content">
         <header>
           <h2>{title}</h2>
-          <button type="button" className="home-secondary" aria-label="Close" onClick={onClose}>
+          <button
+            type="button"
+            className="home-secondary"
+            aria-label={closeLabel}
+            onClick={onClose}
+          >
             <UiIcon name="close" size={16} />
           </button>
         </header>

@@ -16,7 +16,11 @@ import { MotionPresence } from './MotionPresence';
 
 type TraySnap = 'peek' | 'half' | 'full';
 
-interface Props {
+export interface SessionTrayProps {
+  compactions?: import('@mitzo/protocol').ContextCompaction[];
+  compactionError?: string;
+  compactionTruncated?: boolean;
+  sessionId?: string;
   placement?: 'overlay' | 'toolbar';
   messages: FinishedMessage[];
   current?: StreamingMessage | null;
@@ -101,7 +105,7 @@ export function SessionTray({
   onRemoveImage,
   onPreviewImage,
   getDraftImageKey,
-}: Props) {
+}: SessionTrayProps) {
   const contentId = useId();
   const outputsContentId = useId();
   const referencesContentId = useId();

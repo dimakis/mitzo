@@ -2095,6 +2095,14 @@ export class EventStore {
     return row ? rowToEvent(row) : null;
   }
 
+  /** Bounded lifecycle history without loading message/tool payloads. Newest events first. */
+  getEventsOfType(sessionId: string, type: string, limit = 512): StoredEvent[] {
+    const rows = this.db!.prepare(
+      'SELECT * FROM events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT ?',
+    ).all(sessionId, type, Math.max(1, Math.min(1024, limit))) as EventRow[];
+    return rows.map(rowToEvent);
+  }
+
   getEventsAfter(sessionId: string, afterSeq: number, limit?: number): StoredEvent[] {
     return this.conversationReplay.getEventsAfter(sessionId, afterSeq, limit);
   }

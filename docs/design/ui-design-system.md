@@ -525,3 +525,50 @@ the real DesktopShell at 300px height, with its separate status row, in the
 [short desktop capture](assets/chat-settings-short-desktop-light.png). Existing mobile
 conversations retain their full account/agent/model/thinking/execution/workspace
 details in this top panel, including legacy conversations without a runtime binding.
+
+## Approved conversation composition
+
+Conversation chrome keeps Account, Model and Thinking first in the single top
+settings disclosure, followed by Agent and Repository. Run on and runtime details
+live under Advanced. Repository keeps the existing account-bound catalogue,
+preview and preparation flow; it does not accept an arbitrary unverified checkout.
+The ordinary collaboration entry stays beside Resources in the composer. Unsupported
+Terminal and collaboration actions explain their unavailable state rather than
+opening a runtime they cannot control. Send, queue, interrupt and command actions
+use distinct shared UiIcon shapes and accessible names.
+
+Settings group headings, Access, Resources, the welcome wordmark and selection
+accents all resolve the Settings appearance picker's `--color-accent`. Semantic
+warning/error/status colors keep their existing roles. There is no second chat
+palette. OpenShell and GitHub marks are monochrome masks using currentColor,
+from the official [OpenShell brand asset](https://github.com/NVIDIA/OpenShell/blob/main/docs/brand/assets/openshell-mark-mono-white.svg)
+and [GitHub Octicons](https://github.com/primer/octicons/blob/main/icons/mark-github-16.svg).
+
+Resources uses the shared native HomeDialog with Sources, Context, Outputs and
+References tabs. Sources preserves submitted context content when recorded;
+Context includes reviewable boot/session context and selected next-prompt blocks.
+Outputs only lists registered session outputs. References retains multiple roles
+for the same URL (shared by you, found during research, linked by the agent,
+created by the agent, workspace), groups by website, and pages eight groups/links
+at a time. Search, category, scroll position and opener focus survive a detail
+view. PR state comes only from a successful structured publication snapshot;
+checks/reviews remain unreported without evidence, with no background polling.
+
+The usage wheel distinguishes current model occupancy from cumulative request
+usage and shows user turns, agent requests and compactions. Positioned compaction
+markers and Context history share a detail view. The durable lifecycle endpoint
+reads bounded compaction events, not the transcript, and refreshes on lifecycle
+changes. Exact condensed ranges, retained summaries or token figures remain
+explicitly unavailable when the adapter did not report them. Historical sessions
+can have counts without positioned records. Access likewise explains Unknown
+when the selected runtime cannot report live access evidence.
+
+Offline checks render actual shared controls on mobile WebKit/Chromium and desktop
+Chromium, with light/dark appearance, Mint/Teal accents, Georgia and Reduce Motion.
+They cover word-by-word italic live transcription, command insertion without draft
+loss, nested boot review, PR back navigation, bounded references, compaction
+position/evidence and composer placement. Captures show the
+[mobile conversation](assets/approved-chat-mobile-dark.png),
+[accent-aware settings](assets/approved-chat-settings-teal.png) and
+[desktop context](assets/approved-chat-context-desktop-light.png).
+These are intercepted fixtures; no backend, model or production service is used.

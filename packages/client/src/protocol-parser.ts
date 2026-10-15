@@ -652,6 +652,12 @@ export function parseServerMessage(
         tu.sessionTotalStatus = msg.sessionTotalStatus;
       if (msg.numTurns != null) tu.numTurns = msg.numTurns as number;
       if (msg.numCompactions != null) tu.numCompactions = msg.numCompactions as number;
+      if (
+        msg.compactionPhase === 'compacting' ||
+        msg.compactionPhase === 'completed' ||
+        msg.compactionPhase === 'failed'
+      )
+        tu.compactionPhase = msg.compactionPhase;
       result.tokensUpdate = tu;
       break;
     }

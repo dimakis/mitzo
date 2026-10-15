@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 const output = build({
   entryPoints: [resolve('tests/fixtures/chat-settings-surface.tsx')],
   bundle: true,
+  external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
   write: false,
   outfile: '/tmp/mitzo-chat-settings.js',
   jsx: 'automatic',
@@ -119,6 +120,7 @@ for (const appearance of ['dark', 'light'] as const) {
     await trigger.click();
     await expect(panel).toBeVisible();
     await expect(input).toBeInViewport();
+    await panel.locator('.chat-settings-advanced > summary').click();
     const local = panel.getByRole('button', { name: 'Local Mac', exact: true });
     await local.scrollIntoViewIfNeeded();
     const localBox = (await local.boundingBox())!;
