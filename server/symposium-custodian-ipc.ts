@@ -144,27 +144,32 @@ export function createCustodianIpcClient(
             ? serveControllerPublicationApproval(channel, { ...input, epoch: epoch! }, approval)
             : () => {};
         const inventoryRead = ['personal.list', 'account.catalog'].includes(input.operation);
+        const advice = input.operation === 'library.advice';
         const cancelPublication = () => {
           if (['publication.publish', 'publication.recover'].includes(input.operation) && !closed)
             send({ kind: 'publication-request-cancel', epoch, requestId: input.requestId });
         };
         const cancel = () => {
-          if (!inventoryRead) return cancelPublication();
-          // Cancel the read at both ends; metadata has no durable outcome to reconcile.
-          if (!closed) send({ kind: 'read-request-cancel', epoch, requestId: input.requestId });
+          if (!inventoryRead && !advice) return cancelPublication();
+          if (!closed)
+            send({
+              kind: advice ? 'advice-request-cancel' : 'read-request-cancel',
+              epoch,
+              requestId: input.requestId,
+            });
           const item = pending.get(input.requestId);
           if (!item) return;
           pending.delete(input.requestId);
           clearTimeout(item.timer);
           item.closeApproval();
-          item.reject(Error('Custodian read cancelled'));
+          item.reject(Error(advice ? 'Custodian advice cancelled' : 'Custodian read cancelled'));
         };
         const closeApproval = () => {
           removeApproval();
           signal?.removeEventListener('abort', cancel);
         };
         const timer = setTimeout(() => {
-          if (inventoryRead) return cancel();
+          if (inventoryRead || advice) return cancel();
           cancelPublication();
           pending.delete(input.requestId);
           closeApproval();
@@ -174,7 +179,7 @@ export function createCustodianIpcClient(
         signal?.addEventListener('abort', cancel, { once: true });
         if (signal?.aborted) {
           cancel();
-          if (inventoryRead) return;
+          if (inventoryRead || advice) return;
         }
         try {
           send({ kind: 'request', command: { ...input, epoch } });
@@ -210,12 +215,14 @@ export function serveCustodianController(
   const heartbeatMs = options.heartbeatMs ?? 120_000;
   const publications = new Map<string, AbortController>();
   const reads = new Map<string, AbortController>();
+  const advice = new Map<string, AbortController>();
   return new Promise<void>((resolve, reject) => {
     const stop = (failure?: Error) => {
       if (lost) return;
       lost = true;
       for (const abort of publications.values()) abort.abort();
       for (const abort of reads.values()) abort.abort();
+      for (const abort of advice.values()) abort.abort();
       clearInterval(timer);
       channel.off('message', message);
       void connection.lost().then(() => (failure ? reject(failure) : resolve()), reject);
@@ -292,6 +299,16 @@ export function serveCustodianController(
         reads.get(frame.requestId)?.abort();
         return;
       }
+      if (
+        frame.kind === 'advice-request-cancel' &&
+        frame.epoch === connection.epoch &&
+        typeof frame.requestId === 'string' &&
+        frame.requestId.length <= 200 &&
+        Object.keys(frame).length === 3
+      ) {
+        advice.get(frame.requestId)?.abort();
+        return;
+      }
       if (frame.kind !== 'request' || Object.keys(frame).length !== 2) return;
       const command = frame.command as Record<string, unknown> | undefined;
       if (!command || typeof command.requestId !== 'string' || command.requestId.length > 200)
@@ -303,7 +320,11 @@ export function serveCustodianController(
         send({ kind: 'response', requestId: command.requestId, failed: true });
         return;
       }
-      if (publications.has(parsed.requestId) || reads.has(parsed.requestId)) {
+      if (
+        publications.has(parsed.requestId) ||
+        reads.has(parsed.requestId) ||
+        advice.has(parsed.requestId)
+      ) {
         send({ kind: 'response', requestId: parsed.requestId, failed: true });
         return;
       }
@@ -317,13 +338,17 @@ export function serveCustodianController(
         ? new AbortController()
         : undefined;
       if (readAbort) reads.set(parsed.requestId, readAbort);
+      // Inference cancellation requests termination, but owner capacity and drain
+      // remain attached to the real handler until it has settled.
+      const adviceAbort = parsed.operation === 'library.advice' ? new AbortController() : undefined;
+      if (adviceAbort) advice.set(parsed.requestId, adviceAbort);
       void connection
         .request(
           parsed,
           parsed.operation === 'publication.publish'
             ? controllerPublicationApproval(channel, parsed)
             : undefined,
-          publicationAbort?.signal ?? readAbort?.signal,
+          publicationAbort?.signal ?? readAbort?.signal ?? adviceAbort?.signal,
         )
         .then(
           (result) => send({ kind: 'response', requestId: command.requestId, result }),
@@ -332,6 +357,7 @@ export function serveCustodianController(
         .finally(() => {
           publications.delete(parsed.requestId);
           reads.delete(parsed.requestId);
+          advice.delete(parsed.requestId);
         });
     };
     channel.on('message', message);

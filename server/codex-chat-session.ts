@@ -60,6 +60,7 @@ import {
   type OpenShellCodexOptions,
 } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
+import { taskRuntimeGuidance, meetingPrepGuidance } from './task-runtime-guidance.js';
 import {
   CodexConversationStore,
   type KnowledgeAdoptionSelection,
@@ -139,6 +140,13 @@ interface PendingProviderAdmission {
 }
 const pendingAdmissions = new WeakMap<ManagedSession, Map<string, PendingProviderAdmission>>();
 const log = createLogger('codex-chat-session');
+/** Host-only attachment receipt shared by both integration-access tool routes. */
+interface IntegrationAccessResult {
+  content: string;
+  isError: boolean;
+  environmentChange?: { kind: 'provider-attachment'; provider: string };
+}
+
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
 const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
   'google-workspace': 'Google Workspace',
@@ -954,7 +962,7 @@ async function openCodexChatBound(
     | {
         id: string;
         denied: Set<string>;
-        pending: Map<string, Promise<{ content: string; isError: boolean }>>;
+        pending: Map<string, Promise<IntegrationAccessResult>>;
       }
     | undefined;
   let integrationTransportNeedsRefresh = false;
@@ -962,7 +970,7 @@ async function openCodexChatBound(
     provider: string,
     signal: AbortSignal,
     controlPlane = false,
-  ) => {
+  ): Promise<IntegrationAccessResult> => {
     // A cancelled approval can settle after the next queued turn has started.
     // Keep all coalescing and denial state bound to the initiating turn.
     const turn = integrationTurn;
@@ -999,7 +1007,7 @@ async function openCodexChatBound(
     signal: AbortSignal,
     turn: typeof integrationTurn,
     controlPlane: boolean,
-  ) => {
+  ): Promise<IntegrationAccessResult> => {
     if (!runtimeManager || !managedOpenShell)
       return { content: 'Integration provider is not grantable', isError: true };
     const access = await runtimeManager!.hasServiceProviderAccess(
@@ -1069,8 +1077,9 @@ async function openCodexChatBound(
       if (!(await attachApprovedProvider()))
         return { content: 'Integration provider attachment failed', isError: true };
       return {
-        content: `Integration provider ${provider} is now available to this chat`,
+        content: `Integration provider ${provider} is attached; a fresh transport must verify its environment before use`,
         isError: false,
+        environmentChange: { kind: 'provider-attachment', provider },
       };
     }
     const approvedInput = { provider };
@@ -1098,8 +1107,9 @@ async function openCodexChatBound(
     if (!(await attachApprovedProvider()))
       return { content: 'Integration provider attachment failed', isError: true };
     return {
-      content: `Integration provider ${provider} is now available to this chat`,
+      content: `Integration provider ${provider} is attached; a fresh transport must verify its environment before use`,
       isError: false,
+      environmentChange: { kind: 'provider-attachment', provider },
     };
   };
   try {
@@ -1501,7 +1511,11 @@ async function openCodexChatBound(
                   ? [{ ...agentContext.context, scope: 'sandbox' as const }]
                   : []),
               );
-              if (!selected && !agentContext?.sandbox) return undefined;
+              const capabilities = await runtimeManager!.inspectTaskCapabilities(
+                managedOpenShell!,
+                signal,
+              );
+              await options.ownedOpenShell?.assertCurrent();
               pendingKnowledge = selected?.adoption;
               if (selected) options.onBootContext?.(selected.context);
               pendingAdditionalContext =
@@ -1510,7 +1524,9 @@ async function openCodexChatBound(
                   : '') +
                 (selected
                   ? `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout${agentContext?.sandbox ? ' and saved recipe' : ''}. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${agentContext?.source === 'packs' ? 'The agent profile boot context retains its separately recorded source revisions. This retrieval publication does not replace that pinned profile context.' : selected.context.fullMarkdown}`
-                  : '');
+                  : '') +
+                taskRuntimeGuidance(capabilities) +
+                meetingPrepGuidance;
               if (agentContext?.sandbox)
                 pendingAgentContextSha256 = createHash('sha256')
                   .update(pendingAdditionalContext)
@@ -1789,8 +1805,10 @@ async function openCodexChatBound(
     ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
       ? {
           refreshTransportBeforeTurn: () => integrationTransportNeedsRefresh,
-          shouldContinueAfterToolResult: (name, _input, result) =>
-            name === GRANT_INTEGRATION_TOOL && !result.isError && integrationTransportNeedsRefresh,
+          shouldContinueAfterToolResult: (_name, _input, result: IntegrationAccessResult) =>
+            result.environmentChange?.kind === 'provider-attachment' &&
+            !result.isError &&
+            integrationTransportNeedsRefresh,
           ...(options.ordinaryTurnLifecycle
             ? {
                 environmentContinuationOwner: 'external' as const,

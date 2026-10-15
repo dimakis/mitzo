@@ -9,9 +9,11 @@ health evidence belong in private case storage, not Telos.
 
 1. Identify the live Telos outcome ID in the task handover, or create an outcome
    with `TelosCreateOutcome` when the user authorizes capture.
-2. On a cold start, call `TelosFindArtifacts` with `itemId` or a topic query,
-   then `TelosReadArtifact` for the relevant artifact IDs. Do this before declaring
-   prior work absent because a local path does not exist.
+2. When the task references an outcome, earlier work, or a continuation, call
+   `TelosFindArtifacts` with `itemId` or a topic query, then `TelosReadArtifact`
+   for relevant documents before declaring prior work absent. Retrieval is not a
+   startup prerequisite for a fresh question, live inventory or meeting brief.
+   Answering a brief in chat does not require a new outcome.
 3. Write in the current workspace. Before handing off substantial documents,
    call `TelosSaveArtifact` with `itemId`, a stable `filename`, `title`, and either
    a unique `requestId` and a session workspace `path` or inline UTF-8 `content`. Files support binary bytes.

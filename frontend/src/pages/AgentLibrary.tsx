@@ -10,14 +10,10 @@ import {
   type CompiledAgentContext,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
-import {
-  agentAdvisorHref,
-  agentChatHref,
-  agentLibraryTemplates,
-  newAgentDefinition,
-} from '../lib/agent-library';
+import { agentChatHref, agentLibraryTemplates, newAgentDefinition } from '../lib/agent-library';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { AgentProfileEditor } from '../components/AgentProfileEditor';
+import { AgentCreationAdvisor } from '../components/AgentCreationAdvisor';
 import { AgentContextPreview } from '../components/AgentContextPreview';
 import { AgentReviewerLauncher } from '../components/AgentReviewerLauncher';
 import {
@@ -90,6 +86,9 @@ export function AgentLibrary() {
   const [recovered] = useState(loadAgentLibraryWorkingCopy);
   const [catalog, setCatalog] = useState<AgentLibraryCatalog | null>(null);
   const [editor, setEditor] = useState<Editor | null>(recovered?.editor ?? null);
+  const [advisorOpen, setAdvisorOpen] = useState(
+    !!recovered && !recovered.editor.publishedRevision,
+  );
   const [tab, setTab] = useState<Tab>('identity');
   const [query, setQuery] = useState('');
   const [dirty, setDirty] = useState(!!recovered);
@@ -235,6 +234,7 @@ export function AgentLibrary() {
     setEditor(next);
     setDirty(true);
     setTab('identity');
+    setAdvisorOpen(true);
     setError('');
     setPreview('');
     setCompiledPreview(null);
@@ -272,9 +272,16 @@ export function AgentLibrary() {
         description="Give an agent a job. Use it wherever you work."
         actions={
           <>
-            <Link className="workspace-text-link" to={agentAdvisorHref}>
+            <button
+              type="button"
+              disabled={!catalog || busy}
+              onClick={() => {
+                if (!editor) create();
+                setAdvisorOpen(true);
+              }}
+            >
               Create with advisor
-            </Link>
+            </button>
             <button className="btn-primary" disabled={busy || dirty || !catalog} onClick={create}>
               New agent
             </button>
@@ -373,210 +380,225 @@ export function AgentLibrary() {
               </p>
             )}
           </section>
-          <section className="agent-library-detail" aria-label="Agent profile editor">
-            {editor ? (
-              <>
-                <div className="agent-library-heading">
-                  <div>
-                    <h2>{editor.definition.name || 'New agent'}</h2>
-                    <p className="agent-library-descriptor">
-                      {editor.definition.descriptor || 'Choose a descriptor'}
-                    </p>
-                  </div>
-                  <span>
-                    {dirty
-                      ? 'Unsaved edits'
-                      : editor.publishedRevision
-                        ? `Published · r${editor.publishedRevision}`
-                        : `Draft · saved ${editor.expectedVersion}`}
-                  </span>
-                </div>
-                <div className="agent-library-tabs" role="tablist" aria-label="Profile sections">
-                  {(['identity', 'instructions', 'context', 'preview', 'versions'] as const).map(
-                    (item) => (
-                      <button
-                        key={item}
-                        id={`agent-library-tab-${item}`}
-                        role="tab"
-                        aria-selected={tab === item}
-                        aria-controls="agent-library-panel"
-                        onClick={() => setTab(item)}
-                      >
-                        {item === 'preview'
-                          ? 'Prompt preview'
-                          : item[0].toUpperCase() + item.slice(1)}
-                      </button>
-                    ),
-                  )}
-                </div>
-                <div
-                  id="agent-library-panel"
-                  role="tabpanel"
-                  aria-labelledby={`agent-library-tab-${tab}`}
-                >
-                  {(['identity', 'instructions', 'context'] as string[]).includes(tab) && (
-                    <AgentProfileEditor
-                      value={editor.definition}
-                      onChange={update}
-                      tab={tab as 'identity' | 'instructions' | 'context'}
-                      disabled={busy || historical}
-                    />
-                  )}
-                  {tab === 'preview' && (
-                    <>
-                      <p>
-                        Preview the profile instructions and selected context. Mitzo adds its
-                        platform instructions when the chat starts.
+          <div className="agent-library-workbench">
+            {editor && (
+              <AgentCreationAdvisor
+                key={editor.profileId}
+                definition={editor.definition}
+                onApply={(definition) => {
+                  update(definition);
+                  setTab('identity');
+                }}
+                open={advisorOpen}
+                onOpenChange={setAdvisorOpen}
+                disabled={busy || historical}
+              />
+            )}
+            <section className="agent-library-detail" aria-label="Agent profile editor">
+              {editor ? (
+                <>
+                  <div className="agent-library-heading">
+                    <div>
+                      <h2>{editor.definition.name || 'New agent'}</h2>
+                      <p className="agent-library-descriptor">
+                        {editor.definition.descriptor || 'Choose a descriptor'}
                       </p>
+                    </div>
+                    <span>
+                      {dirty
+                        ? 'Unsaved edits'
+                        : editor.publishedRevision
+                          ? `Published · r${editor.publishedRevision}`
+                          : `Draft · saved ${editor.expectedVersion}`}
+                    </span>
+                  </div>
+                  <div className="agent-library-tabs" role="tablist" aria-label="Profile sections">
+                    {(['identity', 'instructions', 'context', 'preview', 'versions'] as const).map(
+                      (item) => (
+                        <button
+                          key={item}
+                          id={`agent-library-tab-${item}`}
+                          role="tab"
+                          aria-selected={tab === item}
+                          aria-controls="agent-library-panel"
+                          onClick={() => setTab(item)}
+                        >
+                          {item === 'preview'
+                            ? 'Prompt preview'
+                            : item[0].toUpperCase() + item.slice(1)}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                  <div
+                    id="agent-library-panel"
+                    role="tabpanel"
+                    aria-labelledby={`agent-library-tab-${tab}`}
+                  >
+                    {(['identity', 'instructions', 'context'] as string[]).includes(tab) && (
+                      <AgentProfileEditor
+                        value={editor.definition}
+                        onChange={update}
+                        tab={tab as 'identity' | 'instructions' | 'context'}
+                        disabled={busy || historical}
+                      />
+                    )}
+                    {tab === 'preview' && (
+                      <>
+                        <p>
+                          Preview the profile instructions and selected context. Mitzo adds its
+                          platform instructions when the chat starts.
+                        </p>
+                        <button
+                          disabled={busy || !valid}
+                          onClick={() =>
+                            void execute(async () => {
+                              setPreview('');
+                              setCompiledPreview(null);
+                              const result = await read<{
+                                profilePrompt: string;
+                                assembledPrompt?: string;
+                                compiledContext?: CompiledAgentContext;
+                              }>('/api/agent-library/preview', {
+                                definition: normalize(editor.definition),
+                              });
+                              const compiled = result.compiledContext
+                                ? CompiledAgentContextSchema.parse(result.compiledContext)
+                                : null;
+                              setCompiledPreview(compiled);
+                              setPreview(result.assembledPrompt ?? result.profilePrompt);
+                            })
+                          }
+                        >
+                          {editor.definition.contextRecipe ? 'Compile preview' : 'Preview guidance'}
+                        </button>
+                        {compiledPreview && <AgentContextPreview value={compiledPreview} />}
+                        {preview && <pre className="agent-library-prompt">{preview}</pre>}
+                      </>
+                    )}
+                    {tab === 'versions' && (
+                      <>
+                        <p>
+                          Published revisions are immutable. Existing conversations keep their
+                          selected revision.
+                        </p>
+                        {catalog.versions
+                          .filter((v) => v.profileId === editor.profileId)
+                          .map((v) => (
+                            <button
+                              disabled={busy || dirty}
+                              key={v.revision}
+                              onClick={() => adopt(v)}
+                            >
+                              {agentProfileLabel(v.definition)} · r{v.revision}
+                            </button>
+                          ))}
+                      </>
+                    )}
+                  </div>
+                  {!historical && (
+                    <div className="agent-library-actions">
                       <button
-                        disabled={busy || !valid}
+                        disabled={busy || !valid || (!dirty && editor.expectedVersion > 0)}
+                        onClick={() => void save()}
+                      >
+                        Save draft
+                      </button>
+                      {!editor.publishedRevision && editor.expectedVersion > 0 && (
+                        <button
+                          className="btn-primary"
+                          disabled={busy || dirty}
+                          onClick={() => void publish()}
+                        >
+                          Publish revision
+                        </button>
+                      )}
+                      {dirty && (
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            const saved = entries.get(editor.profileId);
+                            if (saved) adopt(saved);
+                            else {
+                              saveAgentLibraryWorkingCopy(null);
+                              setEditor(null);
+                              setDirty(false);
+                            }
+                          }}
+                        >
+                          Discard unsaved edits
+                        </button>
+                      )}
+                      {editor.baseRevision === 0 && editor.expectedVersion === 0 && (
+                        <label>
+                          Start from a template
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const template = agentLibraryTemplates.find(
+                                (t) => t.id === e.target.value,
+                              );
+                              if (template)
+                                update({
+                                  ...structuredClone(template.definition),
+                                  name: editor.definition.name,
+                                  descriptor: template.definition.descriptor,
+                                });
+                            }}
+                          >
+                            <option value="">Choose a template</option>
+                            {agentLibraryTemplates.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.definition.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    </div>
+                  )}
+                  {canUse && (
+                    <div className="agent-library-actions">
+                      <Link
+                        className="btn-primary"
+                        to={agentChatHref(editor.profileId, editor.publishedRevision!)}
+                      >
+                        Use in chat
+                      </Link>
+                      <button
+                        disabled={busy}
                         onClick={() =>
                           void execute(async () => {
-                            setPreview('');
-                            setCompiledPreview(null);
-                            const result = await read<{
-                              profilePrompt: string;
-                              assembledPrompt?: string;
-                              compiledContext?: CompiledAgentContext;
-                            }>('/api/agent-library/preview', {
-                              definition: normalize(editor.definition),
-                            });
-                            const compiled = result.compiledContext
-                              ? CompiledAgentContextSchema.parse(result.compiledContext)
-                              : null;
-                            setCompiledPreview(compiled);
-                            setPreview(result.assembledPrompt ?? result.profilePrompt);
+                            const version = await read<AgentLibraryVersion>(
+                              `/api/agent-library/${encodeURIComponent(editor.profileId)}/${editor.publishedRevision}/export`,
+                            );
+                            setPortable(JSON.stringify(version, null, 2));
                           })
                         }
                       >
-                        {editor.definition.contextRecipe ? 'Compile preview' : 'Preview guidance'}
+                        Export profile
                       </button>
-                      {compiledPreview && <AgentContextPreview value={compiledPreview} />}
-                      {preview && <pre className="agent-library-prompt">{preview}</pre>}
-                    </>
-                  )}
-                  {tab === 'versions' && (
-                    <>
-                      <p>
-                        Published revisions are immutable. Existing conversations keep their
-                        selected revision.
-                      </p>
-                      {catalog.versions
-                        .filter((v) => v.profileId === editor.profileId)
-                        .map((v) => (
-                          <button
-                            disabled={busy || dirty}
-                            key={v.revision}
-                            onClick={() => adopt(v)}
-                          >
-                            {agentProfileLabel(v.definition)} · r{v.revision}
-                          </button>
-                        ))}
-                    </>
-                  )}
-                </div>
-                {!historical && (
-                  <div className="agent-library-actions">
-                    <button
-                      disabled={busy || !valid || (!dirty && editor.expectedVersion > 0)}
-                      onClick={() => void save()}
-                    >
-                      Save draft
-                    </button>
-                    {!editor.publishedRevision && editor.expectedVersion > 0 && (
-                      <button
-                        className="btn-primary"
-                        disabled={busy || dirty}
-                        onClick={() => void publish()}
-                      >
-                        Publish revision
-                      </button>
-                    )}
-                    {dirty && (
-                      <button
-                        disabled={busy}
-                        onClick={() => {
-                          const saved = entries.get(editor.profileId);
-                          if (saved) adopt(saved);
-                          else {
-                            saveAgentLibraryWorkingCopy(null);
-                            setEditor(null);
-                            setDirty(false);
-                          }
+                      <AgentReviewerLauncher
+                        key={`${editor.profileId}:${editor.publishedRevision}`}
+                        selection={{
+                          profileId: editor.profileId,
+                          revision: editor.publishedRevision!,
                         }}
-                      >
-                        Discard unsaved edits
-                      </button>
-                    )}
-                    {editor.baseRevision === 0 && editor.expectedVersion === 0 && (
-                      <label>
-                        Start from a template
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            const template = agentLibraryTemplates.find(
-                              (t) => t.id === e.target.value,
-                            );
-                            if (template)
-                              update({
-                                ...structuredClone(template.definition),
-                                name: editor.definition.name,
-                                descriptor: template.definition.descriptor,
-                              });
-                          }}
-                        >
-                          <option value="">Choose a template</option>
-                          {agentLibraryTemplates.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.definition.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                  </div>
-                )}
-                {canUse && (
-                  <div className="agent-library-actions">
-                    <Link
-                      className="btn-primary"
-                      to={agentChatHref(editor.profileId, editor.publishedRevision!)}
-                    >
-                      Use in chat
-                    </Link>
-                    <button
-                      disabled={busy}
-                      onClick={() =>
-                        void execute(async () => {
-                          const version = await read<AgentLibraryVersion>(
-                            `/api/agent-library/${encodeURIComponent(editor.profileId)}/${editor.publishedRevision}/export`,
-                          );
-                          setPortable(JSON.stringify(version, null, 2));
-                        })
-                      }
-                    >
-                      Export profile
-                    </button>
-                    <AgentReviewerLauncher
-                      key={`${editor.profileId}:${editor.publishedRevision}`}
-                      selection={{
-                        profileId: editor.profileId,
-                        revision: editor.publishedRevision!,
-                      }}
-                    />
-                  </div>
-                )}
-                {portable && (
-                  <label>
-                    Portable profile export
-                    <textarea readOnly rows={7} value={portable} />
-                  </label>
-                )}
-              </>
-            ) : (
-              <p>Select a saved agent or create one to get started.</p>
-            )}
-          </section>
+                      />
+                    </div>
+                  )}
+                  {portable && (
+                    <label>
+                      Portable profile export
+                      <textarea readOnly rows={7} value={portable} />
+                    </label>
+                  )}
+                </>
+              ) : (
+                <p>Select a saved agent or create one to get started.</p>
+              )}
+            </section>
+          </div>
         </div>
       )}
     </main>

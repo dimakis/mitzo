@@ -17,6 +17,7 @@ const operations = {
   'library.draft': ['POST', '/api/agent-library/drafts'],
   'library.publish': ['POST', '/api/agent-library/publish'],
   'library.preview': ['POST', '/api/agent-library/preview'],
+  'library.advice': ['POST', '/api/agent-library/advice'],
   'library.import': ['POST', '/api/agent-library/import'],
   'library.export': ['GET', '/api/agent-library/:resourceId/:revision/export'],
   'library.read': ['GET', '/api/agent-library/:resourceId/:revision'],

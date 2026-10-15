@@ -2817,7 +2817,7 @@ test('saved chat identity failures lock model controls until an explicit success
   }
 });
 
-test('builder launcher distinguishes built-in guidance from a saved profile with the same ID', async ({
+test('chat builder selection distinguishes built-in guidance from a saved profile with the same ID', async ({
   page,
 }) => {
   await page.route('**/api/**', async (route) => {
@@ -2858,8 +2858,9 @@ test('builder launcher distinguishes built-in guidance from a saved profile with
       });
     return route.fallback();
   });
-  await page.goto('https://mitzo-ui.test/agent-library');
-  await page.getByRole('link', { name: 'Create with advisor', exact: true }).click();
+  await page.goto(
+    'https://mitzo-ui.test/chat?agentProfile=mitzo-profile-builder&agentProfileKind=builtin&profileRevision=1&prompt=Help+me+create+an+agent.',
+  );
   await expect(page).toHaveURL(/agentProfileKind=builtin/);
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
     'Help me create an agent.',
