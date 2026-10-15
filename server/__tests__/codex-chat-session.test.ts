@@ -1060,6 +1060,14 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect(shouldContinue(name, input, result)).toBe(false);
       reset.mockRestore();
       vi.clearAllMocks();
+      hasAccess.mockResolvedValueOnce({ state: 'available' });
+      const alreadyAttached = await executeTool(name, input, signal);
+      expect(alreadyAttached.isError).toBe(false);
+      expect(shouldContinue(name, input, alreadyAttached)).toBe(false);
+      expect(refreshTransport()).toBe(false);
+      expect(grant).not.toHaveBeenCalled();
+      expect(mocks.permissionHandler).not.toHaveBeenCalled();
+      vi.clearAllMocks();
     }
 
     // A persisted approval whose first physical attach failed is recoverable:
