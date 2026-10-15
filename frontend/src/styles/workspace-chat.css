@@ -233,6 +233,7 @@
 /* Compact workspace disclosure and composer. */
 .workspace-controls {
   position: relative;
+  z-index: 10;
   flex-shrink: 0;
   border-bottom: 1px solid var(--workspace-line);
 }
@@ -1781,6 +1782,10 @@
   flex: 1;
   min-width: 0;
   text-align: left;
+}
+.chat-resource-remove {
+  min-width: var(--control-height);
+  flex: none;
 }
 .chat-resource-row strong,
 .chat-resource-row small {

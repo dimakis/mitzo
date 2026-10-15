@@ -244,6 +244,7 @@ test('Approved composer clean saved-design reference aligns Agent and Account fi
   await body.evaluate((element) => {
     element.scrollTop = 0;
   });
+  await agent.scrollIntoViewIfNeeded();
   await expect(agent).toBeInViewport();
   const geometry = await agent.evaluate((element) => {
     const label = element.closest('label')!.getBoundingClientRect();

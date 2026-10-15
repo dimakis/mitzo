@@ -81,7 +81,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-artifact-route-composition.ts':
     '8d9e87e2a2873f0dc841429a5b9a43b93aa194237e4f9594b572e87bff27142b',
   '../../frontend/src/styles/workspace-chat.css':
-    '01cdd68083f7e5af473252163ad6fb11efc2ce5e0741aa896e8e5deb55a7bfb3',
+    '0f38b9bfe3ee937044ca2d5955e2ca030d235c9c9589d7ddec8352844e4c27d9',
   // Explicit Local draft selection, exact-request delivery and bound conversation controls.
   '../../frontend/src/client-store.ts':
     '74b4fb663607649429a29639ab1a7c5ad8f5a35d5564e1e475e965f13121d974',
