@@ -62,3 +62,32 @@ it('bounds hundreds of references, preserves filters, and closes a PR back into 
     'true',
   );
 });
+it('offers a chat-scoped Mockups collection without registering links as retained outputs', () => {
+  const view = render(
+    <SessionResourcesDialog
+      {...props}
+      sessionId="one"
+      messages={[
+        {
+          messageId: 'm',
+          role: 'assistant',
+          blocks: [
+            {
+              blockId: 'b',
+              blockType: 'text',
+              content: '[Release checklist](/task/mockups/release/v001.html)',
+            },
+          ],
+        },
+      ]}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Mockups' }));
+  expect(screen.getByRole('button', { name: 'Open Release checklist' })).toBeTruthy();
+  view.rerender(<SessionResourcesDialog {...props} sessionId="two" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Mockups' }));
+  expect(screen.queryByRole('button', { name: 'Open Release checklist' })).toBeNull();
+  expect(screen.getByText(/No mockups linked/)).toBeTruthy();
+});

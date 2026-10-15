@@ -159,15 +159,26 @@ it('keeps both pinning and outcome status accessible in the focus card', () => {
 });
 
 it.each([
-  ['session context', <SessionBanner sessionContext="Selected project context" />],
-  ['Markdown preview', <MarkdownPreviewCard filePath="notes.md" />],
-  ['HTML preview', <HtmlPreviewCard filePath="preview.html" />],
-] as const)('exposes collapsed and expanded state for %s', async (_name, component) => {
-  render(<MemoryRouter>{component}</MemoryRouter>);
-  const control = screen.getByRole('button', {
-    expanded: false,
-    name: _name === 'Markdown preview' ? /notes\.md/ : undefined,
-  });
-  fireEvent.click(control);
-  expect(await screen.findByRole('button', { expanded: true })).toBe(control);
-});
+  ['session context', <SessionBanner sessionContext="Selected project context" />, false],
+  ['Markdown preview', <MarkdownPreviewCard filePath="notes.md" />, false],
+  ['HTML preview', <HtmlPreviewCard filePath="preview.html" />, true],
+] as const)(
+  'exposes collapsed and expanded state for %s',
+  async (_name, component, initiallyExpanded) => {
+    render(<MemoryRouter>{component}</MemoryRouter>);
+    const name =
+      _name === 'Markdown preview'
+        ? /notes\.md/
+        : _name === 'HTML preview'
+          ? /preview\.html/
+          : undefined;
+    const control = screen.getByRole('button', {
+      expanded: initiallyExpanded,
+      name,
+    });
+    fireEvent.click(control);
+    expect(await screen.findByRole('button', { expanded: !initiallyExpanded, name })).toBe(control);
+    fireEvent.click(control);
+    expect(await screen.findByRole('button', { expanded: initiallyExpanded, name })).toBe(control);
+  },
+);

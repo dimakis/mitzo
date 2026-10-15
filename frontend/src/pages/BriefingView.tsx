@@ -1,8 +1,8 @@
+import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { localBriefingConversation } from '../lib/briefing-registration';
 import { UiIcon } from '../components/UiIcon';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
-import { useMitzoStore } from '@mitzo/client/hooks';
 import type { BriefingSnapshot } from '@mitzo/protocol';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -86,7 +86,7 @@ export function BriefingView() {
   const { date = '' } = useParams<{ date: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const stageLaunch = useMitzoStore((store) => store.setPendingSession);
+  const stageLaunch = useStageChatLaunch();
   const { preferences } = useHomePreferences();
   const name = preferences?.names.briefing ?? 'Minion';
   const [loaded, setLoaded] = useState<{ date: string; snapshot: BriefingSnapshot } | null>(null);
@@ -184,7 +184,6 @@ export function BriefingView() {
       accountSelection: { ...selection, accountId: selection.accountId },
       briefing: { date: snapshot.date, revision: snapshot.revision },
     });
-    navigate('/chat');
   }
   return (
     <main className="briefing-page workspace-page">

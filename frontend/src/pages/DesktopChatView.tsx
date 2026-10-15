@@ -15,7 +15,12 @@ import {
 } from '../lib/explicit-local-chat';
 import { createBrowserId } from '../lib/browser-crypto';
 import { useNewChatDraft, useChatDraftSearch } from '../hooks/useNewChatDraft';
-import { CHAT_DRAFTS_CHANGED, getChatDraft, chatDraftStorageKey } from '../lib/chat-drafts';
+import {
+  CHAT_DRAFTS_CHANGED,
+  getChatDraft,
+  chatDraftStorageKey,
+  chatDraftTextKey,
+} from '../lib/chat-drafts';
 import { useBriefingChat } from '../hooks/useBriefingChat';
 import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
@@ -89,7 +94,6 @@ export function DesktopChatView() {
   const connection = useConnection();
   const tokens = useTokens();
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
-  const briefingChat = useBriefingChat(activeSessionId);
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
@@ -115,15 +119,28 @@ export function DesktopChatView() {
   const {
     launch,
     launchSending,
+    launchDeliveryPending,
+    launchAccountError,
+    saveLaunchAccount,
     dismissLaunch,
     sendMessage: storeSendMessage,
     sendLaunch,
     registrationError,
     registrationSaving,
     retryRegistration,
-  } = usePendingLaunch();
+  } = usePendingLaunch(sessionId ? null : searchParams.get('draft'));
+  const briefingChat = useBriefingChat(activeSessionId, launch);
 
-  const draftEnabled = !sessionId && !activeSessionId && !repositoryHandoff.present && !launch;
+  const savedLaunch = searchParams.get('draft')
+    ? getChatDraft(searchParams.get('draft')!)?.settings.launch
+    : undefined;
+  const draftEnabled =
+    !sessionId &&
+    !activeSessionId &&
+    !repositoryHandoff.present &&
+    !launch &&
+    !savedLaunch &&
+    !launchDeliveryPending;
   const newChatDraft = useNewChatDraft(searchParams.get('draft'), chatDraftRevision, draftEnabled);
   const localCommand = useMitzoStore((s) => s.localCommand);
   const localTransportAvailable = useMitzoStore((s) => s.localFirstCommandTransportAvailable);
@@ -325,6 +342,7 @@ export function DesktopChatView() {
         return;
       }
       if (selection) setRepositoryAccountError(null);
+      if (selection && launch && !saveLaunchAccount(selection)) return;
       setAccountChoice({ scope: accountScope, selection });
       if (selection) {
         if (
@@ -345,6 +363,8 @@ export function DesktopChatView() {
     },
     [
       controlsBlocked,
+      launch,
+      saveLaunchAccount,
       accountScope,
       repositoryAccountSelection,
       draftEnabled,
@@ -356,7 +376,6 @@ export function DesktopChatView() {
       activeSessionId,
       repositoryHandoff.present,
       repositoryHandoff.lastAssignedConversationId,
-      launch?.briefing,
       briefingChat.selectionLocked,
     ],
   );
@@ -502,7 +521,8 @@ export function DesktopChatView() {
       storeSwitchSession(sessionId);
     } else if (
       !sessionId &&
-      (preparationId !== null || activeSessionId || resetFailedDraftOnMount.current)
+      (preparationId !== null || activeSessionId || resetFailedDraftOnMount.current) &&
+      !launch?.draftId
     ) {
       storeNewSession();
     }
@@ -773,7 +793,11 @@ export function DesktopChatView() {
         }
         key={`${chatDraftRevision}:${newChatDraft.draft.id}`}
         initialSelection={
-          draftEnabled ? (newChatDraft.draft.settings.selection ?? undefined) : undefined
+          launch && !launch.briefing
+            ? launch.accountSelection
+            : draftEnabled
+              ? (newChatDraft.draft.settings.selection ?? undefined)
+              : undefined
         }
         lockAccount={localBound || preparedExecutionLocked}
         lockAccountModel={draftEnabled && preparedExecutionLocked && !preparedModelEditable}
@@ -784,12 +808,20 @@ export function DesktopChatView() {
                 model: repositoryHandoff.preparation.model,
               }
             : !activeSessionId
-              ? launch?.accountSelection
+              ? launch?.briefing
+                ? launch.accountSelection
+                : undefined
               : undefined
         }
         sessionId={activeSessionId}
         preferredModel={modelState}
-        onDraftSelectionChange={draftEnabled ? saveStagedAccount : undefined}
+        onDraftSelectionChange={
+          draftEnabled
+            ? saveStagedAccount
+            : launch && !launch.briefing
+              ? saveLaunchAccount
+              : undefined
+        }
         onChange={selectAccount}
         onSessionHydrated={hydrateAccount}
         onSummaryChange={setWorkspaceSummary}
@@ -797,7 +829,8 @@ export function DesktopChatView() {
           (messages.running && !localRuntime.continuation) ||
           controlsBlocked ||
           repositoryHandoff.loading ||
-          briefingChat.selectionLocked
+          briefingChat.selectionLocked ||
+          launchSending
         }
       />
     ) : (
@@ -1326,6 +1359,10 @@ export function DesktopChatView() {
                     (localFirstCommand && !repositorySelection?.repositoryWorkspaceId
                       ? 'Prepare a repository before sending the command.'
                       : undefined) ??
+                    (launchDeliveryPending
+                      ? 'Waiting for this launch’s delivery confirmation. Its draft is retained.'
+                      : undefined) ??
+                    (launchAccountError || undefined) ??
                     missingDraftReason ??
                     repositoryAccountReason ??
                     (launch?.briefing
@@ -1349,9 +1386,11 @@ export function DesktopChatView() {
                   draftStorageKey={
                     repositoryHandoff.present
                       ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
-                      : newChatDraft.missing
-                        ? chatDraftStorageKey(newChatDraft.draft.id)
-                        : undefined
+                      : launch?.draftId
+                        ? chatDraftTextKey(launch.draftId)
+                        : newChatDraft.missing
+                          ? chatDraftStorageKey(newChatDraft.draft.id)
+                          : undefined
                   }
                   initialText={
                     repositoryHandoff.present

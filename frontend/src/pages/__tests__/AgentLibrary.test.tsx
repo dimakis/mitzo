@@ -7,6 +7,18 @@ import { apiFetch } from '../../lib/api-fetch';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../components/AccountModelPicker', () => ({
+  AccountModelPicker: ({ onChange }: { onChange: (value: unknown) => void }) => (
+    <>
+      <button onClick={() => onChange({ accountId: 'work', model: 'luna' })}>
+        Choose advisor account
+      </button>
+      <button onClick={() => onChange({ accountId: 'personal', model: 'luna' })}>
+        Choose another advisor account
+      </button>
+    </>
+  ),
+}));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -221,16 +233,80 @@ it('previews the actual compiled prompt with source and trimming details and cle
   await screen.findByRole('alert');
   expect(screen.queryByText(/Compiled architecture context/)).toBeNull();
 });
-it('launches the named profile builder with a short user request', async () => {
+it('opens the advisor above the editor without navigating away or losing edits', async () => {
   setup();
   await screen.findByDisplayValue('Bob');
-  const link = screen.getByRole('link', { name: 'Create with advisor' });
-  const url = new URL(link.getAttribute('href')!, 'https://mitzo.example');
-  expect(url.pathname).toBe('/chat');
-  expect(url.searchParams.get('agentProfile')).toBe('mitzo-profile-builder');
-  expect(url.searchParams.get('profileRevision')).toBe('1');
-  expect(url.searchParams.get('agentProfileKind')).toBe('builtin');
-  expect(url.searchParams.get('prompt')).toBe('Help me create an agent.');
+  fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'Working Bob' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create with advisor' }));
+  const advisor = screen.getByRole('region', { name: 'Agent advisor' });
+  const editor = screen.getByRole('region', { name: 'Agent profile editor' });
+  expect(advisor.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Working Bob');
+  expect(screen.getByRole('button', { name: 'Ask advisor' })).toHaveProperty('disabled', true);
+  fireEvent.click(screen.getByRole('button', { name: 'Choose advisor account' }));
+  fireEvent.change(screen.getByLabelText('Ask agent advisor'), {
+    target: { value: 'Improve this agent' },
+  });
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    response({ text: 'Clarify the output.', proposal: { ...definition, name: 'Ada' } }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Ask advisor' }));
+  await screen.findByText('Clarify the output.');
+  fireEvent.click(screen.getByRole('button', { name: 'Choose advisor account' }));
+  expect(screen.getByText('Clarify the output.')).toBeTruthy();
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Working Bob');
+  const call = vi.mocked(apiFetch).mock.calls.find(([path]) => path.endsWith('/advice'))!;
+  expect(JSON.parse(call[1]!.body as string)).toMatchObject({
+    accountId: 'work',
+    model: 'luna',
+    draft: expect.stringContaining('Working Bob'),
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Use suggested profile' }));
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Ada');
+  expect(screen.getByText('Unsaved edits')).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.some(([path]) => /\/drafts|\/publish/.test(path))).toBe(
+    false,
+  );
+});
+
+it('starts a new agent with its advisor already expanded', async () => {
+  setup();
+  await screen.findByDisplayValue('Bob');
+  fireEvent.click(screen.getByRole('button', { name: 'New agent' }));
+  expect(screen.getByRole('region', { name: 'Agent advisor' })).toBeTruthy();
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', '');
+});
+
+it('retains failed questions and prevents a late proposal from overwriting newer edits', async () => {
+  setup();
+  await screen.findByDisplayValue('Bob');
+  fireEvent.click(screen.getByRole('button', { name: 'Create with advisor' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose advisor account' }));
+  const question = screen.getByLabelText('Ask agent advisor');
+  fireEvent.change(question, { target: { value: 'Help with research' } });
+  vi.mocked(apiFetch).mockResolvedValueOnce(response({}, false));
+  fireEvent.click(screen.getByRole('button', { name: 'Ask advisor' }));
+  await screen.findByRole('alert');
+  expect(question).toHaveProperty('value', 'Help with research');
+  let finish!: (value: Response) => void;
+  vi.mocked(apiFetch).mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Ask advisor' }));
+  fireEvent.change(question, { target: { value: 'A follow-up I am still writing' } });
+  fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'My newer name' } });
+  finish(response({ text: 'A suggestion.', proposal: { ...definition, name: 'Ada' } }));
+  await screen.findByText('A suggestion.');
+  expect(question).toHaveProperty('value', 'A follow-up I am still writing');
+  expect(screen.getByRole('button', { name: 'Use suggested profile' })).toHaveProperty(
+    'disabled',
+    true,
+  );
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'My newer name');
+  fireEvent.click(screen.getByRole('button', { name: 'Choose another advisor account' }));
+  expect(screen.queryByText('A suggestion.')).toBeNull();
 });
 
 it('recovers unsaved edits after navigation without replacing their save basis', async () => {

@@ -22,6 +22,7 @@ export function MoreView() {
               ['Agent Library', '/agent-library', 'files'],
               ['Knowledge', '/knowledge', 'files'],
               ['Files', '/files', 'files'],
+              ['Mockups', '/mockups', 'layers'],
               ['All attention', '/focus', 'today'],
               ['Chat history and quick actions', '/sessions', 'chats'],
             ],

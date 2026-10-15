@@ -1,5 +1,6 @@
 import { SpanStatusCode } from '@opentelemetry/api';
 import { tracer } from './tracing.js';
+import { TASK_CAPABILITY_PROBE, TaskCapabilities } from './task-runtime-guidance.js';
 import { atSymposiumReconciliationStageAsync } from './symposium-reconciliation-error.js';
 import {
   AgentCompiledBootContextSchema,
@@ -2755,6 +2756,26 @@ export class OpenShellRuntimeManager {
       return adopted;
     } finally {
       prepared?.cleanup();
+    }
+  }
+
+  async inspectTaskCapabilities(runtime: OpenShellRuntime, signal: AbortSignal) {
+    const bounded = AbortSignal.any([signal, AbortSignal.timeout(3000)]);
+    const spec = openShellSshArgvProcessSpec(runtime, [
+      '/bin/sh',
+      '-c',
+      TASK_CAPABILITY_PROBE,
+      'mitzo-task-capabilities',
+      runtime.workdir,
+    ]);
+    try {
+      const output = await this.runSsh(spec.args, bounded);
+      bounded.throwIfAborted();
+      if (Buffer.byteLength(output) > 1024) return undefined;
+      return TaskCapabilities.parse(JSON.parse(output));
+    } catch {
+      signal.throwIfAborted();
+      return undefined;
     }
   }
 

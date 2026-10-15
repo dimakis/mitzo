@@ -24,6 +24,7 @@ import type {
 import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import { terminalAccountRoute } from './terminal-account-route.js';
 import { TerminalAdviser } from './terminal-adviser.js';
+import { AgentLibraryAdviser } from './agent-library-adviser.js';
 import { createTerminalAdviserSession } from './terminal-adviser-model.js';
 import { TerminalService, TerminalStore } from './terminal-service.js';
 import { terminalAdviserCatalog } from './terminal-adviser-catalog.js';
@@ -89,6 +90,7 @@ import {
 } from './apns.js';
 import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
+import { createTelosItemRouter } from './telos-item-routes.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -202,7 +204,8 @@ import { SymposiumHostGrants } from './symposium-host-grants.js';
 import express from 'express';
 import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
-import helmet from 'helmet';
+import { createAppSecurityHeaders } from './security-headers.js';
+import { createHtmlPreviewRouter } from './html-preview-shell.js';
 import rateLimit from 'express-rate-limit';
 import {
   closeSync,
@@ -408,27 +411,16 @@ app.use(requestPerformance((message, fields) => log.warn(message, fields)));
 
 const codexReattachments = new Map<string, Promise<void>>();
 
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        connectSrc: ["'self'", 'ws:', 'wss:'],
-        imgSrc: ["'self'", 'data:'],
-        upgradeInsecureRequests: null,
-      },
-    },
-  }),
-);
+app.use(createAppSecurityHeaders());
 
 // --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
 // Mounted before yapper proxy so cross-origin voice requests get CORS headers.
 // Auth preflight must be observed before CORS responds without reaching the route.
 app.use(traceAuthCheck);
 const CORS_ALLOWED_ORIGINS =
-  process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) ?? [];
+  process.env.CORS_ALLOWED_ORIGINS?.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean) ?? [];
 
 if (CORS_ALLOWED_ORIGINS.length > 0) {
   app.use((req, res, next) => {
@@ -453,6 +445,8 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     next();
   });
 }
+
+app.use(createHtmlPreviewRouter(CORS_ALLOWED_ORIGINS));
 
 // --- Yapper proxy (mounted before body parsing and authMiddleware — no login required for voice) ---
 
@@ -1073,6 +1067,7 @@ app.use(
   '/api/agent-library',
   operatorAuthMiddleware,
   createAgentLibraryRouter(getAgentLibrary(), {
+    adviser: new AgentLibraryAdviser(createTerminalAdviserSession),
     workspaceRoot: BASE_REPO,
     contextPacks: async (signal) => {
       const runtime = await getKnowledgeLibraryRuntime();
@@ -1892,6 +1887,14 @@ export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
 app.use(
   '/api/backups',
   createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
+);
+
+app.use(
+  createTelosItemRouter({
+    dbPath: telosDatabasePath,
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+  }),
 );
 
 app.use(
@@ -2742,6 +2745,8 @@ app.use(
         id,
         registry.findBySessionId(id)?.session,
         getPendingRequestsBySession(id),
+        undefined,
+        { binding: eventStore.getSessionRuntimeBinding(id) },
       ),
   }),
 );

@@ -1,3 +1,4 @@
+import { preserveAcceptedLaunchText } from '../lib/launch-draft-delivery';
 import {
   type Dispatch,
   type SetStateAction,
@@ -50,6 +51,8 @@ function saveDraft(key: string, text: string, preserveEmpty = false): void {
     }
     if (text || preserveEmpty) localStorage.setItem(key, text);
     else localStorage.removeItem(key);
+    if (key.startsWith('mitzo-chat-draft-text:'))
+      preserveAcceptedLaunchText(key.slice('mitzo-chat-draft-text:'.length), text);
   } catch {
     // Browser draft storage is optional.
   }
@@ -140,14 +143,18 @@ export function useDraft(
     return () => clearTimeout(timerRef.current);
   }, [text, key]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const flushOnLeave = () => {
       clearTimeout(timerRef.current);
       if (dirty.current)
         saveDraft(storageRef.current.key, textRef.current, storageRef.current.scoped);
-    },
-    [],
-  );
+    };
+    window.addEventListener('pagehide', flushOnLeave);
+    return () => {
+      window.removeEventListener('pagehide', flushOnLeave);
+      flushOnLeave();
+    };
+  }, []);
 
   const setText = useCallback<Dispatch<SetStateAction<string>>>((update) => {
     setTextRaw((previous) => {

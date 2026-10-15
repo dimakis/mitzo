@@ -1,0 +1,26 @@
+.mockup-collection {
+  min-width: 0;
+}
+.mockup-collection .chat-resource-search select {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  font: inherit;
+  font-size: var(--text-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.mockup-collection-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.mockup-collection .html-preview-card {
+  margin-top: var(--space-3);
+}

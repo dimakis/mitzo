@@ -95,6 +95,12 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
       return 'get status';
     case 'mcp__task-board__TaskBlock':
       return `${String(input.reason || '').slice(0, 60)}`;
+    case 'TelosGetItem':
+    case 'mcp__telos__TelosGetItem':
+      return `Read Telos ${String(input.itemId || '').slice(0, 80)}`;
+    case 'TelosUpdateItem':
+    case 'mcp__telos__TelosUpdateItem':
+      return `Update Telos ${String(input.itemId || '').slice(0, 80)}: ${String(input.status || 'progress')}`;
     case 'TelosCreateOutcome':
     case 'mcp__telos__TelosCreateOutcome':
       return `Create outcome: ${String(input.summary || '').slice(0, 80)}`;

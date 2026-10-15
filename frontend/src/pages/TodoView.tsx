@@ -1,7 +1,7 @@
+import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useMitzoStore } from '@mitzo/client/hooks';
 import { TodoCard } from '../components/TodoCard';
 import { EmptyState } from '../components/EmptyState';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
@@ -266,7 +266,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<TodoSort>('priority');
-  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
+  const setPendingSession = useStageChatLaunch();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     done: true,
@@ -336,7 +336,6 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
       telosTaskId: item.id,
       agentName: 'mitzo-telos',
     });
-    navigate('/chat');
   }
 
   function handleTap(item: TodoItem) {

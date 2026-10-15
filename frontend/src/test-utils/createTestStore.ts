@@ -1,8 +1,8 @@
 import { vi } from 'vitest';
-import { createMitzoStore } from '@mitzo/client';
+import { createMitzoStore, type MitzoStoreOptions } from '@mitzo/client';
 
 /** Real store state with inert network adapters for component tests. */
-export function createTestStore() {
+export function createTestStore(options: Partial<MitzoStoreOptions> = {}) {
   return createMitzoStore({
     transport: {
       fetch: vi.fn().mockResolvedValue({ ok: true, json: async () => ({ tasks: [] }) }),
@@ -20,5 +20,6 @@ export function createTestStore() {
         close: vi.fn(),
       }),
     },
+    ...options,
   });
 }

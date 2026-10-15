@@ -60,6 +60,8 @@ import { messageIdentity } from './message-identity.js';
 // ─── Store state ─────────────────────────────────────────────────────────────
 
 export interface SendMessageOptions {
+  /** Local ownership metadata; never sent as provider input. */
+  launchDraftId?: string;
   agentProfile?: import('@mitzo/protocol').AgentProfileSelection;
   /** Local assignment observer; never included in the wire payload. */
   onSessionAssigned?: (sessionId: string) => void;
@@ -81,6 +83,8 @@ export interface SendMessageOptions {
 }
 
 export interface PendingSession {
+  /** Saved composer that owns this launch; never global chat context. */
+  draftId?: string;
   prompt: string;
   context: string;
   /** Configured reference block names. */
@@ -204,6 +208,12 @@ export interface MitzoStoreOptions {
   localFirstCommandConfig?: { url: string; storage: Pick<Storage, 'getItem' | 'setItem'> };
   /** Start with transports latched off until restoreAuthentication() after an explicit login. */
   initiallyAuthenticated?: boolean;
+  launchDrafts?: {
+    pending(draftId: string): boolean;
+    prepare(draftId: string, command: Record<string, unknown>): boolean;
+    assign(clientMsgId: string, sessionId: string): void;
+    settle(clientMsgId: string, status: 'accepted' | 'failed' | 'uncertain'): string | undefined;
+  };
   /** Global durable command handoff, recreated at bootstrap and independent of UI observers. */
   sendHandoff?: {
     prepare(command: Record<string, unknown>): boolean;
@@ -310,7 +320,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         url: options.reviewedSendConfig.url,
         storage: options.reviewedSendConfig.storage,
         fetch: options.transport.fetch.bind(options.transport),
-        requireDurableBriefings: true,
+        durableLaunches: true,
         notify(event) {
           wsListener(event);
           if (
@@ -464,6 +474,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     NonNullable<SendMessageOptions['onSessionAssigned']>
   >();
   let launchGeneration = 0;
+  // Navigation releases the visible composer, not an outstanding send's identity.
+  const launchSends = new Map<string, PendingSession>();
   const deliverySessions = new Map<string, string>();
   // Keep recent command origins after receipts settle so duplicate errors stay scoped.
   const deliveryOrigins = new Map<
@@ -528,6 +540,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   ) {
     if (isLocalDelivery(id) && source !== 'local') return;
     if (source === 'local' && status === 'accepted') pendingOptimisticMessageIds.delete(id);
+    const draftId = options.launchDrafts?.settle(id, status);
+    if (draftId && store.getState().pendingSession?.draftId === draftId) {
+      if (status === 'accepted')
+        store.setState({ pendingSession: null, pendingSessionSending: false });
+      else if (status === 'failed') store.setState({ pendingSessionSending: false });
+    }
     const observer = deliveryObservers.get(id);
     const sessionId = deliverySessions.get(id);
     const origin = deliveryOrigins.get(id);
@@ -808,6 +826,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      ++launchGeneration;
+      set({ pendingSession: null, pendingSessionSending: false });
       if (id !== parserState.currentSessionId) unconfirmedPermissionResponses.clear();
       const request = ++historyRequest;
       openingHistory = { sessionId: id, request, actions: [] };
@@ -922,6 +942,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      ++launchGeneration;
+      set({ pendingSession: null, pendingSessionSending: false });
       unconfirmedPermissionResponses.clear();
       ++historyRequest;
       recoveryInFlight = false;
@@ -1041,6 +1063,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       };
 
       const msg = buildPayload();
+      if (
+        opts?.launchDraftId &&
+        options.launchDrafts &&
+        !options.launchDrafts.prepare(opts.launchDraftId, msg)
+      ) {
+        pendingOptimisticMessageIds.delete(clientMsgId);
+        set({ sendError: 'The launch delivery identity could not be saved. Your draft was kept.' });
+        settleDelivery(clientMsgId, 'failed');
+        return;
+      }
       if (options.sendHandoff && !options.sendHandoff.prepare(msg)) {
         pendingOptimisticMessageIds.delete(clientMsgId);
         set({
@@ -1071,8 +1103,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const reviewed =
         !!reviewedOutbox &&
         msg.sessionId === null &&
-        Array.isArray(msg.sourceSnapshots) &&
-        msg.sourceSnapshots[0]?.kind === 'briefing';
+        (!!opts?.launchDraftId ||
+          (Array.isArray(msg.sourceSnapshots) && msg.sourceSnapshots[0]?.kind === 'briefing'));
       const sent = reviewed
         ? reviewedAuthenticated && reviewedOutbox!.enqueue(msg, reviewedSendScope++)
         : connection.send(msg);
@@ -1386,9 +1418,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     setPendingSession(ps: PendingSession) {
       // Replacing a launch owns a new draft and retires any earlier assignment.
-      if (get().pendingSession) get().newSession();
+      // A bound conversation remains selected until the draft route commits.
+      if (get().pendingSession && !get().sessions.active) get().newSession();
       ++launchGeneration;
-      set({ pendingSession: ps, pendingSessionSending: false });
+      const sending = ps.draftId ? launchSends.get(ps.draftId) : undefined;
+      set({
+        pendingSession: sending ?? ps,
+        pendingSessionSending:
+          !!sending || !!(ps.draftId && options.launchDrafts?.pending(ps.draftId)),
+      });
     },
 
     clearPendingSession() {
@@ -1406,30 +1444,51 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     sendPendingSession(opts) {
       const pending = get().pendingSession;
-      if (!pending || get().pendingSessionSending) return false;
+      if (
+        !pending ||
+        get().pendingSessionSending ||
+        (pending.draftId && options.launchDrafts?.pending(pending.draftId))
+      )
+        return false;
       // A carried preview must be reviewed in its own draft before account confirmation.
       if (get().sessions.active) {
         get().newSession();
+        set({ pendingSession: pending });
         return false;
       }
+      const account =
+        pending.briefing ||
+        pending.sourceSnapshots?.some((source) => source.kind === 'briefing') ||
+        !opts?.accountId
+          ? pending.accountSelection
+          : { accountId: opts.accountId, model: opts.model, reasoningEffort: opts.reasoningEffort };
       const selection = {
         ...opts,
-        ...pending.accountSelection,
-        model: pending.accountSelection?.model ?? opts?.model ?? get().config.modelId ?? undefined,
+        ...account,
+        model: account?.model ?? opts?.model ?? get().config.modelId ?? undefined,
         mode: opts?.mode ?? get().config.mode,
         contextBlocks: [...(pending.contextBlocks ?? []), ...(opts?.contextBlocks ?? [])],
         sourceSnapshots: pending.sourceSnapshots ?? opts?.sourceSnapshots,
       };
       // Each attempt has a distinct identity, so stale receipts cannot dismiss a replacement.
       const launch = { ...pending };
+      if (launch.draftId) launchSends.set(launch.draftId, launch);
       set({ pendingSession: launch, pendingSessionSending: true });
       get().dispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
       let queued = true;
       get().sendMessage(launch.prompt, {
         ...selection,
+        launchDraftId: launch.draftId,
         ...(launch.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
         ...(launch.agentName ? { agentName: launch.agentName } : {}),
         onDelivery(status) {
+          if (
+            status !== 'uncertain' &&
+            launch.draftId &&
+            launchSends.get(launch.draftId) === launch
+          )
+            launchSends.delete(launch.draftId);
+          opts?.onDelivery?.(status);
           if (get().pendingSession !== launch) return;
           if (status === 'accepted') set({ pendingSession: null, pendingSessionSending: false });
           else if (status === 'failed') {
@@ -1437,7 +1496,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             set({ pendingSessionSending: false });
           }
           // Uncertain delivery remains locked until its matching receipt arrives.
-          opts?.onDelivery?.(status);
         },
       });
       return queued;
@@ -1464,6 +1522,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
   }));
 
+  function assignCommand(id: string, sessionId: string, hint?: Record<string, unknown>) {
+    options.sendHandoff?.assign(id, sessionId, hint);
+    options.launchDrafts?.assign(id, sessionId);
+  }
+
   function bindLaunchAssignment(
     id: string,
     sessionId: string,
@@ -1471,6 +1534,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     source: 'ordinary' | 'local' = 'ordinary',
   ): boolean {
     if (isLocalDelivery(id) && source !== 'local') return false;
+    options.launchDrafts?.assign(id, sessionId);
     const origin = unassignedDeliveries.get(id);
     const deliveryOrigin = deliveryOrigins.get(id);
     const foreground = origin
@@ -1604,7 +1668,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         typeof msg.clientMsgId === 'string' &&
         typeof msg.sessionId === 'string'
       )
-        options.sendHandoff?.assign(
+        assignCommand(
           msg.clientMsgId,
           msg.sessionId,
           msg.sourceHandoff as Record<string, unknown> | undefined,
@@ -1767,8 +1831,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (eventSessionId !== parserState.currentSessionId) return true;
     }
     if (msg.type === 'session_id' && typeof eventSessionId === 'string') {
-      if (typeof msg.clientMsgId === 'string')
-        options.sendHandoff?.assign(msg.clientMsgId, eventSessionId);
+      if (typeof msg.clientMsgId === 'string') assignCommand(msg.clientMsgId, eventSessionId);
       // Correlated assignments survive navigation; only their original draft may be selected.
       const id =
         typeof msg.clientMsgId === 'string'

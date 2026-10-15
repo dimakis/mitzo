@@ -1,6 +1,7 @@
+import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { ProposalDetail } from '../components/ProposalDetail';
 import { EmptyState } from '../components/EmptyState';
@@ -29,7 +30,6 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
     setSelectedFilename(linkedFilename);
   }, [linkedFilename]);
   const [actionError, setActionError] = useState<string | null>(null);
-  const navigate = useNavigate();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
@@ -42,7 +42,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   const lastOpened = useRef<string | null>(null);
   const listPosition = useRef(0);
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
-  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
+  const setPendingSession = useStageChatLaunch();
 
   // Sync from the store's inbox (updated via v2 WS inbox_updated events)
   const storeInbox = useMitzoStore((s) => s.inbox.items);
@@ -132,7 +132,6 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
       prompt: buildInboxPrompt(item, body),
       context: buildInboxContext(item, body),
     });
-    navigate('/chat');
   }
 
   const sources = [...new Set(items.map((i) => i.agent))].sort();
