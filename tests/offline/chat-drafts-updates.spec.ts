@@ -1392,3 +1392,50 @@ for (const theme of ['dark', 'light']) {
     expect(fixture.errors).toEqual([]);
   });
 }
+
+test('launch drafts: generic preparation retains its chosen model and thinking through reload', async ({
+  page,
+}) => {
+  const fixture = await offline(page);
+  const base = savedDraft('meeting-launch', 'Prepare this meeting');
+  const draft = {
+    ...base,
+    images: [],
+    contextBlocks: [],
+    settings: {
+      ...base.settings,
+      selection: null,
+      search: '',
+      launch: { prompt: base.text, context: 'Meeting preparation' },
+    },
+  };
+  await seed(page, { 'mitzo-chat-draft:meeting-launch': JSON.stringify(draft) });
+  await page.goto('/chat?draft=meeting-launch');
+  await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption(account.id);
+  await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('luna-alternate');
+  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await page
+    .getByRole('button', { name: 'Use Work OpenAI API · Luna alternate fixture', exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem('mitzo-chat-draft:meeting-launch')!).settings.selection,
+      ),
+    )
+    .toEqual({ accountId: account.id, model: 'luna-alternate', reasoningEffort: 'high' });
+  await page.reload();
+  const controls = page.getByRole('button', { name: /^Workspace controls/ });
+  if ((await controls.getAttribute('aria-expanded')) === 'false') await controls.click();
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+    'luna-alternate',
+  );
+  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
+    'high',
+  );
+  await expect(page.getByRole('button', { name: 'Send launch prompt', exact: true })).toBeEnabled();
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});

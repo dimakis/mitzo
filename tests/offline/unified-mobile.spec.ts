@@ -2158,6 +2158,10 @@ async function exerciseBriefingReloadRecovery(
     ).toBe(true);
   const picker = page.getByRole('dialog');
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  const launchDraftId = new URL(page.url()).searchParams.get('draft')!;
+  await page
+    .getByRole('textbox', { name: 'Message Mitzo', exact: true })
+    .fill('Keep my unsent follow-up');
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   await expect.poll(() => sends.length).toBe(1);
   expect(sends[0].sessionId).toBeNull();
@@ -2172,6 +2176,12 @@ async function exerciseBriefingReloadRecovery(
     await expect.poll(() => sockets).toBeGreaterThanOrEqual(1);
   await page.reload();
   await expect.poll(() => sends.length).toBe(2);
+  await expect(
+    page.getByRole('button', { name: 'Send launch prompt', exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
+    'Keep my unsent follow-up',
+  );
   releaseFirst?.();
   expect(sends[1]).toEqual(sends[0]);
   expect(turns.size).toBe(1);
@@ -2199,6 +2209,19 @@ async function exerciseBriefingReloadRecovery(
   expect(registrations).toHaveLength(0);
   releaseSecond?.();
   await expect.poll(() => registrations.length).toBe(1);
+  await expect
+    .poll(() =>
+      page.evaluate((id) => localStorage.getItem(`mitzo-chat-draft:${id}`), launchDraftId),
+    )
+    .toBeNull();
+  expect(
+    await page.evaluate(() =>
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith('mitzo-chat-draft:'))
+        .map((key) => JSON.parse(localStorage.getItem(key)!))
+        .some((draft) => draft.text === 'Keep my unsent follow-up' && !draft.settings.launch),
+    ),
+  ).toBe(true);
   await waitingPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
   const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });

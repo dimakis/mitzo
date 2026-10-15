@@ -583,7 +583,9 @@ that draft URL. New chat and opening another conversation release the active lau
 so its briefing header, launch panel and composer guidance cannot follow the user.
 Drafts restores that launch only when its own record is opened. Acceptance consumes
 only the submitted draft revision; failed sends keep it, and outstanding sends stay
-locked when their draft is reopened. These changes reuse existing draft rows,
+locked across reloads when their draft is reopened, using the original command ID.
+Generic launch drafts retain account/model edits; acceptance preserves unsent
+follow-up text as a separate draft, including pending composer saves. These changes reuse existing draft rows,
 conversation controls and briefing surfaces without new styling or motion.
 
 Offline launch regressions passed on mobile WebKit and mobile/desktop Chromium

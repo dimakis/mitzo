@@ -6,6 +6,7 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { useStageChatLaunch } from '../useStageChatLaunch';
 import { usePendingLaunch } from '../usePendingLaunch';
+import { launchDraftDelivery } from '../../lib/launch-draft-delivery';
 import { getChatDraft, listChatDrafts } from '../../lib/chat-drafts';
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
@@ -74,12 +75,21 @@ it('saves an unsent launch, starts New blank and restores only its own draft', a
   expect(listChatDrafts()).toHaveLength(1);
 });
 it('consumes only the submitted launch draft after acknowledgement and keeps replacements', () => {
-  const { result, store } = setup();
+  const { result, send } = setup();
   let receipt: ((status: 'accepted' | 'failed' | 'uncertain') => void) | undefined;
-  store.setState({
-    sendMessage: (_text, options) => {
-      receipt = options?.onDelivery;
-    },
+  send.mockImplementation((text, options) => {
+    const clientMsgId = crypto.randomUUID();
+    expect(
+      launchDraftDelivery.prepare(options.launchDraftId, {
+        ...options,
+        prompt: text,
+        clientMsgId,
+      }),
+    ).toBe(true);
+    receipt = (status) => {
+      launchDraftDelivery.settle(clientMsgId, status);
+      options.onDelivery?.(status);
+    };
   });
   act(() => result.current.stage(launch));
   const first = result.current.id!;

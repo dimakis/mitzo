@@ -16,7 +16,7 @@ export function chatDraftIdFromKey(key: string): string | null {
   return key.startsWith(PREFIX) ? key.slice(PREFIX.length) : null;
 }
 export const CHAT_DRAFTS_CHANGED = 'mitzo-chat-drafts-changed';
-const schema = z.object({
+export const ChatDraftSchema = z.object({
   version: z.literal(1),
   id: z.string().min(1),
   text: z.string(),
@@ -65,7 +65,7 @@ const schema = z.object({
       .nullable(),
   }),
 });
-export type ChatDraft = z.infer<typeof schema>;
+export type ChatDraft = z.infer<typeof ChatDraftSchema>;
 export type ChatDraftContent = Pick<ChatDraft, 'text' | 'images' | 'contextBlocks'>;
 export function createChatDraft(): ChatDraft {
   return {
@@ -80,7 +80,9 @@ export function createChatDraft(): ChatDraft {
 }
 export function getChatDraft(id: string): ChatDraft | null {
   try {
-    const parsed = schema.safeParse(JSON.parse(localStorage.getItem(PREFIX + id) || 'null'));
+    const parsed = ChatDraftSchema.safeParse(
+      JSON.parse(localStorage.getItem(PREFIX + id) || 'null'),
+    );
     if (!parsed.success || parsed.data.id !== id) return null;
     const draft = parsed.data;
     if (draft.settings.runtimeSelection) {
@@ -135,10 +137,10 @@ export function saveChatDraft(draft: ChatDraft): boolean {
     return false;
   }
 }
-export function deleteChatDraft(id: string): boolean {
+export function deleteChatDraft(id: string, options: { preserveText?: boolean } = {}): boolean {
   try {
     localStorage.removeItem(PREFIX + id);
-    localStorage.removeItem(chatDraftTextKey(id));
+    if (!options.preserveText) localStorage.removeItem(chatDraftTextKey(id));
     changed();
     return true;
   } catch {
@@ -148,7 +150,10 @@ export function deleteChatDraft(id: string): boolean {
 export function chatDraftTextKey(id: string) {
   return `mitzo-chat-draft-text:${id}`;
 }
-export function consumeChatDraft(submitted: ChatDraft): boolean {
+export function consumeChatDraft(
+  submitted: ChatDraft,
+  options: { preserveText?: boolean } = {},
+): boolean {
   const saved = getChatDraft(submitted.id);
   if (
     !saved ||
@@ -166,7 +171,7 @@ export function consumeChatDraft(submitted: ChatDraft): boolean {
       })
   )
     return false;
-  return deleteChatDraft(submitted.id);
+  return deleteChatDraft(submitted.id, options);
 }
 export function migrateLegacyChatDraft(): void {
   try {

@@ -91,7 +91,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0f38b9bfe3ee937044ca2d5955e2ca030d235c9c9589d7ddec8352844e4c27d9',
   // Explicit Local draft selection, exact-request delivery and bound conversation controls.
   '../../frontend/src/client-store.ts':
-    '74b4fb663607649429a29639ab1a7c5ad8f5a35d5564e1e475e965f13121d974',
+    '57b117fac6b16cf168aa0bd5918a657d93889b64a03dec597c6e35816f202e75',
   '../../frontend/src/components/AccountModelPicker.tsx':
     '0d361c3f71c21d1ebe557c288ad0df4a25450e6a4d6703b75f56c98fd912c94b',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
@@ -124,15 +124,19 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5067ed33ccd0b5c15d32bcb12df53f076a99b9456ae887d40875eb6679c8a26e',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '63427b971465eab55442c1f38cf99e9cf546cb0853ec552a45fc1191758150ae',
+  '../../frontend/src/lib/launch-draft-delivery.ts':
+    'b3a960b93c42f7ee5cdb8d916e90b2c33e2195fbd5d80ca580cacfd49546c851',
+  '../../frontend/src/hooks/useDraft.ts':
+    '1b98e2c6fcf8864ebf2fb45984b926e2ba9fe21f71aa6368de7545d7dd161b62',
   // Saved contextual launches retain their exact source and delivery owner.
   '../../frontend/src/hooks/usePendingLaunch.ts':
-    'd13ec1006f93bdaf9294dbc8a372246154c0c79e9b943edb23d8bdac93688959',
+    '82e3ce5821cd75dac5ebf77d51f248deaca09a36c35dd622755dcf62bfa6ea5e',
   '../../frontend/src/hooks/useStageChatLaunch.ts':
     '607b783bd86d52b78df4e814a13df8f1c0c212c6df34a69026379ebee715bc72',
   '../../frontend/src/hooks/useBriefingChat.ts':
     'd0b124d3acf747c6a2605cdf23a7a0bfa59fc87d2aed1d3cd230e440d2c69996',
   '../../frontend/src/lib/chat-drafts.ts':
-    '83be4f3d79b696253007f1d2c9b58864ec09fb431d6eaf9ebf0941ab5c0f8775',
+    'f44211eac301772b0e8d48f470efc7214dc488f1b3a19c64efa246b543aee47f',
   '../../frontend/src/lib/chat-runtime-selection.ts':
     'f725d25bebe7ca1a68a9027bbe79d93a7f9c1be48e5539d244ef2e57cbf09b87',
   '../../frontend/src/lib/explicit-local-chat.ts':
@@ -140,9 +144,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     'dba8f9db6e85204da9bea2380e10b1bc0e1a00fe15ac598bcf8e6cd685a66b22',
   '../../frontend/src/pages/ChatView.tsx':
-    '235160614afa3ff4e2323f1e0064c2dff2c45c94a48709a8cc696bda2feba057',
+    'b02403418da496d2a03458247a9f65cb398ae5d3c72d641bb7de125250bdb80a',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'ca2c3bed0bb8ffba70910bb9d388f9e0bb9eed2d619deeb14874fc2bcf15cab2',
+    '41285264af048ce67092c43d5e898ec15c44690bb51181d356132c65bbabf2be',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -206,7 +210,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    'c83dddf14dd137984ce53ea4ac924a092a43d70cd0fa9ef459bb337721cccce1',
+    'bf0bee3858fb882a6bfcfc31b6bbe8808f3d7af5b0ab9ca718f348f95538d2ea',
   '../../packages/harness/src/permission-handler.ts':
     '20d09ccadeb668c91008713b45aaffd5762d34c0a6dc1651b3e234732743a7fa',
   '../../packages/harness/src/permissions.ts':

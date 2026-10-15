@@ -450,3 +450,25 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(view.send).not.toHaveBeenCalled();
   });
 }
+
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} saves and restores the confirmed account of an ordinary contextual launch`, () => {
+    const draft = { ...createChatDraft(), text: 'Meeting preparation' };
+    saveChatDraft({
+      ...draft,
+      settings: { ...draft.settings, launch: { prompt: draft.text, context: 'Meeting' } },
+    });
+    const view = mount(Page, `/chat?draft=${draft.id}`);
+    openAgentSettings();
+    fireEvent.click(screen.getByRole('button', { name: 'Change saved account' }));
+    expect(getChatDraft(draft.id)?.settings.selection).toEqual({
+      accountId: 'personal',
+      model: 'luna',
+      reasoningEffort: 'low',
+    });
+    view.unmount();
+    mount(Page, `/chat?draft=${draft.id}`);
+    openAgentSettings();
+    expect(screen.getByTestId('restored-selection').textContent).toContain('personal');
+  });
+}

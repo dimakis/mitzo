@@ -1,3 +1,4 @@
+import { launchDraftDelivery } from './lib/launch-draft-delivery';
 import { briefingCommandHandoff } from './lib/briefing-registration';
 import { createReviewedOutboxStorage } from './lib/reviewed-outbox-storage';
 /**
@@ -51,6 +52,7 @@ const sseConfig: SseConnectionConfig | undefined = useSSE
   : undefined;
 
 export const clientStore = createMitzoStore({
+  launchDrafts: launchDraftDelivery,
   sendHandoff: briefingCommandHandoff,
   transport: {
     fetch: (url, init) => apiFetch(url, init),
