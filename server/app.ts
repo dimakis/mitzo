@@ -138,6 +138,8 @@ import { SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 import { authorizeSymposiumSeat } from './symposium-seat-authorization.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
+import { getAgentTasks } from './agent-task-runtime.js';
+import { createAgentTaskRouter } from './agent-task-router.js';
 import { createAgentLibraryRouter } from './agent-library-router.js';
 import { createContextPackRouter } from './context-pack-router.js';
 import {
@@ -1055,6 +1057,9 @@ if (custodianControllerClient)
     ),
   );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
+// Only the canonical owner opens task persistence. Controllers use closed IPC above.
+if (!custodianControllerClient)
+  app.use('/api/agent-tasks', operatorAuthMiddleware, createAgentTaskRouter(getAgentTasks()));
 app.use(
   '/api/context-packs',
   operatorAuthMiddleware,

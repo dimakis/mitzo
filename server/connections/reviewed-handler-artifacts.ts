@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.148';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.149';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Assigned task persistence and authenticated owner dispatch; no execution activation.
+  '../agent-task-store.ts': 'f1b47b3ee410e5a5727255b5939cd60ab22713858e1b05cd54c2611611143f84',
+  '../agent-task-service.ts': '226f42689d54ad511770c22cc62cfdfcad65673e7f5d2850793a043c73f69dc7',
+  '../agent-task-router.ts': 'a9569317a35a7e20070f358023d32230d2dbaa00e22534afa3750e0e66cf4f98',
+  '../agent-task-runtime.ts': '50a4794707a2c25c9b802813f3327b93356d472dc5f2f698caa3fc463724bd9c',
+  '../../packages/protocol/src/agent-tasks.ts':
+    '1b56cfe7f6958a042ee1fa0858df1c4a638f90690180a9087f5ef4b0e38a1d5f',
   // Durable references between existing ordinary sessions, without execution authority.
   '../session-collaboration-router.ts':
     'd81fac17e0f009db92c78c2792e697d1da7e26c3a6cee432f1367196afae2d57',
@@ -315,7 +322,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '728a181f28b680f4a31aed935c368e516743deb314d55247443ba7ba5202ef92',
+  '../app.ts': '5e5aa7db03fd5e616967fd9e89b8c8dab9cc967676b8744775f5d804b7ce245a',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -379,9 +386,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
-    'e08ea302eb178b8588d3622129e9be49b549b065ed6cf0482f1ca3e0de402559',
+    '55e1a8e80f61d7dce0fe0a399c3f477dfaadccfff08a936cbe1e3eb369ef25ae',
   '../symposium-custodian-proxy.ts':
-    '59f78245236ef2c05f5f2e9c610629c1f513fedb32b4dae753c6275bd434b3a9',
+    'beb0d632c863e1486911e1c4b096ab65be34ad09faee7587ef21dc83d00ac6b9',
   '../../packages/protocol/src/agent-library.ts':
     'c9c5fadf380fc72edc81ec7b762d1f69620d06dff5ca40a949568ee61a2a068c',
   '../../packages/protocol/src/symposium.ts':
@@ -547,7 +554,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '9332a19713b48de6d3e203d7484c09577bd8e9bcdbca2db96d2c2147b4863ce1',
+    '84f07868a27cc617cec53dd6da3d20a24fda238f3d2df4ece5a04ec6ac78c1b8',
   '../agent-context-authority.ts':
     '68b721db46cf6ba99de042cdf32be345bfc78c7ae27c2e31ee2b0b52a20ac266',
   '../agent-context-delivery.ts':
