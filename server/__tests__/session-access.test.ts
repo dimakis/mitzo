@@ -101,6 +101,51 @@ describe('ordinary session Access evidence', () => {
     expect(value.readiness.execution).toEqual({ state: 'configured', binding });
     expect(value.readiness.capabilities.state).toBe('unknown');
   });
+  it.each([
+    ['257 permissions', Array.from({ length: 257 }, (_, i) => `Tool${i}`)],
+    ['long permission names', [`mcp__${'long_name_'.repeat(25)}__read`]],
+  ])('keeps Access available for valid harness state with %s', async (_name, permissions) => {
+    const owner = live();
+    owner.sessionAllowList = new Set(permissions);
+    owner.activeSkillPolicy = new Set(permissions);
+    const app = express();
+    app.use((_req, res, next) => {
+      res.locals.authSession = { id: 'test', expiresAt: Date.now() + 60000 };
+      next();
+    });
+    app.use(
+      '/api/sessions/:id/access',
+      createSessionAccessRouter({
+        hasSession: () => true,
+        read: () =>
+          projectSessionAccess('one', owner, [
+            {
+              permId: 'pending',
+              sessionId: 'one',
+              toolName: 'Bash',
+              toolInput: '{}',
+              approvalScope: 'request',
+            },
+          ]),
+      }),
+    );
+    const response = await request(app).get('/api/sessions/one/access');
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      state: 'current',
+      account: { accountId: 'account' },
+      grants: [...permissions].sort(),
+      skillCeiling: [...permissions].sort(),
+      pending: [{ permId: 'pending', toolName: 'Bash', scope: 'request' }],
+      readiness: {
+        session: {
+          state: 'observed',
+          grants: [...permissions].sort(),
+          skillCeiling: [...permissions].sort(),
+        },
+      },
+    });
+  });
   it('requires operator authentication and visible ordinary session; no mutation route or provider calls', async () => {
     const read = vi.fn(() => projectSessionAccess('one', live(), [], 123));
     const app = express();

@@ -100,8 +100,10 @@ export const RuntimeReadinessSchema = z.strictObject({
       account: AccountBindingSchema.omit({ model: true }),
       model: reference,
       mode: z.enum(['ask', 'agent', 'auto']),
-      grants: z.array(reference).max(256),
-      skillCeiling: z.array(reference).max(256).nullable(),
+      // Existing harness permission sets have no count or name-length limit.
+      // Project their exact strings; observation limits must not hide Access.
+      grants: z.array(z.string()),
+      skillCeiling: z.array(z.string()).nullable(),
     }),
   ]),
   execution: z.discriminatedUnion('state', [
