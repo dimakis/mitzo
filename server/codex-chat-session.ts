@@ -38,6 +38,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
 import type { AgentLibraryVersion, AgentContextSnapshot } from '@mitzo/protocol';
+import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
 import {
   resolveSandboxAgentContext,
   SandboxAgentContextAdmissionError,
@@ -1372,6 +1373,9 @@ async function openCodexChatBound(
         : '');
   const persistentSystemPrompt =
     baseSystemPrompt +
+    // Owned routes supply only their frozen profile prompt, bypassing chat.ts's
+    // application guidance. Add capabilities here without changing that receipt.
+    (options.ownedLocal || options.ownedOpenShell ? buildClientCapabilitiesPrompt() : '') +
     (startup.context ? `\n\n${startup.context}` : '') +
     (options.ownedLocal && agentContext
       ? `\n\n# Agent Library context (saved recipe)\n${agentContext.context.fullMarkdown}\n`

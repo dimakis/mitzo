@@ -204,7 +204,8 @@ import { SymposiumHostGrants } from './symposium-host-grants.js';
 import express from 'express';
 import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
-import helmet from 'helmet';
+import { createAppSecurityHeaders } from './security-headers.js';
+import { createHtmlPreviewRouter } from './html-preview-shell.js';
 import rateLimit from 'express-rate-limit';
 import {
   closeSync,
@@ -410,27 +411,16 @@ app.use(requestPerformance((message, fields) => log.warn(message, fields)));
 
 const codexReattachments = new Map<string, Promise<void>>();
 
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        connectSrc: ["'self'", 'ws:', 'wss:'],
-        imgSrc: ["'self'", 'data:'],
-        upgradeInsecureRequests: null,
-      },
-    },
-  }),
-);
+app.use(createAppSecurityHeaders());
 
 // --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
 // Mounted before yapper proxy so cross-origin voice requests get CORS headers.
 // Auth preflight must be observed before CORS responds without reaching the route.
 app.use(traceAuthCheck);
 const CORS_ALLOWED_ORIGINS =
-  process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) ?? [];
+  process.env.CORS_ALLOWED_ORIGINS?.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean) ?? [];
 
 if (CORS_ALLOWED_ORIGINS.length > 0) {
   app.use((req, res, next) => {
@@ -455,6 +445,8 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     next();
   });
 }
+
+app.use(createHtmlPreviewRouter(CORS_ALLOWED_ORIGINS));
 
 // --- Yapper proxy (mounted before body parsing and authMiddleware — no login required for voice) ---
 

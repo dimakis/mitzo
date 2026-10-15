@@ -3,7 +3,7 @@ import { statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { SkillRegistry, SKILL_SIZE_LIMIT } from '../skills.js';
-import { renderSkillPrompt } from '../slash-commands.js';
+import { renderSkillPrompt, resolveSlashCommand } from '../slash-commands.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILLS_DIR = join(__dirname, '..', '..', 'skills');
@@ -16,6 +16,7 @@ describe('bundled skills', () => {
     const names = skills.map((s) => s.name).sort();
     expect(names).toEqual([
       'land-pr',
+      'mockup',
       'person',
       'plugin',
       'pr-review',
@@ -55,17 +56,31 @@ describe('bundled skills', () => {
     }
   });
 
-  it('mutating skills declare the flag in frontmatter and have write access', () => {
+  it('mutating skills leave writes available within the session permission policy', () => {
     const mutating = skills.filter((s) => s.mutating);
     expect(mutating.length).toBeGreaterThan(0);
     for (const skill of mutating) {
       const hasWriteAccess =
-        skill.allowedTools?.includes('Edit') || skill.allowedTools?.includes('Write');
+        !skill.allowedTools ||
+        skill.allowedTools?.includes('Edit') ||
+        skill.allowedTools?.includes('Write');
       expect(
         hasWriteAccess,
         `Mutating skill "${skill.name}" should have Edit or Write in allowed-tools`,
       ).toBe(true);
     }
+  });
+
+  it('resolves /mockup without a tool ceiling that native Codex cannot enforce', () => {
+    const result = resolveSlashCommand('/mockup a clickable task board', registry, new Set());
+    expect(result).toMatchObject({ type: 'skill', name: 'mockup', allowedTools: undefined });
+    if (result.type !== 'skill') throw Error('Expected the bundled mockup skill');
+    expect(result.renderedPrompt).toContain('a clickable task board');
+    expect(result.renderedPrompt).not.toContain('$ARGUMENTS');
+    expect(registry.get('mockup')?.mutating).toBe(true);
+    expect(result.renderedPrompt).toContain('mockups/<slug>/v001.html');
+    expect(result.renderedPrompt).toContain('next unused');
+    expect(result.renderedPrompt).toContain('Resources → Mockups');
   });
 
   it('non-mutating bundled skills contain an approval gate instruction', () => {
