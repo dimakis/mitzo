@@ -9,6 +9,9 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   page,
   isMobile,
 }, testInfo) => {
+  // This full-app journey captures four appearance combinations and large-text states.
+  // CI WebKit reached the final chat checks at 30s; allow a bounded journey budget.
+  test.setTimeout(60_000);
   const definition = {
     name: 'Bob',
     descriptor: 'The architect',

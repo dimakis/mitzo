@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -23,6 +24,18 @@ import {
   prepareOpenShellSeed,
   preparePublishedOpenShellSeed,
 } from '../openshell-runtime.js';
+
+const compiledContext = {
+  type: 'boot_context',
+  scope: 'sandbox',
+  sourceCount: 1,
+  tokenCount: 2,
+  tokenBudget: 12000,
+  sources: [],
+  included: [],
+  trimmed: [],
+  fullMarkdown: 'Accepted context',
+};
 
 let root = '';
 afterEach(() => {
@@ -130,6 +143,313 @@ function digest(content: string) {
   return createHash('sha256').update(content).digest('hex');
 }
 
+function firstCommandFixture(
+  mode: 'legacy-api' | 'native-api' | 'native-subscription' = 'legacy-api',
+) {
+  const source = publication();
+  const selection = {
+    seed: source.seed,
+    sourceCommit: 'a'.repeat(40),
+    baselineSha256: digest(readFileSync(join(source.seed, '..', 'baseline.json'), 'utf8')),
+  };
+  const reconcile = vi.fn().mockResolvedValue(selection);
+  const account =
+    mode === 'native-subscription'
+      ? {
+          kind: 'chatgpt-subscription-native' as const,
+          provider: 'openai-work',
+          providerType: 'codex' as const,
+          providerId: 'provider-id',
+          model: source.account.model,
+        }
+      : source.account;
+  const config = {
+    ...source,
+    account,
+    knowledgeStore: { id: 'notes', reconcile },
+    ...(mode !== 'legacy-api'
+      ? {
+          cliContract: 'v0.1' as const,
+          accountProviderBindings: [
+            {
+              name: account.provider,
+              type: mode === 'native-subscription' ? 'codex' : 'openai',
+              id: 'provider-id',
+            },
+          ],
+          verifyAccountProviderUnion: () => undefined,
+          onSandboxCreateSettled: vi.fn(),
+        }
+      : {}),
+  };
+  let physical: Record<string, unknown> | undefined;
+  let uploaded: { sourceCommit: string; payloadSha256: string } | undefined;
+  const run = vi.fn(async (args: readonly string[]) => {
+    if (args[0] === 'provider' && args.includes('list'))
+      return JSON.stringify({
+        providers: [
+          {
+            name: account.provider,
+            id: 'provider-id',
+            type: mode === 'native-subscription' ? 'codex' : 'openai',
+            workspace: config.workspace,
+          },
+        ],
+        next_page_token: '',
+      });
+    if (args.includes('get')) {
+      if (!physical) throw Error('sandbox not found');
+      return JSON.stringify(physical);
+    }
+    if (args.includes('create')) {
+      physical = {
+        name: args[args.indexOf('--name') + 1],
+        id: 'physical-id',
+        workspace: 'mitzo',
+        phase: 'Ready',
+        labels: Object.fromEntries(
+          args.flatMap((arg, i) => (args[i - 1] === '--label' ? [arg.split('=')] : [])),
+        ),
+      };
+      return JSON.stringify(physical);
+    }
+    if (args.includes('provider') && args.includes('list'))
+      return mode === 'legacy-api'
+        ? `No providers attached to sandbox ${String(physical?.name)}.`
+        : JSON.stringify({
+            providers: [
+              { name: account.provider, type: mode === 'native-subscription' ? 'codex' : 'openai' },
+            ],
+            next_page_token: '',
+          });
+    if (args.includes('upload') && args.at(-1) === '/sandbox/workspaces/knowledge') {
+      const view = JSON.parse(
+        readFileSync(join(args[args.indexOf('upload') + 2], 'knowledge-view.json'), 'utf8'),
+      );
+      uploaded = { sourceCommit: view.sourceCommit, payloadSha256: view.payloadSha256 };
+    }
+    return '{}';
+  });
+  const ssh = vi.fn(async (args: readonly string[]) => {
+    const command = args.join(' ');
+    if (command.includes('attest-knowledge-runtime.py'))
+      return JSON.stringify(config.seedStackManifest.runtime);
+    if (command.includes('knowledge-cache-probe'))
+      return JSON.stringify({ valid: false, present: false });
+    return JSON.stringify({ receipt: uploaded, context: compiledContext });
+  });
+  const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
+  const ensure = (command = 'first') =>
+    manager.ensure(
+      'first-conversation',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      undefined,
+      command,
+    );
+  return { config, selection, reconcile, run, ssh, manager, ensure };
+}
+
+function nextPublication(config: ReturnType<typeof firstCommandFixture>['config']) {
+  const directory = join(root, 'publication-b');
+  cpSync(join(config.seed, '..'), directory, { recursive: true });
+  const seed = join(directory, 'mgmt');
+  const baseline = JSON.parse(readFileSync(join(directory, 'baseline.json'), 'utf8'));
+  baseline.startingCommit = 'b'.repeat(40);
+  for (const name of ['index.json', 'wikilinks.json', 'by_type.json', 'by_tag.json']) {
+    const path = `memory/manifest/${name}`;
+    const bytes = JSON.stringify({ sourceCommit: baseline.startingCommit });
+    writeFileSync(join(seed, path), bytes);
+    baseline.files[path].sha256 = digest(bytes);
+  }
+  const payload = { ...baseline };
+  delete payload.payloadSha256;
+  baseline.payloadSha256 = digest(canonicalJsonPayload(payload));
+  const bytes = JSON.stringify(baseline);
+  writeFileSync(join(directory, 'baseline.json'), bytes);
+  const receiptPath = join(directory, 'publication.json');
+  const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+  writeFileSync(
+    receiptPath,
+    JSON.stringify({
+      ...receipt,
+      sourceCommit: baseline.startingCommit,
+      payloadSha256: baseline.payloadSha256,
+      baselineSha256: digest(bytes),
+    }),
+  );
+  return { seed, sourceCommit: baseline.startingCommit, baselineSha256: digest(bytes) };
+}
+
+it.each(['legacy-api', 'native-api', 'native-subscription'] as const)(
+  'selects published knowledge once for the exact new %s command and freshly for its next command',
+  async (mode) => {
+    const observed = vi.spyOn(tracer, 'startSpan');
+    const f = firstCommandFixture(mode);
+    const runtime = await f.ensure();
+    expect(f.reconcile).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(runtime)).not.toContain(f.config.seed);
+    const next = nextPublication(f.config);
+    f.reconcile.mockResolvedValue(next);
+    // The boundary wrapper may change the manager, but this is still the same exact command/sandbox.
+    const manager = f.manager.forSandbox(runtime.sandboxName);
+    const first = await manager.adoptKnowledge(
+      'first-conversation',
+      runtime,
+      AbortSignal.timeout(5000),
+      undefined,
+      'first',
+    );
+    expect(first?.sourceCommit).toBe('a'.repeat(40));
+    expect(f.reconcile).toHaveBeenCalledTimes(1);
+    expect(observed.mock.calls.some(([name]) => name === 'knowledge.reuse_initial_selection')).toBe(
+      true,
+    );
+    const second = await manager.adoptKnowledge(
+      'first-conversation',
+      runtime,
+      AbortSignal.timeout(5000),
+      undefined,
+      'second',
+    );
+    expect(second?.sourceCommit).toBe(next.sourceCommit);
+    expect(f.reconcile).toHaveBeenCalledTimes(2);
+  },
+);
+
+it.each([
+  'command',
+  'conversation',
+  'physical',
+  'workdir',
+  'workspace',
+  'account',
+  'runtime',
+  'store',
+  'endpoint',
+  'name',
+  'unbound',
+])('does not transfer a first-command selection after a changed %s', async (changed) => {
+  const f = firstCommandFixture();
+  const runtime = await f.ensure();
+  const supplied = { ...runtime };
+  if (changed === 'physical') supplied.sandboxId = 'another-physical-id';
+  if (changed === 'workdir') supplied.workdir = '/sandbox/workspaces/other';
+  if (changed === 'workspace') supplied.workspace = 'other';
+  if (changed === 'account') f.config.account = { ...f.config.account, model: 'another-model' };
+  if (changed === 'runtime') f.config.image = 'runtime:another';
+  if (changed === 'store')
+    f.config.knowledgeStore = { id: 'another-store', reconcile: f.reconcile };
+  if (changed === 'endpoint') supplied.gatewayEndpoint = 'http://127.0.0.1:4999';
+  if (changed === 'name') supplied.sandboxName = 'another-sandbox';
+  const next = nextPublication(f.config);
+  f.reconcile.mockResolvedValue(next);
+  const attempt = f.manager.adoptKnowledge(
+    changed === 'conversation' ? 'other-conversation' : 'first-conversation',
+    supplied,
+    AbortSignal.timeout(5000),
+    undefined,
+    changed === 'unbound' ? undefined : changed === 'command' ? 'other-command' : 'first',
+  );
+  if (['conversation', 'physical', 'runtime', 'name'].includes(changed))
+    await expect(attempt).rejects.toThrow();
+  else expect((await attempt)?.sourceCommit).toBe(next.sourceCommit);
+  expect(f.reconcile).toHaveBeenCalledTimes(2);
+});
+
+it.each(['delivery', 'cancellation', 'host-integrity'])(
+  'consumes first-command selection on failed %s and reconciles its retry',
+  async (failure) => {
+    const f = firstCommandFixture();
+    const runtime = await f.ensure();
+    const signal = new AbortController();
+    if (failure === 'cancellation') signal.abort();
+    if (failure === 'host-integrity')
+      writeFileSync(join(f.config.seed, 'memory/example.md'), 'tampered');
+    if (failure === 'delivery')
+      f.ssh.mockImplementationOnce(async () => {
+        throw Error('attestation unavailable');
+      });
+    await expect(
+      f.manager.adoptKnowledge('first-conversation', runtime, signal.signal, undefined, 'first'),
+    ).rejects.toThrow();
+    expect(f.reconcile).toHaveBeenCalledTimes(1);
+    writeFileSync(join(f.config.seed, 'memory/example.md'), 'Accepted A');
+    const retry = await f.manager.adoptKnowledge(
+      'first-conversation',
+      runtime,
+      AbortSignal.timeout(5000),
+      undefined,
+      'first',
+    );
+    expect(retry?.sourceCommit).toBe('a'.repeat(40));
+    expect(f.reconcile).toHaveBeenCalledTimes(2);
+  },
+);
+
+it('captures selection metadata independently of mutable publisher responses', async () => {
+  const f = firstCommandFixture();
+  const runtime = await f.ensure();
+  f.selection.sourceCommit = 'b'.repeat(40);
+  const first = await f.manager.adoptKnowledge(
+    'first-conversation',
+    runtime,
+    AbortSignal.timeout(5000),
+    undefined,
+    'first',
+  );
+  expect(first?.sourceCommit).toBe('a'.repeat(40));
+  expect(f.reconcile).toHaveBeenCalledTimes(1);
+});
+
+it("does not register another creator's conflicting sandbox as a first-command selection", async () => {
+  const f = firstCommandFixture();
+  const original = f.run.getMockImplementation()!;
+  f.run.mockImplementation(async (args) => {
+    const result = await original(args);
+    if (args.includes('create')) throw Error('already exists');
+    return result;
+  });
+  const runtime = await f.ensure();
+  await f.manager.adoptKnowledge(
+    'first-conversation',
+    runtime,
+    AbortSignal.timeout(5000),
+    undefined,
+    'first',
+  );
+  expect(f.reconcile).toHaveBeenCalledTimes(2);
+});
+
+it('does not reuse a warmup publication without an initial command identity', async () => {
+  const f = firstCommandFixture();
+  const runtime = await f.manager.ensure('first-conversation', AbortSignal.timeout(5000));
+  await f.manager.adoptKnowledge(
+    'first-conversation',
+    runtime,
+    AbortSignal.timeout(5000),
+    undefined,
+    'first',
+  );
+  expect(f.reconcile).toHaveBeenCalledTimes(2);
+});
+
+it('never grants reuse for an existing sandbox or an unbound first command', async () => {
+  const f = firstCommandFixture();
+  await f.ensure();
+  const runtime = await f.ensure('replacement-first');
+  expect(runtime.created).toBeUndefined();
+  await f.manager.adoptKnowledge(
+    'first-conversation',
+    runtime,
+    AbortSignal.timeout(5000),
+    undefined,
+    'replacement-first',
+  );
+  expect(f.reconcile).toHaveBeenCalledTimes(2);
+});
+
 it('reconciles configured knowledge before snapshotting and rejects another bundle revision', async () => {
   const config = publication();
   const baselineSha256 = digest(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'));
@@ -215,29 +535,20 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   const ssh = vi.fn(async (args: readonly string[]) =>
     args.join(' ').includes('attest-knowledge-runtime.py')
       ? JSON.stringify(config.seedStackManifest.runtime)
-      : args.join(' ').includes('knowledge-cache-status')
-        ? String(present && !damaged)
-        : args.join(' ').includes('os.path.lexists')
-          ? String(present)
-          : JSON.stringify({
+      : args.join(' ').includes('knowledge-cache-probe')
+        ? JSON.stringify({ valid: present && !damaged, present })
+        : JSON.stringify({
+            context: compiledContext,
+            receipt: {
               sourceCommit: 'a'.repeat(40),
               payloadSha256: JSON.parse(
                 readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'),
               ).payloadSha256,
-            }),
+            },
+          }),
   );
   const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
-  const compile = vi.spyOn(manager, 'compileContext').mockResolvedValue({
-    type: 'boot_context',
-    scope: 'sandbox',
-    sourceCount: 1,
-    tokenCount: 2,
-    tokenBudget: 12000,
-    sources: [],
-    included: [],
-    trimmed: [],
-    fullMarkdown: 'Accepted context',
-  });
+
   const runtime = {
     sandboxName: name,
     sandboxId: 'physical-id',
@@ -258,7 +569,14 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   expect(first?.knowledgeRoot).toMatch(
     /^\/sandbox\/workspaces\/knowledge\/knowledge-[a-f0-9]{64}\/mgmt$/,
   );
-  expect(compile.mock.calls[0][0].workdir).toBe(first?.knowledgeRoot);
+  expect(first?.context).toEqual(compiledContext);
+  expect(
+    ssh.mock.calls.filter(([args]) => args.join(' ').includes('knowledge-delivery')),
+  ).toHaveLength(1);
+  expect(
+    ssh.mock.calls.find(([args]) => args.join(' ').includes('knowledge-delivery'))![0].at(-1),
+  ).toContain('/sandbox/compile-mgmt-context.mjs');
+  expect(ssh).toHaveBeenCalledTimes(3);
   const uploads = run.mock.calls.filter(([args]) => args.includes('upload'));
   expect(uploads).toHaveLength(1);
   expect(uploads[0][0].at(-1)).toBe('/sandbox/workspaces/knowledge');
@@ -269,10 +587,10 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   expect(existsSync(uploadsRoot)).toBe(false);
   expect(reconcile).toHaveBeenCalledTimes(2);
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
-  expect(ssh).toHaveBeenCalledTimes(9);
+  expect(ssh).toHaveBeenCalledTimes(6);
+  expect(ssh.mock.calls.at(-1)![0].at(-1)).toMatch(/ cached'$/);
   present = true;
   const resumed = new OpenShellRuntimeManager(config, run, undefined, ssh);
-  vi.spyOn(resumed, 'compileContext').mockResolvedValue(await compile.mock.results[0].value);
   const reused = await resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
   expect(reused?.knowledgeRoot).toBe(first?.knowledgeRoot);
   expect(existsSync(uploadsRoot)).toBe(false);
@@ -283,7 +601,7 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
     const command = args.join(' ');
     if (command.includes('attest-knowledge-runtime.py'))
       return JSON.stringify(config.seedStackManifest.runtime);
-    if (command.includes('knowledge-cache-status')) {
+    if (command.includes('knowledge-cache-probe')) {
       if (mutateHostDuringProbe) {
         const content = 'Changed during remote probe';
         writeFileSync(join(config.seed, 'memory/example.md'), content);
@@ -306,18 +624,20 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
           }),
         );
       }
-      return String(!damaged);
+      return JSON.stringify({ valid: !damaged, present });
     }
-    if (command.includes('os.path.lexists')) return String(present);
     if (command.includes('knowledge-cache-repair')) {
       damaged = false;
       return '';
     }
     if (damaged) throw new Error('knowledge mode changed');
     return JSON.stringify({
-      sourceCommit: 'a'.repeat(40),
-      payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
-        .payloadSha256,
+      context: compiledContext,
+      receipt: {
+        sourceCommit: 'a'.repeat(40),
+        payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
+          .payloadSha256,
+      },
     });
   });
   await resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
@@ -392,26 +712,19 @@ it.each(['success', 'failure'] as const)(
       const command = args.join(' ');
       if (command.includes('attest-knowledge-runtime.py'))
         return JSON.stringify(config.seedStackManifest.runtime);
-      if (command.includes('knowledge-cache-status') || command.includes('os.path.lexists'))
-        return 'false';
+      if (command.includes('knowledge-cache-probe'))
+        return JSON.stringify({ valid: false, present: false });
       return JSON.stringify({
-        sourceCommit: 'a'.repeat(40),
-        payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
-          .payloadSha256,
+        context: compiledContext,
+        receipt: {
+          sourceCommit: 'a'.repeat(40),
+          payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
+            .payloadSha256,
+        },
       });
     });
     const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
-    vi.spyOn(manager, 'compileContext').mockResolvedValue({
-      type: 'boot_context',
-      scope: 'sandbox',
-      sourceCount: 1,
-      tokenCount: 2,
-      tokenBudget: 12000,
-      sources: [],
-      included: [],
-      trimmed: [],
-      fullMarkdown: 'Accepted context',
-    });
+
     const pending = manager
       .adoptKnowledge(
         conversation,
@@ -472,16 +785,17 @@ it('keeps publication verification separate from a pinned profile context withou
   const ssh = vi.fn(async (args: readonly string[]) =>
     args.join(' ').includes('attest-knowledge-runtime.py')
       ? JSON.stringify(config.seedStackManifest.runtime)
-      : args.join(' ').includes('knowledge-cache-status')
-        ? String(present && !damaged)
-        : args.join(' ').includes('os.path.lexists')
-          ? String(present)
-          : JSON.stringify({
+      : args.join(' ').includes('knowledge-cache-probe')
+        ? JSON.stringify({ valid: present && !damaged, present })
+        : JSON.stringify({
+            context: compiledContext,
+            receipt: {
               sourceCommit: 'a'.repeat(40),
               payloadSha256: JSON.parse(
                 readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'),
               ).payloadSha256,
-            }),
+            },
+          }),
   );
   const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
   const compile = vi.spyOn(manager, 'compileContext').mockResolvedValue({
@@ -533,6 +847,7 @@ it('keeps publication verification separate from a pinned profile context withou
   );
   expect(first?.context).toEqual(profileContext);
   expect(compile).not.toHaveBeenCalled();
+  expect(ssh.mock.calls.at(-1)![0].at(-1)).toMatch(/ cached'$/);
   expect(
     ssh.mock.calls.some(([args]) => args.join(' ').includes('attest-knowledge-runtime.py')),
   ).toBe(true);
@@ -579,6 +894,71 @@ it('refuses knowledge adoption by an incompatible retained runtime before upload
   ).rejects.toThrow(/incompatible.*knowledge/i);
   expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
 });
+
+it.each(['transport', 'receipt', 'context', 'missing-context', 'owner', 'cancelled'])(
+  'does not retain a compiled context when batched delivery fails: %s',
+  async (failure) => {
+    const config = publication();
+    const conversation = 'delivery-failure';
+    const name = `mitzo-${digest(conversation).slice(0, 13)}`;
+    let failing = true;
+    let delivered = false;
+    const abort = new AbortController();
+    const run = vi.fn(async (_args: readonly string[]) =>
+      JSON.stringify({
+        name,
+        id: failing && delivered && failure === 'owner' ? 'another-sandbox' : 'physical-id',
+        workspace: 'mitzo',
+        phase: 'Ready',
+        labels: {
+          'mitzo.conversation': digest(conversation).slice(0, 63),
+          'mitzo.account_provider': config.account.provider,
+        },
+      }),
+    );
+    const deliveries: string[] = [];
+    const ssh = vi.fn(async (args: readonly string[]) => {
+      const command = args.join(' ');
+      if (command.includes('attest-knowledge-runtime.py'))
+        return JSON.stringify(config.seedStackManifest.runtime);
+      if (command.includes('knowledge-cache-probe'))
+        return JSON.stringify({ valid: true, present: true });
+      deliveries.push(args.at(-1)!);
+      delivered = true;
+      if (failing && failure === 'transport') throw Error('SSH delivery failed');
+      if (failing && failure === 'cancelled') abort.abort();
+      return JSON.stringify({
+        receipt: {
+          sourceCommit: (failing && failure === 'receipt' ? 'b' : 'a').repeat(40),
+          payloadSha256: JSON.parse(readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'))
+            .payloadSha256,
+        },
+        ...(failing && failure === 'missing-context'
+          ? {}
+          : { context: failing && failure === 'context' ? {} : compiledContext }),
+      });
+    });
+    const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
+    const runtime = {
+      sandboxName: name,
+      sandboxId: 'physical-id',
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: 'openshell',
+      gateway: 'local',
+      workspace: 'mitzo',
+      gatewayInsecure: false,
+    };
+    await expect(manager.adoptKnowledge(conversation, runtime, abort.signal)).rejects.toThrow();
+    failing = false;
+    const result = await manager.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
+    expect(result?.context).toEqual(compiledContext);
+    // Failure cannot mark context compiled: the next admission must compile again.
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries.every((command) => command.endsWith(" compile'"))).toBe(true);
+    expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
+  },
+);
 
 it.each([
   { phased: false, admitted: false },
