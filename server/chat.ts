@@ -1357,16 +1357,7 @@ async function _startChatInner(
         options.contributorGuidance,
       ),
     };
-    if (options.agentProfile || storedMeta?.agentProfile)
-      agentProfile = await resolveChatAgentProfile({
-        requested: options.agentProfile,
-        stored: storedMeta?.agentProfile,
-        resume: !!options.resume,
-        provider: accountBinding?.provider,
-        lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
-      });
-    assertAgentToolRoute(
-      agentProfile?.definition,
+    const toolRoute =
       accountBinding?.provider === 'openai-codex'
         ? 'codex'
         : accountBinding?.provider === 'openai' &&
@@ -1375,8 +1366,17 @@ async function _startChatInner(
           ? 'openshell'
           : ['openai', 'google-vertex'].includes(accountBinding?.provider ?? '')
             ? 'local-api'
-            : 'claude-sdk',
-    );
+            : 'claude-sdk';
+    if (options.agentProfile || storedMeta?.agentProfile)
+      agentProfile = await resolveChatAgentProfile({
+        requested: options.agentProfile,
+        stored: storedMeta?.agentProfile,
+        resume: !!options.resume,
+        provider: accountBinding?.provider,
+        toolRoute,
+        lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
+      });
+    assertAgentToolRoute(agentProfile?.definition, toolRoute);
     // Reject unsupported context before credential preflight, workspace creation,
     // or snapshot persistence. Host Responses and SDK routes retain pack support.
     if (

@@ -174,3 +174,27 @@ it('includes the selection namespace in wire identity, startup validation and re
     }),
   ).rejects.toThrow(/new chat/);
 });
+
+it('refuses selected profiles unless the caller explicitly enrolls its actual runtime route', async () => {
+  const definition = { ...snapshot.definition, tools: [{ id: 'mitzo:Read', version: 1 }] };
+  const selected = {
+    ...snapshot,
+    definition,
+    contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+  };
+  await expect(
+    resolveChatAgentProfile({
+      provider: 'openai',
+      requested: { profileId: selected.profileId, revision: selected.revision },
+      lookup: async () => selected,
+    }),
+  ).rejects.toThrow(/not supported/i);
+  expect(
+    await resolveChatAgentProfile({
+      provider: 'openai',
+      toolRoute: 'local-api',
+      requested: { profileId: selected.profileId, revision: selected.revision },
+      lookup: async () => selected,
+    }),
+  ).toEqual(selected);
+});
