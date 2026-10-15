@@ -3,6 +3,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AgentLibrary } from '../AgentLibrary';
+import {
+  createAgentTaskWorkingCopy,
+  saveAgentTaskWorkingCopy,
+} from '../../lib/agent-task-working-copy';
 import { within } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import userEvent from '@testing-library/user-event';
@@ -734,4 +738,46 @@ it('keeps the saved task receipt when an older list request completes afterward'
   await screen.findByText('Task saved. Execution is not available yet.');
   await act(async () => finishList(response([])));
   expect(screen.getByRole('button', { name: 'Task settings: Saved receipt' })).toBeTruthy();
+});
+
+it('keeps a newer known task row when an exact create retry returns its older durable receipt', async () => {
+  const copy = { ...createAgentTaskWorkingCopy(published), name: 'Original task' };
+  saveAgentTaskWorkingCopy(copy);
+  const original = {
+    taskId: copy.taskId,
+    revision: 1,
+    definition: {
+      name: 'Original task',
+      objective: '',
+      profile: copy.profile,
+      execution: null,
+      workspace: null,
+      schedule: null,
+      notificationPolicy: 'results',
+      outputPolicy: 'session',
+    },
+    configuration: { state: 'draft' },
+    deleted: false,
+    createdAt: '2026-10-15T00:00:00.000Z',
+    updatedAt: '2026-10-15T00:00:00.000Z',
+  };
+  const newer = {
+    ...original,
+    revision: 2,
+    definition: { ...original.definition, name: 'Edited elsewhere' },
+  };
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/agent-tasks') return response(init?.method === 'POST' ? original : [newer]);
+    return response({ drafts: [], versions: [published] });
+  });
+  render(
+    <MemoryRouter>
+      <AgentLibrary />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'Task settings: Edited elsewhere' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
+  await screen.findByText('Task saved. Execution is not available yet.');
+  expect(screen.getByRole('button', { name: 'Task settings: Edited elsewhere' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Task settings: Original task' })).toBeNull();
 });

@@ -125,7 +125,11 @@ export function useAgentTasks() {
       update(next);
       listGeneration.current++;
       setLoading(false);
-      setTasks((current) => [saved, ...(current ?? []).filter((t) => t.taskId !== saved.taskId)]);
+      setTasks((current) => {
+        const known = current?.find((task) => task.taskId === saved.taskId);
+        if (known && known.revision > saved.revision) return current;
+        return [saved, ...(current ?? []).filter((task) => task.taskId !== saved.taskId)];
+      });
       setNotice('Task saved. Execution is not available yet.');
     } catch (cause) {
       if (live.current) setError(cause instanceof Error ? cause.message : 'Task save failed');
