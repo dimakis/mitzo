@@ -91,6 +91,12 @@ export const SaveAgentTaskSchema = z.strictObject({
   idempotencyKey: reference,
   definition: AgentTaskDefinitionSchema,
 });
+export const CreateAgentTaskSchema = SaveAgentTaskSchema.extend({
+  expectedRevision: z.literal(0),
+});
+export const UpdateAgentTaskSchema = SaveAgentTaskSchema.extend({
+  expectedRevision: SaveAgentTaskSchema.shape.expectedRevision.positive(),
+});
 export const RemoveAgentTaskSchema = SaveAgentTaskSchema.omit({ definition: true });
 export const AgentTaskRecordSchema = z.strictObject({
   taskId: AgentTaskIdSchema,

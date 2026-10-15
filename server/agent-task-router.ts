@@ -1,6 +1,11 @@
 import { Router, type Response } from 'express';
 import { ZodError } from 'zod';
-import { AgentTaskIdSchema, SaveAgentTaskSchema, RemoveAgentTaskSchema } from '@mitzo/protocol';
+import {
+  AgentTaskIdSchema,
+  CreateAgentTaskSchema,
+  UpdateAgentTaskSchema,
+  RemoveAgentTaskSchema,
+} from '@mitzo/protocol';
 import { AgentTaskError } from './agent-task-store.js';
 import type { AgentTaskService } from './agent-task-service.js';
 import { requireSameOriginJson } from './connections-router.js';
@@ -56,11 +61,11 @@ export function createAgentTaskRouter(service: AgentTaskService): Router {
     act(res, () => service.read(OWNER, AgentTaskIdSchema.parse(req.params.taskId))),
   );
   router.post('/', requireSameOriginJson, (req, res) =>
-    act(res, () => service.save(OWNER, req.body)),
+    act(res, () => service.save(OWNER, CreateAgentTaskSchema.parse(req.body))),
   );
   router.put('/:taskId', requireSameOriginJson, (req, res) =>
     act(res, () => {
-      const body = SaveAgentTaskSchema.omit({ taskId: true }).parse(req.body);
+      const body = UpdateAgentTaskSchema.omit({ taskId: true }).parse(req.body);
       return service.save(OWNER, { ...body, taskId: AgentTaskIdSchema.parse(req.params.taskId) });
     }),
   );

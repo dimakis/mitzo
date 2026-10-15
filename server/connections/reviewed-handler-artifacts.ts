@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.145';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.146';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,10 +25,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Assigned task persistence and authenticated owner dispatch; no execution activation.
   '../agent-task-store.ts': 'f1b47b3ee410e5a5727255b5939cd60ab22713858e1b05cd54c2611611143f84',
   '../agent-task-service.ts': '226f42689d54ad511770c22cc62cfdfcad65673e7f5d2850793a043c73f69dc7',
-  '../agent-task-router.ts': 'cb30e314177b944210933e9e37ef5e7a60715d1545d581155baf3e45b4e74b48',
+  '../agent-task-router.ts': 'a9569317a35a7e20070f358023d32230d2dbaa00e22534afa3750e0e66cf4f98',
   '../agent-task-runtime.ts': '50a4794707a2c25c9b802813f3327b93356d472dc5f2f698caa3fc463724bd9c',
   '../../packages/protocol/src/agent-tasks.ts':
-    'd49a9bddd7a85843c7ef84193542744d4c8f0ef9effe7b8cab649eb564669f25',
+    '1b56cfe7f6958a042ee1fa0858df1c4a638f90690180a9087f5ef4b0e38a1d5f',
   // Saved-history navigation keeps each mockup read bound to the selected chat.
   '../../frontend/src/pages/MockupsView.tsx':
     'fd7891f65bc8f64fd04d63c222425166e1bc05c5cffc69b67f035ddc36ba33f7',

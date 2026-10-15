@@ -47,6 +47,11 @@ retry keys return 409. Invalid or extra fields return 400. Mutation requests req
 same-origin JSON. Internal agent tokens cannot substitute for interactive operator
 authentication.
 
+POST requires `expectedRevision: 0`; PUT requires a positive expected revision.
+Neither operation can substitute for the other. Rejected requests write no task
+revision or retry receipt; an exact create retry still returns its original record
+after later edits.
+
 HTTP uses the existing single-operator stable `user` subject shared by the Library,
 never a caller-supplied owner or rotating login JTI. The store/service require an
 explicit trusted owner and isolate all reads, writes, profile lookups and retry

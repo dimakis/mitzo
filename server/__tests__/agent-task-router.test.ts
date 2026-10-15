@@ -112,6 +112,38 @@ it('authenticates CRUD through closed owner dispatch, retaining tasks across rot
   expect((await send('GET', '/api/agent-tasks/task-1')).status).toBe(404);
   expect(fetch).not.toHaveBeenCalled();
 });
+it('rejects POST edits without changing the task or consuming the retry key', async () => {
+  const f = fixture();
+  const send = (method: string, path: string, body: object) =>
+    dispatchCustodianHttp(f.app, command(method, path, body), () => {});
+  const first = await send('POST', '/api/agent-tasks', f.input);
+  expect(first.status).toBe(200);
+  const edit = {
+    expectedRevision: 1,
+    idempotencyKey: 'edit-key',
+    definition: { ...f.input.definition, name: 'Edited' },
+  };
+  expect((await send('POST', '/api/agent-tasks', { ...edit, taskId: 'task-1' })).status).toBe(400);
+  expect(f.tasks.get('user', 'task-1')).toEqual(first.body);
+  expect((await send('PUT', '/api/agent-tasks/task-1', edit)).status).toBe(200);
+  expect((await send('POST', '/api/agent-tasks', f.input)).body).toEqual(first.body);
+  expect(f.tasks.get('user', 'task-1')?.revision).toBe(2);
+});
+it('rejects PUT creation without persisting a task or consuming the retry key', async () => {
+  const f = fixture();
+  const { taskId, ...body } = f.input;
+  const result = await dispatchCustodianHttp(
+    f.app,
+    command('PUT', `/api/agent-tasks/${taskId}`, body),
+    () => {},
+  );
+  expect(result.status).toBe(400);
+  expect(f.tasks.get('user', taskId)).toBeNull();
+  expect(
+    (await dispatchCustodianHttp(f.app, command('POST', '/api/agent-tasks', f.input), () => {}))
+      .status,
+  ).toBe(200);
+});
 it('rejects expired, revoked and dispatch-invalidated authority before persisting', async () => {
   const f = fixture();
   const input = command('POST', '/api/agent-tasks', f.input);
