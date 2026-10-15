@@ -60,6 +60,7 @@ import {
   type OpenShellCodexOptions,
 } from './codex-app-server-client.js';
 import { CodexConversation, type CodexToolResult } from './codex-conversation.js';
+import { taskRuntimeGuidance, meetingPrepGuidance } from './task-runtime-guidance.js';
 import {
   CodexConversationStore,
   type KnowledgeAdoptionSelection,
@@ -1503,7 +1504,11 @@ async function openCodexChatBound(
                   ? [{ ...agentContext.context, scope: 'sandbox' as const }]
                   : []),
               );
-              if (!selected && !agentContext?.sandbox) return undefined;
+              const capabilities = await runtimeManager!.inspectTaskCapabilities(
+                managedOpenShell!,
+                signal,
+              );
+              await options.ownedOpenShell?.assertCurrent();
               pendingKnowledge = selected?.adoption;
               if (selected) options.onBootContext?.(selected.context);
               pendingAdditionalContext =
@@ -1512,7 +1517,9 @@ async function openCodexChatBound(
                   : '') +
                 (selected
                   ? `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout${agentContext?.sandbox ? ' and saved recipe' : ''}. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${agentContext?.source === 'packs' ? 'The agent profile boot context retains its separately recorded source revisions. This retrieval publication does not replace that pinned profile context.' : selected.context.fullMarkdown}`
-                  : '');
+                  : '') +
+                taskRuntimeGuidance(capabilities) +
+                meetingPrepGuidance;
               if (agentContext?.sandbox)
                 pendingAgentContextSha256 = createHash('sha256')
                   .update(pendingAdditionalContext)

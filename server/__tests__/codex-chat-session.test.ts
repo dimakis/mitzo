@@ -116,6 +116,11 @@ import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstr
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 
 beforeEach(() => {
+  vi.spyOn(OpenShellRuntimeManager.prototype, 'inspectTaskCapabilities').mockResolvedValue({
+    mgmtCli: false,
+    meetingPrep: false,
+    gws: true,
+  });
   mocks.custodianController = false;
   vi.spyOn(OpenShellRuntimeManager.prototype, 'observeContract').mockResolvedValue({
     resourceVersion: 'test-observation',
@@ -130,6 +135,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.mocked(OpenShellRuntimeManager.prototype.observeContract).mockRestore();
+  vi.mocked(OpenShellRuntimeManager.prototype.inspectTaskCapabilities).mockRestore();
 });
 it('uses assigned GitHub credentials instead of the legacy fallback on a new runtime', () => {
   const managed = [
@@ -940,6 +946,18 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       },
     );
     expect(refreshed).toContain('Fresh knowledge B');
+    expect(refreshed).toContain('./mgmt: unavailable');
+    expect(refreshed).toContain('./command_center/meeting_prep.py: unavailable');
+    expect(refreshed).toContain('gws: entrypoint present');
+    expect(refreshed).toContain('calendar event first');
+    expect(refreshed).toContain('After one classified failure');
+    vi.mocked(OpenShellRuntimeManager.prototype.inspectTaskCapabilities).mockResolvedValueOnce(
+      undefined,
+    );
+    adoption.mockResolvedValueOnce(undefined);
+    const unknownRuntime = await prepareContext(AbortSignal.timeout(5000));
+    expect(unknownRuntime).toContain('inventory unavailable');
+    expect(unknownRuntime).toContain('calendar event first');
     expect(refreshed).toContain('/sandbox/workspaces/knowledge/revision/mgmt');
     expect(String(mocks.conversationOptions?.systemPrompt) + refreshed).toContain(
       'GrantIntegrationAccess',
