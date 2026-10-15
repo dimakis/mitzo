@@ -93,6 +93,99 @@
   min-width: 0;
   padding: var(--space-5);
 }
+.agent-library-workbench {
+  min-width: 0;
+}
+.agent-creation-advisor {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+.agent-library-page .agent-advisor-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  text-align: left;
+}
+.agent-advisor-toggle span {
+  flex: 1;
+  color: var(--color-text);
+  font-weight: 600;
+}
+.agent-advisor-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.agent-advisor-pickers select {
+  flex: 1;
+  width: auto;
+  max-width: 100%;
+}
+.agent-advisor-hint {
+  font-size: var(--text-sm);
+  margin: var(--space-3) 0;
+}
+.agent-advisor-conversation {
+  max-height: 40dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg);
+}
+.agent-advisor-message {
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+.agent-advisor-message + .agent-advisor-message {
+  margin-top: var(--space-4);
+}
+.agent-advisor-user > strong {
+  color: var(--color-muted);
+}
+.agent-advisor-message p,
+.agent-advisor-proposal p {
+  margin: var(--space-2) 0;
+}
+.agent-advisor-message pre,
+.agent-advisor-proposal pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+.agent-advisor-proposal {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.agent-advisor-proposal summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  cursor: pointer;
+  color: var(--color-accent);
+}
+.agent-advisor-input {
+  display: flex;
+  gap: var(--space-2);
+}
+.agent-advisor-input input {
+  flex: 1;
+}
+.agent-advisor-input button {
+  flex-shrink: 0;
+}
 .agent-library-heading {
   display: flex;
   justify-content: space-between;
@@ -236,6 +329,9 @@
     gap: var(--space-2);
   }
   .agent-library-detail {
+    padding: var(--space-4);
+  }
+  .agent-creation-advisor {
     padding: var(--space-4);
   }
 }
