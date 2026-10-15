@@ -295,6 +295,8 @@ export type {
   SessionRuntimeBindingV2,
   SessionRuntimeBinding,
 } from './session-runtime-binding.js';
+export { RuntimeReadinessSchema, RuntimeCapabilityObservationSchema } from './runtime-readiness.js';
+export type { RuntimeReadiness, RuntimeCapabilityObservation } from './runtime-readiness.js';
 export {
   SessionOutputSourceSchema,
   SessionOutputRegisterInputSchema,

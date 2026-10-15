@@ -157,9 +157,8 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
       )}
       {sessionId && !loading && evidence?.state === 'unknown' && (
         <p className="workspace-muted">
-          This view currently reports live Claude/Vertex sessions. Other routes and unavailable
-          historical sessions return Unknown. That does not mean access is blocked; refreshing
-          cannot supply evidence the runtime does not report.
+          This runtime has not supplied current session evidence. Configured accounts and services
+          do not establish live access; refreshing cannot supply missing measurements.
         </p>
       )}
       <section className="access-detail-card">
