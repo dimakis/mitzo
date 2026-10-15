@@ -119,3 +119,27 @@ it.each(['all', 'active'])(
     expect(screen.getByRole('menu')).toBeTruthy();
   },
 );
+
+it('previews a saved pin outside the loaded page without navigating into its provider chat', async () => {
+  localStorage.setItem(
+    'mitzo-conversation-pins',
+    JSON.stringify([{ id: 'older', summary: 'Older saved chat', lastModified: 1 }]),
+  );
+  render(
+    <MemoryRouter>
+      <SessionList />
+    </MemoryRouter>,
+  );
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'Pinned conversations' })).getByRole('button', {
+      name: /^Older saved chat/,
+    }),
+  );
+  await act(async () => {});
+  expect(
+    within(screen.getByRole('complementary', { name: 'Conversation preview' })).getByRole(
+      'heading',
+      { name: 'Older saved chat' },
+    ),
+  ).toBeTruthy();
+});

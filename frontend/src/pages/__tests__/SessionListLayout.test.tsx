@@ -110,7 +110,7 @@ it('uses the shared workspace page and primary action styling', () => {
   mount();
   expect(screen.getByRole('heading', { name: 'Chats' }).closest('.workspace-page')).toBeTruthy();
   expect(
-    screen.getByRole('button', { name: '+ New chat' }).classList.contains('workspace-primary'),
+    screen.getByRole('button', { name: 'New chat' }).classList.contains('workspace-primary'),
   ).toBe(true);
 });
 
@@ -143,13 +143,20 @@ it.each([
   },
 );
 
-it('keeps details and actions outside the conversation navigation control', () => {
+it('keeps actions outside the conversation navigation control', async () => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
   mount();
   const link = screen.getByRole('link', { name: 'Open Review UI' });
   expect(link.querySelector('details, button, input')).toBeNull();
-  fireEvent.click(screen.getByLabelText('Details for Review UI'));
+  fireEvent.click(screen.getByLabelText('Actions for Review UI'));
+  await act(async () => {});
   expect(screen.queryByText('Selected conversation')).toBeNull();
-  expect(screen.getByLabelText('Details for Review UI').closest('details')?.open).toBe(true);
+  expect(screen.getByRole('dialog', { name: 'Preview Review UI' })).toBeTruthy();
 });
 
 it('clears active search when conversation history is cleared', () => {
@@ -175,12 +182,15 @@ it.each(['delete', 'clear'] as const)(
     try {
       mount();
       if (action === 'delete') {
-        fireEvent.click(screen.getByLabelText('Details for Review UI'));
+        HTMLDialogElement.prototype.showModal = function () {
+          this.open = true;
+        };
+        HTMLDialogElement.prototype.close = function () {
+          this.open = false;
+        };
+        fireEvent.click(screen.getByLabelText('Actions for Review UI'));
         fireEvent.click(
-          within(screen.getByLabelText('Details for Review UI').closest('details')!).getByRole(
-            'button',
-            { name: 'Delete conversation' },
-          ),
+          within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete conversation' }),
         );
         act(() => vi.advanceTimersByTime(200));
       } else {

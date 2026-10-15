@@ -596,6 +596,28 @@ describe('session routes', () => {
     expect(s1.numTurns).toBe(3);
   });
 
+  it('GET /api/sessions — exposes the recorded context observation independently of cumulative tokens', async () => {
+    const { eventStore } = await import('../chat.js');
+    vi.mocked(eventStore.getLatestEvent).mockReturnValueOnce({
+      sessionId: 's1',
+      seq: 1,
+      type: 'token_update',
+      createdAt: 123,
+      payload: {
+        agentContext: 48000,
+        tokenLimits: { model: 'example', source: 'runtime', contextWindow: 200000 },
+      },
+    });
+    const res = await request(app).get('/api/sessions').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.sessions[0].contextUsage).toMatchObject({
+      used: 48000,
+      measuredAt: 123,
+      limits: { contextWindow: 200000 },
+    });
+    expect(res.body.sessions[0].totalTokens).not.toBe(48000);
+  });
+
   it('GET /api/sessions — authenticated returns paginated shape', async () => {
     const res = await request(app).get('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);

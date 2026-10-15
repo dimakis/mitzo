@@ -57,6 +57,18 @@ function parse(raw: string): Session[] {
     return [];
   }
 }
+/** Keep deleted histories from leaving broken shortcuts on this device. */
+export function removeConversationPins(id?: string) {
+  try {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify(id ? parse(readPins()).filter((pin) => pin.id !== id) : []),
+    );
+    window.dispatchEvent(new Event(CHANGED));
+  } catch {
+    // A deleted history cannot be restored if this device refuses storage writes.
+  }
+}
 /** Device shortcuts are independent from the workspace's Today pins. */
 export function useConversationPins() {
   const raw = useSyncExternalStore(subscribe, readPins, () => '[]');

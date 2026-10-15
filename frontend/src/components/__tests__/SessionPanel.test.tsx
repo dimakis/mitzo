@@ -129,7 +129,7 @@ describe('SessionPanel', () => {
     expect(screen.getByText('No sessions')).toBeTruthy();
   });
 
-  it('shows delete button on hover (via class)', () => {
+  it('exposes a separate labelled actions trigger', () => {
     mockUseSessionList.mockReturnValue(
       makeDefaultReturn({
         sessions: [{ id: 's1', summary: 'Hoverable', lastModified: Date.now() }],
@@ -139,7 +139,7 @@ describe('SessionPanel', () => {
       <SessionPanel activeSessionId={undefined} onSelectSession={vi.fn()} onNewChat={vi.fn()} />,
     );
     // Delete button exists in DOM but shown via CSS :hover
-    const deleteBtn = container.querySelector('.session-panel-delete');
+    const deleteBtn = container.querySelector('.session-action-trigger');
     expect(deleteBtn).toBeTruthy();
   });
 
@@ -154,8 +154,8 @@ describe('SessionPanel', () => {
     const { container } = render(
       <SessionPanel activeSessionId={undefined} onSelectSession={vi.fn()} onNewChat={vi.fn()} />,
     );
-    const deleteBtn = container.querySelector('.session-panel-delete')!;
-    fireEvent.click(deleteBtn);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Delete me' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete conversation' }));
     expect(dismiss).toHaveBeenCalledWith('s1');
   });
 
@@ -230,12 +230,13 @@ it('exposes a named conversation selector and keeps deletion separate', () => {
     }),
   );
   render(<SessionPanel activeSessionId="s1" onSelectSession={select} onNewChat={vi.fn()} />);
-  const row = screen.getByRole('button', { name: /Review PR/ });
+  const row = screen.getByRole('button', { name: /^Review PR/ });
   expect(row.getAttribute('aria-current')).toBe('true');
   fireEvent.click(row);
   expect(select).toHaveBeenCalledWith('s1');
-  expect(screen.getByText(/24k session tokens/)).toBeTruthy();
-  fireEvent.click(screen.getByTitle('Delete session'));
+  expect(screen.queryByText(/24k session tokens/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Actions for Review PR' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Delete conversation' }));
   expect(dismiss).toHaveBeenCalledWith('s1');
   expect(select).toHaveBeenCalledTimes(1);
 });

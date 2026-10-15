@@ -84,7 +84,7 @@
   border-radius: var(--radius-panel);
   color: var(--color-text);
   background: var(--color-surface);
-  box-shadow: 0 var(--space-3) var(--space-8) var(--color-shadow);
+  box-shadow: 0 var(--space-3) var(--space-6) var(--color-shadow);
 }
 .session-actions button:focus-visible,
 .session-action-trigger:focus-visible,
@@ -211,7 +211,7 @@
 }
 .session-preview-divider > span {
   width: 3px;
-  height: var(--space-8);
+  height: var(--space-6);
   background: var(--color-muted);
   border-radius: var(--radius-control);
 }
@@ -315,6 +315,9 @@
   position: relative;
   padding: var(--space-5) var(--control-height) var(--space-5) var(--space-2);
   min-height: var(--control-height);
+}
+.conversation-library .session-item-wrapper[data-selected='true'] {
+  border-radius: var(--radius-control);
 }
 .conversation-library .session-item[data-selected='true'] {
   background: var(--color-panel);

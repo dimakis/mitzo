@@ -10,13 +10,13 @@ import '../styles/session-library.css';
 type Props = {
   sessions: Session[];
   selectedId?: string;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, session: Session) => void;
   onPreview?: (session: Session) => void;
   onActions: (session: Session, trigger: HTMLElement, point?: SessionActionPoint) => void;
 };
 function PinRow({ session, props }: { session: Session; props: Props }) {
   const handlers = useSessionInteraction(
-    () => props.onSelect(session.id),
+    () => props.onSelect(session.id, session),
     (trigger, point) => props.onActions(session, trigger, point),
   );
   const title = recordTitle(session.summary || 'Untitled conversation');

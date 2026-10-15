@@ -202,7 +202,7 @@ function SwipeableSession({
   }
 
   return (
-    <div className="session-item-wrapper">
+    <div className="session-item-wrapper" data-selected={selected}>
       <div
         className="session-item-delete-action"
         onClick={handleDeleteTap}
@@ -514,9 +514,8 @@ export function SessionList() {
           <ConversationPins
             sessions={all}
             selectedId={desktop ? selectedPreview?.id : undefined}
-            onSelect={(id) => {
-              const session = all.find((item) => item.id === id);
-              if (desktop && session) setPreview(session);
+            onSelect={(id, session) => {
+              if (desktop) setPreview(session);
               else openSession(id);
             }}
             onPreview={desktop ? previewSession : undefined}

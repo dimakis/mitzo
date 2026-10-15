@@ -1,3 +1,4 @@
+import { removeConversationPins } from './useConversationPins';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '../types/chat';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
@@ -178,6 +179,7 @@ export function useSessionList(): UseSessionListReturn {
     apiFetch(`/api/sessions/${id}`, { method: 'DELETE' })
       .then((response) => {
         if (response.ok) {
+          removeConversationPins(id);
           sessionCache.update((page) => ({
             ...page,
             sessions: page.sessions.filter((s) => s.id !== id),
@@ -192,6 +194,7 @@ export function useSessionList(): UseSessionListReturn {
     apiFetch('/api/sessions', { method: 'DELETE' })
       .then((response) => {
         if (!response.ok) return;
+        removeConversationPins();
         sessionCache.clear();
         sessionCache.set(sessionsUrl, { sessions: [], hasMore: false });
         setSessions([]);
