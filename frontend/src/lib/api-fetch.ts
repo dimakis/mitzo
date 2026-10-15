@@ -9,6 +9,8 @@
  */
 
 import { traceAuthenticationCheck } from './auth-check-tracing';
+import { getApiBaseUrl } from './api-base-url';
+export { getApiBaseUrl } from './api-base-url';
 
 const AUTH_TOKEN_KEY = 'mitzo_auth_token';
 const LOGOUT_PENDING_KEY = 'mitzo_logout_pending';
@@ -101,11 +103,6 @@ export function isLogoutPending(): boolean {
 
 export function getStoredAuthToken(): string | null {
   return typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
-}
-
-export function getApiBaseUrl(): string {
-  const configured = import.meta.env.VITE_API_BASE_URL;
-  return configured && configured !== 'undefined' ? configured : '';
 }
 
 export function getWsBaseUrl(): string {

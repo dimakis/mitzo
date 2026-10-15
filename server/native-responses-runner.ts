@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { GeminiSession, type GeminiOptions } from './gemini-session.js';
 import type { AccountBinding } from '@mitzo/protocol';
+import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
 import {
   ResponsesSession,
   runAgenticLoop,
@@ -248,7 +249,10 @@ export class NativeResponsesRunner {
       this.reasoningEffort = selectedReasoningEffort;
       const config = {
         model: selectedModel,
-        systemPrompt: opts.systemPrompt,
+        // Keep the admitted profile payload unchanged; application capabilities
+        // belong to provider configuration, including owned Gemini routes.
+        systemPrompt:
+          opts.systemPrompt + (opts.commandAuthority ? buildClientCapabilitiesPrompt() : ''),
         maxTokens: opts.maxTokens,
         tools: opts.tools,
         reasoningEffort: selectedReasoningEffort ?? undefined,
