@@ -119,10 +119,17 @@ describe('expanded message previews', () => {
     );
     const view = render(bubble('first'));
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`first\\.${ext}`) }));
-    const previewContent = () =>
-      ext === 'md'
-        ? view.container.querySelector('.md-preview-card-body')?.textContent
-        : view.container.querySelector('iframe')?.getAttribute('srcdoc');
+    const delivered = new WeakMap<HTMLIFrameElement, ReturnType<typeof vi.spyOn>>();
+    const previewContent = () => {
+      if (ext === 'md') return view.container.querySelector('.md-preview-card-body')?.textContent;
+      const frame = view.container.querySelector('iframe');
+      if (!frame) return undefined;
+      if (!delivered.has(frame)) {
+        delivered.set(frame, vi.spyOn(frame.contentWindow!, 'postMessage'));
+        fireEvent.load(frame);
+      }
+      return (delivered.get(frame)!.mock.calls[0]?.[0] as { html?: string } | undefined)?.html;
+    };
     await waitFor(() => expect(previewContent()).toContain('FIRST DOCUMENT'));
     view.rerender(bubble('second'));
     expect(previewContent()).toBeFalsy();

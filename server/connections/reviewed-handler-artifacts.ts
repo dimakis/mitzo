@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.137';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.138';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Isolated preview policy, delivery boundary and native endpoint selection.
+  '../html-preview-shell.ts': 'e22ca8e8245db06a3e55e17971b5a0c1f890b1f89cd5cc88958a94b180c3e3ff',
+  '../security-headers.ts': '1d9f242529d764439353e492ffac07929788455546a68156acf5d4bf852b1534',
+  '../../frontend/src/components/HtmlPreview.tsx':
+    '70bf4d8caab41e76d245f9763014f164b027ba35603176a38f9482db533cb93b',
+  '../../frontend/src/lib/api-base-url.ts':
+    '68b440dacf7db8f1afee47cce7fd463002f1bd14e7e4b3f6e391143a9e466f7c',
   // Shared authoring contract used at the owned provider boundary.
   '../../packages/protocol/src/client-capabilities.ts':
     '0064b843b187fae887fda2c7ca382011f406da372bda90cadc7109055203eb43',
@@ -268,7 +275,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '9108050673b284d7d1e163ec2e568515284d2de112835b55627817dfbed52eed',
+  '../app.ts': '7f89e0d04e619e52f6bd570adefe1d5ea132bc1da6653d567599483f9df7122f',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -656,7 +663,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTodoData.ts':
     '2fdf94ff9719384bfbd247218f68a99efa6e243a1560bf287088620a4f12b39d',
   '../../frontend/src/lib/api-fetch.ts':
-    '10a494d6bd51deba0c310e2c2f2b6e7f285dea4b98164c6f3bca00e9ae070f19',
+    '39ae0be32bfda66e5135dbe287eecb5cb5bce0c74d3e823897d6363d040bf9ff',
   '../../frontend/src/lib/api-json-read.ts':
     '60c11f4263ea1e73478e4ff54542968d65c455b36ab9eb3dbb718d02abb94d18',
   '../../frontend/src/lib/auth-check-tracing.ts':

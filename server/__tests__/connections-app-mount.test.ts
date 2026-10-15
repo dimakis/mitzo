@@ -35,6 +35,18 @@ describe('Connections app mount', () => {
       rmSync(directory, { recursive: true, force: true });
   });
 
+  it('exposes only the empty preview shell before API auth and keeps the application CSP strict', async () => {
+    const { app } = await import('../app.js');
+    const shell = await request(app).get('/api/html-preview?html=PRIVATE_ARTIFACT');
+    expect(shell.status).toBe(200);
+    expect(shell.text).not.toContain('PRIVATE_ARTIFACT');
+    expect(shell.headers['content-security-policy']).toContain('sandbox allow-scripts');
+    const file = await request(app).get('/api/files/read?path=/private/artifact.html');
+    expect(file.status).toBe(401);
+    expect(file.headers['content-security-policy']).toContain("script-src 'self'");
+    expect(file.headers['content-security-policy']).not.toContain("script-src 'unsafe-inline'");
+  });
+
   it('uses the local 2kb parser before the app-wide 10mb parser and rejects internal auth', async () => {
     const { app, setConnectionsRuntime } = await import('../app.js');
     const directory = mkdtempSync(join(tmpdir(), 'connections-app-'));

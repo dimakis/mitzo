@@ -120,6 +120,28 @@ Frozen command/profile payloads stay unchanged. These boundaries have offline
 mock-provider regressions, and their reviewed source fingerprints include the
 shared capability contract.
 
+The preview is an HTTP document at `/api/html-preview`, with a distinct restrictive
+response CSP and `sandbox allow-scripts` in both header and frame. A `srcdoc`
+document inherits the application's `script-src 'self'` policy, so its own meta
+policy cannot enable prototype scripts. The application policy stays unchanged;
+only the empty preview shell permits inline artifact scripts. The parent transfers
+the already-authorized document once after load. The shell validates the sender
+and message shape, removes its listener, then renders; it exposes no host command
+bridge. Neither artifact content nor authentication tokens enter the frame URL.
+
+`frame-ancestors` permits the app itself and exact configured CORS parent origins,
+including Capacitor. The shell carries no user data and needs no bearer token;
+the original file read retains its session/auth checks. Browser fixtures invoke
+the same security middleware as the deployed app and exercise web and cross-origin
+embedding. Both script elements and inline event handlers run inside the preview;
+the host rejects inline handlers and preview network/parent access stays blocked.
+Before delivering scripts, the client also installs a narrowing parent `frame-src`
+policy for self and the configured application server. This closes frame-navigation
+exfiltration in native webviews which lack the web host's response policy. The
+build-constant policy remains installed because removing a CSP meta element does
+not revoke it. Offline tests start the cross-origin parent with permissive frame
+navigation, then verify the component blocks an attempted external navigation.
+
 ## Token usage
 
 The conversation token popover groups latest context/request capacity separately

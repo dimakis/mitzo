@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HtmlPreviewCard } from '../HtmlPreviewCard';
 import { apiFetch } from '../../lib/api-fetch';
@@ -109,11 +109,19 @@ it('does not show stale content or a late result after the artifact identity cha
     );
   const { rerender } = render(<HtmlPreviewCard filePath="/tmp/first.html" sessionId="first" />);
   rerender(<HtmlPreviewCard filePath="/tmp/second.html" sessionId="second" />);
-  const second = await screen.findByTitle('second.html preview');
-  completeFirst(
-    new Response(JSON.stringify({ path: '/resolved/first.html', content: '<h1>First</h1>' })),
+  const second = (await screen.findByTitle('second.html preview')) as HTMLIFrameElement;
+  const post = vi.spyOn(second.contentWindow!, 'postMessage');
+  fireEvent.load(second);
+  await act(async () => {
+    completeFirst(
+      new Response(JSON.stringify({ path: '/resolved/first.html', content: '<h1>First</h1>' })),
+    );
+  });
+  expect(post).toHaveBeenCalledWith(
+    { type: 'mitzo:render-preview', html: expect.stringContaining('Second') },
+    '*',
   );
-  await waitFor(() => expect(second.getAttribute('srcdoc')).toContain('Second'));
+  expect(screen.getByTitle('second.html preview')).toBe(second);
   expect(screen.queryByTitle('first.html preview')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Open' }));
   expect(new URL(navigate.mock.lastCall![0], 'https://mitzo.test').searchParams.get('path')).toBe(
