@@ -59,6 +59,7 @@ async function mountFixture(page: Page, { cached = false, chat = false, reject =
     },
     outfile: 'connection-setup.js',
     bundle: true,
+    external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
     write: false,
     format: 'iife',
     jsx: 'automatic',

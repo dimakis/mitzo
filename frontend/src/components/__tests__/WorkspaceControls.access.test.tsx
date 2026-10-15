@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { WorkspaceControls } from '../WorkspaceControls';
 afterEach(() => {
   cleanup();
@@ -76,6 +76,7 @@ it('reserves dynamically added repository actions before the composer while keep
     );
   }
   const { container, rerender } = render(<Layout repository={false} />);
+  fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
   const disclosure = container.querySelector<HTMLElement>('.motion-disclosure')!;
   expect(disclosure.style.getPropertyValue('--workspace-disclosure-space')).toBe('500px');
   const control = screen.getByRole('button', { name: 'Settings last action' });
@@ -161,6 +162,7 @@ it('fits desktop settings into remaining flow space when repository and composer
       <div className="chat-input" />
     </div>,
   );
+  fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
   const panel = container.querySelector<HTMLElement>('.motion-disclosure')!;
   expect(panel.style.getPropertyValue('--workspace-disclosure-space')).toBe('280px');
   const control = screen.getByRole('button', { name: 'Last setting' });

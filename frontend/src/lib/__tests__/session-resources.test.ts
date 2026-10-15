@@ -3,6 +3,101 @@ import { collectSessionResources, mergeSessionResources } from '../session-resou
 import type { FinishedMessage, StreamingMessage } from '../../types/chat';
 
 describe('resource evidence classification', () => {
+  it('retains the exact submitted context text when injection evidence exists', () => {
+    const value = collectSessionResources([
+      {
+        messageId: 'u',
+        role: 'user',
+        contextBlocks: ['Plan'],
+        contextInjections: [{ name: 'Plan', source: 'plan.md', content: 'Exact submitted plan' }],
+        blocks: [],
+      },
+    ]);
+    expect(value.sources[0].content).toBe('Exact submitted plan');
+    const changed = collectSessionResources(
+      ['First version', 'Revised version'].map((content, index) => ({
+        messageId: `u${index}`,
+        role: 'user',
+        contextBlocks: ['Plan'],
+        contextInjections: [{ name: 'Plan', source: 'plan.md', content }],
+        blocks: [],
+      })),
+    );
+    expect(changed.sources.map((source) => source.content)).toEqual([
+      'First version',
+      'Revised version',
+    ]);
+  });
+  it('reads a successful publication snapshot without inferring checks or state from a URL', () => {
+    const href = 'https://github.com/acme/widgets/pull/12';
+    const value = collectSessionResources([
+      {
+        messageId: 'a',
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: 'p',
+            blockType: 'tool_use',
+            toolName: 'RequestGithubPublish',
+            content: '',
+            toolResult: JSON.stringify({
+              status: 'succeeded',
+              result: {
+                pullRequestUrl: href,
+                pullRequestState: 'open',
+                draft: true,
+                created: true,
+                observedAt: 1000,
+                sourceOid: 'a'.repeat(40),
+              },
+            }),
+          },
+        ],
+      },
+    ]);
+    expect(value.references[0].pullRequest).toMatchObject({ state: 'Draft', observedAt: 1000 });
+    expect(value.references[0].roles).toContain('created');
+    expect(
+      collectSessionResources([
+        {
+          messageId: 'u',
+          role: 'user',
+          blocks: [{ blockId: 'u', blockType: 'text', content: href }],
+        },
+      ]).references[0].pullRequest,
+    ).toBeUndefined();
+  });
+  it('keeps multiple roles for one URL across messages and merges streaming provenance', () => {
+    const href = 'https://example.com/page';
+    const user = collectSessionResources([
+      {
+        messageId: 'u',
+        role: 'user',
+        blocks: [{ blockId: 'u', blockType: 'text', content: href }],
+      },
+    ]);
+    const agent = collectSessionResources([
+      {
+        messageId: 'a',
+        role: 'assistant',
+        blocks: [
+          { blockId: 'a', blockType: 'text', content: href },
+          {
+            blockId: 't',
+            blockType: 'tool_use',
+            toolName: 'WebSearch',
+            content: '',
+            toolResult: href,
+          },
+        ],
+      },
+    ]);
+    const merged = mergeSessionResources(user, agent);
+    expect(merged.references).toHaveLength(1);
+    expect(merged.references[0].roles).toEqual(['user', 'cited', 'research']);
+    expect(merged.references[0].mentions).toBe(3);
+    expect(merged.references[0].roles).not.toContain('created');
+  });
   it('preserves historical URLs as References in all roles, including failed results; tools are observed capabilities', () => {
     const messages: FinishedMessage[] = [
       {

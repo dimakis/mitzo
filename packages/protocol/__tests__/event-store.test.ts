@@ -15,6 +15,19 @@ describe('EventStore', () => {
     store.close();
   });
 
+  it('reads bounded lifecycle history for only the requested session and type, newest first', () => {
+    store.append('s', 'context_compaction', { id: 'first', phase: 'completed' });
+    store.append('s', 'message_start', { messageId: 'unrelated' });
+    store.append('other', 'context_compaction', { id: 'foreign', phase: 'completed' });
+    store.append('s', 'context_compaction', { id: 'second', phase: 'compacting' });
+    expect(
+      store.getEventsOfType('s', 'context_compaction', 1).map((event) => event.payload.id),
+    ).toEqual(['second']);
+    expect(
+      store.getEventsOfType('s', 'context_compaction').map((event) => event.payload.id),
+    ).toEqual(['second', 'first']);
+  });
+
   it('keeps a completed turn idle when its transport reattaches', () => {
     store.upsertSession({ sessionId: 'completed' });
     store.setSessionState('completed', 'ACTIVE');

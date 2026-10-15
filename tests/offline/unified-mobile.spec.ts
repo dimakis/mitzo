@@ -274,7 +274,7 @@ async function motionKinds(page: Page) {
 }
 
 async function openAgentSettings(page: Page) {
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
 }
@@ -319,9 +319,9 @@ test('motion: composer popover and resource sheet animate without losing the dra
   await page.getByRole('button', { name: 'More composer actions', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeHidden();
   await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Close session tray', exact: true })).toBeVisible();
-  await expect.poll(() => motionKinds(page)).toContain('mitzo:sheet');
-  const tray = await page.locator('.session-tray--toolbar').boundingBox();
+  await expect(page.getByRole('dialog', { name: 'Resources', exact: true })).toBeVisible();
+  // Resources uses the shared native dialog; composer tool popovers retain motion.
+  const tray = await page.locator('.chat-resource-dialog').boundingBox();
   expect(tray!.x).toBeGreaterThanOrEqual(0);
   expect(tray!.x + tray!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await page.screenshot({
@@ -338,9 +338,10 @@ test('motion: composer popover and resource sheet animate without losing the dra
     animations: 'disabled',
   });
   await page
-    .getByRole('button', { name: 'Dismiss session tray', exact: true })
-    .click({ position: { x: 8, y: 8 } });
-  await expect(page.getByRole('button', { name: 'Close session tray', exact: true })).toBeHidden();
+    .getByRole('dialog', { name: 'Resources', exact: true })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  await expect(page.getByRole('dialog', { name: 'Resources', exact: true })).toBeHidden();
   await expect(draft).toHaveValue('Keep this draft');
   await expect(
     page.getByRole('button', { name: 'More composer actions', exact: true }),
@@ -472,7 +473,7 @@ test('composer: commands use a quiet icon with discoverable labels', async ({ pa
   await expect(commands).toBeVisible();
   const bounds = (await commands.boundingBox())!;
   expect(bounds.width).toBeLessThanOrEqual(bounds.height + 1);
-  await expect(commands.locator('[data-icon="list"]')).toBeVisible();
+  await expect(commands.locator('[data-icon="command"]')).toBeVisible();
   await expect(commands.locator('.chat-input-command-label')).toBeHidden();
   await commands.focus();
   await expect(commands.locator('.chat-input-command-label')).toBeVisible();
@@ -2207,7 +2208,7 @@ async function exerciseBriefingReloadRecovery(
     'href',
     `/briefings/${binding.date}?revision=${binding.revision}`,
   );
-  const workspace = page.getByRole('button', { name: /^Agent settings,/ });
+  const workspace = page.getByRole('button', { name: /^Workspace controls,/ });
   async function openWorkspace() {
     await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
     await expect(workspace).toBeVisible();
@@ -2324,12 +2325,12 @@ test('reviewed launches let users dismiss Agent settings and reach Send at a sho
     document.documentElement.dataset.accent = 'teal';
   });
   await openAgentSettings(page);
-  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   await expect(settings).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
     'luna-fixture',
   );
-  await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+  await page.getByRole('button', { name: /^Workspace controls,/ }).click();
   await expect(settings).toHaveAttribute('aria-expanded', 'false');
   await expect(settings).toBeFocused();
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeHidden();
@@ -2505,6 +2506,7 @@ test('failed briefing registration survives a completed turn and reload without 
   const profile = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(profile).toBeEnabled();
   await expect(profile).toHaveValue('');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
   await expect(retry).toBeVisible();
@@ -2575,6 +2577,7 @@ test('failed briefing registration survives a completed turn and reload without 
   await page.reload();
   await expect(retry).toBeVisible();
   await retained();
+  await page.getByText('More options', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
   const alert = page.getByRole('alert').filter({ has: retry });
   const geometry = await alert.evaluate((element) => {
@@ -2795,6 +2798,8 @@ test('saved chat identity failures lock model controls until an explicit success
       await retry.click();
       await expect(retry).toHaveCount(0);
       expect(reads).toBeGreaterThan(before);
+      await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+      await openAgentSettings(page);
       if (recovered === 'briefing') {
         await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
         await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
@@ -2812,7 +2817,7 @@ test('saved chat identity failures lock model controls until an explicit success
   }
 });
 
-test('builder launcher distinguishes built-in guidance from a saved profile with the same ID', async ({
+test('chat builder selection distinguishes built-in guidance from a saved profile with the same ID', async ({
   page,
 }) => {
   await page.route('**/api/**', async (route) => {
@@ -2853,8 +2858,9 @@ test('builder launcher distinguishes built-in guidance from a saved profile with
       });
     return route.fallback();
   });
-  await page.goto('https://mitzo-ui.test/agent-library');
-  await page.getByRole('link', { name: 'Create with advisor', exact: true }).click();
+  await page.goto(
+    'https://mitzo-ui.test/chat?agentProfile=mitzo-profile-builder&agentProfileKind=builtin&profileRevision=1&prompt=Help+me+create+an+agent.',
+  );
   await expect(page).toHaveURL(/agentProfileKind=builtin/);
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
     'Help me create an agent.',
@@ -2968,6 +2974,7 @@ test('profile draft cards appear in conversation and save without opening Worksp
           'data-motion-active',
           'true',
         );
+        await page.getByText('More options', { exact: true }).click();
         await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
         if (next === 'empty')
           await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
@@ -3576,8 +3583,7 @@ test('sandbox boot context is not presented as a fallback in Outputs / Sources',
   await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
   await expect.poll(() => !!sendBoot).toBe(true);
   sendBoot!();
-  const sources = page.getByRole('button', { name: /^Sources \d/ });
-  if ((await sources.getAttribute('aria-expanded')) !== 'true') await sources.click();
+  await page.getByRole('tab', { name: 'Context', exact: true }).click();
   const header = page.getByRole('button', { name: /7 sources/ });
   await expect(header).toBeVisible();
   await header.click();
@@ -4087,12 +4093,14 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   });
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: /Workspace controls/ }).click();
-  const action = page.getByRole('button', { name: 'Collaborate', exact: true });
+  await page.getByText('More options', { exact: true }).click();
+  const action = page.getByRole('button', { name: 'Symposium collaboration', exact: true });
   const originalOverflow = await page.evaluate(() => document.body.style.overflow);
   await expect(action).toBeVisible();
   await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
   expect(workReads).toHaveLength(0);
-  await action.click();
+  await action.focus();
+  await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Collaborate on selected work' });
   await expect(
     dialog.getByRole('heading', { name: 'Selected decision draft', exact: true }),
@@ -4159,9 +4167,13 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   expect(catalogScopes).toContain('chat');
   expect(forbidden).toEqual([]);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
   await expect(action).toBeFocused();
+  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
   failReads = true;
+  await workspace.click();
+  await action.focus();
   await action.click();
   await expect(dialog.getByRole('alert')).toContainText('Work is temporarily unavailable');
   failReads = false;
@@ -4171,6 +4183,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   empty = false;
+  await workspace.click();
   await action.click();
   await dialog.getByRole('button', { name: 'Add contributor', exact: true }).click();
   await expect(add).toBeVisible();

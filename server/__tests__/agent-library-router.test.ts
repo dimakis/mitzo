@@ -10,6 +10,7 @@ import { createAgentLibraryRouter } from '../agent-library-router.js';
 import { selectCustodianOperation, custodianRoute } from '../symposium-custodian-protocol.js';
 import { ContextPackStore } from '../context-pack-store.js';
 import { createAcceptedContextPacks } from '../context-pack-runtime.js';
+import { AgentLibraryAdviser } from '../agent-library-adviser.js';
 
 const definition = {
   name: 'Bob',
@@ -134,6 +135,78 @@ it('requires interactive operator authentication for reads and writes', async ()
   await request(server).get('/api/agent-library').expect(403);
   await request(server).post('/api/agent-library/drafts').send({}).expect(403);
 });
+it('requires operator auth, same-origin JSON and explicit selection for advice', async () => {
+  const ask = vi.fn();
+  const adviser = { ask } as unknown as AgentLibraryAdviser;
+  await request(app(false, { adviser })).post('/api/agent-library/advice').send({}).expect(403);
+  const server = app(true, { adviser });
+  await request(server)
+    .post('/api/agent-library/advice')
+    .set('Origin', 'https://other.test')
+    .send({})
+    .expect(403);
+  await request(server).post('/api/agent-library/advice').send({}).expect(400);
+  expect(ask).not.toHaveBeenCalled();
+});
+it('returns profile advice without changing the library', async () => {
+  const auth = { id: `advisor-login-${++login}`, expiresAt: Date.now() + 60000 };
+  let captured: AbortSignal | undefined;
+  const adviser = new AgentLibraryAdviser(async (config) => {
+    captured = config.signal;
+    return {
+      provider: 'fake',
+      async *turn() {
+        yield {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Describe the job.' },
+        };
+      },
+    };
+  });
+  const server = app(true, { adviser }, auth);
+  const body = {
+    accountId: 'work',
+    model: 'luna',
+    messages: [{ role: 'user', content: 'Help' }],
+    draft: '{}',
+  };
+  const result = await request(server).post('/api/agent-library/advice').send(body).expect(200);
+  expect(result.body).toEqual({ text: 'Describe the job.' });
+  expect((await request(server).get('/api/agent-library')).body).toEqual({
+    drafts: [],
+    versions: [],
+  });
+  expect(captured).toBeDefined();
+});
+it('aborts advice when the authenticated operator is revoked', async () => {
+  const auth = { id: `revoked-advisor-${++login}`, expiresAt: Date.now() + 60000 };
+  let captured: AbortSignal | undefined;
+  const adviser = new AgentLibraryAdviser(async (config) => {
+    captured = config.signal;
+    return {
+      provider: 'fake',
+      async *turn() {
+        revokeAuthSession(auth);
+        yield {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Must not reach the user' },
+        };
+      },
+    };
+  });
+  const result = await request(app(true, { adviser }, auth))
+    .post('/api/agent-library/advice')
+    .send({
+      accountId: 'work',
+      model: 'luna',
+      messages: [{ role: 'user', content: 'Help' }],
+      draft: '{}',
+    });
+  expect(captured?.aborted).toBe(true);
+  expect(result.text).not.toContain('Must not reach the user');
+});
 it('saves a draft, publishes it, and exports its exact portable identity', async () => {
   const server = app();
   await request(server)
@@ -193,6 +266,7 @@ it('routes Library operations through the retained custodian rather than a secon
     ['POST', '/api/agent-library/drafts'],
     ['POST', '/api/agent-library/publish'],
     ['POST', '/api/agent-library/preview'],
+    ['POST', '/api/agent-library/advice'],
     ['POST', '/api/agent-library/import'],
     ['GET', '/api/agent-library/bob/1/export'],
   ]) {

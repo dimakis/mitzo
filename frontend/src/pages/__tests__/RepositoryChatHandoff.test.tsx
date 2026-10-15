@@ -13,7 +13,7 @@ import { PREFERRED_MODEL_KEY } from '../../lib/model-preference';
 import { useDraft } from '../../hooks/useDraft';
 const api = vi.hoisted(() => ({ fetch: vi.fn(), realComposer: false }));
 function openAgentSettings() {
-  const trigger = screen.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = screen.getByRole('button', { name: /^Workspace controls,/ });
   if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
 }
 
@@ -47,9 +47,6 @@ vi.mock('../../components/SessionPanel', () => ({ SessionPanel: () => null }));
 vi.mock('../../components/CommandCenter', () => ({ CommandCenter: () => null }));
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ center }: { center: React.ReactNode }) => <>{center}</>,
-}));
-vi.mock('../../components/WorkspaceControls', () => ({
-  WorkspaceControls: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock('../../components/SymposiumConversation', () => ({
   SymposiumConversation: ({ ordinaryComposer }: { ordinaryComposer: React.ReactNode }) => (

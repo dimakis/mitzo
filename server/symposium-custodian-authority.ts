@@ -32,5 +32,10 @@ export function custodianPublicationApproval(request: IncomingMessage) {
 }
 
 export function custodianPublicationSignal(request: IncomingMessage) {
+  return custodianRequestSignal(request);
+}
+
+/** Original-owner request cancellation; the publication accessor retains its legacy name. */
+export function custodianRequestSignal(request: IncomingMessage) {
   return requests.get(request)?.publicationSignal;
 }

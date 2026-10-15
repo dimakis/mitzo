@@ -1,7 +1,13 @@
 import { Router, type Request } from 'express';
-import { effectivePermissionMode, type ManagedSession } from '@mitzo/harness';
-import type { AccountBinding, MitzoMode, PermissionRequest } from '@mitzo/protocol';
+import type { ManagedSession } from '@mitzo/harness';
+import type {
+  AccountBinding,
+  MitzoMode,
+  PermissionRequest,
+  RuntimeReadiness,
+} from '@mitzo/protocol';
 import { recentAuthorizationSession } from './connections-router.js';
+import { projectRuntimeReadiness, type RuntimeReadinessInput } from './runtime-readiness.js';
 
 /** Bounded observation, not admission or an authority token. Unknown is never an empty grant. */
 export interface SessionAccessEvidence {
@@ -17,13 +23,16 @@ export interface SessionAccessEvidence {
   attachments: null;
   tools: null;
   limits: null;
+  readiness: RuntimeReadiness;
 }
 export function projectSessionAccess(
   sessionId: string,
   session: ManagedSession | undefined,
   pending: PermissionRequest[],
   now = Date.now(),
+  runtime: Omit<RuntimeReadinessInput, 'sessionId' | 'session'> = {},
 ): SessionAccessEvidence {
+  const readiness = projectRuntimeReadiness({ ...runtime, sessionId, session }, now);
   const value: SessionAccessEvidence = {
     sessionId,
     observedAt: now,
@@ -37,23 +46,18 @@ export function projectSessionAccess(
     attachments: null,
     tools: null,
     limits: null,
+    readiness,
   };
-  // Initial supported route is the ordinary Claude SDK. Other adapters need their own evidence.
-  if (
-    !session ||
-    session.sessionId !== sessionId ||
-    session.accountBinding?.provider !== 'anthropic-vertex'
-  )
-    return value;
-  const { accountId, accountLabel, provider } = session.accountBinding;
+  if (!session || readiness.session.state !== 'observed') return value;
+  const { accountId, accountLabel, provider } = readiness.session.account;
   return {
     ...value,
     state: 'current',
     account: { accountId, accountLabel, provider },
-    model: session.model ?? session.accountBinding.model,
-    mode: effectivePermissionMode(session),
-    grants: [...session.sessionAllowList].sort(),
-    skillCeiling: session.activeSkillPolicy ? [...session.activeSkillPolicy].sort() : null,
+    model: readiness.session.model,
+    mode: readiness.session.mode,
+    grants: readiness.session.grants,
+    skillCeiling: readiness.session.skillCeiling,
     pending: pending
       .filter((p) => p.sessionId === sessionId)
       .map((p) => ({

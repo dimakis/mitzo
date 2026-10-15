@@ -308,16 +308,20 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
-  it(`${name}: mounts one agent-led settings panel in the composer`, async () => {
+  it(`${name}: mounts one settings panel at the top and leaves the composer clear`, async () => {
     setup(Screen, true);
-    const trigger = await screen.findByRole('button', { name: /^Agent settings/ });
-    expect(trigger.closest('[data-testid="composer-settings"]')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: /^Agent settings/ })).toHaveLength(1);
+    const trigger = await screen.findByRole('button', { name: /^Workspace controls/ });
+    expect(trigger.closest('.workspace-controls')).toBeTruthy();
+    expect(
+      document.querySelector('[data-testid="composer-settings"] .agent-settings-picker'),
+    ).toBeNull();
+    expect(screen.getAllByRole('button', { name: /^Workspace controls/ })).toHaveLength(1);
     if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
     const agent = screen.getByRole('combobox', { name: 'Agent' });
     const account = screen.getByRole('combobox', { name: 'Account' });
-    expect(agent.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(account.closest('.workspace-controls')).toBeNull();
+    expect(account.compareDocumentPosition(agent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByText('Advanced', { exact: true }));
+    expect(account.closest('.workspace-controls')).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Run on' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Local Mac' })).toHaveAttribute(
       'aria-pressed',
@@ -327,7 +331,7 @@ for (const [name, Screen] of [
   });
   it(`${name}: cold-open bound details retain eight trusted identities while future thinking changes`, async () => {
     const { localSend, legacySend } = setup(Screen, false, false, true, false, true);
-    const trigger = await screen.findByRole('button', { name: /^Agent settings/ });
+    const trigger = await screen.findByRole('button', { name: /^Workspace controls/ });
     if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
     const account = await screen.findByRole('combobox', { name: 'Account' });
     await waitFor(() => expect(account).toBeDisabled());
@@ -381,9 +385,7 @@ for (const [name, Screen] of [
       store.setState({ sessions: { ...store.getState().sessions, active: 'symposium-session' } }),
     );
     await screen.findByText('Agent chat');
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: /^Agent settings/ })).toBeNull(),
-    );
+    await waitFor(() => expect(document.querySelector('.agent-settings-picker')).toBeNull());
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
     expect((await screen.findByText('Symposium')).closest('.workspace-controls')).toBeTruthy();
@@ -407,7 +409,7 @@ for (const [name, Screen] of [
         ? new Promise<Response>(() => {})
         : previous(url, options),
     );
-    const trigger = await screen.findByRole('button', { name: /^Agent settings/ });
+    const trigger = await screen.findByRole('button', { name: /^Workspace controls/ });
     if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
     await screen.findByRole('combobox', { name: 'Account' });
     act(() => store.setState({ switchSession: async () => {} }));
@@ -423,7 +425,9 @@ for (const [name, Screen] of [
   });
   it(`${name}: displays the trusted model label while continuation keeps the exact model id`, async () => {
     const { localSend } = setup(Screen, false, false, true, false, true);
-    const trigger = await screen.findByRole('button', { name: /^Agent settings.*Luna fixture/ });
+    const trigger = await screen.findByRole('button', {
+      name: /^Workspace controls.*Luna fixture/,
+    });
     expect(trigger).toHaveAccessibleName(/Luna fixture/);
     if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
     const details = document.querySelector('.composer-session-details')!;
@@ -480,7 +484,7 @@ for (const [name, Screen] of [
     const { localSend, legacySend } = setup(Screen);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByRole('button', { name: 'Local Mac' });
     expect(screen.getByRole('button', { name: 'OpenShell' })).toHaveAttribute(
@@ -499,7 +503,7 @@ for (const [name, Screen] of [
       target: { value: JSON.stringify(['saved', 'agent', 1]) },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
@@ -525,7 +529,7 @@ for (const [name, Screen] of [
     const { localSend, legacySend, draft } = setup(Screen, true, true);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Local Mac' })).toHaveAttribute(
@@ -557,7 +561,7 @@ for (const [name, Screen] of [
     );
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
     const retry = await screen.findByRole('button', { name: 'Retry conversation settings' });
@@ -682,7 +686,7 @@ for (const [name, Screen] of [
     );
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByText('Fixed for this conversation');
     fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
@@ -700,10 +704,10 @@ for (const [name, Screen] of [
     const { localSend, legacySend } = setup(Screen, false, false, true, false, true);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByText('Fixed for this conversation');
-    expect(workspace).toHaveAccessibleName(/Personal ChatGPT, luna-fixture, low, local/);
+    expect(workspace).toHaveAccessibleName(/Personal ChatGPT, Luna fixture, low, local/);
     expect(workspace.querySelector('.conversation-state')).toHaveTextContent('Conversation');
     expect(workspace).toHaveAccessibleDescription('Conversation');
     expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
@@ -712,8 +716,8 @@ for (const [name, Screen] of [
       target: { value: 'high' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
-    expect(workspace).toHaveAccessibleName(/Personal ChatGPT, luna-fixture, high, local/);
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
+    expect(workspace).toHaveAccessibleName(/Personal ChatGPT, Luna fixture, high, local/);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
     expect(localSend).toHaveBeenCalledWith(
@@ -731,7 +735,7 @@ for (const [name, Screen] of [
     const { legacySend } = setup(Screen, false, false, true);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByText('Fixed for this conversation');
     expect(workspace.querySelector('.conversation-state')).toHaveTextContent('First command');
@@ -762,7 +766,7 @@ for (const [name, Screen] of [
     );
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByRole('option', { name: 'API billing' });
     expect(screen.getByRole('button', { name: 'OpenShell' })).toBeInTheDocument();
@@ -847,13 +851,13 @@ for (const [name, Screen] of [
     const { draft, localSend, legacySend } = setup(Screen, true, false, false, false, false, data);
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByRole('option', { name: 'Replacement API account' });
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     expect(screen.getAllByText(/account identity is unconfirmed/i).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
     expect(getChatDraft(draft.id)?.settings.runtimeSelection?.accountReference).toBeFalsy();
     const accountControl = screen.getByRole('combobox', { name: 'Account' });
     const pending = screen.getByRole('option', {
@@ -903,7 +907,7 @@ for (const [name, Screen] of [
     );
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
-    const settingsTrigger = screen.getByRole('button', { name: /^Agent settings/ });
+    const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByRole('combobox', { name: 'Account' });
     fireEvent.click(screen.getByRole('button', { name: 'Local Mac' }));
@@ -917,7 +921,7 @@ for (const [name, Screen] of [
       target: { value: JSON.stringify(['saved', 'agent', 1]) },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Ready qualified repository launch' }));
     expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Local Mac' })).toBeDisabled();

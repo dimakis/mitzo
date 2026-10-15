@@ -364,6 +364,14 @@ it('renders only actual Codex compaction lifecycle events as an explicit status'
       session_id: 'app',
       status: 'Context compacted',
       compact_result: 'success',
+      compaction_id: 'thread-compact',
+    },
+    {
+      type: 'system',
+      subtype: 'status',
+      session_id: 'app',
+      status: 'compacting',
+      compaction_id: 'item-compact',
     },
     {
       type: 'system',
@@ -371,6 +379,7 @@ it('renders only actual Codex compaction lifecycle events as an explicit status'
       session_id: 'app',
       status: 'Context compacted',
       compact_result: 'success',
+      compaction_id: 'item-compact',
     },
   ]);
 });
@@ -627,3 +636,18 @@ it.each([undefined, 0, -1, Infinity, 'not reported'])(
     });
   },
 );
+it('keeps compaction in progress until the native item completes', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  mapper.notification('item/started', {
+    threadId: 'provider',
+    item: { type: 'contextCompaction', id: 'c' },
+  });
+  expect(events.at(-1)).toMatchObject({ status: 'compacting' });
+  expect(events.at(-1)?.compact_result).toBeUndefined();
+  mapper.notification('item/completed', {
+    threadId: 'provider',
+    item: { type: 'contextCompaction', id: 'c' },
+  });
+  expect(events.at(-1)).toMatchObject({ compact_result: 'success' });
+});

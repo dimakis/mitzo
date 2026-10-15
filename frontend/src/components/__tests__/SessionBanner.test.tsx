@@ -1,11 +1,19 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 vi.mock('@mitzo/client', () => ({}));
 
 import { SessionBanner } from '../SessionBanner';
 
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+});
 afterEach(() => cleanup());
 
 const bootContext = {
@@ -105,7 +113,7 @@ describe('SessionBanner', () => {
     fireEvent.click(screen.getByTitle('View full markdown'));
 
     const dialog = screen.getByRole('dialog', { name: 'Boot context full markdown' });
-    expect(dialog.parentElement?.parentElement).toBe(document.body);
+    expect(dialog.parentElement).toBe(document.body);
   });
 
   it('closes modal on close button click', () => {

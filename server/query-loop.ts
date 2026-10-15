@@ -1,4 +1,5 @@
-import type { SourceSnapshot } from '@mitzo/protocol';
+import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
+import { randomUUID } from 'node:crypto';
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { extractToolResultText, extractToolResultImages } from './content-blocks.js';
@@ -348,8 +349,16 @@ async function _runQueryLoopInner(
   let loopFinished = false;
   let nativeUsage = false;
   let observedSessionTokens: number | undefined;
-  const emitTokenUpdate = (data: Record<string, unknown>) =>
-    emit(v2('token_update', { ...data, tokenLimits }));
+  let compactionPhase: ContextCompaction['phase'] | undefined;
+  const emitTokenUpdate = (data: Record<string, unknown>, sessionId?: string) =>
+    emit(
+      v2('token_update', {
+        ...(compactionPhase ? { compactionPhase, numCompactions } : {}),
+        ...data,
+        tokenLimits,
+      }),
+      sessionId,
+    );
   const nativeUsageFields = () =>
     nativeUsage
       ? {
@@ -359,6 +368,10 @@ async function _runQueryLoopInner(
       : {};
   let turnIndex = 0; // increments on each parent message_start (excludes sub-agents)
   let numCompactions = 0; // counts successful compaction events from SDK
+  let activeCompactionId: string | null = null;
+  let boundaryAwaitingStatus = false;
+  let lastContextMessageId: string | null = null;
+  const completedCompactions = new Set<string>();
   let liveSessionTokens = 0; // cumulative total across all API calls in this query
   let cumulativeOutputTokens = 0; // accumulated output tokens (fresh per API call)
   let activeTurnOutputTokens = 0; // latest output total reported for the active parent turn
@@ -367,6 +380,24 @@ async function _runQueryLoopInner(
   let latestCacheCreationTokens = 0;
   const sessionStartedAt = Date.now(); // wall-clock start for fallback duration
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
+  function closeUnconfirmedCompaction(sessionId = resolvedSessionId) {
+    if (!activeCompactionId) return;
+    const phase = abortController.signal.aborted ? 'interrupted' : 'unknown';
+    compactionPhase = phase;
+    emit(v2('context_compaction', { id: activeCompactionId, phase }), sessionId);
+    activeCompactionId = null;
+    emitTokenUpdate(
+      {
+        agentContext: agentContextTokens,
+        contextCeiling,
+        turnIndex,
+        numCompactions,
+        compactionPhase: phase,
+        ...nativeUsageFields(),
+      },
+      sessionId,
+    );
+  }
 
   function modelLimitScope(model: string) {
     const binding = currentOwnerSession()?.accountBinding;
@@ -777,6 +808,7 @@ async function _runQueryLoopInner(
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
           forceFlushPendingMessage(currentSession);
+          closeUnconfirmedCompaction();
           doneSent = true;
 
           // Extract usage data from SDK result event
@@ -1093,6 +1125,7 @@ async function _runQueryLoopInner(
             turnBlockCount = 0;
             const apiMsg = evt.message as Record<string, unknown> | undefined;
             currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
+            lastContextMessageId = currentMessageId;
             currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
 
             // Start turn child span under the session span
@@ -1254,6 +1287,7 @@ async function _runQueryLoopInner(
             // and the first content_block_start arrives before message_start.
             if (!currentMessageId) {
               currentMessageId = `msg-${Date.now()}`;
+              lastContextMessageId = currentMessageId;
               currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
               emit(v2('message_start', { messageId: currentMessageId }));
             }
@@ -1574,18 +1608,69 @@ async function _runQueryLoopInner(
         } else if (msg.type === 'system') {
           const subtype = (msg as Record<string, unknown>).subtype;
 
-          // Track compaction events from SDK system status messages
+          // Preserve lifecycle position durably; never infer a condensed message range.
           const compactResult = (msg as Record<string, unknown>).compact_result;
-          if (subtype === 'status' && compactResult === 'success') {
-            numCompactions++;
-            log.info('compaction completed', { clientId, numCompactions });
-            emitTokenUpdate({
-              agentContext: agentContextTokens,
-              contextCeiling,
-              turnIndex,
-              numCompactions,
-              ...nativeUsageFields(),
-            });
+          const starting = subtype === 'status' && msg.status === 'compacting';
+          const boundary = subtype === 'compact_boundary';
+          const finishing =
+            boundary ||
+            (subtype === 'status' && (compactResult === 'success' || compactResult === 'failed'));
+          if (starting || finishing) {
+            if (starting) boundaryAwaitingStatus = false;
+            const duplicateStatus =
+              !boundary && compactResult === 'success' && boundaryAwaitingStatus;
+            if (duplicateStatus) boundaryAwaitingStatus = false;
+            else {
+              const id: string =
+                typeof msg.compaction_id === 'string'
+                  ? msg.compaction_id
+                  : (activeCompactionId ?? randomUUID());
+              const phase = starting
+                ? 'compacting'
+                : compactResult === 'failed'
+                  ? 'failed'
+                  : 'completed';
+              if (!(phase === 'completed' && completedCompactions.has(id))) {
+                compactionPhase = phase;
+                const metadata = (msg.compact_metadata ?? {}) as Record<string, unknown>;
+                const retained = metadata.preserved_messages as { uuids?: unknown } | undefined;
+                emit(
+                  v2('context_compaction', {
+                    id,
+                    phase,
+                    afterMessageId: currentMessageId ?? lastContextMessageId,
+                    turnIndex,
+                    ...(Number.isSafeInteger(metadata.pre_tokens)
+                      ? { beforeTokens: metadata.pre_tokens }
+                      : {}),
+                    ...(Number.isSafeInteger(metadata.post_tokens)
+                      ? { afterTokens: metadata.post_tokens }
+                      : {}),
+                    ...(Array.isArray(retained?.uuids)
+                      ? {
+                          retainedProviderMessageIds: retained.uuids.filter(
+                            (value): value is string => typeof value === 'string',
+                          ),
+                        }
+                      : {}),
+                  }),
+                );
+                if (phase === 'completed') {
+                  completedCompactions.add(id);
+                  numCompactions++;
+                }
+                activeCompactionId = starting ? id : null;
+                if (boundary) boundaryAwaitingStatus = true;
+                emitTokenUpdate({
+                  agentContext: agentContextTokens,
+                  contextCeiling,
+                  turnIndex,
+                  numCompactions,
+                  compactionPhase: phase,
+                  ...nativeUsageFields(),
+                });
+              }
+            }
           }
 
           // Track subagent task lifecycle for interrupt cancellation
@@ -1814,6 +1899,9 @@ async function _runQueryLoopInner(
       const finalSession =
         currentOwnerSession() ?? (abortController.signal.aborted ? ownedSession : undefined);
       if (finalSession) {
+        // Abort may remove registry ownership before the iterator unwinds. Use
+        // the same exact-session fence as session_end for durable/watch delivery.
+        closeUnconfirmedCompaction(finalSession.sessionId ?? resolvedSessionId);
         finalSession.currentSnapshot = null;
         if (!doneSent) {
           // Use sendOrBuffer to persist to EventStore (not just send) so that

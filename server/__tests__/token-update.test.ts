@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
-import { runQueryLoop } from '../query-loop.js';
+import { runQueryLoop, type QueryLoopOptions } from '../query-loop.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
+import { EventStore } from '../event-store.js';
+import { projectCompactions } from '../compaction-history.js';
 import type { SessionRegistry } from '../session-registry.js';
 
 /** Create a fake SessionTransport that records sent messages */
@@ -737,7 +739,18 @@ describe('token_update emission', () => {
       },
       { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
       { type: 'assistant', message: { content: [] }, session_id: 'sess-compact' },
-      // SDK system status: compaction completed
+      { type: 'system', subtype: 'status', status: 'compacting', session_id: 'sess-compact' },
+      {
+        type: 'system',
+        subtype: 'compact_boundary',
+        session_id: 'sess-compact',
+        compact_metadata: {
+          pre_tokens: 180000,
+          post_tokens: 40000,
+          preserved_messages: { uuids: ['provider-retained'] },
+        },
+      },
+      // Some SDKs report both a boundary and success. Count it once.
       {
         type: 'system',
         subtype: 'status',
@@ -771,13 +784,96 @@ describe('token_update emission', () => {
       },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController);
-
-    const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
-    // The final token_update should include numCompactions: 1
-    const last = tokenUpdates[tokenUpdates.length - 1];
-    expect(last).toMatchObject({ numCompactions: 1 });
+    const store = new EventStore(':memory:');
+    try {
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
+      const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
+      expect(tokenUpdates.at(-1)).toMatchObject({ numCompactions: 1 });
+      const durable = store.getEventsOfType('sess-compact', 'context_compaction').reverse();
+      expect(durable.map((event) => event.payload.phase)).toEqual(['compacting', 'completed']);
+      expect(durable[1].payload.id).toBe(durable[0].payload.id);
+      const before = transport.sent.find((event) => event.type === 'message_start');
+      expect(projectCompactions(durable)).toEqual([
+        expect.objectContaining({
+          phase: 'completed',
+          afterMessageId: before!.messageId,
+          turnIndex: 1,
+          beforeTokens: 180000,
+          afterTokens: 40000,
+          condensedRange: null,
+          retainedProviderMessageIds: ['provider-retained'],
+        }),
+      ]);
+    } finally {
+      store.close();
+    }
   });
+
+  it.each(['abort', 'abort-removed', 'error', 'end', 'result'] as const)(
+    'closes unconfirmed compaction on %s without claiming success or reduced context',
+    async (ending) => {
+      const store = new EventStore(':memory:');
+      async function* interrupted() {
+        yield {
+          type: 'stream_event',
+          parent_tool_use_id: null,
+          event: {
+            type: 'message_start',
+            message: { id: 'before-compaction', usage: { input_tokens: 180000 } },
+          },
+        };
+        yield { type: 'assistant', message: { content: [] }, session_id: 'sess-unconfirmed' };
+        yield {
+          type: 'system',
+          subtype: 'status',
+          status: 'compacting',
+          session_id: 'sess-unconfirmed',
+        };
+        if (ending.startsWith('abort')) {
+          abortController.abort();
+          if (ending === 'abort-removed') registry.remove(clientId);
+        } else if (ending === 'error') throw new Error('Provider stream failed');
+        else if (ending === 'result') yield { type: 'result', session_id: 'sess-unconfirmed' };
+      }
+      const connRegistry = {
+        hasOpenWatchers: () => true,
+        broadcast: (_sid: string, event: Record<string, unknown>) => transport.sent.push(event),
+        getConnectionsWatching: () => [],
+      } as unknown as QueryLoopOptions['connRegistry'];
+      try {
+        await runQueryLoop(interrupted(), clientId, registry, abortController, store, undefined, {
+          connRegistry,
+        });
+        const phase = ending.startsWith('abort') ? 'interrupted' : 'unknown';
+        const durable = store.getEventsOfType('sess-unconfirmed', 'context_compaction').reverse();
+        expect(durable.map((event) => event.payload.phase)).toEqual(['compacting', phase]);
+        expect(durable[1].payload.id).toBe(durable[0].payload.id);
+        const records = projectCompactions(durable);
+        expect(records).toEqual([
+          expect.objectContaining({
+            phase,
+            afterMessageId: durable[0].payload.afterMessageId,
+            beforeTokens: null,
+            afterTokens: null,
+            condensedRange: null,
+            summary: null,
+          }),
+        ]);
+        expect(records[0].afterMessageId).toBeTruthy();
+        const updates = transport.sent.filter((event) => event.type === 'token_update');
+        expect(updates.filter((event) => event.compactionPhase).at(-1)).toMatchObject({
+          compactionPhase: phase,
+          numCompactions: 0,
+          agentContext: 180000,
+        });
+        expect(store.getEventsOfType('sess-unconfirmed', 'token_update')[0].payload).toMatchObject({
+          compactionPhase: phase,
+        });
+      } finally {
+        store.close();
+      }
+    },
+  );
 
   it('handles missing usage on message_start gracefully', async () => {
     const events: Record<string, unknown>[] = [

@@ -123,26 +123,28 @@ direct Web Animations calls outside the shared helper.
 
 ## Ordinary conversation runtime selection
 
-The approved ordinary composer exposes one compact, agent-led Agent settings
-summary and one settings panel on mobile and desktop. The panel orders Agent,
-Account, the paired Model/Thinking level fields, then Run on. OpenShell and Local
-Mac are descriptive selection cards with accessible pressed state; Runs with
-reports derived software. Done reviews the current execution capability intent
-and closes the panel; Close and Escape dismiss without reviewing or confirming
-billing and return focus to the summary. `AgentSettingsPicker` renders the panel
-inside `ChatInput` between its textarea and toolbar. The shared AccountModelPicker
-and ChatAgentProfilePicker keep one mounted control set. Model/Thinking level pair
-on desktop and stack on phones; location cards pair at ordinary 390px and desktop
-widths and stack in the narrowest composer. Run on cards carry icons,
-selection ticks, descriptions and `aria-pressed`; no separate Run on select or
-Refresh/Use control belongs in this ordinary panel. New ordinary drafts show
-What are we working on? and Start session; bound chats keep Send.
+Ordinary conversations use one compact top summary and one settings dropdown on
+mobile and desktop. `WorkspaceControls` owns that disclosure and the always-visible
+Access action. The composer contains the message and its toolbar, with no repeated
+agent/account/model picker. The summary leads with the agent and keeps the selected
+account, model and thinking secondary; the full values remain in its accessible name.
+The dropdown starts closed for each conversation, independent of previous open
+preferences or attention states. Outside pointer interaction closes it without
+preventing that interaction or taking focus. Escape, Close and Done restore focus
+to the summary; only Done reviews the current execution intent.
 
-The panel uses `useMotionPresence`, shared `UiIcon`, semantic surface/accent/border
-colors, `--font-ui`, spacing/type/radius scales and `--control-height`. Its body
-scrolls while header/footer stay reachable. The viewport cap and measured remaining
-composer space are structural geometry: they reserve the textarea, attachments,
-toolbar and shell navigation rather than introducing another spacing scale.
+`AgentSettingsFields` retains one mounted set of Agent, Account, Model/Thinking
+and Run on controls inside the top dropdown. Secondary mode, voice, web search,
+collaboration and profile-draft controls live under **More options**. Existing
+account confirmation, runtime binding and preparation locks still apply.
+The dropdown scrolls within the available space above the composer on phones.
+The shared fields, motion presence, UiIcon, semantic colors, spacing/type/radius
+scales and 44px control targets remain in use. New phone sessions and restored
+drafts do not request keyboard focus on mount. While the software keyboard is visible, mobile navigation yields its height to
+the conversation and composer. Native keyboard events or the browser visual
+viewport determine that state; ordinary focus, browser chrome and pinch zoom
+must not toggle navigation or shift the composer.
+
 Workspace remains for conversation details and operational controls. OpenShell is
 the default; Local Mac is deliberate. Resolve only pristine unselected target
 intent from trusted inventory, and preserve stale/unavailable account, model,
@@ -308,8 +310,13 @@ Access cannot authorize a tool or start a session.
 
 On phones the Workspace summary truncates long text while its accessible name keeps
 the full account/model details. The expanded settings panel measures the space before launch actions or the composer and
-scrolls within that space, retaining those controls under larger text and viewport changes.
-A 45dvh cap is the fallback before measurement. These bounds are structural overlay geometry;
+scrolls within that space. When desktop flow cannot fit the fixed header, Done action
+and a settings row, it switches to the same bounded overlay used on phones. The
+overlay may overlap part of a tall composer and remains above visible navigation
+and the chat/desktop center's clipping boundary, including its separate status row.
+Closing it restores access to the retained draft.
+The settings body owns scrolling between those actions. A 60dvh cap is
+the fallback before measurement, bounded by the viewport. These bounds are structural overlay geometry;
 colors, type, spacing and controls remain shared.
 
 ## Draft image preview and drawing
@@ -475,8 +482,8 @@ building or browser execution; fixture presence alone is not visual acceptance.
 
 ## Approved Agent settings fidelity checkpoint
 
-The saved approved mock is `mitzo-agent-picker.html` in the runtime separation
-handover. Source implementation and behavioral qualification are separate from
+The earlier composer mock `mitzo-agent-picker.html` in the runtime separation
+handover is superseded by the single top disclosure described above. Source implementation and behavioral qualification are separate from
 rendered fidelity. The hosted offline runtime fixtures now target the approved
 composer hierarchy, card descriptions, dismissal/focus, retained images and
 settings, bounded internal scrolling at 390 × 844 and 320 × 740 with larger
@@ -497,3 +504,108 @@ The isolated inspection omits the application shell. The all-intercept app
 fixture separately covers lazy work reads, ordinary account selection, exact
 output/digest submission, empty/error/retry and the quiet transcript; hosted
 `npm run test:ui` remains required CI evidence. No backend or model is used.
+
+## Single conversation settings verification
+
+Focused offline browser checks render the actual WorkspaceControls and shared
+agent fields on 390px/320px mobile WebKit and mobile/desktop Chromium in dark/light
+appearance with Mint/Georgia and Reduce Motion. They check a closed initial state,
+outside interaction, Escape and focus, retained selections and message text,
+secondary disclosure, 44px fields, narrow viewport bounds and typing navigation.
+They start no backend or model. Page regressions separately verify that settings
+are mounted only in the top disclosure, including prepared and saved drafts.
+Full-app `npm run test:ui` remains CI acceptance; isolated component captures do
+not establish acceptance of unrelated routes or native keyboard behavior.
+
+Component captures show the [clear mobile composer](assets/chat-settings-mobile-dark.png)
+and [desktop settings disclosure](assets/chat-settings-desktop-light.png). The
+[short mobile capture](assets/chat-settings-short-mobile-dark.png) verifies reachable
+settings and fixed actions over a tall draft. The same fallback is checked inside
+the real DesktopShell at 300px height, with its separate status row, in the
+[short desktop capture](assets/chat-settings-short-desktop-light.png). Existing mobile
+conversations retain their full account/agent/model/thinking/execution/workspace
+details in this top panel, including legacy conversations without a runtime binding.
+
+## Approved conversation composition
+
+Conversation chrome keeps Account, Model and Thinking first in the single top
+settings disclosure, followed by Agent and Repository. Run on and runtime details
+live under Advanced. Repository keeps the existing account-bound catalogue,
+preview and preparation flow; it does not accept an arbitrary unverified checkout.
+The ordinary collaboration entry stays beside Resources in the composer. Unsupported
+Terminal and collaboration actions explain their unavailable state rather than
+opening a runtime they cannot control. Send, queue, interrupt and command actions
+use distinct shared UiIcon shapes and accessible names.
+
+Settings group headings, Access, Resources, the welcome wordmark and selection
+accents all resolve the Settings appearance picker's `--color-accent`. Semantic
+warning/error/status colors keep their existing roles. There is no second chat
+palette. OpenShell and GitHub marks are monochrome masks using currentColor,
+from the official [OpenShell brand asset](https://github.com/NVIDIA/OpenShell/blob/main/docs/brand/assets/openshell-mark-mono-white.svg)
+and [GitHub Octicons](https://github.com/primer/octicons/blob/main/icons/mark-github-16.svg).
+
+Resources uses the shared native HomeDialog with Sources, Context, Outputs and
+References tabs. Sources preserves submitted context content when recorded;
+Context includes reviewable boot/session context and selected next-prompt blocks.
+Outputs only lists registered session outputs. References retains multiple roles
+for the same URL (shared by you, found during research, linked by the agent,
+created by the agent, workspace), groups by website, and pages eight groups/links
+at a time. Search, category, scroll position and opener focus survive a detail
+view. PR state comes only from a successful structured publication snapshot;
+checks/reviews remain unreported without evidence, with no background polling.
+
+The usage wheel distinguishes current model occupancy from cumulative request
+usage and shows user turns, agent requests and compactions. Positioned compaction
+markers and Context history share a detail view. The durable lifecycle endpoint
+reads bounded compaction events, not the transcript, and refreshes on lifecycle
+changes. Exact condensed ranges, retained summaries or token figures remain
+explicitly unavailable when the adapter did not report them. If execution ends
+during compaction, its marker records interruption or an unknown outcome, clears
+the active wheel state, and never claims successful context reduction. Historical sessions
+can have counts without positioned records. Access likewise explains Unknown
+when the selected runtime cannot report live access evidence.
+
+Access uses provider-independent Unknown guidance: configured accounts and
+services do not establish live access. The runtime-readiness foundation expands
+session identity and permission observations across ordinary provider families;
+unmeasured commands, attachments and service operations remain unknown. The copy
+reuses the existing HomeDialog, muted text and token-based cards without changing
+controls, layout or motion. Focus restoration, scrolling, overflow and the changed
+paragraph were checked in isolated actual-component Chromium renders at 320px and
+1280px, light/dark themes, Teal/Georgia and Lavender/System. Captures show the
+[mobile light dialog](assets/runtime-readiness-access-mobile-light.png) and
+[desktop dark dialog](assets/runtime-readiness-access-desktop-dark.png).
+The full intercepted browser fixture also covers this state; complete application
+build/browser acceptance remains a CI check. The local complete frontend bundle
+exceeded the required 1 GiB heap; isolated renders and unit/design checks passed.
+
+Offline checks render actual shared controls on mobile WebKit/Chromium and desktop
+Chromium, with light/dark appearance, Mint/Teal accents, Georgia and Reduce Motion.
+They cover word-by-word italic live transcription, command insertion without draft
+loss, nested boot review, PR back navigation, bounded references, compaction
+position/evidence and composer placement. Captures show the
+[mobile conversation](assets/approved-chat-mobile-dark.png),
+[accent-aware settings](assets/approved-chat-settings-teal.png) and
+[desktop context](assets/approved-chat-context-desktop-light.png).
+These are intercepted fixtures; no backend, model or production service is used.
+
+## Agent creation advisor
+
+The Agent Library workbench stacks its advisor above the existing profile editor,
+including on mobile. New agent creation expands the panel; the labelled disclosure
+uses `useMotionPresence` to retain the conversation, question and picker on collapse.
+It reuses `AccountModelPicker` in adviser scope, `UiIcon`, the existing profile form,
+semantic colors, UI/mono fonts, spacing/radius scales and 44px control targets.
+The conversation has a bounded, keyboard-scrollable log. Proposed profiles expose
+review details and an explicit apply action before the ordinary Save draft and
+Publish revision actions. Stale proposals cannot replace newer form edits.
+
+Offline Agent Library fixtures exercise advisor success/error, explicit selection,
+form application and draft recovery, keyboard focus, long content and scrolling,
+320px mobile and desktop layouts, light/dark themes and Teal/Georgia appearance.
+The ordinary Agent Builder chat profile retains its separate namespace fixture.
+
+Inspected captures show [new agent creation on mobile](assets/agent-creation-mobile-dark.png)
+and [the desktop advisor above the profile form](assets/agent-creation-desktop-light.png).
+These are fully intercepted fixtures; no live model, backend or production service
+was used.

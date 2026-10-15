@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi, beforeEach } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ImageAttachment } from '../../types/chat';
 import type { ComponentProps } from 'react';
@@ -47,6 +47,14 @@ vi.mock('../../lib/resizeImage', () => ({
     preview: `data:image/png;base64,${file.name}`,
   })),
 }));
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+});
 afterEach(() => {
   cleanup();
   localStorage.clear();
@@ -105,7 +113,7 @@ it('edits a Sources image through the same editor', async () => {
   const { container } = render(<ChatInput {...props} />);
   await attach(container);
   fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Sources 2' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Sources' }));
   const opener = screen.getByRole('button', { name: 'Preview pasted image 2' });
   fireEvent.click(opener);
   expect(editor.current?.image.data).toBe('two.png');

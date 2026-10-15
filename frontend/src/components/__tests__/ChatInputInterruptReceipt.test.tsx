@@ -7,8 +7,8 @@ import { ChatInput } from '../ChatInput';
 
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../MicButton', () => ({ MicButton: () => null }));
-vi.mock('../SessionTray', () => ({
-  SessionTray: ({
+vi.mock('../SessionResourcesDialog', () => ({
+  SessionResourcesDialog: ({
     selectedContextBlocks,
     onToggleContextBlock,
   }: {

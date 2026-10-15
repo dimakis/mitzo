@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getToolTier } from '../tool-tiers.js';
+import { getToolTier, shouldAutoAllow } from '../tool-tiers.js';
 import { summarizeToolInput } from '../tool-summary.js';
 
 describe('task-board MCP integration', () => {
@@ -25,6 +25,19 @@ describe('task-board MCP integration', () => {
       expect(getToolTier(prefix + 'TelosFindArtifacts')).toBe('safe');
       expect(getToolTier(prefix + 'TelosReadArtifact')).toBe('safe');
       expect(getToolTier(prefix + 'TelosSaveArtifact')).toBe('unknown');
+    }
+  });
+
+  it('allows Telos inspection in Ask while retaining mutation approval', () => {
+    for (const prefix of ['', 'mcp__telos__']) {
+      expect(getToolTier(prefix + 'TelosGetItem')).toBe('safe');
+      expect(shouldAutoAllow(prefix + 'TelosGetItem', 'ask')).toBe(true);
+      expect(getToolTier(prefix + 'TelosUpdateItem')).toBe('unknown');
+      expect(shouldAutoAllow(prefix + 'TelosUpdateItem', 'ask')).toBe(false);
+      expect(shouldAutoAllow(prefix + 'TelosUpdateItem', 'auto')).toBe(false);
+      expect(
+        summarizeToolInput(prefix + 'TelosUpdateItem', { itemId: 'task', status: 'completed' }),
+      ).toBe('Update Telos task: completed');
     }
   });
 

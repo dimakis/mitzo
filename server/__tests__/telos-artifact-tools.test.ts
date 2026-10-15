@@ -4,16 +4,25 @@ import {
   telosArtifactDefinitions,
   TelosSaveArtifactInput,
   TELOS_ARTIFACT_INSTRUCTIONS,
+  telosArtifactInstructions,
 } from '../telos-artifact-tools.js';
 afterEach(() => vi.unstubAllGlobals());
 describe('Telos artifact tool contract', () => {
+  it.each([false, true])('retrieves history only when relevant (recipe=%s)', (recipe) => {
+    const instructions = telosArtifactInstructions(recipe);
+    expect(instructions).not.toContain('At cold start');
+    expect(instructions).toContain('When prior task history is relevant');
+    expect(instructions).toContain('not a prerequisite');
+    expect(instructions).toContain('does not require a new Telos outcome');
+  });
   it('advertises save, find and read and teaches durable receipt-driven handovers', () => {
     expect(telosArtifactDefinitions.map((d) => d.name)).toEqual([
       'TelosSaveArtifact',
       'TelosFindArtifacts',
       'TelosReadArtifact',
     ]);
-    expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('de facto');
+    expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('TelosUpdateItem');
+    expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('before handover');
     expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('TelosFindArtifacts');
     expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('sandbox-local');
   });

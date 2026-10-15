@@ -60,6 +60,7 @@ import {
   type OpenShellCodexOptions,
 } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
+import { taskRuntimeGuidance, meetingPrepGuidance } from './task-runtime-guidance.js';
 import {
   CodexConversationStore,
   type KnowledgeAdoptionSelection,
@@ -110,6 +111,12 @@ import type { ProviderDispatchAdmission } from './provider-execution.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import {
+  executeTelosItemTool,
+  isTelosItemTool,
+  telosItemDefinitions,
+  telosItemSchemas,
+} from './telos-item-tools.js';
+import {
   executeTelosCreateOutcome,
   telosCreateOutcomeDefinition,
   TelosOutcomeInput,
@@ -139,6 +146,13 @@ interface PendingProviderAdmission {
 }
 const pendingAdmissions = new WeakMap<ManagedSession, Map<string, PendingProviderAdmission>>();
 const log = createLogger('codex-chat-session');
+/** Host-only attachment receipt shared by both integration-access tool routes. */
+interface IntegrationAccessResult {
+  content: string;
+  isError: boolean;
+  environmentChange?: { kind: 'provider-attachment'; provider: string };
+}
+
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
 const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
   'google-workspace': 'Google Workspace',
@@ -948,13 +962,18 @@ async function openCodexChatBound(
   }
   const integrationTools = grantIntegrationTools(grantableProviders);
   const openShellHostTools = connectedOpenShell
-    ? [telosCreateOutcomeDefinition, ...telosArtifactDefinitions, ...integrationTools]
+    ? [
+        telosCreateOutcomeDefinition,
+        ...telosItemDefinitions,
+        ...telosArtifactDefinitions,
+        ...integrationTools,
+      ]
     : [];
   let integrationTurn:
     | {
         id: string;
         denied: Set<string>;
-        pending: Map<string, Promise<{ content: string; isError: boolean }>>;
+        pending: Map<string, Promise<IntegrationAccessResult>>;
       }
     | undefined;
   let integrationTransportNeedsRefresh = false;
@@ -962,7 +981,7 @@ async function openCodexChatBound(
     provider: string,
     signal: AbortSignal,
     controlPlane = false,
-  ) => {
+  ): Promise<IntegrationAccessResult> => {
     // A cancelled approval can settle after the next queued turn has started.
     // Keep all coalescing and denial state bound to the initiating turn.
     const turn = integrationTurn;
@@ -999,7 +1018,7 @@ async function openCodexChatBound(
     signal: AbortSignal,
     turn: typeof integrationTurn,
     controlPlane: boolean,
-  ) => {
+  ): Promise<IntegrationAccessResult> => {
     if (!runtimeManager || !managedOpenShell)
       return { content: 'Integration provider is not grantable', isError: true };
     const access = await runtimeManager!.hasServiceProviderAccess(
@@ -1069,8 +1088,9 @@ async function openCodexChatBound(
       if (!(await attachApprovedProvider()))
         return { content: 'Integration provider attachment failed', isError: true };
       return {
-        content: `Integration provider ${provider} is now available to this chat`,
+        content: `Integration provider ${provider} is attached; a fresh transport must verify its environment before use`,
         isError: false,
+        environmentChange: { kind: 'provider-attachment', provider },
       };
     }
     const approvedInput = { provider };
@@ -1098,8 +1118,9 @@ async function openCodexChatBound(
     if (!(await attachApprovedProvider()))
       return { content: 'Integration provider attachment failed', isError: true };
     return {
-      content: `Integration provider ${provider} is now available to this chat`,
+      content: `Integration provider ${provider} is attached; a fresh transport must verify its environment before use`,
       isError: false,
+      environmentChange: { kind: 'provider-attachment', provider },
     };
   };
   try {
@@ -1501,7 +1522,11 @@ async function openCodexChatBound(
                   ? [{ ...agentContext.context, scope: 'sandbox' as const }]
                   : []),
               );
-              if (!selected && !agentContext?.sandbox) return undefined;
+              const capabilities = await runtimeManager!.inspectTaskCapabilities(
+                managedOpenShell!,
+                signal,
+              );
+              await options.ownedOpenShell?.assertCurrent();
               pendingKnowledge = selected?.adoption;
               if (selected) options.onBootContext?.(selected.context);
               pendingAdditionalContext =
@@ -1510,7 +1535,9 @@ async function openCodexChatBound(
                   : '') +
                 (selected
                   ? `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout${agentContext?.sandbox ? ' and saved recipe' : ''}. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${agentContext?.source === 'packs' ? 'The agent profile boot context retains its separately recorded source revisions. This retrieval publication does not replace that pinned profile context.' : selected.context.fullMarkdown}`
-                  : '');
+                  : '') +
+                taskRuntimeGuidance(capabilities) +
+                meetingPrepGuidance;
               if (agentContext?.sandbox)
                 pendingAgentContextSha256 = createHash('sha256')
                   .update(pendingAdditionalContext)
@@ -1789,8 +1816,10 @@ async function openCodexChatBound(
     ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
       ? {
           refreshTransportBeforeTurn: () => integrationTransportNeedsRefresh,
-          shouldContinueAfterToolResult: (name, _input, result) =>
-            name === GRANT_INTEGRATION_TOOL && !result.isError && integrationTransportNeedsRefresh,
+          shouldContinueAfterToolResult: (_name, _input, result: IntegrationAccessResult) =>
+            result.environmentChange?.kind === 'provider-attachment' &&
+            !result.isError &&
+            integrationTransportNeedsRefresh,
           ...(options.ordinaryTurnLifecycle
             ? {
                 environmentContinuationOwner: 'external' as const,
@@ -1870,6 +1899,41 @@ async function openCodexChatBound(
           }),
           isError: operation.status !== 'succeeded',
         };
+      }
+      if (connectedOpenShell && isTelosItemTool(name)) {
+        const parsed = telosItemSchemas[name].safeParse(input);
+        if (!parsed.success) return { content: 'Invalid Telos item input', isError: true };
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner) return { content: 'Codex session unavailable', isError: true };
+        const permission = await buildPermissionHandler(owner.clientId, options.registry, {
+          onDemandCreate: options.onDemandCreate,
+        })(name, parsed.data, {
+          signal,
+          toolUseID: randomUUID(),
+          forcePrompt: name === 'TelosUpdateItem',
+          allowSessionGrant: true,
+          title:
+            name === 'TelosUpdateItem'
+              ? 'Update this item in live Telos?'
+              : 'Read Telos item progress',
+          description:
+            'Inspect or update existing Telos work with a session-attributed evidence note.',
+        });
+        signal.throwIfAborted();
+        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
+          return { content: 'Telos input changed during approval; retry the tool', isError: true };
+        if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
+          return { content: 'Session permissions changed; retry the tool', isError: true };
+        await assertHostCurrent();
+        return executeTelosItemTool(
+          localHttpBaseUrl(Number.parseInt(process.env.PORT || '3100', 10), localServerUsesTls()),
+          owner.clientId,
+          INTERNAL_TOKEN,
+          name,
+          parsed.data,
+          signal,
+        );
       }
       if (connectedOpenShell && isTelosArtifactTool(name)) {
         const parsed = telosArtifactSchemas[name].safeParse(input);

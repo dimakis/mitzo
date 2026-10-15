@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { act, render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { act, render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { TokenBar } from '../TokenBar';
 import type { TokensState as TokenState } from '@mitzo/client';
 
@@ -26,6 +26,12 @@ function makeState(overrides: Partial<TokenState> = {}): TokenState {
 }
 
 describe('TokenBar', () => {
+  it('keeps an unknown wheel available in a new composer and opens on secondary click', () => {
+    render(<TokenBar tokenState={makeState()} alwaysVisible userTurns={0} />);
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('User turns')).toBeTruthy();
+    expect(screen.getAllByText('Not reported').length).toBeGreaterThan(0);
+  });
   afterEach(cleanup);
   it('renders nothing when no tokens have been tracked', () => {
     const { container } = render(<TokenBar tokenState={makeState()} />);
@@ -178,7 +184,7 @@ describe('context wheel', () => {
       expect(container.querySelector('.token-wheel-fill')).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
       expect(
-        screen.getByText(
+        within(container.querySelector('.token-bar-metric') as HTMLElement).getByText(
           overrides.agentContext > 0 ? '12,000 / limit not reported' : 'Not reported',
         ),
       ).toBeTruthy();
@@ -269,7 +275,9 @@ describe('measured native usage', () => {
   it('does not display unknown session usage as a measured zero', () => {
     render(<TokenBar tokenState={makeState({ turnIndex: 1, sessionTotalStatus: 'unknown' })} />);
     fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
-    expect(screen.getAllByText('Not reported')).toHaveLength(2);
+    expect(screen.getByText('Cumulative usage').parentElement?.textContent).toContain(
+      'Not reported',
+    );
   });
 });
 

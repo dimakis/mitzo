@@ -36,7 +36,7 @@ const inventory = {
     { id: 'google', state: 'unavailable', reason: 'Google could not be checked.' },
   ],
 };
-async function fixture(page: Page, existing = false, pending = true) {
+async function fixture(page: Page, existing = false, pending = true, unknown = false) {
   const errors: string[] = [];
   let reads = 0;
   page.on('pageerror', (error) => errors.push(error.message));
@@ -140,6 +140,8 @@ async function fixture(page: Page, existing = false, pending = true) {
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'No writes in this fixture' } });
       if (url.pathname === `/api/sessions/${sessionId}/access`) {
+        if (unknown)
+          return route.fulfill({ json: { sessionId, observedAt: Date.now(), state: 'unknown' } });
         reads++;
         if (reads > 2) return route.fulfill({ status: 503, json: { error: 'Unavailable' } });
         return route.fulfill({
@@ -192,7 +194,7 @@ test('Access: empty ordinary composer survives Connections and return', async ({
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: isMobile ? 640 : 800 });
   const errors = await fixture(page);
   await page.goto('/chat');
-  const settings = page.getByRole('button', { name: /^Agent settings,/ });
+  const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
   await page
@@ -271,6 +273,36 @@ test('Access: pending request, unknown capability and stale refresh', async ({
   expect(errors).toEqual([]);
 });
 
+test('Access: missing runtime evidence is independent of provider', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 800 });
+  const errors = await fixture(page, true, false, true);
+  await page.goto(`/chat/${sessionId}`);
+  await page.getByRole('button', { name: 'Access', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Access' });
+  await expect(
+    dialog.getByText(/This runtime has not supplied current session evidence/),
+  ).toBeVisible();
+  await expect(dialog.getByText(/currently reports live Claude/)).toHaveCount(0);
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'light' ? 'teal' : 'lavender';
+      document.documentElement.dataset.font = theme === 'light' ? 'georgia' : 'system';
+    }, theme);
+    await page.screenshot({
+      path: testInfo.outputPath(`unknown-runtime-${theme}.png`),
+      animations: 'disabled',
+    });
+  }
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Access', exact: true })).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test('References: historical links and observed tools are not outputs', async ({
   page,
   isMobile,
@@ -279,17 +311,20 @@ test('References: historical links and observed tools are not outputs', async ({
   const errors = await fixture(page, true, false);
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: 'Open session tray' }).click();
-  await page.getByRole('button', { name: 'References 2' }).click();
-  await expect(page.getByRole('link', { name: 'example.com/research', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Sources 0' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Outputs', exact: true })).toBeVisible();
-  await page.getByText('Observed capabilities', { exact: true }).click();
-  await expect(page.locator('.session-tray').getByText('Read', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'References' }).click();
+  await page.getByRole('button', { name: /example.com.*references/ }).click();
+  await expect(page.getByRole('button', { name: /example.com\/research/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Sources' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Outputs', exact: true })).toBeVisible();
+  await page.getByText('Observed tool names', { exact: true }).click();
+  await expect(
+    page.locator('.chat-resource-dialog').getByText('Read', { exact: true }),
+  ).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('references.png'), animations: 'disabled' });
   expect(errors).toEqual([]);
 });
 
-test('Ordinary legacy Agent settings keeps Model and Thinking paired while saving an account alias', async ({
+test('Ordinary Agent settings keeps Model and Thinking paired without shared account renaming', async ({
   page,
   isMobile,
 }, testInfo) => {
@@ -331,7 +366,7 @@ test('Ordinary legacy Agent settings keeps Model and Thinking paired while savin
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   const draft = 'Retain this unsent draft while reviewing the billing alias';
   await input.fill(draft);
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
   await expect(panel).toBeVisible();
@@ -363,24 +398,9 @@ test('Ordinary legacy Agent settings keeps Model and Thinking paired while savin
     await expect(input).toHaveValue(draft);
   }
   await assertFields();
-  const rename = panel.getByRole('button', { name: 'Edit account alias', exact: true });
-  const renameBox = (await rename.boundingBox())!;
-  expect(renameBox.y + renameBox.height).toBeLessThanOrEqual((await model.boundingBox())!.y);
-  await rename.click();
-  const alias = panel.getByRole('textbox', { name: 'Account alias', exact: true });
-  await expect(alias).toHaveValue('Fixture account');
-  await alias.fill('Reviewed billing account');
-  expect((await alias.boundingBox())!.y + (await alias.boundingBox())!.height).toBeLessThanOrEqual(
-    (await model.boundingBox())!.y,
+  await expect(panel.getByRole('button', { name: 'Edit account alias', exact: true })).toHaveCount(
+    0,
   );
-  await assertFields();
-  await page.screenshot({
-    path: testInfo.outputPath(`local-approved-agent-settings-legacy-alias-${width}-editor.png`),
-    fullPage: true,
-  });
-  await panel.getByRole('button', { name: 'Save alias', exact: true }).click();
-  await expect(alias).toHaveCount(0);
-  await expect(account.locator('option:checked')).toHaveText('Reviewed billing account');
   await expect(send).toBeDisabled();
   await assertFields();
   await account.selectOption('fixture-account');
@@ -388,7 +408,7 @@ test('Ordinary legacy Agent settings keeps Model and Thinking paired while savin
   await expect(model).toHaveValue('fixture-model');
   await expect(thinking).toHaveValue('high');
   await expect(input).toHaveValue(draft);
-  expect(aliasWrites).toEqual([{ alias: 'Reviewed billing account' }]);
+  expect(aliasWrites).toEqual([]);
   expect(sends).toEqual([]);
   await page.screenshot({
     path: testInfo.outputPath(`local-approved-agent-settings-legacy-alias-${width}-saved.png`),

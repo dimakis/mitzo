@@ -280,9 +280,12 @@ async function emitLocalState(page: Page, state: 'running' | 'idle') {
 }
 
 async function openAgentSettings(page: Page) {
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+  const advanced = page.locator('.chat-settings-advanced');
+  if ((await advanced.getAttribute('open')) === null)
+    await advanced.locator(':scope > summary').click();
 }
 async function assertBoundRunOn(page: Page, location: 'local' | 'openshell', firstCommand = false) {
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
@@ -352,8 +355,10 @@ for (const appearance of ['light', 'dark'] as const) {
       .getByRole('combobox', { name: 'Agent', exact: true })
       .selectOption(JSON.stringify(['saved', 'agent', 1]));
     await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await openAgentSettings(page);
     const repository = page.getByRole('button', { name: 'Add repository' });
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+    await repository.scrollIntoViewIfNeeded();
     await expect(repository).toBeInViewport();
     await repository.click();
     await page
@@ -404,7 +409,7 @@ for (const appearance of ['light', 'dark'] as const) {
         .getByRole('region', { name: 'Agent settings', exact: true })
         .getByRole('combobox', { name: 'Agent', exact: true }),
     ).toHaveCount(0);
-    await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
+    await page.getByRole('button', { name: /^Workspace controls,/ }).click();
     await emitLocalState(page, 'running');
     await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Keep this follow-up draft');
     await page.getByRole('textbox', { name: 'Message Mitzo' }).press('Enter');
@@ -452,13 +457,9 @@ test('Local first command: restored Local remains visible and blocked with gate 
     page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
   ).toBeDisabled();
   await assertSettingsGeometry(page);
-  await page.getByRole('button', { name: 'Close agent settings', exact: true }).focus();
-  await expect(
-    page.getByRole('button', { name: 'Close agent settings', exact: true }),
-  ).toBeFocused();
-  await expect(
-    page.getByRole('button', { name: 'Close agent settings', exact: true }),
-  ).toBeInViewport();
+  await page.getByRole('button', { name: /^Workspace controls,/ }).focus();
+  await expect(page.getByRole('button', { name: /^Workspace controls,/ })).toBeFocused();
+  await expect(page.getByRole('button', { name: /^Workspace controls,/ })).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath('local-restored-disabled.png'),
     fullPage: true,
@@ -506,6 +507,8 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   );
   await assertWorkspaceHeadingFits(page);
   releaseInitialMetadata();
+  await expect(workspace.locator('.conversation-state')).toHaveText('Needs review');
+  await openAgentSettings(page);
   await expect(
     page.getByRole('alert').filter({ hasText: 'Conversation settings are unavailable' }),
   ).toBeVisible();
@@ -515,6 +518,7 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add agent', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reusable profile drafts' })).toHaveCount(0);
+  await page.getByText('More options', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Open review findings' })).toBeEnabled();
   for (const mode of ['Ask', 'Agent', 'Auto']) {
     const control = page.getByRole('button', { name: mode, exact: true });
@@ -571,6 +575,7 @@ test('Local first command: oversized complete command retains its image and enab
   await account.selectOption('personal');
   await expect(account).toHaveValue('personal');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await openAgentSettings(page);
   await page.getByRole('button', { name: 'Add repository' }).click();
   await page
     .getByRole('combobox', { name: 'GitHub repository' })
@@ -618,7 +623,7 @@ test('Bound Agent settings keeps Close and Done reachable with a long draft in s
       `Retain planning line ${index + 1} while reviewing the original bound session settings.`,
   ).join('\n');
   await input.fill(draft);
-  const trigger = page.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
   for (const [width, height] of [
     [390, 844],
@@ -643,7 +648,7 @@ test('Bound Agent settings keeps Close and Done reachable with a long draft in s
       await control.scrollIntoViewIfNeeded();
       await expect(control).toBeInViewport();
       const contained = await control.evaluate((element) => {
-        const body = element.closest<HTMLElement>('.agent-settings-scroll')!;
+        const body = element.closest<HTMLElement>('[role="region"]')!;
         const style = getComputedStyle(body);
         const viewport = body.getBoundingClientRect();
         const field = element.getBoundingClientRect();
@@ -775,7 +780,6 @@ test('OpenShell conversation: default route starts and continues without legacy 
       .getByRole('status')
       .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
   ).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close agent settings', exact: true }).click();
   await page.getByRole('button', { name: 'Add repository' }).click();
   await page
     .getByRole('combobox', { name: 'GitHub repository' })
@@ -787,8 +791,8 @@ test('OpenShell conversation: default route starts and continues without legacy 
   // The draft composer is replaced when session metadata binds the conversation.
   // Open settings on that bound composer, rather than the outgoing draft.
   await expect(
-    page.getByRole('status').filter({ hasText: 'Conversation connected.' }),
-  ).toBeVisible();
+    page.getByRole('button', { name: /^Workspace controls/ }).locator('.conversation-state'),
+  ).toHaveText('Conversation');
   await openAgentSettings(page);
   await assertBoundRunOn(page, 'openshell');
   await expect.poll(() => fixture.requests.length).toBe(1);
@@ -812,8 +816,12 @@ test('OpenShell conversation: default route starts and continues without legacy 
   ]);
   await openAgentSettings(page);
   await page.getByRole('button', { name: 'New session on Local Mac' }).click();
-  await openAgentSettings(page);
+  await expect(page).toHaveURL(/\/chat\?draft=/);
   await expect.poll(() => fixture.attachments.at(-1)).toBe(null);
+  const newWorkspace = page.getByRole('button', { name: /^Workspace controls/ });
+  await expect(newWorkspace.locator('.conversation-state')).toHaveText('First command');
+  await expect(newWorkspace).toHaveAttribute('aria-expanded', 'false');
+  await openAgentSettings(page);
   await expect(page.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',

@@ -7,11 +7,49 @@ health evidence belong in private case storage, not Telos.
 
 ## Agent workflow
 
+Before continuing tracked work, use `TelosGetItem` with the exact outcome ID. It
+returns the contract, milestone IDs/statuses, recent progress and a revision.
+Read each milestone before updating it. Use `TelosUpdateItem` during work and
+before handover, rather than leaving all items active after creating them.
+
+An update requires `itemId`, `expectedRevision` from that read, a new `requestId`
+and a concrete `note`. Omit `status` for progress only; set `completed` to finish
+that item, or `active` to reopen it. `acknowledged` is also supported. Cite evidence
+such as artifact IDs/revisions, checks or accepted PRs and explain remaining work.
+Complete milestones individually; parent completion refuses any unfinished
+descendant. Reread the parent after milestone updates and assess its own criteria.
+Saving a report or merging source does not prove deployment or user acceptance.
+
+Changes, notes and existing status history commit atomically in the canonical
+database. Notes carry host-derived session provenance. Stale item/milestone reads
+return a conflict: reread and reassess before issuing a new update. Retry an
+uncertain write with exactly the same `requestId` and input to recover its original
+receipt without replaying the effect. The same ID with different input refuses.
+The recent progress window contains the latest 20 updates; older audit entries
+remain stored. Existing summaries, contracts, sources and relationships are preserved.
+
+These tools are available as native host tools for ordinary OpenShell chats and
+through the reserved `telos` MCP server for host/provider chats. Item inspection
+is read-only; updates use Mitzo's mutation approval and retained session grants.
+Ask mode cannot mutate items. No host credential or database path enters a sandbox.
+Existing conversations need to select a tool catalog/instructions containing these
+tools before agents can use them; source publication alone does not establish adoption.
+
+Capture ongoing commitments in Telos when appropriate. Preserving completed
+exploratory research does not itself justify a new active workstream or unfinished
+milestones. Reuse existing relevant work and retain its real completion state.
+If capture requires a new outcome for finished research, limit its scope to that
+research, save the report and immediately complete the fulfilled milestones and
+parent with the saved evidence. Proposed implementation stays a proposal until
+the user authorizes it.
+
 1. Identify the live Telos outcome ID in the task handover, or create an outcome
    with `TelosCreateOutcome` when the user authorizes capture.
-2. On a cold start, call `TelosFindArtifacts` with `itemId` or a topic query,
-   then `TelosReadArtifact` for the relevant artifact IDs. Do this before declaring
-   prior work absent because a local path does not exist.
+2. When the task references an outcome, earlier work, or a continuation, call
+   `TelosFindArtifacts` with `itemId` or a topic query, then `TelosReadArtifact`
+   for relevant documents before declaring prior work absent. Retrieval is not a
+   startup prerequisite for a fresh question, live inventory or meeting brief.
+   Answering a brief in chat does not require a new outcome.
 3. Write in the current workspace. Before handing off substantial documents,
    call `TelosSaveArtifact` with `itemId`, a stable `filename`, `title`, and either
    a unique `requestId` and a session workspace `path` or inline UTF-8 `content`. Files support binary bytes.
@@ -40,7 +78,9 @@ Telos SQLite database (`TELOS_DB_PATH`, otherwise the configured MGMT repository
 `command_center/data/smart_todo.db`). There is no sandbox-local database fallback.
 The existing `items` and `links` tables must exist. Each save atomically stores the
 revision and a link on the existing task. The database's normal backup must include
-the artifact revisions, save request and request input hash tables; artifacts survive session closure and sandbox removal.
+the artifact revisions, save request and request input hash tables, plus
+`telos_item_updates` (progress notes and immutable update receipts) and existing
+status `history`; artifacts and progress survive session closure and sandbox removal.
 
 The upload limit is 5 MiB per document. Search returns bounded latest-revision
 metadata and supports literal topic matching over task title, filename and document

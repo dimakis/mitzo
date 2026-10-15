@@ -295,6 +295,8 @@ export type {
   SessionRuntimeBindingV2,
   SessionRuntimeBinding,
 } from './session-runtime-binding.js';
+export { RuntimeReadinessSchema, RuntimeCapabilityObservationSchema } from './runtime-readiness.js';
+export type { RuntimeReadiness, RuntimeCapabilityObservation } from './runtime-readiness.js';
 export {
   SessionOutputSourceSchema,
   SessionOutputRegisterInputSchema,
@@ -340,3 +342,4 @@ export * from './local-vertex-command.js';
 export * from './ordinary-local-vertex-admission.js';
 
 export * from './ordinary-local-vertex-custody.js';
+export type { ContextCompaction } from './context-compaction.js';

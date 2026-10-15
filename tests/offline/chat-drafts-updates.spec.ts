@@ -271,7 +271,7 @@ async function offline(page: Page, sessions: unknown[] = []) {
   };
 }
 async function agentSettings(page: Page) {
-  const toggle = page.getByRole('button', { name: /^Agent settings,/ });
+  const toggle = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
 }
 
@@ -640,6 +640,7 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   );
   const workspace = page.getByRole('button', { name: /^Workspace controls/ });
   if ((await workspace.getAttribute('aria-expanded')) !== 'true') await workspace.click();
+  await page.getByText('More options', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Ask', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -779,6 +780,7 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
   );
   // Let the new chat's account-bound catalog finish before leaving. Safari
   // reports an intercepted request aborted during navigation as a page error.
+  await page.getByRole('button', { name: /^Workspace controls/ }).click();
   await expect(
     page.getByText('Assign a GitHub connection with repository access to this AI account in'),
   ).toBeVisible();
@@ -930,6 +932,7 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
   await page.goto('/chat?draft=cleared-draft&prompt=Original%20launch%20prompt');
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('A text-only draft');
+  await page.getByRole('button', { name: /^Workspace controls/ }).click();
   await expect(
     page.getByText('Assign a GitHub connection with repository access to this AI account in'),
   ).toBeVisible();
@@ -1025,6 +1028,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await page.goto('/sessions/drafts');
   await page.getByRole('link', { name: /Untitled draft/ }).click();
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
+  await page.getByRole('button', { name: /^Workspace controls/ }).click();
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -1036,6 +1040,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
     )
     .toBe(preparationId);
   await page.reload();
+  await page.getByRole('button', { name: /^Workspace controls/ }).click();
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>

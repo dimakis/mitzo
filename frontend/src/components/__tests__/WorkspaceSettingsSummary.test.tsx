@@ -158,7 +158,7 @@ it('uses the profile as the header title without repeating a generic workspace h
   expect(within(toggle()).queryByText('Workspace')).toBeNull();
 });
 
-it('auto-opens a new review without persisting it, allows collapse, and reopens for the next review', () => {
+it('indicates review attention without opening the dropdown or persisting expansion', () => {
   const view = (attention: boolean) => (
     <WorkspaceControls status="Ready" attention={attention}>
       <input aria-label="Review account" />
@@ -167,35 +167,36 @@ it('auto-opens a new review without persisting it, allows collapse, and reopens 
   const { rerender } = render(view(false));
   expect(toggle().getAttribute('aria-expanded')).toBe('false');
   rerender(view(true));
-  expect(toggle().getAttribute('aria-expanded')).toBe('true');
-  expect(toggle().querySelector('svg[data-icon="up"]')).toBeTruthy();
+  expect(toggle().getAttribute('data-attention')).toBe('true');
+  expect(toggle().getAttribute('aria-expanded')).toBe('false');
   expect(localStorage.getItem('mitzo-workspace-controls-expanded')).toBeNull();
+  fireEvent.click(toggle());
+  expect(screen.getByRole('textbox', { name: 'Review account' })).toBeTruthy();
+  expect(toggle().querySelector('svg[data-icon="up"]')).toBeTruthy();
   fireEvent.click(toggle());
   expect(toggle().getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('textbox', { name: 'Review account' })).toBeNull();
   expect(toggle().querySelector('svg[data-icon="down"]')).toBeTruthy();
-  expect(localStorage.getItem('mitzo-workspace-controls-expanded')).toBe('0');
-  rerender(view(true));
-  expect(toggle().getAttribute('aria-expanded')).toBe('false');
   rerender(view(false));
-  expect(toggle().getAttribute('aria-expanded')).toBe('false');
   rerender(view(true));
-  expect(toggle().getAttribute('aria-expanded')).toBe('true');
-  expect(screen.getByRole('textbox', { name: 'Review account' })).toBeTruthy();
+  expect(toggle().getAttribute('aria-expanded')).toBe('false');
+  expect(localStorage.getItem('mitzo-workspace-controls-expanded')).toBeNull();
 });
-it('keeps the saved expanded preference after automatic review attention ends', () => {
+it('ignores a previous expanded preference when a new conversation needs review', () => {
   localStorage.setItem('mitzo-workspace-controls-expanded', '1');
   const { rerender } = render(
     <WorkspaceControls status="Ready" attention>
       <input aria-label="Review account" />
     </WorkspaceControls>,
   );
+  expect(toggle().getAttribute('aria-expanded')).toBe('false');
   rerender(
     <WorkspaceControls status="Ready">
       <input aria-label="Review account" />
     </WorkspaceControls>,
   );
-  expect(toggle().getAttribute('aria-expanded')).toBe('true');
-  expect(screen.getByRole('textbox', { name: 'Review account' })).toBeTruthy();
+  expect(toggle().getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('textbox', { name: 'Review account' })).toBeNull();
+  // Preserve unrelated stored data; the disclosure simply no longer reads it.
   expect(localStorage.getItem('mitzo-workspace-controls-expanded')).toBe('1');
 });

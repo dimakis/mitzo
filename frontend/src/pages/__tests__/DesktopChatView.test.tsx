@@ -8,7 +8,7 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { INITIAL_MESSAGES_STATE, messagesReducer } from '@mitzo/client';
 
 function openAgentSettings() {
-  const trigger = screen.getByRole('button', { name: /^Agent settings,/ });
+  const trigger = screen.getByRole('button', { name: /^Workspace controls,/ });
   if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
 }
 async function confirmAccount(accountId: string) {
@@ -109,6 +109,7 @@ vi.mock('../../components/ChatInput', () => ({
     onStop,
     running,
     composerGeneration,
+    collaboration,
     settings,
     sendLabel,
   }: {
@@ -117,6 +118,7 @@ vi.mock('../../components/ChatInput', () => ({
     onStop: () => void;
     running: boolean;
     composerGeneration?: number;
+    collaboration?: React.ReactNode;
     settings?: React.ReactNode;
     sendLabel?: string;
     onSend: (
@@ -130,6 +132,7 @@ vi.mock('../../components/ChatInput', () => ({
     <div data-testid="chat-input">
       <span>{sendDisabledReason}</span>
       {settings}
+      {collaboration}
       <span data-testid="send-label">{sendLabel}</span>
       <span data-testid="composer-running">{String(running)}</span>
       <span data-testid="composer-generation">{composerGeneration}</span>
@@ -614,12 +617,14 @@ it('offers explicit collaboration for an ordinary desktop conversation without a
   );
   expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Collaborate' })).toBeTruthy());
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Symposium collaboration' })).toBeTruthy(),
+  );
   expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
   expect(requests.some((url) => /\/(outputs|contributors)(?:\?|$)/.test(url))).toBe(false);
 });
 
-it('shows the profile, model and thinking in the collapsed composer Agent settings summary', async () => {
+it('shows the profile, model and thinking in the collapsed top chat settings summary', async () => {
   localStorage.removeItem('mitzo-workspace-controls-expanded');
   const catalog = [
     {
@@ -637,11 +642,11 @@ it('shows the profile, model and thinking in the collapsed composer Agent settin
   ];
   vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => catalog } as Response);
   renderWithRouter();
-  const toggle = screen.getByRole('button', { name: /^Agent settings,/ });
+  const toggle = screen.getByRole('button', { name: /^Workspace controls,/ });
   await waitFor(() =>
     expect(toggle.getAttribute('aria-label')).toContain('Work Vertex, Luna, Thinking: high'),
   );
-  expect(toggle.querySelector('strong')).toBeTruthy();
+  expect(toggle.querySelector('.workspace-controls-profile')).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });
@@ -740,6 +745,8 @@ it('retains the ordinary Close action after ordinary session metadata loads', as
   const close = await screen.findByTitle('Close session');
   fireEvent.click(close);
   expect(store.getState().closeSession).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
+  fireEvent.click(screen.getByText('More options'));
   expect(screen.getByRole('button', { name: 'Ask' })).toBeTruthy();
 });
 

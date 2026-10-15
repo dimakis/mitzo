@@ -116,6 +116,11 @@ import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstr
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 
 beforeEach(() => {
+  vi.spyOn(OpenShellRuntimeManager.prototype, 'inspectTaskCapabilities').mockResolvedValue({
+    mgmtCli: false,
+    meetingPrep: false,
+    gws: true,
+  });
   mocks.custodianController = false;
   vi.spyOn(OpenShellRuntimeManager.prototype, 'observeContract').mockResolvedValue({
     resourceVersion: 'test-observation',
@@ -130,6 +135,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.mocked(OpenShellRuntimeManager.prototype.observeContract).mockRestore();
+  vi.mocked(OpenShellRuntimeManager.prototype.inspectTaskCapabilities).mockRestore();
 });
 it('uses assigned GitHub credentials instead of the legacy fallback on a new runtime', () => {
   const managed = [
@@ -659,6 +665,8 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'SymposiumReadProfiles' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
+    expect.objectContaining({ name: 'TelosGetItem' }),
+    expect.objectContaining({ name: 'TelosUpdateItem' }),
     expect.objectContaining({ name: 'TelosSaveArtifact' }),
     expect.objectContaining({ name: 'TelosFindArtifacts' }),
     expect.objectContaining({ name: 'TelosReadArtifact' }),
@@ -756,6 +764,65 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(
     await executeTool('TelosSaveArtifact', artifactInput, new AbortController().signal),
   ).toEqual({ content: 'Denied', isError: true });
+  const getInput = { itemId: 'telos-live' };
+  const readReceipt = {
+    ok: true,
+    item: { id: 'telos-live', status: 'active', revision: 'a'.repeat(64) },
+  };
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: getInput });
+  fetch.mockResolvedValueOnce(new Response(JSON.stringify(readReceipt)));
+  expect(await executeTool('TelosGetItem', getInput, new AbortController().signal)).toEqual({
+    content: JSON.stringify(readReceipt),
+    isError: false,
+  });
+  expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+    'TelosGetItem',
+    getInput,
+    expect.objectContaining({ forcePrompt: false }),
+  );
+  const updateInput = {
+    itemId: 'telos-live',
+    requestId: 'finish',
+    expectedRevision: 'a'.repeat(64),
+    status: 'completed',
+    note: 'Saved research meets all four criteria.',
+  };
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+  fetch.mockClear();
+  expect(await executeTool('TelosUpdateItem', updateInput, new AbortController().signal)).toEqual({
+    content: 'Denied',
+    isError: true,
+  });
+  expect(fetch).not.toHaveBeenCalled();
+  mocks.permissionHandler.mockResolvedValueOnce({
+    behavior: 'allow',
+    updatedInput: { ...updateInput, itemId: 'another-task' },
+  });
+  expect(
+    (await executeTool('TelosUpdateItem', updateInput, new AbortController().signal)).isError,
+  ).toBe(true);
+  expect(fetch).not.toHaveBeenCalled();
+  const updateReceipt = {
+    ok: true,
+    item: { id: 'telos-live', status: 'completed', revision: 'b'.repeat(64) },
+    update: { sessionId: 'conversation', note: updateInput.note },
+  };
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: updateInput });
+  fetch.mockResolvedValueOnce(new Response(JSON.stringify(updateReceipt)));
+  expect(await executeTool('TelosUpdateItem', updateInput, new AbortController().signal)).toEqual({
+    content: JSON.stringify(updateReceipt),
+    isError: false,
+  });
+  expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+    'TelosUpdateItem',
+    updateInput,
+    expect.objectContaining({ forcePrompt: true, allowSessionGrant: true }),
+  );
+  expect(fetch).toHaveBeenLastCalledWith(
+    'http://localhost:3101/api/internal/telos/items/update',
+    expect.objectContaining({ body: JSON.stringify(updateInput) }),
+  );
+  expect(mocks.conversationOptions?.systemPrompt).toContain('before handover');
   mocks.useTls = false;
   chat.close();
   vi.unstubAllGlobals();
@@ -799,6 +866,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
   const baseOptions = options(abortController);
   const session = baseOptions.session;
   const registry = {
+    get: vi.fn(() => session),
     findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
   } as unknown as import('@mitzo/harness').SessionRegistry;
   try {
@@ -853,6 +921,8 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({ name: 'SymposiumReadProfiles' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
+      expect.objectContaining({ name: 'TelosGetItem' }),
+      expect.objectContaining({ name: 'TelosUpdateItem' }),
       expect.objectContaining({ name: 'TelosSaveArtifact' }),
       expect.objectContaining({ name: 'TelosFindArtifacts' }),
       expect.objectContaining({ name: 'TelosReadArtifact' }),
@@ -939,6 +1009,18 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       },
     );
     expect(refreshed).toContain('Fresh knowledge B');
+    expect(refreshed).toContain('./mgmt: unavailable');
+    expect(refreshed).toContain('./command_center/meeting_prep.py: unavailable');
+    expect(refreshed).toContain('gws: entrypoint present');
+    expect(refreshed).toContain('calendar event first');
+    expect(refreshed).toContain('After one classified failure');
+    vi.mocked(OpenShellRuntimeManager.prototype.inspectTaskCapabilities).mockResolvedValueOnce(
+      undefined,
+    );
+    adoption.mockResolvedValueOnce(undefined);
+    const unknownRuntime = await prepareContext(AbortSignal.timeout(5000));
+    expect(unknownRuntime).toContain('inventory unavailable');
+    expect(unknownRuntime).toContain('calendar event first');
     expect(refreshed).toContain('/sandbox/workspaces/knowledge/revision/mgmt');
     expect(String(mocks.conversationOptions?.systemPrompt) + refreshed).toContain(
       'GrantIntegrationAccess',
@@ -1009,6 +1091,47 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       }),
     );
     vi.clearAllMocks();
+
+    const shouldContinue = mocks.conversationOptions?.shouldContinueAfterToolResult as (
+      name: string,
+      input: Record<string, unknown>,
+      result: { content: string; isError: boolean },
+    ) => boolean;
+    for (const name of ['RequestConnectionAccess', 'GrantIntegrationAccess']) {
+      await prepareTurn(
+        { providerPrompt: 'continue', userIntent: 'continue', turnId: `grant-${name}` },
+        signal,
+      );
+      mocks.permissionHandler.mockResolvedValueOnce({
+        behavior: 'allow',
+        updatedInput: { provider: 'google-workspace' },
+      });
+      const input =
+        name === 'RequestConnectionAccess'
+          ? { connectionId: 'openshell:google-workspace' }
+          : { provider: 'google-workspace' };
+      const result = await executeTool(name, input, signal);
+      expect(result.isError).toBe(false);
+      expect(shouldContinue(name, input, result)).toBe(true);
+      // Merely claiming success (or another tool running while refresh is pending)
+      // is not evidence that this exact tool attached a provider.
+      expect(shouldContinue(name, input, { content: 'available', isError: false })).toBe(false);
+      const reset = vi
+        .spyOn(CodexAppServerClient, 'launchOpenShell')
+        .mockReturnValue({} as CodexAppServerClient);
+      createClient({});
+      expect(shouldContinue(name, input, result)).toBe(false);
+      reset.mockRestore();
+      vi.clearAllMocks();
+      hasAccess.mockResolvedValueOnce({ state: 'available' });
+      const alreadyAttached = await executeTool(name, input, signal);
+      expect(alreadyAttached.isError).toBe(false);
+      expect(shouldContinue(name, input, alreadyAttached)).toBe(false);
+      expect(refreshTransport()).toBe(false);
+      expect(grant).not.toHaveBeenCalled();
+      expect(mocks.permissionHandler).not.toHaveBeenCalled();
+      vi.clearAllMocks();
+    }
 
     // A persisted approval whose first physical attach failed is recoverable:
     // retry it without showing a second permission prompt in this chat/turn.

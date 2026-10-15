@@ -19,9 +19,6 @@ vi.mock('../../components/SymposiumConversation', () => ({
     <>{ordinaryComposer}</>
   ),
 }));
-vi.mock('../../components/WorkspaceControls', () => ({
-  WorkspaceControls: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ center, left }: { center: React.ReactNode; left: React.ReactNode }) => (
     <>
@@ -38,7 +35,7 @@ vi.mock('../../components/SessionPanel', () => ({
 vi.mock('../../components/CommandCenter', () => ({ CommandCenter: () => null }));
 vi.mock('../../components/ScrollFab', () => ({ ScrollFab: () => null }));
 vi.mock('../../components/SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../../components/SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../../components/SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 vi.mock('../../components/MicButton', () => ({ MicButton: () => null }));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
 vi.mock('../../components/WebSearchConsent', () => ({ WebSearchConsent: () => null }));
@@ -127,6 +124,8 @@ for (const Page of [ChatView, DesktopChatView]) {
           </MemoryRouter>
         </MitzoStoreProvider>,
       );
+      const controls = await screen.findByRole('button', { name: /^Workspace controls/ });
+      if (controls.getAttribute('aria-expanded') !== 'true') fireEvent.click(controls);
       await screen.findByRole('button', { name: 'Add repository' });
       const draftId = listChatDrafts()[0].id;
       fireEvent.click(screen.getByRole('button', { name: 'Add repository' }));
@@ -151,7 +150,7 @@ for (const Page of [ChatView, DesktopChatView]) {
         (screen.getByRole('button', { name: 'Start session' }) as HTMLButtonElement).disabled,
       ).toBe(false);
       failCatalog = true;
-      const settings = screen.getByRole('button', { name: /^Agent settings,/ });
+      const settings = screen.getByRole('button', { name: /^Workspace controls,/ });
       if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
       fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
       await screen.findByRole('button', { name: 'Retry accounts' });

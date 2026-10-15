@@ -16,7 +16,7 @@ import {
 import type { AccountSelection } from '../../components/AccountModelPicker';
 
 function openAgentSettings() {
-  const settings = screen.getByRole('button', { name: /^Agent settings,/ });
+  const settings = screen.getByRole('button', { name: /^Workspace controls,/ });
   if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
 }
 
@@ -96,9 +96,6 @@ vi.mock('../../components/SymposiumConversation', () => ({
     <>{ordinaryComposer}</>
   ),
 }));
-vi.mock('../../components/WorkspaceControls', () => ({
-  WorkspaceControls: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ center, left }: { center: React.ReactNode; left: React.ReactNode }) => (
     <>
@@ -115,7 +112,7 @@ vi.mock('../../components/SessionPanel', () => ({
 vi.mock('../../components/CommandCenter', () => ({ CommandCenter: () => null }));
 vi.mock('../../components/ScrollFab', () => ({ ScrollFab: () => null }));
 vi.mock('../../components/SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../../components/SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../../components/SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 vi.mock('../../components/MicButton', () => ({ MicButton: () => null }));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
 vi.mock('../../components/WebSearchConsent', () => ({ WebSearchConsent: () => null }));

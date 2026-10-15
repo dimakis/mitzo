@@ -155,6 +155,12 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
           Observed {new Date(evidence.observedAt).toLocaleTimeString()}
         </p>
       )}
+      {sessionId && !loading && evidence?.state === 'unknown' && (
+        <p className="workspace-muted">
+          This runtime has not supplied current session evidence. Configured accounts and services
+          do not establish live access; refreshing cannot supply missing measurements.
+        </p>
+      )}
       <section className="access-detail-card">
         <h3>{sessionId ? 'Session access' : 'Selected route'}</h3>
         <dl className="access-resource-facts">
@@ -266,7 +272,7 @@ export function SessionAccess(props: Props) {
         <span className="session-access-label">Access</span>
       </button>
       {open && (
-        <HomeDialog title="Access" onClose={() => setOpen(false)}>
+        <HomeDialog title="Access" className="chat-access-dialog" onClose={() => setOpen(false)}>
           <AccessContent
             key={props.sessionId ?? 'empty'}
             {...props}

@@ -91,7 +91,11 @@ export function ChatExecutionPicker({
               }
             >
               <span className="agent-execution-card-heading">
-                <UiIcon name={location === 'local' ? 'laptop' : 'box'} />
+                {location === 'local' ? (
+                  <UiIcon name="laptop" />
+                ) : (
+                  <span className="openshell-brand" aria-hidden="true" />
+                )}
                 <strong>{location === 'local' ? 'Local Mac' : 'OpenShell'}</strong>
                 {selected === location && <UiIcon name="check" />}
               </span>

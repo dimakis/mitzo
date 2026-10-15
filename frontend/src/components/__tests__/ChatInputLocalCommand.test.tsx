@@ -9,7 +9,7 @@ import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../MicButton', () => ({ MicButton: () => null }));
-vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 afterEach(() => {
   cleanup();
   localStorage.clear();

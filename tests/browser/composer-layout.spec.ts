@@ -31,6 +31,7 @@ async function composerAssets(running = false, model = 'new-model', voiceState =
     },
     outfile: 'composer.js',
     bundle: true,
+    external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
     write: false,
     format: 'iife',
     jsx: 'automatic',
@@ -213,7 +214,7 @@ test('pressed model-limit details fit a narrow viewport even for a long model ID
 
 for (const width of [320, 390, 1280]) {
   for (const theme of ['dark', 'light']) {
-    test(`unboxed composer utilities and circular send at ${width}px in ${theme}`, async ({
+    test(`unboxed composer utilities and icon-only send at ${width}px in ${theme}`, async ({
       page,
     }, testInfo) => {
       const assets = await composerAssets();
@@ -239,7 +240,17 @@ for (const width of [320, 390, 1280]) {
       await expect(send).toBeDisabled();
       await page.getByRole('textbox').fill('Ready to send');
       await expect(send).toBeEnabled();
-      expect(await send.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('50%');
+      const sendShape = await send.evaluate((el) => {
+        const token = document.createElement('span');
+        token.style.borderRadius = 'var(--radius-control)';
+        document.body.append(token);
+        const expected = getComputedStyle(token).borderRadius;
+        token.remove();
+        return { actual: getComputedStyle(el).borderRadius, expected };
+      });
+      expect(sendShape.actual).toBe(sendShape.expected);
+      await expect(send).toHaveText('');
+      await expect(send.locator('[data-icon="sendPrompt"]')).toBeVisible();
       const mic = page.getByRole('button', { name: 'Record voice message' });
       const usage = page.getByRole('button', { name: 'Token usage', exact: true });
       expect((await usage.boundingBox())!.x).toBeLessThan((await mic.boundingBox())!.x);

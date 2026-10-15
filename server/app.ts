@@ -1,3 +1,4 @@
+import { projectCompactions } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
   readOwnedVertexQueueOverview,
@@ -23,6 +24,7 @@ import type {
 import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import { terminalAccountRoute } from './terminal-account-route.js';
 import { TerminalAdviser } from './terminal-adviser.js';
+import { AgentLibraryAdviser } from './agent-library-adviser.js';
 import { createTerminalAdviserSession } from './terminal-adviser-model.js';
 import { TerminalService, TerminalStore } from './terminal-service.js';
 import { terminalAdviserCatalog } from './terminal-adviser-catalog.js';
@@ -88,6 +90,7 @@ import {
 } from './apns.js';
 import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
+import { createTelosItemRouter } from './telos-item-routes.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -1071,6 +1074,7 @@ app.use(
   '/api/agent-library',
   operatorAuthMiddleware,
   createAgentLibraryRouter(getAgentLibrary(), {
+    adviser: new AgentLibraryAdviser(createTerminalAdviserSession),
     workspaceRoot: BASE_REPO,
     contextPacks: async (signal) => {
       const runtime = await getKnowledgeLibraryRuntime();
@@ -1893,6 +1897,14 @@ app.use(
 );
 
 app.use(
+  createTelosItemRouter({
+    dbPath: telosDatabasePath,
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+  }),
+);
+
+app.use(
   createTelosArtifactRouter({
     operatorAuth: operatorAuthMiddleware,
     dbPath: telosDatabasePath,
@@ -2572,6 +2584,22 @@ app.get('/api/skills', (req, res) => {
   res.json(skillRegistry.listPublic());
 });
 
+app.get('/api/commands', (_req, res) => {
+  const descriptions: Record<string, string> = {
+    skills: 'List skills, or inspect a named skill',
+    models: 'List account models; accepts “refresh”',
+    deliberate: 'Deliberate on a task using multiple models; may incur model charges',
+    fuse: 'Combine model perspectives on a task; may incur model charges',
+  };
+  res.json(
+    [...NATIVE_COMMAND_NAMES].map((name) => ({
+      name,
+      description: descriptions[name] ?? name,
+      scope: 'native',
+    })),
+  );
+});
+
 app.get('/api/sessions/active', (_req, res) => {
   res.json(registry.getActiveSessions());
 });
@@ -2718,6 +2746,8 @@ app.use(
         id,
         registry.findBySessionId(id)?.session,
         getPendingRequestsBySession(id),
+        undefined,
+        { binding: eventStore.getSessionRuntimeBinding(id) },
       ),
   }),
 );
@@ -3091,6 +3121,17 @@ app.get('/api/sessions/:id/events', (req, res) => {
   }
   const events = eventStore.getEventsAfter(req.params.id, afterSeq);
   res.json(events.map(storedEventToClientMessage));
+});
+
+app.get('/api/sessions/:id/compactions', (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  if (!eventStore.getSession(req.params.id))
+    return res.status(404).json({ error: 'Conversation not registered' });
+  const events = eventStore.getEventsOfType(req.params.id, 'context_compaction', 513);
+  res.json({
+    records: projectCompactions(events.slice(0, 512).reverse()),
+    truncated: events.length > 512,
+  });
 });
 
 app.delete('/api/sessions', (_req, res) => {
