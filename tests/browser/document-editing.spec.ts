@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
+import { HTML_PREVIEW_BOOTSTRAP, htmlPreviewPolicy } from '../../server/html-preview-shell';
 
 async function sourceText(source: Locator) {
   return source.evaluate((element) =>
@@ -173,6 +174,12 @@ test('recovers a draft after reload and resolves a concurrent save conflict', as
 test('edits HTML while preserving a sandboxed live preview', async ({ page }) => {
   await page.routeWebSocket('**/*', (socket) => socket.close());
   await page.route('**/api/**', (route) => {
+    if (new URL(route.request().url()).pathname === '/api/html-preview')
+      return route.fulfill({
+        contentType: 'text/html',
+        headers: { 'content-security-policy': htmlPreviewPolicy() },
+        body: HTML_PREVIEW_BOOTSTRAP,
+      });
     if (new URL(route.request().url()).pathname === '/api/files/read')
       return route.fulfill({
         json: { path: 'page.html', ext: '.html', content: '<h1>Original</h1>' },

@@ -145,7 +145,9 @@ for (const native of [false, true])
         return route.abort();
       });
       await page.goto(parentOrigin + '/');
-      await expect(page.getByRole('status')).toContainText('Loading preview');
+      await expect(page.locator('.html-preview-card').first().getByRole('status')).toContainText(
+        'Loading preview',
+      );
       release();
       const frame = page.frameLocator('iframe[title="task-board.html preview"]');
       await expect(frame.getByRole('heading', { name: 'Task board' })).toBeVisible();
