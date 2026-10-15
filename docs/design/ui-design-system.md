@@ -574,3 +574,20 @@ position/evidence and composer placement. Captures show the
 [accent-aware settings](assets/approved-chat-settings-teal.png) and
 [desktop context](assets/approved-chat-context-desktop-light.png).
 These are intercepted fixtures; no backend, model or production service is used.
+
+## Saved contextual launch ownership
+
+Unsent briefing, meeting preparation, Work and Inbox launches are saved device drafts
+before navigation. Their exact prompt, source snapshot and selected account belong to
+that draft URL. New chat and opening another conversation release the active launch,
+so its briefing header, launch panel and composer guidance cannot follow the user.
+Drafts restores that launch only when its own record is opened. Acceptance consumes
+only the submitted draft revision; failed sends keep it, and outstanding sends stay
+locked when their draft is reopened. These changes reuse existing draft rows,
+conversation controls and briefing surfaces without new styling or motion.
+
+Offline launch regressions passed on mobile WebKit and mobile/desktop Chromium
+in dark/light appearance with Mint/Georgia. Inspected captures show the
+[fresh mobile chat](assets/fresh-chat-mobile-dark.png) and
+[fresh desktop chat](assets/fresh-chat-desktop-light.png), with briefing chrome
+restored only through the saved draft. No backend or model is used.

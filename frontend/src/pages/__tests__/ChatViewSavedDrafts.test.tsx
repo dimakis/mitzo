@@ -144,10 +144,13 @@ function Location() {
     </>
   );
 }
-function mount(Page: typeof ChatView, entry: string) {
+function mount(Page: typeof ChatView, entry: string, active?: string) {
   const store = createTestStore();
   const send = vi.fn();
-  store.setState({ sendMessage: send });
+  store.setState({
+    sendMessage: send,
+    ...(active ? { sessions: { ...store.getState().sessions, active } } : {}),
+  });
   const view = render(
     <MitzoStoreProvider value={store}>
       <MemoryRouter initialEntries={[entry]}>
@@ -425,3 +428,25 @@ vi.mock('../../hooks/useExplicitLocalChat', async () => {
   const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
   return { useExplicitLocalChat: disabledLocalChat };
 });
+
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} reopens an unsent briefing in its own draft and New clears its chrome`, async () => {
+    const draft = { ...createChatDraft(), text: 'Explore my saved briefing' };
+    const launch = {
+      prompt: draft.text,
+      context: 'Morning briefing',
+      briefing: { date: '2026-10-15', revision: 'a'.repeat(64) },
+      accountSelection: { accountId: 'work', model: 'luna' },
+    };
+    saveChatDraft({ ...draft, settings: { ...draft.settings, launch } });
+    const view = mount(Page, `/chat?draft=${draft.id}`, 'unrelated');
+    await waitFor(() => expect(view.store.getState().pendingSession).toMatchObject(launch));
+    expect(screen.getByRole('button', { name: 'Send launch prompt' })).toBeTruthy();
+    expect(getChatDraft(draft.id)?.settings.launch).toMatchObject(launch);
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    expect(screen.queryByRole('button', { name: 'Send launch prompt' })).toBeNull();
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(getChatDraft(draft.id)?.settings.launch).toMatchObject(launch);
+    expect(view.send).not.toHaveBeenCalled();
+  });
+}

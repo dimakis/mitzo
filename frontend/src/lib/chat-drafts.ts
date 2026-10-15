@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SourceSnapshotsSchema } from '@mitzo/protocol';
 import { createBrowserId } from './browser-crypto';
 import { getDefaultAccountModel } from './account-preference';
 import {
@@ -23,6 +24,24 @@ const schema = z.object({
   contextBlocks: z.array(z.string()),
   updatedAt: z.number(),
   settings: z.object({
+    launch: z
+      .object({
+        prompt: z.string(),
+        context: z.string(),
+        contextBlocks: z.array(z.string()).optional(),
+        sourceSnapshots: SourceSnapshotsSchema.optional(),
+        accountSelection: z
+          .object({
+            accountId: z.string(),
+            model: z.string(),
+            reasoningEffort: z.string().nullable().optional(),
+          })
+          .optional(),
+        briefing: z.object({ date: z.string(), revision: z.string() }).optional(),
+        telosTaskId: z.string().optional(),
+        agentName: z.string().optional(),
+      })
+      .optional(),
     // Additive intent only; old drafts keep their original version and unknown location.
     runtimeSelection: ChatRuntimeSelectionSchema.nullable().optional(),
     retainRuntimeIntent: z.boolean().optional(),
@@ -104,6 +123,7 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.images.length &&
       !draft.contextBlocks.length &&
       !draft.settings.repositoryWorkspaceId &&
+      !draft.settings.launch &&
       !draft.settings.retainRuntimeIntent
     )
       localStorage.removeItem(PREFIX + draft.id);

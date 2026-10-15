@@ -3699,7 +3699,7 @@ it('sends an approved briefing snapshot and account without replacing either wit
   expect(store.getState().messages.messages.at(-1)?.sourceSnapshots).toEqual(sent?.sourceSnapshots);
 });
 
-it('releases a navigated launch for retry on its matching startup rejection', () => {
+it('does not restore cleared launch chrome on a late startup rejection', () => {
   const store = createReadyStore();
   store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
   store.getState().sendPendingSession();
@@ -3712,18 +3712,18 @@ it('releases a navigated launch for retry on its matching startup rejection', ()
     clientMsgId: id,
     error: 'Rejected',
   });
-  expect(store.getState().pendingSession?.prompt).toBe('Launch');
+  expect(store.getState().pendingSession).toBeNull();
   expect(store.getState().pendingSessionSending).toBe(false);
 });
 
-it('permits retry when navigation cancels a launch that was never transmitted', () => {
+it('clears queued launch chrome when New cancels an untransmitted send', () => {
   const store = createMitzoStore(makeOptions());
   store.getState().setPendingSession({ prompt: 'Queued launch', context: 'Telos' });
   store.getState().sendPendingSession();
   expect(store.getState().pendingSessionSending).toBe(true);
   store.getState().newSession();
   expect(store.getState().pendingSessionSending).toBe(false);
-  expect(store.getState().pendingSession?.prompt).toBe('Queued launch');
+  expect(store.getState().pendingSession).toBeNull();
 });
 
 it('retains an offscreen launch reconnect subscription and reconciles its persisted receipt', async () => {
@@ -3832,34 +3832,18 @@ it('removes the rejected optimistic launch before retrying without duplicating i
   expect(store.getState().pendingSession).toBeNull();
 });
 
-it('requires a dedicated draft and confirmation before retrying a navigated failed launch', async () => {
+it('keeps navigation on the selected session after the previous launch fails', async () => {
   const store = createReadyStore();
   store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos', telosTaskId: 'task' });
-  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna', cwd: '/original' });
+  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna' });
   const id = store.getState().messages.messages.at(-1)!.messageId;
   lastWs.simulateMessage({ type: 'session_id', sessionId: 'launch-a', clientMsgId: id });
   await store.getState().switchSession('unrelated-b');
   lastWs.simulateMessage({ type: 'error', clientMsgId: id, error: 'Startup failed' });
   expect(store.getState().sessions.active).toBe('unrelated-b');
-  expect(
-    store.getState().sendPendingSession({ accountId: 'work', model: 'other', cwd: '/unrelated' }),
-  ).toBe(false);
+  expect(store.getState().pendingSession).toBeNull();
+  expect(store.getState().sendPendingSession()).toBe(false);
   expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
-  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna', cwd: '/original' });
-  expect(
-    lastWs
-      .parsedSent()
-      .filter((m) => m.type === 'send')
-      .at(-1),
-  ).toMatchObject({
-    sessionId: null,
-    accountId: 'personal',
-    model: 'luna',
-    cwd: '/original',
-    telosTaskId: 'task',
-    prompt: 'Launch',
-  });
-  expect(store.getState().sessions.active).toBeNull();
 });
 
 it('retires the first launch foreground assignment when a replacement opens in the draft', () => {
@@ -3910,21 +3894,27 @@ it('retires a dismissed launch before a later launch opens in its unassigned dra
   ).toMatchObject({ sessionId: null, prompt: 'B' });
 });
 
-it('returns a navigated unsent launch to a draft for account confirmation before sending', async () => {
+it('clears an unsent launch when opening an unrelated session', async () => {
   const store = createReadyStore();
   store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos', telosTaskId: 'task' });
   await store.getState().switchSession('unrelated');
-  expect(store.getState().sendPendingSession({ accountId: 'work', model: 'other' })).toBe(false);
+  expect(store.getState().pendingSession).toBeNull();
+  expect(store.getState().sendPendingSession()).toBe(false);
+  expect(store.getState().sessions.active).toBe('unrelated');
   expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(0);
+});
+
+it('New clears launch chrome and fences late assignment from the previous launch', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({ prompt: 'Launch', context: 'Briefing' });
+  store.getState().sendPendingSession();
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  store.getState().newSession();
+  expect(store.getState().pendingSession).toBeNull();
+  expect(store.getState().pendingSessionSending).toBe(false);
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'old-launch', clientMsgId: id });
   expect(store.getState().sessions.active).toBeNull();
-  expect(store.getState().pendingSession?.prompt).toBe('Launch');
-  store.getState().sendPendingSession({ accountId: 'personal', model: 'luna' });
-  expect(
-    lastWs
-      .parsedSent()
-      .filter((m) => m.type === 'send')
-      .at(-1),
-  ).toMatchObject({ sessionId: null, accountId: 'personal', model: 'luna', telosTaskId: 'task' });
+  expect(store.getState().messages.messages).toEqual([]);
 });
 
 it.each([false, true])(

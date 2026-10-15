@@ -81,6 +81,8 @@ export interface SendMessageOptions {
 }
 
 export interface PendingSession {
+  /** Saved composer that owns this launch; never global chat context. */
+  draftId?: string;
   prompt: string;
   context: string;
   /** Configured reference block names. */
@@ -464,6 +466,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     NonNullable<SendMessageOptions['onSessionAssigned']>
   >();
   let launchGeneration = 0;
+  // Navigation releases the visible composer, not an outstanding send's identity.
+  const launchSends = new Map<string, PendingSession>();
   const deliverySessions = new Map<string, string>();
   // Keep recent command origins after receipts settle so duplicate errors stay scoped.
   const deliveryOrigins = new Map<
@@ -808,6 +812,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      ++launchGeneration;
+      set({ pendingSession: null, pendingSessionSending: false });
       if (id !== parserState.currentSessionId) unconfirmedPermissionResponses.clear();
       const request = ++historyRequest;
       openingHistory = { sessionId: id, request, actions: [] };
@@ -922,6 +928,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      ++launchGeneration;
+      set({ pendingSession: null, pendingSessionSending: false });
       unconfirmedPermissionResponses.clear();
       ++historyRequest;
       recoveryInFlight = false;
@@ -1388,7 +1396,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       // Replacing a launch owns a new draft and retires any earlier assignment.
       if (get().pendingSession) get().newSession();
       ++launchGeneration;
-      set({ pendingSession: ps, pendingSessionSending: false });
+      const sending = ps.draftId ? launchSends.get(ps.draftId) : undefined;
+      set({ pendingSession: sending ?? ps, pendingSessionSending: !!sending });
     },
 
     clearPendingSession() {
@@ -1410,6 +1419,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       // A carried preview must be reviewed in its own draft before account confirmation.
       if (get().sessions.active) {
         get().newSession();
+        set({ pendingSession: pending });
         return false;
       }
       const selection = {
@@ -1422,6 +1432,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       };
       // Each attempt has a distinct identity, so stale receipts cannot dismiss a replacement.
       const launch = { ...pending };
+      if (launch.draftId) launchSends.set(launch.draftId, launch);
       set({ pendingSession: launch, pendingSessionSending: true });
       get().dispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
       let queued = true;
@@ -1430,6 +1441,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         ...(launch.telosTaskId ? { telosTaskId: launch.telosTaskId } : {}),
         ...(launch.agentName ? { agentName: launch.agentName } : {}),
         onDelivery(status) {
+          if (
+            status !== 'uncertain' &&
+            launch.draftId &&
+            launchSends.get(launch.draftId) === launch
+          )
+            launchSends.delete(launch.draftId);
+          opts?.onDelivery?.(status);
           if (get().pendingSession !== launch) return;
           if (status === 'accepted') set({ pendingSession: null, pendingSessionSending: false });
           else if (status === 'failed') {
@@ -1437,7 +1455,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             set({ pendingSessionSending: false });
           }
           // Uncertain delivery remains locked until its matching receipt arrives.
-          opts?.onDelivery?.(status);
         },
       });
       return queued;

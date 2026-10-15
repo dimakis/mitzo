@@ -15,7 +15,12 @@ import {
 } from '../lib/explicit-local-chat';
 import { createBrowserId } from '../lib/browser-crypto';
 import { useNewChatDraft, useChatDraftSearch } from '../hooks/useNewChatDraft';
-import { CHAT_DRAFTS_CHANGED, getChatDraft, chatDraftStorageKey } from '../lib/chat-drafts';
+import {
+  CHAT_DRAFTS_CHANGED,
+  getChatDraft,
+  chatDraftStorageKey,
+  chatDraftTextKey,
+} from '../lib/chat-drafts';
 import { useBriefingChat } from '../hooks/useBriefingChat';
 import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
@@ -89,7 +94,6 @@ export function DesktopChatView() {
   const connection = useConnection();
   const tokens = useTokens();
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
-  const briefingChat = useBriefingChat(activeSessionId);
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
@@ -121,9 +125,14 @@ export function DesktopChatView() {
     registrationError,
     registrationSaving,
     retryRegistration,
-  } = usePendingLaunch();
+  } = usePendingLaunch(sessionId ? null : searchParams.get('draft'));
+  const briefingChat = useBriefingChat(activeSessionId, launch);
 
-  const draftEnabled = !sessionId && !activeSessionId && !repositoryHandoff.present && !launch;
+  const savedLaunch = searchParams.get('draft')
+    ? getChatDraft(searchParams.get('draft')!)?.settings.launch
+    : undefined;
+  const draftEnabled =
+    !sessionId && !activeSessionId && !repositoryHandoff.present && !launch && !savedLaunch;
   const newChatDraft = useNewChatDraft(searchParams.get('draft'), chatDraftRevision, draftEnabled);
   const localCommand = useMitzoStore((s) => s.localCommand);
   const localTransportAvailable = useMitzoStore((s) => s.localFirstCommandTransportAvailable);
@@ -502,7 +511,8 @@ export function DesktopChatView() {
       storeSwitchSession(sessionId);
     } else if (
       !sessionId &&
-      (preparationId !== null || activeSessionId || resetFailedDraftOnMount.current)
+      (preparationId !== null || activeSessionId || resetFailedDraftOnMount.current) &&
+      !launch?.draftId
     ) {
       storeNewSession();
     }
@@ -1349,9 +1359,11 @@ export function DesktopChatView() {
                   draftStorageKey={
                     repositoryHandoff.present
                       ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
-                      : newChatDraft.missing
-                        ? chatDraftStorageKey(newChatDraft.draft.id)
-                        : undefined
+                      : launch?.draftId
+                        ? chatDraftTextKey(launch.draftId)
+                        : newChatDraft.missing
+                          ? chatDraftStorageKey(newChatDraft.draft.id)
+                          : undefined
                   }
                   initialText={
                     repositoryHandoff.present

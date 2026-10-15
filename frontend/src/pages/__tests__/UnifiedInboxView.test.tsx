@@ -25,7 +25,8 @@ vi.mock('../../lib/event-bus-singleton', () => ({
   },
 }));
 vi.mock('@mitzo/client/hooks', () => ({
-  useMitzoStore: (select: (s: object) => unknown) => select({ setPendingSession: vi.fn() }),
+  useMitzoStore: (select: (s: object) => unknown) =>
+    select({ newSession: vi.fn(), setPendingSession: vi.fn() }),
 }));
 const request = {
   id: 'permission:p',
