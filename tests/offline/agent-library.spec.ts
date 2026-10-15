@@ -1,4 +1,3 @@
-import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -29,12 +28,82 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   let previewError = false;
   let adviceError = false;
   let adviceCalls = 0;
+  let taskSaveError = true;
+  const tasks: import('@mitzo/protocol').AgentTaskRecord[] = [];
+  const taskWrites: unknown[] = [];
+  const account = { accountId: 'task-account', provider: 'openai', profileRevision: 'r1' };
+  const taskInventory = {
+    version: 1,
+    authority: 'configuration-only',
+    defaultLocation: 'openshell',
+    capabilityRevision: 'task-capabilities',
+    accounts: [
+      {
+        account,
+        label: 'Task account',
+        models: [{ id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] }],
+        modelDiscovery: { source: 'configured', stale: false },
+      },
+    ],
+    targets: [
+      {
+        targetId: 'task-shell',
+        targetRevision: 't1',
+        label: 'OpenShell',
+        location: 'openshell',
+        harness: 'responses',
+      },
+      {
+        targetId: 'task-mac',
+        targetRevision: 't1',
+        label: 'Local Mac',
+        location: 'local',
+        harness: 'responses',
+      },
+    ],
+    routes: ['task-shell', 'task-mac'].map((targetId) => ({
+      account,
+      targetId,
+      harness: 'responses',
+      modes: ['agent'],
+    })),
+    locations: [
+      { location: 'openshell', status: 'configured' },
+      { location: 'local', status: 'configured' },
+    ],
+    agentProfiles: [],
+  };
+  page.on('dialog', (dialog) => dialog.accept());
   page.on('pageerror', (error) => errors.push(error.message));
   await page.routeWebSocket('**/*', (socket) => socket.close());
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
-    if (await disabledLocalCapabilities(route, url)) return;
+    if (
+      ['/api/chat/runtime/capabilities', '/api/chat/local-codex/capabilities'].includes(
+        url.pathname,
+      )
+    )
+      return route.fulfill({ json: taskInventory });
+    if (url.pathname === '/api/agent-tasks') {
+      if (route.request().method() === 'GET') return route.fulfill({ json: tasks });
+      const body = route.request().postDataJSON();
+      taskWrites.push(body);
+      if (taskSaveError)
+        return route.fulfill({ status: 503, json: { error: 'Task save unavailable' } });
+      expect(body.expectedRevision).toBe(0);
+      const saved = {
+        taskId: body.taskId,
+        revision: 1,
+        definition: body.definition,
+        configuration: { state: 'blocked' as const, reason: 'admission-unavailable' as const },
+        deleted: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      tasks.push(saved);
+      return route.fulfill({ json: saved });
+    }
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname === '/api/agent-library') {
         if (catalogMode === 'loading')
@@ -142,6 +211,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         '/api/notifications': { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false },
         '/api/sessions': { sessions: [], hasMore: false },
         '/api/accounts': [],
+        '/api/agent-tasks': [],
         '/api/terminals/accounts': [
           {
             id: 'work-advisor',
@@ -182,6 +252,67 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByRole('heading', { name: 'Agent Library', exact: true })).toBeVisible();
   await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The architect');
+  await expect(page.getByRole('tab', { name: 'Profiles', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Tasks & schedules', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Use in Symposium/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Assign task', exact: true }).click();
+  await page.getByLabel('Task name', { exact: true }).fill('Retained task');
+  await page
+    .getByLabel('Objective', { exact: true })
+    .fill('Review the queue without losing this input');
+  await page.getByRole('combobox', { name: 'Schedule', exact: true }).selectOption('cron');
+  await page.getByLabel('Cron expression', { exact: true }).fill('');
+  await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
+  await page.getByRole('tab', { name: 'Tasks & schedules', exact: true }).click();
+  await expect(page.getByLabel('Objective', { exact: true })).toHaveValue(
+    'Review the queue without losing this input',
+  );
+  await page.reload();
+  await expect(page.getByLabel('Cron expression', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Run now', exact: true })).toHaveCount(0);
+  await page.screenshot({
+    path: testInfo.outputPath('agent-task-recovery.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await page.getByLabel('Cron expression', { exact: true }).fill('0 7 * * 1-5');
+  await page.getByLabel('Timezone', { exact: true }).fill('Europe/Dublin');
+  const taskSettings = page.getByRole('button', { name: /^Agent settings/ });
+  await taskSettings.click();
+  const taskPanel = page.getByRole('region', { name: 'Agent settings', exact: true });
+  await taskPanel.getByLabel('Account', { exact: true }).selectOption('task-account');
+  await taskPanel.getByLabel('Thinking level', { exact: true }).selectOption('high');
+  await taskPanel.getByRole('button', { name: 'Local Mac', exact: true }).click();
+  await expect(taskPanel.getByText('Runs with Mitzo Responses')).toBeVisible();
+  await taskPanel.getByLabel('Model', { exact: true }).focus();
+  await page.keyboard.press('Escape');
+  await expect(taskSettings).toBeFocused();
+  await page.getByLabel('Workspace reference').fill('workspace-fixture');
+  await page.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Task save unavailable');
+  await page.reload();
+  await expect(page.getByLabel('Objective', { exact: true })).toHaveValue(
+    'Review the queue without losing this input',
+  );
+  taskSaveError = false;
+  await page.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(page.getByText('Task saved. Execution is not available yet.')).toBeVisible();
+  expect(taskWrites).toHaveLength(2);
+  expect(taskWrites[1]).toEqual(taskWrites[0]);
+  expect(tasks[0].definition).toMatchObject({
+    profile: { profileId: 'bob', revision: 3, contentHash: 'a'.repeat(64) },
+    execution: {
+      account,
+      model: 'luna-fixture',
+      reasoningEffort: 'high',
+      targetId: 'task-mac',
+      harness: 'responses',
+    },
+    schedule: { cron: '0 7 * * 1-5', timezone: 'Europe/Dublin', state: 'paused' },
+  });
+  await page.getByRole('button', { name: 'Close task editor', exact: true }).click();
+  await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
+
   await page.getByRole('button', { name: 'Create with advisor', exact: true }).click();
   await expect(page).toHaveURL(/\/agent-library$/);
   const advisor = page.getByRole('region', { name: 'Agent advisor', exact: true });
@@ -245,18 +376,17 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.getByRole('tab', { name: 'Identity', exact: true }).click();
   await page.getByLabel('Agent name').fill('Robert');
   await page.getByLabel('Descriptor').fill('The systems architect');
-  await expect(page.getByRole('link', { name: 'Use in chat', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Use in session', exact: true })).toHaveCount(0);
   await page.getByRole('link', { name: isMobile ? 'More' : 'Today', exact: true }).click();
   await page.goBack();
   await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The systems architect');
-  page.once('dialog', (dialog) => dialog.accept());
   await page.reload();
   await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The systems architect');
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await page.getByRole('button', { name: 'Publish revision', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'Use in chat', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'Use in session', exact: true })).toHaveAttribute(
     'href',
     '/chat?agentProfile=bob&profileRevision=4',
   );
@@ -266,7 +396,6 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     revision: 5,
     definition: { ...catalog.versions[0].definition, name: 'Remote Robert' },
   });
-  page.once('dialog', (dialog) => dialog.accept());
   await page.reload();
   await expect(page.getByLabel('Agent name')).toHaveValue('Working Robert');
   await expect(page.getByLabel('Agent name')).toBeEnabled();
@@ -353,16 +482,38 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
             .getByLabel('Agent name')
             .evaluate((element) => getComputedStyle(element).fontFamily),
         ).toContain('Georgia');
-      await page
-        .getByRole('button', { name: 'Use as reviewer', exact: true })
-        .scrollIntoViewIfNeeded();
-      await expect(
-        page.getByRole('button', { name: 'Use as reviewer', exact: true }),
-      ).toBeInViewport();
+      await page.getByRole('button', { name: 'Assign task', exact: true }).scrollIntoViewIfNeeded();
+      await expect(page.getByRole('button', { name: 'Assign task', exact: true })).toBeInViewport();
       await page.screenshot({
         path: testInfo.outputPath(`agent-library-${theme}-${accent}-${font}.png`),
         fullPage: true,
       });
+      await page.getByRole('tab', { name: 'Tasks & schedules', exact: true }).click();
+      await expect(
+        page.getByRole('button', { name: 'Task settings: Retained task' }),
+      ).toBeVisible();
+      await page.getByRole('button', { name: 'Task settings: Retained task' }).click();
+      await expect(page.getByRole('combobox', { name: 'Agent profile', exact: true })).toHaveValue(
+        `bob:3:${'a'.repeat(64)}`,
+      );
+      await page.getByRole('button', { name: /^Agent settings/ }).click();
+      const settings = page.getByRole('region', { name: 'Agent settings', exact: true });
+      await expect(settings.getByLabel('Account', { exact: true })).toHaveValue('task-account');
+      await expect(settings.getByLabel('Thinking level', { exact: true })).toHaveValue('high');
+      await expect(
+        settings.getByRole('button', { name: 'Local Mac', exact: true }),
+      ).toHaveAttribute('aria-pressed', 'true');
+      await settings.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: testInfo.outputPath(`agent-task-settings-${theme}-${accent}-${font}.png`),
+        animations: 'disabled',
+      });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await settings.getByRole('button', { name: 'Done', exact: true }).click();
+      await page.getByRole('button', { name: 'Close task editor', exact: true }).click();
+      await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
       await page.getByRole('tab', { name: 'Context', exact: true }).click();
       const contextSource = page.getByRole('combobox', { name: 'Context source', exact: true });
       expect(
@@ -402,8 +553,8 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     document.documentElement.style.fontSize = '20px';
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.getByRole('button', { name: 'Use as reviewer', exact: true }).scrollIntoViewIfNeeded();
-  await expect(page.getByRole('button', { name: 'Use as reviewer', exact: true })).toBeInViewport();
+  await page.getByRole('button', { name: 'Assign task', exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: 'Assign task', exact: true })).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath('agent-library-large-text.png'),
     fullPage: true,
@@ -446,7 +597,6 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     path: testInfo.outputPath('agent-creation-new.png'),
     animations: 'disabled',
   });
-  page.once('dialog', (dialog) => dialog.accept());
   await page.goto('/chat');
   const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();

@@ -327,3 +327,25 @@ it('scrolls only an oversized bound composer and restores its styles on dismissa
     bounds.mockRestore();
   }
 });
+
+it('keeps independent settings and keyboard focus outside a conversation composer', () => {
+  render(
+    <div>
+      <section aria-label="Builder">
+        <AgentSettingsPicker {...props} />
+      </section>
+      <section aria-label="Task">
+        <AgentSettingsPicker {...props} />
+      </section>
+    </div>,
+  );
+  const triggers = screen.getAllByRole('button', { name: /^Agent settings/ });
+  fireEvent.click(triggers[1]);
+  const region = screen.getByRole('region', { name: 'Agent settings' });
+  fireEvent.change(region.querySelector('select')!, { target: { value: 'Bob' } });
+  fireEvent.keyDown(region, { key: 'Escape' });
+  expect(triggers[0].getAttribute('aria-expanded')).toBe('false');
+  expect(document.activeElement).toBe(triggers[1]);
+  // Shared settings embedded outside chat must have their own bounded scrolling surface.
+  expect(region.style.getPropertyValue('--agent-settings-space')).not.toBe('');
+});

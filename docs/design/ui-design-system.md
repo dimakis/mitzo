@@ -725,3 +725,35 @@ Inspected captures show [new agent creation on mobile](assets/agent-creation-mob
 and [the desktop advisor above the profile form](assets/agent-creation-desktop-light.png).
 These are fully intercepted fixtures; no live model, backend or production service
 was used.
+
+## Agent Library tasks and shared settings
+
+Agent Library extends its existing profile workbench with Profiles and Tasks &
+schedules, plus Assigned tasks within profile detail. Use in session delegates to
+ordinary setup with the selected immutable revision. Assign task retains an exact
+published binding. The full editor, context, import/export and history remain;
+Symposium selection stays inside a session.
+
+Task setup uses AgentSettingsPicker, controlled AccountModelPicker and
+ChatExecutionPicker with the ordinary runtime catalog. Its retained selection is
+separate from advisor and session defaults. The shared panel measures its own
+available space outside chat, keeps fields mounted when closed, scrolls internally,
+and restores trigger focus on Escape/Done. Library actions use quiet outlined or
+soft surfaces; type, spacing, radius, focus and touch heights use shared tokens.
+Collection/profile tabs support arrow keys and Home/End. No palette, font or motion
+scale is added. Existing shell and panel bounds remain structural geometry.
+
+Task input stays recoverable through navigation, refresh and failed/conflicting
+writes. Paused schedule intent and unavailable execution/history/next-run state
+remain explicit. Offline fixtures cover 320px phones and desktop, light/dark,
+alternate accents/fonts, larger text, keyboard focus and exact retry requests.
+Isolated actual-page renders include MobileShell/DesktopShell and shared controls;
+full-app offline acceptance remains the hosted CI test:ui gate.
+
+Inspected captures show [mobile task settings](assets/agent-task-settings-mobile-dark.png),
+[desktop task settings](assets/agent-task-settings-desktop-light.png) and
+[the mobile assigned-task collection](assets/agent-tasks-mobile-light.png).
+They render the actual page, shells and controls using intercepted data only.
+The 320px settings body scrolls while Close/Done remain reachable above navigation;
+Escape restores summary focus. Save failure/reload retries retain identical input,
+profile ID/revision/hash, selected account, model/thinking and target.
