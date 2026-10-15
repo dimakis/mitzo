@@ -47,11 +47,13 @@ compiler failure, cache retention and repair, failed SSH delivery, wrong receipt
 missing/malformed context, ownership changes and cancellation. Server production
 type checking, lint and formatting pass. No model calls were made.
 
-The canonical staging check refused with uncertain custody on October 15. No
-service, sandbox or staging configuration was changed. Live latency acceptance
-requires the original-owner issue to be resolved through its operating procedure,
-reviewed provider enrollment and an explicitly selected supported Luna model with
-the exact charged account announced first. Production deployment is separate.
+The initial canonical staging check refused with uncertain custody on October 15.
+The user subsequently stood staging and its pipeline down; they are no longer
+part of the validation plan. No service or sandbox was changed by this work.
+Current validation uses offline tests and CI. Any future live latency acceptance
+requires a separately selected and authorized target and an explicitly supported
+Luna model, with the exact charged account announced first. Production is not an
+automatic fallback, and production deployment requires a separate explicit action.
 
 The remaining cold-start work includes sandbox creation, task seed upload,
 publication reconciliation, remote knowledge upload, runtime/provider checks,
