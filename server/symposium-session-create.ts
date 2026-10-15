@@ -1,3 +1,4 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { agentProfileLabel } from '@mitzo/protocol';
 import type { SessionArtifactPreparation } from './symposium-session-artifacts.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -87,6 +88,7 @@ export function createSymposiumSessionRouter(deps: {
       if (!profile || profile.definition.role !== selection.role)
         throw new Error('Select a saved profile revision matching the supported seat role');
       const definition = profile.definition;
+      assertAgentToolRoute(definition, 'symposium');
       const config = {
         version: 2,
         revision: 1,

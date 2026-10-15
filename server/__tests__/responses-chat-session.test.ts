@@ -1802,3 +1802,91 @@ it.each(['agent', 'ask'] as const)(
     }
   },
 );
+
+it.each(['openai', 'google-vertex'] as const)(
+  'enforces a published subset at exposure and every dispatch on %s without discovering unselected MCP servers',
+  async (provider) => {
+    const { bindAgentToolSelection } = await import('../agent-tool-selection.js');
+    const registry = new SessionRegistry();
+    registry.register('selected-client', {
+      sessionId: `selected-${provider}`,
+      cwd: '/tmp',
+      mode: 'agent',
+      abortController: new AbortController(),
+      sessionAllowList: new Set(),
+    } as never);
+    const session = registry.get('selected-client')!;
+    bindAgentToolSelection(session, {
+      tools: [
+        { id: 'mitzo:GetConnectionGuide', version: 1 },
+        { id: 'mitzo:Read', version: 1 },
+      ],
+    } as never);
+    const input = new AsyncQueue<{ message: { content: string } }>();
+    const chat = await openResponsesChat({
+      conversationId: `selected-${provider}`,
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider,
+        model: 'luna-fixture',
+        profileRevision: 'r1',
+      },
+      apiKey: provider === 'openai' ? 'fake-key' : undefined,
+      session,
+      registry,
+      input,
+      systemPrompt: 'test',
+      env: {},
+      mcpServers: { private: { command: 'must-never-launch', args: [] } },
+      store: {} as never,
+    });
+    try {
+      const opts = calls.options.at(-1)! as {
+        tools: { name: string }[];
+        executeTool(
+          block: { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> },
+          signal: AbortSignal,
+        ): Promise<{ content: string; is_error: boolean }>;
+      };
+      expect(opts.tools.map((tool) => tool.name).sort()).toEqual([
+        'AskUserQuestion',
+        'GetConnectionGuide',
+        'Read',
+      ]);
+      for (const name of [
+        'ConnectionRequest',
+        'RequestGithubPublish',
+        'mitzo_mcp_forged',
+        'mcp__mitzo-connections__ConnectionRequest',
+        'ExecuteProviderCapability',
+        'Bash',
+      ]) {
+        const result = await opts.executeTool(
+          { type: 'tool_use', id: `call-${name}`, name, input: {} },
+          session.abortController.signal,
+        );
+        expect(result).toMatchObject({
+          is_error: true,
+          content: expect.stringMatching(/not selected/i),
+        });
+      }
+      expect(
+        await opts.executeTool(
+          { type: 'tool_use', id: 'selected-guide', name: 'GetConnectionGuide', input: {} },
+          session.abortController.signal,
+        ),
+      ).toMatchObject({ is_error: false });
+      session.activeSkillPolicy = new Set(['Read']);
+      expect(
+        await opts.executeTool(
+          { type: 'tool_use', id: 'revoked-guide', name: 'GetConnectionGuide', input: {} },
+          session.abortController.signal,
+        ),
+      ).toMatchObject({ is_error: true });
+    } finally {
+      chat.close();
+      registry.dispose();
+    }
+  },
+);

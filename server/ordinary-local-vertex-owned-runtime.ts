@@ -1,3 +1,4 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -329,6 +330,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       request.selection.permission.revision !== 0
     )
       throw unavailable();
+    assertAgentToolRoute(profile.definition, 'claude-sdk');
     const frozenPayload = { ...payload, systemPrompt: buildAgentProfilePrompt(profile.definition) };
     const admittedRequest = { ...request, payload: frozenPayload };
     const selected = new OrdinaryLocalCodexSelectionOwner({

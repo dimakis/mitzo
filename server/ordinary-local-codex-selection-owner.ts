@@ -1,3 +1,4 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
 import { resolveChatAgentContext } from './agent-context-binding.js';
 import type { AgentContextSnapshot } from '@mitzo/protocol';
@@ -56,6 +57,10 @@ export class OrdinaryLocalCodexSelectionOwner {
         reservation = this.#reservation;
       const identity = { ...expected, agentContext: undefined };
       if (this.#snapshot && !isDeepStrictEqual(identity, this.#snapshot)) throw unavailable();
+      assertAgentToolRoute(
+        expected.agentProfile?.definition,
+        this.owners.responses ? 'local-api' : this.owners.vertex ? 'claude-sdk' : 'codex',
+      );
       assertOrdinaryCodexContextIdentity(
         expected.agentProfile,
         expected.selection,

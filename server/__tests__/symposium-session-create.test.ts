@@ -359,3 +359,17 @@ it('does not let noncanonical custodian paths reach the actual child creation/ar
   expect(ensure).not.toHaveBeenCalled();
   expect(invoke).not.toHaveBeenCalled();
 });
+
+it('refuses an explicitly selected tool profile before allocating an unsupported native session', async () => {
+  const base = profiles.get('user', 'builder', 1)!;
+  profiles.save('user', {
+    profileId: 'selected',
+    expectedRevision: 0,
+    idempotencyKey: 'selected',
+    definition: { ...base.definition, tools: [] },
+  });
+  const result = await post({ ...body, profileSelection: { profileId: 'selected', revision: 1 } });
+  expect(result.status).toBe(409);
+  expect(result.body.error).toMatch(/not supported/i);
+  expect(store.listSessions()).toHaveLength(0);
+});
