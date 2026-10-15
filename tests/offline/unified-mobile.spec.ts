@@ -507,50 +507,73 @@ test('composer: commands use a quiet icon with discoverable labels', async ({ pa
 test('motion: rapid toggles continue from the visible menu and disclosure frame', async ({
   page,
 }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/chat');
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeVisible();
   const samples = await page.evaluate(async () => {
     const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    // Freeze the two sampled surfaces at creation: a loaded WebKit worker can
+    // finish a short entrance before the next animation frame is sampled.
+    const nativeAnimate = Element.prototype.animate;
+    const sampled = new Set<Element>();
+    Element.prototype.animate = function (keyframes, options) {
+      const animation = nativeAnimate.call(this, keyframes, options);
+      if (sampled.has(this)) animation.pause();
+      return animation;
+    };
+    const animationFor = async (surface: Element, previous?: Animation) => {
+      for (let attempt = 0; attempt < 120; attempt++) {
+        const animation = surface
+          .getAnimations()
+          .find((entry) => entry !== previous && entry.id.startsWith('mitzo:'));
+        if (animation) return animation;
+        await nextFrame();
+      }
+      throw new Error('Expected the sampled surface to start a Mitzo animation');
+    };
     const results: { before: number; after: number; heightBefore: number; heightAfter: number }[] =
       [];
-    for (const [toggleSelector, surfaceSelector] of [
-      ['.composer-tools-toggle', '.composer-tools'],
-      ['.workspace-controls-toggle', '.workspace-controls > .motion-disclosure'],
-    ]) {
-      const toggle = document.querySelector<HTMLElement>(toggleSelector)!;
-      const surface = document.querySelector<HTMLElement>(surfaceSelector)!;
-      toggle.click();
-      await nextFrame();
-      for (let interruption = 0; interruption < 2; interruption++) {
-        const current = surface
-          .getAnimations()
-          .find((animation) => animation.id.startsWith('mitzo:'))!;
-        current.pause();
-        current.currentTime = Number(current.effect!.getTiming().duration) / 2;
-        const before = Number(getComputedStyle(surface).opacity);
-        const heightBefore = surface.getBoundingClientRect().height;
+    try {
+      for (const [toggleSelector, surfaceSelector] of [
+        ['.composer-tools-toggle', '.composer-tools'],
+        ['.workspace-controls-toggle', '.workspace-controls > .motion-disclosure'],
+      ]) {
+        const toggle = document.querySelector<HTMLElement>(toggleSelector)!;
+        const surface = document.querySelector<HTMLElement>(surfaceSelector)!;
+        sampled.add(surface);
         toggle.click();
         await nextFrame();
-        const replacement = surface
-          .getAnimations()
-          .find((animation) => animation.id.startsWith('mitzo:'))!;
-        replacement.pause();
-        replacement.currentTime = 0;
-        results.push({
-          before,
-          after: Number(getComputedStyle(surface).opacity),
-          heightBefore,
-          heightAfter: surface.getBoundingClientRect().height,
-        });
+        for (let interruption = 0; interruption < 2; interruption++) {
+          const current = await animationFor(surface);
+          current.pause();
+          current.currentTime = Number(current.effect!.getTiming().duration) / 2;
+          const before = Number(getComputedStyle(surface).opacity);
+          const heightBefore = surface.getBoundingClientRect().height;
+          toggle.click();
+          await nextFrame();
+          const replacement = await animationFor(surface, current);
+          replacement.pause();
+          replacement.currentTime = 0;
+          results.push({
+            before,
+            after: Number(getComputedStyle(surface).opacity),
+            heightBefore,
+            heightAfter: surface.getBoundingClientRect().height,
+          });
+        }
+        // Settle the final entrance and exit before sampling the next surface.
+        surface.getAnimations().forEach((animation) => animation.finish());
+        await nextFrame();
+        toggle.click();
+        await nextFrame();
+        surface.getAnimations().forEach((animation) => animation.finish());
+        await nextFrame();
       }
-      // Let the final entrance settle, then close this surface normally.
-      surface.getAnimations().forEach((animation) => animation.finish());
-      await nextFrame();
-      toggle.click();
-      await nextFrame();
+      return results;
+    } finally {
+      Element.prototype.animate = nativeAnimate;
     }
-    return results;
   });
   expect(samples).toHaveLength(4);
   for (const sample of samples) {
