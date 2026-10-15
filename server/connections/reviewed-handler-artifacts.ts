@@ -108,7 +108,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionTray.tsx':
     'da210c89a8dd6821ddd98b1c6429ae58fa6731d1afe98c08a75f0867695d99ba',
   '../../frontend/src/components/WorkspaceControls.tsx':
-    '4b3f7cca25fd65602b258b9258688ff658f69cbd9ba0138fbacae05a51de2a52',
+    '5363ab329a3dcb28b3cf1e5e3466e7de0d55f116b06e5913ec0e4644c0b4e99d',
   '../../frontend/src/hooks/ChatRuntimeDraftProvider.tsx':
     'fcebbeefa5ff14bd074515519a0c4e1d6774ecd7177921ca2264328239cc9720',
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':

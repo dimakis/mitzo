@@ -33,6 +33,7 @@ export function WorkspaceControls({
   const id = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const hasSettings = !!settings;
   useEffect(() => setOpen(false), [scopeKey]);
   const { ref, present } = useMotionPresence(open, 'disclosure', false);
   useEffect(() => {
@@ -102,20 +103,23 @@ export function WorkspaceControls({
       const freeMessages = messages
         ? Math.max(0, messages.getBoundingClientRect().height - minimumMessages)
         : 0;
-      // Measure the same structural space in both modes. Switching to an overlay
+      const heading = owner.querySelector<HTMLElement>('.workspace-controls-heading');
+      const headingGap = heading ? Number.parseFloat(getComputedStyle(heading).gap) || 0 : 0;
+      // Settings measure the same structural space in both modes. Switching to an overlay
       // removes only the panel's flow contribution; it must not change the threshold
       // calculation and repeatedly switch the panel back into flow.
-      const panelFlowHeight =
-        getComputedStyle(panel).position === 'absolute' ? 0 : panel.getBoundingClientRect().height;
+      const overlay = getComputedStyle(panel).position === 'absolute';
+      const panelFlowHeight = overlay ? 0 : panel.getBoundingClientRect().height;
       const space =
-        chat.clientHeight -
-        (composer.getBoundingClientRect().bottom -
-          chat.getBoundingClientRect().top +
-          chat.scrollTop -
-          panelFlowHeight -
-          freeMessages);
+        !hasSettings && overlay
+          ? boundary.getBoundingClientRect().top - owner.getBoundingClientRect().bottom - headingGap
+          : chat.clientHeight -
+            (composer.getBoundingClientRect().bottom -
+              chat.getBoundingClientRect().top +
+              chat.scrollTop -
+              panelFlowHeight -
+              freeMessages);
       panel.style.setProperty('--workspace-disclosure-space', `${Math.max(0, space)}px`);
-      const heading = owner.querySelector<HTMLElement>('.workspace-controls-heading');
       const viewport = window.visualViewport;
       const viewportBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
       const navigation = document.querySelector('.workspace-tabs')?.getBoundingClientRect();
@@ -149,7 +153,7 @@ export function WorkspaceControls({
       window.removeEventListener('resize', measure);
       window.visualViewport?.removeEventListener('resize', measure);
     };
-  }, [open, attention, ref]);
+  }, [open, attention, ref, hasSettings]);
   return (
     <section className={`workspace-controls${leading ? ' workspace-controls--navigation' : ''}`}>
       <div className="workspace-controls-heading">
