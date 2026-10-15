@@ -45,6 +45,7 @@ export class TextAdviser {
         },
         request,
       );
+      signal.throwIfAborted();
       const messages = request.messages.map((message) => ({ ...message }));
       let text = '';
       for await (const event of model.turn(messages)) {

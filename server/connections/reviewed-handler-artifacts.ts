@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.134';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.135';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -295,9 +295,18 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-conversation.ts': '05bf7267b161d84a21eea669dc4f65e699a622346b6d77edde48884ac6902cd6',
   '../codex-conversation-store.ts':
     'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
+  // Retained-owner inference cancellation preserves actual handler cleanup and drain.
+  '../symposium-custodian-ipc.ts':
+    '1bb9c006d3d893c0ab70ff512c8cbefb55c2ccdea7256161b93044416ea00536',
+  '../symposium-custodian-authority.ts':
+    '5ef9405e845e24f9d19af0820deac42d3404dbd5fb86d4f09f814e45226edd6b',
+  '../symposium-custodian-controller.ts':
+    'badecc7f7233eed75026a896d04058b8fdf4821ade2e0a042cb74c0a2ec8bbf9',
+  '../symposium-custodian-http.ts':
+    '5f829b51dde43d1c7615c572ac73b2745c676de0f4f9c39dfd5a2704adc83850',
   // Inline agent creation uses explicit adviser selection and inference-only profile proposals.
   '../agent-library-adviser.ts': '92211ccb5be4d398020a115aeb54a9126c8f34a0b61722bc10886186aae702a0',
-  '../terminal-adviser.ts': 'e9af83347238ad3273556075c2ed467494380c9b97da6d1228bc58d49a8c44e9',
+  '../terminal-adviser.ts': 'cd67017b760d81455fa8bf272b169d649b93c898d0da05552a92ba39f80f5529',
   '../terminal-adviser-model.ts':
     'a94fe40748606b2ca1627579aa7c7d5b341402f3c83db27cdff18b4818808447',
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
@@ -313,7 +322,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-library-transport.ts':
     '1ddf221a25d11c991b669007ef900140056c321f8bb67d12218940a7dd4c4ec2',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
-  '../agent-library-router.ts': '37ca8d9f1d55a114e1dcc24cdd3d8706eacbb5f07ec33175b3ffbf770168143a',
+  '../agent-library-router.ts': '321d376836273f7c6a447a27adbd29e8e2c220bc9f11e494ec68c527ed49cdfc',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',
   '../agent-library-prompt.ts': '3be39c6cd2fb12c744c5f53e45b8c8b306398146edfcb2af479d4fa1c9159c28',
   '../symposium-profile-portability.ts':

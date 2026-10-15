@@ -7,6 +7,7 @@ import { compileAgentContext, type AuthorizedContextPacks } from './agent-contex
 import { registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import { AgentAdviceBody, type AgentLibraryAdviser } from './agent-library-adviser.js';
+import { custodianRequestSignal } from './symposium-custodian-authority.js';
 
 const OWNER = 'user'; // Stable authenticated subject, never the rotating login JTI.
 function failure(res: Response, error: unknown) {
@@ -57,11 +58,15 @@ export function createAgentLibraryRouter(
     const controller = new AbortController();
     const unregister = registerAuthSession(auth, () => {
       controller.abort();
-      res.end();
     });
+    const ownerSignal = custodianRequestSignal(req);
+    const cancel = () => controller.abort();
+    ownerSignal?.addEventListener('abort', cancel, { once: true });
+    if (ownerSignal?.aborted) cancel();
     const close = () => controller.abort();
     res.on('close', close);
     try {
+      controller.signal.throwIfAborted();
       if (!options.adviser) throw Error('Agent advisor unavailable');
       const result = await options.adviser.ask(
         auth.id,
@@ -76,7 +81,10 @@ export function createAgentLibraryRouter(
         });
     } finally {
       unregister();
+      ownerSignal?.removeEventListener('abort', cancel);
       res.off('close', close);
+      // Retained HTTP dispatch must terminate, but only after inference cleanup.
+      if (controller.signal.aborted && !res.writableEnded && !res.destroyed) res.end();
     }
   });
   router.post('/publish', (req, res) => {

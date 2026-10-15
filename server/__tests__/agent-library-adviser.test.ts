@@ -68,3 +68,35 @@ it('requires an explicit account/model and bounds the draft and history', () => 
   expect(AgentAdviceBody.safeParse({ ...input, draft: 'x'.repeat(32769) }).success).toBe(false);
   expect(AgentAdviceBody.safeParse({ ...input, output: 'terminal data' }).success).toBe(false);
 });
+
+it('does not start inference after cancellation during session preparation', async () => {
+  let prepared!: () => void;
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    prepared = resolve;
+  });
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const turn = vi.fn(async function* () {
+    yield {
+      type: 'content_block_delta' as const,
+      index: 0,
+      delta: { type: 'text_delta' as const, text: 'Must not start' },
+    };
+  });
+  const adviser = new AgentLibraryAdviser(async () => {
+    prepared();
+    await waiting;
+    return { provider: 'fake', turn };
+  });
+  const controller = new AbortController();
+  const cancelled = expect(adviser.ask('owner', input, controller.signal)).rejects.toThrow(
+    /abort/i,
+  );
+  await ready;
+  controller.abort();
+  release();
+  await cancelled;
+  expect(turn).not.toHaveBeenCalled();
+});
