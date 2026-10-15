@@ -133,3 +133,11 @@ it('adds Agent Library alongside the existing Agents taskboard', () => {
   expect(library.getAttribute('href')).toBe('/agent-library');
   expect(library.getAttribute('aria-current')).toBe('page');
 });
+it.each([false, true])('keeps More selected in mockups, desktop=%s', (desktop) => {
+  render(
+    <MemoryRouter initialEntries={['/mockups?sessionId=one']}>
+      {desktop ? <DesktopNav /> : <TabBar />}
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
+});

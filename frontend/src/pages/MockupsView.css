@@ -1,0 +1,14 @@
+.mockups-page .chat-resource-body {
+  overflow: visible;
+}
+.mockups-page .more-link > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mockups-page .workspace-text-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  margin-bottom: var(--space-3);
+}

@@ -31,8 +31,40 @@ vi.mock('../auth.js', () => ({
 describe('Connections app mount', () => {
   const directories: string[] = [];
   afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
     for (const directory of directories.splice(0))
       rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('exposes only the empty preview shell before API auth and keeps the application CSP strict', async () => {
+    const { app } = await import('../app.js');
+    const shell = await request(app).get('/api/html-preview?html=PRIVATE_ARTIFACT');
+    expect(shell.status).toBe(200);
+    expect(shell.text).not.toContain('PRIVATE_ARTIFACT');
+    expect(shell.headers['content-security-policy']).toContain('sandbox allow-scripts');
+    const file = await request(app).get('/api/files/read?path=/private/artifact.html');
+    expect(file.status).toBe(401);
+    expect(file.headers['content-security-policy']).toContain("script-src 'self'");
+    expect(file.headers['content-security-policy']).not.toContain("script-src 'unsafe-inline'");
+  });
+
+  it.each([
+    ['', null],
+    ['  , , ', null],
+    ['https://mobile.example,', 'https://mobile.example'],
+  ])('starts with blank CORS entries in %j', async (configured, allowed) => {
+    vi.stubEnv('CORS_ALLOWED_ORIGINS', configured!);
+    vi.resetModules();
+    const { app } = await import('../app.js');
+    const shell = await request(app)
+      .get('/api/html-preview')
+      .set('Origin', allowed || 'https://unconfigured.example');
+    expect(shell.status).toBe(200);
+    expect(shell.headers['content-security-policy']).toContain(
+      `frame-ancestors 'self'${allowed ? ` ${allowed}` : ''}`,
+    );
+    expect(shell.headers['access-control-allow-origin']).toBe(allowed || undefined);
   });
 
   it('uses the local 2kb parser before the app-wide 10mb parser and rejects internal auth', async () => {

@@ -86,6 +86,101 @@ or Save. Discard remains a visibly labelled destructive action; Done remains
 neutral. Save, loading, error and conflict states retain the existing behavior.
 Colors, fonts, spacing, focus, radii and motion come from the shared token source.
 
+## Interactive HTML previews
+
+Standalone HTML file links in assistant paragraphs use the shared `HtmlPreviewCard`
+and open inline automatically. The header uses semantic surface/border/accent roles,
+shared type/spacing/radius tokens, `UiIcon`, and 44px controls. Artifact content keeps
+its own design on the existing neutral preview canvas. The bounded frame height is
+structural viewport geometry; Open leads to the existing full Files viewer.
+
+The disclosure uses `useMotionPresence` with retained DOM, so collapsing removes
+input and accessibility access immediately while preserving the same iframe and
+its local selections. A new file/session identity starts a fresh preview. Loading
+uses a status announcement, failed reads expose an alert and Retry preview, and an
+empty HTML file remains a valid blank document. Network, form submission and parent
+access restrictions remain those of `HtmlPreview`.
+
+The offline `html-mockup` fixture renders actual assistant Markdown and checks
+inline loading, native keyboard/form interaction, variants, retained state,
+read failure/retry, empty files, session-scoped reads and sandbox isolation on
+320px mobile and desktop with dark/light Mint/Georgia appearance and larger text.
+It intercepts every request and starts no backend or model.
+Messages containing these previews bypass prose truncation so its fade and Show
+more overlay cannot cover interactive content. Captures show the
+[320px mobile dark preview](assets/html-mockup-mobile-dark.png) and
+[desktop light preview](assets/html-mockup-desktop-light.png), both with Mint/Georgia
+and larger host text. These isolated transcript checks omit the application shell;
+full-app build/browser acceptance remains in CI when local memory pressure prevents
+the broad suite. The sandbox blocks native form submission in Chromium before a
+submit handler can run; simulated forms use button click handlers and local validation.
+The capability guidance reaches ordinary owned Codex and Responses/Gemini routes
+at their provider configuration boundary as well as the older shared chat prompt.
+Frozen command/profile payloads stay unchanged. These boundaries have offline
+mock-provider regressions, and their reviewed source fingerprints include the
+shared capability contract.
+
+The preview is an HTTP document at `/api/html-preview`, with a distinct restrictive
+response CSP and `sandbox allow-scripts` in both header and frame. A `srcdoc`
+document inherits the application's `script-src 'self'` policy, so its own meta
+policy cannot enable prototype scripts. The application policy stays unchanged;
+only the empty preview shell permits inline artifact scripts. The parent transfers
+the already-authorized document once after load. The shell validates the sender
+and message shape, removes its listener, then renders; it exposes no host command
+bridge. Neither artifact content nor authentication tokens enter the frame URL.
+
+`frame-ancestors` permits the app itself and exact configured CORS parent origins,
+including Capacitor. The shell carries no user data and needs no bearer token;
+the original file read retains its session/auth checks. Browser fixtures invoke
+the same security middleware as the deployed app and exercise web and cross-origin
+embedding. Both script elements and inline event handlers run inside the preview;
+the host rejects inline handlers and preview network/parent access stays blocked.
+Before delivering scripts, the client also installs a narrowing parent `frame-src`
+policy for self and the configured application server. This closes frame-navigation
+exfiltration in native webviews which lack the web host's response policy. The
+build-constant policy remains installed because removing a CSP meta element does
+not revoke it. Offline tests start the cross-origin parent with permissive frame
+navigation, then verify the component blocks an attempted external navigation.
+
+### Managing multiple mockups
+
+**More → Mockups** opens a protected collection route with the existing chat list
+and history search. Choose a chat before reading its saved messages; viewing never
+attaches a provider or starts a turn. The route reuses `MockupCollection` and the
+original session-scoped file reads. Search survives returning to the picker, late
+history reads are fenced to their selected chat, and failed/malformed history has
+an explicit retry state. MobileShell owns the mobile masthead and navigation;
+More stays selected in both navigation layouts. PageRoute supplies DesktopShell.
+The offline navigation fixture covers actual shells and pages at 320px/1280px in
+both themes with Mint/Georgia, history failure/retry and working preview actions,
+using intercepted requests only. Captures show the
+[mobile chat picker](assets/mockup-navigation-mobile-dark.png) and
+[desktop chat picker](assets/mockup-navigation-desktop-light.png).
+
+Resources includes a per-chat **Mockups** collection. It reads finished assistant
+Markdown file links from the available conversation history; discovery is a
+reference, not proof of file creation or durable publication. Versioned paths
+`mockups/<slug>/v001.html`, `v002.html`, etc. group by their full directory, with
+numeric newest revision first. Unversioned HTML links remain separate entries.
+The authoring skill creates the next unused revision instead of overwriting a
+previous version. Distinct designs use distinct slugs.
+
+The collection searches names/paths, shows eight designs per page and opens only
+the selected preview. Returning preserves the search/page and restores focus.
+Changing revisions creates fresh preview state; unavailable sources retain the
+existing alert/retry behavior. Switching chats clears collection selection and
+never carries file authority between sessions. The list uses existing resource
+rows, semantic tokens, UiIcon, HomeDialog and HtmlPreviewCard; its five tabs wrap
+on narrow screens. Files still depend on the original workspace being available.
+
+Offline acceptance uses forty designs with three revisions each, no backend or
+models, in light/dark themes on 320px mobile WebKit/Chromium and desktop Chromium.
+It verifies bounded lists, lazy preview reads, search/paging, numeric revision
+selection, working local interactions, unavailable versions, back/focus, Escape,
+empty search/collection, readable tabs and session isolation. Captures show
+[mobile collection](assets/mockup-collection-mobile-dark.png) and
+[desktop collection](assets/mockup-collection-desktop-light.png).
+
 ## Token usage
 
 The conversation token popover groups latest context/request capacity separately
