@@ -4,7 +4,7 @@ import {
   useBriefingRegistration,
 } from '../lib/briefing-registration';
 import { useCallback, useEffect, useState } from 'react';
-import { useMitzoStore } from '@mitzo/client/hooks';
+import type { PendingSession } from '@mitzo/client';
 import type { BriefingChatBinding } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { useHomePreferences } from './useHomePreferences';
@@ -28,9 +28,8 @@ function isBinding(value: unknown): value is BriefingChatBinding {
 }
 
 /** Dated source identity survives normal rich-chat navigation and restore. */
-export function useBriefingChat(sessionId: string | null) {
+export function useBriefingChat(sessionId: string | null, launch?: PendingSession | null) {
   const registration = useBriefingRegistration(sessionId);
-  const launch = useMitzoStore((store) => store.pendingSession);
   const { preferences } = useHomePreferences();
   const [loaded, setLoaded] = useState<{
     sessionId: string;

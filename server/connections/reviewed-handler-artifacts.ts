@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.139';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.140';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -91,7 +91,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0f38b9bfe3ee937044ca2d5955e2ca030d235c9c9589d7ddec8352844e4c27d9',
   // Explicit Local draft selection, exact-request delivery and bound conversation controls.
   '../../frontend/src/client-store.ts':
-    '74b4fb663607649429a29639ab1a7c5ad8f5a35d5564e1e475e965f13121d974',
+    '57b117fac6b16cf168aa0bd5918a657d93889b64a03dec597c6e35816f202e75',
   '../../frontend/src/components/AccountModelPicker.tsx':
     '0d361c3f71c21d1ebe557c288ad0df4a25450e6a4d6703b75f56c98fd912c94b',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
@@ -124,22 +124,33 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5067ed33ccd0b5c15d32bcb12df53f076a99b9456ae887d40875eb6679c8a26e',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '63427b971465eab55442c1f38cf99e9cf546cb0853ec552a45fc1191758150ae',
+  '../../frontend/src/lib/launch-draft-delivery.ts':
+    '88b02b396b8222b978d6307ea7a0470123c799c46b3e0e48e9f017fc1bf72b4a',
+  '../../frontend/src/hooks/useDraft.ts':
+    '1b98e2c6fcf8864ebf2fb45984b926e2ba9fe21f71aa6368de7545d7dd161b62',
+  // Saved contextual launches retain their exact source and delivery owner.
+  '../../frontend/src/hooks/usePendingLaunch.ts':
+    '50d02ac129734f1944e464361413f85afc6ef0fbcbc1ab232de9a7e7a513f779',
+  '../../frontend/src/hooks/useStageChatLaunch.ts':
+    '607b783bd86d52b78df4e814a13df8f1c0c212c6df34a69026379ebee715bc72',
+  '../../frontend/src/hooks/useBriefingChat.ts':
+    'd0b124d3acf747c6a2605cdf23a7a0bfa59fc87d2aed1d3cd230e440d2c69996',
   '../../frontend/src/lib/chat-drafts.ts':
-    'f3d7cecb537ae727b7a5549274f7b9b549ee2b8b1e9ac952585ea0943aea9f4e',
+    'f44211eac301772b0e8d48f470efc7214dc488f1b3a19c64efa246b543aee47f',
   '../../frontend/src/lib/chat-runtime-selection.ts':
     'f725d25bebe7ca1a68a9027bbe79d93a7f9c1be48e5539d244ef2e57cbf09b87',
   '../../frontend/src/lib/explicit-local-chat.ts':
     'cda08df9bf19cf6a392332e9052cc3811a077d93a6459c8f0b2c9c496d41110b',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
-    'dba8f9db6e85204da9bea2380e10b1bc0e1a00fe15ac598bcf8e6cd685a66b22',
+    'f27a25d30f2890a67aa2b15c7da54ceedc73317aadced7bc2b27371287bbb98c',
   '../../frontend/src/pages/ChatView.tsx':
-    '1054d38cb76bc29ba924a78d1198791f698eb3b7052f9bc3ea7cddc4aee0f268',
+    'b02403418da496d2a03458247a9f65cb398ae5d3c72d641bb7de125250bdb80a',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'd3a172cd306df629a887c61d9758963375eb63e788fb888e7ad6c2dddf8f2b1c',
+    '41285264af048ce67092c43d5e898ec15c44690bb51181d356132c65bbabf2be',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    'f9cb6f55604bee6739ba32f783f9ae79e4d4db20c4c9384a499cb1917edccdee',
+    '77957e6cb36b67306416fa1f46d31a34c6f7d72f46621ce1039042286cf645c9',
 
   // Explicit authenticated Local entry, immutable request and shared startup ownership.
   '../../packages/protocol/src/local-codex-first-command.ts':
@@ -199,7 +210,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    '2599a50baeb2fa2f639938cf1c71bc91da746e5b9931b96bc00276d8a7506663',
+    '32ddeeac4956678ed920f150acfb314fdacc8a6afb743eb34d3183d7e6699fb4',
   '../../packages/harness/src/permission-handler.ts':
     '20d09ccadeb668c91008713b45aaffd5762d34c0a6dc1651b3e234732743a7fa',
   '../../packages/harness/src/permissions.ts':

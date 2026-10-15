@@ -1311,3 +1311,189 @@ test('drafts: deferred voice replies stay with their owner while same-draft dict
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });
+
+for (const theme of ['dark', 'light']) {
+  test(`launch drafts: New leaves briefing chrome behind and its saved draft reopens (${theme})`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    const fixture = await offline(page);
+    const base = savedDraft('unsent-launch', 'Explore this saved morning briefing');
+    const launch = {
+      prompt: base.text,
+      context: 'Morning briefing · 2026-10-15',
+      briefing: { date: '2026-10-15', revision: 'a'.repeat(64) },
+      sourceSnapshots: [
+        {
+          kind: 'briefing',
+          date: '2026-10-15',
+          revision: 'a'.repeat(64),
+          content: 'Exact saved briefing snapshot',
+        },
+      ],
+      accountSelection: { accountId: account.id, model: 'luna-alternate', reasoningEffort: 'high' },
+    };
+    const draft = {
+      ...base,
+      images: [],
+      contextBlocks: [],
+      settings: { ...base.settings, search: '', launch },
+    };
+    await seed(page, {
+      'mitzo-chat-draft:unsent-launch': JSON.stringify(draft),
+      'mitzo-theme': theme,
+      'mitzo-accent': 'mint',
+      'mitzo-font': 'georgia',
+    });
+    await page.route('**/api/home/briefing-chats*', (route) => route.fulfill({ json: [] }));
+    await page.goto('/chat?draft=unsent-launch');
+    await expect(
+      page.getByRole('button', { name: 'Send launch prompt', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: 'Send launch prompt', exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole('button', { name: isMobile ? 'New chat' : 'New Chat', exact: true })
+      .click();
+    const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await expect(input).toHaveValue('');
+    await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send launch prompt', exact: true })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByText('Send the reviewed briefing prompt first, then ask a follow-up.', {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath(`fresh-chat-${theme}.png`),
+      animations: 'disabled',
+    });
+    await page
+      .getByRole('link', { name: isMobile ? 'Back to chats' : 'Chats', exact: true })
+      .click();
+    await page.getByRole('link', { name: /Drafts/ }).click();
+    await page.getByRole('link', { name: /Explore this saved morning briefing/ }).click();
+    await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => JSON.parse(localStorage.getItem('mitzo-chat-draft:unsent-launch')!).settings.launch,
+      ),
+    ).toEqual(launch);
+    await page.screenshot({
+      path: testInfo.outputPath(`restored-launch-${theme}.png`),
+      animations: 'disabled',
+    });
+    expect(fixture.mutations).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
+}
+
+test('launch drafts: generic preparation retains its chosen model and thinking through reload', async ({
+  page,
+}) => {
+  const fixture = await offline(page);
+  const base = savedDraft('meeting-launch', 'Prepare this meeting');
+  const draft = {
+    ...base,
+    images: [],
+    contextBlocks: [],
+    settings: {
+      ...base.settings,
+      selection: null,
+      search: '',
+      launch: { prompt: base.text, context: 'Meeting preparation' },
+    },
+  };
+  await seed(page, { 'mitzo-chat-draft:meeting-launch': JSON.stringify(draft) });
+  await page.goto('/chat?draft=meeting-launch');
+  await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption(account.id);
+  await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('luna-alternate');
+  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem('mitzo-chat-draft:meeting-launch')!).settings.selection,
+      ),
+    )
+    .toEqual({ accountId: account.id, model: 'luna-alternate', reasoningEffort: 'high' });
+  await page.reload();
+  const controls = page.getByRole('button', { name: /^Workspace controls/ });
+  if ((await controls.getAttribute('aria-expanded')) === 'false') await controls.click();
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+    'luna-alternate',
+  );
+  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
+    'high',
+  );
+  await expect(page.getByRole('button', { name: 'Send launch prompt', exact: true })).toBeEnabled();
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('launch drafts: generic command survives tab replacement and keeps its original receipt identity', async ({
+  page,
+  context,
+}) => {
+  const fixture = await offline(page);
+  const base = savedDraft('generic-delivery', 'Prepare the selected work item');
+  const launch = {
+    prompt: base.text,
+    context: 'Work preparation',
+    telosTaskId: 'task-fixture',
+    accountSelection: base.settings.selection,
+  };
+  const draft = {
+    ...base,
+    images: [],
+    contextBlocks: [],
+    settings: { ...base.settings, search: '', launch },
+  };
+  await seed(page, { 'mitzo-chat-draft:generic-delivery': JSON.stringify(draft) });
+  const commands: Record<string, unknown>[] = [];
+  let release: (() => void) | undefined;
+  async function intercept(target: Page) {
+    await target.route('**/api/chat/send', async (route) => {
+      const command = route.request().postDataJSON();
+      commands.push(command);
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await route
+        .fulfill({
+          status: 202,
+          json: { accepted: true, clientMsgId: command.clientMsgId, sessionId: 'generic-assigned' },
+        })
+        .catch(() => {});
+    });
+  }
+  await intercept(page);
+  await page.goto('/chat?draft=generic-delivery');
+  await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+  await expect.poll(() => commands.length).toBe(1);
+  await page.close();
+  release?.();
+  const fresh = await context.newPage();
+  const recovered = await offline(fresh);
+  await intercept(fresh);
+  await fresh.goto('/chat?draft=generic-delivery');
+  await expect.poll(() => commands.length).toBe(2);
+  await expect(
+    fresh.getByRole('button', { name: 'Send launch prompt', exact: true }),
+  ).toBeDisabled();
+  expect(commands[1]).toEqual(commands[0]);
+  expect(commands[1]).toMatchObject({ sessionId: null, telosTaskId: 'task-fixture' });
+  release?.();
+  await expect
+    .poll(() => fresh.evaluate(() => localStorage.getItem('mitzo-chat-draft:generic-delivery')))
+    .toBeNull();
+  expect(commands).toHaveLength(2);
+  expect(fixture.errors).toEqual([]);
+  expect(recovered.errors).toEqual([]);
+});

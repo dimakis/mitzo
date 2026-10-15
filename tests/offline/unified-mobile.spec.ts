@@ -507,50 +507,73 @@ test('composer: commands use a quiet icon with discoverable labels', async ({ pa
 test('motion: rapid toggles continue from the visible menu and disclosure frame', async ({
   page,
 }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/chat');
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeVisible();
   const samples = await page.evaluate(async () => {
     const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    // Freeze the two sampled surfaces at creation: a loaded WebKit worker can
+    // finish a short entrance before the next animation frame is sampled.
+    const nativeAnimate = Element.prototype.animate;
+    const sampled = new Set<Element>();
+    Element.prototype.animate = function (keyframes, options) {
+      const animation = nativeAnimate.call(this, keyframes, options);
+      if (sampled.has(this)) animation.pause();
+      return animation;
+    };
+    const animationFor = async (surface: Element, previous?: Animation) => {
+      for (let attempt = 0; attempt < 120; attempt++) {
+        const animation = surface
+          .getAnimations()
+          .find((entry) => entry !== previous && entry.id.startsWith('mitzo:'));
+        if (animation) return animation;
+        await nextFrame();
+      }
+      throw new Error('Expected the sampled surface to start a Mitzo animation');
+    };
     const results: { before: number; after: number; heightBefore: number; heightAfter: number }[] =
       [];
-    for (const [toggleSelector, surfaceSelector] of [
-      ['.composer-tools-toggle', '.composer-tools'],
-      ['.workspace-controls-toggle', '.workspace-controls > .motion-disclosure'],
-    ]) {
-      const toggle = document.querySelector<HTMLElement>(toggleSelector)!;
-      const surface = document.querySelector<HTMLElement>(surfaceSelector)!;
-      toggle.click();
-      await nextFrame();
-      for (let interruption = 0; interruption < 2; interruption++) {
-        const current = surface
-          .getAnimations()
-          .find((animation) => animation.id.startsWith('mitzo:'))!;
-        current.pause();
-        current.currentTime = Number(current.effect!.getTiming().duration) / 2;
-        const before = Number(getComputedStyle(surface).opacity);
-        const heightBefore = surface.getBoundingClientRect().height;
+    try {
+      for (const [toggleSelector, surfaceSelector] of [
+        ['.composer-tools-toggle', '.composer-tools'],
+        ['.workspace-controls-toggle', '.workspace-controls > .motion-disclosure'],
+      ]) {
+        const toggle = document.querySelector<HTMLElement>(toggleSelector)!;
+        const surface = document.querySelector<HTMLElement>(surfaceSelector)!;
+        sampled.add(surface);
         toggle.click();
         await nextFrame();
-        const replacement = surface
-          .getAnimations()
-          .find((animation) => animation.id.startsWith('mitzo:'))!;
-        replacement.pause();
-        replacement.currentTime = 0;
-        results.push({
-          before,
-          after: Number(getComputedStyle(surface).opacity),
-          heightBefore,
-          heightAfter: surface.getBoundingClientRect().height,
-        });
+        for (let interruption = 0; interruption < 2; interruption++) {
+          const current = await animationFor(surface);
+          current.pause();
+          current.currentTime = Number(current.effect!.getTiming().duration) / 2;
+          const before = Number(getComputedStyle(surface).opacity);
+          const heightBefore = surface.getBoundingClientRect().height;
+          toggle.click();
+          await nextFrame();
+          const replacement = await animationFor(surface, current);
+          replacement.pause();
+          replacement.currentTime = 0;
+          results.push({
+            before,
+            after: Number(getComputedStyle(surface).opacity),
+            heightBefore,
+            heightAfter: surface.getBoundingClientRect().height,
+          });
+        }
+        // Settle the final entrance and exit before sampling the next surface.
+        surface.getAnimations().forEach((animation) => animation.finish());
+        await nextFrame();
+        toggle.click();
+        await nextFrame();
+        surface.getAnimations().forEach((animation) => animation.finish());
+        await nextFrame();
       }
-      // Let the final entrance settle, then close this surface normally.
-      surface.getAnimations().forEach((animation) => animation.finish());
-      await nextFrame();
-      toggle.click();
-      await nextFrame();
+      return results;
+    } finally {
+      Element.prototype.animate = nativeAnimate;
     }
-    return results;
   });
   expect(samples).toHaveLength(4);
   for (const sample of samples) {
@@ -2158,6 +2181,10 @@ async function exerciseBriefingReloadRecovery(
     ).toBe(true);
   const picker = page.getByRole('dialog');
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  const launchDraftId = new URL(page.url()).searchParams.get('draft')!;
+  await page
+    .getByRole('textbox', { name: 'Message Mitzo', exact: true })
+    .fill('Keep my unsent follow-up');
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   await expect.poll(() => sends.length).toBe(1);
   expect(sends[0].sessionId).toBeNull();
@@ -2172,6 +2199,12 @@ async function exerciseBriefingReloadRecovery(
     await expect.poll(() => sockets).toBeGreaterThanOrEqual(1);
   await page.reload();
   await expect.poll(() => sends.length).toBe(2);
+  await expect(
+    page.getByRole('button', { name: 'Send launch prompt', exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
+    'Keep my unsent follow-up',
+  );
   releaseFirst?.();
   expect(sends[1]).toEqual(sends[0]);
   expect(turns.size).toBe(1);
@@ -2199,6 +2232,19 @@ async function exerciseBriefingReloadRecovery(
   expect(registrations).toHaveLength(0);
   releaseSecond?.();
   await expect.poll(() => registrations.length).toBe(1);
+  await expect
+    .poll(() =>
+      page.evaluate((id) => localStorage.getItem(`mitzo-chat-draft:${id}`), launchDraftId),
+    )
+    .toBeNull();
+  expect(
+    await page.evaluate(() =>
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith('mitzo-chat-draft:'))
+        .map((key) => JSON.parse(localStorage.getItem(key)!))
+        .some((draft) => draft.text === 'Keep my unsent follow-up' && !draft.settings.launch),
+    ),
+  ).toBe(true);
   await waitingPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
   const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
@@ -2236,7 +2282,7 @@ async function exerciseBriefingReloadRecovery(
     .getByRole('button', { name: 'Use selection', exact: true })
     .click();
   if (hideAssigned) {
-    await expect(page).toHaveURL(/\/chat$/);
+    await expect(page).toHaveURL(/\/chat\?draft=[^&]+$/);
     await expect(
       page.getByRole('button', { name: 'Send launch prompt', exact: true }),
     ).toBeEnabled();
@@ -2652,7 +2698,7 @@ test('failed briefing registration survives a completed turn and reload without 
     .getByRole('combobox', { name: 'Model', exact: true })
     .selectOption(changedBinding.model);
   await changedPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
-  await expect(page).toHaveURL(/\/chat$/);
+  await expect(page).toHaveURL(/\/chat\?draft=[^&]+$/);
   // Larger text must keep composer settings and launch actions reachable.
   if (isMobile)
     await page.evaluate(() => {

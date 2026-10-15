@@ -23,6 +23,8 @@ interface Config {
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
   timeoutMs?: number;
   requireDurableBriefings?: boolean;
+  /** Independent launch commands survive tab replacement; never inherit another launch’s session. */
+  durableLaunches?: boolean;
   /** Strict first-command route: durable intent, manual exact recovery, no legacy fallback. */
   localFirstCommand?: boolean;
 }
@@ -146,6 +148,7 @@ export class SendOutbox {
   }
 
   enqueue(body: Record<string, unknown>, scope: number, localDraftId?: string): boolean {
+    if (this.config.durableLaunches && body.sessionId !== null) return false;
     if (this.config.localFirstCommand) {
       if (localDraftId !== undefined && !/^\S{1,200}$/.test(localDraftId)) return false;
       const parsed = localCommandSchema.safeParse(body);
@@ -163,6 +166,7 @@ export class SendOutbox {
     const durable = this.persist();
     if (
       (this.config.localFirstCommand ||
+        this.config.durableLaunches ||
         (this.config.requireDurableBriefings && reviewedBriefing(body))) &&
       !durable
     ) {
@@ -193,7 +197,9 @@ export class SendOutbox {
     const rejected = this.entries.splice(0);
     this.entries = rejected.filter((entry, index) => {
       if (
-        (!this.config.localFirstCommand && !reviewedBriefing(entry.body)) ||
+        (!this.config.localFirstCommand &&
+          !this.config.durableLaunches &&
+          !reviewedBriefing(entry.body)) ||
         (!entry.uncertain && !(hadInFlight && index === 0))
       )
         return false;
@@ -326,11 +332,14 @@ export class SendOutbox {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let receivedResponse = false;
     try {
-      if (reviewedBriefing(entry.body) && !entry.uncertain) {
+      if ((this.config.durableLaunches || reviewedBriefing(entry.body)) && !entry.uncertain) {
         // Persist possible acceptance before admission, not only while fetch is
         // in flight. A lost response remains ambiguous during backoff/reload.
         entry.uncertain = true;
-        if (!this.persist() && this.config.requireDurableBriefings) {
+        if (
+          !this.persist() &&
+          (this.config.durableLaunches || this.config.requireDurableBriefings)
+        ) {
           delete entry.uncertain;
           throw new Error('Reviewed attempt could not be retained');
         }
@@ -402,7 +411,7 @@ export class SendOutbox {
         });
         this.entries.shift();
         // Only unattempted follow-ups in the same draft inherit its session.
-        if (entry.body.sessionId === null && receipt.sessionId) {
+        if (!this.config.durableLaunches && entry.body.sessionId === null && receipt.sessionId) {
           for (const queued of this.entries) {
             if (
               queued.scope === entry.scope &&

@@ -8,13 +8,13 @@ type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem
 type Entry = { body: Record<string, unknown>; scope: number; uncertain?: boolean };
 const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
-/** Per-command persistence matches reviewed metadata lifetime across native WebView recreation.
+/** Per-command launch persistence survives tab and native WebView recreation.
  * Independent tabs can acknowledge their own commands without overwriting another draft.
  */
 export function createReviewedOutboxStorage(
   disk: Disk,
   backendSendUrl: string,
-  route: 'briefing' | 'local' = 'briefing',
+  route: 'launch' | 'local' = 'launch',
 ): Pick<Storage, 'getItem' | 'setItem'> {
   const prefix = `mitzo-${route === 'local' ? 'local-first-command' : 'reviewed-send'}-outbox:${encodeURIComponent(backendSendUrl)}:`;
   let owned = new Set<string>();
@@ -40,11 +40,7 @@ export function createReviewedOutboxStorage(
       return value;
     }
     const parsed = V2SendMessage.safeParse(value.body);
-    if (
-      !parsed.success ||
-      parsed.data.sessionId !== null ||
-      parsed.data.sourceSnapshots?.[0]?.kind !== 'briefing'
-    )
+    if (!parsed.success || parsed.data.sessionId !== null)
       throw new Error('Invalid reviewed command');
     return value;
   }

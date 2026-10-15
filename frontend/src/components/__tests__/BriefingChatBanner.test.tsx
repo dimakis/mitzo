@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (s: unknown) => unknown) =>
     select({
+      newSession: vi.fn(),
       setPendingSession: state.pending,
       pendingSession: null,
       messages: { messages: [{ sourceSnapshots: [state.source] }] },

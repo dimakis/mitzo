@@ -1,9 +1,9 @@
+import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { InboxFeed, MitzoNotification } from '@mitzo/protocol';
-import { useMitzoStore } from '@mitzo/client/hooks';
 import { useNotifications } from '../components/NotificationProvider';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { UiIcon } from '../components/UiIcon';
@@ -40,8 +40,7 @@ export function InboxRedirect() {
 export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}) {
   const notifications = useNotifications();
   const mutate = notifications?.mutate;
-  const navigate = useNavigate();
-  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
+  const setPendingSession = useStageChatLaunch();
   const [params, setParams] = useSearchParams();
   const view = views.some(([v]) => v === params.get('view')) ? params.get('view')! : 'needs';
   const selectedId =
@@ -271,7 +270,6 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
       prompt: buildInboxPrompt(summary, item.inbox.content),
       context: buildInboxContext(summary, item.inbox.content),
     });
-    navigate('/chat');
   }
   const hideList = !desktop && !!selectedId;
   const offset = Number(params.get('offset')) || 0;

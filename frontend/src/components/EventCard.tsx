@@ -1,6 +1,5 @@
+import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useMitzoStore } from '@mitzo/client/hooks';
 import type { CalendarEvent } from '../hooks/useCalendarData';
 import { buildMeetingPrepPrompt, buildMeetingContext } from '../lib/calendar-utils';
 
@@ -22,7 +21,6 @@ export function EventCard({
   onSelect?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const navigate = useNavigate();
   const isExpanded = detail || (!onSelect && expanded);
   const toggle = () => {
     if (onSelect) onSelect();
@@ -42,7 +40,7 @@ export function EventCard({
   ) : (
     <span className="cal-event-title">{event.title}</span>
   );
-  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
+  const setPendingSession = useStageChatLaunch();
 
   function handlePrepClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -51,7 +49,6 @@ export function EventCard({
       context: buildMeetingContext(event),
       agentName: 'mitzo-calendar',
     });
-    navigate('/chat');
   }
 
   if (event.type === 'milestone') {

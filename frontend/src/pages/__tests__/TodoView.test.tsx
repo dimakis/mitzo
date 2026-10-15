@@ -17,7 +17,7 @@ vi.mock('../../hooks/useTodoData', () => ({
 
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector({ setPendingSession: vi.fn() }),
+    selector({ newSession: vi.fn(), setPendingSession: vi.fn() }),
 }));
 
 beforeEach(() => {

@@ -24,7 +24,7 @@ import type { TodoItem } from '../../types/todo';
 const mockPendingSession = vi.fn();
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (selector: (s: unknown) => unknown) =>
-    selector({ setPendingSession: mockPendingSession }),
+    selector({ newSession: vi.fn(), setPendingSession: mockPendingSession }),
 }));
 
 const mockNavigate = vi.fn();
@@ -638,7 +638,9 @@ it('opens Telos as a reviewable launch with the task identity and context', () =
       context: expect.stringContaining('Fix authentication middleware'),
     }),
   );
-  expect(mockNavigate).toHaveBeenCalledWith('/chat?extraTools=Bash');
+  expect(mockNavigate).toHaveBeenCalledWith(
+    expect.stringMatching(/^\/chat\?extraTools=Bash&draft=.+/),
+  );
 });
 
 it('places saved outputs ahead of milestones, sources and reference links', () => {
