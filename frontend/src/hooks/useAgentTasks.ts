@@ -49,7 +49,6 @@ export function useAgentTasks() {
     void refresh();
     return () => {
       live.current = false;
-      listGeneration.current++;
     };
   }, [refresh]);
   const save = async () => {
