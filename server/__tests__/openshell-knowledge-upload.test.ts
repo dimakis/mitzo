@@ -280,6 +280,7 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   expect(reconcile).toHaveBeenCalledTimes(2);
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(1);
   expect(ssh).toHaveBeenCalledTimes(6);
+  expect(ssh.mock.calls.at(-1)![0].at(-1)).toMatch(/ cached'$/);
   present = true;
   const resumed = new OpenShellRuntimeManager(config, run, undefined, ssh);
   const reused = await resumed.adoptKnowledge(conversation, runtime, AbortSignal.timeout(5000));
@@ -538,6 +539,7 @@ it('keeps publication verification separate from a pinned profile context withou
   );
   expect(first?.context).toEqual(profileContext);
   expect(compile).not.toHaveBeenCalled();
+  expect(ssh.mock.calls.at(-1)![0].at(-1)).toMatch(/ cached'$/);
   expect(
     ssh.mock.calls.some(([args]) => args.join(' ').includes('attest-knowledge-runtime.py')),
   ).toBe(true);
