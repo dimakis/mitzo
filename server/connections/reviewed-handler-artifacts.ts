@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.139';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.140';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Per-chat mockup discovery, grouping and revision selection.
+  '../../frontend/src/lib/mockup-catalog.ts':
+    '62a1d6124bda33a1b1a67d4b1910fadb6b04b9cfe7fe678df29c17bb62466b44',
+  '../../frontend/src/components/MockupCollection.tsx':
+    'a0b9050f26cb194e95e5d3ce0726840221b2dccb9899c5b4ff616d047d85a8c3',
+  '../../frontend/src/components/MockupCollection.css':
+    '33b7052d3643d7a104f99d2ef3b8eb33a51f0209af471218e1bbd4d89d6ce819',
   // Isolated preview policy, delivery boundary and native endpoint selection.
   '../html-preview-shell.ts': 'e22ca8e8245db06a3e55e17971b5a0c1f890b1f89cd5cc88958a94b180c3e3ff',
   '../security-headers.ts': '1d9f242529d764439353e492ffac07929788455546a68156acf5d4bf852b1534',
@@ -31,7 +38,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '68b440dacf7db8f1afee47cce7fd463002f1bd14e7e4b3f6e391143a9e466f7c',
   // Shared authoring contract used at the owned provider boundary.
   '../../packages/protocol/src/client-capabilities.ts':
-    '0064b843b187fae887fda2c7ca382011f406da372bda90cadc7109055203eb43',
+    '1068b0d86576136f2ae692c7b71ac0ee5897809b4b25a295cc968a1dd05236ab',
   // Ordinary Telos item reads, atomic progress updates, tool exposure and approval tiers.
   '../telos-item-store.ts': '71e0414e15d24cf8c2856c14a739037024ba1657f2481dd2ede9634a25eee7f5',
   '../telos-item-routes.ts': 'b600aaad3c66f6221d526c6a16d11d61d99f761e640f4cc4d9c14bef84b12789',
@@ -45,7 +52,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CompactionMarker.tsx':
     '46cdcf5b79952216b2a134a47a1605d7e9c7872377dab8505779366f6955c173',
   '../../frontend/src/components/SessionResourcesDialog.tsx':
-    '3488013ed4e2240e379ff66f386f4add8f105e58378d68ba798e8c1366f91b31',
+    '9426df18fb1c711b5c2d95337fb964400dbd740a873a51547eb2fe043fa3bdf6',
   '../../frontend/src/components/SessionAccess.tsx':
     'e6b5f190fb7ceb42a6e81141f25c002afa2311619d2e2af17cf44246b8259a29',
   '../../frontend/src/components/SessionBanner.tsx':
@@ -98,7 +105,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-artifact-route-composition.ts':
     '8d9e87e2a2873f0dc841429a5b9a43b93aa194237e4f9594b572e87bff27142b',
   '../../frontend/src/styles/workspace-chat.css':
-    '0f38b9bfe3ee937044ca2d5955e2ca030d235c9c9589d7ddec8352844e4c27d9',
+    'e07d4f07e96cdfececbbe829f754620f72d84a44ebc3e50fdddc34bec23e05aa',
   // Explicit Local draft selection, exact-request delivery and bound conversation controls.
   '../../frontend/src/client-store.ts':
     '74b4fb663607649429a29639ab1a7c5ad8f5a35d5564e1e475e965f13121d974',

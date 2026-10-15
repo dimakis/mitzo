@@ -78,6 +78,9 @@ describe('bundled skills', () => {
     expect(result.renderedPrompt).toContain('a clickable task board');
     expect(result.renderedPrompt).not.toContain('$ARGUMENTS');
     expect(registry.get('mockup')?.mutating).toBe(true);
+    expect(result.renderedPrompt).toContain('mockups/<slug>/v001.html');
+    expect(result.renderedPrompt).toContain('next unused');
+    expect(result.renderedPrompt).toContain('Resources → Mockups');
   });
 
   it('non-mutating bundled skills contain an approval gate instruction', () => {

@@ -142,6 +142,32 @@ build-constant policy remains installed because removing a CSP meta element does
 not revoke it. Offline tests start the cross-origin parent with permissive frame
 navigation, then verify the component blocks an attempted external navigation.
 
+### Managing multiple mockups
+
+Resources includes a per-chat **Mockups** collection. It reads finished assistant
+Markdown file links from the available conversation history; discovery is a
+reference, not proof of file creation or durable publication. Versioned paths
+`mockups/<slug>/v001.html`, `v002.html`, etc. group by their full directory, with
+numeric newest revision first. Unversioned HTML links remain separate entries.
+The authoring skill creates the next unused revision instead of overwriting a
+previous version. Distinct designs use distinct slugs.
+
+The collection searches names/paths, shows eight designs per page and opens only
+the selected preview. Returning preserves the search/page and restores focus.
+Changing revisions creates fresh preview state; unavailable sources retain the
+existing alert/retry behavior. Switching chats clears collection selection and
+never carries file authority between sessions. The list uses existing resource
+rows, semantic tokens, UiIcon, HomeDialog and HtmlPreviewCard; its five tabs wrap
+on narrow screens. Files still depend on the original workspace being available.
+
+Offline acceptance uses forty designs with three revisions each, no backend or
+models, in light/dark themes on 320px mobile WebKit/Chromium and desktop Chromium.
+It verifies bounded lists, lazy preview reads, search/paging, numeric revision
+selection, working local interactions, unavailable versions, back/focus, Escape,
+empty search/collection, readable tabs and session isolation. Captures show
+[mobile collection](assets/mockup-collection-mobile-dark.png) and
+[desktop collection](assets/mockup-collection-desktop-light.png).
+
 ## Token usage
 
 The conversation token popover groups latest context/request capacity separately
