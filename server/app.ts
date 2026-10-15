@@ -24,6 +24,7 @@ import type {
 import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import { terminalAccountRoute } from './terminal-account-route.js';
 import { TerminalAdviser } from './terminal-adviser.js';
+import { AgentLibraryAdviser } from './agent-library-adviser.js';
 import { createTerminalAdviserSession } from './terminal-adviser-model.js';
 import { TerminalService, TerminalStore } from './terminal-service.js';
 import { terminalAdviserCatalog } from './terminal-adviser-catalog.js';
@@ -1072,6 +1073,7 @@ app.use(
   '/api/agent-library',
   operatorAuthMiddleware,
   createAgentLibraryRouter(getAgentLibrary(), {
+    adviser: new AgentLibraryAdviser(createTerminalAdviserSession),
     workspaceRoot: BASE_REPO,
     contextPacks: async (signal) => {
       const runtime = await getKnowledgeLibraryRuntime();

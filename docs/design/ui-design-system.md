@@ -591,3 +591,24 @@ in dark/light appearance with Mint/Georgia. Inspected captures show the
 [fresh mobile chat](assets/fresh-chat-mobile-dark.png) and
 [fresh desktop chat](assets/fresh-chat-desktop-light.png), with briefing chrome
 restored only through the saved draft. No backend or model is used.
+
+## Agent creation advisor
+
+The Agent Library workbench stacks its advisor above the existing profile editor,
+including on mobile. New agent creation expands the panel; the labelled disclosure
+uses `useMotionPresence` to retain the conversation, question and picker on collapse.
+It reuses `AccountModelPicker` in adviser scope, `UiIcon`, the existing profile form,
+semantic colors, UI/mono fonts, spacing/radius scales and 44px control targets.
+The conversation has a bounded, keyboard-scrollable log. Proposed profiles expose
+review details and an explicit apply action before the ordinary Save draft and
+Publish revision actions. Stale proposals cannot replace newer form edits.
+
+Offline Agent Library fixtures exercise advisor success/error, explicit selection,
+form application and draft recovery, keyboard focus, long content and scrolling,
+320px mobile and desktop layouts, light/dark themes and Teal/Georgia appearance.
+The ordinary Agent Builder chat profile retains its separate namespace fixture.
+
+Inspected captures show [new agent creation on mobile](assets/agent-creation-mobile-dark.png)
+and [the desktop advisor above the profile form](assets/agent-creation-desktop-light.png).
+These are fully intercepted fixtures; no live model, backend or production service
+was used.
