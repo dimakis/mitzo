@@ -26,7 +26,12 @@ const items = [
 ];
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (selector: (s: object) => unknown) =>
-    selector({ inbox: { items }, loadInbox: mocks.load, setPendingSession: mocks.pending }),
+    selector({
+      inbox: { items },
+      loadInbox: mocks.load,
+      newSession: vi.fn(),
+      setPendingSession: mocks.pending,
+    }),
 }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: mocks.fetch }));
 beforeEach(() => {

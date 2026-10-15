@@ -34,6 +34,7 @@ vi.mock('@mitzo/client/hooks', () => ({
     selector({
       inbox: { items: proposals },
       loadInbox: mocks.load,
+      newSession: vi.fn(),
       setPendingSession: mocks.pending,
     }),
 }));

@@ -606,3 +606,87 @@ it('removes attempted reviewed uncertainty on an authoritative HTTP rejection', 
   expect(JSON.parse(saved)).toEqual([]);
   outbox.stop();
 });
+
+it('requires durable storage for generic independent launches before dispatch', () => {
+  const fetch = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/send',
+    fetch,
+    notify: vi.fn(),
+    durableLaunches: true,
+    storage: {
+      getItem: () => '[]',
+      setItem() {
+        throw new Error('Quota');
+      },
+    },
+  });
+  outbox.start();
+  expect(outbox.enqueue(prompt, 0)).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+  outbox.stop();
+});
+it('does not attach an independent restored-scope launch to a previous launch conversation', async () => {
+  let saved = JSON.stringify([{ body: prompt, scope: 0 }]);
+  const storage = {
+    getItem: () => saved,
+    setItem: (_key: string, value: string) => {
+      saved = value;
+    },
+  };
+  const commands: Record<string, unknown>[] = [];
+  const fetch = vi.fn(async (_url, init) => {
+    const body = JSON.parse(init.body);
+    commands.push(body);
+    return ack(body.clientMsgId);
+  });
+  const outbox = new SendOutbox({
+    url: '/send',
+    fetch,
+    notify: vi.fn(),
+    durableLaunches: true,
+    storage,
+  });
+  // A recreated store starts its scope counter at zero while an old scope zero is retained.
+  outbox.enqueue({ ...prompt, clientMsgId: 'independent' }, 0);
+  outbox.start();
+  await vi.waitFor(() => expect(commands).toHaveLength(2));
+  expect(commands.map((command) => command.sessionId)).toEqual([null, null]);
+  outbox.stop();
+});
+
+it('retains an ambiguous generic launch through backoff, auth loss and recreation', async () => {
+  vi.useFakeTimers();
+  let saved = '[]';
+  const storage = {
+    getItem: () => saved,
+    setItem: (_key: string, value: string) => {
+      saved = value;
+    },
+  };
+  const first = new SendOutbox({
+    url: '/send',
+    storage,
+    durableLaunches: true,
+    notify: vi.fn(),
+    fetch: vi.fn().mockRejectedValue(Error('ACK lost')),
+  });
+  first.start();
+  first.enqueue(prompt, 0);
+  await vi.advanceTimersByTimeAsync(0);
+  first.rejectAll('Login changed');
+  expect(JSON.parse(saved)[0]).toMatchObject({ body: prompt, uncertain: true });
+  const fetch = vi.fn().mockResolvedValue(ack());
+  const fresh = new SendOutbox({
+    url: '/send',
+    storage,
+    durableLaunches: true,
+    notify: vi.fn(),
+    fetch,
+  });
+  fresh.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(prompt);
+  expect(JSON.parse(saved)).toEqual([]);
+  fresh.stop();
+});

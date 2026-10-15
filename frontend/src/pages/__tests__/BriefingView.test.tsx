@@ -23,7 +23,7 @@ const fixtures = vi.hoisted(() => ({
 }));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (selector: (store: unknown) => unknown) =>
-    selector({ setPendingSession: fixtures.pending }),
+    selector({ newSession: vi.fn(), setPendingSession: fixtures.pending }),
 }));
 vi.mock('../../hooks/useHomePreferences', () => ({
   useHomePreferences: () => ({ preferences: { names: { briefing: 'Jeeves' } } }),

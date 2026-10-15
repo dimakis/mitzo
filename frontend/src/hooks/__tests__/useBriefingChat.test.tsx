@@ -47,10 +47,13 @@ it('does not reuse another conversation binding when navigation changes', async 
       accountSelection: { accountId: 'work', model: 'luna' },
     },
   });
-  const { result, rerender } = renderHook(({ id }) => useBriefingChat(id), {
-    initialProps: { id: null as string | null },
-    wrapper: ({ children }) => <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>,
-  });
+  const { result, rerender } = renderHook(
+    ({ id }) => useBriefingChat(id, store.getState().pendingSession),
+    {
+      initialProps: { id: null as string | null },
+      wrapper: ({ children }) => <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>,
+    },
+  );
   expect(result.current.isBriefing).toBe(true);
   rerender({ id: 'unrelated' });
   await waitFor(() => expect(result.current.loading).toBe(false));
@@ -140,10 +143,13 @@ it('ignores a stale failure when navigation or unmount aborts its lookup', async
       }),
   );
   const store = createTestStore();
-  const { result, rerender, unmount } = renderHook(({ id }) => useBriefingChat(id), {
-    initialProps: { id: 'old' },
-    wrapper: ({ children }) => <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>,
-  });
+  const { result, rerender, unmount } = renderHook(
+    ({ id }) => useBriefingChat(id, store.getState().pendingSession),
+    {
+      initialProps: { id: 'old' },
+      wrapper: ({ children }) => <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>,
+    },
+  );
   vi.mocked(apiFetch).mockResolvedValueOnce(new Response('[]'));
   rerender({ id: 'new' });
   await waitFor(() => expect(result.current.selectionLocked).toBe(false));

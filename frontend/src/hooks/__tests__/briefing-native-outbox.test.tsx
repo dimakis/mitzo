@@ -2,6 +2,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createMitzoStore, WS_READY_STATE, type WebSocketLike } from '@mitzo/client';
 import { briefingCommandHandoff, localBriefingConversation } from '../../lib/briefing-registration';
+import { launchDraftDelivery } from '../../lib/launch-draft-delivery';
+import {
+  createChatDraft,
+  saveChatDraft,
+  getChatDraft,
+  listChatDrafts,
+  chatDraftTextKey,
+} from '../../lib/chat-drafts';
 import { apiFetch } from '../../lib/api-fetch';
 import { createReviewedOutboxStorage } from '../../lib/reviewed-outbox-storage';
 vi.mock('../../lib/api-fetch', () => ({
@@ -54,6 +62,7 @@ function cold(sse = false) {
     transport: { fetch: apiFetch },
     wsConfig: { buildUrl: () => 'ws://fixture.test', createWebSocket: () => socket },
     sendHandoff: briefingCommandHandoff,
+    launchDrafts: launchDraftDelivery,
     reviewedSendConfig: {
       url,
       storage: createReviewedOutboxStorage(localStorage, 'https://fixture.test/api/chat/send'),
@@ -310,3 +319,74 @@ it('recovers a browser SSE reviewed launch after a fresh context loses sessionSt
   expect(commands[1]).toEqual(commands[0]);
   await expect(localBriefingConversation(source, selection)).resolves.toBe('sse-fresh');
 });
+
+it.each(
+  [false, true].flatMap((sse) =>
+    ['briefing', 'meeting', 'work', 'inbox'].map((kind) => [sse, kind] as const),
+  ),
+)(
+  'locks an opened launch after cold recovery (SSE=%s, kind=%s) until its original command is accepted',
+  async (sse, kind) => {
+    vi.useFakeTimers();
+    const commands: Record<string, unknown>[] = [];
+    let accepting = false;
+    vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+      if (String(path) === url) {
+        const command = JSON.parse(String(init?.body));
+        commands.push(command);
+        if (!accepting) return new Promise<Response>(() => {});
+        return new Response(
+          JSON.stringify({
+            accepted: true,
+            clientMsgId: command.clientMsgId,
+            sessionId: 'original-assigned',
+          }),
+          { status: 202 },
+        );
+      }
+      return new Response('[]', { status: init?.method === 'POST' ? 503 : 200 });
+    });
+    const launch = {
+      prompt: 'Discuss original report',
+      context: 'Briefing',
+      accountSelection: selection,
+      contextBlocks: ['Exact preparation context'],
+      ...(kind === 'briefing'
+        ? { briefing: { date: source.date, revision: source.revision }, sourceSnapshots: [source] }
+        : { telosTaskId: kind === 'work' ? 'task' : undefined }),
+    };
+    const draft = createChatDraft();
+    draft.text = launch.prompt;
+    draft.settings.launch = launch;
+    draft.settings.selection = selection;
+    expect(saveChatDraft(draft)).toBe(true);
+    localStorage.setItem(chatDraftTextKey(draft.id), 'Follow up after reading');
+    const first = cold(sse);
+    first.store.getState().restoreAuthentication();
+    first.store.getState().setPendingSession({ ...launch, draftId: draft.id });
+    expect(first.store.getState().sendPendingSession()).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(commands).toHaveLength(1);
+    first.store.getState().invalidateAuthentication();
+    sessionStorage.clear();
+    const fresh = cold(sse);
+    fresh.store.getState().setPendingSession({ ...launch, draftId: draft.id });
+    expect(fresh.store.getState().pendingSessionSending).toBe(true);
+    expect(fresh.store.getState().sendPendingSession()).toBe(false);
+    expect(getChatDraft(draft.id)).not.toBeNull();
+    accepting = true;
+    fresh.store.getState().restoreAuthentication();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(commands).toHaveLength(2);
+    expect(commands[1]).toEqual(commands[0]);
+    expect(fresh.store.getState().pendingSession).toBeNull();
+    expect(getChatDraft(draft.id)).toBeNull();
+    expect(listChatDrafts()).toEqual([
+      expect.objectContaining({ text: 'Follow up after reading' }),
+    ]);
+    // Even a stale view of the accepted draft cannot dispatch it with a new ID.
+    fresh.store.getState().setPendingSession({ ...launch, draftId: draft.id });
+    expect(fresh.store.getState().sendPendingSession()).toBe(false);
+    expect(commands).toHaveLength(2);
+  },
+);

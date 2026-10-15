@@ -1,3 +1,4 @@
+import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { localBriefingConversation } from '../lib/briefing-registration';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -32,7 +33,7 @@ export function BriefingChatBanner({
 }) {
   const [picker, setPicker] = useState(false);
   const navigate = useNavigate();
-  const stage = useMitzoStore((store) => store.setPendingSession);
+  const stage = useStageChatLaunch();
   const launch = useMitzoStore((store) => store.pendingSession);
   const messages = useMitzoStore((store) => store.messages.messages);
   if (!source && !registrationError && !lookupError) return null;
@@ -85,7 +86,6 @@ export function BriefingChatBanner({
       accountSelection: { ...selection, accountId: selection.accountId },
     });
     setPicker(false);
-    navigate('/chat');
   }
   return (
     <aside className="briefing-chat-banner">
