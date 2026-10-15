@@ -1415,9 +1415,6 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
   await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption(account.id);
   await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('luna-alternate');
   await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
-  await page
-    .getByRole('button', { name: 'Use Work OpenAI API · Luna alternate fixture', exact: true })
-    .click();
   await expect
     .poll(() =>
       page.evaluate(
