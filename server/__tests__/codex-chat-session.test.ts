@@ -799,6 +799,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
   const baseOptions = options(abortController);
   const session = baseOptions.session;
   const registry = {
+    get: vi.fn(() => session),
     findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
   } as unknown as import('@mitzo/harness').SessionRegistry;
   try {
@@ -1009,6 +1010,39 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       }),
     );
     vi.clearAllMocks();
+
+    const shouldContinue = mocks.conversationOptions?.shouldContinueAfterToolResult as (
+      name: string,
+      input: Record<string, unknown>,
+      result: { content: string; isError: boolean },
+    ) => boolean;
+    for (const name of ['RequestConnectionAccess', 'GrantIntegrationAccess']) {
+      await prepareTurn(
+        { providerPrompt: 'continue', userIntent: 'continue', turnId: `grant-${name}` },
+        signal,
+      );
+      mocks.permissionHandler.mockResolvedValueOnce({
+        behavior: 'allow',
+        updatedInput: { provider: 'google-workspace' },
+      });
+      const input =
+        name === 'RequestConnectionAccess'
+          ? { connectionId: 'openshell:google-workspace' }
+          : { provider: 'google-workspace' };
+      const result = await executeTool(name, input, signal);
+      expect(result.isError).toBe(false);
+      expect(shouldContinue(name, input, result)).toBe(true);
+      // Merely claiming success (or another tool running while refresh is pending)
+      // is not evidence that this exact tool attached a provider.
+      expect(shouldContinue(name, input, { content: 'available', isError: false })).toBe(false);
+      const reset = vi
+        .spyOn(CodexAppServerClient, 'launchOpenShell')
+        .mockReturnValue({} as CodexAppServerClient);
+      createClient({});
+      expect(shouldContinue(name, input, result)).toBe(false);
+      reset.mockRestore();
+      vi.clearAllMocks();
+    }
 
     // A persisted approval whose first physical attach failed is recoverable:
     // retry it without showing a second permission prompt in this chat/turn.

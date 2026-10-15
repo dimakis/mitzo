@@ -90,6 +90,13 @@ export interface CodexStartupConfigObservation {
   readonly config: unknown;
 }
 
+export interface CodexToolResult {
+  content: string;
+  isError: boolean;
+  /** Host-only receipt; never accepted from model arguments or tool text. */
+  environmentChange?: { kind: 'provider-attachment'; provider: string };
+}
+
 export interface CodexConversationOptions {
   /** Read-only idle health deadline; never changes model RPC timeouts. */
   idleProbeTimeoutMs?: number;
@@ -120,7 +127,7 @@ export interface CodexConversationOptions {
     signal: AbortSignal,
     /** Identifiers verified against the active provider turn, never model input. */
     context: { turnId: string; callId: string },
-  ): Promise<{ content: string; isError: boolean }>;
+  ): Promise<CodexToolResult>;
   /** Called only after an exact host tool result can be replayed durably. */
   onToolResultDurable?: (
     name: string,
@@ -132,7 +139,7 @@ export interface CodexConversationOptions {
   shouldContinueAfterToolResult?: (
     name: string,
     input: ObjectValue,
-    result: { content: string; isError: boolean },
+    result: CodexToolResult,
   ) => boolean;
   /** External owners retain admission authority for unfinished environment changes. */
   environmentContinuationOwner?: 'external';
@@ -2523,7 +2530,7 @@ export class CodexConversation {
       this.opts.displayToolName?.(call.tool) ?? call.tool,
       call.arguments,
     );
-    let result: { content: string; isError: boolean };
+    let result: CodexToolResult;
     try {
       result = await this.opts.executeTool(call.tool, call.arguments, toolSignal, {
         turnId: call.turnId,

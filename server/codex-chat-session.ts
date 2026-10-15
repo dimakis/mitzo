@@ -59,7 +59,7 @@ import {
   SUPPORTED_CODEX_CLI_VERSION,
   type OpenShellCodexOptions,
 } from './codex-app-server-client.js';
-import { CodexConversation } from './codex-conversation.js';
+import { CodexConversation, type CodexToolResult } from './codex-conversation.js';
 import {
   CodexConversationStore,
   type KnowledgeAdoptionSelection,
@@ -954,7 +954,7 @@ async function openCodexChatBound(
     | {
         id: string;
         denied: Set<string>;
-        pending: Map<string, Promise<{ content: string; isError: boolean }>>;
+        pending: Map<string, Promise<CodexToolResult>>;
       }
     | undefined;
   let integrationTransportNeedsRefresh = false;
@@ -962,7 +962,7 @@ async function openCodexChatBound(
     provider: string,
     signal: AbortSignal,
     controlPlane = false,
-  ) => {
+  ): Promise<CodexToolResult> => {
     // A cancelled approval can settle after the next queued turn has started.
     // Keep all coalescing and denial state bound to the initiating turn.
     const turn = integrationTurn;
@@ -999,7 +999,7 @@ async function openCodexChatBound(
     signal: AbortSignal,
     turn: typeof integrationTurn,
     controlPlane: boolean,
-  ) => {
+  ): Promise<CodexToolResult> => {
     if (!runtimeManager || !managedOpenShell)
       return { content: 'Integration provider is not grantable', isError: true };
     const access = await runtimeManager!.hasServiceProviderAccess(
@@ -1069,8 +1069,9 @@ async function openCodexChatBound(
       if (!(await attachApprovedProvider()))
         return { content: 'Integration provider attachment failed', isError: true };
       return {
-        content: `Integration provider ${provider} is now available to this chat`,
+        content: `Integration provider ${provider} is attached; a fresh transport must verify its environment before use`,
         isError: false,
+        environmentChange: { kind: 'provider-attachment', provider },
       };
     }
     const approvedInput = { provider };
@@ -1098,8 +1099,9 @@ async function openCodexChatBound(
     if (!(await attachApprovedProvider()))
       return { content: 'Integration provider attachment failed', isError: true };
     return {
-      content: `Integration provider ${provider} is now available to this chat`,
+      content: `Integration provider ${provider} is attached; a fresh transport must verify its environment before use`,
       isError: false,
+      environmentChange: { kind: 'provider-attachment', provider },
     };
   };
   try {
@@ -1789,8 +1791,10 @@ async function openCodexChatBound(
     ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
       ? {
           refreshTransportBeforeTurn: () => integrationTransportNeedsRefresh,
-          shouldContinueAfterToolResult: (name, _input, result) =>
-            name === GRANT_INTEGRATION_TOOL && !result.isError && integrationTransportNeedsRefresh,
+          shouldContinueAfterToolResult: (_name, _input, result) =>
+            result.environmentChange?.kind === 'provider-attachment' &&
+            !result.isError &&
+            integrationTransportNeedsRefresh,
           ...(options.ordinaryTurnLifecycle
             ? {
                 environmentContinuationOwner: 'external' as const,
