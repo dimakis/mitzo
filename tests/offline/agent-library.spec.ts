@@ -516,7 +516,9 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByRole('alert')).toContainText('Offline Library unavailable');
   catalogMode = 'loading';
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('status')).toContainText('Loading Agent Library');
+  await expect(page.getByRole('status').filter({ hasText: 'Loading Agent Library' })).toHaveText(
+    'Loading Agent Library…',
+  );
   await expect.poll(() => typeof releaseCatalog).toBe('function');
   catalogMode = 'content';
   releaseCatalog!();
