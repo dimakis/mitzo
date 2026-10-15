@@ -69,6 +69,17 @@ it.each(['commit', 'cancel'] as const)(
   },
 );
 
+it('passes the exact claimed command identity to knowledge preparation before dispatch', async () => {
+  const f = await setup();
+  const prepare = vi.fn().mockResolvedValue('Verified context');
+  f.conversationOptions.prepareSystemPrompt = prepare;
+  await f.c.send({ id: 'first-command', prompt: 'First request' });
+  expect(prepare).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal), {
+    commandId: 'first-command',
+  });
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
 it('runs the owning enqueue fence before direct or serialized command persistence', async () => {
   const f = await setup();
   const beforeRequests = f.requests.length;

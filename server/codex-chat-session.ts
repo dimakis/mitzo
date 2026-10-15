@@ -861,6 +861,8 @@ async function openCodexChatBound(
                     }
                   : undefined,
                 repositorySeed ? { seed: repositorySeed, cleanup: () => {} } : undefined,
+                undefined,
+                !options.resume && !options.reattachOnly ? options.messageId : undefined,
               ),
             )
           : undefined;
@@ -1498,7 +1500,7 @@ async function openCodexChatBound(
         },
     ...(runtimeManager
       ? {
-          prepareSystemPrompt: async (signal: AbortSignal) =>
+          prepareSystemPrompt: async (signal: AbortSignal, turn?: { commandId: string }) =>
             sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
               await options.ownedOpenShell?.assertCurrent();
               pendingKnowledge = undefined;
@@ -1522,9 +1524,10 @@ async function openCodexChatBound(
                 options.conversationId,
                 managedOpenShell!,
                 signal,
-                ...(agentContext?.source === 'packs'
-                  ? [{ ...agentContext.context, scope: 'sandbox' as const }]
-                  : []),
+                agentContext?.source === 'packs'
+                  ? { ...agentContext.context, scope: 'sandbox' as const }
+                  : undefined,
+                turn?.commandId,
               );
               const capabilities = await runtimeManager!.inspectTaskCapabilities(
                 managedOpenShell!,

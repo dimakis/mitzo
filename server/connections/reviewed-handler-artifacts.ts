@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.148';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.149';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -349,7 +349,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '05bf7267b161d84a21eea669dc4f65e699a622346b6d77edde48884ac6902cd6',
+  '../codex-conversation.ts': 'a5e631cf462808c96164d58902c9a58332ff330a70479379014cf35a42037997',
   '../codex-conversation-store.ts':
     'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
   // Retained-owner inference cancellation preserves actual handler cleanup and drain.
@@ -522,8 +522,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   // Batched knowledge admission preserves verification and retention under the lifecycle fence.
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
-  '../openshell-runtime.ts': '21ac0d12d50ff0fbb317f60fc112072c86c60a5211cfe16c0faa59098901f05b',
-  '../codex-chat-session.ts': '6fbc4b7d6aaf2823fbf0d1dea9d46e12adeaa21dd7548019c5ed4acbe7d1e060',
+  '../openshell-runtime.ts': '266dbfaab7d0d19f991a4793a91ea723258a2938d7da1b6c84b8607700d5b641',
+  '../codex-chat-session.ts': 'a092673ec039c9fcf513d5b2a373073638957e06a88b374a436b1898cd836b50',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
