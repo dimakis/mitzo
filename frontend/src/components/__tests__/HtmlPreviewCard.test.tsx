@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HtmlPreviewCard } from '../HtmlPreviewCard';
 import { apiFetch } from '../../lib/api-fetch';
@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 describe('HtmlPreviewCard', () => {
-  it('loads and renders an HTML artifact when expanded', async () => {
+  it('loads and renders an HTML artifact inline without an extra click', async () => {
     vi.mocked(apiFetch).mockResolvedValue(
       new Response(JSON.stringify({ content: '<!doctype html>', ext: '.html' }), {
         status: 200,
@@ -28,7 +28,6 @@ describe('HtmlPreviewCard', () => {
     );
 
     render(<HtmlPreviewCard filePath="/tmp/prototype.html" sessionId="session-1" />);
-    fireEvent.click(screen.getByRole('button', { name: /prototype\.html/i }));
 
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
@@ -56,10 +55,76 @@ it('opens the resolved file after previewing a repository alias', async () => {
     new Response(JSON.stringify({ path, content: '<h1>Worktree</h1>' })),
   );
   render(<HtmlPreviewCard filePath="/repo/prototype.html" sessionId="session-1" />);
-  fireEvent.click(screen.getByRole('button', { name: /prototype\.html/i }));
   await screen.findByTitle('prototype.html preview');
   fireEvent.click(screen.getByRole('button', { name: 'Open' }));
   expect(new URL(navigate.mock.lastCall![0], 'https://mitzo.test').searchParams.get('path')).toBe(
     path,
+  );
+});
+
+it('keeps the same iframe and interactive state when collapsed and reopened', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ content: '<button>Try</button>' })),
+  );
+  render(<HtmlPreviewCard filePath="/tmp/mockup.html" />);
+  const frame = await screen.findByTitle('mockup.html preview');
+  const toggle = screen.getByRole('button', { name: /mockup\.html/i });
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(frame.closest('[hidden]')).not.toBeNull();
+  fireEvent.click(toggle);
+  expect(screen.getByTitle('mockup.html preview')).toBe(frame);
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});
+
+it('offers a retry after a load failure and rejects malformed content', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(new Response(JSON.stringify({ content: 7 })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ content: '<h1>Ready</h1>' })));
+  render(<HtmlPreviewCard filePath="/tmp/mockup.html" />);
+  expect(await screen.findByRole('alert')).toBeTruthy();
+  expect(screen.queryByTitle('mockup.html preview')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry preview' }));
+  expect(await screen.findByTitle('mockup.html preview')).toBeTruthy();
+});
+
+it('accepts an empty HTML document', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ content: '' })));
+  render(<HtmlPreviewCard filePath="/tmp/empty.html" />);
+  expect(await screen.findByTitle('empty.html preview')).toBeTruthy();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('does not show stale content or a late result after the artifact identity changes', async () => {
+  let completeFirst!: (response: Response) => void;
+  vi.mocked(apiFetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          completeFirst = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ path: '/resolved/second.html', content: '<h1>Second</h1>' })),
+    );
+  const { rerender } = render(<HtmlPreviewCard filePath="/tmp/first.html" sessionId="first" />);
+  rerender(<HtmlPreviewCard filePath="/tmp/second.html" sessionId="second" />);
+  const second = (await screen.findByTitle('second.html preview')) as HTMLIFrameElement;
+  const post = vi.spyOn(second.contentWindow!, 'postMessage');
+  fireEvent.load(second);
+  await act(async () => {
+    completeFirst(
+      new Response(JSON.stringify({ path: '/resolved/first.html', content: '<h1>First</h1>' })),
+    );
+  });
+  expect(post).toHaveBeenCalledWith(
+    { type: 'mitzo:render-preview', html: expect.stringContaining('Second') },
+    '*',
+  );
+  expect(screen.getByTitle('second.html preview')).toBe(second);
+  expect(screen.queryByTitle('first.html preview')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+  expect(new URL(navigate.mock.lastCall![0], 'https://mitzo.test').searchParams.get('path')).toBe(
+    '/resolved/second.html',
   );
 });

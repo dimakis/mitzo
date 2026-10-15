@@ -10,6 +10,8 @@ import {
 } from '../lib/session-resources';
 import { readApiJson } from '../lib/api-json-read';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
+import { collectMockups } from '../lib/mockup-catalog';
+import { MockupCollection } from './MockupCollection';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import { ContextPanel } from './ContextPanel';
@@ -18,7 +20,7 @@ import { CompactionDetails } from './CompactionMarker';
 import { compactionLabel } from '../lib/compaction-presentation';
 import type { ContextCompaction } from '@mitzo/protocol';
 
-type Tab = 'Sources' | 'Context' | 'Outputs' | 'References';
+type Tab = 'Sources' | 'Context' | 'Outputs' | 'References' | 'Mockups';
 type Detail = {
   title: string;
   resource?: SessionResource;
@@ -75,6 +77,7 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
     categoryMenu = useRef<HTMLDetailsElement>(null);
   const detailOperation = useRef<AbortController | null>(null),
     ids = useId();
+  const mockups = useMemo(() => collectMockups(messages), [messages]);
   const finished = useMemo(() => collectSessionResources(messages), [messages]);
   const streaming = useMemo(() => collectSessionResources([], current), [current]);
   const resources = useMemo(
@@ -335,22 +338,24 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
           )}
           <div className="chat-resource-main" hidden={!!detail}>
             <div className="chat-resource-tabs" role="tablist" aria-label="Resource type">
-              {(['Sources', 'Context', 'Outputs', 'References'] as Tab[]).map((value) => (
-                <button
-                  type="button"
-                  key={value}
-                  role="tab"
-                  id={`${ids}-${value}`}
-                  aria-controls={`${ids}-body`}
-                  aria-selected={value === tab}
-                  onClick={() => {
-                    scroll.current = 0;
-                    setTab(value);
-                  }}
-                >
-                  {value}
-                </button>
-              ))}
+              {(['Sources', 'Context', 'Outputs', 'Mockups', 'References'] as Tab[]).map(
+                (value) => (
+                  <button
+                    type="button"
+                    key={value}
+                    role="tab"
+                    id={`${ids}-${value}`}
+                    aria-controls={`${ids}-body`}
+                    aria-selected={value === tab}
+                    onClick={() => {
+                      scroll.current = 0;
+                      setTab(value);
+                    }}
+                  >
+                    {value}
+                  </button>
+                ),
+              )}
             </div>
             <div
               ref={body}
@@ -464,6 +469,9 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
                     has received them.
                   </p>
                 </>
+              )}
+              {tab === 'Mockups' && (
+                <MockupCollection key={sessionId} mockups={mockups} sessionId={sessionId} />
               )}
               {tab === 'Outputs' && (
                 <>

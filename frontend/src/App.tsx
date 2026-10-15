@@ -12,6 +12,7 @@ import { Login } from './pages/Login';
 import { Today } from './pages/Today';
 import { QuoteView } from './pages/QuoteView';
 import { BriefingView } from './pages/BriefingView';
+import { MockupsView } from './pages/MockupsView';
 import { MoreView } from './pages/MoreView';
 import { ConnectionSetupView } from './pages/ConnectionSetupView';
 import { ConnectionsRoute } from './pages/ConnectionsRoute';
@@ -183,6 +184,16 @@ export function App() {
                     <ProtectedRoute>
                       <PageRoute>
                         <SessionList />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/mockups"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <MockupsView />
                       </PageRoute>
                     </ProtectedRoute>
                   }

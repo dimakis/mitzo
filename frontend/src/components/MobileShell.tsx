@@ -16,6 +16,7 @@ const COLLECTION_ROUTES = new Set([
   '/inbox',
   '/todos',
   '/more',
+  '/mockups',
   '/terminal',
   '/connections-access',
   '/connections',
