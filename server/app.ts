@@ -417,7 +417,9 @@ app.use(createAppSecurityHeaders());
 // Auth preflight must be observed before CORS responds without reaching the route.
 app.use(traceAuthCheck);
 const CORS_ALLOWED_ORIGINS =
-  process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) ?? [];
+  process.env.CORS_ALLOWED_ORIGINS?.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean) ?? [];
 
 if (CORS_ALLOWED_ORIGINS.length > 0) {
   app.use((req, res, next) => {
