@@ -82,6 +82,19 @@ beforeAll(async () => {
 });
 
 describe('todo routes', () => {
+  it('mounts agent item routes behind host authentication and active session identity', async () => {
+    expect(
+      (await request(app).post('/api/internal/telos/items/get').send({ itemId: 'task' })).status,
+    ).toBe(401);
+    const response = await request(app)
+      .post('/api/internal/telos/items/update')
+      .set('X-Internal-Token', INTERNAL_TOKEN)
+      .set('X-Client-Id', 'closed')
+      .send({ itemId: 'task' });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe('Active Mitzo session required');
+  });
+
   it('saved output metadata and downloads require operator authentication', async () => {
     expect((await request(app).get('/api/telos/items/t/artifacts')).status).toBe(401);
     expect((await request(app).get('/api/telos/artifacts/' + 'a'.repeat(32))).status).toBe(401);

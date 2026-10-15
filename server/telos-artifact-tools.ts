@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ToolDefinition } from '@mitzo/harness';
 import { artifactFilename, MAX_TELOS_ARTIFACT_BYTES } from './telos-artifact-store.js';
 import type { TelosToolResult } from './telos-tool.js';
+import { TELOS_PROGRESS_INSTRUCTIONS } from './telos-item-tools.js';
 
 const itemId = z.string().trim().min(1).max(200);
 export const telosSaveArtifactShape = {
@@ -79,6 +80,7 @@ export const telosArtifactDefinitions: ToolDefinition[] = [
   },
 ];
 export const TELOS_ARTIFACT_INSTRUCTIONS = `
+${TELOS_PROGRESS_INSTRUCTIONS}
 Telos is the de facto persistent home for task-linked historical work and future work:
 specifications, design documents, drafts, reports and session handovers. Workspace and sandbox-local
 files are working copies; their paths and local todo scripts are not durable Telos storage.
