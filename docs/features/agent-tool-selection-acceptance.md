@@ -63,6 +63,13 @@ offline browser checks passed. This preserves the two-tool guide lifecycle test,
 missing-connection checks and immutable admitted definitions. These are offline
 results; Phase 1 remains active with the remaining gates below.
 
+A prior full-app CI run passed 513 browser checks but failed two mobile cases
+because a loading-status assertion matched both independent catalogs. The UI
+slice now scopes that assertion to the Agent Library status; the ambiguity was
+reproduced and the corrected locator passed Chromium and WebKit offline. A local
+full-app bundle attempt exceeded the required 1 GiB heap, so the complete fixture
+rerun remains a current-head CI gate.
+
 ## Operational limits and remaining gates
 
 On 2026-10-15 the required canonical staging check refused:
