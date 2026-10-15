@@ -536,9 +536,9 @@ it('recovers incomplete task input across collection navigation, remount, failed
   });
   fireEvent.change(screen.getByLabelText('Schedule'), { target: { value: 'cron' } });
   fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: '' } });
-  fireEvent.click(screen.getByRole('tab', { name: 'Profiles', exact: true }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Profiles' }));
   fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'Working Bob' } });
-  fireEvent.click(screen.getByRole('tab', { name: 'Tasks & schedules', exact: true }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Tasks & schedules' }));
   expect(screen.getByLabelText('Cron expression')).toHaveProperty('value', '');
   first.unmount();
   setup();
@@ -561,7 +561,7 @@ it('recovers incomplete task input across collection navigation, remount, failed
   );
   const writes = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST');
   expect(writes[0][1]!.body).toBe(writes[1][1]!.body);
-  fireEvent.click(screen.getByRole('tab', { name: 'Profiles', exact: true }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Profiles' }));
   expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Working Bob');
 });
 
@@ -640,17 +640,13 @@ it('keeps assigned tasks on r3 when r4 is published, retains rows after refresh 
 it('supports arrow navigation between Library collections and preserves the selected profile', async () => {
   setup();
   await screen.findByDisplayValue('Bob');
-  const profiles = screen.getByRole('tab', { name: 'Profiles', exact: true });
+  const profiles = screen.getByRole('tab', { name: 'Profiles' });
   profiles.focus();
   fireEvent.keyDown(profiles, { key: 'ArrowRight' });
-  expect(
-    screen
-      .getByRole('tab', { name: 'Tasks & schedules', exact: true })
-      .getAttribute('aria-selected'),
-  ).toBe('true');
-  expect(document.activeElement).toBe(
-    screen.getByRole('tab', { name: 'Tasks & schedules', exact: true }),
+  expect(screen.getByRole('tab', { name: 'Tasks & schedules' }).getAttribute('aria-selected')).toBe(
+    'true',
   );
+  expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Tasks & schedules' }));
   fireEvent.keyDown(document.activeElement!, { key: 'Home' });
   expect(profiles.getAttribute('aria-selected')).toBe('true');
   expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Bob');

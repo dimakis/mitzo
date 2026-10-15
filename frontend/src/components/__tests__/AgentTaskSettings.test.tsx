@@ -83,16 +83,16 @@ it('uses ordinary catalog controls with independent settings and derives softwar
   fireEvent.click(screen.getByRole('button', { name: /^Agent settings, First task/ }));
   await waitFor(() =>
     expect(
-      screen.getByRole('combobox', { name: 'Account', exact: true }).querySelectorAll('option'),
+      screen.getByRole('combobox', { name: 'Account' }).querySelectorAll('option'),
     ).toHaveLength(2),
   );
-  fireEvent.change(screen.getByRole('combobox', { name: 'Account', exact: true }), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
     target: { value: 'work' },
   });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level', exact: true }), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
     target: { value: 'high' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Local Mac', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Local Mac' }));
   expect(screen.getByText('Runs with Mitzo Responses')).toBeTruthy();
   expect(screen.getByLabelText('First task intent').textContent).toContain('"targetId":"mac"');
   expect(screen.getByLabelText('First task intent').textContent).toContain(
@@ -185,7 +185,7 @@ it('does not erase saved execution intent when unavailable settings are merely r
   );
   fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
   await screen.findByText('Execution choices are unavailable. Refresh to retry.');
-  fireEvent.click(screen.getByRole('button', { name: 'Done', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }));
   expect(update).toHaveBeenLastCalledWith(
     expect.objectContaining({ account: seed.account, execution: seed.execution }),
     execution,
