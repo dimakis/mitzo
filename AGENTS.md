@@ -15,21 +15,27 @@ another parent/phase tree merely because an old document describes unfinished wo
 
 For any user-facing UI change, read [the UI design contract](docs/design/ui-design-system.md) and `frontend/AGENTS.md` before implementation. It applies to new features, existing pages, mobile and web in every session. Reuse shared tokens and components; keep palette/font definitions in `frontend/src/styles/tokens.css`, and use the shared spacing/type/radius scales. UI work is incomplete without the contract's validation and PR evidence. Evolve a missing shared pattern in the same PR rather than inventing a competing page theme.
 
-## Canonical staging
+## Staging stood down
 
-For live Mitzo testing on the configured macOS host, reuse `http://mitzo-staging.localhost:3190` and `com.mitzo.staging`. Read [the operating procedure](docs/operations/canonical-staging.md) and run `~/.local/share/mitzo-staging/bin/mitzo-staging check` first. Do not create additional staging backends, custodians or background previews, borrow production configuration, or use production as a test fallback. Staging changes use the audited exact-commit plan/apply command; a lock or uncertain drain requires investigation, never forced restart or automatic rollback. Provider setup and retained diagnostic resources remain separate. Production deployment is a separate explicit user action.
+As of 15 October 2026, the user has stood down the canonical Mitzo staging
+environment and its pipeline. Do not run staging checks, enqueue post-merge
+work, deploy, recover, restart or recreate it as part of ordinary Mitzo work.
+The former URL `http://mitzo-staging.localhost:3190`, service `com.mitzo.staging`
+and private root `~/.local/share/mitzo-staging` are historical references.
+[The former procedure](docs/operations/canonical-staging.md) and
+[pipeline contract](docs/operations/staging-pipeline.md) are retained for history;
+their commands are not active session requirements. Preserve retained ownership,
+operation and diagnostic records. Reactivation requires a new explicit user request.
 
-## Staging pipeline admission
+Use offline tests, review and CI for current work. Any live testing needs a
+separately selected and authorized target. Do not borrow production configuration
+or credentials or use production as an automatic test fallback. Production
+ports 3100/3101, releases and job remain outside staging operations; production
+deployment requires a separate explicit user action.
 
-For accepted Mitzo changes, use [the staging pipeline](docs/operations/staging-pipeline.md):
-`node scripts/staging-pipeline.mjs enqueue --pr NUMBER --task SESSION_ID` after merge,
-then inspect its status. One designated controller runs `run-next` from clean exact
-accepted main; feature sessions do not independently replace the test baseline.
-The initial suite proves only HTTP readiness; feature/native/provider acceptance
-remains separate until those suites are enrolled. Check `host-resources` before
-local staging builds. Use one local test worker and a 1 GiB Node heap for focused
-regressions; leave broad builds/tests in CI while macOS reports memory pressure.
-Do not delete historical releases or uncertainty records to satisfy disk admission.
+Use one local test worker and a 1 GiB Node heap for focused regressions; leave
+broad builds/tests in CI while macOS reports memory pressure. Do not delete
+historical releases or uncertainty records to satisfy disk admission.
 
 ## Required merge gate
 
@@ -47,7 +53,7 @@ abort during macOS process registration and trigger crash popups. Do not retry
 failed launches, switch browser binaries, or unset `CODEX_SANDBOX` to bypass the
 host check. `--list` is safe inside the sandbox. The offline `npm run test:ui`
 suite intercepts all app traffic and needs no backend or model calls; live tests
-still follow the canonical staging and Luna requirements above.
+require a separately authorized test target and follow the Luna requirements above.
 
 The `Centaur merge gate` workflow requires a dedicated GitHub App credential isolated in the default-branch-only `centaur-status-writer` environment. Branch protection must bind `Centaur final LGTM` to this App's numeric ID alongside CI. See `docs/operations/mgmt-knowledge-publication.md` for mandatory provisioning. Pushes and review comments wake the writer; five-minute reconciliation covers review changes. Missing or stale reports stay pending, blocking or dismissed reports fail. Verify App identity, environment restrictions, a real status and branch protection before claiming enforcement.
 
@@ -61,6 +67,9 @@ Enrolled ordinary OpenShell Codex chats refresh knowledge before sandbox creatio
 
 Publication preserves task branches, dirty worktrees, checkpoints and provider history. Do not pull, reset or rebase task roots to refresh shared knowledge. Selection is not delivery: an adoption receipt is recorded only after the provider acknowledges the exact turn and context, including source, bundle, sandbox and runtime identities. Missing configuration retains legacy behavior; incompatible runtime/publication or failed reconciliation blocks enrolled admission. Host, Responses, Claude and Symposium enrollment require separate implementation. See `docs/operations/mgmt-knowledge-publication.md` for configuration and rollout.
 
-## Canonical Symposium staging
+## Symposium staging stood down
 
-Use the existing staging URL http://mitzo-staging.localhost:3190 and private root ~/.local/share/mitzo-staging. Do not create a staging backend/custodian for each conversation. Read docs/operations/symposium-singleton-staging.md before preparing activation; the current ordinary stage is not yet Symposium-ready. Provider configuration, source acceptance and retained original-owner shutdown remain required. Production is excluded.
+The same stand-down applies to Symposium staging. The retained
+[Symposium staging procedure](docs/operations/symposium-singleton-staging.md)
+is historical and does not authorize activation, recovery or a replacement
+backend/custodian. Production remains excluded.

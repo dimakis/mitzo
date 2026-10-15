@@ -1,5 +1,14 @@
 # Canonical Symposium staging
 
+> **Stood down — 15 October 2026.** The user has stood down canonical Mitzo
+> staging and its pipeline. The procedures below describe the former environment
+> and are retained as historical reference, not current operating instructions.
+> Do not check, enqueue, deploy, recover, restart or recreate this environment as
+> part of ordinary development. Preserve retained ownership and diagnostic records.
+> Reactivation requires a new explicit user request. Use offline tests and CI;
+> any live testing needs a separately selected and authorized target. Production
+> is not an automatic fallback and deployment still requires separate authorization.
+
 The 6 October decision is to use one persistent staging environment for Symposium.
 The existing canonical app at `http://mitzo-staging.localhost:3190` is the target;
 new conversations create seats and their owned resources inside that environment,
