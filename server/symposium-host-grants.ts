@@ -300,7 +300,7 @@ export class SymposiumHostGrants {
     )
       throw new Error('Profile resolver returned a different revision');
     const selected = version?.definition;
-    assertAgentToolRoute(selected, 'symposium');
+    assertAgentToolRoute(selected, 'native-symposium');
     if (
       inputSeat.contextRecipe &&
       (!selected?.contextRecipe ||

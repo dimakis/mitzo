@@ -592,7 +592,11 @@ export function managedJiraConnectionEnv(connection: Connection) {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
-  assertAgentToolRoute(options.agentProfile?.definition, 'codex');
+  assertAgentToolRoute(
+    (options.agentProfile ?? options.eventStore.getSession(options.conversationId)?.agentProfile)
+      ?.definition,
+    'native-codex',
+  );
   const admittedOptions =
     options.ownedLocal || options.ownedOpenShell
       ? {
