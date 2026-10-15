@@ -543,7 +543,7 @@ test('chats: a failed refresh retains the loaded list and retry restores it', as
     ).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`chat-refresh-${theme}.png`) });
     fixture.failSessions(false);
-    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await page.getByRole('alert').getByRole('button', { name: 'Try again', exact: true }).click();
     await expect(page.getByRole('alert')).toHaveCount(0);
   }
   expect(fixture.mutations).toEqual([]);

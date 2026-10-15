@@ -205,7 +205,25 @@ for (const theme of ['dark', 'light'])
       await page.locator('.session-panel-select').first().click({ button: 'right' });
       await expect(page.getByRole('menuitem', { name: 'Unpin conversation' })).toBeVisible();
       await page.keyboard.press('Escape');
+      // List refresh and saved-history errors have independent retry controls.
+      await page.route('**/api/sessions/*/messages', (route) =>
+        route.fulfill({ status: 503, json: {} }),
+      );
       await page.goto('/sessions');
+      await expect(
+        page
+          .getByRole('complementary', { name: 'Conversation preview' })
+          .getByRole('button', { name: 'Try again' }),
+      ).toBeVisible();
+      await page.route('**/api/sessions', (route) => route.fulfill({ status: 503, json: {} }));
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      const listError = page.getByRole('alert');
+      await expect(listError).toContainText('Couldn’t refresh chats');
+      await expect(page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(2);
+      await page.unroute('**/api/sessions');
+      await listError.getByRole('button', { name: 'Try again', exact: true }).click();
+      await expect(listError).toHaveCount(0);
+      await page.unroute('**/api/sessions/*/messages');
     }
     await page.screenshot({ path: testInfo.outputPath(`session-library-${theme}.png`) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
