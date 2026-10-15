@@ -6,7 +6,6 @@ import { createChatDraft, saveChatDraft, chatDraftUrl } from '../lib/chat-drafts
 /** Save before navigation, including launches whose composer has never been typed in. */
 export function useStageChatLaunch() {
   const navigate = useNavigate();
-  const newSession = useMitzoStore((s) => s.newSession);
   const stage = useMitzoStore((s) => s.setPendingSession);
   return (launch: PendingSession, search = '') => {
     const draft = createChatDraft();
@@ -19,7 +18,6 @@ export function useStageChatLaunch() {
       search,
     };
     if (!saveChatDraft(draft)) throw new Error('Could not save this launch draft. Try again.');
-    newSession();
     stage({ ...launch, draftId: draft.id });
     navigate(chatDraftUrl(draft));
   };

@@ -119,9 +119,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '63427b971465eab55442c1f38cf99e9cf546cb0853ec552a45fc1191758150ae',
   // Saved contextual launches retain their exact source and delivery owner.
   '../../frontend/src/hooks/usePendingLaunch.ts':
-    '800180c614ae809cca6ac788c7f26ab98bc2c622c9099903cd6c2b141a7afdb0',
+    'd13ec1006f93bdaf9294dbc8a372246154c0c79e9b943edb23d8bdac93688959',
   '../../frontend/src/hooks/useStageChatLaunch.ts':
-    'dbbbbd851cfa8b724b6e4ae66f19d46e6e2c6b17a4f15efea64223595a13f454',
+    '607b783bd86d52b78df4e814a13df8f1c0c212c6df34a69026379ebee715bc72',
   '../../frontend/src/hooks/useBriefingChat.ts':
     'd0b124d3acf747c6a2605cdf23a7a0bfa59fc87d2aed1d3cd230e440d2c69996',
   '../../frontend/src/lib/chat-drafts.ts':
@@ -199,7 +199,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    '27a093febc6cf9e932717b4bcd6a475b9bbd8eb3d1a81f16f11a9d9ef74d0ff6',
+    'c83dddf14dd137984ce53ea4ac924a092a43d70cd0fa9ef459bb337721cccce1',
   '../../packages/harness/src/permission-handler.ts':
     '20d09ccadeb668c91008713b45aaffd5762d34c0a6dc1651b3e234732743a7fa',
   '../../packages/harness/src/permissions.ts':

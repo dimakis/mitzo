@@ -2236,7 +2236,7 @@ async function exerciseBriefingReloadRecovery(
     .getByRole('button', { name: 'Use selection', exact: true })
     .click();
   if (hideAssigned) {
-    await expect(page).toHaveURL(/\/chat$/);
+    await expect(page).toHaveURL(/\/chat\?draft=[^&]+$/);
     await expect(
       page.getByRole('button', { name: 'Send launch prompt', exact: true }),
     ).toBeEnabled();
@@ -2652,7 +2652,7 @@ test('failed briefing registration survives a completed turn and reload without 
     .getByRole('combobox', { name: 'Model', exact: true })
     .selectOption(changedBinding.model);
   await changedPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
-  await expect(page).toHaveURL(/\/chat$/);
+  await expect(page).toHaveURL(/\/chat\?draft=[^&]+$/);
   // Larger text must keep composer settings and launch actions reachable.
   if (isMobile)
     await page.evaluate(() => {

@@ -1394,7 +1394,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     setPendingSession(ps: PendingSession) {
       // Replacing a launch owns a new draft and retires any earlier assignment.
-      if (get().pendingSession) get().newSession();
+      // A bound conversation remains selected until the draft route commits.
+      if (get().pendingSession && !get().sessions.active) get().newSession();
       ++launchGeneration;
       const sending = ps.draftId ? launchSends.get(ps.draftId) : undefined;
       set({ pendingSession: sending ?? ps, pendingSessionSending: !!sending });

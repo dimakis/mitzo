@@ -27,7 +27,7 @@ export function usePendingLaunch(requestedDraftId?: string | null) {
         : null;
   useEffect(() => {
     restoredRequest.current = requestedDraftId;
-    if (saved?.settings.launch && pending?.draftId !== requestedDraftId) {
+    if (saved?.settings.launch && (pending?.draftId !== requestedDraftId || sessionId)) {
       newSession();
       stage({ ...saved.settings.launch, draftId: saved.id });
     } else if (pending?.draftId && pending.draftId !== requestedDraftId && !sessionId)
