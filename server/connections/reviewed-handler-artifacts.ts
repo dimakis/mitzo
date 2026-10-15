@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.134';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.136';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -265,7 +265,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'efd60621584b70738781e4326ce6445d6d37c8b2890223ee005edefa718c504f',
+  '../app.ts': '9108050673b284d7d1e163ec2e568515284d2de112835b55627817dfbed52eed',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -295,6 +295,26 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-conversation.ts': '05bf7267b161d84a21eea669dc4f65e699a622346b6d77edde48884ac6902cd6',
   '../codex-conversation-store.ts':
     'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
+  // Retained-owner inference cancellation preserves actual handler cleanup and drain.
+  '../symposium-custodian-ipc.ts':
+    '1bb9c006d3d893c0ab70ff512c8cbefb55c2ccdea7256161b93044416ea00536',
+  '../symposium-custodian-authority.ts':
+    '5ef9405e845e24f9d19af0820deac42d3404dbd5fb86d4f09f814e45226edd6b',
+  '../symposium-custodian-controller.ts':
+    'badecc7f7233eed75026a896d04058b8fdf4821ade2e0a042cb74c0a2ec8bbf9',
+  '../symposium-custodian-http.ts':
+    '5f829b51dde43d1c7615c572ac73b2745c676de0f4f9c39dfd5a2704adc83850',
+  // Inline agent creation uses explicit adviser selection and inference-only profile proposals.
+  '../agent-library-adviser.ts': '92211ccb5be4d398020a115aeb54a9126c8f34a0b61722bc10886186aae702a0',
+  '../terminal-adviser.ts': 'cd67017b760d81455fa8bf272b169d649b93c898d0da05552a92ba39f80f5529',
+  '../terminal-adviser-model.ts':
+    'a94fe40748606b2ca1627579aa7c7d5b341402f3c83db27cdff18b4818808447',
+  '../../frontend/src/components/AgentCreationAdvisor.tsx':
+    '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
+  '../../frontend/src/pages/AgentLibrary.tsx':
+    'af3350d7444fd03f050a576bafee26f21d285794a8385d2e33ab43f8cbba9d47',
+  '../../frontend/src/styles/agent-library.css':
+    '6a9b6d5f637d5f298cf5b5969ae1da125fcca7d376922b011298cbfeb1a29fc5',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     '71fa6b5d798815b452b26f7df5c58733abb793222bfa21ec71926b8bba2d8e74',
@@ -302,14 +322,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-library-transport.ts':
     '1ddf221a25d11c991b669007ef900140056c321f8bb67d12218940a7dd4c4ec2',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
-  '../agent-library-router.ts': '0b34aeca9c7894a3dd4cfa9ad9b930c20e5b54c30010b18c0553dd7dd1b6cc61',
+  '../agent-library-router.ts': '321d376836273f7c6a447a27adbd29e8e2c220bc9f11e494ec68c527ed49cdfc',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',
   '../agent-library-prompt.ts': '3be39c6cd2fb12c744c5f53e45b8c8b306398146edfcb2af479d4fa1c9159c28',
   '../symposium-profile-portability.ts':
     'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
-    '96750498e49418aee2c8cb1413d639f17d060e34f01242d42f72890562d516c1',
+    'e08ea302eb178b8588d3622129e9be49b549b065ed6cf0482f1ca3e0de402559',
   '../symposium-custodian-proxy.ts':
     '59f78245236ef2c05f5f2e9c610629c1f513fedb32b4dae753c6275bd434b3a9',
   '../../packages/protocol/src/agent-library.ts':
