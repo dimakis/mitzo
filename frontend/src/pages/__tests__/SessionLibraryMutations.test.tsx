@@ -118,3 +118,57 @@ it('preserves an off-page preview when clearing history fails', async () => {
   await act(async () => {});
   expect(within(preview()).getByRole('heading', { name: 'Older saved chat' })).toBeTruthy();
 });
+
+it.each([true, false])(
+  'updates off-page pin and preview titles only after a successful rename (success=%s)',
+  async (ok) => {
+    fixture(Promise.resolve(Response.json({})));
+    const initialFetch = vi.mocked(apiFetch).getMockImplementation()!;
+    let finish!: (response: Response) => void;
+    const rename = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    vi.mocked(apiFetch).mockImplementation((url, init) =>
+      init?.method === 'PUT' ? rename : initialFetch(url, init),
+    );
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close = function () {
+      this.removeAttribute('open');
+    };
+    localStorage.setItem(
+      'mitzo-conversation-pins',
+      JSON.stringify([{ id: 'older', summary: 'Older saved chat', lastModified: 0 }]),
+    );
+    const view = show();
+    await screen.findByRole('button', { name: 'Preview First conversation' });
+    fireEvent.contextMenu(
+      within(screen.getByRole('region', { name: 'Pinned conversations' })).getByRole('button', {
+        name: /^Older saved chat/,
+      }),
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Conversation name'), {
+      target: { value: 'Renamed older chat' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
+    expect(within(preview()).getByRole('heading', { name: 'Older saved chat' })).toBeTruthy();
+    await act(async () => finish(Response.json({}, { status: ok ? 200 : 503 })));
+    const expected = ok ? 'Renamed older chat' : 'Older saved chat';
+    expect(within(preview()).getByRole('heading', { name: expected })).toBeTruthy();
+    expect(
+      within(screen.getByRole('region', { name: 'Pinned conversations' })).getByRole('button', {
+        name: new RegExp(`^${expected}`),
+      }),
+    ).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem('mitzo-conversation-pins')!)[0].summary).toBe(expected);
+    view.unmount();
+    show();
+    expect(
+      within(screen.getByRole('region', { name: 'Pinned conversations' })).getByRole('button', {
+        name: new RegExp(`^${expected}`),
+      }),
+    ).toBeTruthy();
+  },
+);

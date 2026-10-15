@@ -69,6 +69,22 @@ export function removeConversationPins(id?: string) {
     // A deleted history cannot be restored if this device refuses storage writes.
   }
 }
+/** Saved off-page shortcuts retain the server-confirmed title across reloads. */
+export function renameConversationPin(id: string, title: string) {
+  const pins = parse(readPins());
+  if (!pins.some((pin) => pin.id === id)) return;
+  try {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify(
+        pins.map((pin) => (pin.id === id ? { ...pin, summary: recordTitle(title) } : pin)),
+      ),
+    );
+    window.dispatchEvent(new Event(CHANGED));
+  } catch {
+    // Keep the successful server rename usable even when device storage is unavailable.
+  }
+}
 /** Device shortcuts are independent from the workspace's Today pins. */
 export function useConversationPins() {
   const raw = useSyncExternalStore(subscribe, readPins, () => '[]');

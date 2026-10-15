@@ -1,4 +1,4 @@
-import { removeConversationPins } from './useConversationPins';
+import { removeConversationPins, renameConversationPin } from './useConversationPins';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '../types/chat';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
@@ -47,7 +47,7 @@ export interface UseSessionListReturn {
   checking: boolean;
   dismissSession: (id: string) => Promise<boolean>;
   clearAll: () => Promise<boolean>;
-  handleRename: (id: string, title: string) => void;
+  handleRename: (id: string, title: string) => Promise<boolean>;
   checkForUpdates: () => Promise<void>;
   loadMore: () => void;
   retry: () => void;
@@ -214,10 +214,16 @@ export function useSessionList(): UseSessionListReturn {
         sessions: page.sessions.map((s) => (s.id === id ? { ...s, summary: title } : s)),
       }));
       setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, summary: title } : s)));
-      renameSessionApi(id, title).catch(() => {
-        sessionCache.invalidate();
-        void loadSessions();
-      });
+      return renameSessionApi(id, title)
+        .then(() => {
+          renameConversationPin(id, title);
+          return true;
+        })
+        .catch(() => {
+          sessionCache.invalidate();
+          void loadSessions();
+          return false;
+        });
     },
     [loadSessions],
   );

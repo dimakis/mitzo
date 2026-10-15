@@ -366,7 +366,7 @@ export function SessionList() {
     hasMore,
     dismissSession,
     clearAll,
-    handleRename,
+    handleRename: renameSession,
     loadMore,
     retry,
   } = useSessionList();
@@ -414,6 +414,11 @@ export function SessionList() {
   }
   async function dismiss(id: string) {
     if (await dismissSession(id)) setPreview((current) => (current?.id === id ? null : current));
+  }
+
+  async function handleRename(id: string, title: string) {
+    if (await renameSession(id, title))
+      setPreview((current) => (current?.id === id ? { ...current, summary: title } : current));
   }
 
   function handleQuickAction(action: QuickAction) {
