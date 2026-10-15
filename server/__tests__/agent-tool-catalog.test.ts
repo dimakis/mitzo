@@ -53,3 +53,31 @@ it('keeps legacy behavior but blocks explicit selections on unsupported routes a
     assertAgentToolRoute({ tools: [{ id: 'mitzo:Unknown', version: 1 }] } as never, 'local-api'),
   ).toThrow(/unavailable/i);
 });
+
+it('refuses missing connection dependencies before exposing an unusable selected operation', async () => {
+  const { assertAgentToolAvailability } = await import('../agent-tool-selection.js');
+  const runtime = await import('../credential-connections-runtime.js');
+  const current = runtime.getCredentialConnectionsRuntime();
+  runtime.setCredentialConnectionsRuntime(null);
+  try {
+    expect(() =>
+      assertAgentToolAvailability(
+        {
+          tools: [
+            { id: 'mitzo:ConnectionRequest', version: 1 },
+            { id: 'mitzo:RequestConnectionAccess', version: 1 },
+          ],
+        } as never,
+        'chat',
+      ),
+    ).toThrow(/active connection/i);
+    expect(() =>
+      assertAgentToolAvailability(
+        { tools: [{ id: 'mitzo:GetConnectionGuide', version: 1 }] } as never,
+        'chat',
+      ),
+    ).not.toThrow();
+  } finally {
+    runtime.setCredentialConnectionsRuntime(current);
+  }
+});

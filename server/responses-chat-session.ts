@@ -1,4 +1,5 @@
 import {
+  assertAgentToolAvailability,
   assertAgentToolRoute,
   bindAgentToolSelection,
   hasAgentToolSelection,
@@ -157,6 +158,7 @@ export async function openResponsesChat(options: Options) {
   const agentProfile =
     options.agentProfile ?? options.eventStore?.getSession(options.conversationId)?.agentProfile;
   assertAgentToolRoute(agentProfile?.definition, 'local-api');
+  assertAgentToolAvailability(agentProfile?.definition, options.conversationId);
   if (agentProfile) bindAgentToolSelection(options.session, agentProfile.definition);
 
   let initializing = true;

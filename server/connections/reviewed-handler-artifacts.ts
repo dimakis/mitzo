@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.143';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.144';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1d5bbbdc8066ffc882150951f5bae12ebb935fec2736bd62bc8ea536ddf507c6',
   '../../packages/protocol/src/agent-tools.ts':
     'd4f76bbc478cdac274c1bd9ff75d0d007e86c710614d2836d0c1a9c65d54ed2d',
-  '../agent-tool-selection.ts': '303088af203b17844c9bc8b2b1773c2ff93de2496774c7bb125b9a62d93cb4d0',
+  '../agent-tool-selection.ts': '0392880503aacd80c3986152989eb0930e8d11b832df63b6f324682b1bbb7f51',
   '../agent-tool-catalog.ts': '2ab34d5743bd24ddeb75e786c58860aa88a1af7a2fdde77ee7d0c8d4d619f934',
   // Ordinary Telos item reads, atomic progress updates, tool exposure and approval tiers.
   '../telos-item-store.ts': '71e0414e15d24cf8c2856c14a739037024ba1657f2481dd2ede9634a25eee7f5',
@@ -339,7 +339,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    '3322b9fd6f8f90ad79b13fa2c96d97bb62edc07784185ef48871e4539112ef58',
+    '10dc66075e1f1098019a5b98520a69e211db2b038c6757796b2bdbb286ed27e8',
   '../../frontend/src/styles/agent-library.css':
     'cc2cc1c200c22b1b4fc996a82865bc6bb25dc599cfb796f8bb08d2bb4afcfbe4',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
@@ -542,7 +542,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-responses-runner.ts':
     '9c4b1725a3f6360cf225bba934db7025f62c134875460f57419b8b5f916cf040',
   '../responses-chat-session.ts':
-    '2adc52594a217f35ad6ba8be4f27b071ca718d4f7b2885cbb99d880c8af82216',
+    '6400dfd380e823d49d053e95ade689189ba853c28660239f751418b196d2565f',
   // Image payload validation shares native queue admission and dispatch authority.
   '../responses-input.ts': 'b4be57d3535660a31597f07b075070a90b49b2e62239916937e9316e78cc4b05',
   '../symposium-agent-context.ts':
