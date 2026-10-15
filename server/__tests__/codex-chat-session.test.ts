@@ -665,6 +665,8 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'SymposiumReadProfiles' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
+    expect.objectContaining({ name: 'TelosGetItem' }),
+    expect.objectContaining({ name: 'TelosUpdateItem' }),
     expect.objectContaining({ name: 'TelosSaveArtifact' }),
     expect.objectContaining({ name: 'TelosFindArtifacts' }),
     expect.objectContaining({ name: 'TelosReadArtifact' }),
@@ -762,6 +764,65 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(
     await executeTool('TelosSaveArtifact', artifactInput, new AbortController().signal),
   ).toEqual({ content: 'Denied', isError: true });
+  const getInput = { itemId: 'telos-live' };
+  const readReceipt = {
+    ok: true,
+    item: { id: 'telos-live', status: 'active', revision: 'a'.repeat(64) },
+  };
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: getInput });
+  fetch.mockResolvedValueOnce(new Response(JSON.stringify(readReceipt)));
+  expect(await executeTool('TelosGetItem', getInput, new AbortController().signal)).toEqual({
+    content: JSON.stringify(readReceipt),
+    isError: false,
+  });
+  expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+    'TelosGetItem',
+    getInput,
+    expect.objectContaining({ forcePrompt: false }),
+  );
+  const updateInput = {
+    itemId: 'telos-live',
+    requestId: 'finish',
+    expectedRevision: 'a'.repeat(64),
+    status: 'completed',
+    note: 'Saved research meets all four criteria.',
+  };
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+  fetch.mockClear();
+  expect(await executeTool('TelosUpdateItem', updateInput, new AbortController().signal)).toEqual({
+    content: 'Denied',
+    isError: true,
+  });
+  expect(fetch).not.toHaveBeenCalled();
+  mocks.permissionHandler.mockResolvedValueOnce({
+    behavior: 'allow',
+    updatedInput: { ...updateInput, itemId: 'another-task' },
+  });
+  expect(
+    (await executeTool('TelosUpdateItem', updateInput, new AbortController().signal)).isError,
+  ).toBe(true);
+  expect(fetch).not.toHaveBeenCalled();
+  const updateReceipt = {
+    ok: true,
+    item: { id: 'telos-live', status: 'completed', revision: 'b'.repeat(64) },
+    update: { sessionId: 'conversation', note: updateInput.note },
+  };
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: updateInput });
+  fetch.mockResolvedValueOnce(new Response(JSON.stringify(updateReceipt)));
+  expect(await executeTool('TelosUpdateItem', updateInput, new AbortController().signal)).toEqual({
+    content: JSON.stringify(updateReceipt),
+    isError: false,
+  });
+  expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+    'TelosUpdateItem',
+    updateInput,
+    expect.objectContaining({ forcePrompt: true, allowSessionGrant: true }),
+  );
+  expect(fetch).toHaveBeenLastCalledWith(
+    'http://localhost:3101/api/internal/telos/items/update',
+    expect.objectContaining({ body: JSON.stringify(updateInput) }),
+  );
+  expect(mocks.conversationOptions?.systemPrompt).toContain('before handover');
   mocks.useTls = false;
   chat.close();
   vi.unstubAllGlobals();
@@ -860,6 +921,8 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({ name: 'SymposiumReadProfiles' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
+      expect.objectContaining({ name: 'TelosGetItem' }),
+      expect.objectContaining({ name: 'TelosUpdateItem' }),
       expect.objectContaining({ name: 'TelosSaveArtifact' }),
       expect.objectContaining({ name: 'TelosFindArtifacts' }),
       expect.objectContaining({ name: 'TelosReadArtifact' }),

@@ -114,10 +114,10 @@ describe('Telos item progress', () => {
 
   it('records progress without changing status and detects external item or milestone edits', () => {
     const { store, db, update } = fixture();
-    const { status: _status, ...progress } = update(
-      'parent',
-      'Report saved; comparison still needs review.',
-    );
+    const progress = {
+      ...update('parent', 'Report saved; comparison still needs review.'),
+      status: undefined,
+    };
     const receipt = store.update(progress, 'session-a');
     expect(receipt.item.status).toBe('active');
     expect(db.prepare('SELECT COUNT(*) AS n FROM history').get()).toEqual({ n: 0 });
