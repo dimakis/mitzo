@@ -1,3 +1,4 @@
+import { HTML_PREVIEW_BOOTSTRAP, htmlPreviewPolicy } from '../../server/html-preview-shell';
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
@@ -685,6 +686,12 @@ test.beforeEach(async ({ page }) => {
       // No app mutation or model request can leave this fixture suite.
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+      if (url.pathname === '/api/html-preview')
+        return route.fulfill({
+          contentType: 'text/html',
+          headers: { 'content-security-policy': htmlPreviewPolicy() },
+          body: HTML_PREVIEW_BOOTSTRAP,
+        });
       if (/^\/api\/sessions\/[^/]+\/outputs$/.test(url.pathname))
         return route.fulfill({ json: { outputs: [], candidates: [] } });
       if (url.pathname === '/api/inbox/feed') return route.fulfill({ json: inboxFixture(url) });

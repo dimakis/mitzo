@@ -51,16 +51,22 @@ describe('MobileShell navigation', () => {
     renderAt('/quotes/2026-10-09');
     expect(screen.getByRole('link', { name: 'Mitzo home' })).toBeTruthy();
   });
-  it.each(['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access', '/knowledge'])(
-    'owns the full wordmark on %s',
-    (path) => {
-      const { container } = renderAt(path);
-      const brand = screen.getByRole('link', { name: 'Mitzo home' });
-      expect(brand.querySelector('img')?.getAttribute('src')).toBe('/mitzo-wordmark.png');
-      expect(container.querySelector('.mobile-workspace-masthead')?.contains(brand)).toBe(true);
-      expect(container.querySelector('.mobile-workspace-body')).toBeTruthy();
-    },
-  );
+  it.each([
+    '/',
+    '/sessions',
+    '/inbox',
+    '/todos',
+    '/more',
+    '/mockups',
+    '/connections-access',
+    '/knowledge',
+  ])('owns the full wordmark on %s', (path) => {
+    const { container } = renderAt(path);
+    const brand = screen.getByRole('link', { name: 'Mitzo home' });
+    expect(brand.querySelector('img')?.getAttribute('src')).toBe('/mitzo-wordmark.png');
+    expect(container.querySelector('.mobile-workspace-masthead')?.contains(brand)).toBe(true);
+    expect(container.querySelector('.mobile-workspace-body')).toBeTruthy();
+  });
   it.each(['/login', '/chat/example', '/todos/example'])(
     'leaves focused views to their own navigation on %s',
     (path) => {
