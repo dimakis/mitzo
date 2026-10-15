@@ -31,3 +31,14 @@ it('makes generic API setup directly accessible from More on mobile', () => {
     '/connections?manage=api',
   );
 });
+
+it('offers the per-chat mockup collections from More', () => {
+  render(
+    <MemoryRouter>
+      <MoreView />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'Mockups', exact: true }).getAttribute('href')).toBe(
+    '/mockups',
+  );
+});

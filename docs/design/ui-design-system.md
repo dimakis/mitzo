@@ -144,6 +144,19 @@ navigation, then verify the component blocks an attempted external navigation.
 
 ### Managing multiple mockups
 
+**More → Mockups** opens a protected collection route with the existing chat list
+and history search. Choose a chat before reading its saved messages; viewing never
+attaches a provider or starts a turn. The route reuses `MockupCollection` and the
+original session-scoped file reads. Search survives returning to the picker, late
+history reads are fenced to their selected chat, and failed/malformed history has
+an explicit retry state. MobileShell owns the mobile masthead and navigation;
+More stays selected in both navigation layouts. PageRoute supplies DesktopShell.
+The offline navigation fixture covers actual shells and pages at 320px/1280px in
+both themes with Mint/Georgia, history failure/retry and working preview actions,
+using intercepted requests only. Captures show the
+[mobile chat picker](assets/mockup-navigation-mobile-dark.png) and
+[desktop chat picker](assets/mockup-navigation-desktop-light.png).
+
 Resources includes a per-chat **Mockups** collection. It reads finished assistant
 Markdown file links from the available conversation history; discovery is a
 reference, not proof of file creation or durable publication. Versioned paths
