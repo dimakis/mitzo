@@ -3630,3 +3630,15 @@ it('cold owned OpenShell reuses the original physical mapping while a new turn s
     f.cleanup();
   }
 });
+
+it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
+  'refuses a selected-tool profile before direct Codex startup: %j',
+  async ({ tools }) => {
+    await expect(
+      openCodexChat({
+        ...options(new AbortController()),
+        agentProfile: { definition: { tools } } as never,
+      }),
+    ).rejects.toThrow('tool selection is not supported');
+  },
+);
