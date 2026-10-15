@@ -42,6 +42,7 @@ export async function readBackupPassword(run: Executor = execute): Promise<strin
 export function createHostBackupService(
   capture: (path: string) => Promise<void>,
   env: NodeJS.ProcessEnv = process.env,
+  password: () => Promise<string> = readBackupPassword,
 ): BackupService {
   const keys = [
     'MITZO_BACKUP_ROOT',
@@ -80,7 +81,7 @@ export function createHostBackupService(
     binary: env.MITZO_BACKUP_RESTIC_BINARY!,
     repository,
     scratch: join(root, 'temporary'),
-    password: readBackupPassword,
+    password,
     recoveryConfirmed: true,
   });
   const transport = new ICloudBackupTransport(

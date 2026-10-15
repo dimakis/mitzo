@@ -3,9 +3,15 @@ import { MemoryRouter } from 'react-router-dom';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { BackupsView } from '../BackupsView';
-import { getBackups, backupAction } from '../../lib/backups-api';
+import { getBackups, backupAction, getBackupSetup, prepareBackups } from '../../lib/backups-api';
 import type { BackupOverview } from '@mitzo/protocol';
-vi.mock('../../lib/backups-api', () => ({ getBackups: vi.fn(), backupAction: vi.fn() }));
+vi.mock('../../lib/backups-api', () => ({
+  getBackups: vi.fn(),
+  backupAction: vi.fn(),
+  getBackupSetup: vi.fn(),
+  prepareBackups: vi.fn(),
+  configureBackups: vi.fn(),
+}));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -80,7 +86,7 @@ it('retains failures visibly and disables actions while status is unavailable', 
   );
 });
 
-it('opens host setup from the destination card and rechecks without enabling backups', async () => {
+it('opens actionable setup from the destination card without starting a backup', async () => {
   vi.mocked(getBackups).mockResolvedValue({
     ...view,
     ready: false,
@@ -91,12 +97,23 @@ it('opens host setup from the destination card and rechecks without enabling bac
       <BackupsView />
     </MemoryRouter>,
   );
+  const setup = {
+    supported: true,
+    prepared: false,
+    configured: false,
+    busy: false,
+    localFolder: '/local',
+    cloudFolder: '/cloud',
+  };
+  vi.mocked(getBackupSetup).mockResolvedValue(setup);
+  vi.mocked(prepareBackups).mockResolvedValue({ ...setup, prepared: true });
   fireEvent.click(await screen.findByRole('button', { name: 'Set up backups' }));
-  expect(screen.getByRole('region', { name: 'Backup setup guide' })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Encryption and recovery' }));
-  expect(screen.getByText(/mitzo.backup/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Check setup again' }));
-  await waitFor(() => expect(getBackups).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole('region', { name: 'Backup setup' })).toBeTruthy();
+  fireEvent.click(await screen.findByRole('button', { name: 'Prepare storage' }));
+  await screen.findByLabelText('Backup password');
+  expect((screen.getByRole('button', { name: 'Finish setup' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   expect(backupAction).not.toHaveBeenCalled();
   expect((screen.getByRole('button', { name: 'Back up now' }) as HTMLButtonElement).disabled).toBe(
     true,

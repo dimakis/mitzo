@@ -110,20 +110,62 @@
   flex-wrap: wrap;
   margin: 20px 0;
 }
-.backup-steps button {
+.backup-steps {
+  list-style: none;
+  padding: 0;
+}
+.backup-steps li {
   display: flex;
-  align-items: center;
   gap: 8px;
   flex: 1 1 160px;
-  text-align: left;
-  font-size: 12px;
+  font-size: 13px;
+  color: var(--workspace-muted);
 }
-.backup-steps button[aria-pressed='true'] {
-  border-color: var(--workspace-accent);
-  background: var(--workspace-panel);
-}
-.backup-steps span {
+.backup-steps li[aria-current='step'] {
   color: var(--workspace-accent);
+  font-weight: 600;
+}
+.backup-storage {
+  font-size: 13px;
+}
+.backup-storage dt {
+  color: var(--workspace-muted);
+  margin-top: 12px;
+}
+.backup-storage dd {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.backup-password {
+  display: grid;
+  gap: 8px;
+  margin: 20px 0;
+}
+.backup-password input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  font: inherit;
+}
+.backup-recovery {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 20px 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+.backup-recovery input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: var(--workspace-accent);
 }
 .backup-step-content {
   padding: 16px;
