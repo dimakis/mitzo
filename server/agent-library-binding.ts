@@ -1,3 +1,4 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { createHash } from 'node:crypto';
 import {
   AgentLibraryVersionSchema,
@@ -11,6 +12,8 @@ export async function resolveChatAgentProfile(input: {
   stored?: AgentLibraryVersion;
   resume?: boolean;
   provider?: string;
+  /** Trusted adapter enrollment, never copied from a client profile selection. */
+  toolRoute?: string;
   lookup(selection: AgentProfileSelection): Promise<AgentLibraryVersion | null>;
 }): Promise<AgentLibraryVersion | undefined> {
   if (
@@ -48,5 +51,6 @@ export async function resolveChatAgentProfile(input: {
     !definition.recipe.compatibleProviders.some((provider) => provider === input.provider)
   )
     throw Error('Agent profile is not compatible with the selected provider');
+  assertAgentToolRoute(definition, input.toolRoute ?? 'not-enrolled');
   return { ...snapshot, definition };
 }
