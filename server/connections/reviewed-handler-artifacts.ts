@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.133';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.134';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Durable references between existing ordinary sessions, without execution authority.
+  '../session-collaboration-router.ts':
+    'd81fac17e0f009db92c78c2792e697d1da7e26c3a6cee432f1367196afae2d57',
+  '../../packages/protocol/src/session-collaboration.ts':
+    'e8e47f2b79832f0288063745acbed93c7c5f8f4db71f5c8a71705b1b02a59198',
+  '../../packages/protocol/src/session-collaboration-store.ts':
+    'aecfd5fc7f2d4bfd708fa7d40b645fcf14e8169519c6bcad494db6f8b832057a',
   // Approved conversation resources, usage evidence and non-blocking welcome motion.
   '../../frontend/src/components/ChatWelcome.tsx':
     'be4dd3a9269459ddbfeeab8daa3b55c3fdc12bad84f12446a4dece772036ae5f',
@@ -265,7 +272,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'efd60621584b70738781e4326ce6445d6d37c8b2890223ee005edefa718c504f',
+  '../app.ts': '1cbba3423fa0976dbc1efbb1f20fceb5b77a1b93fcc0c7b1c428274882d3692f',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -417,7 +424,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    'c048832e8743027766ccab6d36c869c2349ee9ffa88057b46a7c8a3c19e1d7f9',
+    '0d3fe1f0f321cfacd7f55d75eea76cd3894b7d699341e8e4912c83b3f4b76c3d',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -473,7 +480,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '0880159a6eca4f52152349bf5dc94a045d88ce7b900a5ce98b2fe0e97fd7d894',
+    'f6abcb340a07cdbad5b56d007721c45c4341b0fb4871c1e7062d18d89335b899',
   '../agent-context-authority.ts':
     '68b721db46cf6ba99de042cdf32be345bfc78c7ae27c2e31ee2b0b52a20ac266',
   '../agent-context-delivery.ts':
