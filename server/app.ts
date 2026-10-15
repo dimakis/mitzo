@@ -1,3 +1,4 @@
+import { sessionListMetadata } from './session-list-metadata.js';
 import { projectCompactions } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
@@ -2649,6 +2650,7 @@ app.get('/api/sessions', async (req, res) => {
         totalTokens: meta
           ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
           : undefined,
+        ...sessionListMetadata(meta ?? {}, eventStore.getLatestEvent(s.id, 'token_update')),
         numTurns: meta?.numTurns,
         closedBy: meta?.closedBy ?? undefined,
       };

@@ -72,3 +72,19 @@ it.each([
   expect((screen.getByRole('radio', { name: label }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole('combobox', { name: 'Font' }) as HTMLSelectElement).value).toBe(font);
 });
+
+it('owns the Today context switch under Appearance and persists the device choice', () => {
+  localStorage.clear();
+  render(
+    <MemoryRouter>
+      <SettingsView />
+    </MemoryRouter>,
+  );
+  const checkbox = screen.getByRole('checkbox', {
+    name: 'Show session context on Today',
+  }) as HTMLInputElement;
+  expect(checkbox.closest('.appearance-section')).toBeTruthy();
+  expect(checkbox.checked).toBe(true);
+  fireEvent.click(checkbox);
+  expect(localStorage.getItem('mitzo-today-tokens')).toBe('false');
+});

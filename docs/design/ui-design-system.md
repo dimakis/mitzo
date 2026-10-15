@@ -630,3 +630,12 @@ Inspected captures show [new agent creation on mobile](assets/agent-creation-mob
 and [the desktop advisor above the profile form](assets/agent-creation-desktop-light.png).
 These are fully intercepted fixtures; no live model, backend or production service
 was used.
+
+## Session library and context summaries
+
+Today renders the latest recorded context observation separately from cumulative
+request usage. A measured count without current model-capacity evidence keeps its
+limit explicitly unreported; absent or stale observations never become a zero or
+percentage. Session pins and recent sessions share `SessionContextUsage`. The
+visibility switch lives in Settings → Appearance, retains the existing device
+preference key, and propagates across mounted views and browser tabs.

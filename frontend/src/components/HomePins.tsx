@@ -1,3 +1,5 @@
+import { SessionContextUsage } from './SessionContextUsage';
+import { useSessionDisplay } from '../hooks/useSessionDisplay';
 import { UiIcon } from './UiIcon';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -13,6 +15,7 @@ import '../styles/home.css';
 
 export function HomePins({ sessions }: { sessions: Session[] }) {
   const home = useHomePreferences();
+  const { showContext } = useSessionDisplay();
   const [mode, setMode] = useState<'add' | 'manage' | null>(null);
   return (
     <section className="today-section" aria-labelledby="today-pins-title">
@@ -53,6 +56,11 @@ export function HomePins({ sessions }: { sessions: Session[] }) {
             <span>
               <strong>{recordTitle(pin.title)}</strong>
               <small>{pin.kind === 'session' ? 'Session' : 'Work'} · Pinned to Today</small>
+              {pin.kind === 'session' && showContext && (
+                <SessionContextUsage
+                  usage={sessions.find((session) => session.id === pin.id)?.contextUsage}
+                />
+              )}
             </span>
             <UiIcon name="forward" size={16} />
           </Link>

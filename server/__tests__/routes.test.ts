@@ -99,6 +99,7 @@ vi.mock('../chat.js', async () => {
       ...createRoutesRuntimeLedgerFixture(),
       setSessionState: vi.fn(),
       append: vi.fn(),
+      getLatestEvent: vi.fn().mockReturnValue(null),
       getEventsAfter: vi.fn().mockReturnValue([]),
       getEventsOfType: vi.fn().mockReturnValue([]),
       getLatestWorktreePath: vi.fn().mockReturnValue(null),
