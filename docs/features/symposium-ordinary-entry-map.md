@@ -6,6 +6,34 @@ Telos outcome `c0851ba23fcc5d04`. A source change or an offline fixture is not l
 runtime acceptance. Do not restart the dedicated native setup programme to fill
 ordinary adapter gaps.
 
+## Existing-session association owner
+
+`server/session-collaboration-router.ts` is mounted at `/api/session-collaborations`
+behind the existing interactive operator authentication. Internal agent tokens do
+not authorize membership edits. JSON writes retain the shared same-origin check.
+
+| Operation                       | Contract                                                                                                                                                                                                                                                                                             |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUT /:id`                      | A caller-generated UUID identifies the association. Supply `expectedRevision: 0` and at least two distinct existing ordinary session IDs to create it; later edits supply the current revision. Maximum 16 participants. Exact last retries return the same revision, concurrent changes return 409. |
+| `GET /:id`                      | Returns the current membership plus `unavailableParticipantSessionIds`. This is metadata availability, not account readiness, context sharing or permission to execute.                                                                                                                              |
+| `GET /?sessionId=...&after=...` | Rediscovers current groups for a visible ordinary participant, ordered by collaboration ID, with pages of 50 and an optional `nextCursor`. Removed membership is absent. Each selected group can then be read for current availability.                                                              |
+
+`SessionCollaborationStore` owns an append-only revision journal on the EventStore's
+existing SQLite connection. Membership validates inside the same immediate
+transaction as its revision check. There is no coordinator conversation, parent
+chat foreign key or new runtime/account registry. The relationship survives
+participant unavailability; explicit removal changes only association metadata.
+Exact last retries remain readable after a participant becomes unavailable.
+Edits can retain unavailable references while changing other members; availability
+is checked only for newly added participants, including re-adding a removed one.
+Reads do not allocate anything, and stored corruption fails closed.
+
+This slice supports the shared boundary between Telos `c0851ba23fcc5d04` and
+`4f55b423d0731750`: collaboration identity groups sessions; durable work identity and
+session-to-work associations remain independently owned. It adds no implicit work
+association, dispatch authority or legacy migration. The ordinary execution and
+unified chat UI cutover below remain required.
+
 ## Accepted owners reused by the bounded service
 
 | Operation              | Owner and boundary                                                                                                                                                                                                                                                                               |
