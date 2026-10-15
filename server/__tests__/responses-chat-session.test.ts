@@ -1802,3 +1802,46 @@ it.each(['agent', 'ask'] as const)(
     }
   },
 );
+
+it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
+  'refuses a retained selected-tool snapshot before unenrolled API startup: %j',
+  async ({ tools }) => {
+    const registry = new SessionRegistry();
+    registry.register('selection-client', {
+      transport: { send: () => {}, isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId: 'selected-app',
+      cwd: '/tmp',
+      sessionAllowList: new Set(),
+    });
+    const before = calls.options.length;
+    const input = new AsyncQueue<{ message: { content: string } }>();
+    input.close();
+    try {
+      await expect(
+        openResponsesChat({
+          conversationId: 'selected-app',
+          binding: {
+            accountId: 'work',
+            accountLabel: 'Work',
+            provider: 'openai',
+            model: 'test',
+            profileRevision: 'revision',
+          },
+          session: registry.get('selection-client')!,
+          registry,
+          input,
+          systemPrompt: '',
+          env: {},
+          mcpServers: {},
+          store: {} as never,
+          eventStore: { getSession: () => ({ agentProfile: { definition: { tools } } }) } as never,
+        }),
+      ).rejects.toThrow('tool selection is not supported');
+      expect(calls.options).toHaveLength(before);
+    } finally {
+      registry.dispose();
+    }
+  },
+);

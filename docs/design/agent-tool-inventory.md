@@ -29,3 +29,10 @@ selection exposes only required platform tools. There is no automatic migration 
 to historical hashes. Exact published snapshots govern resume; editing a profile affects
 new sessions. No active catalog refresh is promised. Selection is an additional ceiling,
 not an access grant. Existing current-authority checks remain in every executor.
+
+The catalog/schema slice deliberately leaves all execution adapters unenrolled. It rejects
+explicit selections, including an empty list, at ordinary profile resolution, direct API
+and native Codex startup, shared owned-runtime admission, native Symposium allocation and
+host-grant activation. The runtime slice enrolls the local API runner only after exposure,
+dispatch and admitted-snapshot enforcement are present. Offline startup regressions verify
+refusal before provider calls, task bootstrap, session allocation or grant creation.

@@ -1,3 +1,4 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
@@ -591,6 +592,11 @@ export function managedJiraConnectionEnv(connection: Connection) {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
+  assertAgentToolRoute(
+    (options.agentProfile ?? options.eventStore.getSession(options.conversationId)?.agentProfile)
+      ?.definition,
+    'native-codex',
+  );
   const admittedOptions =
     options.ownedLocal || options.ownedOpenShell
       ? {

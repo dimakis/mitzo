@@ -1,3 +1,4 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
 import { resolveChatAgentContext } from './agent-context-binding.js';
 import type { AgentContextSnapshot } from '@mitzo/protocol';
@@ -54,6 +55,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       this.owners.operator.assertCurrent();
       const expected = structuredClone(input),
         reservation = this.#reservation;
+      assertAgentToolRoute(expected.agentProfile?.definition, 'not-enrolled');
       const identity = { ...expected, agentContext: undefined };
       if (this.#snapshot && !isDeepStrictEqual(identity, this.#snapshot)) throw unavailable();
       assertOrdinaryCodexContextIdentity(

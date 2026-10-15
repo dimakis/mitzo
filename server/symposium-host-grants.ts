@@ -1,3 +1,4 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -299,6 +300,7 @@ export class SymposiumHostGrants {
     )
       throw new Error('Profile resolver returned a different revision');
     const selected = version?.definition;
+    assertAgentToolRoute(selected, 'native-symposium');
     if (
       inputSeat.contextRecipe &&
       (!selected?.contextRecipe ||
