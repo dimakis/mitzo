@@ -20,6 +20,7 @@ import {
 } from './openshell-runtime-policy.js';
 import { load } from 'js-yaml';
 import { knowledgeStoreFromEnvironment, type KnowledgeStore } from './knowledge-store-config.js';
+import type { KnowledgeBundleSelection } from './knowledge-publication-bridge.js';
 import type { KnowledgeAdoptionSelection } from './codex-conversation-store.js';
 import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
 import {
@@ -764,6 +765,7 @@ export function verifiedOpenShellPolicy(
 async function knowledgePhase<T>(
   phase:
     | 'reconcile'
+    | 'reuse_initial_selection'
     | 'verify_host'
     | 'freeze_upload'
     | 'upload'
@@ -898,8 +900,9 @@ export async function preparePublishedOpenShellSeed(
   config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest' | 'knowledgeStore'>,
   signal: AbortSignal,
   beforeFreeze?: (selectedSeed: string) => Promise<void>,
-): Promise<{ seed: string; cleanup: () => void }> {
-  const selection = await config.knowledgeStore?.reconcile(signal);
+): Promise<{ seed: string; cleanup: () => void; publication?: KnowledgeBundleSelection }> {
+  const publication = await config.knowledgeStore?.reconcile(signal);
+  const selection = publication ? structuredClone(publication) : undefined;
   signal.throwIfAborted();
   // Capacity callers must budget the actual immutable selection before the
   // host snapshot allocation, then pass that same snapshot to ensure().
@@ -925,7 +928,7 @@ export async function preparePublishedOpenShellSeed(
       throw error;
     }
   }
-  return prepared;
+  return { ...prepared, ...(selection ? { publication: selection } : {}) };
 }
 
 /** Builds Codex config for capabilities that execute inside OpenShell.
@@ -967,6 +970,16 @@ export class OpenShellRuntimeManager {
   private knowledgeViews = new Map<
     string,
     Omit<OpenShellKnowledgeSelection, 'context'> & { context?: OpenShellBootContext }
+  >();
+  /** One-use first-command selections, never persisted or exposed as runtime metadata. */
+  private initialPublications = new Map<
+    string,
+    {
+      commandId: string;
+      identity: string;
+      store: KnowledgeStore;
+      publication: KnowledgeBundleSelection;
+    }
   >();
 
   constructor(
@@ -1033,13 +1046,34 @@ export class OpenShellRuntimeManager {
 
   forSandbox(name: string): OpenShellRuntimeManager {
     identifier(name, 'migration sandbox name');
-    return new OpenShellRuntimeManager(
+    const manager = new OpenShellRuntimeManager(
       { ...this.config, sandboxNameOverride: name },
       this.run,
       this.readiness,
       this.runSsh,
       this.providerPolicyState,
     );
+    // A boundary wrapper is not another admission. Share consumption while
+    // retaining the exact physical/configuration identity check below.
+    manager.initialPublications = this.initialPublications;
+    return manager;
+  }
+  private initialPublicationIdentity(runtime: OpenShellRuntime) {
+    return runtimePolicyHash({
+      image: this.config.image,
+      contract: this.config.seedStackManifest?.runtime ?? null,
+      account: this.config.account,
+      accountId: this.config.connectionAccountId ?? null,
+      sandboxId: runtime.sandboxId ?? null,
+      sandboxName: runtime.sandboxName,
+      workdir: runtime.workdir,
+      workspace: runtime.workspace ?? 'default',
+      gateway: runtime.gateway ?? 'local',
+      endpoint: runtime.gatewayEndpoint ?? null,
+      cli: runtime.cli ?? 'openshell',
+      gatewayInsecure: runtime.gatewayInsecure ?? false,
+      appServerCommand: runtime.appServerCommand ?? null,
+    });
   }
   private nameForConversation(conversationId: string) {
     return (
@@ -1989,7 +2023,11 @@ export class OpenShellRuntimeManager {
     admittedSeed?: { seed: string; cleanup: () => void },
     /** Migration adapter supplies only freshly attested durable source approvals. */
     inheritedMigrationGrants?: readonly string[],
+    /** Only a new explicit command can pin creation's publication for its first turn. */
+    initialCommandId?: string,
   ): Promise<OpenShellRuntime> {
+    this.initialPublications.delete(conversationId);
+    if (initialCommandId !== undefined) z.string().min(1).parse(initialCommandId);
     if (
       inheritedMigrationGrants?.some(
         (p) =>
@@ -2051,6 +2089,8 @@ export class OpenShellRuntimeManager {
     )
       throw new Error('Recorded seat sandbox physical identity changed or is not Ready');
     let created = false;
+    let createdByThisCall = false;
+    let initialPublication: KnowledgeBundleSelection | undefined;
     let terminalSandboxId: string | undefined;
     if (!sandbox && !this.config.sandboxNameOverride) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
@@ -2089,10 +2129,12 @@ export class OpenShellRuntimeManager {
       await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     else await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
     if (!sandbox) {
-      const preparedSeed = artifactConfig
+      const preparedSeed: Awaited<ReturnType<typeof preparePublishedOpenShellSeed>> = artifactConfig
         ? { seed: this.config.seed, cleanup: () => undefined }
         : (admittedSeed ?? (await preparePublishedOpenShellSeed(this.config, signal)));
       const selectedSeed = preparedSeed.seed;
+      if (!artifactConfig && !admittedSeed && 'publication' in preparedSeed)
+        initialPublication = preparedSeed.publication;
       try {
         created = true;
         const phasedCreate = !!this.config.onSandboxCreateSettled;
@@ -2162,6 +2204,7 @@ export class OpenShellRuntimeManager {
         this.config.onSandboxCreationPhase?.('create');
         try {
           const output = await this.run(args, signal);
+          createdByThisCall = true;
           if (phasedCreate) {
             const receipt = Sandbox.parse(JSON.parse(output));
             if (
@@ -2333,7 +2376,7 @@ export class OpenShellRuntimeManager {
         throw new Error('Recorded seat sandbox physical identity changed or is not Ready');
     }
     this.config.verifyAccountProviderUnion?.();
-    return {
+    const runtime: OpenShellRuntime = {
       sandboxName: name,
       ...(sandbox.id ? { sandboxId: sandbox.id } : {}),
       ...(sandbox.resource_version ? { resourceVersion: sandbox.resource_version } : {}),
@@ -2352,6 +2395,21 @@ export class OpenShellRuntimeManager {
       gatewayInsecure: this.config.gatewayInsecure,
       ...(this.config.cliEnvironment ? { cliEnvironment: this.config.cliEnvironment } : {}),
     };
+    signal.throwIfAborted();
+    if (
+      createdByThisCall &&
+      initialCommandId &&
+      initialPublication &&
+      runtime.sandboxId &&
+      this.config.knowledgeStore
+    )
+      this.initialPublications.set(conversationId, {
+        commandId: initialCommandId,
+        identity: this.initialPublicationIdentity(runtime),
+        store: this.config.knowledgeStore,
+        publication: structuredClone(initialPublication),
+      });
+    return runtime;
   }
 
   async grantServiceProvider(
@@ -2572,7 +2630,13 @@ export class OpenShellRuntimeManager {
     runtime: OpenShellRuntime,
     signal: AbortSignal,
     profileContext?: OpenShellBootContext,
+    commandId?: string,
   ): Promise<OpenShellKnowledgeSelection | undefined> {
+    const initial = this.initialPublications.get(conversationId);
+    // Consume before any await, including failed/cancelled attempts. Reattach,
+    // retries and subsequent commands must perform a new freshness barrier.
+    this.initialPublications.delete(conversationId);
+    signal.throwIfAborted();
     if (!this.config.knowledgeStore) {
       const baselinePath = join(this.config.seed, '..', 'baseline.json');
       if (!existsSync(baselinePath)) return undefined;
@@ -2581,9 +2645,13 @@ export class OpenShellRuntimeManager {
     }
     if (!runtime.sandboxId)
       throw new Error('Knowledge adoption requires a physical sandbox identity');
-    const publication = await knowledgePhase('reconcile', () =>
-      this.config.knowledgeStore?.reconcile(signal),
-    );
+    const publication =
+      initial &&
+      commandId === initial.commandId &&
+      this.config.knowledgeStore === initial.store &&
+      this.initialPublicationIdentity(runtime) === initial.identity
+        ? await knowledgePhase('reuse_initial_selection', () => initial.publication)
+        : await knowledgePhase('reconcile', () => this.config.knowledgeStore?.reconcile(signal));
     signal.throwIfAborted();
     // Mutable host publications are verified on every turn. Capture their exact
     // baseline before remote awaits, without allocating an unused upload copy.
