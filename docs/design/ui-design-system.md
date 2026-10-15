@@ -565,6 +565,20 @@ the active wheel state, and never claims successful context reduction. Historica
 can have counts without positioned records. Access likewise explains Unknown
 when the selected runtime cannot report live access evidence.
 
+Access uses provider-independent Unknown guidance: configured accounts and
+services do not establish live access. The runtime-readiness foundation expands
+session identity and permission observations across ordinary provider families;
+unmeasured commands, attachments and service operations remain unknown. The copy
+reuses the existing HomeDialog, muted text and token-based cards without changing
+controls, layout or motion. Focus restoration, scrolling, overflow and the changed
+paragraph were checked in isolated actual-component Chromium renders at 320px and
+1280px, light/dark themes, Teal/Georgia and Lavender/System. Captures show the
+[mobile light dialog](assets/runtime-readiness-access-mobile-light.png) and
+[desktop dark dialog](assets/runtime-readiness-access-desktop-dark.png).
+The full intercepted browser fixture also covers this state; complete application
+build/browser acceptance remains a CI check. The local complete frontend bundle
+exceeded the required 1 GiB heap; isolated renders and unit/design checks passed.
+
 Offline checks render actual shared controls on mobile WebKit/Chromium and desktop
 Chromium, with light/dark appearance, Mint/Teal accents, Georgia and Reduce Motion.
 They cover word-by-word italic live transcription, command insertion without draft
