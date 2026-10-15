@@ -2572,6 +2572,22 @@ app.get('/api/skills', (req, res) => {
   res.json(skillRegistry.listPublic());
 });
 
+app.get('/api/commands', (_req, res) => {
+  const descriptions: Record<string, string> = {
+    skills: 'List skills, or inspect a named skill',
+    models: 'List account models; accepts “refresh”',
+    deliberate: 'Deliberate on a task using multiple models; may incur model charges',
+    fuse: 'Combine model perspectives on a task; may incur model charges',
+  };
+  res.json(
+    [...NATIVE_COMMAND_NAMES].map((name) => ({
+      name,
+      description: descriptions[name] ?? name,
+      scope: 'native',
+    })),
+  );
+});
+
 app.get('/api/sessions/active', (_req, res) => {
   res.json(registry.getActiveSessions());
 });

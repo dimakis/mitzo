@@ -41,6 +41,22 @@ async function renderPicker(props: Partial<Parameters<typeof SlashPicker>[0]> = 
 }
 
 describe('SlashPicker', () => {
+  it('separates server-advertised app commands from scoped skills', async () => {
+    vi.mocked(fetch).mockImplementation(
+      async (input) =>
+        ({
+          json: async () =>
+            String(input).includes('/api/commands')
+              ? [{ name: 'models', description: 'List account models', scope: 'native' }]
+              : mockSkills,
+        }) as Response,
+    );
+    await renderPicker();
+    expect(screen.getByText('Skills')).toBeTruthy();
+    expect(screen.getByText('App commands')).toBeTruthy();
+    expect(screen.getByText('/models')).toBeTruthy();
+    expect(screen.queryByText('/close')).toBeNull();
+  });
   it('renders all skills after loading', async () => {
     await renderPicker();
     expect(screen.getByText('/simplify')).toBeTruthy();

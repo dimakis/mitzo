@@ -23,6 +23,7 @@ import { UiIcon } from './UiIcon';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
+import { insertComposerCommand } from '../lib/composer-command';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { useDraft, type DraftSessionAssignment } from '../hooks/useDraft';
@@ -472,7 +473,7 @@ export function ChatInput({
   }, [text, boundedFirstCommand, guardedConversation]);
 
   function handleSlashSelect(name: string) {
-    setText((draft) => `/${name} ${draft.trimStart().startsWith('/') ? '' : draft}`);
+    setText((draft) => insertComposerCommand(draft, name));
     setShowSlashPicker(false);
     textareaRef.current?.focus();
   }
@@ -822,7 +823,14 @@ export function ChatInput({
         />
       </MotionPresence>
       {voice?.recording && voice.partialTranscript && (
-        <div className="voice-partial">{voice.partialTranscript}</div>
+        <div
+          className="voice-partial"
+          role="status"
+          aria-live="polite"
+          aria-label="Live transcription"
+        >
+          <em>{voice.partialTranscript}</em>
+        </div>
       )}
       {queuedMessages.map((q, i) => (
         <div key={i} className="chat-input-queued">
@@ -950,7 +958,7 @@ export function ChatInput({
                     onClick={handleQueue}
                     title="Queue — send after current turn"
                   >
-                    <UiIcon name="send" />
+                    <UiIcon name="queue" />
                   </button>
                 )}
                 <button
@@ -969,8 +977,7 @@ export function ChatInput({
                 aria-label={sendLabel}
                 disabled={!canSend || !!sendDisabledReason}
               >
-                <UiIcon name="send" />
-                {sendLabel === 'Start session' && <span>{sendLabel}</span>}
+                <UiIcon name="sendPrompt" />
               </button>
             )}
           </div>

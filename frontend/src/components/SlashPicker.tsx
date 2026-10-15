@@ -4,7 +4,7 @@ import { apiFetch } from '../lib/api-fetch';
 export interface SkillEntry {
   name: string;
   description: string;
-  scope: 'repo' | 'user' | 'bundled';
+  scope: 'repo' | 'user' | 'bundled' | 'native';
   allowedTools?: string[];
   collisions?: Array<{ scope: string; description: string }>;
 }
@@ -24,6 +24,7 @@ const SCOPE_BADGES: Record<string, string> = {
   repo: 'Workspace',
   user: 'Personal',
   bundled: 'Built-in',
+  native: 'App command',
 };
 
 export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
@@ -35,15 +36,31 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
   useEffect(() => {
     const params = new URLSearchParams();
     if (cwd) params.set('cwd', cwd);
-    apiFetch(`/api/skills?${params.toString()}`)
-      .then((r) => r.json())
-      .then((data: SkillEntry[]) => {
-        setSkills(data);
+    const controller = new AbortController();
+    let active = true;
+    Promise.all([
+      apiFetch(`/api/skills?${params.toString()}`, { signal: controller.signal }).then((r) =>
+        r.json(),
+      ),
+      apiFetch('/api/commands', { signal: controller.signal })
+        .then((r) => r.json())
+        .then((entries: SkillEntry[]) =>
+          Array.isArray(entries) ? entries.filter((entry) => entry.scope === 'native') : [],
+        )
+        .catch(() => []),
+    ])
+      .then(([data, commands]: [SkillEntry[], SkillEntry[]]) => {
+        if (!active) return;
+        setSkills([...data, ...commands]);
         setLoaded(true);
       })
       .catch(() => {
-        setLoaded(true);
+        if (active) setLoaded(true);
       });
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [cwd]);
 
   // Close on click outside
@@ -86,21 +103,34 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
         </div>
       ) : (
         <div className="slash-picker-list">
-          {sorted.map((skill) => (
-            <button
-              key={skill.name}
-              className="slash-picker-item"
-              onClick={() => handleSelect(skill.name)}
+          <p className="slash-picker-hint">
+            Choose to insert. Your draft is kept; send when ready.
+          </p>
+          {(['skill', 'native'] as const).map((kind) => (
+            <section
+              key={kind}
+              hidden={!sorted.some((entry) => (entry.scope === 'native') === (kind === 'native'))}
             >
-              <span className="slash-picker-name">/{skill.name}</span>
-              <span className="slash-picker-desc">{skill.description}</span>
-              <span className="slash-picker-scope">{SCOPE_BADGES[skill.scope]}</span>
-              {skill.collisions && skill.collisions.length > 0 && (
-                <span className="slash-picker-collision">
-                  also in: {skill.collisions.map((c) => c.scope).join(', ')}
-                </span>
-              )}
-            </button>
+              <h3>{kind === 'native' ? 'App commands' : 'Skills'}</h3>
+              {sorted
+                .filter((entry) => (entry.scope === 'native') === (kind === 'native'))
+                .map((skill) => (
+                  <button
+                    key={skill.name}
+                    className="slash-picker-item"
+                    onClick={() => handleSelect(skill.name)}
+                  >
+                    <span className="slash-picker-name">/{skill.name}</span>
+                    <span className="slash-picker-desc">{skill.description}</span>
+                    <span className="slash-picker-scope">{SCOPE_BADGES[skill.scope]}</span>
+                    {skill.collisions && skill.collisions.length > 0 && (
+                      <span className="slash-picker-collision">
+                        also in: {skill.collisions.map((c) => c.scope).join(', ')}
+                      </span>
+                    )}
+                  </button>
+                ))}
+            </section>
           ))}
         </div>
       )}

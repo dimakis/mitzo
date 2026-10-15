@@ -39,6 +39,32 @@ const noop = () => true;
 const noopVoid = () => {};
 
 describe('ChatInput command strip', () => {
+  it('keeps send icon-only even for a new session and distinguishes live dictation', () => {
+    const { container, rerender } = render(
+      <ChatInput
+        onSend={noop}
+        onStop={noopVoid}
+        running={false}
+        initialText="Keep the draft"
+        sendLabel="Start session"
+        voice={makeVoice({ recording: true, partialTranscript: 'Words arrive' })}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Start session' }).textContent).toBe('');
+    expect(container.querySelector('.voice-partial em')?.textContent).toBe('Words arrive');
+    rerender(
+      <ChatInput
+        onSend={noop}
+        onStop={noopVoid}
+        running={false}
+        voice={makeVoice({ recording: true, partialTranscript: 'Words arrive one by one' })}
+      />,
+    );
+    expect(container.querySelector('.voice-partial em')?.textContent).toBe(
+      'Words arrive one by one',
+    );
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Keep the draft');
+  });
   it('keeps agent settings between the message and toolbar without changing the draft', () => {
     const { container, rerender } = render(
       <ChatInput
@@ -212,7 +238,7 @@ describe('ChatInput command strip', () => {
   it('uses the shared command-list icon and keeps its name discoverable', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     const commands = screen.getByRole('button', { name: 'Commands' });
-    expect(commands.querySelector('.ui-icon[data-icon="list"]')).toBeTruthy();
+    expect(commands.querySelector('.ui-icon[data-icon="command"]')).toBeTruthy();
     expect(commands.getAttribute('title')).toBe('Commands');
     expect(commands.querySelector('[aria-hidden="true"]')?.textContent).not.toBe('/');
     const input = screen.getByRole('textbox') as HTMLTextAreaElement;

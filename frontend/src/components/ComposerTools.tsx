@@ -115,7 +115,7 @@ export function ComposerTools({
           aria-expanded={commandsExpanded}
           disabled={commandsDisabled}
         >
-          <UiIcon name="list" size={16} />
+          <UiIcon name="command" size={16} />
           <span className="chat-input-command-label">Commands</span>
         </button>
         <button
