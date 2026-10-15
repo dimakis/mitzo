@@ -27,6 +27,8 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   let catalogMode: 'content' | 'empty' | 'error' | 'loading' = 'content';
   let releaseCatalog: (() => void) | undefined;
   let previewError = false;
+  let adviceError = false;
+  let adviceCalls = 0;
   page.on('pageerror', (error) => errors.push(error.message));
   await page.routeWebSocket('**/*', (socket) => socket.close());
   await page.route('**/*', async (route) => {
@@ -47,6 +49,21 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       }
       if (url.pathname.endsWith('/events'))
         return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
+      if (url.pathname === '/api/agent-library/advice') {
+        adviceCalls++;
+        const body = route.request().postDataJSON();
+        expect(body.accountId).toBe('work-advisor');
+        expect(body.model).toBe('luna-fixture');
+        expect(body.draft).toContain('Bob');
+        if (adviceError)
+          return route.fulfill({ status: 409, json: { error: 'Advisor unavailable' } });
+        return route.fulfill({
+          json: {
+            text: 'Make the expected output a decision brief with evidence and tradeoffs.',
+            proposal: { ...definition, name: 'Ada', descriptor: 'The research partner' },
+          },
+        });
+      }
       if (url.pathname === '/api/agent-library/preview') {
         if (previewError)
           return route.fulfill({
@@ -125,6 +142,14 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         '/api/notifications': { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false },
         '/api/sessions': { sessions: [], hasMore: false },
         '/api/accounts': [],
+        '/api/terminals/accounts': [
+          {
+            id: 'work-advisor',
+            label: 'Work advisor',
+            models: [{ id: 'luna-fixture', label: 'Luna fixture' }],
+          },
+        ],
+        '/api/terminals/subscriptions': { enabled: false, accounts: [] },
         '/api/service-health': { services: [], checkedAt: Date.now() },
       };
       return route.fulfill({ json: fixtures[url.pathname] ?? {} });
@@ -157,6 +182,38 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByRole('heading', { name: 'Agent Library', exact: true })).toBeVisible();
   await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The architect');
+  await page.getByRole('button', { name: 'Create with advisor', exact: true }).click();
+  await expect(page).toHaveURL(/\/agent-library$/);
+  const advisor = page.getByRole('region', { name: 'Agent advisor', exact: true });
+  await expect(advisor.getByRole('combobox', { name: 'Account', exact: true })).toBeVisible();
+  await advisor.getByLabel('Ask agent advisor').fill('Help me refine this agent');
+  await expect(advisor.getByRole('button', { name: 'Ask advisor', exact: true })).toBeDisabled();
+  await advisor
+    .getByRole('button', { name: 'Use Work advisor · Luna fixture', exact: true })
+    .click();
+  await advisor.getByRole('button', { name: 'Ask advisor', exact: true }).click();
+  await expect(advisor.getByRole('log')).toContainText('decision brief with evidence');
+  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await page.screenshot({
+    path: testInfo.outputPath('agent-creation-advisor.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await advisor.getByRole('button', { name: 'Use suggested profile' }).click();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Ada');
+  await page.getByRole('button', { name: 'Discard unsaved edits', exact: true }).click();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  adviceError = true;
+  await advisor.getByLabel('Ask agent advisor').fill('Try another approach');
+  await advisor.getByRole('button', { name: 'Ask advisor', exact: true }).click();
+  await expect(advisor.getByRole('alert')).toContainText('Advisor unavailable');
+  await expect(advisor.getByLabel('Ask agent advisor')).toHaveValue('Try another approach');
+  await advisor.getByRole('button', { name: 'Agent advisor', exact: true }).click();
+  await expect(advisor.getByLabel('Ask agent advisor')).toBeHidden();
+  await advisor.getByRole('button', { name: 'Agent advisor', exact: true }).click();
+  await expect(advisor.getByLabel('Ask agent advisor')).toHaveValue('Try another approach');
+  await advisor.getByRole('button', { name: 'Agent advisor', exact: true }).click();
+  expect(adviceCalls).toBe(2);
   await page.screenshot({ path: testInfo.outputPath('agent-library.png'), fullPage: true });
   await page.getByRole('tab', { name: 'Context', exact: true }).click();
   await expect(page.getByText(/local chats and supported OpenShell sandboxes/)).toBeVisible();
@@ -260,6 +317,20 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       );
       await page.goto('/agent-library');
       await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+      await page.getByRole('button', { name: 'Create with advisor', exact: true }).click();
+      await expect(page.getByLabel('Ask agent advisor')).toBeVisible();
+      await page.getByLabel('Ask agent advisor').focus();
+      await expect(page.getByLabel('Ask agent advisor')).toBeFocused();
+      const advisorBounds = await page.locator('.agent-creation-advisor').boundingBox();
+      const editorBounds = await page.locator('.agent-library-detail').boundingBox();
+      expect(advisorBounds!.y + advisorBounds!.height).toBeLessThanOrEqual(editorBounds!.y + 1);
+      await page
+        .locator('.agent-creation-advisor')
+        .evaluate((element) => element.scrollIntoView({ block: 'start' }));
+      await page.screenshot({
+        path: testInfo.outputPath(`agent-advisor-${theme}-${accent}-${font}.png`),
+        animations: 'disabled',
+      });
       if (isMobile) {
         await expect(page.locator('.mobile-workspace-masthead')).toBeVisible();
         expect(
@@ -365,6 +436,17 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   catalogMode = 'content';
   releaseCatalog!();
   await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+  await page.getByRole('button', { name: 'New agent', exact: true }).click();
+  await expect(page.getByLabel('Agent name')).toHaveValue('');
+  await expect(page.getByLabel('Ask agent advisor')).toBeVisible();
+  await page
+    .locator('.agent-creation-advisor')
+    .evaluate((element) => element.scrollIntoView({ block: 'start' }));
+  await page.screenshot({
+    path: testInfo.outputPath('agent-creation-new.png'),
+    animations: 'disabled',
+  });
+  page.once('dialog', (dialog) => dialog.accept());
   await page.goto('/chat');
   const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();

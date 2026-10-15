@@ -5,6 +5,8 @@ import { PortableProfileDefinitionSchema } from './symposium-profile-portability
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 import { compileAgentContext, type AuthorizedContextPacks } from './agent-context-compiler.js';
 import { registerAuthSession, type AuthSession } from './auth.js';
+import { requireSameOriginJson } from './connections-router.js';
+import { AgentAdviceBody, type AgentLibraryAdviser } from './agent-library-adviser.js';
 
 const OWNER = 'user'; // Stable authenticated subject, never the rotating login JTI.
 function failure(res: Response, error: unknown) {
@@ -25,6 +27,7 @@ export function createAgentLibraryRouter(
     workspaceRoot?: string;
     contexginUrl?: string;
     contextPacks?: (signal: AbortSignal) => Promise<AuthorizedContextPacks>;
+    adviser?: AgentLibraryAdviser;
   } = {},
 ): Router {
   const router = Router();
@@ -45,6 +48,35 @@ export function createAgentLibraryRouter(
       res.json(store.saveDraft(OWNER, req.body));
     } catch (error) {
       failure(res, error);
+    }
+  });
+  router.post('/advice', requireSameOriginJson, async (req, res) => {
+    const body = AgentAdviceBody.safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Invalid agent advisor request' });
+    const auth = res.locals.authSession as AuthSession;
+    const controller = new AbortController();
+    const unregister = registerAuthSession(auth, () => {
+      controller.abort();
+      res.end();
+    });
+    const close = () => controller.abort();
+    res.on('close', close);
+    try {
+      if (!options.adviser) throw Error('Agent advisor unavailable');
+      const result = await options.adviser.ask(
+        auth.id,
+        body.data,
+        AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+      );
+      if (!controller.signal.aborted && auth.expiresAt > Date.now()) res.json(result);
+    } catch {
+      if (!controller.signal.aborted)
+        res.status(409).json({
+          error: 'Advisor unavailable. Check the selected account, model and thinking mode.',
+        });
+    } finally {
+      unregister();
+      res.off('close', close);
     }
   });
   router.post('/publish', (req, res) => {
