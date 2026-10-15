@@ -412,9 +412,8 @@ export function SessionList() {
     selectionChanged();
     navigate(`/chat/${id}`);
   }
-  function dismiss(id: string) {
-    dismissSession(id);
-    if (preview?.id === id) setPreview(null);
+  async function dismiss(id: string) {
+    if (await dismissSession(id)) setPreview((current) => (current?.id === id ? null : current));
   }
 
   function handleQuickAction(action: QuickAction) {
@@ -466,9 +465,12 @@ export function SessionList() {
                   </button>
                 ))}
               <button
-                onClick={() => {
-                  search.clear();
-                  clearAll();
+                onClick={async () => {
+                  if (await clearAll()) {
+                    search.clear();
+                    setPreview(null);
+                    setMobilePinPreview(null);
+                  }
                 }}
               >
                 Clear conversation history
