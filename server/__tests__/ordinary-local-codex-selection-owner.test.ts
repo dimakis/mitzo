@@ -23,7 +23,7 @@ import { RepositoryWorkspaces } from '../repository-workspaces.js';
 
 const fixtures: Array<() => void> = [];
 afterEach(() => fixtures.splice(0).forEach((close) => close()));
-function fixture() {
+function fixture(tools?: Array<{ id: string; version: number }>) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-selection-owner-')));
   const taskRoot = join(root, 'tasks');
   mkdirSync(taskRoot, { mode: 0o700 });
@@ -47,6 +47,7 @@ function fixture() {
       expectedOutput: 'An answer',
       acceptanceCriteria: ['Preserve ownership'],
       modelPolicyRole: 'agent',
+      ...(tools === undefined ? {} : { tools }),
     },
   });
   const profile = library.publish('user', {
@@ -334,3 +335,12 @@ it('preserves legitimate edits and commits in the same retained checkout and Git
   expect(() => f.owner.assertCurrentSync(f.expected)).not.toThrow();
   await expect(f.owner.assertCurrent(f.expected)).resolves.toBeUndefined();
 });
+
+it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
+  'refuses a published selected-tool snapshot before owned runtime bootstrap effects: %j',
+  async ({ tools }) => {
+    const f = fixture(tools);
+    await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
+    expect(f.workspace.reserveHostTask).not.toHaveBeenCalled();
+  },
+);

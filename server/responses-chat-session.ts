@@ -1,3 +1,4 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
 import {
   sessionCredentialTools,
   CONNECTION_TOOL_INSTRUCTIONS,
@@ -24,7 +25,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
-import type { AccountBinding, AgentContextSnapshot } from '@mitzo/protocol';
+import type { AccountBinding, AgentContextSnapshot, AgentLibraryVersion } from '@mitzo/protocol';
 import type {
   ExecutionTerminalReason,
   ProviderAttemptTerminalReason,
@@ -135,6 +136,7 @@ interface Options {
   mcpServers: Record<string, McpServerConfig>;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   store?: NativeResponsesStore;
+  agentProfile?: AgentLibraryVersion;
   agentContext?: AgentContextSnapshot;
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
   onAgentContextAccepted?: (
@@ -146,6 +148,11 @@ interface Options {
 }
 /** API execution uses the shared interaction policy and a private continuation store. */
 export async function openResponsesChat(options: Options) {
+  assertAgentToolRoute(
+    (options.agentProfile ?? options.eventStore?.getSession(options.conversationId)?.agentProfile)
+      ?.definition,
+    'not-enrolled',
+  );
   let initializing = true;
   let publishingTurnId: string = randomUUID();
   const assertRuntimeCurrent = options.commandAuthority
