@@ -56,6 +56,38 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('reads a bounded task capability inventory over the selected sandbox transport', async () => {
+    const observation = { mgmtCli: false, meetingPrep: false, gws: true };
+    const runSsh = vi.fn(async () => JSON.stringify(observation));
+    const manager = new OpenShellRuntimeManager(config, vi.fn(), undefined, runSsh);
+    const runtime = {
+      sandboxName: 'selected-sandbox',
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: config.cli,
+      gateway: config.gateway,
+      workspace: config.workspace,
+      gatewayInsecure: false,
+    };
+    const signal = new AbortController().signal;
+    expect(await manager.inspectTaskCapabilities(runtime, signal)).toEqual(observation);
+    expect(runSsh).toHaveBeenCalledOnce();
+    const [args, bounded] = runSsh.mock.calls[0] as unknown as [string[], AbortSignal];
+    expect(args.join(' ')).toContain('selected-sandbox');
+    expect(args.at(-1)).toContain(config.workdir);
+    expect(bounded).not.toBe(signal);
+
+    // A failed inventory is unknown, never evidence of present/missing commands.
+    runSsh.mockResolvedValueOnce(JSON.stringify({ ...observation, extra: 'untrusted' }));
+    expect(await manager.inspectTaskCapabilities(runtime, signal)).toBeUndefined();
+    runSsh.mockResolvedValueOnce('x'.repeat(1025));
+    expect(await manager.inspectTaskCapabilities(runtime, signal)).toBeUndefined();
+    runSsh.mockRejectedValueOnce(Error('private remote diagnostics'));
+    expect(await manager.inspectTaskCapabilities(runtime, signal)).toBeUndefined();
+    const cancelled = new AbortController();
+    cancelled.abort();
+    await expect(manager.inspectTaskCapabilities(runtime, cancelled.signal)).rejects.toThrow();
+  });
   it('creates a sandbox with multiple managed connections using a stable Kubernetes-safe policy label', async () => {
     const connections = [
       'mitzo-conn-11111111-1111-4111-8111-111111111111',
