@@ -156,6 +156,7 @@ import { SessionOutputReferences } from './session-output-references.js';
 import { createSessionOutputRouter } from './session-output-routes.js';
 import { createOutputContributors } from './output-contributors.js';
 import { createOutputContributorRouter } from './output-contributor-routes.js';
+import { createSessionCollaborationRouter } from './session-collaboration-router.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
@@ -2679,6 +2680,12 @@ app.get(
     getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),
     getReconnectTranscript: (sessionId, cursor) => getReconnectTranscript(sessionId, cursor),
   }),
+);
+
+app.use(
+  '/api/session-collaborations',
+  operatorAuthMiddleware,
+  createSessionCollaborationRouter({ store: eventStore }),
 );
 
 app.use(

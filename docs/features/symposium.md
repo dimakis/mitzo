@@ -1,11 +1,18 @@
 # Symposium: current direction and source guide
 
-Updated 12 October 2026. Start here for Symposium product work.
+Updated 15 October 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
 ## Product direction
+
+Keep this item related to existing Telos outcome `4f55b423d0731750` (conversation-first
+work, durable outputs and access). They have separate acceptance criteria and a
+shared identity contract: ordinary chat comes first; work/artifact/Telos identity
+can outlive any contributing session; sessions and work can have explicit
+many-to-many associations. Similar titles or shared participants never imply work
+membership. This source records the relationship; it does not update the live tracker.
 
 Artifacts are the enduring pieces of work. Agents and their sessions contribute
 to selected artifacts; they do not define those artifacts' lifetime. Begin with
@@ -21,9 +28,11 @@ An external link does not establish retained content, current revision or agent
 access. Findings attach to the exact package and revisions inspected.
 
 Contributors use explicitly selected accounts, models, context and permissions.
-Reuse the existing Mitzo ordinary chat/resume route while keeping each contributor's
-thread and context independent. The bounded Codex candidate below implements this
-adapter; it requires no new account category or Symposium sign-in. The native
+Reuse the existing Mitzo ordinary chat/resume route and existing session identities,
+while keeping each contributor's thread, context and execution binding independent.
+Enabling collaboration must not require a new account, login or execution environment.
+The bounded Codex candidate below covers an earlier output-contributor adapter;
+it does not yet join arbitrary existing sessions through all ordinary command drivers. The native
 Symposium adapter remains a separate execution boundary. Preserve credential
 boundaries, admission, cancellation, provenance and uncertain-operation reconciliation.
 
@@ -40,6 +49,32 @@ The candidate's transcript references do not establish independent content reten
 or artifact migration; preserve existing storage restrictions.
 
 ## Bounded candidate and next validation
+
+### Existing-session association slice
+
+`/api/session-collaborations` persists revisioned associations between existing
+ordinary sessions in the EventStore database. A collaboration has its own stable ID,
+independent of a parent session, work item or artifact. It carries participant IDs,
+not copied transcripts, account credentials, runtime configuration or execution grants.
+Each session retains its original account, model, workspace and provider history.
+One session can participate in several collaborations without combining their work.
+
+Interactive operators can create or revise membership with an expected revision,
+read it after restart, and rediscover it from a participant session. Exact last
+mutation retries do not append revisions; competing updates conflict. Missing,
+hidden, internal helper and legacy native Symposium identities cannot be added.
+Existing unavailable references remain visible until explicitly removed. Unlinking
+does not stop or delete any session. Future links to artifacts or Telos must use the
+existing work association owner and explicit revisioned targets, not infer work
+identity from a group or its first participant.
+
+This is backend association only. It does not dispatch turns, merge context, expose
+a new chat UI, retire legacy paths or prove any account/runtime ready. The remaining
+slices are directed ordinary execution, unified attributed chat, stop/reconnect/resume,
+then live account-by-environment qualification. Those slices reuse existing execution,
+delivery and lifecycle owners rather than build another session system.
+
+### Earlier output-contributor adapter
 
 [PR #837](https://github.com/dimakis/mitzo/pull/837) records the bounded implementation
 for exact finalized transcript references and independently admitted
