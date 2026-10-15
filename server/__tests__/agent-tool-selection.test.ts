@@ -34,6 +34,7 @@ it('publishes a subset, exposes it, and rejects an unselected optional invocatio
   const profile = await resolveChatAgentProfile({
     requested: { profileId: 'limited', revision: 1 },
     provider: 'openai',
+    toolRoute: 'local-api',
     lookup: async () => published,
   });
   const registry = new SessionRegistry();
