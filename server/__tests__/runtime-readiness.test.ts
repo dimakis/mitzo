@@ -85,6 +85,44 @@ describe('shared runtime readiness evidence', () => {
     expect(value.capabilities.state).toBe('unknown');
   });
 
+  it.each([
+    ['openai-codex', 'codex', 'local'],
+    ['openai-codex', 'codex', 'openshell'],
+    ['openai', 'responses', 'local'],
+    ['openai', 'codex', 'openshell'],
+    ['anthropic-vertex', 'claude-sdk', 'local'],
+    ['google-vertex', 'gemini', 'local'],
+  ])(
+    'retains the explicit %s / %s / %s route without inventing observations',
+    (provider, implementation, location) => {
+      const owner = session();
+      owner.accountBinding!.provider = provider;
+      owner.ordinaryRuntimeOwner!.location = location as 'local' | 'openshell';
+      const route = {
+        ...binding,
+        account: { ...binding.account, provider },
+        harness: { implementation },
+        execution: { ...binding.execution, location },
+      };
+      const value = projectRuntimeReadiness(
+        { sessionId: 'chat', session: owner, binding: route },
+        150,
+      );
+      expect(value.execution).toEqual({ state: 'configured', binding: route });
+      expect(value.capabilities.state).toBe('unknown');
+    },
+  );
+
+  it('retains a legacy explicit binding without manufacturing a target or process identity', () => {
+    const legacy = { ...binding, version: 1, execution: { location: 'openshell' } };
+    const value = projectRuntimeReadiness(
+      { sessionId: 'chat', session: session(), binding: legacy },
+      150,
+    );
+    expect(value.execution).toEqual({ state: 'configured', binding: legacy });
+    expect(value.capabilities.state).toBe('unknown');
+  });
+
   it('keeps approval, attachment, policy and operation verification independent', () => {
     const value = projectRuntimeReadiness(
       {
@@ -185,13 +223,14 @@ describe('shared runtime readiness evidence', () => {
   });
 
   it('marks expired evidence stale and never retimestamps the original measurement', () => {
+    const original = observation();
     const value = projectRuntimeReadiness(
       {
         sessionId: 'chat',
         session: session(),
         binding,
         ownerRevision: 'process-1',
-        observation: observation(),
+        observation: original,
       },
       200,
     );
@@ -199,6 +238,7 @@ describe('shared runtime readiness evidence', () => {
       state: 'stale',
       evidence: { observedAt: 100, expiresAt: 200 },
     });
+    expect(original).toEqual(observation());
   });
 
   it('expires an operation verification independently of provider attachment', () => {
