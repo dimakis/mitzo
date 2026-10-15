@@ -112,6 +112,12 @@ import type { ProviderDispatchAdmission } from './provider-execution.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import {
+  executeTelosItemTool,
+  isTelosItemTool,
+  telosItemDefinitions,
+  telosItemSchemas,
+} from './telos-item-tools.js';
+import {
   executeTelosCreateOutcome,
   telosCreateOutcomeDefinition,
   TelosOutcomeInput,
@@ -957,7 +963,12 @@ async function openCodexChatBound(
   }
   const integrationTools = grantIntegrationTools(grantableProviders);
   const openShellHostTools = connectedOpenShell
-    ? [telosCreateOutcomeDefinition, ...telosArtifactDefinitions, ...integrationTools]
+    ? [
+        telosCreateOutcomeDefinition,
+        ...telosItemDefinitions,
+        ...telosArtifactDefinitions,
+        ...integrationTools,
+      ]
     : [];
   let integrationTurn:
     | {
@@ -1892,6 +1903,41 @@ async function openCodexChatBound(
           }),
           isError: operation.status !== 'succeeded',
         };
+      }
+      if (connectedOpenShell && isTelosItemTool(name)) {
+        const parsed = telosItemSchemas[name].safeParse(input);
+        if (!parsed.success) return { content: 'Invalid Telos item input', isError: true };
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner) return { content: 'Codex session unavailable', isError: true };
+        const permission = await buildPermissionHandler(owner.clientId, options.registry, {
+          onDemandCreate: options.onDemandCreate,
+        })(name, parsed.data, {
+          signal,
+          toolUseID: randomUUID(),
+          forcePrompt: name === 'TelosUpdateItem',
+          allowSessionGrant: true,
+          title:
+            name === 'TelosUpdateItem'
+              ? 'Update this item in live Telos?'
+              : 'Read Telos item progress',
+          description:
+            'Inspect or update existing Telos work with a session-attributed evidence note.',
+        });
+        signal.throwIfAborted();
+        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
+          return { content: 'Telos input changed during approval; retry the tool', isError: true };
+        if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
+          return { content: 'Session permissions changed; retry the tool', isError: true };
+        await assertHostCurrent();
+        return executeTelosItemTool(
+          localHttpBaseUrl(Number.parseInt(process.env.PORT || '3100', 10), localServerUsesTls()),
+          owner.clientId,
+          INTERNAL_TOKEN,
+          name,
+          parsed.data,
+          signal,
+        );
       }
       if (connectedOpenShell && isTelosArtifactTool(name)) {
         const parsed = telosArtifactSchemas[name].safeParse(input);

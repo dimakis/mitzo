@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.138';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.139';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,6 +32,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Shared authoring contract used at the owned provider boundary.
   '../../packages/protocol/src/client-capabilities.ts':
     '0064b843b187fae887fda2c7ca382011f406da372bda90cadc7109055203eb43',
+  // Ordinary Telos item reads, atomic progress updates, tool exposure and approval tiers.
+  '../telos-item-store.ts': '71e0414e15d24cf8c2856c14a739037024ba1657f2481dd2ede9634a25eee7f5',
+  '../telos-item-routes.ts': 'b600aaad3c66f6221d526c6a16d11d61d99f761e640f4cc4d9c14bef84b12789',
+  '../telos-item-tools.ts': '24fe12678f81c370965d1be0c5855555cfacfd6c841c2ccfe9b8601cd7b44b8d',
+  '../telos-mcp-server.ts': '4135db640e0a8f498acc120e22f9962ff6ff54734e5096d228597096ea62ca9b',
+  '../../packages/harness/src/tool-tiers.ts':
+    'f20dac35032adb67b331d54b3f412bdf6b925b5b19b7990ae383b3fbe4eaaf3a',
   // Approved conversation resources, usage evidence and non-blocking welcome motion.
   '../../frontend/src/components/ChatWelcome.tsx':
     'be4dd3a9269459ddbfeeab8daa3b55c3fdc12bad84f12446a4dece772036ae5f',
@@ -208,7 +215,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/permissions.ts':
     'e00992d7d86e56d950964a9f6a801f541a425df818a5ff3b6405e2778a1ca0df',
   '../../packages/protocol/src/session-approval-scope.ts':
-    'dae13365f4eb821d9563e5a3da65c60135f2081e319a34c7dad3ef27b02ea733',
+    'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
     'f9237e6f3bd200722044be249bedd48ff5ccbdabf68f92e4775901092493d8e6',
   '../codex-mcp-tools.ts': '375851fb458c8d930a52a1d3bc32460b2a6174a64a4516af4f68084b1ba484de',
@@ -275,7 +282,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '7f89e0d04e619e52f6bd570adefe1d5ea132bc1da6653d567599483f9df7122f',
+  '../app.ts': 'ef6f3b7a9ca338b6f00bcf4786b75f024fa60e043262e9a48bfd3e61ecfc68b6',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -474,7 +481,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Task command inventory and workflow routing share the runtime review contract.
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   '../openshell-runtime.ts': '5bc32b0ab8b8c2cb4205c6df3b639d0ea7892fef4669b25221842ad83a3d8e37',
-  '../codex-chat-session.ts': 'ab8ab0f93d7710d687a0097c3f9e6982df920a2c45ad41d4628665ab7daea70f',
+  '../codex-chat-session.ts': '6fbc4b7d6aaf2823fbf0d1dea9d46e12adeaa21dd7548019c5ed4acbe7d1e060',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -541,7 +548,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-seat-prompt.ts': '1f29774555808c5db22e0458f9767c2b498e99430dbd13da6ab94e607291bf4f',
   '../symposium-session-runtime.ts':
     'c60fc54ab05cd6fbcdbf1f549ac59664df9684df31d8a426e1441afce7fec788',
-  '../telos-artifact-tools.ts': '7547d280a3b846f52e576c93b53c55854f5b4aeeafcdfa8ff83b778eee2c2081',
+  '../telos-artifact-tools.ts': 'f9a7d2f13e735d576382fe0e7f04082f2d1a39e90b7b47870025e7c76ceb63fa',
   '../symposium-agent-context-authorization.ts':
     '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',
   // Ordinary Codex continuation, persistent login revocation and physical custody.

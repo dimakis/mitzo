@@ -21,7 +21,8 @@ describe('Telos artifact tool contract', () => {
       'TelosFindArtifacts',
       'TelosReadArtifact',
     ]);
-    expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('de facto');
+    expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('TelosUpdateItem');
+    expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('before handover');
     expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('TelosFindArtifacts');
     expect(TELOS_ARTIFACT_INSTRUCTIONS).toContain('sandbox-local');
   });
