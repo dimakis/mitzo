@@ -7,6 +7,7 @@ import {
   type ArtifactAdmissionReferenceV1,
 } from './symposium-artifact-admission.js';
 import { z } from 'zod';
+import { AgentToolReferencesSchema } from './agent-tools.js';
 import { AgentContextRecipeSchema } from './agent-context-recipe.js';
 import { AccountBindingSchema, AccountProviderSchema } from './account-binding.js';
 
@@ -102,6 +103,7 @@ export const SymposiumProfileDefinitionSchema = z.strictObject({
   modelPolicyRole: z.string().trim().min(1),
   recipe: SymposiumProfileRecipeSchema.optional(),
   contextRecipe: AgentContextRecipeSchema.optional(),
+  tools: AgentToolReferencesSchema.optional(),
 });
 export type SymposiumProfileDefinition = z.infer<typeof SymposiumProfileDefinitionSchema>;
 

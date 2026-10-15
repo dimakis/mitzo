@@ -1,3 +1,4 @@
+import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 import {
   sessionProfileTools,
   profileToolDefinitions,
@@ -69,6 +70,7 @@ export function sessionCredentialTools(
     assertRuntimeCurrentSync?.();
     const current = owner();
     return (
+      agentToolAllowed(session, name) &&
       !!current &&
       current.session === session &&
       !session.abortController.signal.aborted &&
@@ -111,11 +113,11 @@ export function sessionCredentialTools(
       )
     : undefined;
   return {
-    definitions: [
+    definitions: filterAgentTools(session, [
       ...credentialConnectionToolDefinitions,
       ...repositoryTools.definitions,
       ...profileToolDefinitions,
-    ],
+    ]),
     async execute(
       name: string,
       input: Record<string, unknown>,
@@ -123,6 +125,11 @@ export function sessionCredentialTools(
       call?: ProfileToolCall,
     ) {
       await assertRuntimeCurrent?.();
+      if (!agentToolAllowed(session, name))
+        return {
+          content: 'Tool is not selected by this session’s published agent profile',
+          isError: true,
+        };
       const profileResult = await profileTools.execute(name, input, signal, call);
       if (profileResult) return profileResult;
       const repositoryResult = await repositoryTools.execute(name, input, signal);
