@@ -10,7 +10,8 @@ export interface MitzoTelosCoreOwners {
   knowledge?: SQLiteBackupOwner;
 }
 const active = new WeakSet<SQLiteBackupOwner>();
-/** This group's coverage is events, tasks/workload and the entire Telos database,
+/** This group's coverage is events (including Library profiles, assigned task
+ * revisions and their retry receipts), taskboard tasks/workload and the entire Telos database,
  * including registered artifact bytes and enrolled Knowledge drafts when present.
  * It never claims whole-ecosystem coverage.
  * Application saves continue; any overlapping write invalidates the candidate.
