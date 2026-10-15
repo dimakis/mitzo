@@ -151,7 +151,7 @@ describe('SessionPanel', () => {
         dismissSession: dismiss,
       }),
     );
-    const { container } = render(
+    render(
       <SessionPanel activeSessionId={undefined} onSelectSession={vi.fn()} onNewChat={vi.fn()} />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Delete me' }));

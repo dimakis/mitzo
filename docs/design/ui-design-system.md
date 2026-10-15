@@ -635,7 +635,57 @@ was used.
 
 Today renders the latest recorded context observation separately from cumulative
 request usage. A measured count without current model-capacity evidence keeps its
-limit explicitly unreported; absent or stale observations never become a zero or
+limit explicitly unreported; absent counts never become zero and stale capacity evidence never establishes a
 percentage. Session pins and recent sessions share `SessionContextUsage`. The
 visibility switch lives in Settings → Appearance, retains the existing device
 preference key, and propagates across mounted views and browser tabs.
+
+The library reuses `DesktopShell`, `MobileShell`, `UiIcon`, `HomeDialog`, shared
+motion presence and semantic palette/type/spacing/radius tokens. `SessionActions`
+provides the same full-width icon rows in the mobile history sheet and the web
+context menu, including the separate conversation and Today pin actions. The
+context menu supports right-click, Shift+F10, arrows, Home/End and Escape with
+focus restoration; the mobile sheet retains the 500ms hold and cancels on movement.
+
+`ConversationPins` is shared by Chats and the desktop chat sidebar. Device pins
+retain a title for sessions outside the loaded page, with up to four rows visible
+and additional pins scrolling inside the group; collapse state persists. Main list
+titles wrap fully. Sidebar/pin rows retain bounded titles with the full title in
+their accessible name and saved-history reader. Deleting histories removes device
+shortcuts only after the server accepts deletion.
+
+Desktop Chats uses the available width with a saved-history inspector. The
+labelled vertical separator supports pointer drag and keyboard adjustment, retaining
+a 26–52% preview width. History reads are abortable and selection-fenced, show only
+saved user/assistant text and never attach or resume a provider. Repository paths,
+branches, IDs and cumulative usage live in details. A work link requires an exact
+recorded `telosTaskId`; a repeated folder name is not a task association.
+
+The mobile history sheet bounds its reader and keeps its action group on screen;
+long headings/details remain scrollable. Geometry exceptions are the separator's
+1px rule and 3px grip/meter, its percentage bounds, and viewport-constrained scroll
+areas. Colors, typography, action rhythm and radii stay on the shared scale. The
+token guard now rejects undefined session-library scale references.
+
+The focused offline fixture mounts the production list, sidebar, shells, Today and
+Appearance components with intercepted traffic. It passed mobile WebKit,
+mobile Chromium and desktop Chromium in dark Mint/Georgia and light Blue/Arial,
+including 320px overflow, long titles, four visible pins plus overflow, collapse,
+long press, right-click, resize, keyboard dismissal and the Appearance preference.
+Unit regressions cover touch cancellation/tap suppression, empty/error/loading
+history, stale selection, pin persistence and missing/stale context limits.
+No backend, provider turn or model call was used. This is component-route evidence;
+full app integration remains with CI and canonical staging acceptance.
+
+Inspected captures: [desktop library](assets/session-library-desktop-dark.png),
+[light desktop](assets/session-library-desktop-light.png),
+[mobile library](assets/session-library-mobile-dark.png),
+[mobile history/actions](assets/session-preview-mobile-light.png),
+[Today context](assets/session-context-desktop-dark.png) and
+[Appearance preference](assets/session-appearance-desktop-light.png).
+
+Local validation: 267 focused unit regressions, the design contract and six browser
+scenarios (plus two browser startup checks) pass, along with frontend type checking,
+workspace package builds and 152 route tests. Full frontend build and broad server
+type checking exceeded the required 1 GiB local heap; those checks are deferred to
+CI without increasing the local limit. No production or staging changes were made.

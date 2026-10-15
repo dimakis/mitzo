@@ -43,32 +43,37 @@ for (const theme of ['dark', 'light'])
     const errors: string[] = [],
       mutations: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.addInitScript((theme) => {
-      class OfflineEventSource extends EventTarget {
-        readyState = 2;
-        close() {}
-      }
-      window.EventSource = OfflineEventSource as unknown as typeof EventSource;
-      localStorage.setItem('mitzo-session-view-mode', 'all');
-      localStorage.setItem('mitzo-theme', theme);
-      if (!sessionStorage.getItem('pins-seeded')) {
-        localStorage.setItem('mitzo-today-tokens', 'true');
-        localStorage.setItem(
-          'mitzo-conversation-pins',
-          JSON.stringify(
-            Array.from({ length: 6 }, (_, i) => ({
-              id: `session-${i + 1}`,
-              summary: `Conversation ${i + 1}`,
-              lastModified: 1,
-            })),
-          ),
-        );
-        sessionStorage.setItem('pins-seeded', 'true');
-      }
-      document.addEventListener('DOMContentLoaded', () => {
-        document.body.style.cssText = 'height:100dvh;overflow:hidden';
-      });
-    }, theme);
+    await page.addInitScript(
+      ({ theme, accent, font }) => {
+        class OfflineEventSource extends EventTarget {
+          readyState = 2;
+          close() {}
+        }
+        window.EventSource = OfflineEventSource as unknown as typeof EventSource;
+        localStorage.setItem('mitzo-session-view-mode', 'all');
+        localStorage.setItem('mitzo-theme', theme);
+        localStorage.setItem('mitzo-accent', accent);
+        localStorage.setItem('mitzo-font', font);
+        if (!sessionStorage.getItem('pins-seeded')) {
+          localStorage.setItem('mitzo-today-tokens', 'true');
+          localStorage.setItem(
+            'mitzo-conversation-pins',
+            JSON.stringify(
+              Array.from({ length: 6 }, (_, i) => ({
+                id: `session-${i + 1}`,
+                summary: `Conversation ${i + 1}`,
+                lastModified: 1,
+              })),
+            ),
+          );
+          sessionStorage.setItem('pins-seeded', 'true');
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+          document.body.style.cssText = 'height:100dvh;overflow:hidden';
+        });
+      },
+      { theme, accent, font },
+    );
     const files = (await bundle).outputFiles!;
     await page.route('**/*', async (route) => {
       const url = new URL(route.request().url()),
@@ -100,6 +105,7 @@ for (const theme of ['dark', 'light'])
       const data: Record<string, unknown> = {
         '/api/sessions': { sessions, hasMore: false },
         '/api/config': { quickActions: [] },
+        '/api/briefings/latest': null,
         '/api/version': { updateAvailable: false },
         '/api/home/preferences': {
           revision: 1,

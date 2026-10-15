@@ -407,3 +407,20 @@
     padding: var(--space-2);
   }
 }
+
+.home-record > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.appearance-panel .workspace-setting:has(input[type='checkbox']) {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  cursor: pointer;
+}
+.appearance-panel .workspace-setting input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: var(--space-4);
+  height: var(--space-4);
+  accent-color: var(--color-accent);
+}

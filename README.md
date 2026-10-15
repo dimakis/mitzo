@@ -7,6 +7,14 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 
 #Isolated seeded workspaces can publish committed task deltas through the shared GitHub approval broker once their original host baseline is registered. The task history stays intact; only reviewed changes are projected onto upstream. See [seeded GitHub publication](docs/operations/seeded-github-publication.md) for configuration and failure diagnostics.
 
+## Conversation library
+
+**Chats** uses the desktop workspace with an automatic saved-history preview on the right. Drag its divider, or use the arrow keys while it is focused, to adjust the preview width. Selecting or right-clicking a conversation previews saved text without starting a provider turn; **Open conversation** enters the chat. The chat page keeps its session list on the right and workspace controls on the left.
+
+Hold a conversation on iOS, right-click on web, or press Shift+F10 for the same session actions. **Pin conversation** adds a device shortcut above the regular list, including the chat sidebar. The Pinned group collapses, shows up to four rows and scrolls to additional pins. **Pin to Today** remains a separate workspace pin. Repeated repository names live in session details; linked work appears only when the conversation has a recorded Telos task association.
+
+Today shows each session's latest recorded context count and, when a current model limit is known, its context percentage. Cumulative request tokens remain separate in session details. **Settings → Appearance → Show session context on Today** controls this display for both recent sessions and Today pins on this device. Missing counts and unreported or stale limits are labelled explicitly.
+
 ## New chat account and model
 
 Expand the top chat summary to choose Account, Model and Thinking first, then Agent and Repository. Run on and runtime details are under Advanced. Tapping outside collapses settings without changing the draft. **Make default for new chats** saves that pair (and thinking setting) on this browser; **Clear new-chat default** removes it. Existing conversations keep their bound account. When no default is saved, select an account or confirm the suggested account with **Use** before sending. If a saved account or model is unavailable, choose a replacement explicitly.
