@@ -114,6 +114,11 @@ and larger host text. These isolated transcript checks omit the application shel
 full-app build/browser acceptance remains in CI when local memory pressure prevents
 the broad suite. The sandbox blocks native form submission in Chromium before a
 submit handler can run; simulated forms use button click handlers and local validation.
+The capability guidance reaches ordinary owned Codex and Responses/Gemini routes
+at their provider configuration boundary as well as the older shared chat prompt.
+Frozen command/profile payloads stay unchanged. These boundaries have offline
+mock-provider regressions, and their reviewed source fingerprints include the
+shared capability contract.
 
 ## Token usage
 

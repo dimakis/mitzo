@@ -2884,6 +2884,8 @@ it('uses the already verified owned client locally regardless of global OpenShel
     expect(shellLaunch).not.toHaveBeenCalled();
     expect(mocks.reserveStartup).not.toHaveBeenCalled();
     const config = mocks.conversationOptions!;
+    expect(config.systemPrompt).toContain('<mitzo_capabilities>');
+    expect(config.systemPrompt).toContain('clickable mockup');
     expect(config.enableCapacityRecovery).toBe(false);
     const callbacks = {
       onNotification: vi.fn(),
@@ -3399,6 +3401,8 @@ it('consumes frozen owned OpenShell configuration and executes guarded runtime a
     expect(ensure).toHaveBeenCalledTimes(1);
     expect(verify).toHaveBeenCalled();
     const captured = mocks.conversationOptions!;
+    expect(captured.systemPrompt).toContain('<mitzo_capabilities>');
+    expect(captured.systemPrompt).toContain('clickable mockup');
     expect(captured.enableCapacityRecovery).toBe(false);
     const prepare = captured.prepareAgentContext as (signal: AbortSignal) => Promise<void>;
     vi.mocked(owner.assertCurrent).mockClear();
