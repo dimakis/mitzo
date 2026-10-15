@@ -980,8 +980,9 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       });
     const prepareContext = mocks.conversationOptions?.prepareSystemPrompt as (
       signal: AbortSignal,
+      turn?: { commandId: string },
     ) => Promise<string>;
-    const refreshed = await prepareContext(AbortSignal.timeout(5000));
+    const refreshed = await prepareContext(AbortSignal.timeout(5000), { commandId: 'message' });
     expect(mocks.recordKnowledgeAdoption).not.toHaveBeenCalled();
     const acknowledged = mocks.conversationOptions?.onApplicationContextAccepted as (
       command: string,
@@ -1029,7 +1030,10 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       'conversation',
       expect.objectContaining({ sandboxId: 'verified-resource' }),
       expect.any(AbortSignal),
+      undefined,
+      'message',
     );
+    expect(ensure.mock.calls[0][5]).toBe('message');
     expect(mocks.conversationOptions?.systemPrompt).toContain(
       'Mitzo preflights explicit requests for grantable integrations',
     );

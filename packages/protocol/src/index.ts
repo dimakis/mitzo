@@ -1,3 +1,4 @@
+export * from './agent-tasks.js';
 // @mitzo/protocol — shared types, schemas, and utilities for the Mitzo v2 protocol.
 export type {
   AgentLibraryDraft,
@@ -345,3 +346,11 @@ export * from './ordinary-local-vertex-custody.js';
 export type { ContextCompaction } from './context-compaction.js';
 
 export * from './agent-tools.js';
+export {
+  SessionCollaborationIdSchema,
+  SessionCollaborationSchema,
+  SessionCollaborationUpdateSchema,
+  SessionCollaborationListQuerySchema,
+  SessionCollaborationError,
+  type SessionCollaboration,
+} from './session-collaboration.js';
