@@ -1,7 +1,8 @@
 import { SessionContextUsage } from './SessionContextUsage';
 import { useSessionDisplay } from '../hooks/useSessionDisplay';
 import { UiIcon } from './UiIcon';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { apiFetch } from '../lib/api-fetch';
 import { Link } from 'react-router-dom';
 import type { HomePin } from '@mitzo/protocol';
 import type { Session } from '../types/chat';
@@ -57,7 +58,8 @@ export function HomePins({ sessions }: { sessions: Session[] }) {
               <strong>{recordTitle(pin.title)}</strong>
               <small>{pin.kind === 'session' ? 'Session' : 'Work'} · Pinned to Today</small>
               {pin.kind === 'session' && showContext && (
-                <SessionContextUsage
+                <PinnedSessionContext
+                  sessionId={pin.id}
                   usage={sessions.find((session) => session.id === pin.id)?.contextUsage}
                 />
               )}
@@ -85,6 +87,40 @@ export function HomePins({ sessions }: { sessions: Session[] }) {
     </section>
   );
 }
+/** Read only the selected pin's observation, independently of list pagination. */
+function PinnedSessionContext({
+  sessionId,
+  usage,
+}: {
+  sessionId: string;
+  usage?: Session['contextUsage'];
+}) {
+  const [recorded, setRecorded] = useState<{
+    sessionId: string;
+    usage?: Session['contextUsage'];
+  }>();
+  useEffect(() => {
+    if (usage !== undefined) return;
+    const controller = new AbortController();
+    void apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/context`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!controller.signal.aborted && data?.sessionId === sessionId)
+          setRecorded({ sessionId, usage: data.contextUsage ?? undefined });
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [sessionId, usage]);
+  return (
+    <SessionContextUsage
+      usage={usage ?? (recorded?.sessionId === sessionId ? recorded.usage : undefined)}
+    />
+  );
+}
+
 function flatten(items: TodoItem[]): TodoItem[] {
   return items.flatMap((item) => [item, ...flatten(item.children)]);
 }

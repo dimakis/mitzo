@@ -104,6 +104,10 @@ for (const theme of ['dark', 'light'])
         });
       const data: Record<string, unknown> = {
         '/api/sessions': { sessions, hasMore: false },
+        '/api/sessions/older-pin/context': {
+          sessionId: 'older-pin',
+          contextUsage: sessions[0].contextUsage,
+        },
         '/api/config': { quickActions: [] },
         '/api/briefings/latest': null,
         '/api/version': { updateAvailable: false },
@@ -111,7 +115,10 @@ for (const theme of ['dark', 'light'])
           revision: 1,
           names: { briefing: 'Minion', terminal: 'Minion' },
           showDailyQuote: false,
-          pins: [{ kind: 'session', id: 'session-0', title: sessions[0].summary }],
+          pins: [
+            { kind: 'session', id: 'session-0', title: sessions[0].summary },
+            { kind: 'session', id: 'older-pin', title: 'Older pinned conversation' },
+          ],
         },
         '/api/todos': {
           profiles: [],
@@ -234,6 +241,9 @@ for (const theme of ['dark', 'light'])
       'aria-valuenow',
       '24',
     );
+    await expect(
+      page.getByRole('link', { name: /Older pinned conversation/ }).getByRole('meter'),
+    ).toHaveAttribute('aria-valuenow', '24');
     await page.screenshot({ path: testInfo.outputPath(`session-context-${theme}.png`) });
     await page.goto('/settings');
     const toggle = page.getByRole('checkbox', { name: 'Show session context on Today' });

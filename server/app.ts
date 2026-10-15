@@ -2675,6 +2675,20 @@ app.get('/api/sessions', async (req, res) => {
   }
 });
 
+// Pinned Today sessions need their own read-only observation, beyond the recent page.
+app.get('/api/sessions/:id/context', (req, res) => {
+  const meta = eventStore.getSession(req.params.id);
+  if (!meta || meta.isHidden) {
+    res.status(404).json({ error: 'Session not found' });
+    return;
+  }
+  const { contextUsage } = sessionListMetadata(
+    meta,
+    eventStore.getLatestEvent(meta.sessionId, 'token_update'),
+  );
+  res.json({ sessionId: meta.sessionId, contextUsage: contextUsage ?? null });
+});
+
 app.get(
   '/api/sessions/:id/messages',
   createSessionMessagesHandler({

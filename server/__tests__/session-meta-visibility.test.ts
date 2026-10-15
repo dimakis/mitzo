@@ -145,3 +145,34 @@ it('retains the last admitted model and thinking when optional account refresh f
   expect(response.body.accountBinding.model).toBe('first');
   expect(store.getSessionRuntimeBinding(meta.sessionId)).toEqual(runtime);
 });
+
+it('reads a pinned session’s recorded context by ID without catalog, runtime or list work', async () => {
+  store.upsertSession({ sessionId: 'older-pin', summary: 'Older pin', inputTokens: 900000 });
+  store.append('older-pin', 'token_update', {
+    agentContext: 48000,
+    sessionTotal: 900000,
+    tokenLimits: { model: 'fixture', source: 'runtime', contextWindow: 200000 },
+  });
+  catalog.refresh.mockClear();
+  const before = store.getLatestEvent('older-pin', 'token_update');
+  const response = await request(app).get('/api/sessions/older-pin/context');
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual({
+    sessionId: 'older-pin',
+    contextUsage: {
+      used: 48000,
+      measuredAt: before!.createdAt,
+      limits: { model: 'fixture', source: 'runtime', contextWindow: 200000, stale: false },
+    },
+  });
+  expect(catalog.refresh).not.toHaveBeenCalled();
+  expect(store.getLatestEvent('older-pin', 'token_update')).toEqual(before);
+  store.upsertSession({ sessionId: 'no-measurement', inputTokens: 900000 });
+  expect((await request(app).get('/api/sessions/no-measurement/context')).body).toEqual({
+    sessionId: 'no-measurement',
+    contextUsage: null,
+  });
+  store.hideSession('older-pin');
+  expect((await request(app).get('/api/sessions/older-pin/context')).status).toBe(404);
+  expect((await request(app).get('/api/sessions/missing/context')).status).toBe(404);
+});

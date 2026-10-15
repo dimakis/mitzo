@@ -728,6 +728,8 @@ was used.
 
 ## Session library and context summaries
 
+Today pins outside the recent page read their recorded observation by session ID, without resuming a provider. Disabled context display makes no extra reads; obsolete requests abort, and missing or failed observations remain explicitly unavailable. Confirmed deletion clears the selected preview, and a confirmed rename updates off-page pin snapshots and the selected title. Failed mutations preserve the saved selection and title.
+
 Today renders the latest recorded context observation separately from cumulative
 request usage. A measured count without current model-capacity evidence keeps its
 limit explicitly unreported; absent counts never become zero and stale capacity evidence never establishes a
@@ -770,13 +772,14 @@ long press, right-click, resize, keyboard dismissal and the Appearance preferenc
 Unit regressions cover touch cancellation/tap suppression, empty/error/loading
 history, stale selection, pin persistence and missing/stale context limits.
 No backend, provider turn or model call was used. This is component-route evidence;
-full app integration remains with CI and canonical staging acceptance.
+full app integration remains with CI. Canonical staging and its pipeline are stood down; this work performs no deployment.
 
 Inspected captures: [desktop library](assets/session-library-desktop-dark.png),
 [light desktop](assets/session-library-desktop-light.png),
 [mobile library](assets/session-library-mobile-dark.png),
 [mobile history/actions](assets/session-preview-mobile-light.png),
-[Today context](assets/session-context-desktop-dark.png) and
+[desktop Today context](assets/session-context-desktop-dark.png),
+[mobile Today context](assets/session-context-mobile-dark.png) and
 [Appearance preference](assets/session-appearance-desktop-light.png).
 
 Local validation: 267 focused unit regressions, the design contract and six browser
