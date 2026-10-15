@@ -151,5 +151,7 @@ it('moves through actions even when the platform omits buttons from native Tab o
   const rename = screen.getByRole('button', { name: 'Rename' });
   open.focus();
   fireEvent.keyDown(open, { key: 'Tab' });
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Pin conversation' }));
+  fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
   expect(document.activeElement).toBe(rename);
 });

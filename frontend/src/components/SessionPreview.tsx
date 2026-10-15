@@ -1,12 +1,11 @@
+import { SessionActions } from './SessionActions';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import type { FinishedMessage, Session } from '../types/chat';
 import { apiFetch } from '../lib/api-fetch';
-import { copyToClipboard } from '../lib/clipboard';
 import { formatRelativeTime } from '../lib/formatTime';
 import { UiIcon } from './UiIcon';
-import { HomePinButton } from './HomePinButton';
 import { recordTitle } from '../lib/record-title';
 import './SessionPreview.css';
 
@@ -27,7 +26,6 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
     null,
   );
   const [error, setError] = useState(false);
-  const [copyStatus, setCopyStatus] = useState('');
   const title = session.summary ? recordTitle(session.summary) : 'Untitled conversation';
 
   useEffect(() => {
@@ -76,11 +74,6 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
     return () => controller.abort();
   }, [session.id]);
 
-  async function copyId() {
-    const copied = await copyToClipboard(session.id);
-    setCopyStatus(copied ? 'Session ID copied' : 'Couldn’t copy session ID.');
-  }
-
   return createPortal(
     <dialog
       ref={dialogRef}
@@ -90,7 +83,10 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
       onKeyDown={(event) => {
         if (event.key !== 'Tab') return;
         const buttons = Array.from(
-          event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+          event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), summary'),
+        );
+        buttons.sort((a, b) =>
+          a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
         );
         if (buttons.length === 0) return;
         const current = buttons.findIndex((button) => button === document.activeElement);
@@ -152,26 +148,20 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
               ))
             )}
           </div>
+          <details className="session-preview-details">
+            <summary>Session details</summary>
+            <p>Repository: {session.cwd || 'Not reported'}</p>
+            {session.branch && <p>Branch: {session.branch}</p>}
+            <p>Session ID: {session.id}</p>
+          </details>
         </section>
         <div className="session-preview-actions" aria-label="Session actions">
-          <button type="button" onClick={onOpen}>
-            <UiIcon name="chats" />
-            Open conversation
-          </button>
-          <button type="button" onClick={onRename}>
-            <UiIcon name="edit" />
-            Rename
-          </button>
-          <HomePinButton pin={{ kind: 'session', id: session.id, title }} />
-          <button type="button" onClick={() => void copyId()}>
-            <UiIcon name="copy" />
-            Copy session ID
-          </button>
-          {copyStatus && <p role="status">{copyStatus}</p>}
-          <button type="button" className="session-preview-delete" onClick={onDelete}>
-            <UiIcon name="trash" />
-            Delete conversation
-          </button>
+          <SessionActions
+            session={session}
+            onOpen={onOpen}
+            onRename={onRename}
+            onDelete={onDelete}
+          />
         </div>
       </div>
     </dialog>,
