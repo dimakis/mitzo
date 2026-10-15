@@ -4,6 +4,8 @@ const TELOS_NATIVE_TOOLS = new Set([
   'TelosSaveArtifact',
   'TelosFindArtifacts',
   'TelosReadArtifact',
+  'TelosGetItem',
+  'TelosUpdateItem',
 ]);
 
 /** Both the permission cache and its UI description use this exact service identity. */
