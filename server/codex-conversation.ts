@@ -148,7 +148,10 @@ export interface CodexConversationOptions {
   /** Provider attachment changes require a new workload process before dispatch. */
   refreshTransportBeforeTurn?: () => boolean;
   /** Select verified project context at a safe boundary; never append it as user text. */
-  prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
+  prepareSystemPrompt?: (
+    signal: AbortSignal,
+    turn?: { commandId: string },
+  ) => Promise<string | undefined>;
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
   /** Trusted compiled context source, independent of native document preferences. */
   readonly agentContextSource?: string;
@@ -1842,7 +1845,9 @@ export class CodexConversation {
       this.mapper?.setModel(model);
       await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
-      const systemPrompt = await this.opts.prepareSystemPrompt?.(active.abort.signal);
+      const systemPrompt = await this.opts.prepareSystemPrompt?.(active.abort.signal, {
+        commandId: command.id,
+      });
       // Native threads have no persisted rollout before their first turn.
       // Deliver the selection through the public per-turn application context
       // contract, preserving both provider identity and unchanged user input.
