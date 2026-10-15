@@ -23,12 +23,10 @@ import { knowledgeStoreFromEnvironment, type KnowledgeStore } from './knowledge-
 import type { KnowledgeAdoptionSelection } from './codex-conversation-store.js';
 import { verifyPreparedSeed } from '../scripts/verify-openshell-production.mjs';
 import {
-  knowledgeVerificationCommand,
+  knowledgeDeliveryCommand,
   knowledgeViewManifest,
-  knowledgePresenceCommand,
-  knowledgeCacheStatusCommand,
+  knowledgeCacheProbeCommand,
   knowledgeCacheRepairCommand,
-  knowledgeCleanupCommand,
 } from './knowledge-view.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
@@ -2627,29 +2625,25 @@ export class OpenShellRuntimeManager {
       const cacheProbe = openShellSshArgvProcessSpec(runtime, [
         '/bin/sh',
         '-c',
-        knowledgeCacheStatusCommand(remoteRoot, manifestSha256),
+        knowledgeCacheProbeCommand(remoteRoot, manifestSha256),
       ]);
-      const validCache = (
-        await knowledgePhase('verify_cache', () => this.runSsh(cacheProbe.args, signal))
-      ).trim();
-      if (validCache !== 'true' && validCache !== 'false')
+      const cache = z
+        .strictObject({ valid: z.boolean(), present: z.boolean() })
+        .parse(
+          JSON.parse(
+            await knowledgePhase('verify_cache', () => this.runSsh(cacheProbe.args, signal)),
+          ),
+        );
+      if (cache.valid && !cache.present)
         throw new Error('Invalid knowledge cache verification response');
-      if (validCache === 'false') {
+      if (!cache.valid) {
         this.knowledgeViews.delete(runtime.sandboxId);
         selection = undefined;
       }
       if (!selection || selection.manifestSha256 !== manifestSha256) {
         const destination = '/sandbox/workspaces/knowledge';
         const remote = remoteRoot;
-        const presence = openShellSshArgvProcessSpec(runtime, [
-          '/bin/sh',
-          '-c',
-          knowledgePresenceCommand(remote),
-        ]);
-        const present = (await this.runSsh(presence.args, signal)).trim();
-        if (present !== 'true' && present !== 'false')
-          throw new Error('Invalid knowledge presence response');
-        if (validCache === 'false') {
+        if (!cache.valid) {
           prepared = await knowledgePhase('freeze_upload', () => {
             signal.throwIfAborted();
             const frozen = prepareOpenShellSeed(selected.config);
@@ -2675,7 +2669,7 @@ export class OpenShellRuntimeManager {
           const repairOwner = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
           if (repairOwner.phase !== 'Ready' || repairOwner.name !== runtime.sandboxName)
             throw new Error('Knowledge sandbox changed before cache repair');
-          if (present === 'true') {
+          if (cache.present) {
             const repair = openShellSshArgvProcessSpec(runtime, [
               '/bin/sh',
               '-c',
@@ -2700,27 +2694,29 @@ export class OpenShellRuntimeManager {
       const after = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
       if (after.phase !== 'Ready' || after.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox changed during upload');
+      const needsContext = !profileContext && !selection.context;
       const spec = openShellSshArgvProcessSpec(runtime, [
         '/bin/sh',
         '-c',
-        knowledgeVerificationCommand(dirname(selection.knowledgeRoot), manifestSha256),
+        knowledgeDeliveryCommand(dirname(selection.knowledgeRoot), manifestSha256, needsContext),
       ]);
-      const receipt = JSON.parse(
-        await knowledgePhase('verify_delivery', () => this.runSsh(spec.args, signal)),
-      );
+      const delivery = z
+        .strictObject({
+          receipt: z.strictObject({ sourceCommit: z.string(), payloadSha256: z.string() }),
+          context: BootContext.optional(),
+        })
+        .parse(
+          JSON.parse(await knowledgePhase('verify_delivery', () => this.runSsh(spec.args, signal))),
+        );
       if (
-        receipt.sourceCommit !== selection.sourceCommit ||
-        receipt.payloadSha256 !== selection.payloadSha256
+        delivery.receipt.sourceCommit !== selection.sourceCommit ||
+        delivery.receipt.payloadSha256 !== selection.payloadSha256
       )
         throw new Error('Knowledge verification returned another publication');
       // Publication verification remains mandatory. Profile context has independently
       // pinned accepted sources and must not be replaced by another default recipe.
-      const context =
-        profileContext ??
-        selection.context ??
-        (await knowledgePhase('compile_context', () =>
-          this.compileContext({ ...runtime, workdir: selection.knowledgeRoot }, signal),
-        ));
+      const context = profileContext ?? selection.context ?? delivery.context;
+      if (!context) throw new Error('Knowledge delivery did not return compiled context');
       const verified = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
       if (verified.phase !== 'Ready' || verified.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox changed during verification');
@@ -2747,12 +2743,6 @@ export class OpenShellRuntimeManager {
         runtime.sandboxId,
         profileContext ? { ...adopted, context: selection.context } : adopted,
       );
-      const cleanup = openShellSshArgvProcessSpec(runtime, [
-        '/bin/sh',
-        '-c',
-        knowledgeCleanupCommand(adopted.knowledgeRoot),
-      ]);
-      await knowledgePhase('cleanup', () => this.runSsh(cleanup.args, signal));
       return adopted;
     } finally {
       prepared?.cleanup();
