@@ -59,7 +59,7 @@ import {
   SUPPORTED_CODEX_CLI_VERSION,
   type OpenShellCodexOptions,
 } from './codex-app-server-client.js';
-import { CodexConversation, type CodexToolResult } from './codex-conversation.js';
+import { CodexConversation } from './codex-conversation.js';
 import { taskRuntimeGuidance, meetingPrepGuidance } from './task-runtime-guidance.js';
 import {
   CodexConversationStore,
@@ -140,6 +140,13 @@ interface PendingProviderAdmission {
 }
 const pendingAdmissions = new WeakMap<ManagedSession, Map<string, PendingProviderAdmission>>();
 const log = createLogger('codex-chat-session');
+/** Host-only attachment receipt shared by both integration-access tool routes. */
+interface IntegrationAccessResult {
+  content: string;
+  isError: boolean;
+  environmentChange?: { kind: 'provider-attachment'; provider: string };
+}
+
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
 const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
   'google-workspace': 'Google Workspace',
@@ -955,7 +962,7 @@ async function openCodexChatBound(
     | {
         id: string;
         denied: Set<string>;
-        pending: Map<string, Promise<CodexToolResult>>;
+        pending: Map<string, Promise<IntegrationAccessResult>>;
       }
     | undefined;
   let integrationTransportNeedsRefresh = false;
@@ -963,7 +970,7 @@ async function openCodexChatBound(
     provider: string,
     signal: AbortSignal,
     controlPlane = false,
-  ): Promise<CodexToolResult> => {
+  ): Promise<IntegrationAccessResult> => {
     // A cancelled approval can settle after the next queued turn has started.
     // Keep all coalescing and denial state bound to the initiating turn.
     const turn = integrationTurn;
@@ -1000,7 +1007,7 @@ async function openCodexChatBound(
     signal: AbortSignal,
     turn: typeof integrationTurn,
     controlPlane: boolean,
-  ): Promise<CodexToolResult> => {
+  ): Promise<IntegrationAccessResult> => {
     if (!runtimeManager || !managedOpenShell)
       return { content: 'Integration provider is not grantable', isError: true };
     const access = await runtimeManager!.hasServiceProviderAccess(
@@ -1798,7 +1805,7 @@ async function openCodexChatBound(
     ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
       ? {
           refreshTransportBeforeTurn: () => integrationTransportNeedsRefresh,
-          shouldContinueAfterToolResult: (_name, _input, result) =>
+          shouldContinueAfterToolResult: (_name, _input, result: IntegrationAccessResult) =>
             result.environmentChange?.kind === 'provider-attachment' &&
             !result.isError &&
             integrationTransportNeedsRefresh,
