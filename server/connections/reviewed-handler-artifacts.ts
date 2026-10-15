@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.133';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.134';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -323,7 +323,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-verification-error.ts':
     '1adcaa9d47b413796b94f6aeb44bf152e2daa27ec30759d1ffd9ce5e1240ebea',
   '../credential-setup.ts': '8dfd54d1b4cb4408d52c9ca09f5cc220ba69adf6dc6181bc7de6803fee38f69c',
-  '../connection-guide.ts': 'd0fed6560d2c2b4d99c74af278b3490ac66b3cb5b161bdeb686c57e99208c0dc',
+  '../connection-guide.ts': 'fcbc53ad1654e6360ba0fab9287393387cd94a666fbeaecd597deb501443756d',
   '../credential-setup-continuation.ts':
     '6cb81428bb08fa2cf6b79e762573e34dc87f281cfc5d0be70b5316ce66fdd493',
   '../credential-setup-application.ts':
@@ -441,8 +441,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-gateway.ts': '1a664e65926536d102d2fb0d5f4b7cfd7e2631d6d8bf51f2965025cdb87dc64b',
   '../openshell-runtime-policy.ts':
     '9733d55cd1cb15dcf68dd844fd85861bf4fece6f3d46e1926ec9c416dd59d7f2',
-  '../openshell-runtime.ts': 'ced104ded28691b8a1017c6ee17c3a6478a85e0b6fa988147c3513ca8911abcd',
-  '../codex-chat-session.ts': 'f3778d2fc76882180f8aa5454af1f94050b566ad7c6f62f7cb250e27a5b32a6d',
+  // Task command inventory and workflow routing share the runtime review contract.
+  '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
+  '../openshell-runtime.ts': '5bc32b0ab8b8c2cb4205c6df3b639d0ea7892fef4669b25221842ad83a3d8e37',
+  '../codex-chat-session.ts': '77427fe9de05bd2fe273e26542c3d2eab5c8d75a2afba6250ced8fe8773be6ef',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -509,7 +511,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-seat-prompt.ts': '1f29774555808c5db22e0458f9767c2b498e99430dbd13da6ab94e607291bf4f',
   '../symposium-session-runtime.ts':
     'c60fc54ab05cd6fbcdbf1f549ac59664df9684df31d8a426e1441afce7fec788',
-  '../telos-artifact-tools.ts': '560e27e41df29aa0b5e8a859731bc956b165e6309f9a0974c16da9ee2c2525e5',
+  '../telos-artifact-tools.ts': '7547d280a3b846f52e576c93b53c55854f5b4aeeafcdfa8ff83b778eee2c2081',
   '../symposium-agent-context-authorization.ts':
     '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',
   // Ordinary Codex continuation, persistent login revocation and physical custody.
