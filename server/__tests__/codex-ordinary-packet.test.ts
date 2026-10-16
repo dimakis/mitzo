@@ -97,6 +97,18 @@ describe('ordinary Codex host packet serialization', () => {
     });
   });
 
+  it('accepts the ordinary command nullable effort and omits it from the native request', () => {
+    const input = {
+      threadId: 'thread',
+      commandId: 'command',
+      model: 'offline',
+      prompt: 'Original request',
+      additionalContext: {},
+      reasoningEffort: null,
+    } satisfies Parameters<typeof codexTurnStartParams>[0];
+    expect(codexTurnStartParams(input)).not.toHaveProperty('effort');
+  });
+
   it('keeps native continuation input empty and omits absent optional parameters', () => {
     const base = {
       threadId: 'thread',

@@ -101,7 +101,7 @@ export function codexTurnStartParams(input: {
   attemptContext?: string | null;
   savedSourceContext?: string;
   images?: readonly { mediaType: string; data: string }[];
-  reasoningEffort?: string;
+  reasoningEffort?: string | null;
   sandboxPolicy?: Record<string, unknown>;
   additionalContext: CodexAdditionalContext;
 }) {
