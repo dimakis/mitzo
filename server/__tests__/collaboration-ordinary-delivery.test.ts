@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -549,6 +549,148 @@ it.each([
     } finally {
       runtime.close();
       privateStore.close();
+    }
+  },
+);
+
+it.each([
+  { projectionFails: false, failure: 'error' },
+  { projectionFails: true, failure: 'error' },
+  { projectionFails: false, failure: 'null' },
+  { projectionFails: true, failure: 'null' },
+  { projectionFails: false, failure: 'undefined' },
+  { projectionFails: true, failure: 'undefined' },
+  { projectionFails: true, failure: 'context-only' },
+])(
+  'retains exact context ACK and original observer error precedence: %j',
+  async ({ projectionFails, failure }) => {
+    const row = message();
+    const owner = stage(row);
+    const native = new CodexConversationStore(join(directory, 'observer-native.db'));
+    const providerFailure =
+      failure === 'null'
+        ? null
+        : failure === 'undefined'
+          ? undefined
+          : Error('Ordinary turn lifecycle adoption failed');
+    const contextFailure = Error('Context projection temporarily unavailable');
+    const providerAccepted = vi.fn(() => {
+      if (failure !== 'context-only') throw providerFailure;
+    });
+    const previousContextAccepted = vi.fn();
+    const completed = vi.fn();
+    const requests: Array<{ method: string; params: unknown }> = [];
+    let acknowledge!: (response: unknown) => void;
+    const runtime = new CodexConversation({
+      conversationId: 'two',
+      cwd: '/fixture',
+      store: native,
+      profile: {
+        accountId: 'shared-account',
+        accountLabel: 'Offline fixture',
+        credentialRef: '/offline',
+        email: 'fixture@example.com',
+        planType: 'test',
+        model: 'offline-fixture',
+      },
+      systemPrompt: 'Existing boot guidance',
+      tools: [],
+      enableCapacityRecovery: false,
+      emit: () => {},
+      executeTool: async () => ({ content: '', isError: false }),
+      ...ordinaryCollaborationContextHooks('two', owner, {
+        prepareSystemPrompt: async () => 'Original base context',
+        onApplicationContextAccepted: previousContextAccepted,
+      }),
+      onProviderAccepted: providerAccepted,
+      onProviderComplete: completed,
+      createClient: () => ({
+        initialize: async () => {},
+        close: () => {},
+        request: async (method, params) => {
+          requests.push({ method, params });
+          if (method === 'config/read') return { config: {} };
+          if (method === 'account/read')
+            return { account: { type: 'chatgpt', email: 'fixture@example.com', planType: 'test' } };
+          if (method === 'thread/start')
+            return {
+              thread: { id: 'private-thread' },
+              model: 'offline-fixture',
+              modelProvider: 'openai',
+            };
+          if (method === 'turn/start')
+            return new Promise((resolve) => {
+              acknowledge = resolve;
+            });
+          return {};
+        },
+      }),
+    });
+    let restoreProjection: (() => void) | undefined;
+    try {
+      await runtime.initialize();
+      const outcome = runtime
+        .send({ id: 'initial-two', prompt: 'Explicit operator prompt' })
+        .catch((error: unknown) => error);
+      await vi.waitFor(() => expect(acknowledge).toBeTypeOf('function'));
+      expect(read(row).status).toBe('pending');
+      if (projectionFails) {
+        const projection = vi
+          .spyOn(store.collaborationConversation, 'recordDelivery')
+          .mockImplementationOnce(() => {
+            throw contextFailure;
+          });
+        restoreProjection = () => {
+          projection.mockRestore();
+        };
+      }
+      acknowledge({ turn: { id: 'private-turn' } });
+      expect(await outcome).toBe(failure === 'context-only' ? contextFailure : providerFailure);
+      expect(providerAccepted).toHaveBeenCalledExactlyOnceWith(
+        'initial-two',
+        'private-thread',
+        'private-turn',
+      );
+      const turn = requests.find((request) => request.method === 'turn/start')!.params as {
+        additionalContext: Record<string, { value: string }>;
+      };
+      const exactContext = Object.values(turn.additionalContext)
+        .map((fragment) => fragment.value)
+        .join('');
+      expect(
+        store.getOrdinaryCollaborationDeliveryEvents('two', 'initial-two').at(-1),
+      ).toMatchObject({
+        type: 'ordinary_collaboration_context_accepted',
+        payload: {
+          commandId: 'initial-two',
+          providerThreadId: 'private-thread',
+          providerTurnId: 'private-turn',
+          contextSha256: createHash('sha256').update(exactContext).digest('hex'),
+        },
+      });
+      expect(previousContextAccepted).toHaveBeenCalledExactlyOnceWith(
+        'initial-two',
+        'private-thread',
+        'private-turn',
+        'Original base context',
+      );
+      expect(runtime.queue()).toMatchObject([{ id: 'initial-two', status: 'interrupted' }]);
+      expect(completed).toHaveBeenCalledExactlyOnceWith('initial-two', 'interrupted');
+      expect(read(row).status).toBe(projectionFails ? 'pending' : 'delivered');
+      restoreProjection?.();
+      restoreProjection = undefined;
+      runtime.close();
+      store.close();
+      store = new EventStore(path);
+      authorize.mockClear().mockRejectedValue(Error('Source access unavailable after restart'));
+      adapter().recover('two', 'initial-two');
+      expect(read(row).status).toBe('delivered');
+      expect(authorize).not.toHaveBeenCalled();
+      expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    } finally {
+      restoreProjection?.();
+      runtime.close();
+      native.close();
     }
   },
 );

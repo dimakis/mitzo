@@ -1982,14 +1982,33 @@ export class CodexConversation {
         // The exact native ACK owns acceptance even if a trusted observer's
         // durable projection fails. Owned routes can disable capacity recovery.
         active.accepted = true;
-        this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
-        if (systemPrompt !== undefined)
-          this.opts.onApplicationContextAccepted?.(
-            command.id,
-            this.threadId!,
-            active.turnId,
-            systemPrompt,
-          );
+        let providerObserverFailed = false;
+        let providerObserverError: unknown;
+        try {
+          this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
+        } catch (error) {
+          providerObserverFailed = true;
+          providerObserverError = error;
+        }
+        try {
+          if (systemPrompt !== undefined)
+            this.opts.onApplicationContextAccepted?.(
+              command.id,
+              this.threadId!,
+              active.turnId,
+              systemPrompt,
+            );
+        } catch (error) {
+          if (!providerObserverFailed) throw error;
+          try {
+            log.warn('Application context acknowledgement observer also failed.');
+          } catch {
+            /* Preserve the provider observer's original failure when logging is unavailable. */
+          }
+        }
+        // Preserve the first observer's exact error/category, including falsy
+        // throws, after both ACK consumers had the chance to persist their proof.
+        if (providerObserverFailed) throw providerObserverError;
         active.accepted = true;
         if (pending) {
           try {
