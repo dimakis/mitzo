@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.166';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.167';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -37,7 +37,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6ec891ed81e2d18d0fc375cfb8722d06df3831e3b1a30eb4b435ebcf70faba8c',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '4a88ed2e2908ab949a4afda4561e2495bc25a138d484813d312244ef4094d656',
-  '../agent-tool-catalog.ts': '2ab34d5743bd24ddeb75e786c58860aa88a1af7a2fdde77ee7d0c8d4d619f934',
+  '../agent-tool-catalog.ts': 'fde4a51312adc0e3a5de90db0d63518742561e27a8b80f3a19c5d82815f16160',
   '../agent-tool-selection.ts': '61436983d0e156a90049cc516301534f270e51a1d5f50bf14c3b98ba78aea552',
   '../../packages/protocol/src/agent-tools.ts':
     'd4f76bbc478cdac274c1bd9ff75d0d007e86c710614d2836d0c1a9c65d54ed2d',
@@ -414,7 +414,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c9c5fadf380fc72edc81ec7b762d1f69620d06dff5ca40a949568ee61a2a068c',
   '../../packages/protocol/src/symposium.ts':
     '129fd172bc38c895e31d0835adf799933ef7641a200c33a3b8135a2e318b848a',
-  '../repository-chat-tools.ts': '74e686017b043f61e063258aadec9387f2141e5f5a94238bfdcd6780b3006a77',
+  '../repository-chat-tools.ts': 'dff5ebb1bb8bac6c12f92e7e513dda108cbe0a618dbeff081c864f2c946f58ba',
   '../repository-task-copy.ts': 'cd15f77cfa45883556d10536296a28f7451d2259a5a3eb2a9aeb807d24c54d6d',
   '../credential-connection-schema.ts':
     '3489ff131cd0bc28de23d85e1ed7cd4749fcb12f062bdc76407bedc0efe28f47',
@@ -443,7 +443,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
   '../credential-http.ts': 'de01cafbe00fbc4a470483afae3c2fafa8ba81c295187f9b22b5188c71cdd627',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
-  '../credential-sdk-tools.ts': '45d500312c188a2a00b3115c1ec4d2aa5045f775147b5f97eb80e130849b708d',
+  '../credential-sdk-tools.ts': 'd0a0902ca6c5768e50fec39cf54cb1d1cc6a415de637ddc9cc749867fbfc2f54',
   '../session-credential-tools.ts':
     '2de264085b8df6df275044b451b33d0f9f24e3a4b66f9a9f53280f71080bf18a',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',

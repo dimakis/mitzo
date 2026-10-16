@@ -196,3 +196,29 @@ that PR. Also exercise denial, changed connection/branch, interrupted preparatio
 missing retained sandbox and account switching. Until those gates pass, this
 remains an opt-in implementation rather than a claim of a finished development
 workflow.
+
+## Add a repository from chat
+
+When a requested repository is absent from `ListRepositories`, the agent calls
+`RequestRepositoryAccess` with `owner/repository` or its GitHub HTTPS URL. Mitzo
+selects the existing verified GitHub connection assigned to the chat's AI account
+and asks for explicit confirmation through the existing permission card. The
+card shows the repository, connection identity, every affected account, and
+allowed base branches. A shared connection's new scope applies to all its assigned
+accounts. Existing credentials remain private; no credential or external agent
+is needed to extend an already configured connection.
+
+The confirmation is for this exact connection revision and repository. Auto mode,
+prior session grants, and selecting the tool cannot bypass it. Cancellation,
+account or runtime changes, connection edits, and modified approval responses
+prevent the addition. Ask mode permits discovery only. A successful addition uses
+the same atomic audited service as the authenticated management API; existing
+repositories, base branches, credentials and account assignments are retained.
+Publication still needs its separate approval. After success, the agent can call
+`PrepareRepositoryChat` for the user's original task. A repository already in scope
+returns its current status without prompting or changing anything.
+
+If no single verified connection is assigned, Mitzo directs the user to secure
+Connections setup. It never requests a GitHub token in chat. Repository consent
+does not prove that GitHub permits reading a particular repository; the subsequent
+repository preparation checks that access.

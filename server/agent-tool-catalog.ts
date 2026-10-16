@@ -68,15 +68,17 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                 'RequestConnectionAccess',
               ].includes(tool.name)
             ? 'Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access.'
-            : source === 'Repositories'
-              ? 'Requires an authorized repository connection for the selected account.'
-              : source === 'GitHub publishing' || tool.name === 'GitHubRead'
-                ? 'Requires existing GitHub access and the usual action approval.'
-                : tool.name === 'Bash'
-                  ? 'Requires an available OS sandbox and existing workspace permissions; no network or credentials.'
-                  : source === 'Web'
-                    ? 'Requires supported provider web search and current approval.'
-                    : 'Existing session permissions, cancellation and runtime admission apply.',
+            : tool.name === 'RequestRepositoryAccess'
+              ? 'Requires an existing verified GitHub connection for the selected account and explicit confirmation of the shared repository scope.'
+              : source === 'Repositories'
+                ? 'Requires an authorized repository connection for the selected account.'
+                : source === 'GitHub publishing' || tool.name === 'GitHubRead'
+                  ? 'Requires existing GitHub access and the usual action approval.'
+                  : tool.name === 'Bash'
+                    ? 'Requires an available OS sandbox and existing workspace permissions; no network or credentials.'
+                    : source === 'Web'
+                      ? 'Requires supported provider web search and current approval.'
+                      : 'Existing session permissions, cancellation and runtime admission apply.',
     })),
   );
 }

@@ -15,7 +15,7 @@ This inventory describes registrations, not grants or live qualification.
 Static host optional inventory: Read, Write, Edit, Bash, GitHubRead, GitCommit;
 ListConnections, RequestConnectionAccess, ConnectionRequest, ConnectionWebSocket,
 HomeAssistantDashboard, GetConnectionGuide, PrepareConnectionSetup, GetConnectionSetup;
-ListRepositories, PrepareRepositoryChat, GetRepositoryChatPreparation;
+ListRepositories, RequestRepositoryAccess, PrepareRepositoryChat, GetRepositoryChatPreparation;
 SymposiumReadProfiles, SymposiumProposeProfile; RequestWebAccess; RequestGithubPublish.
 Names, descriptions and input schemas must come from their exported registrations.
 Telos and capability implementations remain visible as incompatible where not enrolled.

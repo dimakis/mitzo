@@ -35,6 +35,7 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'PrepareConnectionSetup',
     'GetConnectionSetup',
     'ListRepositories',
+    'RequestRepositoryAccess',
     'PrepareRepositoryChat',
     'GetRepositoryChatPreparation',
     'SymposiumProposeProfile',
@@ -325,4 +326,24 @@ it('SDK profile calls create one durable proposal per verified request and retai
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+it('keeps repository scope changes behind Agent or Auto and the handler confirmation', () => {
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    sessionId: 'a',
+    mode: 'ask',
+    abortController: new AbortController(),
+  } as never);
+  const session = registry.get('client')!;
+  const name = 'mcp__mitzo-connections__RequestRepositoryAccess';
+  const input = { repository: 'example/new' };
+  expect(credentialSdkPermission(name, input, 'client', registry, session)?.behavior).toBe('deny');
+  session.mode = 'agent';
+  expect(credentialSdkPermission(name, input, 'client', registry, session)?.behavior).toBe('allow');
+  expect(
+    credentialSdkPermission(name, { ...input, connectionId: 'forged' }, 'client', registry, session)
+      ?.behavior,
+  ).toBe('deny');
+  registry.dispose();
 });
