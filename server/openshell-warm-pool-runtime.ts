@@ -1,3 +1,4 @@
+import { openShellCliEnvironment } from './openshell-cli-environment.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -26,7 +27,7 @@ export function warmPoolScope(c: OpenShellRuntimeConfig) {
         c.workdir,
         c.seed,
         c.seedStackManifest ?? null,
-        c.cliEnvironment ?? null,
+        openShellCliEnvironment(c.cliEnvironment),
       ]),
     )
     .digest('hex');
@@ -45,7 +46,7 @@ export function warmPoolRuntimeAuthority(c: OpenShellRuntimeConfig) {
         c.gatewayEndpoint ?? null,
         c.gatewayInsecure,
         c.workdir,
-        c.cliEnvironment ?? null,
+        openShellCliEnvironment(c.cliEnvironment),
       ]),
     )
     .digest('hex');
@@ -80,7 +81,7 @@ export function createWarmPoolAdapter(
             timeout: 120000,
             maxBuffer: 1024 * 1024,
             encoding: 'utf8',
-            env: config.cliEnvironment ? { ...process.env, ...config.cliEnvironment } : process.env,
+            env: openShellCliEnvironment(config.cliEnvironment),
           },
           (e, stdout) => (e ? reject(e) : resolve(stdout)),
         ),

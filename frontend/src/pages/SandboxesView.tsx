@@ -573,7 +573,7 @@ export function SandboxesView() {
                 selected account.
               </p>
               <div className="sandbox-actions">
-                {stateLabel(selected) === 'Ready' ? (
+                {(stateLabel(selected) === 'Ready' || selected.canRetire === true) && (
                   <>
                     <button
                       className="home-secondary"
@@ -590,7 +590,8 @@ export function SandboxesView() {
                       Remove spare
                     </button>
                   </>
-                ) : (
+                )}
+                {stateLabel(selected) !== 'Ready' && (
                   <button
                     className="home-secondary"
                     disabled={busy}

@@ -177,6 +177,7 @@ it.each(['image', 'stack', 'policy'] as const)(
     expect((await pool!.observe(AbortSignal.timeout(5000))).spares[0].observedState).toBe(
       'unverified',
     );
+    expect((await pool!.observe(AbortSignal.timeout(5000))).spares[0].canRetire).toBe(true);
     await pool!.mutate({
       action: 'replace',
       id: f.spare.id,

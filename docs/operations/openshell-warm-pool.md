@@ -42,6 +42,11 @@ authority stays blocked. Historical rows without separate authority require thei
 exact original recipe; never infer or backfill missing authority from current
 configuration.
 
+Pool and conversation CLI subprocesses share one environment builder: an explicit
+private environment is validated and used alone; otherwise only PATH, HOME,
+TMPDIR, LANG and LC_ALL are inherited. Ambient XDG or credential variables do not
+select another pool namespace. Recipe/access hashes bind the effective environment.
+
 CPU and memory are requested per sandbox through the native create flags. The
 saved limits also apply to compatible cold allocations on an enrolled host;
 existing retained sandboxes keep their creation-time limits. The
@@ -64,6 +69,10 @@ and provider-free creation before enabling this on a real target.
   immediately creating replacements. A compatible new chat or Prepare now wakes
   it. Uncertain resources are retained, count against the ceiling and require review.
 - Spare details expose ownership, resources and provider-unassigned status.
+  A fresh verified retirement capability exposes Replace/Remove for obsolete
+  Ready spares even in paused/manual pools; these actions still recheck exact
+  ownership in the backend, and removal requires confirmation. Unsettled or
+  physically unverified resources keep retirement hidden.
   Unverified resources offer explicit recheck. Authoritative absence releases a
   pre-create reservation (or a previously settled physical resource) without deleting
   anything. A dispatched create with no terminal physical receipt stays uncertain; a late resource is adopted only with the

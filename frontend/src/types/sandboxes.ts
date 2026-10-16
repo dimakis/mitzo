@@ -14,6 +14,8 @@ export interface SandboxSpare {
   resources: { cpu: number; memoryGiB: number };
   failure: string | null;
   observedState?: string;
+  /** Fresh server observation; mutations still recheck physical ownership. */
+  canRetire?: boolean;
   observedAt?: number;
 }
 export interface SandboxConversation {

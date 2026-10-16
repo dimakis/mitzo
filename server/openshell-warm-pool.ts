@@ -186,6 +186,7 @@ export class OpenShellWarmPool {
           this.assertPhysical(record, actual);
           return {
             ...record,
+            canRetire: record.state === 'ready' && !!record.physicalId && actual?.phase === 'Ready',
             observedState:
               record.scope === this.adapter.scope &&
               record.state === 'ready' &&
@@ -200,7 +201,12 @@ export class OpenShellWarmPool {
             observedAt: this.now(),
           };
         } catch {
-          return { ...record, observedState: 'unverified', observedAt: this.now() };
+          return {
+            ...record,
+            observedState: 'unverified',
+            canRetire: false,
+            observedAt: this.now(),
+          };
         }
       }),
     );

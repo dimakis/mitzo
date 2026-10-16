@@ -37,7 +37,7 @@ import {
 } from './knowledge-view.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
-  validateOpenShellCliEnvironment,
+  openShellCliEnvironment,
   type OpenShellCliEnvironment,
 } from './openshell-cli-environment.js';
 import { parseProviderAttachments } from './connections-gateway.js';
@@ -632,13 +632,7 @@ function command(
         binary,
         [...args],
         {
-          env: cliEnvironment
-            ? validateOpenShellCliEnvironment(cliEnvironment)
-            : Object.fromEntries(
-                ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-                  process.env[key] ? [[key, process.env[key]!]] : [],
-                ),
-              ),
+          env: openShellCliEnvironment(cliEnvironment),
           signal,
           timeout: 120_000,
           maxBuffer: 1024 * 1024,

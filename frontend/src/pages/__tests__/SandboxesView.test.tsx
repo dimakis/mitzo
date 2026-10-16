@@ -194,3 +194,71 @@ it('preparing a spare preserves unsaved settings and requires review against the
   await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
   expect(JSON.parse(vi.mocked(apiFetch).mock.calls[1][1]!.body as string).revision).toBe(1);
 });
+it.each([
+  ['paused', 'replace'],
+  ['paused', 'remove'],
+  ['manual', 'replace'],
+  ['manual', 'remove'],
+])(
+  'exposes guarded %s pool recovery through %s for a verified obsolete spare',
+  async (mode, action) => {
+    const spare = {
+      id: 'old-spare',
+      name: 'old-recipe-spare',
+      physicalId: 'physical-old',
+      state: 'ready',
+      observedState: 'unverified',
+      canRetire: true,
+      resources: { cpu: 2, memoryGiB: 4 },
+      failure: 'Sandbox uses an older runtime recipe; replace or remove it.',
+    };
+    vi.mocked(readApiJson).mockResolvedValue({
+      ...snapshot,
+      settings: {
+        ...snapshot.settings,
+        enabled: mode === 'manual',
+        refill: mode === 'manual' ? 'manual' : 'auto',
+      },
+      spares: [spare],
+    });
+    vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 200 }));
+    mount();
+    await screen.findByText('Warm spare 1');
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    expect(screen.getByRole('button', { name: 'Recheck ownership' })).toBeTruthy();
+    if (action === 'remove') {
+      fireEvent.click(screen.getByRole('button', { name: 'Remove spare' }));
+      expect(apiFetch).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'Remove spare and pause' }));
+    } else fireEvent.click(screen.getByRole('button', { name: 'Replace spare' }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string)).toMatchObject({
+      action,
+      id: spare.id,
+      revision: 1,
+    });
+  },
+);
+it('keeps retirement hidden for physically unverified or unsettled spares', async () => {
+  vi.mocked(readApiJson).mockResolvedValue({
+    ...snapshot,
+    spares: [
+      {
+        id: 'unknown',
+        name: 'unsettled-spare',
+        physicalId: null,
+        state: 'uncertain',
+        observedState: 'unverified',
+        canRetire: false,
+        resources: { cpu: 2, memoryGiB: 4 },
+        failure: 'Create outcome is unsettled',
+      },
+    ],
+  });
+  mount();
+  await screen.findByText('Warm spare 1');
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  expect(screen.getByRole('button', { name: 'Recheck ownership' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Remove spare' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Replace spare' })).toBeNull();
+});

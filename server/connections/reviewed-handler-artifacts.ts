@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.177';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.178';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -36,9 +36,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/index.ts':
     '6ec891ed81e2d18d0fc375cfb8722d06df3831e3b1a30eb4b435ebcf70faba8c',
   // Configurable neutral spares: durable claims, protected controls and explicit host enrollment.
-  '../openshell-warm-pool.ts': 'a83d8a37cefd4f33636884a004089dd08446f83fbf0b4145ff282707e7681b55',
+  '../openshell-cli-environment.ts':
+    '77f66ceaffb019038fe06479459505dbb37480b7791c596c8e869bef14c2b456',
+  '../openshell-warm-pool.ts': 'ae8cf0cf257c43673783f3fc45e606bbfbef0e50155d69f0997679bbcdd81ac9',
   '../openshell-warm-pool-runtime.ts':
-    '78982510e96091b8dcdae1452c5040762d48559e6c4c66c626511e55f200af52',
+    '7a70ce5ac0891523c291d71b13bc57f6ac8f36dee1478a6748d7f4baa9b9a2cc',
   '../openshell-warm-pool-binding.ts':
     'e1f45783d296075831c6330c86a9475468af76fea3fea4e33ffc7e06d585eba3',
   '../openshell-warm-pool-router.ts':
@@ -48,11 +50,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-lifecycle-service.ts':
     '5f6dfd0be3670a181b1dcc68a8633933ea95bf19574d0f3178a68dfcfe03d493',
   '../../frontend/src/pages/SandboxesView.tsx':
-    'c3b02b0509b57999a1da50a050ee8d7a8e1cd0bb1f9fd75e764c26a1d4878679',
+    '2e3b5d34e375f989caf5214311d93b0c1a00f6a01623f0dcea053463c4b61b76',
   '../../frontend/src/pages/SandboxesView.css':
-    'fc0fc8920489a087dbd7ee07d060f88ec44a4028ee4d056b899ba7c2834adf8f',
+    'a130773778bd77fcc144c1ce67d30088d65398a29fd1676906ce99b273bfdd9f',
   '../../frontend/src/types/sandboxes.ts':
-    'c77eff61bf4b48d13f34c78178c9d4a65e3e9304af15efee5b2127d0fb0073e7',
+    '83dab4a5c3bc009e52c9d16549c0068c9a6df317f5d45cecb4b8a642f1942d32',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '4a88ed2e2908ab949a4afda4561e2495bc25a138d484813d312244ef4094d656',
   '../agent-tool-catalog.ts': '2ab34d5743bd24ddeb75e786c58860aa88a1af7a2fdde77ee7d0c8d4d619f934',
@@ -578,7 +580,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   // Batched knowledge admission preserves verification and retention under the lifecycle fence.
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
-  '../openshell-runtime.ts': '315a8b18383a451288320e5e6d41ba46ff39643e5b8e83ead8133374312a0176',
+  '../openshell-runtime.ts': '460495947fe471cc0ee00a716e26de74ee48b1e2e319324d21e7590477116f26',
   '../codex-chat-session.ts': 'fd3189ecbaeddda8a5eaa0156409c6d8efd449d0dc0786979a765c7f456d9d2f',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':

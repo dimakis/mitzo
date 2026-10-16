@@ -927,3 +927,17 @@ checks, the design guard, frontend type checking and focused lint pass. The full
 build exceeded the required 1 GiB local heap; full app build acceptance remains
 with CI. Shell-owned masthead/safe-area behavior is unchanged; these focused
 captures isolate the actual page without the shell. No deployment is performed.
+
+Verified obsolete warm spares retain Replace, confirmed Remove and Recheck in the
+existing Sandboxes `HomeDialog`, including paused and manual pools. The server's
+fresh retirement capability is independent of recipe compatibility; unknown or
+unsettled physical ownership exposes only Recheck. These controls reuse existing
+secondary/destructive buttons and shared focus, spacing and motion. Facts stack label above value on mobile and retain the existing desktop grid,
+keeping larger type readable. Offline rendered checks cover
+320px mobile WebKit/Chromium and 1280px desktop Chromium, dark Mint/System and light
+Teal/Georgia with larger text, desktop tab navigation, mobile focus/touch targets,
+confirmation, failure preservation and replacement. Captures show
+[mobile dark](assets/sandbox-obsolete-mobile-dark.png),
+[mobile light](assets/sandbox-obsolete-mobile-light.png),
+[desktop dark](assets/sandbox-obsolete-desktop-dark.png) and
+[desktop light](assets/sandbox-obsolete-desktop-light.png).

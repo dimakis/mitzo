@@ -152,6 +152,8 @@
   border-bottom: 1px solid var(--color-border);
 }
 .sandbox-facts dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--color-muted);
 }
 .sandbox-facts dd {
@@ -163,6 +165,10 @@
   font-family: var(--font-mono);
 }
 @media (max-width: 720px) {
+  .sandbox-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
   .sandbox-fields,
   .sandbox-resource-fields {
     grid-template-columns: minmax(0, 1fr);

@@ -48,7 +48,8 @@ for (const theme of ['dark', 'light'] as const)
         physicalId: 'physical-' + generation,
         state: 'ready',
         resources: { cpu: 2, memoryGiB: 4 },
-        failure: null,
+        failure: null as string | null,
+        canRetire: true,
         observedState: 'ready',
         observedAt: Date.now(),
       });
@@ -107,6 +108,8 @@ for (const theme of ['dark', 'light'] as const)
             state.spares = state.spares.slice(0, state.settings.capacity);
             if (state.settings.enabled && state.settings.refill === 'auto')
               while (state.spares.length < state.settings.capacity) state.spares.push(makeSpare());
+          } else if (body.action === 'replace') {
+            state.spares = state.spares.map((x) => (x.id === body.id ? makeSpare() : x));
           } else if (body.action === 'remove') {
             state.spares = state.spares.filter((x) => x.id !== body.id);
             state.settings.enabled = false;
@@ -176,6 +179,74 @@ for (const theme of ['dark', 'light'] as const)
       await expect(capacity).toHaveValue('1');
       expect(writes).toHaveLength(2);
       await main.getByRole('button', { name: 'Cancel', exact: true }).click();
+      state.settings.enabled = false;
+      state.settings.refill = 'manual';
+      state.spares[0].observedState = 'unverified';
+      state.spares[0].failure = 'Sandbox uses an older runtime recipe; replace or remove it.';
+      state.revision++;
+      await main.getByRole('button', { name: 'Refresh', exact: true }).click();
+      await expect(main.getByText('Warming paused', { exact: true })).toBeVisible();
+      await main
+        .getByRole('region', { name: 'Warm sandbox inventory' })
+        .getByRole('button', { name: 'Details', exact: true })
+        .first()
+        .click();
+      const obsoleteDialog = page.getByRole('dialog');
+      await expect(
+        obsoleteDialog.getByText('Sandbox uses an older runtime recipe; replace or remove it.', {
+          exact: true,
+        }),
+      ).toBeVisible();
+      const replace = obsoleteDialog.getByRole('button', { name: 'Replace spare', exact: true });
+      await replace.focus();
+      await expect(replace).toBeFocused();
+      if (!mobile) {
+        await page.keyboard.press('Tab');
+        await expect(
+          obsoleteDialog.getByRole('button', { name: 'Remove spare', exact: true }),
+        ).toBeFocused();
+        await page.keyboard.press('Tab');
+        await expect(
+          obsoleteDialog.getByRole('button', { name: 'Recheck ownership', exact: true }),
+        ).toBeFocused();
+      } else {
+        // iOS Safari does not tab through buttons with its default keyboard mode.
+        for (const name of ['Remove spare', 'Recheck ownership']) {
+          await obsoleteDialog.getByRole('button', { name, exact: true }).focus();
+          await expect(obsoleteDialog.getByRole('button', { name, exact: true })).toBeFocused();
+        }
+      }
+      const factOverlaps = await obsoleteDialog
+        .locator('.sandbox-facts > div')
+        .evaluateAll((rows) =>
+          rows.flatMap((row) => {
+            const label = row.querySelector('dt')!,
+              value = row.querySelector('dd')!;
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            const labelRect = range.getBoundingClientRect(),
+              valueRect = value.getBoundingClientRect();
+            return labelRect.bottom > valueRect.top &&
+              valueRect.bottom > labelRect.top &&
+              labelRect.right > valueRect.left
+              ? [label.textContent]
+              : [];
+          }),
+        );
+      expect(factOverlaps).toEqual([]);
+      for (const name of ['Replace spare', 'Remove spare', 'Recheck ownership']) {
+        const button = obsoleteDialog.getByRole('button', { name, exact: true });
+        await button.scrollIntoViewIfNeeded();
+        const rect = (await button.boundingBox())!;
+        expect(rect.height).toBeGreaterThanOrEqual(44);
+        expect(rect.x).toBeGreaterThanOrEqual(0);
+        expect(rect.x + rect.width).toBeLessThanOrEqual(width + 1);
+      }
+      await page.screenshot({ path: info.outputPath('sandbox-obsolete-' + theme + '.png') });
+      await replace.click();
+      await expect(main.getByText('Spare replaced.', { exact: true })).toBeVisible();
+      expect(state.spares).toHaveLength(2);
+
       await main
         .getByRole('region', { name: 'Warm sandbox inventory' })
         .getByRole('button', { name: 'Details', exact: true })
@@ -239,6 +310,6 @@ for (const theme of ['dark', 'light'] as const)
           .getByText('Release planning with a long readable conversation title', { exact: true }),
       ).toBeVisible();
       expect(errors).toEqual([]);
-      expect(writes).toHaveLength(4);
+      expect(writes).toHaveLength(5);
     },
   );
