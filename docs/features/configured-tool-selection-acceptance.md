@@ -50,8 +50,11 @@ return type and explicit admission-map narrowing reported by CI. Broad server
 builds and the production Vite/full-app browser suite remain CI gates under the
 local heap limit; focused actual-page renders do not substitute for those checks.
 The initial combined focused run passed 298 checks in 26 files. After accepted-main
-integration and review corrections, the combined run passed 306 checks in 27 files. The combined actual-page
-tool matrix passed 20 checks (18 page cases and two startup checks), including the
+integration and the initial review corrections, the combined run passed 306 checks in 27 files.
+After the design/compiler hold was released and the source-environment review fixes
+were integrated, the final combined run passed 314 checks in 30 files. The combined
+actual-page tool and session-library matrix passed 26 checks (24 page cases and two
+startup checks), including the
 existing Phase 1 journeys, configured-source unavailability, cancellation and focus
 restoration. The design command passed 107 checks. These counts overlap and must
 not be added as a unique aggregate. Focused lint, formatting, unique manifest entry
@@ -92,6 +95,15 @@ approval identities by source UUID as well, preventing colliding labels from
 sharing a session approval. The real HTTP refresh regression also waits on a
 deferred peer close after revocation. Concurrent refresh/publication preserves the
 published receipt and reports its supersession rather than changing its contract.
+
+Later review findings `CEN-196960EFF96A` and `CEN-076078401B27` exposed
+session-environment drift at both actual chat startup callers. Discovery and
+configured-tool admission now use the same explicit base host environment, separate
+from `MITZO_SESSION_ID`, agent names and per-session worktree paths. Missing source
+environment refuses before starting a peer; receipt validation still detects base
+environment changes. Both API provider regressions and actual startup wiring were
+recorded red before the fix. The 41-command owner fixture uses a 60-second budget
+with one worker and the 1 GiB heap.
 
 All corrections are propagated through the stack over current accepted main.
 Previous approvals and green CI do not approve these new heads; fresh current-head
