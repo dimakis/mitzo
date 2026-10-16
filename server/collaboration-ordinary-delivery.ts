@@ -76,6 +76,14 @@ const hash = (value: string) => createHash('sha256').update(value, 'utf8').diges
 function conflict(): never {
   throw new CollaborationContractError('reply_conflict');
 }
+function throwFailures(errors: unknown[]) {
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1)
+    throw new AggregateError(
+      errors,
+      'Ordinary collaboration acknowledgement requires reconciliation',
+    );
+}
 
 /** A context/receipt adapter for existing ordinary commands, never a dispatcher.
  * Reading alone leaves the collaboration's durable pending receipt untouched. Only
@@ -141,6 +149,12 @@ export class OrdinaryCollaborationDelivery {
     const settings = this.command(sessionId, commandId);
     const snapshots: Snapshot[] = [];
     let replyOrigins = 0;
+    const prefix = '# Shared conversation discussion\n';
+    let contextBytes = Buffer.byteLength(
+      prefix + JSON.stringify({ version: 1, deliveries: [] }),
+      'utf8',
+    );
+    let contextEntries = 0;
     const contents = refs
       .map((ref) => {
         const group = this.store.getSessionCollaboration(ref.collaborationId);
@@ -188,7 +202,7 @@ export class OrdinaryCollaborationDelivery {
             throw new CollaborationContractError('snapshot_changed');
           snapshots.push(snapshot);
         }
-        return {
+        const entry = {
           ...ref,
           purpose: delivery.purpose,
           sequence: message.sequence,
@@ -207,11 +221,15 @@ export class OrdinaryCollaborationDelivery {
               }
             : null,
         };
+        contextBytes +=
+          Buffer.byteLength(JSON.stringify(entry), 'utf8') + (contextEntries++ ? 1 : 0);
+        if (contextBytes > 512 * 1024) throw new CollaborationContractError('capacity_refused');
+        return entry;
       })
       .sort(
         (a, b) => a.collaborationId.localeCompare(b.collaborationId) || a.sequence - b.sequence,
       );
-    const context = `# Shared conversation discussion\n${JSON.stringify({ version: 1, deliveries: contents })}`;
+    const context = prefix + JSON.stringify({ version: 1, deliveries: contents });
     if (Buffer.byteLength(context, 'utf8') > 512 * 1024)
       throw new CollaborationContractError('capacity_refused');
     return { settings, context, snapshots };
@@ -304,11 +322,13 @@ export class OrdinaryCollaborationDelivery {
     providerThreadId: string,
     providerTurnId: string,
     exactContext: string,
+    observeExistingAcceptance?: () => void,
   ): void {
     const { staged, prepared } = this.ledger(sessionId, commandId);
     if (!staged) {
       const command = this.store.getSendCommand(commandId);
       if (command && command.sessionId !== sessionId) conflict();
+      observeExistingAcceptance?.();
       return;
     }
     if (
@@ -331,7 +351,18 @@ export class OrdinaryCollaborationDelivery {
       'ordinary_collaboration_context_accepted',
       receipt,
     );
-    this.recover(sessionId, commandId);
+    const errors: unknown[] = [];
+    try {
+      observeExistingAcceptance?.();
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      this.recover(sessionId, commandId);
+    } catch (error) {
+      errors.push(error);
+    }
+    throwFailures(errors);
   }
 
   beforeDispatch(sessionId: string, commandId: string): void {
@@ -362,36 +393,42 @@ export class OrdinaryCollaborationDelivery {
     const { staged, accepted } = this.ledger(sessionId, commandId);
     if (!staged || !accepted) return;
     // Durable exact ACK effects do not re-open sources or reauthorize a new turn.
+    const errors: unknown[] = [];
     for (const ref of staged.deliveries) {
-      const message = this.store.collaborationConversation.getMessage(
-        ref.collaborationId,
-        ref.messageId,
-      );
-      const delivery = message?.deliveries.find((row) => row.deliveryId === ref.deliveryId);
-      if (
-        !delivery ||
-        delivery.sessionId !== sessionId ||
-        (delivery.commandId !== null && delivery.commandId !== commandId)
-      )
-        conflict();
-      if (delivery.status === 'delivered') {
-        if (delivery.commandId !== commandId) conflict();
-        continue;
+      try {
+        const message = this.store.collaborationConversation.getMessage(
+          ref.collaborationId,
+          ref.messageId,
+        );
+        const delivery = message?.deliveries.find((row) => row.deliveryId === ref.deliveryId);
+        if (
+          !delivery ||
+          delivery.sessionId !== sessionId ||
+          (delivery.commandId !== null && delivery.commandId !== commandId)
+        )
+          conflict();
+        if (delivery.status === 'delivered') {
+          if (delivery.commandId !== commandId) conflict();
+          continue;
+        }
+        if (!['pending', 'queued', 'uncertain'].includes(delivery.status)) conflict();
+        this.store.collaborationConversation.recordDelivery(
+          ref.collaborationId,
+          ref.messageId,
+          ref.deliveryId,
+          {
+            requestId: ref.receiptRequestId,
+            expectedRevision: delivery.revision,
+            status: 'delivered',
+            commandId,
+            reason: null,
+          },
+        );
+      } catch (error) {
+        errors.push(error);
       }
-      if (!['pending', 'queued', 'uncertain'].includes(delivery.status)) conflict();
-      this.store.collaborationConversation.recordDelivery(
-        ref.collaborationId,
-        ref.messageId,
-        ref.deliveryId,
-        {
-          requestId: ref.receiptRequestId,
-          expectedRevision: delivery.revision,
-          status: 'delivered',
-          commandId,
-          reason: null,
-        },
-      );
     }
+    throwFailures(errors);
   }
 }
 
@@ -414,13 +451,16 @@ export function ordinaryCollaborationContextHooks(
       onApplicationContextAccepted: accepted,
       onProviderDispatch: beforeDispatch,
     };
-  const contexts = new Map<string, { base: string | undefined; combined: string | undefined }>();
+  // The existing native owner serializes commands. Retain one pending context,
+  // including failed preparations, rather than leaking a map across session life.
+  let pendingContext: { commandId: string; base: string | undefined; combined: string } | undefined;
   return {
     prepareSystemPrompt: async (signal, turn) => {
+      pendingContext = undefined;
       const base = await prepare?.(signal, turn);
       if (!turn) return base;
       const combined = await delivery.prepareSystemPrompt(sessionId, turn.commandId, base, signal);
-      contexts.set(turn.commandId, { base, combined });
+      if (combined !== undefined) pendingContext = { commandId: turn.commandId, base, combined };
       return combined;
     },
     onProviderDispatch: (commandId) => {
@@ -428,11 +468,16 @@ export function ordinaryCollaborationContextHooks(
       beforeDispatch?.(commandId);
     },
     onApplicationContextAccepted: (commandId, threadId, turnId, context) => {
-      const prepared = contexts.get(commandId);
-      if (!prepared || context !== prepared.combined) conflict();
-      if (prepared.base !== undefined) accepted?.(commandId, threadId, turnId, prepared.base);
-      delivery.accepted(sessionId, commandId, threadId, turnId, context);
-      contexts.delete(commandId);
+      const prepared = pendingContext;
+      if (!prepared || prepared.commandId !== commandId || context !== prepared.combined)
+        conflict();
+      try {
+        delivery.accepted(sessionId, commandId, threadId, turnId, context, () => {
+          if (prepared.base !== undefined) accepted?.(commandId, threadId, turnId, prepared.base);
+        });
+      } finally {
+        pendingContext = undefined;
+      }
     },
   };
 }

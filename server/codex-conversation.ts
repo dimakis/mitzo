@@ -1979,6 +1979,9 @@ export class CodexConversation {
             active.turnId,
           );
         }
+        // The exact native ACK owns acceptance even if a trusted observer's
+        // durable projection fails. Owned routes can disable capacity recovery.
+        active.accepted = true;
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
         if (systemPrompt !== undefined)
           this.opts.onApplicationContextAccepted?.(

@@ -201,6 +201,8 @@ it('keeps reading silent until a later explicit command carries context and one 
   const context = await owner.prepareSystemPrompt('one', 'initial-one', undefined, signal());
   expect(context).toContain(first.text);
   expect(context).toContain(second.text);
+  expect(context!.indexOf(first.text)).toBeLessThan(context!.indexOf(second.text));
+  expect(context).toContain(`"sequence":${first.sequence}`);
   owner.accepted('one', 'initial-one', 'reader-thread', 'reader-turn', context!);
   expect(read(first, 'one').status).toBe('delivered');
   expect(read(second, 'one').status).toBe('delivered');
@@ -230,6 +232,28 @@ it('claims each pending delivery for only one ordinary command, including after 
   store.close();
   store = new EventStore(path);
   expect(() => adapter().stage(input)).toThrow();
+});
+
+it('refuses an overfull batch before hydrating later retained messages', () => {
+  store.collaborationConversation.setPolicy(group, {
+    requestId: randomUUID(),
+    expectedMembershipRevision: 1,
+    sessionId: 'one',
+    expectedRevision: 0,
+    readsFutureDiscussion: true,
+    repliesByDefault: false,
+  });
+  const rows = Array.from({ length: 7 }, () => message('x'.repeat(100_000)));
+  const readMessage = vi.spyOn(store.collaborationConversation, 'getMessage');
+  expect(() =>
+    adapter().stage({
+      sessionId: 'one',
+      commandId: 'initial-one',
+      deliveries: rows.map((row) => ref(row, 'one')),
+    }),
+  ).toThrow('capacity_refused');
+  expect(readMessage).toHaveBeenCalledTimes(6);
+  expect(store.getOrdinaryCollaborationDeliveryEvents('one', 'initial-one')).toEqual([]);
 });
 
 it('durably records provider acceptance before effects and recovers exact partial outcomes after restart', async () => {
@@ -280,6 +304,68 @@ it('does not recover uncertain dispatch without an exact durable provider ACK', 
   expect(() => adapter().accepted('two', 'initial-one', 'thread', 'turn', 'anything')).toThrow();
 });
 
+it('recovers each ACKed receipt independently when an earlier receipt became terminal', async () => {
+  store.collaborationConversation.setPolicy(group, {
+    requestId: randomUUID(),
+    expectedMembershipRevision: 1,
+    sessionId: 'one',
+    expectedRevision: 0,
+    readsFutureDiscussion: true,
+    repliesByDefault: false,
+  });
+  const first = message('Earlier context');
+  const second = store.collaborationConversation.acceptMessage(group, {
+    requestId: randomUUID(),
+    expectedMembershipRevision: 1,
+    expectedPolicySequence: store.collaborationConversation.view(group).policySequence,
+    text: 'Explicit reply',
+    responders: { kind: 'selected', sessionIds: ['one'] },
+    snapshot: null,
+  });
+  const rows = [first, second].sort((a, b) =>
+    ref(a, 'one').deliveryId.localeCompare(ref(b, 'one').deliveryId),
+  );
+  const owner = adapter();
+  owner.stage({
+    sessionId: 'one',
+    commandId: 'initial-one',
+    deliveries: rows.map((row) => ref(row, 'one')),
+  });
+  const context = await owner.prepareSystemPrompt('one', 'initial-one', undefined, signal());
+  store.collaborationConversation.recordDelivery(
+    group,
+    rows[0].messageId,
+    ref(rows[0], 'one').deliveryId,
+    {
+      requestId: randomUUID(),
+      expectedRevision: 0,
+      status: 'failed',
+      commandId: 'initial-one',
+      reason: 'Retained terminal refusal',
+    },
+  );
+  expect(() => owner.accepted('one', 'initial-one', 'thread', 'turn', context!)).toThrow();
+  expect(read(rows[0], 'one').status).toBe('failed');
+  expect(read(rows[1], 'one').status).toBe('delivered');
+  store.close();
+  store = new EventStore(path);
+  expect(() => adapter().recover('one', 'initial-one')).toThrow();
+  expect(read(rows[0], 'one').status).toBe('failed');
+  expect(read(rows[1], 'one').revision).toBe(1);
+});
+
+it('preserves original hook references when no delivery owner is installed', () => {
+  const existing = {
+    prepareSystemPrompt: vi.fn(),
+    onApplicationContextAccepted: vi.fn(),
+    onProviderDispatch: vi.fn(),
+  };
+  const hooks = ordinaryCollaborationContextHooks('two', undefined, existing);
+  expect(hooks.prepareSystemPrompt).toBe(existing.prepareSystemPrompt);
+  expect(hooks.onApplicationContextAccepted).toBe(existing.onApplicationContextAccepted);
+  expect(hooks.onProviderDispatch).toBe(existing.onProviderDispatch);
+});
+
 it('keeps private stage/preparation/ACK payloads off client event and replay projections', async () => {
   const row = message('Private delivery context');
   const owner = stage(row);
@@ -313,103 +399,156 @@ it('leaves unstaged ordinary commands and their context unchanged', async () => 
 });
 
 it.each([
-  { lostAck: false, base: 'Preserved native application context', revoke: false },
-  { lostAck: true, base: 'Preserved native application context', revoke: false },
-  { lostAck: false, base: undefined, revoke: false },
-  { lostAck: false, base: 'Preserved native application context', revoke: true },
-])('composes through the real ordinary native driver: %j', async ({ lostAck, base, revoke }) => {
-  const row = message();
-  const owner = stage(row);
-  const privateStore = new CodexConversationStore(join(directory, 'native.db'));
-  const requests: Array<{ method: string; params: unknown }> = [];
-  const previousAccepted = vi.fn();
-  let lifecycle!: CodexLifecycleTransport;
-  let acknowledge!: (response: unknown) => void;
-  const originalHooks = {
-    prepareSystemPrompt: async () => base,
-    onApplicationContextAccepted: previousAccepted,
-  };
-  // Production assigns composed callbacks back onto the same options object.
-  Object.assign(originalHooks, ordinaryCollaborationContextHooks('two', owner, originalHooks));
-  const runtime = new CodexConversation({
-    conversationId: 'two',
-    cwd: '/fixture',
-    store: privateStore,
-    profile: {
-      accountId: 'shared-account',
-      accountLabel: 'Offline fixture',
-      credentialRef: '/offline',
-      email: 'fixture@example.com',
-      planType: 'test',
-      model: 'offline-fixture',
-    },
-    systemPrompt: 'Existing boot guidance',
-    tools: [],
-    emit: () => {},
-    executeTool: async () => ({ content: '', isError: false }),
-    ...originalHooks,
-    prepareTurn: async () => {
-      if (revoke)
-        assertBeforeDispatch.mockImplementation(() => {
-          throw Error('Access changed after preparation');
-        });
-    },
-    createClient: (callbacks) => {
-      lifecycle = callbacks;
-      return {
-        initialize: async () => {},
-        close: () => {},
-        request: async (method, params) => {
-          requests.push({ method, params });
-          if (method === 'config/read') return { config: {} };
-          if (method === 'account/read')
-            return { account: { type: 'chatgpt', email: 'fixture@example.com', planType: 'test' } };
-          if (method === 'thread/start')
-            return {
-              thread: { id: 'private-thread' },
-              model: 'offline-fixture',
-              modelProvider: 'openai',
-            };
-          if (method === 'turn/start')
-            return new Promise((resolve) => {
-              acknowledge = resolve;
-            });
-          return {};
-        },
-      };
-    },
-  });
-  try {
-    await runtime.initialize();
-    expect(requests.filter((entry) => entry.method === 'turn/start')).toEqual([]);
-    const pending = runtime.send({ id: 'initial-two', prompt: 'Explicit operator prompt' });
-    if (revoke) {
-      await pending.catch(() => {});
+  {
+    lostAck: false,
+    base: 'Preserved native application context',
+    revoke: false,
+    observerFails: false,
+  },
+  {
+    lostAck: true,
+    base: 'Preserved native application context',
+    revoke: false,
+    observerFails: false,
+  },
+  { lostAck: false, base: undefined, revoke: false, observerFails: false },
+  {
+    lostAck: false,
+    base: 'Preserved native application context',
+    revoke: true,
+    observerFails: false,
+  },
+  {
+    lostAck: false,
+    base: 'Preserved native application context',
+    revoke: false,
+    observerFails: true,
+  },
+])(
+  'composes through the real ordinary native driver: %j',
+  async ({ lostAck, base, revoke, observerFails }) => {
+    const row = message();
+    const owner = stage(row);
+    const privateStore = new CodexConversationStore(join(directory, 'native.db'));
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const previousAccepted = vi.fn();
+    const completed = vi.fn();
+    if (observerFails)
+      previousAccepted.mockImplementation(() => {
+        throw Error('Legacy adoption store unavailable');
+      });
+    let lifecycle!: CodexLifecycleTransport;
+    let acknowledge!: (response: unknown) => void;
+    const originalHooks = {
+      prepareSystemPrompt: async () => base,
+      onApplicationContextAccepted: previousAccepted,
+    };
+    // Production assigns composed callbacks back onto the same options object.
+    Object.assign(originalHooks, ordinaryCollaborationContextHooks('two', owner, originalHooks));
+    const runtime = new CodexConversation({
+      conversationId: 'two',
+      cwd: '/fixture',
+      store: privateStore,
+      profile: {
+        accountId: 'shared-account',
+        accountLabel: 'Offline fixture',
+        credentialRef: '/offline',
+        email: 'fixture@example.com',
+        planType: 'test',
+        model: 'offline-fixture',
+      },
+      systemPrompt: 'Existing boot guidance',
+      enableCapacityRecovery: false,
+      tools: [],
+      emit: () => {},
+      executeTool: async () => ({ content: '', isError: false }),
+      ...originalHooks,
+      onProviderComplete: completed,
+      prepareTurn: async () => {
+        if (revoke)
+          assertBeforeDispatch.mockImplementation(() => {
+            throw Error('Access changed after preparation');
+          });
+      },
+      createClient: (callbacks) => {
+        lifecycle = callbacks;
+        return {
+          initialize: async () => {},
+          close: () => {},
+          request: async (method, params) => {
+            requests.push({ method, params });
+            if (method === 'config/read') return { config: {} };
+            if (method === 'account/read')
+              return {
+                account: { type: 'chatgpt', email: 'fixture@example.com', planType: 'test' },
+              };
+            if (method === 'thread/start')
+              return {
+                thread: { id: 'private-thread' },
+                model: 'offline-fixture',
+                modelProvider: 'openai',
+              };
+            if (method === 'turn/start')
+              return new Promise((resolve) => {
+                acknowledge = resolve;
+              });
+            return {};
+          },
+        };
+      },
+    });
+    try {
+      await runtime.initialize();
       expect(requests.filter((entry) => entry.method === 'turn/start')).toEqual([]);
+      const pending = runtime.send({ id: 'initial-two', prompt: 'Explicit operator prompt' });
+      if (revoke) {
+        await pending.catch(() => {});
+        expect(requests.filter((entry) => entry.method === 'turn/start')).toEqual([]);
+        expect(read(row).status).toBe('pending');
+        expect(previousAccepted).not.toHaveBeenCalled();
+        return;
+      }
+      await vi.waitFor(() => expect(acknowledge).toBeTypeOf('function'));
       expect(read(row).status).toBe('pending');
-      expect(previousAccepted).not.toHaveBeenCalled();
-      return;
+      const projection = observerFails
+        ? vi.spyOn(store.collaborationConversation, 'recordDelivery').mockImplementationOnce(() => {
+            throw Error('Projection unavailable after native ACK');
+          })
+        : undefined;
+      if (lostAck) lifecycle.onClose(Error('Lost ACK'));
+      acknowledge({ turn: { id: 'private-turn' } });
+      await pending.catch(() => {});
+      if (observerFails) {
+        expect(
+          store.getOrdinaryCollaborationDeliveryEvents('two', 'initial-two').at(-1)!.type,
+        ).toBe('ordinary_collaboration_context_accepted');
+        expect(runtime.queue()).toMatchObject([{ id: 'initial-two', status: 'interrupted' }]);
+        expect(completed).toHaveBeenCalledWith('initial-two', 'interrupted');
+        projection!.mockRestore();
+        store.close();
+        store = new EventStore(path);
+        authorize.mockRejectedValue(Error('Source access unavailable after restart'));
+        adapter().recover('two', 'initial-two');
+        expect(read(row).status).toBe('delivered');
+        expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(1);
+        return;
+      }
+      expect(read(row).status).toBe(lostAck ? 'pending' : 'delivered');
+      expect(previousAccepted).toHaveBeenCalledTimes(lostAck || base === undefined ? 0 : 1);
+      if (!lostAck && base !== undefined)
+        expect(previousAccepted).toHaveBeenCalledExactlyOnceWith(
+          'initial-two',
+          'private-thread',
+          'private-turn',
+          base,
+        );
+      const request = requests.find((entry) => entry.method === 'turn/start')!.params;
+      if (base !== undefined) expect(JSON.stringify(request)).toContain(base);
+      expect(JSON.stringify(request)).toContain(row.text);
+      expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(1);
+    } finally {
+      runtime.close();
+      privateStore.close();
     }
-    await vi.waitFor(() => expect(acknowledge).toBeTypeOf('function'));
-    expect(read(row).status).toBe('pending');
-    if (lostAck) lifecycle.onClose(Error('Lost ACK'));
-    acknowledge({ turn: { id: 'private-turn' } });
-    await pending.catch(() => {});
-    expect(read(row).status).toBe(lostAck ? 'pending' : 'delivered');
-    expect(previousAccepted).toHaveBeenCalledTimes(lostAck || base === undefined ? 0 : 1);
-    if (!lostAck && base !== undefined)
-      expect(previousAccepted).toHaveBeenCalledExactlyOnceWith(
-        'initial-two',
-        'private-thread',
-        'private-turn',
-        base,
-      );
-    const request = requests.find((entry) => entry.method === 'turn/start')!.params;
-    if (base !== undefined) expect(JSON.stringify(request)).toContain(base);
-    expect(JSON.stringify(request)).toContain(row.text);
-    expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(1);
-  } finally {
-    runtime.close();
-    privateStore.close();
-  }
-});
+  },
+);
