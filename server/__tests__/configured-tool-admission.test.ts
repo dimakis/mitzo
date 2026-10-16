@@ -207,6 +207,10 @@ it.each(['openai', 'google-vertex'] as const)(
         expect(() => foreignCatalog.resolve(imported.definition.tools![0], options)).toThrow(
           /unresolved/,
         );
+        await foreignCatalog.refresh(options);
+        expect(() => foreignCatalog.resolve(imported.definition.tools![0], options)).toThrow(
+          /unresolved/,
+        );
       } finally {
         foreignCatalog.close();
       }
