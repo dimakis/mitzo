@@ -135,9 +135,17 @@ export function AgentLibrary() {
   const [toolAttempt, setToolAttempt] = useState(0);
   const toolReads = useRef(0);
   const discovery = useRef<AbortController | null>(null);
+  const refreshControl = useRef<HTMLButtonElement>(null);
+  const restoreDiscoveryFocus = useRef(false);
   const [discovering, setDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState('');
   const [discoveryNotice, setDiscoveryNotice] = useState('');
+  useEffect(() => {
+    if (!discovering && restoreDiscoveryFocus.current) {
+      restoreDiscoveryFocus.current = false;
+      refreshControl.current?.focus();
+    }
+  }, [discovering]);
   useEffect(() => {
     let live = true;
     const generation = ++toolReads.current;
@@ -430,6 +438,7 @@ export function AgentLibrary() {
           <div className="agent-library-actions">
             <button
               type="button"
+              ref={refreshControl}
               disabled={discovering}
               aria-busy={discovering}
               onClick={() => void refreshConfiguredTools()}
@@ -437,7 +446,13 @@ export function AgentLibrary() {
               Refresh configured servers
             </button>
             {discovering && (
-              <button type="button" onClick={() => discovery.current?.abort()}>
+              <button
+                type="button"
+                onClick={() => {
+                  restoreDiscoveryFocus.current = true;
+                  discovery.current?.abort();
+                }}
+              >
                 Cancel discovery
               </button>
             )}
