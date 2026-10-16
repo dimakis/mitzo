@@ -7,7 +7,7 @@ deferred. Fork is a separate follow-on using the same pinned-source concepts.
 Neither operation creates a Telos item or implicitly copies Work membership.
 
 Source audit: PR943 was merged as `91b9defa`; this slice starts from accepted main
-`e978f978`. Its association journal and EventStore connection remain the owners.
+`e978f978`, reconciled with accepted tool-library sources at `95afd5fe`. Its association journal and EventStore connection remain the owners.
 The older open/conflicted PR checkpoint is historical. Existing output-contributor
 coordinator/child allocation is not the allocator for this flow.
 

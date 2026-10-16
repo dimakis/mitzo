@@ -243,3 +243,37 @@ it('rejects authority-bearing fields and oversized identity values', () => {
   expect(() => draft({ definition: { ...definition, descriptor: 'x'.repeat(81) } })).toThrow();
   expect(() => draft({ definition: { ...definition, description: 'x'.repeat(501) } })).toThrow();
 });
+
+it('retains selected tools across draft restart, export/import, publication and historical revisions', () => {
+  const tools = [
+    { id: 'mitzo:Read', version: 1 },
+    { id: 'mitzo:GetConnectionGuide', version: 1 },
+  ];
+  const saved = draft({ definition: { ...definition, tools } });
+  library.close();
+  library = new AgentLibraryStore(join(directory, 'events.db'));
+  expect(library.getDraft('user', 'bob')?.definition.tools).toEqual(tools);
+  const first = library.publish('user', {
+    profileId: 'bob',
+    expectedVersion: saved.version,
+    idempotencyKey: 'tool-publish',
+  });
+  const imported = library.importDraft('user', {
+    profileId: 'imported',
+    artifact: first,
+    idempotencyKey: 'tool-import',
+  });
+  expect(imported.definition.tools).toEqual(tools);
+  const next = draft({
+    expectedRevision: 1,
+    definition: { ...definition, tools: [] },
+    idempotencyKey: 'empty-tools',
+  });
+  library.publish('user', {
+    profileId: 'bob',
+    expectedVersion: next.version,
+    idempotencyKey: 'empty-publish',
+  });
+  expect(library.version('user', 'bob', 1)).toEqual(first);
+  expect(library.version('user', 'bob', 2)?.definition.tools).toEqual([]);
+});
