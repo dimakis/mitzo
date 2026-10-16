@@ -66,6 +66,56 @@ const sourceView = TelosReviewedSourceViewSchema.parse({
   },
 });
 describe('typed reviewed-source API', () => {
+  it('keeps reviewed new-outcome creation explicit and preserves the creation request ID', async () => {
+    const proposal = {
+      requestId: 'new-outcome',
+      selection,
+      outcome: {
+        summary: 'Outcome',
+        intent: 'Deliver it',
+        rationale: 'Why',
+        acceptanceCriteria: ['Reviewed'],
+        profile: 'manual',
+        milestones: ['One'],
+      },
+    };
+    const reviewed = {
+      ...preview,
+      packet: {
+        ...preview.packet,
+        itemId: null,
+        creation: { requestId: proposal.requestId, outcome: proposal.outcome },
+      },
+    };
+    const receipt = {
+      commandId: 'saved',
+      actorId: 'operator:verified',
+      work: {
+        itemId: 'created',
+        kind: 'outcome',
+        parentId: null,
+        revision: 'e'.repeat(64),
+        sources: [],
+        links: [],
+        assignments: [],
+        attempts: [],
+      },
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(reviewed)))
+      .mockResolvedValueOnce(new Response(JSON.stringify(receipt)));
+    const api = new TelosWorkApiClient(fetch);
+    expect(await api.previewOutcomeSource(proposal)).toEqual(reviewed);
+    const input = { ...proposal, previewSha256: preview.sha256 };
+    expect(await api.createOutcomeFromSource(input)).toEqual(receipt);
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      '/api/telos/work/source/outcome/preview',
+      '/api/telos/work/source/outcome/create',
+    ]);
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual(input);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it('uses explicit authenticated preview/adoption/read requests and preserves the caller request identity', async () => {
     const receipt = {
       commandId: 'command',

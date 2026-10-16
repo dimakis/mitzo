@@ -96,6 +96,7 @@ import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifa
 import { createTelosItemRouter } from './telos-item-routes.js';
 import { createTelosWorkRouter } from './telos-work-routes.js';
 import { createTelosSourceRouter } from './telos-source-routes.js';
+import { createCanonicalTelosOutcome } from './telos-outcome-owner.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
@@ -1957,6 +1958,20 @@ app.use(
     events: eventStore,
     operatorAuth: operatorAuthMiddleware,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    createOutcome: (input) =>
+      createCanonicalTelosOutcome(
+        {
+          script: TODO_SCRIPT,
+          timeoutMs: TODO_TIMEOUT_MS,
+          maxBufferBytes: TODO_MAX_BUFFER_BYTES,
+          execute: (command, args, options) =>
+            execFileAsync(command, args, {
+              ...options,
+              env: { ...process.env, TELOS_DB_PATH: telosDatabasePath() },
+            }),
+        },
+        input,
+      ),
   }),
 );
 

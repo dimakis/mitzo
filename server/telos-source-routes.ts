@@ -3,6 +3,9 @@ import {
   TelosSourcePreviewRequestSchema,
   TelosSourceAdoptRequestSchema,
   TelosWorkIdSchema,
+  TelosSourceNewPreviewRequestSchema,
+  TelosSourceCreateRequestSchema,
+  type TelosOutcomeCreation,
 } from '@mitzo/protocol';
 import { TelosArtifactStore } from './telos-artifact-store.js';
 import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
@@ -18,6 +21,7 @@ export function createTelosSourceRouter(options: {
   events: EventStore;
   operatorAuth: RequestHandler;
   ordinaryConversation(id: string): boolean;
+  createOutcome?(input: TelosOutcomeCreation): Promise<{ itemId: string }>;
 }) {
   const router = Router();
   router.use('/api/telos/work', (_req, res, next) => {
@@ -91,6 +95,31 @@ export function createTelosSourceRouter(options: {
             ? capture.preview(input.data, actor)
             : capture.adopt(input.data, actor),
         );
+      },
+    );
+  }
+  for (const operation of ['preview', 'create'] as const) {
+    router.post(
+      '/api/telos/work/source/outcome/' + operation,
+      options.operatorAuth,
+      requireSameOriginJson,
+      async (req, res) => {
+        const actor = authority(res);
+        if (!actor) return;
+        const schema =
+          operation === 'preview'
+            ? TelosSourceNewPreviewRequestSchema
+            : TelosSourceCreateRequestSchema;
+        const input = schema.safeParse(req.body);
+        if (!input.success) {
+          res.status(400).json({ code: 'invalid', error: 'Invalid reviewed outcome' });
+          return;
+        }
+        await run(res, actor, (capture) => {
+          if (operation === 'preview') return capture.previewNew(input.data, actor);
+          if (!options.createOutcome) throw Error('Canonical creator unavailable');
+          return capture.createReviewed(input.data, actor, options.createOutcome);
+        });
       },
     );
   }

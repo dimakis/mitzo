@@ -12,6 +12,10 @@ import {
   TelosReviewedSourceViewSchema,
   type TelosSourcePreviewRequest,
   type TelosSourceAdoptRequest,
+  TelosSourceNewPreviewRequestSchema,
+  TelosSourceCreateRequestSchema,
+  type TelosSourceNewPreviewRequest,
+  type TelosSourceCreateRequest,
   type TelosWorkCommand,
   type TelosWorkSessionLink,
 } from '@mitzo/protocol';
@@ -79,6 +83,21 @@ export class TelosWorkApiClient {
       TelosSourcePreviewSchema,
       TelosSourcePreviewRequestSchema.parse(input),
       signal,
+    );
+  }
+  async previewOutcomeSource(input: TelosSourceNewPreviewRequest, signal?: AbortSignal) {
+    return this.request(
+      'source/outcome/preview',
+      TelosSourcePreviewSchema,
+      TelosSourceNewPreviewRequestSchema.parse(input),
+      signal,
+    );
+  }
+  async createOutcomeFromSource(input: TelosSourceCreateRequest) {
+    return this.request(
+      'source/outcome/create',
+      TelosWorkCommandReceiptSchema,
+      TelosSourceCreateRequestSchema.parse(input),
     );
   }
   async adoptSource(input: TelosSourceAdoptRequest) {

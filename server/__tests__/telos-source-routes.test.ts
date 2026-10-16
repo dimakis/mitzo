@@ -31,6 +31,59 @@ function fixture() {
     CREATE TABLE sources(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,url TEXT,title TEXT,raw_snippet TEXT,timestamp TEXT);
     CREATE TABLE links(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,url TEXT,title TEXT,description TEXT,created_at TEXT);`);
   db.close();
+  const creationDb = new Database(path);
+  creationDb.exec(
+    'ALTER TABLE items ADD COLUMN idempotency_key TEXT; CREATE UNIQUE INDEX creation_identity ON items(idempotency_key)',
+  );
+  creationDb.close();
+  const createOutcome = vi.fn(
+    async (body: {
+      idempotencyKey: string;
+      summary: string;
+      intent: string;
+      rationale: string;
+      acceptanceCriteria: string[];
+      profile: string;
+      milestones: string[];
+      contextHints?: Record<string, unknown>;
+    }) => {
+      const db = new Database(path);
+      try {
+        const existing = db
+          .prepare('SELECT id FROM items WHERE idempotency_key=?')
+          .get(body.idempotencyKey) as { id: string } | undefined;
+        if (existing) return { itemId: existing.id };
+        const hints = body.contextHints ?? {};
+        db.prepare(
+          "INSERT INTO items VALUES('created',NULL,?,?,?,?,?,'active',1,?,NULL,'created',?)",
+        ).run(
+          body.summary,
+          body.intent,
+          body.rationale,
+          JSON.stringify(body.acceptanceCriteria),
+          body.profile,
+          JSON.stringify({
+            ...hints,
+            doc_ids: hints.docIds ?? [],
+            jira_keys: hints.jiraKeys ?? [],
+            task_hint: hints.taskHint ?? '',
+            session_ids: hints.sessionIds ?? [],
+          }),
+          body.idempotencyKey,
+        );
+        body.milestones.forEach((title, i) =>
+          db
+            .prepare(
+              "INSERT INTO items VALUES(?,'created',?,'','','[]',?,'active',0,'{}',NULL,'created',NULL)",
+            )
+            .run('created-slice-' + i, title, body.profile),
+        );
+        return { itemId: 'created' };
+      } finally {
+        db.close();
+      }
+    },
+  );
   const events = new EventStore(join(root, 'events.db'));
   cleanups.push(() => events.close());
   events.upsertSession({ sessionId: 'origin', conversationSource: 'mitzo' });
@@ -56,6 +109,7 @@ function fixture() {
     createTelosSourceRouter({
       dbPath,
       events,
+      createOutcome,
       ordinaryConversation: (id) => id === 'origin',
       operatorAuth: (req, res, next) => {
         if (req.headers['x-operator'] !== 'authenticated') {
@@ -72,13 +126,45 @@ function fixture() {
       .post('/api/telos/work/source/' + action)
       .set('x-operator', 'authenticated')
       .send(body);
-  return { app, events, selection, dbPath, post };
+  return { app, events, selection, dbPath, post, createOutcome };
 }
 describe('authenticated Telos source capture API', () => {
+  it('creates one reviewed outcome through the canonical owner and returns its source-only work receipt', async () => {
+    const f = fixture();
+    const proposal = {
+      requestId: 'save-from-chat',
+      selection: f.selection,
+      outcome: {
+        summary: 'Saved from discussion',
+        intent: 'Deliver it',
+        rationale: 'Why',
+        acceptanceCriteria: ['Approved'],
+        profile: 'manual',
+        milestones: ['Slice one'],
+      },
+    };
+    const preview = await f.post('outcome/preview', proposal);
+    expect(preview.status).toBe(200);
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    const input = { ...proposal, previewSha256: preview.body.sha256 };
+    const response = await f.post('outcome/create', input);
+    expect(response.status).toBe(200);
+    expect(response.body.work).toMatchObject({
+      itemId: 'created',
+      kind: 'outcome',
+      assignments: [],
+      attempts: [],
+      links: [{ role: 'origin' }],
+    });
+    expect((await f.post('outcome/create', input)).body).toEqual(response.body);
+    expect(f.createOutcome).toHaveBeenCalledTimes(1);
+    expect(f.events.listSessions()).toHaveLength(1);
+  });
   it('pins the route, application registration and client API implementation', () => {
     const manifest: Record<string, string> = reviewedHandlerSourceArtifacts;
     for (const file of [
       '../telos-source-routes.ts',
+      '../telos-outcome-owner.ts',
       '../app.ts',
       '../../packages/client/src/telos-work-api.ts',
     ])
