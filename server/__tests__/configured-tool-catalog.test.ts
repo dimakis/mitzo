@@ -368,3 +368,50 @@ it('keeps cancelled refresh unsettled until the real peer shutdown has finished'
     catalog.close();
   }
 });
+it('pins an absolute source directory when the configured discovery workspace is relative', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  let launched: string | undefined;
+  const options = {
+    ...f.options,
+    cwd: '.',
+    readSources: () => ({ docs: f.sources.left }),
+    connect: async (
+      _config: unknown,
+      peerOptions: import('../codex-mcp-tools.js').McpToolsOptions,
+    ) => {
+      launched = peerOptions.cwd;
+      return {
+        listTools: async () => ({ tools: [{ name: 'search', inputSchema: { type: 'object' } }] }),
+        callTool: f.call,
+        close: f.close,
+      };
+    },
+  };
+  try {
+    const ref = catalog.reference((await catalog.refresh(options))[0]);
+    expect(launched).toBe(process.cwd());
+    expect(catalog.resolve(ref, { ...options, cwd: '/another-task' }).launchCwd).toBe(
+      process.cwd(),
+    );
+  } finally {
+    catalog.close();
+  }
+});
+it('refuses malformed Unicode names before UTF-8 fingerprinting can collapse distinct names', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  f.setTools(
+    ['\ud800', '\ud801'].map((name) => ({
+      name,
+      description: 'Invalid name',
+      inputSchema: { type: 'object' },
+    })),
+  );
+  try {
+    await expect(catalog.refresh(f.options)).rejects.toThrow(/unicode/i);
+    expect(catalog.list()).toEqual([]);
+  } finally {
+    catalog.close();
+  }
+});

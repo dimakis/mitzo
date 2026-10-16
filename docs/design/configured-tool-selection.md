@@ -23,7 +23,8 @@ integer version. Neither wire aliases nor descriptions identify a contract.
 The private catalog binds each revision to the full discovered descriptor (including
 output schemas and annotation hints), the model-facing definition, and
 the trusted launch contract (command, arguments, environment, execution location
-and source launch directory). The private receipt retains that source directory;
+and source launch directory). Discovery normalizes that directory to an absolute
+path and snapshots its launch environment. The private receipt retains that directory;
 admission launches the peer there, independently of the authorized task workspace.
 Changed ambient launch environment requires discovery again. No paths or environment
 values enter the public catalog or portable references.
