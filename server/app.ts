@@ -1,3 +1,5 @@
+import { createWarmPoolRouter } from './openshell-warm-pool-router.js';
+import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import { sessionListMetadata } from './session-list-metadata.js';
 import { projectCompactions } from './compaction-history.js';
 import {
@@ -1602,6 +1604,39 @@ mountSymposiumDirectorRoutes(app, {
   grants: symposiumHostGrants,
   registry,
 });
+
+app.use(
+  '/api/sandboxes',
+  createWarmPoolRouter({
+    pool: getOpenShellWarmPool,
+    authorize: operatorAuthMiddleware,
+    conversations: () => {
+      const records = new Map(
+        (openShellLifecycleService?.inventory() ?? []).map((record) => [
+          record.conversationId,
+          { ...record, canReviewCleanup: true },
+        ]),
+      );
+      for (const record of getOpenShellWarmPool()?.snapshot().owned ?? []) {
+        if (!records.has(record.conversationId!))
+          records.set(record.conversationId!, {
+            conversationId: record.conversationId!,
+            sandboxName: record.name,
+            state: record.state === 'claimed' ? 'conversation_owned' : 'needs_review',
+            account: record.provider ?? 'Unverified',
+            canReviewCleanup: false,
+          });
+      }
+      return [...records.values()].map((record) => ({
+        ...record,
+        title: eventStore.getSession(record.conversationId)?.summary ?? 'Conversation',
+        account:
+          eventStore.getSession(record.conversationId)?.accountBinding?.accountLabel ??
+          record.account,
+      }));
+    },
+  }),
+);
 
 app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => {
   if (!openShellLifecycleService) {

@@ -155,6 +155,26 @@ export class OpenShellWarmPool {
       owned: s.records.filter((x) => x.conversationId && x.state !== 'removed'),
     };
   }
+  async observe(signal: AbortSignal) {
+    const snapshot = this.snapshot();
+    const spares = await Promise.all(
+      snapshot.spares.map(async (record) => {
+        try {
+          const actual = await this.adapter.inspect(record, signal);
+          this.assertPhysical(record, actual);
+          return {
+            ...record,
+            observedState:
+              record.state === 'ready' && actual?.phase === 'Ready' ? 'ready' : 'unverified',
+            observedAt: this.now(),
+          };
+        } catch {
+          return { ...record, observedState: 'unverified', observedAt: this.now() };
+        }
+      }),
+    );
+    return { ...snapshot, spares };
+  }
   lookup(conversationId: string, provider: string) {
     return (
       this.read().records.find(
@@ -370,7 +390,13 @@ export class OpenShellWarmPool {
   }
   async reconcile(signal = AbortSignal.timeout(120000)) {
     const current = this.read();
-    if (current.operation) return;
+    if (current.operation || !current.settings.enabled || current.resting) return;
+    const expired =
+      current.settings.expiryMinutes &&
+      this.now() >= current.lastUse + current.settings.expiryMinutes * 60000;
+    const slots = current.records.filter((x) => !x.conversationId && x.state !== 'removed').length;
+    if (!expired && (current.settings.refill !== 'auto' || slots >= current.settings.capacity))
+      return;
     const s = this.reserve();
     try {
       if (!s.settings.enabled || s.resting) return;

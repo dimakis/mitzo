@@ -119,6 +119,16 @@ export class OpenShellLifecycleService {
     private policy: OpenShellLifecyclePolicy,
     private adapters: LifecycleAdapters,
   ) {}
+  inventory() {
+    return this.store
+      .list()
+      .map((record) => ({
+        conversationId: record.conversationId,
+        sandboxName: record.sandboxName,
+        state: record.phase,
+        account: record.accountProvider,
+      }));
+  }
   private now() {
     return this.adapters.now?.() ?? Date.now();
   }
