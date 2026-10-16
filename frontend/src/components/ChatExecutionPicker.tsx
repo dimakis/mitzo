@@ -67,7 +67,7 @@ export function ChatExecutionPicker({
       ? runtime.binding?.execution.location
       : runtime.intent.execution.location;
     return (
-      <div className="agent-execution-settings">
+      <div className="agent-execution-settings" data-bound={runtime.bound || undefined}>
         <div className="agent-execution-heading">
           <strong>Run on</strong>
           <span>{runtime.bound ? 'Fixed for this conversation' : 'Default: OpenShell'}</span>

@@ -44,7 +44,7 @@ it('does not queue a message when recipient admission is unavailable', async () 
   expect(screen.getByRole('button', { name: 'Queue for approval' }).hasAttribute('disabled')).toBe(
     true,
   );
-  expect(screen.getByText(/Provider admission is pending/)).toBeTruthy();
+  expect(screen.getByText(/Collaboration isn’t ready/)).toBeTruthy();
 });
 
 it('switches an @ recipient by exact seat ID even when names collide, retaining per-agent drafts', async () => {
@@ -123,4 +123,28 @@ it('prevents queuing an unresolved @ target to the current agent and hides full 
   expect(onSelectRecipient).toHaveBeenCalledWith(reviewerId);
   expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Please inspect ');
   expect(onQueue).not.toHaveBeenCalled();
+});
+
+it('lets an unavailable collaboration continue with the exact draft without queuing or clearing it on failure', async () => {
+  const onQueue = vi.fn(async () => true);
+  const onContinueInNewChat = vi.fn(() => {
+    throw Error('Could not save the new chat draft. Retry.');
+  });
+  render(
+    <SymposiumAudienceComposer
+      audience="reviewer"
+      audienceLabel="Reviewer"
+      recipients={[]}
+      enabled={false}
+      onQueue={onQueue}
+      onContinueInNewChat={onContinueInNewChat}
+    />,
+  );
+  const input = screen.getByRole('textbox');
+  await userEvent.type(input, 'Keep my unsent question');
+  await userEvent.click(screen.getByRole('button', { name: 'Continue in new chat' }));
+  expect(onContinueInNewChat).toHaveBeenCalledWith('Keep my unsent question');
+  expect(onQueue).not.toHaveBeenCalled();
+  expect((input as HTMLTextAreaElement).value).toBe('Keep my unsent question');
+  expect(screen.getByRole('alert').textContent).toContain('Could not save');
 });

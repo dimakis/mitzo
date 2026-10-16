@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { onKeyboardToggle } from '../../frontend/src/lib/keyboard';
 import { createRoot } from 'react-dom/client';
+import { SymposiumConversation } from '../../frontend/src/components/SymposiumConversation';
+import { ChatInput } from '../../frontend/src/components/ChatInput';
+import { UiIcon } from '../../frontend/src/components/UiIcon';
 import { WorkspaceControls } from '../../frontend/src/components/WorkspaceControls';
 import { AgentSettingsFields } from '../../frontend/src/components/AgentSettingsPicker';
 import { HomeDialog } from '../../frontend/src/components/HomeDialog';
@@ -25,25 +28,47 @@ const field = (label: string, values: string[]) => (
 );
 function Surface() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [profileTarget, setProfileTarget] = useState<HTMLDivElement | null>(null);
+  const profileMode = new URLSearchParams(window.location.search).get('recovery') === 'profiles';
   const [sends, setSends] = useState(0);
+  const [location, setLocation] = useState('openshell');
   const [reviewOpen, setReviewOpen] = useState(false);
   const desktop = window.matchMedia('(min-width: 768px)').matches;
   useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
-  const center = (
+  const center = profileMode ? (
+    <div className={desktop ? 'desktop-chat-center workspace-chat' : 'chat-page workspace-chat'}>
+      <WorkspaceControls
+        title="Profile drafts"
+        status="Ready"
+        agent="Default Mitzo"
+        settings={<p>Current chat settings</p>}
+      >
+        <div ref={setProfileTarget} />
+      </WorkspaceControls>
+      <SymposiumConversation
+        sessionId="fixture"
+        ordinaryConfirmed
+        profileToolsTarget={profileTarget}
+        chat={{
+          messages: [],
+          current: null,
+          running: false,
+          permission: null,
+          onPermissionRespond: () => {},
+        }}
+        ordinaryComposer={<ChatInput onSend={() => true} onStop={() => {}} running={false} />}
+      />
+    </div>
+  ) : (
     <div
       className={
         desktop
-          ? 'desktop-chat-center workspace-chat'
-          : `chat-page workspace-chat${keyboardOpen ? ' keyboard-open' : ''}`
+          ? `desktop-chat-center workspace-chat${!sends ? ' chat-page--new' : ''}`
+          : `chat-page workspace-chat${!sends ? ' chat-page--new' : ''}${keyboardOpen ? ' keyboard-open' : ''}`
       }
     >
-      {!desktop && (
-        <div className="conversation-heading">
-          <a href="#chats">‹ Chats</a>
-          <h1>New chat</h1>
-        </div>
-      )}
       <WorkspaceControls
+        title={sends ? 'Conversation' : 'New chat'}
         agent="Default Mitzo"
         status="Ready"
         summary={{ profile: 'Personal ChatGPT', model: 'GPT-6.1-Sol', thinking: 'High' }}
@@ -65,12 +90,22 @@ function Surface() {
             execution={
               <div className="agent-execution-settings">
                 <strong>Run on</strong>
-                <div className="agent-execution-cards">
-                  <button type="button" className="agent-execution-card" aria-pressed="true">
-                    OpenShell
+                <div className="agent-execution-cards" role="group" aria-label="Run on">
+                  <button
+                    type="button"
+                    className="agent-execution-card"
+                    aria-pressed={location === 'openshell'}
+                    onClick={() => setLocation('openshell')}
+                  >
+                    <span className="openshell-brand" aria-hidden="true" /> OpenShell
                   </button>
-                  <button type="button" className="agent-execution-card" aria-pressed="false">
-                    Local Mac
+                  <button
+                    type="button"
+                    className="agent-execution-card"
+                    aria-pressed={location === 'local'}
+                    onClick={() => setLocation('local')}
+                  >
+                    <UiIcon name="laptop" /> Local Mac
                   </button>
                 </div>
               </div>
@@ -88,27 +123,24 @@ function Surface() {
       <main className="chat-messages">
         <h2>What are we working on?</h2>
       </main>
-      <div className="conversation-composer">
-        <div className="chat-input chat-input--compact">
-          <div className="chat-input-row">
-            <textarea
-              className="chat-input-field"
-              aria-label="Message Mitzo"
-              placeholder="Message Mitzo…"
-            />
-            <div className="composer-toolbar">
-              <button type="button" aria-label="Add attachment">
-                +
-              </button>
-              <button type="button" onClick={() => setSends((count) => count + 1)}>
-                Start session
-              </button>
-              <output data-testid="sent-count" hidden>
-                {sends}
-              </output>
-            </div>
-          </div>
-        </div>
+      <div className={`conversation-composer${!sends ? ' conversation-composer--new' : ''}`}>
+        <ChatInput
+          onSend={() => {
+            setSends((count) => count + 1);
+            return true;
+          }}
+          onStop={() => {}}
+          running={false}
+          sendLabel="Start session"
+          collaboration={
+            <button type="button" aria-label="Symposium collaboration">
+              <UiIcon name="agents" />
+            </button>
+          }
+        />
+        <output data-testid="sent-count" hidden>
+          {sends}
+        </output>
       </div>
     </div>
   );

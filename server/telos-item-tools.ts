@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toolInputError } from './tool-input-error.js';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { TelosToolResult } from './telos-tool.js';
 
@@ -95,7 +96,8 @@ export async function executeTelosItemTool(
   signal?: AbortSignal,
 ): Promise<TelosToolResult> {
   const parsed = telosItemSchemas[name].safeParse(input);
-  if (!parsed.success) return { content: 'Invalid Telos item input', isError: true };
+  if (!parsed.success)
+    return toolInputError('Telos item input', telosItemSchemas[name], parsed.error);
   try {
     const response = await fetch(
       `${baseUrl}/api/internal/telos/items/${name === 'TelosGetItem' ? 'get' : 'update'}`,
