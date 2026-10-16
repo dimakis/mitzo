@@ -13,6 +13,7 @@ const operations = {
   'context.revisions': ['GET', '/api/context-packs/:resourceId/revisions'],
   'context.read': ['GET', '/api/context-packs/:resourceId/revisions/:revision'],
   'context.impact': ['GET', '/api/context-packs/:resourceId/impact'],
+  'library.tools': ['GET', '/api/agent-library/tools'],
   'agentTasks.list': ['GET', '/api/agent-tasks'],
   'agentTasks.read': ['GET', '/api/agent-tasks/:resourceId'],
   'agentTasks.create': ['POST', '/api/agent-tasks'],

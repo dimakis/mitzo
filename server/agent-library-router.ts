@@ -1,3 +1,5 @@
+import { agentToolCatalog } from './agent-tool-catalog.js';
+import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import { Router, type Response } from 'express';
 import { z, ZodError } from 'zod';
 import type { AgentLibraryStore } from './agent-library-store.js';
@@ -40,6 +42,30 @@ export function createAgentLibraryRouter(
   router.get('/', (_req, res) => {
     try {
       res.json(store.list(OWNER));
+    } catch (error) {
+      failure(res, error);
+    }
+  });
+  router.get('/tools', (_req, res) => {
+    try {
+      const connected = getCredentialConnectionsRuntime()
+        ?.catalog()
+        .some((connection) => connection.status === 'active');
+      res.json({
+        tools: agentToolCatalog().map((tool) => ({
+          ...tool,
+          requirement:
+            !connected &&
+            [
+              'ConnectionRequest',
+              'ConnectionWebSocket',
+              'HomeAssistantDashboard',
+              'RequestConnectionAccess',
+            ].includes(tool.name)
+              ? 'No active service connection is configured. Set one up in Connections; each new session still requires approval.'
+              : tool.requirement,
+        })),
+      });
     } catch (error) {
       failure(res, error);
     }
