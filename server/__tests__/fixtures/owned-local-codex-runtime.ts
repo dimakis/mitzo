@@ -19,7 +19,11 @@ import {
   type OrdinaryLocalCodexOwnedDispatch,
 } from '../../ordinary-local-codex-owned-runtime.js';
 import { OwnedLocalCodexChatAdmission } from '../../owned-local-codex-chat-admission.js';
-import { bindAgentLibraryTransport } from '../../agent-library-transport.js';
+import {
+  bindAgentLibraryTransport,
+  readBuiltinAgentLibraryProfile,
+} from '../../agent-library-transport.js';
+import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
 
 import { nativeStartupSessionId } from '../../ordinary-repository-startup.js';
 export async function ownedRuntimeFixture(
@@ -28,6 +32,8 @@ export async function ownedRuntimeFixture(
     workspaceId?: string;
     contextRecipe?: boolean | 'workspace';
     chatRoute?: boolean;
+    silentPreparation?: boolean;
+    builtinPreparation?: boolean;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -130,11 +136,31 @@ export async function ownedRuntimeFixture(
         : {}),
     },
   });
-  const agentProfile = library.publish('user', {
+  let agentProfile = library.publish('user', {
     profileId: 'developer',
     expectedVersion: 1,
     idempotencyKey: 'publish',
   });
+  if (options.builtinPreparation)
+    agentProfile = readBuiltinAgentLibraryProfile({
+      kind: 'builtin',
+      profileId: PROFILE_BUILDER_ID,
+      revision: PROFILE_BUILDER_REVISION,
+    })!;
+  const env = {
+    MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE: nativePath,
+    MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE: targetPath,
+  };
+  if (options.chatRoute) {
+    vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE', nativePath);
+    vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE', targetPath);
+    vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
+  }
+  const catalog = new OrdinaryLocalCodexCapabilityCatalog(
+    loadAccountProfiles(),
+    new OrdinaryLocalCodexHostRuntime(env).target(),
+    'ordinary',
+  );
   const source = join(root, 'source');
   execFileSync('git', ['init', '-q', '-b', 'main', source]);
   const git = (directory: string, ...args: string[]) =>
@@ -171,38 +197,60 @@ export async function ownedRuntimeFixture(
       return { ...(await inspect()), directory, featureBranch: branch };
     },
     verify: async () => {},
+    ordinaryPreparation: {
+      capture: async (account, selection) => {
+        const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
+        if (resolved.status !== 'compatible') throw Error('Offline runtime unavailable');
+        return {
+          version: 1,
+          originalBinding: account,
+          runtimeBinding: resolved.binding,
+          credentialDigest: 'a'.repeat(64),
+        };
+      },
+      assert: async (_proof, account) => {
+        loadAccountProfiles().resumeRouting(account);
+      },
+    },
   });
   cleanups.push(() => workspace.close());
   const signal = new AbortController();
-  const preview = await workspace.preview(binding, 'fixture-github', 'example/repo', signal.signal);
+  const preview = await workspace.preview(
+    binding,
+    'fixture-github',
+    'example/repo',
+    signal.signal,
+    options.silentPreparation
+      ? {
+          runOn: 'local',
+          runtime: {
+            account: catalog.inventory().accounts[0].account,
+            harness: 'codex',
+            targetId: 'local-mac',
+          },
+        }
+      : undefined,
+  );
   const prepared = await workspace.prepare(preview.id, binding, signal.signal);
-  const reservation = {
+  let reservation: Omit<
+    import('../../repository-workspaces.js').HostRepositoryReservationInput,
+    'signal'
+  > = {
     id: prepared.id,
     binding,
-    conversationId: options.chatRoute
-      ? nativeStartupSessionId(`repository:${prepared.id}`)
-      : randomUUID(),
+    conversationId:
+      options.chatRoute || options.silentPreparation
+        ? nativeStartupSessionId(`repository:${prepared.id}`)
+        : randomUUID(),
     taskRoot,
   };
-  const reserved = await workspace.reserveHostTask({ ...reservation, signal: signal.signal });
+  let reserved: import('../../repository-workspaces.js').HostRepositoryReservation;
+  if (!options.silentPreparation)
+    reserved = await workspace.reserveHostTask({ ...reservation, signal: signal.signal });
   const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 },
     operatorConnectionId = randomUUID();
   const detach = bindAgentLibraryTransport(operatorConnectionId, auth);
   cleanups.push(detach);
-  const env = {
-    MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE: nativePath,
-    MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE: targetPath,
-  };
-  if (options.chatRoute) {
-    vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE', nativePath);
-    vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE', targetPath);
-    vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
-  }
-  const catalog = new OrdinaryLocalCodexCapabilityCatalog(
-    loadAccountProfiles(),
-    new OrdinaryLocalCodexHostRuntime(env).target(),
-    'ordinary',
-  );
   const commandId = randomUUID();
   const request = {
     clientMsgId: commandId,
@@ -215,7 +263,11 @@ export async function ownedRuntimeFixture(
     },
     selection: {
       version: 1 as const,
-      agent: { profileId: 'developer', revision: 1 },
+      agent: {
+        profileId: agentProfile.profileId,
+        revision: agentProfile.revision,
+        ...(agentProfile.kind ? { kind: agentProfile.kind } : {}),
+      },
       context: { source: 'none' as const, revision: null },
       permission: { mode: 'agent' as const, revision: 0 },
       model: 'fixture-model',
@@ -223,6 +275,29 @@ export async function ownedRuntimeFixture(
     },
     payload: { text: 'Implement the task', intent: 'Original user intent' },
   };
+  let preparation: Awaited<ReturnType<RepositoryWorkspaces['prepareOrdinarySession']>> | undefined;
+  if (options.silentPreparation) {
+    const resolved = catalog.resolve(request.runtime);
+    if (resolved.status !== 'compatible') throw Error('Offline runtime unavailable');
+    preparation = await workspace.prepareOrdinarySession(
+      {
+        allocationOperationId: 'allocation',
+        id: prepared.id,
+        binding,
+        taskRoot,
+        settings: {
+          binding: resolved.binding,
+          selection: request.selection,
+          repositoryWorkspaceId: prepared.id,
+        },
+        agentProfile,
+        signal: signal.signal,
+      },
+      events,
+    );
+    reservation = preparation.reservation;
+    reserved = workspace.getHostReservation(reservation);
+  }
   const rpc = {
     initialize: vi.fn(async () => {}),
     request: vi.fn(async (method: string) => {
@@ -305,7 +380,8 @@ export async function ownedRuntimeFixture(
     library,
     workspace,
     reservation,
-    reserved,
+    reserved: reserved!,
+    preparation,
     agentProfile,
     dispatch,
     rpc,

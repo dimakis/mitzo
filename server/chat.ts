@@ -2969,6 +2969,8 @@ export async function startOwnedLocalCodexCommand(
     signal: AbortSignal;
     /** Server-selected cold continuation, never legacy history adoption. */
     resume?: boolean;
+    /** Trusted silent allocation receipt; explicit first command only. */
+    preparationOperationId?: string;
   },
 ): Promise<{ dispatched: boolean; sessionId: string }> {
   const unavailable = () => new Error('Owned local Codex chat unavailable');
@@ -3072,7 +3074,12 @@ export async function startOwnedLocalCodexCommand(
         });
       },
     });
-    const result = input.resume ? await driver.admitResume(command) : await driver.admit(command);
+    if (input.resume && input.preparationOperationId) throw unavailable();
+    const admitFirst = (command: unknown) =>
+      input.preparationOperationId
+        ? driver!.admitPreparedFirst(input.preparationOperationId, command)
+        : driver!.admit(command);
+    const result = input.resume ? await driver.admitResume(command) : await admitFirst(command);
     if (!result.dispatched) {
       if (prepared) throw unavailable();
       release();
@@ -3088,7 +3095,10 @@ export async function startOwnedLocalCodexCommand(
       identity: retainedDriver,
       initialCommandId: commandId,
       admit: (command, signal) => retainedDriver.admitContinuation(command, signal),
-      retryInitial: (command) => retainedDriver.admit(command),
+      retryInitial: (command) =>
+        input.preparationOperationId
+          ? retainedDriver.admitPreparedFirst(input.preparationOperationId, command)
+          : retainedDriver.admit(command),
       close: release,
     };
     const ownedQuery = prepared;

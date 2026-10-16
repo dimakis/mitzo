@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 import { AccountBindingSchema, type AccountBinding } from '@mitzo/protocol';
 import { RepositoryWorkspaces, publicRepositoryWorkspace } from '../repository-workspaces.js';
+import { contextDigest as requireDigest } from '../agent-context-compiler.js';
 
 // Disposable Git/SQLite fixtures only. No backend, account sign-in or model call.
 const sourceReads = vi.hoisted(() => vi.fn());
@@ -995,4 +996,81 @@ it('serializes competing first model claims and never rewrites the winner for a 
   });
   expect(f.service.get(f.input.id).ordinaryPreparation?.originalBinding).toEqual(binding);
   expect(copy.calls).not.toHaveBeenCalled();
+});
+
+it('silently prepares one ordinary workspace/session allocation and recovers exact retries across owners', async () => {
+  const { EventStore } = await import('../event-store.js');
+  const f = await fixture(true);
+  const events = new EventStore(join(f.root, 'events.db'));
+  const selection = {
+    version: 1 as const,
+    agent: { profileId: 'agent', revision: 1 },
+    context: { source: 'none' as const, revision: null },
+    permission: { mode: 'agent' as const, revision: 0 },
+    model: binding.model,
+    thinking: null,
+  };
+  const input = {
+    allocationOperationId: 'allocation',
+    id: f.input.id,
+    binding,
+    taskRoot: f.input.taskRoot,
+    settings: { binding: ordinaryBinding(), selection, repositoryWorkspaceId: f.input.id },
+    agentProfile: (() => {
+      const definition = {
+        name: 'Agent',
+        descriptor: 'Fixture',
+        role: 'agent' as const,
+        instructions: 'Offline',
+        expectedOutput: 'Evidence',
+        acceptanceCriteria: ['Evidence'],
+        modelPolicyRole: 'agent' as const,
+      };
+      return {
+        profileId: 'agent',
+        revision: 1,
+        definition,
+        contentHash: requireDigest(definition),
+      };
+    })(),
+    signal: f.input.signal,
+  };
+  try {
+    await expect(
+      f.service.prepareOrdinarySession({ ...input, agentProfile: undefined } as never, events),
+    ).rejects.toThrow();
+    await expect(
+      f.service.prepareOrdinarySession(
+        { ...input, agentProfile: { ...input.agentProfile, profileId: 'other' } },
+        events,
+      ),
+    ).rejects.toThrow();
+    expect(f.service.get(input.id).state).toBe('ready');
+    const results = await Promise.all([
+      f.service.prepareOrdinarySession(input, events),
+      f.service.prepareOrdinarySession(input, events),
+    ]);
+    expect(results[0]).toEqual(results[1]);
+    expect(results[0].receipt.sessionId).not.toBe(f.input.id);
+    expect(results[0].receipt.workspaceId).toBe(f.input.id);
+    expect(events.getSendCommand('allocation')).toBeUndefined();
+    expect(events.getOrdinaryInitialCommandId(results[0].receipt.sessionId)).toBeUndefined();
+    expect(copy.calls).not.toHaveBeenCalled();
+    const reopened = f.open();
+    expect(await reopened.prepareOrdinarySession(input, events)).toEqual(results[0]);
+    await expect(
+      reopened.prepareOrdinarySession({ ...input, allocationOperationId: 'other' }, events),
+    ).rejects.toThrow();
+    await expect(
+      reopened.prepareOrdinarySession(
+        {
+          ...input,
+          settings: { ...input.settings, selection: { ...selection, model: 'supported-next' } },
+        },
+        events,
+      ),
+    ).rejects.toThrow();
+  } finally {
+    events.close();
+  }
 });

@@ -89,6 +89,7 @@ export async function startOwnedOpenShellCodexCommand(
     ownerConnectionId: string;
     signal: AbortSignal;
     resume?: boolean;
+    preparationOperationId?: string;
   },
 ) {
   if (
@@ -196,7 +197,14 @@ export async function startOwnedOpenShellCodexCommand(
       },
       close,
     });
-    const result = await composed.driver.admit(initial.meta, initial.command);
+    if (input.resume && input.preparationOperationId) throw unavailable();
+    const result = input.preparationOperationId
+      ? await composed.driver.admitPreparedFirst(
+          input.preparationOperationId,
+          initial.meta,
+          initial.command,
+        )
+      : await composed.driver.admit(initial.meta, initial.command);
     if (!result.dispatched) {
       close();
       return result;
@@ -215,7 +223,9 @@ export async function startOwnedOpenShellCodexCommand(
       },
       retryInitial: (raw) => {
         const next = derive(raw);
-        return driver.admit(next.meta, next.command);
+        return input.preparationOperationId
+          ? driver.admitPreparedFirst(input.preparationOperationId, next.meta, next.command)
+          : driver.admit(next.meta, next.command);
       },
       close,
     };

@@ -1,5 +1,15 @@
+import { contextDigest } from './agent-context-compiler.js';
+import type { EventStore } from './event-store.js';
+import { nativeStartupSessionId } from './ordinary-repository-startup.js';
+import {
+  AgentLibraryVersionSchema,
+  type AgentLibraryVersion,
+  type CollaborationSettings,
+} from '@mitzo/protocol';
 import {
   OrdinaryRepositoryPreparationSchema,
+  OrdinarySilentPreparationSelectionSchema,
+  ordinaryPreparationFingerprint,
   type OrdinaryRepositoryPreparation,
   type OrdinaryRepositoryRuntimeSelection,
 } from './ordinary-repository-preparation.js';
@@ -229,6 +239,12 @@ interface Dependencies {
       selection: OrdinaryRepositoryRuntimeSelection,
       signal: AbortSignal,
     ): Promise<OrdinaryRepositoryPreparation>;
+    assertSilent?(
+      proof: OrdinaryRepositoryPreparation,
+      binding: AccountBinding,
+      settings: CollaborationSettings,
+      signal: AbortSignal,
+    ): Promise<void>;
     assert(
       proof: OrdinaryRepositoryPreparation,
       binding: AccountBinding,
@@ -268,6 +284,134 @@ export class RepositoryWorkspaces {
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS repository_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT UNIQUE)',
     );
+    this.db.exec(`CREATE TABLE IF NOT EXISTS ordinary_preparation_allocations (
+      operation_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL);`);
+  }
+  /** Durable application session + real workspace reservation only. Native startup,
+   * queues and first-command admission remain entirely with the ordinary owners. */
+  async prepareOrdinarySession(
+    input: {
+      allocationOperationId: string;
+      id: string;
+      binding: AccountBinding;
+      taskRoot: string;
+      settings: CollaborationSettings;
+      agentProfile: AgentLibraryVersion;
+      /** Required existing OpenShell workdir, resolved by the host route owner. */
+      sandboxWorkdir?: string;
+      signal: AbortSignal;
+    },
+    events: EventStore,
+  ) {
+    const selected = structuredClone({ ...input, signal: undefined });
+    reservationReference.parse(selected.allocationOperationId);
+    const settings = OrdinarySilentPreparationSelectionSchema.parse(selected.settings);
+    const profile = AgentLibraryVersionSchema.parse(selected.agentProfile);
+    if (
+      !isDeepStrictEqual(
+        {
+          profileId: profile.profileId,
+          revision: profile.revision,
+          ...(profile.kind ? { kind: profile.kind } : {}),
+        },
+        settings.selection.agent,
+      ) ||
+      profile.contentHash !== contextDigest(profile.definition)
+    )
+      throw Error('Original ordinary agent profile required');
+    if (
+      settings.repositoryWorkspaceId !== selected.id ||
+      !selected.allocationOperationId ||
+      selected.agentProfile?.definition.contextRecipe !== undefined
+    )
+      throw Error('Silent ordinary preparation settings unavailable');
+    const record = this.get(selected.id);
+    if (
+      !record.ordinaryPreparation ||
+      !isDeepStrictEqual(record.ordinaryPreparation.runtimeBinding, settings.binding) ||
+      selected.binding.model !== settings.selection.model
+    )
+      throw Error('Original ordinary preparation required');
+    const conversationId = nativeStartupSessionId(`repository:${selected.id}`);
+    const preparationFingerprint = ordinaryPreparationFingerprint({
+      allocationOperationId: selected.allocationOperationId,
+      id: selected.id,
+      binding: selected.binding,
+      taskRoot: selected.taskRoot,
+      settings,
+      agentProfile: selected.agentProfile,
+      sandboxWorkdir: selected.sandboxWorkdir,
+    });
+    const reservation = {
+      id: selected.id,
+      binding: selected.binding,
+      conversationId,
+      taskRoot: selected.taskRoot,
+      runtimeBinding: settings.binding,
+      commandFingerprint: preparationFingerprint,
+    };
+    const signal = input.signal;
+    signal.throwIfAborted();
+    const assertSilent = async (current: RepositoryWorkspace) => {
+      await this.assertOrdinaryPreparation(current, selected.binding, signal, true);
+      await this.deps.ordinaryPreparation?.assertSilent?.(
+        current.ordinaryPreparation!,
+        selected.binding,
+        settings,
+        signal,
+      );
+      this.assertUnchangedHostRecord(current);
+    };
+    await assertSilent(record);
+    this.db
+      .transaction(() => {
+        const previous = this.db
+          .prepare(
+            'SELECT workspace_id, fingerprint FROM ordinary_preparation_allocations WHERE operation_id=?',
+          )
+          .get(selected.allocationOperationId) as
+          { workspace_id: string; fingerprint: string } | undefined;
+        if (previous) {
+          if (
+            previous.workspace_id !== selected.id ||
+            previous.fingerprint !== preparationFingerprint
+          )
+            throw Error('Ordinary allocation operation cannot be replaced');
+        } else
+          this.db
+            .prepare('INSERT INTO ordinary_preparation_allocations VALUES (?,?,?)')
+            .run(selected.allocationOperationId, selected.id, preparationFingerprint);
+      })
+      .immediate();
+    let cwd: string;
+    if (settings.binding.execution.location === 'local') {
+      const descriptor = await this.reserveHostTask({ ...reservation, signal });
+      cwd = descriptor.directory;
+    } else {
+      if (!selected.sandboxWorkdir || !isAbsolute(selected.sandboxWorkdir))
+        throw Error('Original ordinary sandbox workdir required');
+      await this.reserveOrdinarySandboxTask({ ...reservation, signal });
+      cwd = selected.sandboxWorkdir;
+    }
+    const current = this.getHostRecord(selected.id);
+    await this.authorizeHostRecord(current, selected.binding, signal);
+    await this.verifyHostSource(current, signal);
+    await assertSilent(current);
+    signal.throwIfAborted();
+    const receipt = events.prepareOrdinarySession(
+      {
+        sessionId: conversationId,
+        repositoryWorkspaceId: selected.id,
+        cwd,
+        accountBinding: selected.binding,
+        agentProfile: selected.agentProfile,
+        selectedModel: settings.selection.model,
+        reasoningEffort: settings.selection.thinking,
+        mode: settings.selection.permission.mode,
+      },
+      { allocationOperationId: selected.allocationOperationId, preparationFingerprint, settings },
+    );
+    return { receipt, reservation };
   }
   close() {
     this.db.close();

@@ -42,6 +42,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       commandId: string;
       /** Cold owner independently verified original native custody before construction. */
       continuation?: boolean;
+      preparationOperationId?: string;
       responses?: boolean;
       vertex?: boolean;
     },
@@ -146,8 +147,30 @@ export class OrdinaryLocalCodexSelectionOwner {
           : this.owners.responses
             ? this.owners.events.getOrdinaryLocalResponsesCommandAdmission(this.owners.commandId)
             : this.owners.events.getOrdinaryLocalCommandAdmission(this.owners.commandId);
+        let prepared = false;
+        if (!admission && this.owners.preparationOperationId) {
+          const receipt = this.owners.events.assertPreparedOrdinarySession(
+            this.owners.preparationOperationId,
+            {
+              sessionId: reservation.conversationId,
+              repositoryWorkspaceId: reservation.id,
+              cwd: expected.workspace.cwd,
+              accountBinding: reservation.binding,
+              agentProfile: expected.agentProfile,
+              agentContext: expected.agentContext,
+              selectedModel: expected.selection.model,
+              reasoningEffort: expected.selection.thinking,
+              mode: expected.selection.permission.mode,
+            },
+            expected.binding,
+            expected.selection,
+          );
+          prepared =
+            receipt.firstCommandId === null &&
+            receipt.preparationFingerprint === reservation.commandFingerprint;
+        }
         if (
-          (!admission && !this.owners.continuation) ||
+          (!admission && !this.owners.continuation && !prepared) ||
           admission?.state === 'reserved' ||
           (admission &&
             (!isDeepStrictEqual(admission.binding, expected.binding) ||

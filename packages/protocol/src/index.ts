@@ -358,3 +358,5 @@ export {
 export * from './telos-work.js';
 
 export * from './telos-work-api.js';
+
+export * from './ordinary-prepared-session.js';

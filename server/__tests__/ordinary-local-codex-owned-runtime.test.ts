@@ -43,8 +43,12 @@ afterEach(async () => {
   deployment.controller = deployment.owner = false;
 });
 
-const fixture = (options?: { workspaceId?: string; contextRecipe?: boolean | 'workspace' }) =>
-  ownedRuntimeFixture(cleanups, options);
+const fixture = (options?: {
+  workspaceId?: string;
+  contextRecipe?: boolean | 'workspace';
+  silentPreparation?: boolean;
+  builtinPreparation?: boolean;
+}) => ownedRuntimeFixture(cleanups, options);
 
 it('adopts the exact builtin namespace through the ordinary Local owner', async () => {
   const f = await fixture();
@@ -1152,4 +1156,41 @@ it('refuses a timed-out warm model admission while preserving the original retai
   });
   expect(dispatch).toHaveBeenCalledOnce();
   expect(f.launch).toHaveBeenCalledOnce();
+});
+
+it('uses the silently prepared ordinary session for its first explicit command without continuation', async () => {
+  const f = await fixture({ silentPreparation: true });
+  expect(f.preparation?.reservation).toEqual(f.reservation);
+  expect(f.launch).not.toHaveBeenCalled();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(f.events.getOrdinaryInitialCommandId(f.reservation.conversationId)).toBeUndefined();
+  await expect(f.create().admitPreparedFirst('allocation', f.request)).resolves.toEqual({
+    dispatched: true,
+  });
+  expect(f.dispatch).toHaveBeenCalledOnce();
+  expect(f.events.getSendCommand(f.request.clientMsgId)?.sessionId).toBe(
+    f.preparation?.receipt.sessionId,
+  );
+  expect(f.events.getOrdinarySessionPreparation('allocation')?.firstCommandId).toBe(
+    f.request.clientMsgId,
+  );
+  await expect(f.create().admitPreparedFirst('allocation', f.request)).resolves.toEqual({
+    dispatched: false,
+  });
+  await expect(f.create().admitPreparedFirst('other-operation', f.request)).rejects.toThrow();
+  await expect(
+    f.create().admitPreparedFirst('allocation', { ...f.request, clientMsgId: 'other-command' }),
+  ).rejects.toThrow();
+  expect(f.dispatch).toHaveBeenCalledOnce();
+});
+
+it('preserves the actual builtin profile namespace through silent workspace preparation and first command', async () => {
+  const f = await fixture({ silentPreparation: true, builtinPreparation: true });
+  expect(f.preparation?.receipt.settings.selection.agent.kind).toBe('builtin');
+  expect(f.events.getSession(f.reservation.conversationId)?.agentProfile).toEqual(f.agentProfile);
+  expect(f.launch).not.toHaveBeenCalled();
+  await expect(f.create().admitPreparedFirst('allocation', f.request)).resolves.toEqual({
+    dispatched: true,
+  });
+  expect(f.dispatch).toHaveBeenCalledOnce();
 });
