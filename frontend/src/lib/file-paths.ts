@@ -6,6 +6,13 @@ export function isTelosArtifactUrl(url: string): boolean {
   return /^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url);
 }
 
+/** Read one saved revision, or review the latest before resolving an edit conflict. */
+export function telosDocumentUrl(path: string, latest = false): string {
+  if (!isTelosArtifactUrl(path)) throw new Error('Invalid Telos artifact URL');
+  const [base, query] = path.split('?');
+  return `${base}/document${!latest && query ? `?${query}` : ''}`;
+}
+
 /** Build an authenticated API URL scoped to the session that created an artifact. */
 export function artifactApiUrl(
   endpoint: 'read' | 'download',
