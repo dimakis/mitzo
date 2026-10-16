@@ -154,6 +154,19 @@ it('preserves the private LifeOps storage restriction', async () => {
   expect((await save()).status).toBe(403);
 });
 
+it.each(['script.py', 'script.js'])(
+  'preserves an existing read-only text preview for %s',
+  async (filename) => {
+    const { app, url } = setup(filename, Buffer.from('print("hello")'));
+    const read = await request(app).get(url);
+    expect(read.body).toMatchObject({
+      content: 'print("hello")',
+      editable: false,
+      previewUnavailable: false,
+    });
+  },
+);
+
 it('authenticates before parsing edits and rechecks a revoked operator at mutation', async () => {
   const { login, operatorAuthMiddleware, authMiddleware, revokeAuthSession } =
     await import('../auth.js');

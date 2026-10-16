@@ -98,16 +98,14 @@ export function createTelosArtifactRouter(options: {
         res.json({ ok: true, artifact });
       } catch (error) {
         const status = errorStatus(error);
-        res
-          .status(status)
-          .json({
-            error:
-              status === 503
-                ? 'Save unavailable; your draft is preserved'
-                : error instanceof Error
-                  ? error.message
-                  : 'Save failed',
-          });
+        res.status(status).json({
+          error:
+            status === 503
+              ? 'Save unavailable; your draft is preserved'
+              : error instanceof Error
+                ? error.message
+                : 'Save failed',
+        });
       } finally {
         store?.close();
       }

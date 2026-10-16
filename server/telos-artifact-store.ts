@@ -280,7 +280,24 @@ export class TelosArtifactStore {
     const text = !artifact.bytes.includes(0) && Buffer.from(content).equals(artifact.bytes);
     const preview =
       text &&
-      ['.md', '.mdx', '.html', '.htm', '.txt', '.json', '.csv', '.yaml', '.yml'].includes(ext);
+      [
+        '.md',
+        '.mdx',
+        '.html',
+        '.htm',
+        '.txt',
+        '.json',
+        '.csv',
+        '.yaml',
+        '.yml',
+        '.css',
+        '.js',
+        '.ts',
+        '.tsx',
+        '.jsx',
+        '.py',
+        '.sh',
+      ].includes(ext);
     return {
       path: artifact.url,
       name: artifact.filename,
