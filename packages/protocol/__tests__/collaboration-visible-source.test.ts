@@ -22,6 +22,7 @@ it('witnesses all visible messages independently of bounded page calls and ignor
   const source = openCollaborationVisibleSource(db, 'one', { sequence: 120, messageId: 'm60' });
   const witness = source.readPrefixWitness();
   expect(witness.messageCount).toBe(60);
+  expect(source.readSelected(['m1'])[0].blocks[0].blockId).toBe('user-m1');
   const first = source.readPage(0, 50);
   expect(first.messages).toHaveLength(50);
   expect(first).toMatchObject({ throughSequence: 100, hasMore: true });

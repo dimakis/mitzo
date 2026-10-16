@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-context-source.ts':
     '5feb8135ccfd6d578ec5f9ac873bd7c260322d49f30d831147be29df3f084262',
   '../../packages/protocol/src/collaboration-visible-source.ts':
-    '7ab77056d9c3520007d67015a145583562fb4a9baac941ded29c2216b29e20fc',
+    '219c984a60e6c5ceb08b15c28fb10903c312a0b2b5f62d60fcf91653283ea290',
 
   // Recoverable tool validation and confirmed Telos creation receipts.
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',
