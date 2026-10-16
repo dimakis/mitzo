@@ -1,4 +1,4 @@
-import { createWarmPoolRouter } from './openshell-warm-pool-router.js';
+import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import { sessionListMetadata } from './session-list-metadata.js';
 import { projectCompactions } from './compaction-history.js';
@@ -1611,7 +1611,7 @@ app.use(
     pool: getOpenShellWarmPool,
     authorize: operatorAuthMiddleware,
     conversations: () => {
-      const records = new Map(
+      const records = new Map<string, Omit<SandboxConversation, 'title'>>(
         (openShellLifecycleService?.inventory() ?? []).map((record) => [
           record.conversationId,
           { ...record, canReviewCleanup: true },

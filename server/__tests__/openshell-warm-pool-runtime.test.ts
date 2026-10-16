@@ -39,7 +39,7 @@ function fixture() {
     failure: null,
     createdAt: 1,
   };
-  let attached: string[] = [];
+  const attached: string[] = [];
   const run = vi.fn(async (args: readonly string[]) => {
     if (args.includes('attach')) {
       attached.push(args.at(-1)!);
@@ -113,4 +113,18 @@ it('policy changes invalidate the compatibility identity', () => {
   const before = warmPoolScope(f.config);
   writeFileSync(f.config.policy, 'changed');
   expect(warmPoolScope(f.config)).not.toBe(before);
+});
+it('waits for observed Ready after detached creation rather than treating Pending as ready', async () => {
+  const f = fixture(),
+    original = f.run.getMockImplementation()!;
+  let reads = 0;
+  f.run.mockImplementation(async (args: readonly string[]) => {
+    const out = await original(args);
+    if (args.includes('get') && reads++ === 0)
+      return JSON.stringify({ ...JSON.parse(out), phase: 'Creating' });
+    return out;
+  });
+  const result = await f.adapter.prepare(f.record, AbortSignal.timeout(5000));
+  expect(result.phase).toBe('Ready');
+  expect(reads).toBeGreaterThan(1);
 });

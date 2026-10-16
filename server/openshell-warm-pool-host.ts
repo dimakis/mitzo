@@ -30,10 +30,10 @@ export function startWarmPoolHost(
     if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
     const old = JSON.parse(readFileSync(path, 'utf8')) as { pid: number };
     if (!Number.isInteger(old.pid) || old.pid <= 0)
-      throw Error('Warm pool controller owner is unverified');
+      throw Error('Warm pool controller owner is unverified', { cause: e });
     try {
       process.kill(old.pid, 0);
-      throw Error('Another warm pool controller owns this host');
+      throw Error('Another warm pool controller owns this host', { cause: e });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
     }

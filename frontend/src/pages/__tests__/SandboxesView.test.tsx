@@ -1,10 +1,27 @@
+import type { ReactNode } from 'react';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { SandboxesView } from '../SandboxesView';
 import { readApiJson } from '../../lib/api-json-read';
 import { apiFetch } from '../../lib/api-fetch';
+vi.mock('../../components/HomeDialog', () => ({
+  HomeDialog: ({
+    title,
+    onClose,
+    children,
+  }: {
+    title: string;
+    onClose(): void;
+    children: ReactNode;
+  }) => (
+    <section role="dialog" aria-label={title}>
+      <button onClick={onClose}>Close</button>
+      {children}
+    </section>
+  ),
+}));
 vi.mock('../../lib/api-json-read', () => ({ readApiJson: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 const snapshot = {
@@ -103,4 +120,34 @@ it('a failed save retains edited values and exposes the server refusal without a
   await screen.findByText('Settings changed elsewhere. Refresh before retrying.');
   expect((screen.getByLabelText('Warm spares') as HTMLSelectElement).value).toBe('2');
   expect(apiFetch).toHaveBeenCalledOnce();
+});
+
+it('cannot apply a late cleanup preview to a different selected conversation', async () => {
+  let resolveA!: (value: unknown) => void;
+  const conversations = ['a', 'b'].map((id) => ({
+    conversationId: id,
+    sandboxName: 'sandbox-' + id,
+    state: 'retained',
+    title: 'Conversation ' + id,
+    account: 'Work',
+    canReviewCleanup: true,
+  }));
+  vi.mocked(readApiJson).mockImplementation(async (path) =>
+    path === '/api/sandboxes'
+      ? { ...snapshot, conversations }
+      : path.includes('/a/')
+        ? new Promise((resolve) => {
+            resolveA = resolve;
+          })
+        : { token: 'b', action: 'none', blockers: ['active_session'] },
+  );
+  mount();
+  await screen.findByText('Conversation a');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[0]);
+  fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[1]);
+  await screen.findByText('Cleanup is blocked: active session.');
+  await act(async () => resolveA({ token: 'a', action: 'delete', blockers: [] }));
+  expect(screen.queryByRole('button', { name: 'Delete retained sandbox' })).toBeNull();
+  expect(screen.getByText('Cleanup is blocked: active session.')).toBeTruthy();
 });

@@ -37,7 +37,11 @@ export interface WarmPoolAdapter {
   scope: string;
   available: boolean;
   reason: string | null;
-  prepare(record: WarmPoolRecord, signal: AbortSignal): Promise<WarmSandbox>;
+  prepare(
+    record: WarmPoolRecord,
+    signal: AbortSignal,
+    created?: (physicalId: string) => void,
+  ): Promise<WarmSandbox>;
   inspect(record: WarmPoolRecord, signal: AbortSignal): Promise<WarmSandbox | undefined>;
   remove(record: WarmPoolRecord, signal: AbortSignal): Promise<void>;
   bind(
@@ -217,7 +221,12 @@ export class OpenShellWarmPool {
       s.records.push(r);
       this.persist(s);
       try {
-        const p = await this.adapter.prepare(r, signal);
+        const p = await this.adapter.prepare(r, signal, (physicalId) => {
+          if (!physicalId || (r.physicalId && r.physicalId !== physicalId))
+            throw Error('Sandbox create receipt identity changed');
+          r.physicalId = physicalId;
+          this.persist(s);
+        });
         this.assertPhysical(r, p);
         r.physicalId = p.id;
         this.persist(s);

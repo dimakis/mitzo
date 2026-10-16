@@ -213,3 +213,15 @@ it('a durable operation lock prevents a second controller from racing a claim', 
   release();
   await expect(claim).rejects.toThrow(/provider/i);
 });
+it('retains an accepted create physical ID when readiness later fails', async () => {
+  const f = fixture();
+  vi.mocked(f.adapter.prepare).mockImplementation(async (_record, _signal, created) => {
+    created?.('accepted-physical-id');
+    throw Error('readiness cancelled');
+  });
+  await expect(f.pool.mutate(f.request('prepare'))).rejects.toThrow(/cancelled/);
+  expect(f.pool.snapshot().spares[0]).toMatchObject({
+    state: 'uncertain',
+    physicalId: 'accepted-physical-id',
+  });
+});

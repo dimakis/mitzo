@@ -1,3 +1,4 @@
+import { createBrowserId } from '../lib/browser-crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
@@ -40,7 +41,8 @@ export function SandboxesView() {
   const mounted = useRef(false),
     inFlight = useRef(false),
     dirtyRef = useRef(false),
-    epoch = useRef(0);
+    epoch = useRef(0),
+    cleanupEpoch = useRef(0);
   const refresh = useCallback(async (signal?: AbortSignal, replaceDraft = false) => {
     const generation = ++epoch.current;
     setRefreshing(true);
@@ -76,7 +78,6 @@ export function SandboxesView() {
     void refresh(controller.signal);
     return () => {
       mounted.current = false;
-      epoch.current++;
       controller.abort();
     };
   }, [refresh]);
@@ -104,7 +105,7 @@ export function SandboxesView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
-          requestId: crypto.randomUUID(),
+          requestId: createBrowserId(),
           revision: action === 'settings' ? revision : data.revision,
           ...extra,
         }),
@@ -135,6 +136,7 @@ export function SandboxesView() {
     }
   };
   const reviewCleanup = async (item: SandboxConversation) => {
+    const generation = ++cleanupEpoch.current;
     setConversation(item);
     setPreview(null);
     setAck(false);
@@ -144,9 +146,10 @@ export function SandboxesView() {
       const next = await readApiJson<SandboxCleanupPreview>(
         '/api/openshell/lifecycle/' + encodeURIComponent(item.conversationId) + '/preview',
       );
-      if (mounted.current) setPreview(next);
+      if (mounted.current && cleanupEpoch.current === generation) setPreview(next);
     } catch (e) {
-      if (mounted.current) setError(e instanceof Error ? e.message : 'Cleanup review unavailable.');
+      if (mounted.current && cleanupEpoch.current === generation)
+        setError(e instanceof Error ? e.message : 'Cleanup review unavailable.');
     }
   };
   const confirmCleanup = async () => {
@@ -495,6 +498,7 @@ export function SandboxesView() {
             }
           }}
         >
+          {error && <p role="alert">{error}</p>}
           {remove ? (
             <>
               <p>
@@ -600,11 +604,13 @@ export function SandboxesView() {
           title={conversation.title}
           onClose={() => {
             if (!busy) {
+              cleanupEpoch.current++;
               setConversation(null);
               setPreview(null);
             }
           }}
         >
+          {error && <p role="alert">{error}</p>}
           <p>
             {conversation.account} · {conversation.state.replaceAll('_', ' ')}
           </p>

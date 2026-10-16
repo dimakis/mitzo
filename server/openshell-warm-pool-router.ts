@@ -48,17 +48,15 @@ export function createWarmPoolRouter(deps: {
       );
       res.json({ ...result, conversations: deps.conversations() });
     } catch (e) {
-      res
-        .status(e instanceof z.ZodError ? 400 : 409)
-        .json({
-          error:
-            e instanceof z.ZodError
-              ? 'Invalid sandbox settings or operation.'
-              : e instanceof Error
-                ? e.message
-                : 'Sandbox operation outcome unknown. Refresh before retrying.',
-          snapshot: pool.snapshot(),
-        });
+      res.status(e instanceof z.ZodError ? 400 : 409).json({
+        error:
+          e instanceof z.ZodError
+            ? 'Invalid sandbox settings or operation.'
+            : e instanceof Error
+              ? e.message
+              : 'Sandbox operation outcome unknown. Refresh before retrying.',
+        snapshot: pool.snapshot(),
+      });
     }
   });
   return router;

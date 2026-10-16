@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -114,7 +115,7 @@ export function createWarmPoolAdapter(
         ? 'Warm pooling requires the ordinary OpenShell CLI runtime. Native seat and shared overrides are not supported.'
         : null,
     inspect,
-    async prepare(record, signal) {
+    async prepare(record, signal, created) {
       assertCurrent();
       if (!adapter.available) throw Error(adapter.reason!);
       const prepared = await prepareSeed(config, signal);
@@ -156,8 +157,19 @@ export function createWarmPoolAdapter(
           output.labels['mitzo.account_provider']
         )
           throw Error('Warm sandbox create identity differs');
-        const observed = await inspect({ ...record, physicalId: output.id }, signal);
-        if (!observed) throw Error('Warm sandbox create outcome unavailable');
+        created?.(output.id);
+        let observed = await inspect({ ...record, physicalId: output.id }, signal);
+        const deadline = Date.now() + 90000;
+        while (
+          observed &&
+          ['Pending', 'Creating', 'Starting'].includes(observed.phase) &&
+          Date.now() < deadline
+        ) {
+          await delay(250, undefined, { signal });
+          observed = await inspect({ ...record, physicalId: output.id }, signal);
+        }
+        if (!observed || observed.phase !== 'Ready')
+          throw Error('Warm sandbox readiness is unverified');
         return observed;
       } finally {
         prepared.cleanup();
@@ -173,6 +185,15 @@ export function createWarmPoolAdapter(
       )
         throw Error('Unclaimed sandbox removal identity differs');
       await run([...base, 'delete', record.name], signal);
+      const deadline = Date.now() + 30000;
+      while (Date.now() < deadline) {
+        const remaining = await inspect(record, signal);
+        if (!remaining) return;
+        if (remaining.id !== record.physicalId || remaining.providers.length)
+          throw Error('Sandbox identity changed during removal');
+        await delay(250, undefined, { signal });
+      }
+      throw Error('Sandbox removal outcome is not confirmed');
     },
     async bind(record, provider, signal, seed, services = []) {
       if (
