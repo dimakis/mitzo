@@ -239,7 +239,7 @@ export function createWarmPoolAdapter(
       }
       throw Error('Sandbox removal outcome is not confirmed');
     },
-    async bind(record, provider, signal, seed, services = []) {
+    async bind(record, provider, signal, seed, services = [], recovering = false) {
       assertCurrent();
       if (record.scope !== scope || !hasWarmPoolRuntimeAuthority(record, adapter))
         throw Error('Warm sandbox claim recipe differs');
@@ -250,17 +250,22 @@ export function createWarmPoolAdapter(
         !record.physicalId
       )
         throw Error('Durable claim required before account attachment');
+      const desired = [...new Set([provider, ...services])];
+      const allowed = (names: string[]) =>
+        recovering ? names.every((x) => desired.includes(x)) : names.length === 0;
       const initial = await inspect(record, signal);
-      if (!initial || initial.providers.length || initial.phase !== 'Ready')
+      if (!initial || !allowed(initial.providers) || initial.phase !== 'Ready')
         throw Error('Claim requires a provider-free Ready sandbox');
       const prepared = seed ? { seed, cleanup: () => {} } : await prepareSeed(config, signal);
       try {
+        assertCurrent();
+        signal.throwIfAborted();
         await run([...base, 'upload', record.name, prepared.seed, '/sandbox/workspaces'], signal);
         const before = await inspect(record, signal);
-        if (!before || before.id !== record.physicalId || before.providers.length)
+        if (!before || before.id !== record.physicalId || !allowed(before.providers))
           throw Error('Claim upload identity changed');
-        const desired = [...new Set([provider, ...services])];
-        for (const name of desired)
+        assertCurrent();
+        for (const name of desired.filter((x) => !before.providers.includes(x)))
           await run([...base, 'provider', 'attach', record.name, name], signal);
         const after = await inspect(record, signal);
         if (

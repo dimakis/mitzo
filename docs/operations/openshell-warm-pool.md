@@ -113,6 +113,23 @@ never re-enters the spare pool, even on failed initialization or cancellation.
 Account-scoped connection cleanup resolves this durable account through the same
 gateway/workspace and a fresh exact physical-origin check. Missing authority
 blocks partial cleanup rather than stopping another account's conversation.
+A failed initial workspace upload, provider attachment or final claim inspection
+keeps the resource assigned to its original conversation/account. A normal
+retry of that conversation may finish this pre-initialization binding in place:
+it rechecks the original recipe, runtime authority, physical ID and exact allowed
+provider subset under the exclusive controller. Only missing allowed providers
+are attached, and the complete final set must be observed before native startup.
+No model/client has started in this uncertain claim phase; initialized/claimed
+resources never enter this seed retry. Changed account, recipe, physical identity,
+extra providers, cancellation or unavailable authority remains blocked and owned.
+Inventory reads never trigger recovery. No failed claim is recycled or replaced.
+
+Usage telemetry separately joins physical list observations to exact durable
+conversation ownership across account IDs. It includes owned uncertain claims as
+physical usage, excludes neutral/foreign spares, and reports identity failures
+rather than silently dropping a substituted resource. This read-only projection
+confers no account-bound execution or cleanup authority.
+
 Do not edit the ledger or gateway labels to repair uncertainty.
 
 Preparation freezes and verifies the configured shared knowledge seed into a

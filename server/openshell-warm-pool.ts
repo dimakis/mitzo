@@ -58,6 +58,7 @@ export interface WarmPoolAdapter {
     signal: AbortSignal,
     seed?: string,
     providers?: readonly string[],
+    recovering?: boolean,
   ): Promise<void>;
 }
 /** Legacy rows without authority may only use their exact original recipe. Never
@@ -408,6 +409,66 @@ export class OpenShellWarmPool {
     if (error) throw error;
     return response;
   }
+  /** Finish only the original pre-initialization binding. Never recycle or
+   * replace a failed claim, and never recover across a changed recipe/account. */
+  private async recoverClaim(
+    original: WarmPoolRecord,
+    provider: string,
+    signal: AbortSignal,
+    seed: string | undefined,
+    providers: readonly string[] | undefined,
+    connectionAccountId: string | undefined,
+  ) {
+    signal.throwIfAborted();
+    if (!this.adapter.available) throw Error(this.adapter.reason ?? 'Warm pool unavailable');
+    const s = this.reserve();
+    const record = s.records.find((x) => x.id === original.id);
+    try {
+      if (
+        !record ||
+        record.state !== 'uncertain' ||
+        !record.physicalId ||
+        record.conversationId !== original.conversationId ||
+        record.provider !== provider ||
+        (record.connectionAccountId ?? null) !== (connectionAccountId ?? null) ||
+        record.scope !== this.adapter.scope ||
+        !hasWarmPoolRuntimeAuthority(record, this.adapter)
+      )
+        throw Error(
+          'Warm claim recovery requires its original account, physical identity and recipe',
+        );
+      const desired = [...new Set([provider, ...(providers ?? [])])];
+      const actual = await this.adapter.inspect(record, signal);
+      this.assertPhysical(record, actual, false);
+      if (actual?.phase !== 'Ready' || actual.providers.some((x) => !desired.includes(x)))
+        throw Error('Warm claim recovery physical/provider identity is unverified');
+      signal.throwIfAborted();
+      record.state = 'claiming';
+      this.persist(s);
+      await this.adapter.bind(record, provider, signal, seed, providers, true);
+      const after = await this.adapter.inspect(record, signal);
+      this.assertPhysical(record, after, false);
+      if (
+        after?.phase !== 'Ready' ||
+        after.providers.length !== desired.length ||
+        desired.some((x) => !after.providers.includes(x))
+      )
+        throw Error('Warm claim recovery attachment result is unverified');
+      record.state = 'claimed';
+      record.failure = null;
+      this.persist(s);
+      return structuredClone(record);
+    } catch (error) {
+      if (record) {
+        record.state = 'uncertain';
+        record.failure = error instanceof Error ? error.message : 'Claim recovery outcome unknown';
+        this.persist(s);
+      }
+      throw error;
+    } finally {
+      this.finish(s);
+    }
+  }
   async claim(
     conversationId: string,
     provider: string,
@@ -422,6 +483,8 @@ export class OpenShellWarmPool {
         throw Error('Warm sandbox runtime authority differs');
       if ((existing.connectionAccountId ?? null) !== (connectionAccountId ?? null))
         throw Error('Warm sandbox connection account binding differs');
+      if (existing.state === 'uncertain')
+        return this.recoverClaim(existing, provider, signal, seed, providers, connectionAccountId);
       if (existing.state !== 'claimed')
         throw Error('Prior sandbox claim is uncertain; preserve the conversation.');
       return existing;
@@ -455,7 +518,12 @@ export class OpenShellWarmPool {
       await this.adapter.bind(record, provider, signal, seed, providers);
       const after = await this.adapter.inspect(record, signal);
       this.assertPhysical(record, after, false);
-      if (after?.phase !== 'Ready' || !after.providers.includes(provider))
+      const desired = [...new Set([provider, ...(providers ?? [])])];
+      if (
+        after?.phase !== 'Ready' ||
+        after.providers.length !== desired.length ||
+        desired.some((x) => !after.providers.includes(x))
+      )
         throw Error('Sandbox claim provider attachment is unverified');
       record.state = 'claimed';
       this.persist(s);

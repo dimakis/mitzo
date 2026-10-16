@@ -1,5 +1,7 @@
 import {
   warmPoolConversationName,
+  recoverWarmPoolClaim,
+  projectWarmPoolInventoryOwnership,
   projectWarmPoolOwnership,
   claimWarmPoolForCommand,
   warmPoolCreateResources,
@@ -1573,12 +1575,14 @@ export class OpenShellRuntimeManager {
           throw new Error('OpenShell sandbox pagination repeated a token');
         if (token) seen.add(token);
       } while (token);
-      return sandboxes.filter(
-        (sandbox) =>
-          sandbox.labels?.['mitzo.conversation'] &&
-          sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
-          sandbox.workspace === this.config.workspace,
-      );
+      return sandboxes
+        .map((sandbox) => projectWarmPoolInventoryOwnership(this.config, sandbox))
+        .filter(
+          (sandbox) =>
+            sandbox.labels?.['mitzo.conversation'] &&
+            sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+            sandbox.workspace === this.config.workspace,
+        );
     }
     const limit = 100;
     for (let offset = 0; ; offset += limit) {
@@ -1603,12 +1607,14 @@ export class OpenShellRuntimeManager {
       sandboxes.push(...page);
       if (page.length < limit) break;
     }
-    return sandboxes.filter(
-      (sandbox) =>
-        sandbox.labels?.['mitzo.conversation'] &&
-        sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
-        (!sandbox.workspace || sandbox.workspace === this.config.workspace),
-    );
+    return sandboxes
+      .map((sandbox) => projectWarmPoolInventoryOwnership(this.config, sandbox))
+      .filter(
+        (sandbox) =>
+          sandbox.labels?.['mitzo.conversation'] &&
+          sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+          (!sandbox.workspace || sandbox.workspace === this.config.workspace),
+      );
   }
 
   /** Read the current physical sandbox for a lifecycle record.  This keeps
@@ -2017,6 +2023,11 @@ export class OpenShellRuntimeManager {
   async ensure(
     ...args: Parameters<OpenShellRuntimeManager['ensureUnserialized']>
   ): Promise<OpenShellRuntime> {
+    await recoverWarmPoolClaim(this.config, args[0], args[1], args[3]?.seed, args[2], async () => {
+      this.config.verifyAccountProviderUnion?.();
+      await this.verifyAccountProvider(args[1]);
+      this.config.verifyAccountProviderUnion?.();
+    });
     const current = this.nameForConversation(args[0]);
     const legacy = legacySandboxNameForConversation(
       createHash('sha256').update(args[0]).digest('hex'),

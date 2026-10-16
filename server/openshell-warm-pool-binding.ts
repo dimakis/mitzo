@@ -73,6 +73,95 @@ export function projectWarmPoolOwnership<
     },
   };
 }
+/** Read-only telemetry may project physical usage across account IDs. This is
+ * deliberately separate from the account-bound execution ownership check above. */
+export function projectWarmPoolInventoryOwnership<
+  T extends {
+    id?: string;
+    name: string;
+    workspace?: string;
+    labels?: Record<string, string>;
+  },
+>(config: BoundOpenShellRuntimeConfig, sandbox: T): T {
+  const id = sandbox.labels?.['mitzo.warm_pool'];
+  if (!id) return sandbox;
+  if (sandbox.labels?.['mitzo.conversation'] || sandbox.labels?.['mitzo.account_provider'])
+    throw Error('Warm inventory physical ownership labels conflict');
+  const record = pool?.snapshot().owned.find((x) => x.id === id);
+  if (!record || record.provider !== config.account.provider) return sandbox;
+  if (
+    !record.conversationId ||
+    !record.physicalId ||
+    record.name !== sandbox.name ||
+    record.physicalId !== sandbox.id ||
+    sandbox.workspace !== config.workspace ||
+    !hasWarmPoolRuntimeAuthority(record, {
+      scope: warmPoolScope(config),
+      runtimeAuthority: warmPoolRuntimeAuthority(config),
+    })
+  )
+    throw Error('Warm inventory physical/runtime identity differs');
+  return {
+    ...sandbox,
+    labels: {
+      ...sandbox.labels,
+      'mitzo.conversation': createHash('sha256')
+        .update(record.conversationId)
+        .digest('hex')
+        .slice(0, 63),
+      'mitzo.account_provider': record.provider,
+      ...(record.connectionAccountId
+        ? { 'mitzo.connection_account': record.connectionAccountId }
+        : {}),
+    },
+  };
+}
+/** A normal authorized ensure can retry binding the original resource before
+ * native initialization. It cannot allocate, transfer or recycle ownership. */
+export async function recoverWarmPoolClaim(
+  config: BoundOpenShellRuntimeConfig,
+  conversationId: string,
+  signal: AbortSignal,
+  seed: string | undefined,
+  expected: { sandboxName: string; sandboxId: string } | undefined,
+  beforeRecovery: () => Promise<void>,
+) {
+  const record = pool?.snapshot().owned.find((x) => x.conversationId === conversationId);
+  if (
+    !pool ||
+    !record ||
+    record.state === 'claimed' ||
+    (config.sandboxNameOverride && config.sandboxNameOverride !== record.name)
+  )
+    return;
+  if (
+    record.state !== 'uncertain' ||
+    config.cliContract ||
+    config.artifactDriverConfig ||
+    config.accountProviderBindings?.length ||
+    config.account.kind !== 'api' ||
+    record.provider !== config.account.provider ||
+    (record.connectionAccountId ?? null) !== (config.connectionAccountId ?? null) ||
+    record.scope !== warmPoolScope(config) ||
+    record.scope !== pool.adapter.scope ||
+    !hasWarmPoolRuntimeAuthority(record, {
+      scope: warmPoolScope(config),
+      runtimeAuthority: warmPoolRuntimeAuthority(config),
+    }) ||
+    (expected && (expected.sandboxName !== record.name || expected.sandboxId !== record.physicalId))
+  )
+    throw Error('Warm claim recovery account/physical binding is unverified');
+  signal.throwIfAborted();
+  await beforeRecovery();
+  await pool.claim(
+    conversationId,
+    config.account.provider,
+    signal,
+    seed,
+    config.serviceProviders,
+    config.connectionAccountId,
+  );
+}
 export async function claimWarmPoolForCommand(
   config: BoundOpenShellRuntimeConfig,
   conversationId: string,
