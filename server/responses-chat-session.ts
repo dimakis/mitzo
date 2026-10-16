@@ -122,7 +122,12 @@ export function getNativeResponsesStore() {
 interface Options {
   agentProfile?: AgentLibraryVersion;
   /** Trusted offline seam, never client input. */
-  configuredTools?: ConfiguredCatalogOptions & { catalog: ConfiguredToolCatalog };
+  configuredTools?: Pick<
+    ConfiguredCatalogOptions,
+    'readSources' | 'connect' | 'assertRuntimeCurrent'
+  > & { catalog: ConfiguredToolCatalog };
+  /** Server-owned configured-source environment, independent of session variables. */
+  configuredSourceEnv?: Record<string, string>;
   commandAuthority?: ResponsesCommandAuthority;
   /** Server-owned initial/retained command fence before the first active turn exists. */
   assertStartupCurrent?: () => void;
@@ -221,9 +226,14 @@ export async function openResponsesChat(options: Options) {
   }
   const configuredRefs =
     agentProfile?.definition.tools?.filter((ref) => ref.id.startsWith('mcp:')) ?? [];
+  const configuredSourceEnv = options.configuredSourceEnv;
+  if (configuredRefs.length && !configuredSourceEnv) {
+    dispose();
+    throw Error('Configured source launch environment is unavailable');
+  }
   const configuredOptions: ConfiguredCatalogOptions = {
     cwd: options.session.cwd!,
-    env: options.env,
+    env: { ...(configuredSourceEnv ?? options.env) },
     signal,
     readSources: options.configuredTools?.readSources ?? loadMcpServers,
     connect: options.configuredTools?.connect,

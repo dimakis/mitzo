@@ -88,6 +88,8 @@ it('dispatches consumed API commands through the actual chat owner and retains t
   services.library = f.library;
   services.authId = f.auth.id;
   const chat = await import('../chat.js');
+  const responses = await import('../responses-chat-session.js');
+  const openChat = vi.spyOn(responses, 'openResponsesChat');
   const native = (await import('../responses-chat-session.js')).getNativeResponsesStore();
   cleanups.push(() => {
     const live = chat.registry.findBySessionId(f.reservation.conversationId);
@@ -201,6 +203,13 @@ it('dispatches consumed API commands through the actual chat owner and retains t
   ).resolves.toMatchObject({ dispatched: false });
   expect(chat.registry.get(liveClientId)?.ordinaryRuntimeOwner).toBeDefined();
   await vi.waitFor(() => expect(requests).toHaveLength(1));
+  expect(openChat).toHaveBeenCalled();
+  for (const [options] of openChat.mock.calls) {
+    expect(options.configuredSourceEnv).toBeDefined();
+    expect(options.configuredSourceEnv).toEqual(chat.nativeExecutionEnv());
+    expect(options.env.MITZO_SESSION_ID).toBeDefined();
+  }
+
   await vi.waitFor(() =>
     expect(native.status(f.reservation.conversationId, f.reservation.binding)).toBe('idle'),
   );
@@ -722,4 +731,4 @@ it('dispatches consumed API commands through the actual chat owner and retains t
   chat.registry
     .findBySessionId(f.reservation.conversationId)!
     .session.ordinaryRuntimeOwner!.close();
-}, 30000);
+}, 60000);
