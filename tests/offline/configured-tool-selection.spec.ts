@@ -53,6 +53,10 @@ for (const theme of ['dark', 'light'])
     let discovered = false;
     let refreshes = 0;
     let toolReads = 0;
+    let releaseCancellation!: () => void;
+    const cancellation = new Promise<void>((resolve) => {
+      releaseCancellation = resolve;
+    });
     let releaseFirstRead!: () => void;
     const firstRead = new Promise<void>((resolve) => {
       releaseFirstRead = resolve;
@@ -93,11 +97,24 @@ for (const theme of ['dark', 'light'])
       if (url.pathname === '/api/agent-library/tools/refresh') {
         expect(route.request().method()).toBe('POST');
         expect(route.request().postDataJSON()).toEqual({});
-        if (++refreshes === 1)
+        const attempt = ++refreshes;
+        if (attempt === 1)
           return route.fulfill({ status: 503, json: { error: 'Discovery fixture unavailable' } });
         await waiting;
+        if (attempt === 4) await cancellation;
         discovered = true;
-        return route.fulfill({ json: { tools: [...catalogFixture, ...configured] } });
+        const refreshed = configured.map((tool, i) =>
+          attempt >= 3 && i === 0
+            ? {
+                ...tool,
+                routes: [],
+                requirement: 'Configured source disabled; new session required.',
+              }
+            : tool,
+        );
+        return route
+          .fulfill({ json: { tools: [...catalogFixture, ...refreshed] } })
+          .catch(() => {});
       }
       if (url.pathname === '/api/agent-library/tools') {
         if (++toolReads === 1) await firstRead;
@@ -197,5 +214,18 @@ for (const theme of ['dark', 'light'])
     ]);
     await page.getByRole('button', { name: 'Export profile', exact: true }).click();
     await expect(page.getByLabel('Portable profile export')).toContainText(configured[0].revision);
+    await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+    await refresh.click();
+    await expect(card).toContainText('Selection unavailable');
+    await card.locator('.tool-library-details > summary').click();
+    await expect(card).toContainText('Configured source disabled; new session required.');
+    await refresh.click();
+    await page.getByRole('button', { name: 'Cancel discovery', exact: true }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Discovery cancelled' })).toBeVisible();
+    await expect(refresh).toBeFocused();
+    releaseCancellation();
+    expect(catalog.versions[0].definition.tools).toEqual([
+      { id: configured[0].id, version: 1, revision: configured[0].revision },
+    ]);
     expect(errors).toEqual([]);
   });
