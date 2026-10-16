@@ -15,7 +15,10 @@ function setup() {
   const path = join(root, 'telos.db');
   const db = new Database(path);
   db.exec(
-    `CREATE TABLE items(id TEXT PRIMARY KEY,parent_id TEXT REFERENCES items(id),summary TEXT,updated_at TEXT); INSERT INTO items VALUES('item',NULL,'Item','original');`,
+    `CREATE TABLE items(id TEXT PRIMARY KEY,parent_id TEXT REFERENCES items(id),summary TEXT,updated_at TEXT,status TEXT DEFAULT 'active',acceptance_criteria TEXT DEFAULT '[]');
+     INSERT INTO items(id,parent_id,summary,updated_at) VALUES('item',NULL,'Item','original');
+     CREATE TABLE sources(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,url TEXT,title TEXT,raw_snippet TEXT,timestamp TEXT);
+     CREATE TABLE links(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,url TEXT,title TEXT,description TEXT,created_at TEXT);`,
   );
   db.close();
   const dbPath = vi.fn(() => path);
@@ -53,6 +56,42 @@ describe('authorized Telos work API', () => {
         .status,
     ).toBe(403);
     expect(f.dbPath).not.toHaveBeenCalled();
+  });
+  it('protects the complete record read before opening canonical data and returns only the selected item', async () => {
+    const f = setup();
+    const path = '/api/telos/work/items/item/record';
+    expect((await request(f.app).get(path)).status).toBe(403);
+    expect((await request(f.app).get(path).set('x-internal-token', 'host')).status).toBe(403);
+    expect(f.dbPath).not.toHaveBeenCalled();
+    const response = await request(f.app).get(path).set('x-operator', 'authenticated');
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('private, no-store');
+    expect(response.body).toMatchObject({
+      itemId: 'item',
+      summary: 'Item',
+      status: 'active',
+      kind: null,
+      categories: [],
+      createdAt: null,
+      updatedAt: 'original',
+      sources: [],
+      links: [],
+    });
+    expect(
+      (
+        await request(f.app)
+          .get('/api/telos/work/items/missing/record')
+          .set('x-operator', 'authenticated')
+      ).status,
+    ).toBe(404);
+    const db = new Database(f.dbPath());
+    db.prepare("UPDATE items SET acceptance_criteria=? WHERE id='item'").run(
+      '{private invalid data',
+    );
+    db.close();
+    const invalid = await request(f.app).get(path).set('x-operator', 'authenticated');
+    expect(invalid.status).toBe(503);
+    expect(invalid.text).not.toContain('private invalid data');
   });
   it('reads, links and replays using host identity while rejecting caller-selected actors and stale writes', async () => {
     const f = setup();
