@@ -8,6 +8,9 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   page,
   isMobile,
 }, testInfo) => {
+  // This full-app journey captures four appearance combinations and large-text states.
+  // CI WebKit reached the final chat checks at 30s; allow a bounded journey budget.
+  test.setTimeout(60_000);
   const definition = {
     name: 'Bob',
     descriptor: 'The architect',
@@ -105,6 +108,47 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       return route.fulfill({ json: saved });
     }
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/agent-library/tools')
+        return route.fulfill({
+          json: {
+            tools: [
+              {
+                id: 'mitzo:Read',
+                version: 1,
+                name: 'Read',
+                description: 'Read a UTF-8 workspace file.',
+                source: 'Workspace',
+                required: false,
+                behavior: 'read',
+                routes: ['local-api'],
+                requirement: 'Workspace permissions apply.',
+              },
+              {
+                id: 'mitzo:ConnectionRequest',
+                version: 1,
+                name: 'ConnectionRequest',
+                description: 'Make a connection request.',
+                source: 'Connections',
+                required: false,
+                behavior: 'mixed',
+                routes: ['local-api'],
+                requirement:
+                  'No active service connection is configured. Set one up in Connections; each new session still requires approval.',
+              },
+              {
+                id: 'mitzo:AskUserQuestion',
+                version: 1,
+                name: 'AskUserQuestion',
+                description: 'Ask a structured question.',
+                source: 'Platform',
+                required: true,
+                behavior: 'interaction',
+                routes: ['local-api'],
+                requirement: 'Questions grant no access.',
+              },
+            ],
+          },
+        });
       if (url.pathname === '/api/agent-library') {
         if (catalogMode === 'loading')
           await new Promise<void>((resolve) => {
@@ -353,6 +397,22 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await advisor.getByRole('button', { name: 'Agent advisor', exact: true }).click();
   expect(adviceCalls).toBe(2);
   await page.screenshot({ path: testInfo.outputPath('agent-library.png'), fullPage: true });
+  await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+  await expect(page.getByText(/Legacy behavior: this profile/)).toBeVisible();
+  await page.getByRole('button', { name: 'Choose specific tools', exact: true }).click();
+  await expect(page.getByText(/No optional tools selected/)).toBeVisible();
+  await page.getByRole('button', { name: 'Add tools', exact: true }).click();
+  await page.getByRole('searchbox', { name: 'Search tools', exact: true }).fill('read');
+  await page.getByRole('button', { name: 'Add Read', exact: true }).click();
+  await page.getByRole('searchbox', { name: 'Search tools', exact: true }).fill('connection');
+  await expect(page.getByText(/No active service connection is configured/)).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search tools', exact: true }).press('Escape');
+  await expect(page.getByRole('button', { name: 'Add tools', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Remove Read', exact: true }).click();
+  await page.getByRole('button', { name: 'Add tools', exact: true }).click();
+  await page.getByRole('searchbox', { name: 'Search tools', exact: true }).fill('read');
+  await page.getByRole('button', { name: 'Add Read', exact: true }).click();
+  await page.getByRole('button', { name: 'Done adding tools', exact: true }).click();
   await page.getByRole('tab', { name: 'Context', exact: true }).click();
   await expect(page.getByText(/local chats and supported OpenShell sandboxes/)).toBeVisible();
   await page.getByLabel('Compile chat context').check();
@@ -391,6 +451,9 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.reload();
   await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The systems architect');
+  await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove Read', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Identity', exact: true }).click();
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await page.getByRole('button', { name: 'Publish revision', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Use in session', exact: true })).toHaveAttribute(
@@ -413,6 +476,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.getByRole('button', { name: 'Export profile', exact: true }).click();
   await expect(page.getByLabel('Portable profile export')).toContainText('The systems architect');
   await expect(page.getByLabel('Portable profile export')).toContainText('contextRecipe');
+  await expect(page.getByLabel('Portable profile export')).toContainText('mitzo:Read');
   await expect(page.getByLabel('Portable profile export')).not.toContainText('payloadHash');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
@@ -454,6 +518,30 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       );
       await page.goto('/agent-library');
       await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+      await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+      await page.getByRole('searchbox', { name: 'Search tool library', exact: true }).fill('Read');
+      await page.getByText('Profiles using this tool', { exact: true }).click();
+      await expect(page.getByRole('region', { name: 'Tool library', exact: true })).toContainText(
+        'Robert',
+      );
+      await page.screenshot({
+        path: testInfo.outputPath(`tool-library-${theme}-${accent}-${font}.png`),
+        animations: 'disabled',
+      });
+      await page.getByRole('button', { name: 'Agent library', exact: true }).click();
+      await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+      await page.getByRole('button', { name: 'Add tools', exact: true }).click();
+      await page.getByRole('searchbox', { name: 'Search tools', exact: true }).fill('Connection');
+      await page.getByRole('searchbox', { name: 'Search tools', exact: true }).focus();
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
+      await page.screenshot({
+        path: testInfo.outputPath(`agent-tools-${theme}-${accent}-${font}.png`),
+        animations: 'disabled',
+      });
+      await page.getByRole('searchbox', { name: 'Search tools', exact: true }).press('Escape');
+      await page.getByRole('tab', { name: 'Identity', exact: true }).click();
       await page.getByRole('button', { name: 'Create with advisor', exact: true }).click();
       await expect(page.getByLabel('Ask agent advisor')).toBeVisible();
       await page.getByLabel('Ask agent advisor').focus();
@@ -600,7 +688,9 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByRole('alert')).toContainText('Offline Library unavailable');
   catalogMode = 'loading';
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('status')).toContainText('Loading Agent Library');
+  await expect(page.getByRole('status').filter({ hasText: 'Loading Agent Library' })).toHaveText(
+    'Loading Agent Library…',
+  );
   await expect.poll(() => typeof releaseCatalog).toBe('function');
   catalogMode = 'content';
   releaseCatalog!();

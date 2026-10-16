@@ -41,7 +41,14 @@ const definition = {
   modelPolicyRole: 'reviewer',
 };
 const published = { profileId: 'bob', revision: 3, definition, contentHash: 'a'.repeat(64) };
-const response = (body: unknown, ok = true) => ({ ok, json: async () => body }) as Response;
+const response = (body: unknown, ok = true) =>
+  ({
+    ok,
+    json: async () =>
+      body && typeof body === 'object' && 'drafts' in body && 'versions' in body
+        ? { ...body, tools: [] }
+        : body,
+  }) as Response;
 function setup() {
   vi.mocked(apiFetch).mockImplementation(async (path) =>
     response(path === '/api/agent-tasks' ? [] : { drafts: [], versions: [published] }),
@@ -845,4 +852,25 @@ it('retains incomplete execution choices when switching between saved tasks', as
   expect(
     JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!).runtime.account,
   ).toBeNull();
+});
+
+it('preserves task input through the accepted Tool library view and retains the profile Tools editor', async () => {
+  setup();
+  await screen.findByDisplayValue('Bob');
+  fireEvent.click(screen.getByRole('button', { name: 'Assign task' }));
+  fireEvent.change(await screen.findByLabelText('Objective'), {
+    target: { value: 'Retain through tool browsing' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Tool library' }));
+  expect(screen.getByRole('heading', { name: 'Tool library' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'New agent' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Agent library' }));
+  expect(screen.getByLabelText('Objective')).toHaveProperty(
+    'value',
+    'Retain through tool browsing',
+  );
+  fireEvent.click(screen.getByRole('tab', { name: 'Profiles' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Tools' }));
+  expect(screen.getByRole('button', { name: 'Choose specific tools' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Use as reviewer' })).toBeNull();
 });

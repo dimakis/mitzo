@@ -365,3 +365,18 @@ it('refuses a compiled preview whose operator session is revoked during compilat
     .expect(403);
   expect(response.body.compiledContext).toBeUndefined();
 });
+
+it('serves the real tool inventory only to operators and routes it to the retained owner', async () => {
+  expect((await request(app(false)).get('/api/agent-library/tools')).status).toBe(403);
+  const response = await request(app()).get('/api/agent-library/tools');
+  expect(response.status).toBe(200);
+  expect(response.body.tools).toContainEqual(
+    expect.objectContaining({ id: 'mitzo:Read', required: false }),
+  );
+  expect(response.body.tools).toContainEqual(
+    expect.objectContaining({ name: 'AskUserQuestion', required: true }),
+  );
+  expect(selectCustodianOperation('GET', '/api/agent-library/tools')?.operation).toBe(
+    'library.tools',
+  );
+});

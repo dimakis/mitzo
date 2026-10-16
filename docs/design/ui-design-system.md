@@ -763,3 +763,27 @@ is opened. A newer saved task revision leaves those choices intact until explici
 Reload saved task; catalog hydration/review changes no task revision or retry key.
 Native task selects reuse the context editor's explicit token-based height because
 WebKit ignores their minimum height; offline geometry checks require 44px targets.
+
+## Agent tool selection
+
+Agent Library keeps its advisor above the editor. The Tools tab and Tool library
+view reuse the existing collection heading, tabs, form controls and grouped quiet
+rows. The inline picker uses MotionPresence, labelled search and Add/Remove
+actions, Escape/Done focus return and the existing control-height touch targets.
+Colors, type, spacing, focus and radii come from tokens.css. Compatibility and
+connection requirements are visible beside each tool; selection does not grant
+access. Offline Agent Library fixtures cover selection recovery, publication,
+exports, usage references and the picker at 320px and desktop across light/dark
+themes with Lavender/System and Teal/Georgia.
+
+The Tool library keeps profile creation actions in the Agent library view. Profile
+usage remains unavailable while its catalog loads or fails; the shared status and
+error patterns show loading or an explicit Retry profiles action before usage
+references or an empty result appear. The actual-page offline review fixture
+`tests/offline/agent-tool-library-review.spec.ts` covers pending, failed, retried,
+referenced and unreferenced states on 320px mobile WebKit/Chromium and 1280px
+desktop Chromium in both themes, Lavender/System and Teal/Georgia. Inspected
+captures show the [mobile profile usage error and retry](assets/tool-library-profile-error-mobile.png)
+and [desktop profile usage loading state](assets/tool-library-profile-loading-desktop.png).
+These isolated renders use intercepted requests and no backend or model. The
+full-app Agent Library fixture retains its separate CI acceptance journey.

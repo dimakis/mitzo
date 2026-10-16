@@ -26,8 +26,8 @@
   text-decoration: none;
 }
 .agent-library-page .btn-primary {
-  background: var(--color-panel);
-  color: var(--color-text);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 .agent-library-page button:disabled {
   opacity: 0.5;
@@ -401,4 +401,45 @@
 }
 .agent-library-page [hidden] {
   display: none;
+}
+.agent-tool-row {
+  display: flex;
+  align-items: start;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
+}
+.agent-tool-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.agent-tool-row h2 {
+  font-size: var(--text-base);
+  margin: 0;
+}
+.agent-tool-row p {
+  margin: var(--space-2) 0;
+}
+.agent-tool-row small {
+  color: var(--color-muted);
+}
+.agent-tool-row > button {
+  flex-shrink: 0;
+}
+.agent-tool-row summary {
+  min-height: var(--control-height);
+  cursor: pointer;
+}
+.agent-tool-picker {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.agent-library-page .btn-primary {
+  background: var(--color-panel);
+  color: var(--color-accent);
+}
+.agent-library-page .agent-library-actions button {
+  font-size: var(--text-sm);
 }
