@@ -64,6 +64,12 @@ vi.mock('../../lib/symposium-delivery-actions', async (importOriginal) => {
   return { ...actual, getSymposiumDeliveryActions: vi.fn() };
 });
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
   vi.mocked(getSymposiumDeliveryActions).mockReturnValue(createSymposiumDeliveryActions());
 });
 vi.mock('../SymposiumAccessRequests', () => ({
@@ -80,18 +86,23 @@ vi.mock('../ChatArea', () => ({
     messages,
     contextItems = [],
     onShareMessage,
+    canShareMessage,
     afterMessages,
   }: {
     afterMessages?: import('react').ReactNode;
     messages: { messageId: string; symposiumProvenance?: { membershipGeneration: number } }[];
     contextItems?: { deliveryId: string; receipt: string }[];
     onShareMessage?: (messageId: string, provenance?: { membershipGeneration: number }) => void;
+    canShareMessage?: (message: {
+      messageId: string;
+      symposiumProvenance?: { membershipGeneration: number };
+    }) => boolean;
   }) => (
     <div data-testid="rich-chat">
       {messages.map((message) => (
         <div key={message.messageId}>
           {message.messageId}
-          {onShareMessage && (
+          {onShareMessage && (!canShareMessage || canShareMessage(message)) && (
             <button onClick={() => onShareMessage(message.messageId, message.symposiumProvenance)}>
               Share excerpt
             </button>
@@ -206,6 +217,39 @@ const chat = {
   onPermissionRespond: vi.fn(),
 };
 
+it('composes the approved participant header and ordinary input without recipient forms or transcript tabs', async () => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(String(url).endsWith('/status') ? status : page),
+  );
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryComposer={null}
+      conversationLayout={{
+        settings: <span>Retained settings</span>,
+        actions: <button>Access</button>,
+      }}
+    />,
+  );
+  const agents = await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' });
+  expect(screen.queryByRole('tablist', { name: 'Symposium conversations' })).toBeNull();
+  expect(screen.queryByRole('combobox', { name: 'Message recipient' })).toBeNull();
+  expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Access' })).toBeTruthy();
+  fireEvent.click(agents);
+  const dialog = screen.getByRole('dialog', { name: 'Agents' });
+  expect(within(dialog).getAllByRole('checkbox', { name: 'Replies by default' })).toHaveLength(2);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Chat settings' }));
+  expect(screen.getByText('Retained settings')).toBeTruthy();
+});
+
 it('mounts main access-request controls for the current Symposium conversation across navigation', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) =>
     json(
@@ -222,6 +266,263 @@ it('mounts main access-request controls for the current Symposium conversation a
   await waitFor(() =>
     expect(screen.getByTestId('access-request-session').textContent).toBe('other'),
   );
+});
+
+it('keeps the approved header and Access reachable while native status is pending', async () => {
+  vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryExcluded
+      ordinaryComposer={null}
+      conversationLayout={{ settings: null, actions: <button>Access</button> }}
+    />,
+  );
+  expect(await screen.findByRole('button', { name: 'Agents' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Access' })).toBeTruthy();
+  expect(
+    (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).disabled,
+  ).toBe(true);
+});
+
+it('retains explicit excerpt sharing in the approved shared discussion without changing composer recipients', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(String(url).endsWith('/status') ? status : page),
+  );
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryComposer={null}
+      conversationLayout={{ settings: null, actions: null }}
+    />,
+  );
+  await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' });
+  fireEvent.click((await screen.findAllByRole('button', { name: 'Share excerpt' }))[0]);
+  expect(screen.getByRole('textbox', { name: 'Excerpt to share' })).toBeTruthy();
+  expect(screen.getByText('Share only this excerpt from Architect')).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    0,
+  );
+});
+
+it('keeps a native recipient draft when the host header is confirmed after status has loaded', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(String(url).endsWith('/status') ? status : page),
+  );
+  const props = { sessionId: 'session', chat, ordinaryComposer: null };
+  const view = render(
+    <SymposiumConversation
+      {...props}
+      conversationLayout={{ settings: null, actions: null, showHeader: false }}
+    />,
+  );
+  const choose = await screen.findByRole('button', { name: 'Choose who replies' });
+  expect(screen.queryByRole('button', { name: 'Agents, Architect, Reviewer' })).toBeNull();
+  fireEvent.click(choose);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
+    target: { value: 'Keep the pending metadata draft' },
+  });
+  view.rerender(
+    <SymposiumConversation
+      {...props}
+      conversationLayout={{ settings: null, actions: null, showHeader: true }}
+    />,
+  );
+  await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' });
+  expect(
+    (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
+  ).toBe('Keep the pending metadata draft');
+});
+
+it('previews a retained agent independently without switching the discussion or composer target', async () => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).endsWith('/status')
+        ? status
+        : String(url).includes('kind=seat')
+          ? {
+              ...page,
+              items: [
+                page.items[0],
+                {
+                  ...page.items[1],
+                  deliveryId: 'preview-prompt',
+                  recipientSeatId: 'architect',
+                  sourceSeatId: null,
+                  sourceMessageId: null,
+                },
+                {
+                  ...page.items[1],
+                  deliveryId: 'preview-excerpt',
+                  recipientSeatId: 'architect',
+                  receipt: 'uncertain',
+                },
+                { ...page.items[1], deliveryId: 'other-agent-input', recipientSeatId: 'reviewer' },
+              ],
+            }
+          : page,
+    ),
+  );
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryComposer={null}
+      conversationLayout={{ settings: null, actions: null }}
+    />,
+  );
+  await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' });
+  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
+  const input = screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: 'Private reviewer draft' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Agents, Architect, Reviewer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview Architect conversation' }));
+  const dialog = screen.getByRole('dialog', { name: 'Architect conversation' });
+  await within(dialog).findByText('architect-reply');
+  expect(within(dialog).getByText('preview-prompt:received')).toBeTruthy();
+  expect(within(dialog).getByText('preview-excerpt:uncertain')).toBeTruthy();
+  expect(within(dialog).queryByText('other-agent-input:received')).toBeNull();
+  expect(within(dialog).queryByText('reviewer-reply')).toBeNull();
+  expect(input.value).toBe('Private reviewer draft');
+  expect(screen.queryByRole('tablist')).toBeNull();
+});
+
+it('keeps the shared transcript on All when an anchor-only conversation gains another agent', async () => {
+  let expanded = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).endsWith('/status')
+        ? {
+            ...status,
+            config: { ...status.config, anchorSeatId: 'architect', revision: expanded ? 3 : 2 },
+            seats: status.seats.filter((seat) => expanded || seat.seatId === 'architect'),
+          }
+        : page,
+    ),
+  );
+  const props = {
+    sessionId: 'session',
+    ordinaryComposer: null,
+    conversationLayout: { settings: null, actions: null },
+  };
+  const view = render(
+    <SymposiumConversation {...props} chat={{ ...chat, messages: [chat.messages[0]] }} />,
+  );
+  await screen.findByRole('button', { name: 'Agents, Architect' });
+  expanded = true;
+  view.rerender(<SymposiumConversation {...props} chat={chat} />);
+  act(() => window.dispatchEvent(new Event('symposium-roster-changed')));
+  await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' });
+  expect(within(screen.getByTestId('rich-chat')).getByText('reviewer-reply')).toBeTruthy();
+});
+
+it('refreshes an open independent preview when a later reply finishes', async () => {
+  let finished = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).endsWith('/status')
+        ? status
+        : {
+            ...page,
+            items: [
+              page.items[0],
+              ...(finished
+                ? [
+                    {
+                      ...page.items[0],
+                      eventSeq: 8,
+                      messageId: 'later-architect-reply',
+                      content: 'Later reply',
+                    },
+                  ]
+                : []),
+            ],
+          },
+    ),
+  );
+  const props = {
+    sessionId: 'session',
+    ordinaryComposer: null,
+    conversationLayout: { settings: null, actions: null },
+  };
+  const view = render(<SymposiumConversation {...props} chat={chat} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview Architect conversation' }));
+  const dialog = screen.getByRole('dialog', { name: 'Architect conversation' });
+  await within(dialog).findByText('architect-reply');
+  finished = true;
+  view.rerender(
+    <SymposiumConversation
+      {...props}
+      chat={{
+        ...chat,
+        messages: [...chat.messages, { ...chat.messages[0], messageId: 'later-architect-reply' }],
+      }}
+    />,
+  );
+  await within(dialog).findByText('later-architect-reply');
+  expect(within(dialog).getByText('architect-reply')).toBeTruthy();
+});
+
+it('refreshes preview receipts on delivery changes and releases its reads when closed', async () => {
+  let received = false;
+  const previewReads: AbortSignal[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).includes('kind=seat')) previewReads.push(init?.signal as AbortSignal);
+    return json(
+      String(url).endsWith('/status')
+        ? status
+        : {
+            ...page,
+            items: [
+              page.items[0],
+              ...(received
+                ? [
+                    {
+                      ...page.items[1],
+                      recipientSeatId: 'architect',
+                      deliveryId: 'late-preview-input',
+                    },
+                  ]
+                : []),
+            ],
+          },
+    );
+  });
+  const view = render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryComposer={null}
+      conversationLayout={{ settings: null, actions: null }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview Architect conversation' }));
+  const dialog = screen.getByRole('dialog', { name: 'Architect conversation' });
+  await within(dialog).findByText('architect-reply');
+  received = true;
+  act(() => window.dispatchEvent(new Event('symposium-deliveries-changed')));
+  await within(dialog).findByText('late-preview-input:received');
+  view.unmount();
+  const reads = previewReads.length;
+  expect(previewReads.at(-1)?.aborted).toBe(true);
+  vi.useFakeTimers();
+  await act(async () => {
+    window.dispatchEvent(new Event('symposium-deliveries-changed'));
+    await vi.advanceTimersByTimeAsync(6000);
+  });
+  expect(previewReads).toHaveLength(reads);
 });
 
 describe('SymposiumConversation', () => {
@@ -467,13 +768,17 @@ describe('SymposiumConversation', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    const panel = await screen.findByRole('complementary', { name: 'Reusable profile drafts' });
+    const dialog = await screen.findByRole('dialog', { name: 'Reusable profile drafts' });
+    const panel = await within(dialog).findByRole('complementary', {
+      name: 'Reusable profile drafts',
+    });
     expect(toggle.getAttribute('aria-controls')).toBe(panel.id);
     await within(panel).findByText('No profile drafts in this chat yet.');
     expect(within(panel).getByText(/Ask Mitzo to draft a reusable agent profile/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Ordinary send' })).toBeTruthy();
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method)).toBe(false);
-    fireEvent.click(toggle);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close profile drafts' }));
+    expect(screen.queryByRole('dialog', { name: 'Reusable profile drafts' })).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Reusable profile drafts' })).toBeNull();
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });

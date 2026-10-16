@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from 'vitest';
-import { cleanup, render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { AgentSettingsFields } from '../AgentSettingsPicker';
 import { WorkspaceControls } from '../WorkspaceControls';
 
@@ -26,7 +26,7 @@ it('keeps back, settings, Access and new chat together without mounting another 
   ).toBeTruthy();
   expect(screen.getAllByText('One settings field set')).toHaveLength(1);
 });
-it('prioritizes account/model/thinking, keeps repository with the agent, and reveals runtime last', () => {
+it('prioritizes account/model/thinking, shows runtime and repository preparation directly', () => {
   render(
     <AgentSettingsFields
       accountModel={
@@ -57,13 +57,6 @@ it('prioritizes account/model/thinking, keeps repository with the agent, and rev
   );
   const labels = screen.getAllByRole('textbox').map((input) => input.parentElement?.textContent);
   expect(labels).toEqual(['Account', 'Model', 'Thinking', 'Agent']);
-  expect(
-    screen.getByRole('button', { name: 'Choose repository' }).closest('.chat-settings-group')
-      ?.textContent,
-  ).toContain('Agent');
-  const advanced = screen.getByText('Advanced').closest('details')!;
-  expect(advanced.open).toBe(false);
-  fireEvent.click(screen.getByText('Advanced'));
-  expect(advanced.open).toBe(true);
-  expect(advanced.contains(screen.getByRole('button', { name: 'OpenShell runtime' }))).toBe(true);
+  expect(screen.getByRole('button', { name: 'OpenShell runtime' }).closest('details')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Choose repository' }).closest('details')).toBeNull();
 });

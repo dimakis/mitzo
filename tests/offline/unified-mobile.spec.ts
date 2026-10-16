@@ -365,7 +365,7 @@ test('motion: closing menus hold their final frame without flashing or moving ch
 }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
-    const finishes: { opacity: string; height: number }[] = [];
+    const finishes: { kind: string; opacity: string; height: number }[] = [];
     Object.assign(window, { exitFrames: finishes });
     const original = HTMLElement.prototype.animate;
     HTMLElement.prototype.animate = function (frames, options) {
@@ -376,6 +376,7 @@ test('motion: closing menus hold their final frame without flashing or moving ch
         void animation.finished
           .then(() =>
             finishes.push({
+              kind: animation.id,
               opacity: getComputedStyle(this).opacity,
               height: this.getBoundingClientRect().height,
             }),
@@ -453,16 +454,16 @@ test('motion: closing menus hold their final frame without flashing or moving ch
     () =>
       (
         window as Window & {
-          exitFrames: { opacity: string; height: number }[];
+          exitFrames: { kind: string; opacity: string; height: number }[];
         }
       ).exitFrames,
   );
   expect(frames).toHaveLength(4);
   expect(frames.every((frame) => Number(frame.opacity) === 0)).toBe(true);
-  // Disclosure endpoints must stay collapsed until the hidden attribute commits.
-  expect(frames.filter((_, index) => index % 2 === 1).every((frame) => frame.height < 3)).toBe(
-    true,
-  );
+  // Both the composer menu and compact settings are popovers: they retain
+  // their full geometry while the transparent exit frame awaits React's hide.
+  expect(frames.every((frame) => frame.kind === 'mitzo:popover')).toBe(true);
+  expect(frames.every((frame) => frame.height > 0)).toBe(true);
 });
 
 test('composer: commands use a quiet icon with discoverable labels', async ({ page }, testInfo) => {
@@ -1865,34 +1866,33 @@ async function fixtureSymposium(
   return queued;
 }
 
-test('combined conversation keeps explicit recipient drafts independent of tabs and appearance', async ({
+test('combined conversation uses the approved Agents header and ordinary composer while retaining approval receipts', async ({
   page,
   isMobile,
-  browserName,
 }, testInfo) => {
   const queued = await fixtureSymposium(page);
   for (const width of isMobile ? [320, 390] : [1280]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('https://mitzo-ui.test/chat/offline-symposium');
-    const all = page.getByRole('tab', { name: 'All', exact: true });
-    await expect(all).toHaveAttribute('aria-selected', 'true');
-    const selector = page.getByRole('combobox', { name: 'Message recipient' });
-    await expect(selector).toHaveValue('');
-    await expect(
-      page.getByRole('button', { name: 'Queue for approval', exact: true }),
-    ).toBeDisabled();
-    await selector.selectOption('reviewer');
-    const draft = page.getByRole('textbox', { name: 'Message for Reviewer', exact: true });
+    const agents = page.getByRole('button', { name: 'Agents, Architect, Reviewer' });
+    await expect(agents).toBeVisible();
+    await expect(page.getByRole('tablist', { name: 'Symposium conversations' })).toHaveCount(0);
+    await expect(page.getByRole('combobox', { name: 'Message recipient' })).toHaveCount(0);
+    const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+    const choose = async (name: string) => {
+      await page.getByRole('button', { name: 'Choose who replies' }).click();
+      await page.getByRole('checkbox', { name, exact: true }).click();
+    };
+    await choose('Reviewer');
     await draft.fill('Review this change, keeping the selected recipient explicit.');
-    await page.getByRole('tab', { name: 'Architect', exact: true }).click();
-    await expect(selector).toHaveValue('reviewer');
+    await agents.click();
+    await page.getByRole('button', { name: 'Preview Architect conversation' }).click();
+    await expect(page.getByRole('dialog', { name: 'Architect conversation' })).toBeVisible();
+    await page.getByRole('button', { name: 'Close Agents' }).click();
     await expect(draft).toHaveValue('Review this change, keeping the selected recipient explicit.');
-    await all.click();
-    await selector.selectOption('architect');
-    await expect(
-      page.getByRole('textbox', { name: 'Message for Architect', exact: true }),
-    ).toHaveValue('');
-    await selector.selectOption('reviewer');
+    await choose('Architect');
+    await expect(draft).toHaveValue('');
+    await choose('Reviewer');
     await expect(draft).toHaveValue('Review this change, keeping the selected recipient explicit.');
     for (const theme of ['dark', 'light']) {
       await page.evaluate((theme) => {
@@ -1900,26 +1900,11 @@ test('combined conversation keeps explicit recipient drafts independent of tabs 
         document.documentElement.dataset.accent = 'teal';
         document.documentElement.dataset.font = 'georgia';
       }, theme);
-      await expect(all).toHaveAttribute('aria-selected', 'true');
-      await expect(selector).toBeInViewport();
       await expect(draft).toBeInViewport();
-      expect(await draft.evaluate((element) => getComputedStyle(element).fontFamily)).toContain(
-        'Georgia',
-      );
-      await draft.evaluate((element) => (element.style.fontSize = '20px'));
+      expect(await draft.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Georgia');
       const queue = page.getByRole('button', { name: 'Queue for approval', exact: true });
       await expect(queue).toBeInViewport();
-      if (isMobile) {
-        expect((await selector.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-        expect((await queue.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-      }
-      await selector.focus();
-      // WebKit's default keyboard preference reaches buttons with Option-Tab.
-      const nextControl = browserName === 'webkit' ? 'Alt+Tab' : 'Tab';
-      await page.keyboard.press(nextControl);
-      await expect(page.getByRole('button', { name: 'Choose agent recipient' })).toBeFocused();
-      await page.keyboard.press(nextControl);
-      await expect(draft).toBeFocused();
+      if (isMobile) expect((await queue.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       expect(
         await page
           .locator('.symposium-perspective-panel')
@@ -1951,7 +1936,7 @@ test('combined conversation keeps explicit recipient drafts independent of tabs 
   }
 });
 
-test('combined conversation empty and failed status remain readable without implicit sending', async ({
+test('combined conversation empty and failed status retain Access and drafts without implicit sending', async ({
   page,
 }, testInfo) => {
   let finishLoading!: () => void;
@@ -1960,12 +1945,13 @@ test('combined conversation empty and failed status remain readable without impl
   await page.goto('https://mitzo-ui.test/chat/offline-symposium');
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeDisabled();
   await expect(page.locator('.chat-input[aria-busy="true"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Access', exact: true })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('symposium-loading.png'),
     animations: 'disabled',
   });
   finishLoading();
-  await expect(page.getByRole('combobox', { name: 'Message recipient' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Agents, Architect, Reviewer' })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Queue for approval', exact: true }),
   ).toBeDisabled();
@@ -1977,6 +1963,7 @@ test('combined conversation empty and failed status remain readable without impl
   await page.reload();
   await expect(page.getByText('Offline status unavailable', { exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Message recipient' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Access', exact: true })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('symposium-error.png'),
     animations: 'disabled',
@@ -2630,7 +2617,7 @@ test('failed briefing registration survives a completed turn and reload without 
   await page.reload();
   await expect(retry).toBeVisible();
   await retained();
-  await page.getByText('More options', { exact: true }).click();
+  await page.getByText('More settings', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
   const alert = page.getByRole('alert').filter({ has: retry });
   const geometry = await alert.evaluate((element) => {
@@ -3027,7 +3014,7 @@ test('profile draft cards appear in conversation and save without opening Worksp
           'data-motion-active',
           'true',
         );
-        await page.getByText('More options', { exact: true }).click();
+        await page.getByText('More settings', { exact: true }).click();
         await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
         if (next === 'empty')
           await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
@@ -4146,7 +4133,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   });
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: /Workspace controls/ }).click();
-  await page.getByText('More options', { exact: true }).click();
+  await page.getByText('More settings', { exact: true }).click();
   const action = page.getByRole('button', { name: 'Symposium collaboration', exact: true });
   const originalOverflow = await page.evaluate(() => document.body.style.overflow);
   await expect(action).toBeVisible();

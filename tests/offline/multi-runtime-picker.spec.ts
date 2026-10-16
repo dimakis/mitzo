@@ -119,9 +119,6 @@ async function openAgentSettings(page: Page) {
   const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
-  const advanced = page.locator('.chat-settings-advanced');
-  if ((await advanced.getAttribute('open')) === null)
-    await advanced.locator(':scope > summary').click();
 }
 
 /** Fixture-only Google enrollment; no production catalogue or provider is consulted. */
@@ -316,14 +313,22 @@ test('Approved composer retains a long trusted agent name without horizontal ove
   const draft = 'Keep this draft while the full agent name wraps';
   await composer.fill(draft);
   const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
-  await expect(trigger.locator('.workspace-controls-profile')).toHaveText(name);
-  await expect(trigger).toHaveAccessibleName(new RegExp(`^Workspace controls, ${name}(?:,|$)`));
+  await expect(page.locator('.workspace-controls-context > span')).toContainText(name);
+  await expect(trigger).toHaveAccessibleName(
+    new RegExp(`^Workspace controls, Settings, ${name}(?:,|$)`),
+  );
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 740 });
     const geometry = await trigger.evaluate((element) => {
-      const summary = element.getBoundingClientRect();
+      const summary = element
+        .closest('.workspace-controls')!
+        .querySelector('.workspace-controls-context')!
+        .getBoundingClientRect();
       const owner = element.closest('.workspace-controls')!.getBoundingClientRect();
-      const label = element.querySelector('.workspace-controls-profile')!.getBoundingClientRect();
+      const label = element
+        .closest('.workspace-controls')!
+        .querySelector('.workspace-controls-context > span')!
+        .getBoundingClientRect();
       return {
         left: summary.left - owner.left,
         right: owner.right - summary.right,
@@ -415,9 +420,11 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeVisible();
     await expect(trigger).toHaveCount(1);
     // One top summary owns settings; the writing surface has no duplicate picker.
-    await expect(trigger.locator('.workspace-controls-profile')).toHaveText('Repository helper');
+    await expect(page.locator('.workspace-controls-context > span')).toContainText(
+      'Repository helper',
+    );
     await expect(trigger).toHaveAccessibleName(
-      /Workspace controls, Repository helper, API billing, Shell model, high/,
+      /Workspace controls, Settings, Repository helper, API billing, Shell model, high/,
     );
     await expect(page.locator('.chat-input .agent-settings-picker')).toHaveCount(0);
     await openAgentSettings(page);
@@ -488,12 +495,8 @@ for (const appearance of ['light', 'dark'] as const) {
         expect(Math.abs(thinkingBox.y - modelBox.y)).toBeLessThan(1);
         expect(thinkingBox.x).toBeGreaterThan(modelBox.x);
       }
-      if (width <= 380) {
-        expect(localBox.y).toBeGreaterThan(shellBox.y);
-      } else {
-        expect(Math.abs(localBox.y - shellBox.y)).toBeLessThan(1);
-        expect(localBox.x).toBeGreaterThan(shellBox.x);
-      }
+      expect(Math.abs(localBox.y - shellBox.y)).toBeLessThan(1);
+      expect(localBox.x).toBeGreaterThan(shellBox.x);
       for (const control of [openshell, local, trigger]) {
         expect(Math.round((await control.boundingBox())!.height)).toBeGreaterThanOrEqual(44);
       }

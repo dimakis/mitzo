@@ -132,3 +132,35 @@ it('keeps scrolling locked until the last sibling or nested owner closes', () =>
   view.unmount();
   expect(document.body.style.overflow).toBe('');
 });
+
+it('can retain editable content while closed without keeping the modal or scroll lock active', () => {
+  const onClose = vi.fn();
+  const view = render(
+    <HomeDialog title="Saved setup" open={false} onClose={onClose}>
+      <input aria-label="Setup guidance" defaultValue="Keep this" />
+    </HomeDialog>,
+  );
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.body.style.overflow).toBe('');
+  view.rerender(
+    <HomeDialog title="Saved setup" open onClose={onClose}>
+      <input aria-label="Setup guidance" defaultValue="Keep this" />
+    </HomeDialog>,
+  );
+  const field = screen.getByRole('textbox', { name: 'Setup guidance' });
+  fireEvent.change(field, { target: { value: 'Edited guidance' } });
+  view.rerender(
+    <HomeDialog title="Saved setup" open={false} onClose={onClose}>
+      <input aria-label="Setup guidance" defaultValue="Keep this" />
+    </HomeDialog>,
+  );
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.body.style.overflow).toBe('');
+  view.rerender(
+    <HomeDialog title="Saved setup" open onClose={onClose}>
+      <input aria-label="Setup guidance" defaultValue="Keep this" />
+    </HomeDialog>,
+  );
+  expect(screen.getByRole('textbox', { name: 'Setup guidance' })).toBe(field);
+  expect((field as HTMLInputElement).value).toBe('Edited guidance');
+});

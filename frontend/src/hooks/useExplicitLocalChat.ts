@@ -316,7 +316,7 @@ export function useExplicitLocalChat(
                       )?.reason) ??
                     evaluation.issues[0]?.message)
                   : !selectedIntent.agentProfile
-                    ? 'Choose a published agent revision before sending.'
+                    ? 'Choose an agent to start.'
                     : selectedIntent.accountReference &&
                         inventory?.accounts.some(
                           (entry) =>
