@@ -10,10 +10,18 @@ export async function admitConfiguredTools(
   options: ConfiguredCatalogOptions,
 ) {
   const selected = refs.filter((ref) => ref.id.startsWith('mcp:'));
-  const receipts = selected.map((ref) => catalog.resolve(ref, options));
+  options.assertRuntimeCurrent();
+  options.signal.throwIfAborted();
+  const sourceSnapshot = structuredClone(options.readSources());
+  const launchOptions = {
+    ...options,
+    env: { ...options.env },
+    readSources: () => sourceSnapshot,
+  };
+  const receipts = selected.map((ref) => catalog.resolve(ref, launchOptions));
   const sourceIds = new Set(receipts.map((receipt) => receipt.sourceId));
   const sources = Object.fromEntries(
-    Object.entries(options.readSources()).filter(([, config]) =>
+    Object.entries(sourceSnapshot).filter(([, config]) =>
       sourceIds.has(config.librarySourceId ?? ''),
     ),
   );
@@ -22,7 +30,7 @@ export async function admitConfiguredTools(
     for (const ref of selected) catalog.resolve(ref, options);
   };
   const peers = await connectCodexMcpTools(sources, {
-    ...options,
+    ...launchOptions,
     cwdForSource: (server) =>
       receipts.find((receipt) => receipt.sourceId === sources[server].librarySourceId)!.launchCwd,
     assertRuntimeCurrent: assertCurrent,
