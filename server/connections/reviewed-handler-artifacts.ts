@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.172';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.173';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -41,7 +41,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/index.ts':
     '6ec891ed81e2d18d0fc375cfb8722d06df3831e3b1a30eb4b435ebcf70faba8c',
   '../../frontend/src/components/AgentToolsEditor.tsx':
-    '4a88ed2e2908ab949a4afda4561e2495bc25a138d484813d312244ef4094d656',
+    '4fbf0e9bd1cd4a5f48526e11a5b03949b687bcfb07e0be505fb4e71c94a319fe',
   '../agent-tool-catalog.ts': '2ab34d5743bd24ddeb75e786c58860aa88a1af7a2fdde77ee7d0c8d4d619f934',
   '../agent-tool-selection.ts': 'd6a0c360a72b1a2fde41327aff64186e14dbed7c209095cee2d2d88df5403b56',
   '../../packages/protocol/src/agent-tools.ts':
@@ -406,10 +406,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    'cde2e44336a37719543d4eef6088f1ef5774fab2884bb1af21575e54b290f58e',
+    '322add20750d106e93d160b3c883cbb68c55f260dfaed6f78d25582774513489',
   // Read-only tool catalog cards and their shared visual presentation.
   '../../frontend/src/components/ToolLibraryCatalog.tsx':
-    'a42dfbd4ae455252eb7e16b0e85df1247e448f570204ac7355ea63da4110f270',
+    '9109209f65551e4d3dbf28389fa8e1bd9f5462aa369a6678b527b7ff59d12132',
   '../../frontend/src/styles/tool-library.css':
     '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
   '../../frontend/src/styles/agent-library.css':
