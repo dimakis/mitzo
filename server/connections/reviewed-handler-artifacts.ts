@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.183';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.184';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,17 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Approved Agents presentation and retained native composer adaptation.
+  '../../frontend/src/components/ConversationAgents.tsx':
+    'bb48ebae21c28cd3536d5783a4e60586e007e755e92b6ad5f8c2892a91d01c5e',
+  '../../frontend/src/components/ConversationAgents.css':
+    'bcabefdab07e5eb61ffd9a5aab72a2ec3fcd7c3ca4d7e148d35420a2ddae63d9',
+  '../../frontend/src/components/ComposerResponders.tsx':
+    '947179a55df150bc220a2b3d8434504c9e9668220155db5d2fd863440faba06d',
+  '../../frontend/src/components/ComposerResponders.css':
+    '29b0c05f64bc8555d35a759c7054a950cc70f57a7b49510262ae3b3b1e51f97a',
+  '../../frontend/src/components/RetainedConversationComposer.tsx':
+    '6be25f820dbf6770f063664ce19429fcfc986547cd8ef397f996a4294b8317d7',
   '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent conversation metadata and offline client projection; execution remains disabled.
@@ -131,7 +142,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TokenBar.tsx':
     '25c80275d287086e2e893a12634435470b38358cc17969d4905e1b4bddcdf354',
   '../../frontend/src/components/ChatArea.tsx':
-    'ba186b5dc3d2ee5160c54be5acebcb4e6bc2b5bd3a149713142e39bfb80b6467',
+    'e360e8e4b5baf390f324be7d4578dbb6ef4b884997c1cbef2c42ef2359ba28ce',
   '../../frontend/src/components/SlashPicker.tsx':
     'f4df78552197d0add98192e11e6d1014f9067c9686837132d954989c4a31bac3',
   '../../frontend/src/hooks/useCompactionHistory.ts':
@@ -163,7 +174,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/session-transport.ts':
     '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
   '../../frontend/src/components/SymposiumConversation.tsx':
-    'ec25c2bb1e5f63e8369ca6c3b0c9710262b10c7a8818e5795ee0e475f2d9d716',
+    'caec7b793ac12a5f55b4cece5b046a78847009e19269fa63b80039b45ca4bb21',
   '../../frontend/src/components/SymposiumReviewPanel.tsx':
     '32be2e13877a0db2e2d8531718b9410138471c01cebc963592df3ed69cdf710a',
   '../owned-local-codex-control.ts':
@@ -189,7 +200,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    '295898d37acd714d8b0a0cf4a7f044854d89e002b6335b6ed7540ff616da33bd',
+    'e7baac65496e6d694c64ae0b2435a30b81a10f7f84b9e9a372d7e2f745a4fa69',
   '../../frontend/src/components/ComposerTools.tsx':
     '932d2f492cb6f82d8bd5fe45223ac61386390774249e73c2d64b649a8419cd6a',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -232,9 +243,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     'f27a25d30f2890a67aa2b15c7da54ceedc73317aadced7bc2b27371287bbb98c',
   '../../frontend/src/pages/ChatView.tsx':
-    '07e6004ed1efe96ae8d72e12eda491001f304733ab2728f3f73b003fcd53e865',
+    '16d2be582e909a8a02f7dd97049dae45ea48379ec308cb80c0485d81539d5f2d',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '8336afdbd444302ce6e0fbc6042cbd3edf85f1df2fe807c4c0a5f0261b5716aa',
+    'e9518625efbd4413884ac0af54bc168cb001c4c2dd00a90dfe527864410098ef',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':

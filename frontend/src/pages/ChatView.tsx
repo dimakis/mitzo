@@ -1,3 +1,4 @@
+import { ConversationAgents } from '../components/ConversationAgents';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
 import {
@@ -1008,6 +1009,233 @@ export function ChatView() {
     />
   ) : undefined;
 
+  const workspaceControls = (
+    <WorkspaceControls
+      title={
+        !activeSessionId
+          ? 'New chat'
+          : briefingChat.isBriefing
+            ? briefingChat.name
+            : conversationTitle || 'Chat'
+      }
+      leading={
+        <Link to="/sessions" className="chat-top-action" aria-label="Back to chats">
+          <UiIcon name="back" />
+        </Link>
+      }
+      trailing={
+        <button
+          type="button"
+          className="chat-top-action"
+          aria-label="New chat"
+          onClick={() => {
+            storeNewSession();
+            navigate('/chat');
+          }}
+        >
+          <UiIcon name="edit" />
+        </button>
+      }
+      settings={settings}
+      agent={!isSymposium ? (agentLabel ?? 'Mitzo') : undefined}
+      scopeKey={activeSessionId ?? newChatDraft.draft.id}
+      onDone={explicitNew || localRuntime.continuation ? localRuntime.review : undefined}
+      actions={
+        <>
+          {activeSessionId && !isSymposium && !controlsBlocked && (
+            <ConversationAgents
+              compact
+              scope={activeSessionId}
+              agents={[
+                {
+                  id: activeSessionId,
+                  name: agentLabel ?? 'Mitzo',
+                  account: workspaceSummary?.profile,
+                  model: workspaceSummary?.model,
+                  thinking: workspaceSummary?.thinking,
+                  state: 'Current conversation',
+                },
+              ]}
+              messages={messages.messages}
+            />
+          )}
+          <SessionAccess
+            sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
+            selection={accountSelection}
+            connected={connected}
+          />
+        </>
+      }
+      attention={!!launch || repositoryHandoff.present || !!localRuntime.reason}
+      summary={
+        explicitNew || localRuntime.continuation
+          ? {
+              profile:
+                localRuntime.inventory?.accounts.find(
+                  (a) => a.account.accountId === localRuntime.intent.account?.accountId,
+                )?.label ?? 'Choose account',
+              model: runtimeModelLabel,
+              thinking: localRuntime.intent.account?.reasoningEffort ?? undefined,
+              location: localRuntime.intent.execution.location,
+            }
+          : workspaceSummary
+      }
+      status={
+        explicitNew
+          ? localRuntime.reason
+            ? 'Needs review'
+            : 'First command'
+          : localBound
+            ? localRuntime.continuation
+              ? 'Conversation'
+              : 'First command'
+            : localRuntime.metadataPending
+              ? localRuntime.metadataUnavailable
+                ? 'Needs review'
+                : 'Loading conversation settings'
+              : isSymposium
+                ? 'Agent chat'
+                : activeSessionId && !ordinaryControls
+                  ? 'Loading conversation settings'
+                  : !connected
+                    ? 'Reconnecting'
+                    : messages.running
+                      ? 'Working'
+                      : 'Ready'
+      }
+    >
+      <div className="chat-account-bar">
+        {isSymposium && accountModelControl}
+        {isSymposium && agentControl}
+        {isSymposium && executionControl}
+        {localCommand && (
+          <div className="chat-agent-profile" role="status">
+            <span>
+              {localCommand.state === 'consumed'
+                ? localRuntime.continuation
+                  ? 'Conversation connected.'
+                  : `Original ${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command dispatched.`
+                : `${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command retained. Review its original choices before recovery.`}
+            </span>
+            {localCommand.request && (
+              <span>
+                {localRuntime.continuation && localCommand.state === 'consumed'
+                  ? 'Last submitted command: '
+                  : ''}
+                Account: {localCommand.request.runtime.account.accountId} · Model:{' '}
+                {localCommand.request.selection.model} · Thinking:{' '}
+                {localCommand.request.selection.thinking ?? 'not configurable'} · Agent revision:{' '}
+                {localCommand.request.selection.agent.revision} · Execution target:{' '}
+                {localCommand.request.runtime.targetId}
+              </span>
+            )}
+            {localCommand.originDraftId && (
+              <Link to={`/chat?draft=${encodeURIComponent(localCommand.originDraftId)}`}>
+                Open original draft
+              </Link>
+            )}
+            {localCommand.sessionId && (
+              <Link to={`/chat/${localCommand.sessionId}`}>Open retained conversation</Link>
+            )}
+            <button
+              type="button"
+              disabled={
+                !connected ||
+                localCommand.state === 'consumed' ||
+                localCommand.state === 'blocked' ||
+                localCommand.state === 'pending'
+              }
+              onClick={() => recoverLocalCommand()}
+            >
+              Recover original {localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'}{' '}
+              command
+            </button>
+          </div>
+        )}
+      </div>
+      <header className="chat-header">
+        {!connected && (
+          <span
+            className="chat-header-offline"
+            title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
+          >
+            !
+          </span>
+        )}
+
+        {!keyboardOpen && ordinaryControls && (
+          <>
+            <PermissionModePicker
+              mode={mode}
+              onChange={handleModeChange}
+              disabled={controlsBlocked || localBound || modeChangeReady === false}
+            />
+            {activeSessionId && !controlsBlocked && (
+              <button
+                className="session-close-btn"
+                onClick={() => {
+                  if (ordinaryControls && !controlsBlocked) storeCloseSession();
+                }}
+                title="Close session"
+              >
+                <UiIcon name="close" size={16} />
+              </button>
+            )}
+            <VoiceSettings
+              ttsAvailable={voice.ttsAvailable}
+              voices={voice.voices}
+              selectedVoice={voice.selectedVoice}
+              onVoiceChange={voice.setVoice}
+            />
+          </>
+        )}
+      </header>
+      {activeSessionId && (
+        <div className="mobile-session-context">
+          <StatusBar
+            connected={connected}
+            sessionId={activeSessionId}
+            branch={messages.branch || undefined}
+            isWorktree={messages.isWorktree}
+            wtId={messages.wtId || undefined}
+          />
+        </div>
+      )}
+
+      <div className="workspace-session-settings">
+        {ordinaryControls && !explicitNew && !controlsBlocked && !localBound && (
+          <WebSearchConsent
+            key={activeSessionId ?? 'new'}
+            sessionId={activeSessionId}
+            mode={mode}
+            connected={connected}
+            connectionId={connectionId}
+            running={messages.running}
+          />
+        )}
+        <div className="workspace-session-actions">
+          {activeSessionId &&
+            !controlsBlocked &&
+            !localBound &&
+            (ordinaryControls ? null : isSymposium ? (
+              <AddAgentSheet sessionId={activeSessionId} />
+            ) : null)}
+          {activeSessionId && isSymposium && (
+            <SymposiumReviewEntry
+              key={activeSessionId}
+              sessionId={activeSessionId}
+              readOnly={controlsBlocked || localBound}
+            />
+          )}
+        </div>
+        {activeSessionId && isSymposium && !controlsBlocked && !localBound && (
+          <SymposiumDirectorPanel sessionId={activeSessionId} />
+        )}
+        <div ref={setProfileToolsTarget} />
+      </div>
+    </WorkspaceControls>
+  );
+
   return (
     <div
       className={`chat-page workspace-chat${!activeSessionId ? ' chat-page--new' : ''}${keyboardOpen ? ' keyboard-open' : ''}`}
@@ -1037,211 +1265,7 @@ export function ChatView() {
           retryLookup={briefingChat.retry}
           lookupLoading={briefingChat.loading}
         />
-        <WorkspaceControls
-          leading={
-            <Link to="/sessions" className="chat-top-action" aria-label="Back to chats">
-              <UiIcon name="back" />
-            </Link>
-          }
-          trailing={
-            <button
-              type="button"
-              className="chat-top-action"
-              aria-label="New chat"
-              onClick={() => {
-                storeNewSession();
-                navigate('/chat');
-              }}
-            >
-              <UiIcon name="edit" />
-            </button>
-          }
-          title={
-            !activeSessionId
-              ? 'New chat'
-              : briefingChat.isBriefing
-                ? briefingChat.name
-                : conversationTitle || 'Chat'
-          }
-          settings={settings}
-          agent={!isSymposium ? (agentLabel ?? 'Mitzo') : undefined}
-          scopeKey={activeSessionId ?? newChatDraft.draft.id}
-          onDone={explicitNew || localRuntime.continuation ? localRuntime.review : undefined}
-          actions={
-            <SessionAccess
-              sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
-              selection={accountSelection}
-              connected={connected}
-            />
-          }
-          attention={!!launch || repositoryHandoff.present || !!localRuntime.reason}
-          summary={
-            explicitNew || localRuntime.continuation
-              ? {
-                  profile:
-                    localRuntime.inventory?.accounts.find(
-                      (a) => a.account.accountId === localRuntime.intent.account?.accountId,
-                    )?.label ?? 'Choose account',
-                  model: runtimeModelLabel,
-                  thinking: localRuntime.intent.account?.reasoningEffort ?? undefined,
-                  location: localRuntime.intent.execution.location,
-                }
-              : workspaceSummary
-          }
-          status={
-            explicitNew
-              ? localRuntime.reason
-                ? 'Needs review'
-                : 'First command'
-              : localBound
-                ? localRuntime.continuation
-                  ? 'Conversation'
-                  : 'First command'
-                : localRuntime.metadataPending
-                  ? localRuntime.metadataUnavailable
-                    ? 'Needs review'
-                    : 'Loading conversation settings'
-                  : isSymposium
-                    ? 'Agent chat'
-                    : activeSessionId && !ordinaryControls
-                      ? 'Loading conversation settings'
-                      : !connected
-                        ? 'Reconnecting'
-                        : messages.running
-                          ? 'Working'
-                          : 'Ready'
-          }
-        >
-          <div className="chat-account-bar">
-            {isSymposium && accountModelControl}
-            {isSymposium && agentControl}
-            {isSymposium && executionControl}
-            {localCommand && (
-              <div className="chat-agent-profile" role="status">
-                <span>
-                  {localCommand.state === 'consumed'
-                    ? localRuntime.continuation
-                      ? 'Conversation connected.'
-                      : `Original ${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command dispatched.`
-                    : `${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command retained. Review its original choices before recovery.`}
-                </span>
-                {localCommand.request && (
-                  <span>
-                    {localRuntime.continuation && localCommand.state === 'consumed'
-                      ? 'Last submitted command: '
-                      : ''}
-                    Account: {localCommand.request.runtime.account.accountId} · Model:{' '}
-                    {localCommand.request.selection.model} · Thinking:{' '}
-                    {localCommand.request.selection.thinking ?? 'not configurable'} · Agent
-                    revision: {localCommand.request.selection.agent.revision} · Execution target:{' '}
-                    {localCommand.request.runtime.targetId}
-                  </span>
-                )}
-                {localCommand.originDraftId && (
-                  <Link to={`/chat?draft=${encodeURIComponent(localCommand.originDraftId)}`}>
-                    Open original draft
-                  </Link>
-                )}
-                {localCommand.sessionId && (
-                  <Link to={`/chat/${localCommand.sessionId}`}>Open retained conversation</Link>
-                )}
-                <button
-                  type="button"
-                  disabled={
-                    !connected ||
-                    localCommand.state === 'consumed' ||
-                    localCommand.state === 'blocked' ||
-                    localCommand.state === 'pending'
-                  }
-                  onClick={() => recoverLocalCommand()}
-                >
-                  Recover original{' '}
-                  {localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command
-                </button>
-              </div>
-            )}
-          </div>
-          <header className="chat-header">
-            {!connected && (
-              <span
-                className="chat-header-offline"
-                title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
-              >
-                !
-              </span>
-            )}
-
-            {!keyboardOpen && ordinaryControls && (
-              <>
-                <PermissionModePicker
-                  mode={mode}
-                  onChange={handleModeChange}
-                  disabled={controlsBlocked || localBound || modeChangeReady === false}
-                />
-                {activeSessionId && !controlsBlocked && (
-                  <button
-                    className="session-close-btn"
-                    onClick={() => {
-                      if (ordinaryControls && !controlsBlocked) storeCloseSession();
-                    }}
-                    title="Close session"
-                  >
-                    <UiIcon name="close" size={16} />
-                  </button>
-                )}
-                <VoiceSettings
-                  ttsAvailable={voice.ttsAvailable}
-                  voices={voice.voices}
-                  selectedVoice={voice.selectedVoice}
-                  onVoiceChange={voice.setVoice}
-                />
-              </>
-            )}
-          </header>
-          {activeSessionId && (
-            <div className="mobile-session-context">
-              <StatusBar
-                connected={connected}
-                sessionId={activeSessionId}
-                branch={messages.branch || undefined}
-                isWorktree={messages.isWorktree}
-                wtId={messages.wtId || undefined}
-              />
-            </div>
-          )}
-
-          <div className="workspace-session-settings">
-            {ordinaryControls && !explicitNew && !controlsBlocked && !localBound && (
-              <WebSearchConsent
-                key={activeSessionId ?? 'new'}
-                sessionId={activeSessionId}
-                mode={mode}
-                connected={connected}
-                connectionId={connectionId}
-                running={messages.running}
-              />
-            )}
-            <div className="workspace-session-actions">
-              {activeSessionId &&
-                !controlsBlocked &&
-                !localBound &&
-                (ordinaryControls ? null : isSymposium ? (
-                  <AddAgentSheet sessionId={activeSessionId} />
-                ) : null)}
-              {activeSessionId && isSymposium && (
-                <SymposiumReviewEntry
-                  key={activeSessionId}
-                  sessionId={activeSessionId}
-                  readOnly={controlsBlocked || localBound}
-                />
-              )}
-            </div>
-            {activeSessionId && isSymposium && !controlsBlocked && !localBound && (
-              <SymposiumDirectorPanel sessionId={activeSessionId} />
-            )}
-            <div ref={setProfileToolsTarget} />
-          </div>
-        </WorkspaceControls>
+        {!isSymposium && workspaceControls}
       </div>
 
       {(sendError || sendStatus) && (
@@ -1285,6 +1309,35 @@ export function ChatView() {
           const path = newChatPathWithDraft(text);
           storeNewSession();
           navigate(path);
+        }}
+        conversationLayout={{
+          settings: workspaceControls,
+          showHeader: isSymposium,
+          leading: (
+            <Link to="/sessions" className="chat-top-action" aria-label="Back to chats">
+              <UiIcon name="back" />
+            </Link>
+          ),
+          actions: (
+            <>
+              <SessionAccess
+                sessionId={activeSessionId ?? undefined}
+                selection={accountSelection}
+                connected={connected}
+              />
+              <button
+                type="button"
+                className="chat-top-action"
+                aria-label="New chat"
+                onClick={() => {
+                  storeNewSession();
+                  navigate('/chat');
+                }}
+              >
+                <UiIcon name="edit" />
+              </button>
+            </>
+          ),
         }}
         ordinaryConfirmed={
           (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
