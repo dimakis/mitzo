@@ -20,7 +20,8 @@ delimiter aliases, determine identity. Built-in references serialize unchanged.
 Discovered references additionally require an opaque revision UUID and a positive
 integer version. Neither wire aliases nor descriptions identify a contract.
 
-The private catalog binds each revision to the exact discovered definition and
+The private catalog binds each revision to the full discovered descriptor (including
+output schemas and annotation hints), the model-facing definition, and
 the trusted launch contract (command, arguments, environment, execution location
 and source launch directory). The private receipt retains that source directory;
 admission launches the peer there, independently of the authorized task workspace.
