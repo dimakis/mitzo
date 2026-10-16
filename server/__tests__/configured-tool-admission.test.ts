@@ -69,7 +69,7 @@ it.each(['openai', 'google-vertex'] as const)(
     const registry = new SessionRegistry();
     const aborts: AbortController[] = [];
     const sessions: { close(): void }[] = [];
-    async function open(resume: boolean) {
+    async function open(resume: boolean, omitSourceEnv = false) {
       const abort = new AbortController();
       aborts.push(abort);
       const clientId = 'client';
@@ -98,9 +98,14 @@ it.each(['openai', 'google-vertex'] as const)(
         eventStore: events,
         store: privateStore,
         systemPrompt: '',
-        env: {},
+        env: {
+          MITZO_SESSION_ID: 'selected',
+          MITZO_AGENT_NAME: 'Selected',
+          MITZO_REPO_PRIMARY: root,
+        },
         mcpServers: configs,
         resume,
+        configuredSourceEnv: omitSourceEnv ? undefined : options.env,
         configuredTools: { catalog, ...options },
       });
       sessions.push(chat);
@@ -135,6 +140,11 @@ it.each(['openai', 'google-vertex'] as const)(
         createHash('sha256').update(JSON.stringify(published.definition)).digest('hex'),
       );
       events.upsertSession({ sessionId: 'selected', agentProfile: published });
+      const discoveries = options.connect.mock.calls.length;
+      await expect(open(false, true)).rejects.toThrow(
+        'Configured source launch environment is unavailable',
+      );
+      expect(options.connect).toHaveBeenCalledTimes(discoveries);
       let runtime = await open(false);
       expect(runtime.tools).toHaveLength(2);
       expect(runtime.tools.some((tool: { name: string }) => tool.name === 'AskUserQuestion')).toBe(
