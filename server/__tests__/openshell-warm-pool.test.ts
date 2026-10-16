@@ -264,3 +264,18 @@ it('operator recheck adopts a late preparation only after exact neutral origin a
     failure: null,
   });
 });
+it('absence cannot release a create that was dispatched without a terminal physical receipt', async () => {
+  const f = fixture();
+  vi.mocked(f.adapter.prepare).mockImplementation(async (_r, _signal, _created, dispatched) => {
+    dispatched?.();
+    throw Error('lost create response');
+  });
+  await expect(f.pool.mutate(f.request('prepare'))).rejects.toThrow(/lost/);
+  const r = f.pool.snapshot().spares[0];
+  await expect(f.pool.mutate(f.request('recheck', { id: r.id }))).rejects.toThrow(
+    /unsettled|unknown/,
+  );
+  expect(f.pool.snapshot().spares).toHaveLength(1);
+  expect(f.pool.snapshot().spares[0].state).toBe('uncertain');
+  expect(f.adapter.prepare).toHaveBeenCalledTimes(1);
+});

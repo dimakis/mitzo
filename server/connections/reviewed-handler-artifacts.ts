@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.171';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.172';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -36,9 +36,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/index.ts':
     '6ec891ed81e2d18d0fc375cfb8722d06df3831e3b1a30eb4b435ebcf70faba8c',
   // Configurable neutral spares: durable claims, protected controls and explicit host enrollment.
-  '../openshell-warm-pool.ts': '700bef90537f73bf2a20aeca93ee02a358f503d634d77eb5a171048a0c09a6f5',
+  '../openshell-warm-pool.ts': '2359aec3d18c555b8ca051cf909aee93c0a71012b48d30c55cb5d18b2073d06a',
   '../openshell-warm-pool-runtime.ts':
-    'b101a8f1745de5f38515e86566952d3556872cd95a3921281a9e64ee0424df58',
+    '963d1d82950737e8c72e33c819fc04992d29a282c916755a7df086215206860d',
   '../openshell-warm-pool-binding.ts':
     'da4100e8cb025945de97c3eb1bdc71ebff255c3f4e7548ba1d67dadca5a8e16f',
   '../openshell-warm-pool-router.ts':

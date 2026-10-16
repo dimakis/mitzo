@@ -128,3 +128,24 @@ it('waits for observed Ready after detached creation rather than treating Pendin
   expect(result.phase).toBe('Ready');
   expect(reads).toBeGreaterThan(1);
 });
+it('records dispatch after seed preparation and before the native create can run', async () => {
+  const f = fixture(),
+    dispatched = vi.fn();
+  const original = f.run.getMockImplementation()!;
+  f.run.mockImplementation(async (args) => {
+    if (args.includes('create')) expect(dispatched).toHaveBeenCalledOnce();
+    return original(args);
+  });
+  await f.adapter.prepare(f.record, AbortSignal.timeout(5000), undefined, dispatched);
+  expect(dispatched).toHaveBeenCalledOnce();
+});
+it('does not record native dispatch when seed preparation fails', async () => {
+  const f = fixture(),
+    dispatched = vi.fn();
+  f.seed.mockRejectedValueOnce(Error('publication unavailable'));
+  await expect(
+    f.adapter.prepare(f.record, AbortSignal.timeout(5000), undefined, dispatched),
+  ).rejects.toThrow(/publication/);
+  expect(dispatched).not.toHaveBeenCalled();
+  expect(f.run).not.toHaveBeenCalled();
+});

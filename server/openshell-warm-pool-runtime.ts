@@ -121,11 +121,13 @@ export function createWarmPoolAdapter(
         ? 'Warm pooling requires the ordinary OpenShell CLI runtime. Native seat and shared overrides are not supported.'
         : null,
     inspect,
-    async prepare(record, signal, created) {
+    async prepare(record, signal, created, dispatched) {
       assertCurrent();
       if (!adapter.available) throw Error(adapter.reason!);
       const prepared = await prepareSeed(config, signal);
       try {
+        signal.throwIfAborted();
+        dispatched?.();
         const output = Physical.parse(
           JSON.parse(
             await run(

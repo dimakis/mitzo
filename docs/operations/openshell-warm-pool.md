@@ -50,8 +50,9 @@ and provider-free creation before enabling this on a real target.
   immediately creating replacements. A compatible new chat or Prepare now wakes
   it. Uncertain resources are retained, count against the ceiling and require review.
 - Spare details expose ownership, resources and provider-unassigned status.
-  Unverified resources offer explicit recheck. Authoritative absence releases the
-  reservation without deleting anything; a late resource is adopted only with the
+  Unverified resources offer explicit recheck. Authoritative absence releases a
+  pre-create reservation (or a previously settled physical resource) without deleting
+  anything. A dispatched create with no terminal physical receipt stays uncertain; a late resource is adopted only with the
   exact neutral origin, runtime scope and physical identity, then observed Ready.
   Transport failures and unexpected providers preserve uncertainty.
 - Conversation details open the owning chat. Cleanup uses the existing lifecycle
@@ -76,6 +77,8 @@ retained as evidence before startup recovery;
 another live or unverified owner blocks startup. Interrupted preparation, claim
 and removal become uncertain, never Ready or automatically retried. A successful
 native create receipt persists its physical ID before waiting for readiness.
+Create dispatch is persisted before the CLI call, separately from seed preparation;
+missing historical dispatch evidence is treated as unknown, never as not started.
 
 Unclaimed resources carry immutable `mitzo.warm_pool` origin labels and no account
 or conversation labels. The ledger atomically assigns a physical resource to one

@@ -18,6 +18,8 @@ export interface WarmPoolRecord {
   id: string;
   name: string;
   physicalId: string | null;
+  /** False only when preparation has provably not dispatched native create. */
+  creationStarted?: boolean;
   scope: string;
   state: 'preparing' | 'ready' | 'claiming' | 'claimed' | 'removing' | 'removed' | 'uncertain';
   resources: { cpu: number; memoryGiB: number };
@@ -43,6 +45,7 @@ export interface WarmPoolAdapter {
     record: WarmPoolRecord,
     signal: AbortSignal,
     created?: (physicalId: string) => void,
+    dispatched?: () => void,
   ): Promise<WarmSandbox>;
   inspect(record: WarmPoolRecord, signal: AbortSignal): Promise<WarmSandbox | undefined>;
   remove(record: WarmPoolRecord, signal: AbortSignal): Promise<void>;
@@ -212,6 +215,7 @@ export class OpenShellWarmPool {
           id,
           name: 'mitzo-warm-' + id,
           physicalId: null,
+          creationStarted: false,
           scope: this.adapter.scope,
           state: 'preparing',
           resources: { cpu: s.settings.cpu, memoryGiB: s.settings.memoryGiB },
@@ -223,14 +227,24 @@ export class OpenShellWarmPool {
       s.records.push(r);
       this.persist(s);
       try {
-        const p = await this.adapter.prepare(r, signal, (physicalId) => {
-          if (!physicalId || (r.physicalId && r.physicalId !== physicalId))
-            throw Error('Sandbox create receipt identity changed');
-          r.physicalId = physicalId;
-          this.persist(s);
-        });
+        const p = await this.adapter.prepare(
+          r,
+          signal,
+          (physicalId) => {
+            if (!physicalId || (r.physicalId && r.physicalId !== physicalId))
+              throw Error('Sandbox create receipt identity changed');
+            r.physicalId = physicalId;
+            r.creationStarted = true;
+            this.persist(s);
+          },
+          () => {
+            r.creationStarted = true;
+            this.persist(s);
+          },
+        );
         this.assertPhysical(r, p);
         r.physicalId = p.id;
+        r.creationStarted = true;
         this.persist(s);
         const observed = await this.adapter.inspect(r, signal);
         this.assertPhysical(r, observed);
@@ -320,10 +334,13 @@ export class OpenShellWarmPool {
             // Inspect must report authoritative absence, never a transport failure.
             if (record.scope !== this.adapter.scope)
               throw Error('Sandbox pool runtime scope changed; resource retained.');
+            if (!record.physicalId && record.creationStarted !== false)
+              throw Error('Sandbox create outcome is unknown or unsettled; reservation retained.');
             record.state = 'removed';
           } else {
             this.assertPhysical(record, physical);
             record.physicalId = physical.id;
+            record.creationStarted = true;
             this.persist(s);
             if (physical.phase !== 'Ready') throw Error('Sandbox readiness is unverified');
             record.state = 'ready';
