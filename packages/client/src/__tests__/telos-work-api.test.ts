@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TelosWorkApiClient } from '../telos-work-api.js';
-import { TelosWorkViewSchema } from '@mitzo/protocol';
+import { TelosWorkItemSchema, TelosWorkViewSchema } from '@mitzo/protocol';
 const view = TelosWorkViewSchema.parse({
   itemId: 'item',
   kind: null,
@@ -12,6 +12,52 @@ const view = TelosWorkViewSchema.parse({
   attempts: [],
 });
 describe('typed Telos work client', () => {
+  it('reads and validates the canonical workspace record without starting a chat or retrying', async () => {
+    const record = TelosWorkItemSchema.parse({
+      version: 1,
+      itemId: 'legacy',
+      kind: null,
+      parentId: null,
+      summary: 'Existing outcome',
+      intent: '',
+      rationale: '',
+      acceptanceCriteria: [],
+      profile: 'work',
+      status: 'active',
+      starred: false,
+      categories: [],
+      createdAt: null,
+      updatedAt: null,
+      contextHints: {
+        repos: [],
+        paths: [],
+        issues: [],
+        docIds: [],
+        people: [],
+        jiraKeys: [],
+        keywords: [],
+        sessionIds: [],
+        taskHint: '',
+      },
+      sources: [],
+      links: [],
+      legacyFields: { retained: 'original value' },
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(record)))
+      .mockResolvedValueOnce(new Response('{}'));
+    const api = new TelosWorkApiClient(fetch);
+    const abort = new AbortController();
+    expect(await api.readRecord(record.itemId, abort.signal)).toEqual(record);
+    expect(fetch.mock.calls[0]).toEqual([
+      '/api/telos/work/items/' + encodeURIComponent(record.itemId) + '/record',
+      { credentials: 'include', signal: abort.signal },
+    ]);
+    await expect(api.readRecord(record.itemId)).rejects.toThrow();
+    await expect(api.readRecord('../private')).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it('uses ordinary authenticated API calls without allocation or hidden retries', async () => {
     const fetch = vi
       .fn()
