@@ -188,7 +188,8 @@ baseline to match it. Replacing a bundle with another self-consistent bundle aft
 path-policy verification therefore blocks delivery.
 
 New ordinary OpenShell Codex sandboxes reconcile before seed selection. For an
-explicit initial command whose sandbox is created by that same admission, the
+explicit initial command whose sandbox is created or newly claimed from a neutral
+warm pool by that same admission, the
 manager pins this verified immutable publication to the exact command,
 conversation, physical sandbox, account/store and runtime configuration. Its first
 turn consumes that selection once rather than running a second publisher/adapter
@@ -205,7 +206,9 @@ recovery, creation conflict, external seed, or missing initial command identity
 cannot reuse creation's selection. Consumption precedes awaits, so failed and
 cancelled first attempts also reconcile afresh on retry. A warmup without a user
 command cannot preselect knowledge for a future claim; that claim needs its own
-fresh selection. `knowledge.reuse_initial_selection` identifies the short reuse
+fresh selection. A verified new claim can share its command-time selection with
+its first turn; it cannot inherit the earlier neutral preparation's selection.
+`knowledge.reuse_initial_selection` identifies the short reuse
 step without carrying private paths, prompts or credentials.
 Mitzo verifies actual runtime/compiler/recipe identities and sends compiled context
 on the existing native provider thread. An in-progress turn remains on its earlier
