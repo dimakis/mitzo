@@ -10,6 +10,10 @@ import {
   warmPoolConversationName,
   warmPoolConnectionAccount,
 } from '../openshell-warm-pool-binding.js';
+import {
+  initializeOpenShellLifecycle,
+  registerOpenShellLifecycle,
+} from '../openshell-lifecycle-controller.js';
 import { warmPoolScope } from '../openshell-warm-pool-runtime.js';
 import {
   OpenShellRuntimeManager,
@@ -25,12 +29,12 @@ afterEach(() => {
   pool = undefined;
   if (root) rmSync(root, { recursive: true, force: true });
 });
-async function fixture() {
+async function fixture(lifecycleCli = false) {
   root = mkdtempSync(join(tmpdir(), 'pool-binding-'));
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', root);
   writeFileSync(join(root, 'policy'), 'policy');
   const config: BoundOpenShellRuntimeConfig = {
-    cli: 'openshell',
+    cli: lifecycleCli ? join(root, 'openshell-fixture') : 'openshell',
     image: 'runtime:approved',
     policy: join(root, 'policy'),
     seed: join(root, 'mgmt'),
@@ -255,4 +259,65 @@ it('connection cleanup rejects changed physical identity, missing account and an
   await expect(
     warmPoolConnectionAccount(f.raw(), 'isolated', 'default', AbortSignal.timeout(5000)),
   ).rejects.toThrow(/identity/);
+});
+
+it('production lifecycle previews use the durable account of a normally claimed spare', async () => {
+  const f = await fixture(true);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  await pool!.claim('chat', 'work', AbortSignal.timeout(5000), undefined, [], 'account-a');
+  // Exercise the actual production controller and runtime ownership inspection;
+  // only the CLI process is replaced with an offline physical-resource fixture.
+  writeFileSync(
+    f.config.cli,
+    '#!/usr/bin/env node\nprocess.stdout.write(' + JSON.stringify(JSON.stringify(f.raw())) + ');\n',
+    { mode: 0o700 },
+  );
+  const lifecycle = initializeOpenShellLifecycle(f.config, {
+    registry: { findBySessionId: () => undefined, entries: function* () {} },
+    eventStore: { getSession: () => ({}) },
+    taskStore: { getTree: () => [] },
+    queue: () => ({ queued: 0, running: 0, recovery: false }),
+  })!;
+  try {
+    registerOpenShellLifecycle(
+      'chat',
+      {
+        sandboxName: f.physical().name,
+        sandboxId: f.physical().id,
+        workdir: f.config.workdir,
+        appServerCommand: '/sandbox/run-mitzo-app-server',
+        cli: f.config.cli,
+        gateway: f.config.gateway,
+        workspace: f.config.workspace,
+        gatewayInsecure: false,
+      },
+      {
+        accountId: 'account-a',
+        accountLabel: 'Offline fixture',
+        provider: 'codex',
+        model: 'offline',
+        profileRevision: 'r1',
+      },
+      f.config.account,
+      'thread',
+    );
+    await expect(
+      lifecycle.service.preview('chat', AbortSignal.timeout(5000)),
+    ).resolves.toMatchObject({
+      action: 'stop',
+      blockers: [],
+      record: { identity: { accountId: 'account-a' } },
+    });
+    const record = lifecycle.store.get('chat')!;
+    lifecycle.store.upsert({
+      ...record,
+      generation: record.generation + 1,
+      identity: { ...record.identity!, accountId: 'account-b' },
+    });
+    await expect(lifecycle.service.preview('chat', AbortSignal.timeout(5000))).rejects.toThrow(
+      /physical\/account identity differs/,
+    );
+  } finally {
+    lifecycle.store.close();
+  }
 });
