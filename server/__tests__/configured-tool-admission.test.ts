@@ -147,12 +147,21 @@ it.each(['openai', 'google-vertex'] as const)(
         await runtime.executeTool({ id: 'allowed', name: wire, input: {} }, options.signal),
       ).toMatchObject({ content: 'correct peer' });
       expect(peers['fake-one']).toHaveBeenCalledOnce();
-      const otherAlias = `mitzo_mcp_${createHash('sha256').update('mcp__two__search').digest('hex').slice(0, 32)}`;
+      const otherAlias = `mitzo_mcp_${createHash('sha256')
+        .update(JSON.stringify([configs.two.librarySourceId, 'search']))
+        .digest('hex')
+        .slice(0, 32)}`;
+      const unselectedAlias = `mitzo_mcp_${createHash('sha256')
+        .update(JSON.stringify([configs.one.librarySourceId, 'unselected']))
+        .digest('hex')
+        .slice(0, 32)}`;
       for (const name of [
         'search',
         'mcp__two__search',
         'mcp__one__unselected',
         otherAlias,
+        unselectedAlias,
+        'mcp__11111111-1111-4111-8111-111111111111__search',
         'ConnectionRequest',
         'mcp__mitzo-connections__ConnectionRequest',
         'RequestGithubPublish',
@@ -170,6 +179,32 @@ it.each(['openai', 'google-vertex'] as const)(
       await catalog.refresh(options);
       expect(catalog.list().some((row) => row.name === 'added')).toBe(true);
       expect(runtime.tools).toHaveLength(2);
+      const later = library.saveDraft('user', {
+        profileId: draft.profileId,
+        expectedVersion: 0,
+        expectedRevision: published.revision,
+        idempotencyKey: 'later-save',
+        definition: { ...definition, tools: [] },
+      });
+      library.publish('user', {
+        profileId: draft.profileId,
+        expectedVersion: later.version,
+        idempotencyKey: 'later-publish',
+      });
+      const foreignCatalog = new ConfiguredToolCatalog(':memory:');
+      try {
+        const imported = library.importDraft('user', {
+          profileId: 'imported',
+          artifact: published,
+          idempotencyKey: 'import',
+        });
+        expect(imported.definition.tools).toEqual([ref]);
+        expect(() => foreignCatalog.resolve(imported.definition.tools![0], options)).toThrow(
+          /unresolved/,
+        );
+      } finally {
+        foreignCatalog.close();
+      }
       sessions.splice(0).forEach((chat) => chat.close());
       library.close();
       events.close();
