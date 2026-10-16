@@ -2,6 +2,7 @@ import {
   warmPoolConversationName,
   projectWarmPoolOwnership,
   claimWarmPoolForCommand,
+  warmPoolCreateResources,
 } from './openshell-warm-pool-binding.js';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { tracer } from './tracing.js';
@@ -2183,6 +2184,7 @@ export class OpenShellRuntimeManager {
             !['chatgpt-subscription-native', 'api'].includes(this.config.account.kind))
         )
           throw new Error('Phased creation requires native OpenShell seats');
+        const poolResources = initialCommandId ? warmPoolCreateResources(this.config) : undefined;
         const args = [
           'sandbox',
           ...this.base(),
@@ -2193,6 +2195,9 @@ export class OpenShellRuntimeManager {
           this.config.image,
           '--policy',
           this.config.policy,
+          ...(poolResources
+            ? ['--cpu', String(poolResources.cpu), '--memory', poolResources.memoryGiB + 'Gi']
+            : []),
           ...(!phasedCreate && !artifactConfig
             ? [
                 '--upload',

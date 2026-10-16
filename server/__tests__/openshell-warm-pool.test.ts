@@ -45,7 +45,10 @@ function fixture(path?: string) {
   };
   const pool = new OpenShellWarmPool(path ?? join(root, 'pool.db'), adapter);
   pools.push(pool);
-  const request = (action: string, extra: Record<string, unknown> = {}) => ({
+  const request = (
+    action: string,
+    extra: Record<string, unknown> = {},
+  ): { action: string; revision: number; requestId: string } & Record<string, unknown> => ({
     action,
     revision: pool.snapshot().revision,
     requestId: crypto.randomUUID(),

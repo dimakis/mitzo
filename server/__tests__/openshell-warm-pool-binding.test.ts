@@ -73,7 +73,7 @@ it('immutable pool labels become effective ownership only with a matching durabl
   expect(() => projectWarmPoolOwnership(f.config, f.raw())).toThrow(/claimed/i);
   await pool!.claim('chat', 'work', AbortSignal.timeout(5000));
   expect(warmPoolConversationName(f.config, 'chat')).toBe(f.physical().name);
-  const projected = projectWarmPoolOwnership(f.config, f.raw());
+  const projected: { labels: Record<string, string> } = projectWarmPoolOwnership(f.config, f.raw());
   expect(projected.labels['mitzo.account_provider']).toBe('work');
   expect(projected.labels['mitzo.conversation']).toMatch(/^[a-f0-9]{63}$/);
   expect(f.raw().labels).not.toHaveProperty('mitzo.account_provider');
@@ -126,3 +126,50 @@ it('only an explicit initial command claims a spare and later commands retain th
   await manager.ensure('chat', AbortSignal.timeout(5000));
   expect(pool!.snapshot().owned).toHaveLength(1);
 });
+it.each([true, false])(
+  'applies saved cold limits only to an explicit eligible first command: %s',
+  async (explicit) => {
+    const f = await fixture();
+    await pool!.mutate({
+      action: 'settings',
+      revision: pool!.snapshot().revision,
+      requestId: 'resources',
+      settings: { ...pool!.snapshot().settings, cpu: 4, memoryGiB: 8 },
+    });
+    let created: Record<string, unknown> | undefined;
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('provider')) return 'No providers attached to sandbox fixture.';
+      if (args.includes('create')) {
+        const name = args[args.indexOf('--name') + 1],
+          labels: Record<string, string> = {};
+        args.forEach((x, i) => {
+          if (x === '--label') {
+            const [key, value] = args[i + 1].split('=');
+            labels[key] = value;
+          }
+        });
+        created = { id: 'cold-physical', name, workspace: 'default', phase: 'Ready', labels };
+        return JSON.stringify(created);
+      }
+      if (!created) throw Error('not found');
+      return JSON.stringify(created);
+    });
+    const manager = new OpenShellRuntimeManager(f.config, run);
+    await manager.ensure(
+      'cold-chat',
+      AbortSignal.timeout(5000),
+      undefined,
+      undefined,
+      undefined,
+      explicit ? 'first-command' : undefined,
+    );
+    const args = run.mock.calls.find(([a]) => a.includes('create'))![0];
+    if (explicit) {
+      expect(args[args.indexOf('--cpu') + 1]).toBe('4');
+      expect(args[args.indexOf('--memory') + 1]).toBe('8Gi');
+    } else {
+      expect(args).not.toContain('--cpu');
+      expect(args).not.toContain('--memory');
+    }
+  },
+);

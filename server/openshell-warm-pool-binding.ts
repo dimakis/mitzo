@@ -68,10 +68,29 @@ export async function claimWarmPoolForCommand(
     !pool.adapter.available ||
     config.cliContract ||
     config.artifactDriverConfig ||
+    config.accountProviderBindings?.length ||
     config.sandboxNameOverride ||
     config.account.kind !== 'api' ||
     warmPoolScope(config) !== pool.adapter.scope
   )
     return null;
   return pool.claim(conversationId, config.account.provider, signal, seed, config.serviceProviders);
+}
+
+/** Saved pool limits also govern compatible cold allocations; retained sandboxes
+ * keep the limits with which they were created. */
+export function warmPoolCreateResources(config: BoundOpenShellRuntimeConfig) {
+  if (
+    !pool ||
+    !pool.adapter.available ||
+    config.cliContract ||
+    config.artifactDriverConfig ||
+    config.accountProviderBindings?.length ||
+    config.sandboxNameOverride ||
+    config.account.kind !== 'api' ||
+    warmPoolScope(config) !== pool.adapter.scope
+  )
+    return undefined;
+  const { cpu, memoryGiB } = pool.snapshot().settings;
+  return { cpu, memoryGiB };
 }

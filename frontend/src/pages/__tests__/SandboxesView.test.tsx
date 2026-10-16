@@ -144,10 +144,38 @@ it('cannot apply a late cleanup preview to a different selected conversation', a
   mount();
   await screen.findByText('Conversation a');
   fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[0]);
-  fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[1]);
   await screen.findByText('Cleanup is blocked: active session.');
   await act(async () => resolveA({ token: 'a', action: 'delete', blockers: [] }));
   expect(screen.queryByRole('button', { name: 'Delete retained sandbox' })).toBeNull();
   expect(screen.getByText('Cleanup is blocked: active session.')).toBeTruthy();
+});
+it('explicit refresh preserves the refused draft and allows a retry against the fresh revision', async () => {
+  vi.mocked(readApiJson).mockResolvedValue(snapshot);
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ error: 'Stale settings. Refresh before retrying.' }), {
+      status: 409,
+    }),
+  );
+  mount();
+  await screen.findByLabelText('Warm spares');
+  fireEvent.change(screen.getByLabelText('Warm spares'), { target: { value: '2' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+  await screen.findByText('Stale settings. Refresh before retrying.');
+  vi.mocked(readApiJson).mockResolvedValue({ ...snapshot, revision: 2 });
+  fireEvent.click(screen.getByRole('button', { name: 'Retry inventory' }));
+  await waitFor(() => expect(vi.mocked(readApiJson).mock.calls.length).toBe(2));
+  await waitFor(() =>
+    expect((screen.getByRole('button', { name: 'Refresh' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  expect((screen.getByLabelText('Warm spares') as HTMLSelectElement).value).toBe('2');
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ error: 'Still refused' }), { status: 409 }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls[1][1]!.body as string).revision).toBe(2);
 });

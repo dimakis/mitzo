@@ -29,6 +29,8 @@ metadata is not evidence that an unsupported route can claim a spare. Additional
 runtime classes require separate qualified adapters, not placeholder accounts.
 
 CPU and memory are requested per sandbox through the native create flags. The
+saved limits also apply to compatible cold allocations on an enrolled host;
+existing retained sandboxes keep their creation-time limits. The
 calculated pool ceiling is requested capacity, not a hardware reservation or a
 measurement of actual utilization. Claimed conversation resources are outside the
 spare ceiling. Live qualification must verify the selected driver enforces limits

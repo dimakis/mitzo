@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.167';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.166';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -40,15 +40,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-warm-pool-runtime.ts':
     '69578048c40fbdf96a2aa2356b73b192ce361fdd34d18243fff8f471b2174ebf',
   '../openshell-warm-pool-binding.ts':
-    '2dcd6186ffd5e0ad57e36deb6dccdc83181ef8a3693d4be5e48bf18a7e07ce7b',
+    'e601d949edf713ed7017518c9b8a3deef490152df6f30fa23af2a628c65d2e5f',
   '../openshell-warm-pool-router.ts':
     '4b9cdfd05514839d3828ef89774dc7766bd1dd810639e543ba3e13bc539f889f',
   '../openshell-warm-pool-host.ts':
     '2577ff61c46fbf82e32eb1d65d0cbe80b89fe41c864b4c05f0210a49cd069634',
   '../openshell-lifecycle-service.ts':
-    '57cfbcb5fa69a4469c43364978201688a2b696f31756a1c5d8d08039e4f76c1e',
+    '5f6dfd0be3670a181b1dcc68a8633933ea95bf19574d0f3178a68dfcfe03d493',
   '../../frontend/src/pages/SandboxesView.tsx':
-    'ce85acdcb3896c49e4cf46dc5fe4117698eba156f179a7ca97bb20f99325b031',
+    '9628ebcc09ceeff4e55a1b672aca92a3eafe1ce04b91d8a32fc8411d9b50223b',
   '../../frontend/src/pages/SandboxesView.css':
     'fc0fc8920489a087dbd7ee07d060f88ec44a4028ee4d056b899ba7c2834adf8f',
   '../../frontend/src/types/sandboxes.ts':
@@ -561,7 +561,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   // Batched knowledge admission preserves verification and retention under the lifecycle fence.
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
-  '../openshell-runtime.ts': '4c3af20c5293b2a0ca041e690c7f886f0ac74550785a95bb42cf8ad367bd21e8',
+  '../openshell-runtime.ts': 'cc9cefd223bbca7983bc6bb6e223ecbb9d7abb66a1b11c8375f895223b877f72',
   '../codex-chat-session.ts': 'fd3189ecbaeddda8a5eaa0156409c6d8efd449d0dc0786979a765c7f456d9d2f',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':

@@ -43,35 +43,42 @@ export function SandboxesView() {
     dirtyRef = useRef(false),
     epoch = useRef(0),
     cleanupEpoch = useRef(0);
-  const refresh = useCallback(async (signal?: AbortSignal, replaceDraft = false) => {
-    const generation = ++epoch.current;
-    setRefreshing(true);
-    try {
-      const next = await readApiJson<SandboxesInventory>('/api/sandboxes', signal);
-      if (
-        !next ||
-        !next.settings ||
-        !Number.isInteger(next.revision) ||
-        !Array.isArray(next.spares) ||
-        !Array.isArray(next.conversations)
-      )
-        throw Error('Sandbox inventory is unavailable.');
-      if (!mounted.current || generation !== epoch.current || signal?.aborted) return;
-      setData(next);
-      setError('');
-      if (!dirtyRef.current || replaceDraft) {
-        setDraft(next.settings);
-        setRevision(next.revision);
-        setDirty(false);
-        dirtyRef.current = false;
+  const refresh = useCallback(
+    async (signal?: AbortSignal, replaceDraft = false, acceptRevision = false) => {
+      const generation = ++epoch.current;
+      setRefreshing(true);
+      try {
+        const next = await readApiJson<SandboxesInventory>('/api/sandboxes', signal);
+        if (
+          !next ||
+          !next.settings ||
+          !Number.isInteger(next.revision) ||
+          !Array.isArray(next.spares) ||
+          !Array.isArray(next.conversations)
+        )
+          throw Error('Sandbox inventory is unavailable.');
+        if (!mounted.current || generation !== epoch.current || signal?.aborted) return;
+        setData(next);
+        setError('');
+        if (acceptRevision && dirtyRef.current) {
+          setRevision(next.revision);
+          setMessage('Inventory refreshed. Review your unsaved settings before saving.');
+        }
+        if (!dirtyRef.current || replaceDraft) {
+          setDraft(next.settings);
+          setRevision(next.revision);
+          setDirty(false);
+          dirtyRef.current = false;
+        }
+      } catch (e) {
+        if (mounted.current && generation === epoch.current && !signal?.aborted)
+          setError(e instanceof Error ? e.message : 'Could not load sandboxes.');
+      } finally {
+        if (mounted.current && generation === epoch.current) setRefreshing(false);
       }
-    } catch (e) {
-      if (mounted.current && generation === epoch.current && !signal?.aborted)
-        setError(e instanceof Error ? e.message : 'Could not load sandboxes.');
-    } finally {
-      if (mounted.current && generation === epoch.current) setRefreshing(false);
-    }
-  }, []);
+    },
+    [],
+  );
   useEffect(() => {
     mounted.current = true;
     const controller = new AbortController();
@@ -191,7 +198,7 @@ export function SandboxesView() {
             <button
               className="home-secondary"
               disabled={refreshing || busy}
-              onClick={() => void refresh()}
+              onClick={() => void refresh(undefined, false, true)}
             >
               {refreshing ? 'Refreshing…' : 'Refresh'}
             </button>
@@ -208,7 +215,7 @@ export function SandboxesView() {
           <button
             className="home-secondary"
             disabled={busy || refreshing}
-            onClick={() => void refresh()}
+            onClick={() => void refresh(undefined, false, true)}
           >
             Retry inventory
           </button>
