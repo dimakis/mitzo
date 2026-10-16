@@ -865,3 +865,35 @@ captures show the [mobile profile usage error and retry](assets/tool-library-pro
 and [desktop profile usage loading state](assets/tool-library-profile-loading-desktop.png).
 These isolated renders use intercepted requests and no backend or model. The
 full-app Agent Library fixture retains its separate CI acceptance journey.
+
+Tool browsing uses the shared `ToolLibraryCatalog` collection component. Quiet
+cards lead with a category icon, tool name, a two-line description and behavior
+badges. Required tools and unavailable explicit selections remain visible.
+Native Details disclosures retain the full description, version, runtime,
+permission requirements and profile references. Search and Category combine,
+announce result counts, offer an explicit empty state and Clear filters, and
+survive switching between library views. Profile usage loading/error/retry
+remains separate from an unused profile result.
+
+The component reuses `UiIcon`, `EmptyState`, the collection heading and existing
+labelled form controls, shared semantic colors, type/spacing/radius scales,
+`--control-height`, focus styles and native disclosure motion. The 22rem grid
+minimum is structural responsive card geometry, bounded to the available width;
+two-line clamping is a list preview with the complete text in Details.
+
+Offline actual-page acceptance checks 28 registered tools on 320px WebKit and
+Chromium phones and 1280px desktop Chromium, dark Lavender/System and light
+Teal/Georgia. Checks cover category/search combinations, no results/reset,
+keyboard disclosure, 44px controls, retained filters, usage loading/failure/retry,
+profile references, larger text and final-card scrolling. The existing profile
+selection/recovery/publish/export fixture remains covered. Inspected captures show
+[mobile dark cards](assets/tool-library-cards-mobile-dark.png),
+[mobile light cards](assets/tool-library-cards-mobile-light.png),
+[desktop light cards](assets/tool-library-cards-desktop-light.png) and
+[desktop dark cards](assets/tool-library-cards-desktop-dark.png).
+These fixtures intercept all traffic and start no backend or model. Component
+checks, the design guard, frontend type checking and focused lint pass. The full
+`test:ui` command passed package/frontend type checking but its production Vite
+build exceeded the required 1 GiB local heap; full app build acceptance remains
+with CI. Shell-owned masthead/safe-area behavior is unchanged; these focused
+captures isolate the actual page without the shell. No deployment is performed.
