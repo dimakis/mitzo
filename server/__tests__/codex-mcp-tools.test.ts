@@ -370,3 +370,45 @@ it('bounds empty unique-cursor pagination and closes the peer', async () => {
   expect(page).toBe(100);
   expect(close).toHaveBeenCalledOnce();
 });
+
+it('keeps permissions source-scoped when opted-in labels collide after delimiter concatenation', async () => {
+  const sourceIds = [
+    '11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222',
+  ];
+  const permission = vi.fn(async (_name: string) => ({ behavior: 'allow' as const }));
+  const callTool = vi.fn(async () => ({ content: [] }));
+  const signal = new AbortController().signal;
+  const tools = await connectCodexMcpTools(
+    {
+      work__docs: { command: 'first', librarySourceId: sourceIds[0] },
+      work: { command: 'second', librarySourceId: sourceIds[1] },
+    },
+    {
+      cwd: '/fixture',
+      env: {},
+      signal,
+      connect: async (config) => ({
+        listTools: async () => ({
+          tools: [
+            {
+              name: config.command === 'first' ? 'search' : 'docs__search',
+              inputSchema: { type: 'object' },
+            },
+          ],
+        }),
+        callTool,
+        close: async () => {},
+      }),
+    },
+  );
+  try {
+    for (const tool of tools.definitions) await tools.execute(tool.name, {}, permission, signal);
+    expect(permission.mock.calls.map(([name]) => name)).toEqual([
+      `mcp__${sourceIds[0]}__search`,
+      `mcp__${sourceIds[1]}__docs__search`,
+    ]);
+  } finally {
+    await tools.close();
+  }
+});
