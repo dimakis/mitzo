@@ -141,3 +141,12 @@ it.each([false, true])('keeps More selected in mockups, desktop=%s', (desktop) =
   );
   expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
 });
+
+it.each([false, true])('keeps More selected in Sandboxes, desktop=%s', (desktop) => {
+  render(
+    <MemoryRouter initialEntries={['/sandboxes']}>
+      {desktop ? <DesktopNav /> : <TabBar />}
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
+});
