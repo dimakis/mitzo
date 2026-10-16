@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.228';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.235';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,26 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/ConversationJoiningReview.tsx':
+    '281a3331627c21bbd34149d697927291d355da0f0505d1b5666647219bfa7a31',
+  '../../frontend/src/hooks/useConversationJoiningReview.ts':
+    '1c5b67de86e13680ae212d1bd34e0528d56e59f8a63dd534e00edf6eb4405a0d',
+  '../../frontend/src/hooks/useMotionPresence.ts':
+    'ace66416845a7e8a85ce17c07c8310b4b7089e89f09ce6e8cb7919907d035838',
+  '../../frontend/src/hooks/useReducedMotion.ts':
+    'bac83b87d2170b27345c415117c7ec3af58071633433e58c0ac57b4cfe8318b0',
+  '../../frontend/src/lib/browser-crypto.ts':
+    '5d10eb99cc0f0d8cbabd7eeefa9ce245bd14c8f32921edbf197a13f4b849b270',
+  '../../frontend/src/lib/conversation-joining-review.ts':
+    '522a7df7880187236b963b01b38149ccc0f7ae2fc1e3ba1f46164d9903c676a7',
+  '../../frontend/src/lib/motion.ts':
+    'b4824511e9ab83fa7d84cff518bbf8b88f725a4ddb07c87c7e6a81729ca55e37',
+  '../../frontend/src/styles/home.css':
+    'aa3da55b033e5e580ba3dec2822cab53f6c90610b26af28af172aab5e928e702',
+  '../../frontend/src/styles/tokens.css':
+    '0144504755cb94a23c12c9ec16c95e93465165da53a5a17c2e961c614cd87654',
+  '../../frontend/src/types/account-selection.ts':
+    'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../packages/client/src/telos-work-api.ts':
     'e16b59f86bc1f0c6044b7333c9efeafecd8198ec09ebda0a748c2cbf19fd18ce',
   '../../packages/protocol/src/telos-work-api.ts':
@@ -36,9 +56,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ComposerResponders.tsx':
     '947179a55df150bc220a2b3d8434504c9e9668220155db5d2fd863440faba06d',
   '../../frontend/src/components/ConversationAgents.css':
-    'bcabefdab07e5eb61ffd9a5aab72a2ec3fcd7c3ca4d7e148d35420a2ddae63d9',
+    '67b0a7dfde19ce25f31fc5ff2571fa111f20ca323bf8220d86906899ca5eae16',
   '../../frontend/src/components/ConversationAgents.tsx':
-    'bb48ebae21c28cd3536d5783a4e60586e007e755e92b6ad5f8c2892a91d01c5e',
+    '48696180754aca127bb0224121302a9453f262ff7cb85b78762bd2ed33d7ffe1',
   '../../frontend/src/components/RetainedConversationComposer.tsx':
     '6be25f820dbf6770f063664ce19429fcfc986547cd8ef397f996a4294b8317d7',
   '../collaboration-context-compiler.ts':
@@ -226,7 +246,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/OrdinaryCollaborationEntry.tsx':
     '23d4b7d10ec64b7e3e9daf19d81dd0951ed6c6d3d6602fb0b977e305cc535360',
   '../../frontend/src/components/HomeDialog.tsx':
-    '0d01f1697ecef3bb57bef3f99f9beb84bb151d911cd24cefbdf690e4bc5663b7',
+    '1993098c16aa6d774bc2d94ed4f07609613281983d00b7e46d9d4612ddb8ce71',
   '../../frontend/src/components/SessionTray.tsx':
     'da210c89a8dd6821ddd98b1c6429ae58fa6731d1afe98c08a75f0867695d99ba',
   '../../frontend/src/components/WorkspaceControls.tsx':
