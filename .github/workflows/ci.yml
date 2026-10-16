@@ -98,6 +98,17 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Retain agent tool selection visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-tool-selection-visuals-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/**/agent-tools-*.png
+            test-results/offline/**/tool-library-*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Retain responsiveness visual acceptance screenshots
         if: always()
         uses: actions/upload-artifact@v7

@@ -158,7 +158,7 @@ export function sessionCredentialTools(
           content: JSON.stringify(
             connectionGuide(
               credentialConnectionSchemas.GetConnectionGuide.parse(input).topic,
-              credentialConnectionToolDefinitions,
+              filterAgentTools(session, credentialConnectionToolDefinitions),
             ),
           ),
           isError: false,

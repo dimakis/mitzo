@@ -121,3 +121,81 @@ Unit tests cover owner separation, draft/publication conflicts, retries and rest
 Runtime source authorization remains active through asynchronous provider setup and dispatch. Logout or expiry aborts the owning run. A retained pack snapshot reauthorizes its source namespace, scopes and accepted revision metadata without rereading or recompiling its body. The context disclosure distinguishes preparation from actual provider acknowledgement and preserves source/pack revisions, hashes, budgets and omissions.
 
 Sandbox snapshots additionally verify their owning runtime and installed compiler identities. No deployment is implied; compatible sandbox image enrollment remains separate acceptance work. Canonical staging and its pipeline are stood down on the configured Mac. Live validation requires a separately selected and authorized target and the supported Luna/account declaration rules. Centralized tool grants and automated catalog selection by task templates remain separate work.
+
+## Selecting existing tools
+
+The **Tools** tab chooses existing executable tools for an agent. **Add tools** searches
+registered names, descriptions and sources; Remove changes the editable selection.
+Save the draft and publish it through the usual version fences. The advisor uses
+this same catalog, proposes portable references for review, and preserves an existing
+selection when its suggested profile omits tools. It cannot install or execute tools.
+**Tool library** browses the installed inventory and lists explicit draft and
+published revision references. Legacy use is described separately because those
+profiles inherit their runtime catalog rather than an explicit list.
+
+A portable `tools` array contains only canonical implementation identities and
+versions, for example:
+
+```json
+{
+  "tools": [
+    { "id": "mitzo:Read", "version": 1 },
+    { "id": "mitzo:GetConnectionGuide", "version": 1 }
+  ]
+}
+```
+
+An absent field preserves legacy behavior and historical hashes. An explicit
+`"tools": []` permits no optional tools. **AskUserQuestion** is the required platform
+interaction tool on enrolled API routes; it cannot grant execution permission.
+Choosing **Use legacy catalog** deliberately restores inherited behavior for new
+sessions. Save, publish, export/import, working-copy recovery, profile proposals,
+and exact historical revision reads preserve these distinctions. Unknown or
+unavailable versions remain inspectable in portable profiles but cannot start a
+selected session. No tool installation, arbitrary server configuration or API
+builder is included.
+
+| Runtime route                           | Explicit selections                                                                     |
+| --------------------------------------- | --------------------------------------------------------------------------------------- |
+| Local OpenAI Responses                  | Supported by the host API runner; existing runtime/account enrollment still applies     |
+| Local Gemini/Vertex API                 | Same host API enforcement; existing provider limitations still apply                    |
+| Claude SDK / native Claude              | Explicit refusal; use a legacy profile until its entire native tool surface is enrolled |
+| Local/native Codex                      | Explicit refusal; dynamic-tool filtering cannot restrict provider-native tools          |
+| OpenShell / brokered Codex              | Explicit refusal; native sandbox and host-wrapper enrollment remains separate           |
+| Native Symposium seats / search threads | Explicit refusal at profile/seat admission                                              |
+| Configured stdio MCP tools              | Legacy behavior retained; source-scoped selectable discovery belongs to the next phase  |
+
+The inventory is derived from exported native, connection, repository, profile,
+web, publishing and Telos registrations. Telos tools remain visible with their
+unsupported selection route. Read/write/mixed classifications describe behavior,
+not authorization. See the [route inventory](../design/agent-tool-inventory.md).
+
+Selection is an additional ceiling over existing permissions. It never creates a
+connection, supplies credentials, grants a capability, changes permission mode,
+or bypasses approval. Connection operations require an active configured connection
+and the selected **RequestConnectionAccess** helper for their existing approval
+flow. Home Assistant and WebSocket tools require their matching configured access.
+Missing dependencies fail explicitly before the model runs. Current skill policy,
+connection and account revocation, cancellation, runtime ownership and action
+validation still apply at execution, including after human approval.
+
+New supported sessions expose only the selected optional definitions plus the
+required interaction tool. Dispatch checks that exact admitted name set before
+hooks or execution. Unknown aliases, provider MCP wire names, publishing wrappers
+and capability-wrapper names cannot widen it. Explicit selections do not start
+configured MCP servers or run project command hooks. **Bash** remains a general
+workspace command tool; selecting it permits commands within its existing OS
+sandbox. Tool selection restricts invocation identities, not the semantic content
+of every allowed program or request. Use the existing workspace/connection policy
+for resource restrictions.
+
+The conversation retains its exact published profile and a private admitted catalog
+snapshot bound to the account, profile hash and full definitions. Cold resume
+rechecks current authority and compares those definitions; catalog drift fails
+explicitly instead of substituting a tool. Intentional incompatible implementation
+changes require a new tool version. Existing chats cannot adopt edits or refresh
+native catalogs. Start a new chat after publishing a new selection.
+
+Offline evidence and remaining live qualification are tracked in
+[the Phase 1 acceptance record](agent-tool-selection-acceptance.md). Source tests
+and intercepted browser fixtures do not establish live provider execution.

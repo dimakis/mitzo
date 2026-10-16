@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
 import { credentialConnectionToolDefinitions } from '../credential-connection-tools.js';
@@ -52,4 +53,39 @@ it('keeps legacy behavior but blocks explicit selections on unsupported routes a
   expect(() =>
     assertAgentToolRoute({ tools: [{ id: 'mitzo:Unknown', version: 1 }] } as never, 'local-api'),
   ).toThrow(/unavailable/i);
+});
+
+it('refuses missing connection dependencies before exposing an unusable selected operation', async () => {
+  const { assertAgentToolAvailability } = await import('../agent-tool-selection.js');
+  const runtime = await import('../credential-connections-runtime.js');
+  const current = runtime.getCredentialConnectionsRuntime();
+  runtime.setCredentialConnectionsRuntime(null);
+  try {
+    expect(() =>
+      assertAgentToolAvailability(
+        {
+          tools: [
+            { id: 'mitzo:ConnectionRequest', version: 1 },
+            { id: 'mitzo:RequestConnectionAccess', version: 1 },
+          ],
+        } as never,
+        'chat',
+      ),
+    ).toThrow(/active connection/i);
+    expect(() =>
+      assertAgentToolAvailability(
+        { tools: [{ id: 'mitzo:GetConnectionGuide', version: 1 }] } as never,
+        'chat',
+      ),
+    ).not.toThrow();
+  } finally {
+    runtime.setCredentialConnectionsRuntime(current);
+  }
+});
+
+it('keeps the offline browser inventory aligned with authoritative registrations', async () => {
+  const fixture = JSON.parse(
+    readFileSync(new URL('../../tests/fixtures/agent-tool-catalog.json', import.meta.url), 'utf8'),
+  );
+  expect(fixture).toEqual(agentToolCatalog());
 });

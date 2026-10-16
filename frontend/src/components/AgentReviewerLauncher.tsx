@@ -3,12 +3,19 @@ import { Link } from 'react-router-dom';
 import type { AgentProfileSelection } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 
-export function AgentReviewerLauncher({ selection }: { selection: AgentProfileSelection }) {
+export function AgentReviewerLauncher({
+  selection,
+  unsupportedReason,
+}: {
+  selection: AgentProfileSelection;
+  unsupportedReason?: string;
+}) {
   const [sessions, setSessions] = useState<{ id: string; summary?: string }[] | null>(null);
   const [chosen, setChosen] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const load = async () => {
+    if (unsupportedReason) return;
     setBusy(true);
     setError('');
     try {
@@ -29,6 +36,13 @@ export function AgentReviewerLauncher({ selection }: { selection: AgentProfileSe
     reviewerProfile: selection.profileId,
     reviewerRevision: String(selection.revision),
   });
+  if (unsupportedReason)
+    return (
+      <div className="agent-library-reviewer-launcher">
+        <button disabled>Use as reviewer</button>
+        <p>{unsupportedReason}</p>
+      </div>
+    );
   return (
     <div className="agent-library-reviewer-launcher">
       <button disabled={busy} onClick={() => void load()}>

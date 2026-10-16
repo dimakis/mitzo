@@ -347,7 +347,11 @@ export function AgentLibrary() {
     <main className="workspace-page agent-library-page">
       <WorkspacePageHeading
         title={view === 'agents' ? 'Agent Library' : 'Tool library'}
-        description="Give an agent a job. Use it wherever you work."
+        description={
+          view === 'agents'
+            ? 'Give an agent a job. Use it wherever you work.'
+            : 'Browse existing tools and the profiles that use them.'
+        }
         actions={
           view === 'agents' && (
             <>
@@ -455,13 +459,15 @@ export function AgentLibrary() {
           {toolLoaded && !tools.length && <p>No implemented tools are available.</p>}
         </section>
       )}
-      {toolError && (
+      {toolError && (view === 'tools' || tab === 'tools') && (
         <p role="alert" className="agent-library-error">
           {toolError}{' '}
           <button onClick={() => setToolAttempt((value) => value + 1)}>Retry tools</button>
         </p>
       )}
-      {!toolLoaded && !toolError && <p role="status">Loading tool library…</p>}
+      {!toolLoaded && !toolError && (view === 'tools' || tab === 'tools') && (
+        <p role="status">Loading tool library…</p>
+      )}
       <div hidden={view !== 'agents'}>
         <div
           className="agent-library-tabs"

@@ -26,8 +26,8 @@
   text-decoration: none;
 }
 .agent-library-page .btn-primary {
-  background: var(--color-accent);
-  color: var(--color-on-accent);
+  background: var(--color-panel);
+  color: var(--color-accent);
 }
 .agent-library-page button:disabled {
   opacity: 0.5;
@@ -213,7 +213,8 @@
   border-bottom: 2px solid transparent;
   border-radius: 0;
 }
-.agent-library-tabs button[aria-selected='true'] {
+.agent-library-tabs button[aria-selected='true'],
+.agent-library-tabs button[aria-pressed='true'] {
   border-bottom-color: var(--color-accent);
 }
 .agent-library-fields {
@@ -426,6 +427,8 @@
 }
 .agent-tool-row > button {
   flex-shrink: 0;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
 }
 .agent-tool-row summary {
   min-height: var(--control-height);
@@ -436,10 +439,12 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
 }
-.agent-library-page .btn-primary {
-  background: var(--color-panel);
-  color: var(--color-accent);
-}
 .agent-library-page .agent-library-actions button {
   font-size: var(--text-sm);
+}
+
+.agent-library-fields > details > summary {
+  min-height: var(--control-height);
+  cursor: pointer;
+  color: var(--color-muted);
 }
