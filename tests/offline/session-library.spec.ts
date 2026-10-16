@@ -266,7 +266,8 @@ for (const theme of ['dark', 'light'])
           : page.getByRole(isMobile ? 'link' : 'button', {
               name: `${isMobile ? 'Open' : 'Preview'} ${kind === 'search' ? 'Search-only conversation' : 'Conversation 2'}`,
             });
-      await row.click();
+      if (isMobile) await row.tap();
+      else await row.click();
       if (!isMobile) {
         await expect(page.getByRole('button', { name: 'Opened conversation' })).toHaveCount(0);
         await expect(
