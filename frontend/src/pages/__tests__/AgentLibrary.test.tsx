@@ -777,3 +777,72 @@ it('keeps a newer known task row when an exact create retry returns its older du
   expect(screen.getByRole('button', { name: 'Task settings: Edited elsewhere' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Task settings: Original task' })).toBeNull();
 });
+
+it('retains incomplete execution choices when switching between saved tasks', async () => {
+  const copy = {
+    ...createAgentTaskWorkingCopy(published),
+    name: 'Partial choices',
+    runtime: {
+      ...createAgentTaskWorkingCopy(published).runtime,
+      account: { accountId: 'work', model: '', reasoningEffort: 'high' },
+    },
+  };
+  saveAgentTaskWorkingCopy(copy);
+  const definition = {
+    name: copy.name,
+    objective: '',
+    profile: copy.profile,
+    execution: null,
+    workspace: null,
+    schedule: null,
+    notificationPolicy: 'results',
+    outputPolicy: 'session',
+  };
+  const first = {
+    taskId: copy.taskId,
+    revision: 1,
+    definition,
+    configuration: { state: 'draft' },
+    deleted: false,
+    createdAt: '2026-10-15T00:00:00.000Z',
+    updatedAt: '2026-10-15T00:00:00.000Z',
+  };
+  const second = {
+    ...first,
+    taskId: 'another-task',
+    definition: { ...definition, name: 'Another task' },
+  };
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/agent-tasks')
+      return response(init?.method === 'POST' ? first : [first, second]);
+    return response({ drafts: [], versions: [published] });
+  });
+  render(
+    <MemoryRouter>
+      <AgentLibrary />
+    </MemoryRouter>,
+  );
+  await screen.findByLabelText('Task name');
+  expect(screen.getByLabelText('Task name')).toHaveProperty('value', 'Partial choices');
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
+  await screen.findByText('Task saved. Execution is not available yet.');
+  fireEvent.click(screen.getByRole('button', { name: 'Close task editor' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Task settings: Another task' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close task editor' }));
+  first.revision = 2;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh tasks' }));
+  await screen.findByText(/r3 · Task revision 2/);
+  fireEvent.click(screen.getByRole('button', { name: 'Task settings: Partial choices' }));
+  expect(
+    JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!).runtime.account,
+  ).toEqual({ accountId: 'work', model: '', reasoningEffort: 'high' });
+  expect(screen.getByRole('button', { name: 'Reload saved task' })).toBeTruthy();
+  vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Reload saved task' }));
+  expect(
+    JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!).expectedRevision,
+  ).toBe(2);
+  expect(
+    JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!).runtime.account,
+  ).toBeNull();
+});

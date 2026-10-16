@@ -4,6 +4,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import { useState } from 'react';
 import { AgentTaskSettings } from '../AgentTaskSettings';
+import { AgentTaskEditor } from '../AgentTaskEditor';
+import {
+  type AgentTaskWorkingCopy,
+  createAgentTaskWorkingCopy,
+} from '../../lib/agent-task-working-copy';
 import { apiFetch } from '../../lib/api-fetch';
 import {
   createChatRuntimeSelection,
@@ -190,4 +195,69 @@ it('does not erase saved execution intent when unavailable settings are merely r
     expect.objectContaining({ account: seed.account, execution: seed.execution }),
     execution,
   );
+});
+
+it('restores and reviews a saved target without marking task input dirty or changing its retry key', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => inventory } as Response);
+  const seed = {
+    ...createAgentTaskWorkingCopy({
+      profileId: 'bob',
+      revision: 3,
+      contentHash: 'a'.repeat(64),
+      definition: {
+        name: 'Bob',
+        role: 'agent',
+        instructions: 'Review',
+        expectedOutput: 'Brief',
+        acceptanceCriteria: ['Evidence'],
+        modelPolicyRole: 'agent',
+      },
+    }),
+    expectedRevision: 1,
+    dirty: false,
+    execution: {
+      account,
+      harness: 'responses' as const,
+      targetId: 'mac',
+      model: 'luna',
+      reasoningEffort: 'high',
+      mode: 'agent' as const,
+      authorityRefs: [],
+    },
+  };
+  seed.runtime = {
+    ...seed.runtime,
+    account: { accountId: 'work', model: 'luna', reasoningEffort: 'high' },
+    accountReference: account,
+    execution: { location: 'openshell', targetId: 'mac' },
+  };
+  function Editor() {
+    const [copy, update] = useState<AgentTaskWorkingCopy>(seed);
+    return (
+      <>
+        <AgentTaskEditor copy={copy} update={update} versions={[]} busy={false} save={() => {}} />
+        <output aria-label="Copy">{JSON.stringify(copy)}</output>
+      </>
+    );
+  }
+  render(
+    <MemoryRouter>
+      <Editor />
+    </MemoryRouter>,
+  );
+  await waitFor(() =>
+    expect(JSON.parse(screen.getByLabelText('Copy').textContent!).runtime.execution.location).toBe(
+      'local',
+    ),
+  );
+  expect(JSON.parse(screen.getByLabelText('Copy').textContent!)).toMatchObject({
+    dirty: false,
+    idempotencyKey: seed.idempotencyKey,
+  });
+  fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+  expect(JSON.parse(screen.getByLabelText('Copy').textContent!)).toMatchObject({
+    dirty: false,
+    idempotencyKey: seed.idempotencyKey,
+  });
 });

@@ -14,7 +14,13 @@ const schema = z.object({
   name: z.string(),
   objective: z.string(),
   profile: AgentTaskProfileSchema,
-  runtime: ChatRuntimeSelectionSchema,
+  // Working input may have an account selected before a model is available.
+  runtime: ChatRuntimeSelectionSchema.extend({
+    account: ChatRuntimeSelectionSchema.shape.account
+      .unwrap()
+      .extend({ model: z.string() })
+      .nullable(),
+  }),
   execution: AgentTaskDefinitionSchema.shape.execution,
   mode: z.enum(['ask', 'agent', 'auto']),
   workspaceId: z.string(),
@@ -28,21 +34,37 @@ const schema = z.object({
 export type AgentTaskWorkingCopy = z.infer<typeof schema>;
 const KEY = 'mitzo-agent-task-working-copy';
 let memory: AgentTaskWorkingCopy | null = null;
+const retained = new Map<string, AgentTaskWorkingCopy>();
 let pendingStorage = false;
-export function loadAgentTaskWorkingCopy(): AgentTaskWorkingCopy | null {
-  if (pendingStorage) return memory;
+const taskKey = (id: string) => `${KEY}:${id}`;
+export function loadAgentTaskWorkingCopy(taskId?: string): AgentTaskWorkingCopy | null {
+  const fallback = () => (taskId ? (retained.get(taskId) ?? null) : memory);
+  if (pendingStorage) return fallback();
   try {
-    const parsed = schema.safeParse(JSON.parse(sessionStorage.getItem(KEY) ?? 'null'));
-    return parsed.success ? parsed.data : null;
+    const parsed = schema.safeParse(
+      JSON.parse(sessionStorage.getItem(taskId ? taskKey(taskId) : KEY) ?? 'null'),
+    );
+    return parsed.success && (!taskId || parsed.data.taskId === taskId) ? parsed.data : null;
   } catch {
-    return memory;
+    return fallback();
   }
 }
 export function saveAgentTaskWorkingCopy(copy: AgentTaskWorkingCopy | null): boolean {
+  const previous = loadAgentTaskWorkingCopy();
   memory = copy;
+  if (copy) retained.set(copy.taskId, copy);
+  else if (previous?.dirty) retained.delete(previous.taskId);
   try {
-    if (copy) sessionStorage.setItem(KEY, JSON.stringify(copy));
-    else sessionStorage.removeItem(KEY);
+    if (copy) {
+      const serialized = JSON.stringify(copy);
+      sessionStorage.setItem(taskKey(copy.taskId), serialized);
+      sessionStorage.setItem(KEY, serialized);
+    } else {
+      // Closing a clean editor keeps incomplete device-only choices for that task.
+      // Confirmed discard removes its unsaved working copy as well.
+      if (previous?.dirty) sessionStorage.removeItem(taskKey(previous.taskId));
+      sessionStorage.removeItem(KEY);
+    }
     pendingStorage = false;
     return true;
   } catch {

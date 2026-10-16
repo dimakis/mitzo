@@ -294,9 +294,16 @@ export function AgentLibrary() {
   );
   const canUse = !!selectedVersion && !dirty;
   const openTask = (task: Parameters<typeof editAgentTask>[0]) => {
-    taskState.update(editAgentTask(task));
+    const retained = loadAgentTaskWorkingCopy(task.taskId);
+    taskState.update(retained ?? editAgentTask(task));
     setCollection('tasks');
   };
+  const newerTask =
+    taskState.copy &&
+    taskState.tasks?.find(
+      (task) =>
+        task.taskId === taskState.copy!.taskId && task.revision > taskState.copy!.expectedRevision,
+    );
   const assign = () => {
     if (!selectedVersion) return;
     taskState.update(createAgentTaskWorkingCopy(selectedVersion));
@@ -381,6 +388,25 @@ export function AgentLibrary() {
             save={() => void taskState.save()}
             busy={taskState.busy}
           />
+        )}
+        {newerTask && (
+          <div className="agent-library-actions">
+            <p>A newer saved task revision is available. Your input is retained.</p>
+            <button
+              type="button"
+              disabled={taskState.busy}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    'Replace task input with the saved revision? This discards device-only choices.',
+                  )
+                )
+                  taskState.update(editAgentTask(newerTask));
+              }}
+            >
+              Reload saved task
+            </button>
+          </div>
         )}
         {taskState.copy && (
           <button

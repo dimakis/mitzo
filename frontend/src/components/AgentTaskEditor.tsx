@@ -146,22 +146,24 @@ export function AgentTaskEditor({
             resolveSavedTarget={copy.expectedRevision > 0}
             retainedExecution={copy.execution}
             profileLabel={profile?.definition.name ?? copy.profile.profileId}
-            onChange={(runtime, execution) =>
-              change({
-                runtime,
-                ...(execution !== undefined
-                  ? {
-                      execution: execution
-                        ? {
-                            ...execution,
-                            mode: copy.mode,
-                            authorityRefs: execution.authorityRefs,
-                          }
-                        : null,
-                    }
-                  : {}),
-              })
-            }
+            onChange={(runtime, execution) => {
+              const choices = (value: typeof runtime) =>
+                JSON.stringify({
+                  account: value.account,
+                  accountReference: value.accountReference ?? null,
+                  agentProfile: value.agentProfile,
+                  execution: value.execution,
+                });
+              const nextExecution = execution ? { ...execution, mode: copy.mode } : execution;
+              if (
+                execution === undefined ||
+                (JSON.stringify(nextExecution) === JSON.stringify(copy.execution) &&
+                  choices(runtime) === choices(copy.runtime))
+              ) {
+                // Catalog hydration/review changes no persisted task definition.
+                update({ ...copy, runtime });
+              } else change({ runtime, execution: nextExecution ?? null });
+            }}
             disabled={busy}
           />
           <label>

@@ -430,6 +430,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       '/tasks',
     );
   }
+  tasks[0] = { ...tasks[0], revision: 2 };
   if (isMobile) await page.setViewportSize({ width: 320, height: 844 });
   for (const theme of ['light', 'dark']) {
     for (const [accent, font] of [
@@ -493,6 +494,16 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         page.getByRole('button', { name: 'Task settings: Retained task' }),
       ).toBeVisible();
       await page.getByRole('button', { name: 'Task settings: Retained task' }).click();
+      if (theme === 'light' && accent === 'lavender') {
+        await expect(
+          page.getByText('A newer saved task revision is available. Your input is retained.'),
+        ).toBeVisible();
+        await expect(page.getByLabel('Objective', { exact: true })).toHaveValue(
+          'Review the queue without losing this input',
+        );
+        await page.getByRole('button', { name: 'Reload saved task', exact: true }).click();
+      }
+
       await expect(page.getByRole('combobox', { name: 'Agent profile', exact: true })).toHaveValue(
         `bob:3:${'a'.repeat(64)}`,
       );
