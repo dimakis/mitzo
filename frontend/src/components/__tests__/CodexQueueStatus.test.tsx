@@ -6,9 +6,10 @@ import { apiFetch } from '../../lib/api-fetch';
 import { CodexQueueStatus } from '../CodexQueueStatus';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+const queueSignal = vi.hoisted(() => ({ revision: 0 }));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) =>
-    select({ getTransportConnectionId: () => 'owned-sse' }),
+    select({ getTransportConnectionId: () => 'owned-sse', queueRevision: queueSignal.revision }),
 }));
 
 const meta = (queue: Record<string, unknown>) =>
@@ -21,6 +22,233 @@ afterEach(() => {
   vi.resetAllMocks();
   vi.useRealTimers();
   sessionStorage.clear();
+  queueSignal.revision = 0;
+});
+
+const idleQueue = { paused: false, connected: true, queued: 0, interrupted: 0 };
+
+it('loads and cancels queue previews without AbortSignal.any on older WebKit', async () => {
+  const any = Object.getOwnPropertyDescriptor(AbortSignal, 'any')!;
+  Object.defineProperty(AbortSignal, 'any', { ...any, value: undefined });
+  try {
+    let queued = 1;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).endsWith('/meta')) return meta({ ...idleQueue, queued });
+      if (String(path).endsWith('/cancel')) {
+        queued = 0;
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      return commands([{ id: 'waiting', preview: 'Synthetic legacy preview' }]);
+    });
+    render(<CodexQueueStatus sessionId="legacy-webkit" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+    expect(screen.getByText('Synthetic legacy preview')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await act(async () => {});
+    expect(screen.queryByRole('status')).toBeNull();
+  } finally {
+    Object.defineProperty(AbortSignal, 'any', any);
+  }
+});
+
+it('aborts stalled preview reads at the deadline and permits a subsequent polling retry', async () => {
+  vi.useFakeTimers();
+  const signals: AbortSignal[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (path, options) => {
+    if (String(path).endsWith('/meta')) return meta({ ...idleQueue, queued: 1 });
+    const signal = options!.signal!;
+    signals.push(signal);
+    return new Promise<Response>((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+        once: true,
+      });
+    });
+  });
+  render(<CodexQueueStatus sessionId="preview-deadline" />);
+  await act(async () => {});
+  expect(signals).toHaveLength(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(15000);
+  });
+  expect(signals[0].aborted).toBe(true);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(signals).toHaveLength(2);
+  expect(signals[1].aborted).toBe(false);
+});
+
+it.each(['failed', 'stalled'])(
+  'clears invalidated populated previews when the next details read is %s',
+  async (outcome) => {
+    let queued = 2;
+    let firstDetails = true;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).endsWith('/meta')) return meta({ ...idleQueue, queued });
+      if (firstDetails) {
+        firstDetails = false;
+        return commands([
+          { id: 'started', preview: 'Synthetic first preview' },
+          { id: 'waiting', preview: 'Synthetic second preview' },
+        ]);
+      }
+      return outcome === 'failed'
+        ? ({ ok: false, status: 503 } as Response)
+        : new Promise<Response>(() => {});
+    });
+    const view = render(<CodexQueueStatus sessionId="invalidated-details" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+    expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(2);
+    queued = 1;
+    queueSignal.revision++;
+    view.rerender(<CodexQueueStatus sessionId="invalidated-details" />);
+    await act(async () => {});
+    expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+    expect(screen.queryByText('Synthetic first preview')).toBeNull();
+    expect(screen.queryByText('Synthetic second preview')).toBeNull();
+    expect(screen.queryAllByRole('button', { name: 'Cancel' })).toHaveLength(0);
+  },
+);
+
+it('clears populated previews when an unchanged fallback details read fails', async () => {
+  vi.useFakeTimers();
+  let firstDetails = true;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/meta')) return meta({ ...idleQueue, queued: 1 });
+    if (firstDetails) {
+      firstDetails = false;
+      return commands([{ id: 'waiting', preview: 'Synthetic preview' }]);
+    }
+    return { ok: false, status: 503 } as Response;
+  });
+  render(<CodexQueueStatus sessionId="failed-fallback-details" />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.queryByText('Synthetic preview')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+});
+
+it('shows and clears waiting work on queue notifications without advancing the polling clock', async () => {
+  vi.useFakeTimers();
+  let queued = 0;
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta') ? meta({ ...idleQueue, queued }) : commands([]),
+  );
+  const view = render(<CodexQueueStatus sessionId="live" />);
+  await act(async () => {});
+  expect(screen.queryByRole('status')).toBeNull();
+
+  queued = 1;
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="live" />);
+  await act(async () => {});
+  expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+
+  queued = 0;
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="live" />);
+  await act(async () => {});
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('refreshes again when queue notifications arrive during a metadata read', async () => {
+  let finish!: (response: Response) => void;
+  vi.mocked(apiFetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockResolvedValue(meta({ ...idleQueue, queued: 0 }));
+  const view = render(<CodexQueueStatus sessionId="in-flight" />);
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="in-flight" />);
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="in-flight" />);
+  await act(async () => {
+    finish(meta({ ...idleQueue, queued: 1 }));
+  });
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(apiFetch).mock.calls.every(([path]) => String(path).endsWith('/meta'))).toBe(
+    true,
+  );
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('updates the count while queue preview details are stalled and ignores late details', async () => {
+  let finishDetails!: (response: Response) => void;
+  let queued = 1;
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta')
+      ? meta({ ...idleQueue, queued })
+      : new Promise<Response>((resolve) => {
+          finishDetails = resolve;
+        }),
+  );
+  const view = render(<CodexQueueStatus sessionId="slow-details" />);
+  await act(async () => {});
+  expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+  queued = 0;
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="slow-details" />);
+  await act(async () => {});
+  expect(screen.queryByRole('status')).toBeNull();
+  await act(async () => {
+    finishDetails(commands([{ id: 'old', preview: 'Synthetic preview' }]));
+  });
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('does not let an earlier chat metadata response replace the current chat status', async () => {
+  let finishOld!: (response: Response) => void;
+  vi.mocked(apiFetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finishOld = resolve;
+        }),
+    )
+    .mockResolvedValue(meta(idleQueue));
+  const view = render(<CodexQueueStatus sessionId="old" />);
+  view.rerender(<CodexQueueStatus sessionId="new" />);
+  await act(async () => {
+    finishOld(meta({ ...idleQueue, queued: 1 }));
+  });
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it('shares a slow preview request across unchanged fallback metadata polls', async () => {
+  vi.useFakeTimers();
+  let finishDetails!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta')
+      ? meta({ ...idleQueue, queued: 1 })
+      : new Promise<Response>((resolve) => {
+          finishDetails = resolve;
+        }),
+  );
+  render(<CodexQueueStatus sessionId="shared-details" />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(6000);
+  });
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/codex-queue')),
+  ).toHaveLength(1);
+  await act(async () => {
+    finishDetails(commands([{ id: 'saved', preview: 'Synthetic preview' }]));
+  });
+  expect(screen.getByText('Synthetic preview')).toBeTruthy();
 });
 
 const capacity = (overrides: Record<string, unknown> = {}) => ({
