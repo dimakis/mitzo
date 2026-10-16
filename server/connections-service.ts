@@ -510,6 +510,54 @@ export class ConnectionsService {
       return this.store.setAssignments(id, revision, accountIds, actor);
     });
   }
+  /** Repository publication/acquisition consent changes do not rotate the read-only provider. */
+  async addGithubRepository(
+    id: string,
+    revision: number,
+    repository: string,
+    actor: string,
+    signal: AbortSignal,
+    assertAuthorized: () => void = () => undefined,
+  ) {
+    return this.serial(async () => {
+      signal.throwIfAborted();
+      assertAuthorized();
+      const c = this.current(id, revision);
+      if (
+        actor !== c.ownerId ||
+        c.templateId !== 'github-readonly' ||
+        c.templateVersion !== 1 ||
+        c.status !== 'active' ||
+        !c.identity ||
+        !c.verifiedAt ||
+        !c.gatewayProviderId ||
+        this.store.pendingAssignments().some((operation) => operation.connectionId === id) ||
+        this.store.pendingProbes().some((operation) => operation.connectionId === id) ||
+        this.store.candidates().some((operation) => operation.connectionId === id) ||
+        this.hasQuarantine(id)
+      )
+        throw new Error('GitHub connection is not ready for repository access changes');
+      const original = this.policyFor(c);
+      const repositories = original.publicConfig.allowedRepositories;
+      if (!Array.isArray(repositories)) throw new Error('Invalid GitHub repository scope');
+      const policy = connectionTemplateRegistry.compileProviderPolicy({
+        templateId: c.templateId,
+        templateVersion: c.templateVersion,
+        fields: { ...c.publicConfig, allowedRepositories: [...repositories, repository] },
+      });
+      const next = policy.publicConfig.allowedRepositories;
+      if (!Array.isArray(next)) throw new Error('Invalid GitHub repository scope');
+      // This operation cannot change gateway network policy or base-branch consent.
+      if (JSON.stringify(policy.endpoints) !== JSON.stringify(original.endpoints))
+        throw new Error('GitHub network policy changed');
+      if (JSON.stringify(next) === JSON.stringify(repositories)) return c;
+      await this.boundProvider(c, signal);
+      signal.throwIfAborted();
+      assertAuthorized();
+      this.current(id, revision);
+      return this.store.extendGithubRepositories(id, revision, [...next], actor);
+    });
+  }
   private async completeAssignment(
     c: Connection,
     accountIds: string[],

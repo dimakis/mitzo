@@ -16,11 +16,12 @@ import {
   ConnectionAssignmentsBody,
   ConnectionCapabilitiesBody,
   ConnectionCreateBody,
+  ConnectionGithubRepositoryBody,
   ConnectionReauthorizeBody,
   ConnectionRevisionBody,
   ConnectionRotateBody,
 } from './api-schemas.js';
-import { verifyPassphrase, type AuthSession } from './auth.js';
+import { isAuthSessionCurrent, verifyPassphrase, type AuthSession } from './auth.js';
 import { connectionTemplateRegistry } from './connections/registry.js';
 import type { CapabilityService } from './connections/capabilities/service.js';
 
@@ -654,6 +655,48 @@ export function createConnectionsRouter(options: {
               ? 'Connection changed; refresh and try again.'
               : 'Assignment failed',
         });
+      }
+    },
+  );
+  router.post(
+    '/:id/github-repositories',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '2kb' }),
+    async (req, res) => {
+      const parsed = ConnectionGithubRepositoryBody.safeParse(req.body);
+      if (!parsed.success)
+        return res.status(400).json({ error: 'Invalid GitHub repository request' });
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
+      const connection = options.store.get(connectionId(req));
+      if (!connection || connection.ownerId !== OWNER) return missing(res);
+      const expiresAt = recentAuthorizationExpiry(res, parsed.data.csrf);
+      if (!expiresAt || expiresAt <= Date.now())
+        return res.status(403).json({ error: 'Recent reauthorization required' });
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      req.once('aborted', abort);
+      const timeout = setTimeout(abort, Math.min(30000, expiresAt - Date.now()));
+      try {
+        const updated = await options.service.addGithubRepository(
+          connection.id,
+          parsed.data.revision,
+          parsed.data.repository,
+          OWNER,
+          controller.signal,
+          () => {
+            const auth = res.locals.authSession as AuthSession;
+            const expiry = recentAuthorizationExpiry(res, parsed.data.csrf);
+            if (!isAuthSessionCurrent(auth) || !expiry || expiry <= Date.now())
+              throw new Error('Interactive authorization expired');
+          },
+        );
+        return res.json({ connection: publicConnection(updated) });
+      } catch (value) {
+        return error(res, value, 'GitHub repository access could not be updated');
+      } finally {
+        clearTimeout(timeout);
+        req.removeListener('aborted', abort);
       }
     },
   );
