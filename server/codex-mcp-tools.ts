@@ -56,11 +56,15 @@ async function connect(config: McpServerConfig, options: McpToolsOptions): Promi
     close: () => client.close(),
   };
 }
+interface McpSessionGrant {
+  sessionGrantKey: string;
+  sessionGrantDescription: string;
+}
 type Permission = (
   name: string,
   input: Input,
   signal: AbortSignal,
-  grant?: { sessionGrantKey: string },
+  grant?: McpSessionGrant,
 ) => Promise<{ behavior: 'allow' | 'deny'; updatedInput?: Input; message?: string }>;
 function mcpWireName(canonical: string): string {
   const identity = createHash('sha256').update(canonical).digest('hex').slice(0, 32);
@@ -74,7 +78,7 @@ export async function connectCodexMcpTools(
   const peers: Connection[] = [];
   const mapping = new Map<
     string,
-    { peer: Connection; name: string; canonical: string; sessionGrantKey?: string }
+    { peer: Connection; name: string; canonical: string; grant?: McpSessionGrant }
   >();
   const definitions: ToolDefinition[] = [];
   const discovered: {
@@ -134,8 +138,11 @@ export async function connectCodexMcpTools(
             peer,
             name: tool.name,
             canonical,
-            sessionGrantKey: config.librarySourceId
-              ? `configured-mcp:${JSON.stringify([config.librarySourceId, tool.name])}`
+            grant: config.librarySourceId
+              ? {
+                  sessionGrantKey: `configured-mcp:${JSON.stringify([config.librarySourceId, tool.name])}`,
+                  sessionGrantDescription: `Session allowance covers only ${tool.name} from ${server} until the session ends.`,
+                }
               : undefined,
           });
           definitions.push({
@@ -176,8 +183,8 @@ export async function connectCodexMcpTools(
       signal.throwIfAborted();
       // Skill policy and user-facing identity retain the existing canonical name.
       // Only retained approval scope uses the source/tool-specific grant key.
-      const decision = tool.sessionGrantKey
-        ? await permission(tool.canonical, input, signal, { sessionGrantKey: tool.sessionGrantKey })
+      const decision = tool.grant
+        ? await permission(tool.canonical, input, signal, tool.grant)
         : await permission(tool.canonical, input, signal);
       signal.throwIfAborted();
       if (decision.behavior !== 'allow')

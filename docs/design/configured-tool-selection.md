@@ -75,3 +75,5 @@ allowlist and project-hook matcher, including denial and input-validation hooks.
 Both chat adapters pass the isolated source/tool identity as the server-owned
 `sessionGrantKey` to the common permission handler. Skill policy still applies
 before retained grants and after awaited approval.
+Configured approval cards receive an exact tool/source scope explanation instead
+of the default server-wide legacy allowance description.
