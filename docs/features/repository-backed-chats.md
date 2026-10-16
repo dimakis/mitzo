@@ -87,6 +87,26 @@ from stored server state and accepts no client account override.
 
 ## Acquisition and custody
 
+### Adding a repository to an existing GitHub connection
+
+Each AI account has one managed GitHub connection. To authorize another repository,
+extend that connection instead of creating a second connection for the same account.
+An authenticated operator can add one exact `owner/repository` pair with
+`POST /api/connections/:id/github-repositories`, supplying the current connection
+`revision`, a recent reauthorization `csrf` value and `repository`.
+
+The operation requires fresh operator authorization, verifies the original gateway
+provider and commits the additional repository and audit event atomically. It
+preserves all existing repositories, base branches, account assignments, provider
+identity and credentials. The additional repository is available to every account
+already assigned to that connection. It does not grant publication permission;
+the existing capability and per-publication approval checks still apply. Old
+connection revisions require refresh and any revision-bound approvals must be renewed.
+
+This endpoint only adds repository consent. It cannot remove repositories, change
+base branches, replace credentials or change gateway network policy. Repository
+preview still verifies actual access and pins the selected upstream commit.
+
 The controller resolves the AI binding from its current account catalog. Both
 preview and preparation require an active managed `github-readonly` connection
 assigned to that exact account and scoped to the selected repository. The current
