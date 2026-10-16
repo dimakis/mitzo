@@ -25,20 +25,33 @@ describe('durable Telos file viewing', () => {
   ] as const)(
     'opens %s with the original identity, without looking in a workspace',
     async (name, type, content, ext, text) => {
-      const readText = vi.fn().mockResolvedValue(content);
-      vi.mocked(fetchFile).mockResolvedValue({ name, type, text: readText } as unknown as File);
+      vi.mocked(apiFetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          name,
+          ext,
+          path,
+          revision: 2,
+          editable: text,
+          previewUnavailable: !text,
+          content: text ? content : 'This file has no in-app preview.',
+        }),
+      } as Response);
       const { result } = renderHook(() =>
         useFileNavigation(new URLSearchParams({ path }), vi.fn()),
       );
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      expect(fetchFile).toHaveBeenCalledExactlyOnceWith(path);
-      expect(apiFetch).not.toHaveBeenCalled();
+      expect(fetchFile).not.toHaveBeenCalled();
+      expect(apiFetch).toHaveBeenCalledExactlyOnceWith(
+        path.replace('?revision=', '/document?revision='),
+      );
       expect(result.current.state.filePath).toBe(path);
       expect(result.current.state.displayName).toBe(name);
       expect(result.current.state.ext).toBe(ext);
+      expect(result.current.state.artifactRevision).toBe(2);
+      expect(result.current.state.artifactEditable).toBe(text);
       if (text) expect(result.current.state.content).toBe(content);
       else {
-        expect(readText).not.toHaveBeenCalled();
         expect(result.current.state.content).toContain('no in-app preview');
       }
     },

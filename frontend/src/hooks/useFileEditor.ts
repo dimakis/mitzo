@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { apiFetch } from '../lib/api-fetch';
+import { isTelosArtifactUrl, telosDocumentUrl } from '../lib/file-paths';
+import { createBrowserId } from '../lib/browser-crypto';
 
 // Budget UTF-16 storage conservatively, including both undo and redo snapshots.
 const MAX_HISTORY_BYTES = 20 * 1024 * 1024;
@@ -7,6 +9,8 @@ const MAX_HISTORY_BYTES = 20 * 1024 * 1024;
 interface Draft {
   base: string;
   content: string;
+  revision?: number;
+  requestId?: string;
 }
 function storedDraft(key: string): Draft | null {
   try {
@@ -22,14 +26,19 @@ export function useFileEditor(
   filePath: string,
   _onError: (msg: string) => void,
   sessionId?: string,
+  artifactRevision?: number,
 ) {
-  const key = `mitzo-file-draft:${JSON.stringify([sessionId || '', filePath])}`;
+  const telos = isTelosArtifactUrl(filePath);
+  const key = `mitzo-file-draft:${JSON.stringify([telos ? '' : sessionId || '', telos ? filePath.split('?')[0] : filePath])}`;
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [draftStorageError, setDraftStorageError] = useState('');
   const [error, setError] = useState('');
   const [latestContent, setLatestContent] = useState<string | null>(null);
+  const [latestRevision, setLatestRevision] = useState<number>();
+  const [baseRevision, setBaseRevision] = useState(artifactRevision);
+  const requestId = useRef<string | undefined>(undefined);
   const [reviewing, setReviewing] = useState(false);
   const [base, setBase] = useState(content);
   const [history, setHistory] = useState<string[]>([]);
@@ -42,6 +51,13 @@ export function useFileEditor(
   const dirty = editing && editContent !== base;
 
   useEffect(() => {
+    identity.current = key;
+    return () => {
+      identity.current = '';
+    };
+  }, [key]);
+
+  useEffect(() => {
     if (!dirty) return;
     const guard = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -51,10 +67,18 @@ export function useFileEditor(
     return () => window.removeEventListener('beforeunload', guard);
   }, [dirty]);
 
-  function persist(value: string, original = base) {
+  function persist(value: string, original = base, revision = baseRevision) {
     try {
       if (value === original) sessionStorage.removeItem(key);
-      else sessionStorage.setItem(key, JSON.stringify({ base: original, content: value }));
+      else
+        sessionStorage.setItem(
+          key,
+          JSON.stringify({
+            base: original,
+            content: value,
+            ...(telos ? { revision, requestId: requestId.current } : {}),
+          }),
+        );
       setDraftStorageError('');
     } catch {
       setDraftStorageError(
@@ -66,6 +90,8 @@ export function useFileEditor(
     const draft = storedDraft(key);
     const value = draft?.content ?? content;
     setBase(draft?.base ?? content);
+    setBaseRevision(draft?.revision ?? artifactRevision);
+    requestId.current = typeof draft?.requestId === 'string' ? draft.requestId : undefined;
     setEditContent(value);
     setHistory([value]);
     setPosition(0);
@@ -81,12 +107,14 @@ export function useFileEditor(
     setHistory(next);
     setPosition(next.length - 1);
     setEditContent(value);
+    requestId.current = undefined;
     persist(value);
   }
   function moveHistory(next: number) {
     if (inFlight.current || next < 0 || next >= history.length) return;
     setPosition(next);
     setEditContent(history[next]);
+    requestId.current = undefined;
     persist(history[next]);
   }
   function resetEditor() {
@@ -95,63 +123,112 @@ export function useFileEditor(
     setEditing(false);
     setError('');
   }
-  function cancelEditing() {
+  function cancelEditing(onLatest?: (content: string, path?: string) => void) {
     if (inFlight.current || (dirty && !confirm('Discard unsaved changes?'))) return;
     persist(base);
     resetEditor();
+    if (
+      telos &&
+      baseRevision !== undefined &&
+      artifactRevision !== undefined &&
+      baseRevision > artifactRevision
+    )
+      onLatest?.(base, `${filePath.split('?')[0]}?revision=${baseRevision}`);
   }
   async function reviewLatest() {
     if (inFlight.current || reviewing) return;
     setReviewing(true);
+    const requestKey = key;
     try {
       const query = new URLSearchParams({ path: filePath });
       if (sessionId) query.set('sessionId', sessionId);
-      const response = await apiFetch(`/api/files/read?${query}`);
+      const response = await apiFetch(
+        telos ? telosDocumentUrl(filePath, true) : `/api/files/read?${query}`,
+      );
       if (!response.ok)
         throw new Error('Could not load the latest version. Your draft is preserved.');
       const data = await response.json();
       if (typeof data.content !== 'string') throw new Error('Invalid document response');
+      if (telos && (!Number.isSafeInteger(data.revision) || data.revision < 1))
+        throw new Error('Invalid document revision');
+      if (identity.current !== requestKey) return;
       setLatestContent(data.content);
+      setLatestRevision(data.revision);
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Could not load document');
+      if (identity.current === requestKey)
+        setError(error instanceof Error ? error.message : 'Could not load document');
     } finally {
       setReviewing(false);
     }
   }
-  function resolveConflict(replaceDraft: boolean, onLatest?: (content: string) => void) {
+  function resolveConflict(
+    replaceDraft: boolean,
+    onLatest?: (content: string, path?: string) => void,
+  ) {
     if (inFlight.current || latestContent === null) return;
     const next = replaceDraft ? latestContent : editContent;
     setBase(latestContent);
+    setBaseRevision(latestRevision);
+    requestId.current = undefined;
     setEditContent(next);
     setHistory([next]);
     setPosition(0);
     setHistoryResetKey((value) => value + 1);
-    persist(next, latestContent);
-    onLatest?.(latestContent);
+    persist(next, latestContent, latestRevision);
+    if (!telos) onLatest?.(latestContent);
+    else if (replaceDraft)
+      onLatest?.(latestContent, `${filePath.split('?')[0]}?revision=${latestRevision}`);
     setLatestContent(null);
     setError('');
   }
-  async function saveFile(onSaved: (newContent: string) => void) {
+  async function saveFile(onSaved: (newContent: string, savedPath?: string) => void) {
     if (inFlight.current || !dirty) return;
     inFlight.current = true;
     setSaving(true);
     setError('');
     const requestKey = key;
     try {
-      const res = await apiFetch('/api/files/write', {
+      if (telos) {
+        if (!Number.isSafeInteger(baseRevision) || baseRevision! < 1)
+          throw new Error('Reload the saved document before editing. Your draft is preserved.');
+        requestId.current ??= createBrowserId();
+        persist(editContent);
+      }
+      const res = await apiFetch(telos ? telosDocumentUrl(filePath, true) : '/api/files/write', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path: filePath,
-          content: editContent,
-          expectedContent: base,
-          sessionId,
-        }),
+        body: JSON.stringify(
+          telos
+            ? { content: editContent, expectedRevision: baseRevision, requestId: requestId.current }
+            : {
+                path: filePath,
+                content: editContent,
+                expectedContent: base,
+                sessionId,
+              },
+        ),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: 'Save failed' }));
         throw new Error(data.error || 'Save failed');
       }
+      let savedPath: string | undefined;
+      if (telos) {
+        const { artifact } = await res.json();
+        const baseUrl = filePath.split('?')[0];
+        if (
+          !Number.isSafeInteger(artifact?.revision) ||
+          artifact.revision <= baseRevision! ||
+          artifact.url !== `${baseUrl}?revision=${artifact.revision}`
+        )
+          throw new Error(
+            'Save confirmation unavailable. Your draft is preserved; try saving again.',
+          );
+        savedPath = artifact.url;
+        if (identity.current !== requestKey) return;
+        setBaseRevision(artifact.revision);
+      }
+      if (identity.current !== requestKey) return;
       try {
         sessionStorage.removeItem(requestKey);
         setDraftStorageError('');
@@ -159,8 +236,10 @@ export function useFileEditor(
         /* Storage may be disabled. */
       }
       if (identity.current !== requestKey) return;
-      onSaved(editContent);
+      if (savedPath) onSaved(editContent, savedPath);
+      else onSaved(editContent);
       setBase(editContent);
+      requestId.current = undefined;
     } catch (err: unknown) {
       if (identity.current === requestKey)
         setError(err instanceof Error ? err.message : 'Save failed');
