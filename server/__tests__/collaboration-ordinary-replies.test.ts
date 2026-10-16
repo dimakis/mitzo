@@ -166,6 +166,12 @@ it('keeps independent same-account sessions separate and recovers source and pro
   const first = new OrdinaryCollaborationReplies(store).record(group, one);
   store.close();
   store = new EventStore(path);
+  expect(store.getOrdinaryReplySourceEvents('one', 'visible-reply')).toEqual([
+    { version: 1, ...mapping('one') },
+  ]);
+  expect(store.getOrdinaryReplySourceEvents('two', 'visible-reply')).toEqual([
+    { version: 1, ...mapping() },
+  ]);
   const replies = new OrdinaryCollaborationReplies(store);
   expect(replies.record(group, one)).toEqual(first);
   const second = replies.record(group, two);

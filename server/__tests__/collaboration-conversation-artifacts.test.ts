@@ -20,6 +20,7 @@ it('pins the conversation contracts, persistence, authenticated API and client p
     '../../packages/protocol/src/collaboration-conversation.ts',
     '../../packages/protocol/src/collaboration-conversation-store.ts',
     '../../packages/protocol/src/event-store.ts',
+    '../../packages/protocol/src/stored-event-wire.ts',
     '../../packages/protocol/src/index.ts',
     '../../packages/client/src/api-client.ts',
     '../../packages/client/src/collaboration-api.ts',
