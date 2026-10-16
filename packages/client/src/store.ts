@@ -122,6 +122,8 @@ export interface MitzoStoreState {
   pendingSession: PendingSession | null;
   pendingSessionSending: boolean;
   chatDraftRevision: number;
+  /** Active-session queue metadata invalidation; contains no message content. */
+  queueRevision: number;
 
   // Current server-issued transport identity; never persisted across reconnect.
   getTransportConnectionId(): string | null;
@@ -812,6 +814,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     pendingSession: null,
     pendingSessionSending: false,
     chatDraftRevision: 0,
+    queueRevision: 0,
 
     // ── Actions ──────────────────────────────────────────────────────────
 
@@ -1967,6 +1970,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         }
       }
     }
+
+    if (
+      selectedEventSession &&
+      (msg.type === 'codex_queue' || msg.type === 'user_message' || msg.type === 'session_end')
+    )
+      store.setState((state) => ({ queueRevision: state.queueRevision + 1 }));
 
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
       awaitingModeHydration = undefined;
