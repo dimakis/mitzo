@@ -27,6 +27,58 @@ afterEach(() => {
 
 const idleQueue = { paused: false, connected: true, queued: 0, interrupted: 0 };
 
+it('loads and cancels queue previews without AbortSignal.any on older WebKit', async () => {
+  const any = Object.getOwnPropertyDescriptor(AbortSignal, 'any')!;
+  Object.defineProperty(AbortSignal, 'any', { ...any, value: undefined });
+  try {
+    let queued = 1;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).endsWith('/meta')) return meta({ ...idleQueue, queued });
+      if (String(path).endsWith('/cancel')) {
+        queued = 0;
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      return commands([{ id: 'waiting', preview: 'Synthetic legacy preview' }]);
+    });
+    render(<CodexQueueStatus sessionId="legacy-webkit" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+    expect(screen.getByText('Synthetic legacy preview')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await act(async () => {});
+    expect(screen.queryByRole('status')).toBeNull();
+  } finally {
+    Object.defineProperty(AbortSignal, 'any', any);
+  }
+});
+
+it('aborts stalled preview reads at the deadline and permits a subsequent polling retry', async () => {
+  vi.useFakeTimers();
+  const signals: AbortSignal[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (path, options) => {
+    if (String(path).endsWith('/meta')) return meta({ ...idleQueue, queued: 1 });
+    const signal = options!.signal!;
+    signals.push(signal);
+    return new Promise<Response>((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+        once: true,
+      });
+    });
+  });
+  render(<CodexQueueStatus sessionId="preview-deadline" />);
+  await act(async () => {});
+  expect(signals).toHaveLength(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(15000);
+  });
+  expect(signals[0].aborted).toBe(true);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(signals).toHaveLength(2);
+  expect(signals[1].aborted).toBe(false);
+});
+
 it.each(['failed', 'stalled'])(
   'clears invalidated populated previews when the next details read is %s',
   async (outcome) => {

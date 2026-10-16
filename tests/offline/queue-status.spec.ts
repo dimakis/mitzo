@@ -22,6 +22,10 @@ for (const theme of ['dark', 'light']) {
   test(`queue count follows metadata events despite stalled details (${theme})`, async ({
     page,
   }, info) => {
+    // Exercise the preview/cancellation path with the older WebKit API surface.
+    await page.addInitScript(() => {
+      Object.defineProperty(AbortSignal, 'any', { configurable: true, value: undefined });
+    });
     let queued = 0;
     let failed = false;
     let details: 'stalled' | 'loaded' | 'failed' = 'stalled';

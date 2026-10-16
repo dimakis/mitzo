@@ -92,6 +92,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     let readRequested = false;
     let detailsVersion = 0;
     let detailsController: AbortController | undefined;
+    let detailsTimeout: ReturnType<typeof setTimeout> | undefined;
     let queuedCount = 0;
     let lastRead = 0;
     setQueue(null);
@@ -118,6 +119,8 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     };
     const invalidateDetails = () => {
       ++detailsVersion;
+      clearTimeout(detailsTimeout);
+      detailsTimeout = undefined;
       detailsController?.abort();
       detailsController = undefined;
       clearDetails();
@@ -127,11 +130,13 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
       if (detailsController) return;
       const controller = new AbortController();
       detailsController = controller;
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      detailsTimeout = timeout;
       const version = detailsVersion;
       try {
         const response = await apiFetch(
           `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue`,
-          { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) },
+          { signal: controller.signal },
         );
         if (!response.ok) throw new Error('Queue details unavailable');
         const parsed = QueuedCommands.safeParse(await response.json());
@@ -144,7 +149,11 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         // The compact status stays useful while the drawer details refresh.
         if (version === detailsVersion) clearDetails();
       } finally {
-        if (detailsController === controller) detailsController = undefined;
+        clearTimeout(timeout);
+        if (detailsController === controller) {
+          detailsController = undefined;
+          detailsTimeout = undefined;
+        }
       }
     };
 
