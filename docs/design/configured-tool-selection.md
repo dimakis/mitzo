@@ -62,3 +62,9 @@ uses the exact private directory retained by that receipt. Configured source/too
 tuples determine discovery wires as well as portable identity, so labels containing
 delimiters cannot collide. Cancellation retains and awaits one shared peer shutdown
 promise; the refresh and retained owner cannot settle ahead of real peer cleanup.
+
+Configured-source permission names use a distinct `configured-mcp:` namespace with
+a JSON source/tool tuple. Session grants are exact-tool grants. Legacy `mcp__`
+server-wide grants keep their existing scope and cannot authorize an opted-in
+source, even when the legacy server label equals a source UUID. Neither namespace
+grants source access or bypasses mode, skill, workspace or current-runtime checks.
