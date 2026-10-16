@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AdviserSubscriptions.tsx':
     '568a46de4fc1202e3304220ddb576092882c9a308e5e2080471e89e0bc246466',
-  '../terminal-router.ts': '599521786062d45e24708e5e879f1c05a1cc5fa95028db4dc40b2db5638ea5b7',
+  '../terminal-router.ts': 'b1a4968bcf4f73146f6d49cb73e97a259d7734575e42e163a8301380ca36e057',
   '../terminal-plan-adviser.ts': 'dfd8232082bcdf9b149bd4100b3ae8c82b5fe9f1a663095ca7d337feadffc6a0',
   '../chatgpt-plan-adviser.ts': '4b74962a0563137bc19797957a9e6410be8b82b8ce4c79f7ec1d7e7d9b33b732',
   '../openai-account-key-authority.ts':

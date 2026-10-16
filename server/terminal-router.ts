@@ -110,12 +110,10 @@ export function createTerminalRouter(options: {
         ),
       );
     } catch {
-      return res
-        .status(409)
-        .json({
-          error:
-            'Saved adviser connection could not be restored. Refresh its status before signing in again.',
-        });
+      return res.status(409).json({
+        error:
+          'Saved adviser connection could not be restored. Refresh its status before signing in again.',
+      });
     } finally {
       unobserve();
       res.off('close', stop);
