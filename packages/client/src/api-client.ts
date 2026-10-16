@@ -6,6 +6,7 @@
  */
 
 import { SymposiumProvenanceSchema } from '@mitzo/protocol';
+import { CollaborationApiClient } from './collaboration-api.js';
 import type { FinishedBlock, FinishedMessage, Session, SymposiumProvenance } from '@mitzo/protocol';
 import type { Task } from './slices/tasks.js';
 import type { TodoItem } from './slices/todos.js';
@@ -85,7 +86,10 @@ export interface CalendarData {
 // ─── Client ──────────────────────────────────────────────────────────────────
 
 export class MitzoApiClient {
-  constructor(private fetch: ApiFetch) {}
+  readonly collaborations: CollaborationApiClient;
+  constructor(private fetch: ApiFetch) {
+    this.collaborations = new CollaborationApiClient(fetch);
+  }
 
   private async assertOk(res: Response): Promise<Response> {
     if (!res.ok) {

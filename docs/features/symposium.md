@@ -1,11 +1,30 @@
 # Symposium: current direction and source guide
 
-Updated 15 October 2026. Start here for Symposium product work.
+Updated 16 October 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
 ## Product direction
+
+The user approved the revised fresh-agent flow on 16 October. Start ordinary chat,
+then configure a fresh ordinary agent with Conversation so far or Selected context,
+a purpose and a reviewed frozen joining brief. Existing-chat import and cross-group
+enrollment are deferred. Fork remains a separate optional follow-on. The compact
+header and one Agents view retain inline Reads future discussion / Replies by
+default controls; explicit `@` selection chooses responders for one prompt.
+Setup, joining and reading alone invoke no model.
+
+[Slice 2 conversation contracts](symposium-conversation-contracts.md) extend accepted
+PR943 membership with policy revisions, durable message/delivery identities,
+immutable review objects, pending fresh allocation, authenticated API reads and
+offline client projection. Public preparation/send routes remain explicitly disabled;
+application wiring and account-by-runtime qualification remain outstanding.
+
+Canonical staging and its pipeline were stood down by the user on 15 October.
+Historical staging procedures below do not authorize checks, enqueue, recovery,
+restart, recreation or deployment. Use offline tests, review and CI. Live work
+requires a separately selected authorized target; production activation is separate.
 
 Keep this item related to existing Telos outcome `4f55b423d0731750` (conversation-first
 work, durable outputs and access). They have separate acceptance criteria and a
