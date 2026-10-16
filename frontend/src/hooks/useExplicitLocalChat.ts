@@ -144,7 +144,7 @@ export function useExplicitLocalChat(
             capabilityRevision: next.capabilityRevision,
           };
           setChoice({ draftId: scope.current.draftId, intent: resolved });
-          latestRetained.current?.update(resolved);
+          latestRetained.current?.update(resolved, 'hydrate');
         }
       })
       .catch(() => {

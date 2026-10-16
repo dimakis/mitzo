@@ -160,10 +160,11 @@ for (const theme of ['dark', 'light'])
     });
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await page.getByRole('button', { name: 'Publish revision', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Use as reviewer', exact: true })).toBeDisabled();
-    await expect(
-      page.getByText('Reviewer sessions do not yet support explicit tool selections.'),
-    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Use as reviewer', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Use in session', exact: true })).toHaveAttribute(
+      'href',
+      `/chat?agentProfile=${catalog.versions[0].profileId}&profileRevision=${catalog.versions[0].revision}`,
+    );
     expect(catalog.versions[0].definition.tools).toEqual([
       { id: 'mitzo:GetConnectionGuide', version: 1 },
       { id: 'mitzo:Read', version: 1 },
