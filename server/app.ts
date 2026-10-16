@@ -94,6 +94,8 @@ import {
 import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { createTelosItemRouter } from './telos-item-routes.js';
+import { createTelosWorkRouter } from './telos-work-routes.js';
+import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -1929,6 +1931,16 @@ export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
 app.use(
   '/api/backups',
   createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
+);
+
+app.use(
+  createTelosWorkRouter({
+    dbPath: telosDatabasePath,
+    operatorAuth: operatorAuthMiddleware,
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+  }),
 );
 
 app.use(
