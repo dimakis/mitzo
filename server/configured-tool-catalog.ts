@@ -42,11 +42,12 @@ function eligible(sources: Sources): Sources {
       throw Error('Invalid configured source identity');
     if (seen.has(config.librarySourceId)) throw Error('Duplicate configured source identity');
     seen.add(config.librarySourceId);
+    if (seen.size > 64) throw Error('Configured source limit exceeded');
     result[name] = config;
   }
   return result;
 }
-function binding(config: McpServerConfig, options: McpToolsOptions): string {
+function binding(config: McpServerConfig): string {
   // Private only. Labels and source identity are excluded; actual launch inputs are pinned.
   const launch = {
     type: config.type,
@@ -55,7 +56,7 @@ function binding(config: McpServerConfig, options: McpToolsOptions): string {
     env: config.env,
     execution: config.execution,
   };
-  return hash({ config: launch, cwd: options.cwd, env: options.env });
+  return hash(launch);
 }
 /** Durable discovery receipts. Read projections never start a peer. One host owner per database. */
 export class ConfiguredToolCatalog {
@@ -109,7 +110,7 @@ export class ConfiguredToolCatalog {
       (config) => config.librarySourceId === receipt.sourceId,
     );
     if (!source) throw Error('Selected configured source is unavailable or no longer configured');
-    if (binding(source, options) !== receipt.binding)
+    if (binding(source) !== receipt.binding)
       throw Error('Selected source configuration changed; new discovery and session required');
     return { ...structuredClone(receipt), name: receipt.tool };
   }
@@ -149,7 +150,7 @@ export class ConfiguredToolCatalog {
                 `mcp__${tool.server}__${tool.tool}: `.length,
               ),
             };
-            const contract = binding(source, options);
+            const contract = binding(source);
             const old = previous.get(id);
             if (
               old &&

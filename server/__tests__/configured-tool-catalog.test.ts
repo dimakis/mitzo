@@ -188,3 +188,42 @@ it('never launches unregistered or sandbox-only sources, rejects config changes 
     catalog.close();
   }
 });
+it('binds trusted source configuration independently of each authorized runtime workspace', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  try {
+    const ref = catalog.reference((await catalog.refresh(f.options))[0]);
+    expect(
+      catalog.resolve(ref, {
+        ...f.options,
+        cwd: '/another-authorized-worktree',
+        env: { LANG: 'en_IE.UTF-8' },
+      }).tool,
+    ).toBe('search');
+    f.sources.left.command = 'replaced';
+    expect(() => catalog.resolve(ref, f.options)).toThrow(/configuration changed/);
+  } finally {
+    catalog.close();
+  }
+});
+it('bounds configured source count before starting any peer', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  try {
+    const sources = Object.fromEntries(
+      Array.from({ length: 65 }, (_, i) => [
+        `source-${i}`,
+        {
+          command: 'fake',
+          librarySourceId: `${i.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`,
+        },
+      ]),
+    );
+    await expect(catalog.refresh({ ...f.options, readSources: () => sources })).rejects.toThrow(
+      /too many|limit/i,
+    );
+    expect(f.connect).not.toHaveBeenCalled();
+  } finally {
+    catalog.close();
+  }
+});
