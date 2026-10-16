@@ -91,7 +91,8 @@ function Fixture() {
       <div data-fixture-controls>
         <button
           type="button"
-          onClick={() => {
+          onClick={(event) => {
+            event.currentTarget.focus();
             setOpen(true);
             if (!flow.review && !flow.locked) void flow.prepare(joiningSetupFixture());
           }}
