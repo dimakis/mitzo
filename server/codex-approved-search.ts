@@ -19,7 +19,7 @@ interface Options {
   modelProvider: string;
   cwd: string;
   runtimeConfig?: Record<string, unknown>;
-  /** Captured parent document preference for the separate native search thread. */
+  /** Parent preference is retained for callers; query-only search omits project documents. */
   readonly disableProjectDocuments?: boolean;
   /** Trusted parent context source; document preferences do not establish origin. */
   readonly agentContextSource?: string;
@@ -109,7 +109,16 @@ export async function searchCodex(
       ...codexRuntimeOverrides(configuration.config, options.workspaceId),
       web_search: 'live',
       'features.code_mode_host': false,
-      ...(options.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
+      // Codex's custom Responses providers do not expose standalone search
+      // merely because web_search is live. This is the verified OpenShell route.
+      ...(options.modelProvider === 'openshell'
+        ? {
+            'features.standalone_web_search': true,
+            'model_providers.openshell.supports_standalone_web_search': true,
+          }
+        : {}),
+      // Approved search needs only the query, never repository instructions.
+      project_doc_max_bytes: 0,
     };
     phase = 'thread could not be started';
     const thread = z
@@ -125,6 +134,7 @@ export async function searchCodex(
             modelProvider: options.modelProvider,
             cwd: options.cwd,
             config,
+            ephemeral: true,
             dynamicTools: [],
             approvalPolicy: 'never',
             sandbox: 'read-only',

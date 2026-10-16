@@ -10,18 +10,25 @@ function fixture(
     action: { type: 'search', query: 'Revenue' },
     results: null,
   },
+  requireStandaloneCapability = false,
 ) {
+  let searchAvailable = !requireStandaloneCapability;
   let callbacks: CodexLifecycleTransport;
   const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
     if (method === 'config/read') return { config: { mcp_servers: { inherited: {} } } };
-    if (method === 'thread/start')
+    if (method === 'thread/start') {
+      const config = params.config as Record<string, unknown>;
+      searchAvailable ||=
+        config['features.standalone_web_search'] === true &&
+        config['model_providers.openshell.supports_standalone_web_search'] === true;
       return {
         thread: { id: 'search-thread' },
         model: params.model,
         modelProvider: params.modelProvider,
       };
+    }
     if (method === 'turn/start') {
-      if (searched)
+      if (searched && searchAvailable)
         callbacks.onNotification('item/completed', {
           threadId: 'search-thread',
           turnId: 'search-turn',
@@ -160,7 +167,7 @@ it.each([
   [true, undefined],
   [true, 65536],
 ] as const)(
-  'retains independent native document preference in approved search (disabled=%s, runtime bytes=%s)',
+  'omits project documents from query-only search (parent disabled=%s, runtime bytes=%s)',
   async (packBound, runtimeBytes) => {
     const f = fixture();
     const createClient = vi.fn(f.createClient);
@@ -179,9 +186,7 @@ it.each([
     const thread = f.request.mock.calls.find(([method]) => method === 'thread/start');
     expect(thread).toBeDefined();
     const config = thread![1].config as Record<string, unknown>;
-    if (packBound) expect(config.project_doc_max_bytes).toBe(0);
-    else if (runtimeBytes === undefined) expect(config).not.toHaveProperty('project_doc_max_bytes');
-    else expect(config.project_doc_max_bytes).toBe(runtimeBytes);
+    expect(config.project_doc_max_bytes).toBe(0);
   },
 );
 
@@ -281,4 +286,21 @@ it('preserves a safe native failure reason without leaking provider exceptions',
   expect(result.content).toContain('account verification failed');
   expect(result.content).not.toContain('private-account-token-provider-body');
   expect(f.request.mock.calls.some(([method]) => method === 'thread/start')).toBe(false);
+});
+
+// A custom Responses provider contributes no standalone native search tool unless
+// its capability is declared, even when web_search is live.
+it('enables standalone search on the verified OpenShell route before spending a turn', async () => {
+  const f = fixture('completed', true, 'Answer https://www.revenue.ie/', {}, true);
+  await expect(
+    searchCodex('Revenue', new AbortController().signal, {
+      createClient: f.createClient,
+      verify: f.verify,
+      model: 'selected-model',
+      modelProvider: 'openshell',
+      cwd: '/workspace',
+    }),
+  ).resolves.toContain('https://www.revenue.ie/');
+  const thread = f.request.mock.calls.find(([method]) => method === 'thread/start')![1];
+  expect(thread).toMatchObject({ ephemeral: true, config: { project_doc_max_bytes: 0 } });
 });

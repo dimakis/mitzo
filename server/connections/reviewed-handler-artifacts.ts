@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.185';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.186';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -167,8 +167,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '2cb79bc6ae7f3f02fa0156100c3cbc74524a0523279d873d1851d085a6b19cb5',
   // Explicit web-search budgets and inert readable-page extraction.
   '../web-page-content.ts': 'ea1e6cd81d71987fecab925f0a46918d2790bead3e1321c4d3729afd9c3c532f',
-  '../request-web-access.ts': '9ba2dc2968d0fae9bc0c4c9abb9db642facad111c79552a8537751524ec41416',
-  '../web-search-adapters.ts': '37048de3d44f2f3017aab3006c7e2abaf5c6b1c3dda1a624dac9ef9e9b8deb35',
+  '../request-web-access.ts': '8210db7a271d3b291cff1ba861c764f09f0be4f7d58ff327e678eba32eb9d28c',
+  '../web-search-adapters.ts': 'e8d6b181083c93f040a52693e1512bfaa6d8d80666e95db68ed46e802ab0594c',
   '../../packages/harness/src/index.ts':
     '2741b93d5b35a7542d87757caf6ea9e359d019e74be0dd506188df1a98dffe33',
   '../../packages/harness/src/session-transport.ts':
@@ -605,7 +605,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '43a7f7edf9a9bb894be6843c6c3204a308227daeb495aef0f56ff707dace0a7b',
   '../symposium-subscription-native.ts':
     '64eadac8483f30497939d4c19db4adeb3e6ac189b7e97e8fac855df11ca80975',
-  '../codex-approved-search.ts': '511b6ebe13277607afa9f3fd6990a100d828151962abb2623c65e4ef212d456b',
+  '../codex-approved-search.ts': 'ce87e28a07f5abf7d602c4d9cce87ef9e486d691ab327bce6b41953ab9a08f8f',
   '../native-codex-context-admission.ts':
     '91a021e0dba7a2e1d38cfe2a744da603370f562f5d78c25255237d4065eda558',
   '../symposium-host-tool-bridge.ts':

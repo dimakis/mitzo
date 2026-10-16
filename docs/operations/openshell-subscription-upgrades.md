@@ -42,6 +42,34 @@ decode. The replacement restores the upstream wire layout and allocates the new
 field at 25. Its matched local supervisor build has digest
 `sha256:bd93ca4bc313c47699d44ba2c62480474f7f590a77409385cc5ef553ae7b8350`.
 
+## Standalone search compatibility
+
+Codex 0.160.0 custom Responses providers need an explicit
+`supports_standalone_web_search` capability to expose native standalone search.
+Mitzo sets this for the verified OpenShell route in the separately approved
+search child, with `features.standalone_web_search` enabled. The dispatcher toggle
+is not a substitute for provider capability or gateway endpoint support.
+
+The matched OpenShell supervisor/router must recognise exact
+`POST inference.local/v1/alpha/search`, advertise `openai_standalone_search` on the
+attached Codex subscription route and forward buffered JSON to the pinned
+`https://chatgpt.com/backend-api/codex/alpha/search`. Search bodies must preserve their provider-context model identity and settings,
+without the Responses model/parameter rewrite; gateway-owned OAuth/account headers still
+apply. Unbound routes and unrelated paths remain denied.
+
+Installing Mitzo's capability change alone does not repair an older gateway.
+A search-path HTTP 403 while Responses works is a component compatibility failure;
+broadening sandbox egress or repeatedly asking the model to search wastes turns.
+Retain the receipt requirement and report the failed route instead of claiming a
+search succeeded. The search child omits project documents and persistence and
+returns concise cited output; parent guidance avoids unchanged retries and
+cross-account/tool fallbacks.
+
+This source change does not update a deployment lock or activate either service.
+Review and accept the companion OpenShell source, then record its exact matched
+build/digests for a separately authorised production upgrade. Canonical staging
+and its pipeline remain stood down.
+
 ## Upgrade procedure
 
 1. Record the current CLI, gateway, compute driver/supervisor, runtime image,
