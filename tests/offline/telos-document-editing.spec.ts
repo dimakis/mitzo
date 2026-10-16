@@ -182,6 +182,17 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByRole('heading', { name: 'Latest accepted' })).toBeVisible();
     await expect(page).toHaveURL(/revision%3D4/);
     expect(revisions).toHaveLength(4);
+    await edit.click();
+    await source.fill('# Already saved draft');
+    revisions.push('# Already saved draft');
+    await save.click();
+    await page.getByRole('button', { name: 'Review latest version' }).click();
+    await page.getByRole('button', { name: 'Keep my draft for next save' }).click();
+    await expect(save).toBeDisabled();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Already saved draft' })).toBeVisible();
+    await expect(page).toHaveURL(/revision%3D5/);
+    expect(revisions).toHaveLength(5);
     expect(unexpected).toEqual([]);
   });
 }
