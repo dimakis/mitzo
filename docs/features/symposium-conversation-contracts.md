@@ -37,8 +37,14 @@ Messages, projection entries, deliveries and ordinary commands have distinct IDs
 Readers get context intents; only responders get reply intents. Reading never
 creates another turn. Attributed reply contracts retain original ordinary
 conversation/command/message/block/event references and the originating delivery.
-Capturing those replies from drivers remains slice 3 work; session activity alone
-does not establish group provenance.
+The guarded ordinary Codex drivers capture private command-to-visible-message
+bindings only after the exact provider turn/start acknowledgement. Output that
+races that response stays unbound until the returned turn ID matches; stale,
+foreign, unidentified and uncertain turns cannot establish provenance. Thinking
+and tool messages are excluded. The host attribution owner reads finalized visible
+text through EventStore and requires the original reply delivery, command, session,
+settings, block IDs and message-end sequence. It never infers provenance from
+session activity. Other drivers and public delivery remain uncomposed.
 
 Each delivery has revisioned outcomes. Queued/uncertain work retains its command ID;
 terminal results cannot be reset to pending. A failed recipient does not change a
@@ -46,6 +52,16 @@ successful recipient. Request IDs are scoped to the collaboration across mutatio
 kinds. A canonical fingerprint and original result commit atomically, so an exact
 retry after later changes or restart returns its original result; conflicting reuse
 is refused. These receipts do not claim exactly-once external tool execution.
+
+`OrdinaryCollaborationReplies` composes the private driver binding, existing ordinary
+command ledger and finalized visible-source reader. `recordReply` persists an
+attributed projection and its request receipt atomically. Exact retries recover
+before current source/access checks; a replayed source message cannot append a
+second projection or change its original command, blocks, end sequence or delivery.
+Reader-only deliveries cannot produce attributed replies. Attribution creates no
+new delivery, model turn or fanout and does not resolve an uncertain delivery by
+itself. This owner is host-only; it does not enable the disabled public send route
+or constitute completed application delivery/context acknowledgement.
 
 ## Reviewed context
 

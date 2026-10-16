@@ -2190,6 +2190,17 @@ export class EventStore {
     return rows.map(rowToEvent);
   }
 
+  /** Private exact driver provenance only; never hydrate unrelated provider/session history.
+   * More than one row is deliberately ambiguous to the host attribution owner.
+   */
+  getOrdinaryReplySourceEvents(sessionId: string, messageId: string): unknown[] {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_reply_source'
+       AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 2`,
+    ).all(sessionId, messageId) as Array<{ payload: string }>;
+    return rows.map((row) => JSON.parse(row.payload));
+  }
+
   getEventsAfter(sessionId: string, afterSeq: number, limit?: number): StoredEvent[] {
     return this.conversationReplay.getEventsAfter(sessionId, afterSeq, limit);
   }

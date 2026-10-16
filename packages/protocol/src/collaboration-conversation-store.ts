@@ -13,6 +13,7 @@ import {
   CollaborationPolicySchema,
   CollaborationSettingsSchema,
   CollaborationMessageInputSchema,
+  CollaborationReplyInputSchema,
   CollaborationMessageSchema,
   CollaborationDeliverySchema,
   CollaborationDeliveryReceiptInputSchema,
@@ -30,6 +31,7 @@ import {
   type CollaborationDelivery,
   type CollaborationJoin,
   type CollaborationEvent,
+  type CollaborationMessageSource,
 } from './collaboration-conversation.js';
 
 /** Stable key ordering makes exact semantic retries independent of JSON object key order. */
@@ -76,6 +78,8 @@ export class CollaborationConversationStore {
       CREATE TABLE IF NOT EXISTS collaboration_requests (
         collaboration_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
         result TEXT NOT NULL, PRIMARY KEY(collaboration_id,request_id));
+      CREATE INDEX IF NOT EXISTS idx_collaboration_message_heads
+        ON collaboration_records(collaboration_id,record_id,revision DESC) WHERE kind='message';
     `);
   }
   private group(id: string) {
@@ -408,6 +412,20 @@ export class CollaborationConversationStore {
           (['failed', 'unavailable', 'uncertain'].includes(input.status) && !input.reason)
         )
           throw new ContractError('invalid_transition');
+        if (
+          input.commandId &&
+          this.db
+            .prepare(
+              `SELECT 1 FROM collaboration_records r, json_each(r.body,'$.deliveries') d
+           WHERE r.kind='message' AND NOT EXISTS (
+             SELECT 1 FROM collaboration_records newer WHERE newer.collaboration_id=r.collaboration_id
+             AND newer.kind=r.kind AND newer.record_id=r.record_id AND newer.revision>r.revision)
+           AND json_extract(d.value,'$.commandId')=?
+           AND json_extract(d.value,'$.deliveryId')<>? LIMIT 1`,
+            )
+            .get(input.commandId, deliveryId)
+        )
+          throw new ContractError('reply_conflict');
         const next = CollaborationDeliverySchema.parse({
           ...delivery,
           status: input.status,
@@ -421,6 +439,85 @@ export class CollaborationConversationStore {
         this.put(group, 'message', messageId, message);
         this.event(group, { kind: 'delivery', messageId, delivery: next });
         return next;
+      },
+    );
+  }
+  /** Host-only attributed projection. The trusted source port must verify the exact ordinary
+   * command/message mapping and finalized visible blocks. Attribution never dispatches or fans out.
+   */
+  recordReply(
+    group: string,
+    raw: unknown,
+    readSource: (
+      source: CollaborationMessageSource,
+    ) => { text: string; settings: CollaborationSettings } | undefined,
+  ) {
+    const input = CollaborationReplyInputSchema.parse(raw);
+    return this.mutation(
+      group,
+      input.requestId,
+      { kind: 'reply', input },
+      CollaborationMessageSchema,
+      () => {
+        // A driver may replay the same finalized message with a fresh callback receipt.
+        // Its entire source identity and delivery must still match the original projection.
+        const key = sha([input.source.conversationId, input.source.messageId]);
+        const previous = this.current(group, 'reply-source', key, CollaborationMessageSchema);
+        if (previous) {
+          if (
+            sha(previous.source) !== sha(input.source) ||
+            previous.replyToDeliveryId !== input.deliveryId
+          )
+            throw new ContractError('reply_conflict');
+          const origin = this.current(
+            group,
+            'message',
+            input.messageId,
+            CollaborationMessageSchema,
+          );
+          if (!origin?.deliveries.some((delivery) => delivery.deliveryId === input.deliveryId))
+            throw new ContractError('reply_conflict');
+          return previous;
+        }
+        const message = this.current(group, 'message', input.messageId, CollaborationMessageSchema);
+        const delivery = message?.deliveries.find((row) => row.deliveryId === input.deliveryId);
+        if (
+          !message ||
+          !delivery ||
+          delivery.purpose !== 'reply' ||
+          !['queued', 'uncertain', 'delivered'].includes(delivery.status) ||
+          delivery.sessionId !== input.source.conversationId ||
+          delivery.commandId !== input.source.commandId ||
+          !message.responders.includes(delivery.sessionId)
+        )
+          throw new ContractError('reply_conflict');
+        this.requireRecipients(this.group(group), [delivery.sessionId]);
+        const verified = readSource(structuredClone(input.source));
+        if (!verified) throw new ContractError('reply_unavailable');
+        if (sha(verified.settings) !== sha(message.settings[delivery.sessionId]))
+          throw new ContractError('reply_conflict');
+        const reply = CollaborationMessageSchema.parse({
+          version: 1,
+          messageId: randomUUID(),
+          projectionId: randomUUID(),
+          sequence: this.cursor(group) + 1,
+          author: { sessionId: delivery.sessionId },
+          text: verified.text,
+          source: input.source,
+          replyToDeliveryId: delivery.deliveryId,
+          membershipRevision: message.membershipRevision,
+          policySequence: message.policySequence,
+          policyRevisions: message.policyRevisions,
+          responders: [],
+          readers: [],
+          settings: {},
+          deliveries: [],
+          snapshot: null,
+        });
+        this.put(group, 'message', reply.messageId, reply);
+        this.put(group, 'reply-source', key, reply);
+        this.event(group, { kind: 'message', message: reply });
+        return reply;
       },
     );
   }

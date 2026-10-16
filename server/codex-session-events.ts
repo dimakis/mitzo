@@ -29,7 +29,11 @@ export class CodexSessionEvents {
     private threadId: string,
     private model: string,
     private emit: (event: ObjectValue) => void,
-    options: { freshThread?: boolean } = {},
+    private options: {
+      freshThread?: boolean;
+      /** Trusted generated visible text identity; never thinking or tool messages. */
+      onTextMessageStarted?: (messageId: string, providerTurnId: string) => void;
+    } = {},
   ) {
     this.usage = new CodexTurnUsage(options.freshThread);
   }
@@ -70,13 +74,15 @@ export class CodexSessionEvents {
       ...(rendererOnly ? { renderer_only: true } : {}),
     });
   }
-  private start(id: string, kind: 'text' | 'thinking' = 'text') {
+  private start(id: string, kind: 'text' | 'thinking' = 'text', providerTurnId?: unknown) {
     let item = this.texts.get(id);
     if (item) return item;
     // The existing renderer has one active assistant message. Finish it before another begins.
     this.flush();
     item = { text: '', closed: false, messageId: randomUUID(), kind };
     this.texts.set(id, item);
+    if (kind === 'text' && typeof providerTurnId === 'string' && providerTurnId)
+      this.options.onTextMessageStarted?.(item.messageId, providerTurnId);
     this.stream(
       {
         type: 'message_start',
@@ -328,7 +334,7 @@ export class CodexSessionEvents {
       typeof params.itemId === 'string' &&
       typeof params.delta === 'string'
     ) {
-      const item = this.start(params.itemId);
+      const item = this.start(params.itemId, 'text', params.turnId);
       if (item.closed) return;
       item.text += params.delta;
       this.stream({
@@ -344,7 +350,7 @@ export class CodexSessionEvents {
         typeof final.text !== 'string'
       )
         return;
-      const item = this.start(final.id);
+      const item = this.start(final.id, 'text', params.turnId);
       if (item.closed) return;
       if (!item.text && final.text) {
         item.text = final.text;
