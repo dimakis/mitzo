@@ -22,11 +22,15 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../../frontend/src/components/ToolLibraryCatalog.tsx': 'a42dfbd4ae455252eb7e16b0e85df1247e448f570204ac7355ea63da4110f270',
-  '../../frontend/src/styles/tool-library.css': '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
+  '../../frontend/src/components/ToolLibraryCatalog.tsx':
+    'a42dfbd4ae455252eb7e16b0e85df1247e448f570204ac7355ea63da4110f270',
+  '../../frontend/src/styles/tool-library.css':
+    '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
   '../mcp-config.ts': '6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b',
-  '../configured-tool-runtime.ts': '60b98526368eebc431ffe848bc51f88d98ac1dff1a4b5fda7938055677651133',
-  '../configured-tool-admission.ts': '76d56a2582972ce00acc43fb3b907206ab2d3441ef4fbebcac6b2740bb3ff972',
+  '../configured-tool-runtime.ts':
+    '60b98526368eebc431ffe848bc51f88d98ac1dff1a4b5fda7938055677651133',
+  '../configured-tool-admission.ts':
+    '76d56a2582972ce00acc43fb3b907206ab2d3441ef4fbebcac6b2740bb3ff972',
   '../configured-tool-catalog.ts':
     'bd4a1e2d1612733f7739c287f5d337ac9a325f1c3d065bdea0f8d6a4a05e9234',
   '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
