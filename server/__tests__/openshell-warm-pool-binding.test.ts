@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +10,11 @@ import {
   warmPoolConversationName,
 } from '../openshell-warm-pool-binding.js';
 import { warmPoolScope } from '../openshell-warm-pool-runtime.js';
-import { OpenShellRuntimeManager, type BoundOpenShellRuntimeConfig } from '../openshell-runtime.js';
+import {
+  OpenShellRuntimeManager,
+  sandboxNameForConversation,
+  type BoundOpenShellRuntimeConfig,
+} from '../openshell-runtime.js';
 let root = '',
   pool: OpenShellWarmPool | undefined;
 afterEach(() => {
@@ -90,11 +95,10 @@ it('immutable pool labels become effective ownership only with a matching durabl
 it('manager reuses the recorded claimed name and retains all ordinary ownership checks', async () => {
   const f = await fixture();
   await pool!.claim('chat', 'work', AbortSignal.timeout(5000));
-  const run = vi.fn(async (a: readonly string[]) =>
-    a.includes('provider')
-      ? 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nwork service 0 0'
-      : JSON.stringify(f.raw()),
-  );
+  const run = vi.fn(async (a: readonly string[]) => {
+    if (a.includes('provider')) return 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nwork service 0 0';
+    return JSON.stringify(f.raw());
+  });
   const manager = new OpenShellRuntimeManager(f.config, run);
   const runtime = await manager.ensure('chat', AbortSignal.timeout(5000));
   expect(runtime.sandboxName).toBe(f.physical().name);
@@ -106,11 +110,11 @@ it('manager reuses the recorded claimed name and retains all ordinary ownership 
 });
 it('only an explicit initial command claims a spare and later commands retain that owner', async () => {
   const f = await fixture();
-  const run = vi.fn(async (a: readonly string[]) =>
-    a.includes('provider')
-      ? 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nwork service 0 0'
-      : JSON.stringify(f.raw()),
-  );
+  const run = vi.fn(async (a: readonly string[]) => {
+    if (a.includes('provider')) return 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nwork service 0 0';
+    if (a.includes(f.physical().name)) return JSON.stringify(f.raw());
+    throw Error('not found');
+  });
   const manager = new OpenShellRuntimeManager(f.config, run);
   const runtime = await manager.ensure(
     'chat',
@@ -171,5 +175,41 @@ it.each([true, false])(
       expect(args).not.toContain('--cpu');
       expect(args).not.toContain('--memory');
     }
+  },
+);
+
+it.each([false, true])(
+  'initial retry reuses an existing current/legacy sandbox before claiming: legacy=%s',
+  async (legacy) => {
+    const f = await fixture();
+    const hash = createHash('sha256').update('retry-chat').digest('hex');
+    const name = legacy ? 'mitzo-' + hash.slice(0, 24) : sandboxNameForConversation('retry-chat');
+    const retained = {
+      id: 'retained-physical',
+      name,
+      workspace: 'default',
+      phase: 'Ready',
+      labels: {
+        'mitzo.conversation': legacy ? hash : hash.slice(0, 63),
+        'mitzo.account_provider': 'work',
+      },
+    };
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('provider')) return 'No providers attached to sandbox ' + name + '.';
+      if (args.includes('get') && args.includes(name)) return JSON.stringify(retained);
+      throw Error('not found');
+    });
+    const manager = new OpenShellRuntimeManager(f.config, run);
+    const runtime = await manager.ensure(
+      'retry-chat',
+      AbortSignal.timeout(5000),
+      undefined,
+      undefined,
+      undefined,
+      'retry-command',
+    );
+    expect(runtime.sandboxId).toBe('retained-physical');
+    expect(pool!.snapshot().owned).toHaveLength(0);
+    expect(pool!.snapshot().spares).toHaveLength(1);
   },
 );

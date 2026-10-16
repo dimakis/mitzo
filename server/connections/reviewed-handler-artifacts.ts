@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.166';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.167';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -561,7 +561,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   // Batched knowledge admission preserves verification and retention under the lifecycle fence.
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
-  '../openshell-runtime.ts': 'cc9cefd223bbca7983bc6bb6e223ecbb9d7abb66a1b11c8375f895223b877f72',
+  '../openshell-runtime.ts': '315a8b18383a451288320e5e6d41ba46ff39643e5b8e83ead8133374312a0176',
   '../codex-chat-session.ts': 'fd3189ecbaeddda8a5eaa0156409c6d8efd449d0dc0786979a765c7f456d9d2f',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':

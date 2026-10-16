@@ -2078,28 +2078,6 @@ export class OpenShellRuntimeManager {
       () => this.config.verifyAccountProviderUnion?.(),
       signal,
     );
-    if (initialCommandId && !expected && !warmPoolConversationName(this.config, conversationId)) {
-      const claimed = await claimWarmPoolForCommand(
-        this.config,
-        conversationId,
-        signal,
-        admittedSeed?.seed,
-      );
-      if (claimed) {
-        // The durable claim picks a different physical name. Acquire its policy
-        // fence and recheck account authority after attachment, before use.
-        return this.serializeProviderPolicy(claimed.name, signal, () =>
-          this.ensureUnserialized(
-            conversationId,
-            signal,
-            undefined,
-            admittedSeed,
-            inheritedMigrationGrants,
-            initialCommandId,
-          ),
-        );
-      }
-    }
     const accountProvider = this.config.account.provider;
     // The account provider is a separately-bound inference/account role. It
     // can happen to have a service-provider name (for example `github`), but
@@ -2143,6 +2121,33 @@ export class OpenShellRuntimeManager {
         name = legacyName;
         owner = conversationHash;
         sandbox = legacy;
+      }
+    }
+    if (
+      initialCommandId &&
+      !expected &&
+      !sandbox &&
+      !warmPoolConversationName(this.config, conversationId)
+    ) {
+      const claimed = await claimWarmPoolForCommand(
+        this.config,
+        conversationId,
+        signal,
+        admittedSeed?.seed,
+      );
+      if (claimed) {
+        // The durable claim picks a different physical name. Acquire its policy
+        // fence and recheck account authority after attachment, before use.
+        return this.serializeProviderPolicy(claimed.name, signal, () =>
+          this.ensureUnserialized(
+            conversationId,
+            signal,
+            undefined,
+            admittedSeed,
+            inheritedMigrationGrants,
+            initialCommandId,
+          ),
+        );
       }
     }
     const retained = Boolean(sandbox);
