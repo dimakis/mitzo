@@ -68,3 +68,8 @@ a JSON source/tool tuple. Session grants are exact-tool grants. Legacy `mcp__`
 server-wide grants keep their existing scope and cannot authorize an opted-in
 source, even when the legacy server label equals a source UUID. Neither namespace
 grants source access or bypasses mode, skill, workspace or current-runtime checks.
+
+Permission grant keys remain separate from hook/display identities. Opting a source
+into discovery preserves its existing `mcp__<server>__<tool>` project-hook matcher,
+including denial and input-validation hooks, while approval lookup uses the isolated
+source/tool grant namespace.

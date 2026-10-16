@@ -1,3 +1,8 @@
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { NativeHooks } from '../native-hooks.js';
+import * as commands from '../protected-sdk-command.js';
 import { expect, it, vi } from 'vitest';
 import { connectCodexMcpTools } from '../codex-mcp-tools.js';
 import { SessionRegistry, buildPermissionHandler, resolvePending } from '@mitzo/harness';
@@ -477,6 +482,92 @@ it.each([0, 1])(
       await second?.catch(() => {});
       await tools.close();
       registry.dispose();
+    }
+  },
+);
+
+it.each([
+  { matcher: '^mcp__docs__search$', deny: true },
+  { matcher: '^mcp__', deny: true },
+  { matcher: '^mcp__docs__search$', deny: false },
+])(
+  'preserves existing project-hook identity after source opt-in: $matcher, deny=$deny',
+  async ({ matcher, deny }) => {
+    const root = mkdtempSync(join(tmpdir(), 'configured-hook-identity-'));
+    mkdirSync(join(root, '.claude'));
+    writeFileSync(
+      join(root, '.claude/settings.json'),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [{ matcher, hooks: [{ type: 'command', command: 'offline-hook-fixture' }] }],
+        },
+      }),
+    );
+    const runner = vi
+      .fn<commands.ProtectedSdkCommandRunner>()
+      .mockResolvedValue({
+        stdout: JSON.stringify({
+          hookSpecificOutput: deny
+            ? {
+                permissionDecision: 'deny',
+                permissionDecisionReason: 'Project hook denied this tool',
+              }
+            : { updatedInput: { query: 'validated' } },
+        }),
+        stderr: '',
+      });
+    const runnerSpy = vi
+      .spyOn(commands, 'createWorkspaceRuntimeCommandRunner')
+      .mockReturnValue(runner);
+    const hooks = new NativeHooks(root, 'hook-fixture', {});
+    const callTool = vi.fn(async () => ({ content: [] }));
+    const permission = vi.fn(async () => ({ behavior: 'allow' as const }));
+    const signal = new AbortController().signal;
+    const tools = await connectCodexMcpTools(
+      {
+        docs: { command: 'never-started', librarySourceId: '11111111-1111-4111-8111-111111111111' },
+      },
+      {
+        cwd: root,
+        env: {},
+        signal,
+        connect: async () => ({
+          listTools: async () => ({ tools: [{ name: 'search', inputSchema: { type: 'object' } }] }),
+          callTool,
+          close: async () => {},
+        }),
+      },
+    );
+    try {
+      const wire = tools.definitions[0].name;
+      const result = await hooks.executeTool(
+        tools.displayName(wire),
+        { query: 'original' },
+        signal,
+        (input) => tools.execute(wire, input, permission, signal),
+      );
+      expect(runner).toHaveBeenCalledOnce();
+      expect(JSON.parse(runner.mock.calls[0][2].input!).tool_name).toBe('mcp__docs__search');
+      if (deny) {
+        expect(result).toMatchObject({ isError: true, content: 'Project hook denied this tool' });
+        expect(permission).not.toHaveBeenCalled();
+        expect(callTool).not.toHaveBeenCalled();
+      } else {
+        expect(result.isError).toBe(false);
+        expect(permission).toHaveBeenCalledWith(
+          'configured-mcp:["11111111-1111-4111-8111-111111111111","search"]',
+          { query: 'validated' },
+          signal,
+        );
+        expect(callTool).toHaveBeenCalledWith(
+          { name: 'search', arguments: { query: 'validated' } },
+          signal,
+        );
+      }
+    } finally {
+      await tools.close();
+      runnerSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
     }
   },
 );
