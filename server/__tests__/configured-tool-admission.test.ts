@@ -79,7 +79,9 @@ it.each(['openai', 'google-vertex'] as const)(
         mode: 'auto',
         sessionId: 'selected',
         cwd: root,
-        sessionAllowList: new Set(['mcp__11111111-1111-4111-8111-111111111111__search']),
+        sessionAllowList: new Set([
+          `configured-mcp:${JSON.stringify([configs.one.librarySourceId, 'search'])}`,
+        ]),
       });
       const input = new AsyncQueue<{ message: { content: string } }>();
       const chat = await openResponsesChat({

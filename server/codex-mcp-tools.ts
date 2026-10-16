@@ -130,7 +130,7 @@ export async function connectCodexMcpTools(
             peer,
             name: tool.name,
             canonical: config.librarySourceId
-              ? `mcp__${config.librarySourceId}__${tool.name}`
+              ? `configured-mcp:${JSON.stringify([config.librarySourceId, tool.name])}`
               : canonical,
           });
           definitions.push({

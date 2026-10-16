@@ -405,10 +405,78 @@ it('keeps permissions source-scoped when opted-in labels collide after delimiter
   try {
     for (const tool of tools.definitions) await tools.execute(tool.name, {}, permission, signal);
     expect(permission.mock.calls.map(([name]) => name)).toEqual([
-      `mcp__${sourceIds[0]}__search`,
-      `mcp__${sourceIds[1]}__docs__search`,
+      `configured-mcp:${JSON.stringify([sourceIds[0], 'search'])}`,
+      `configured-mcp:${JSON.stringify([sourceIds[1], 'docs__search'])}`,
     ]);
   } finally {
     await tools.close();
   }
 });
+
+it.each([0, 1])(
+  'isolates opted-in grants from UUID-named legacy sources, approving source %s first',
+  async (first) => {
+    const sourceId = '11111111-1111-4111-8111-111111111111';
+    const registry = new SessionRegistry();
+    const requests: Record<string, unknown>[] = [];
+    const abort = new AbortController();
+    registry.register('mixed', {
+      sessionId: 'mixed-conversation',
+      transport: {
+        send: (event) => {
+          if (event.type === 'permission_request') requests.push(event);
+        },
+        isOpen: () => true,
+      },
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const calls = [vi.fn(async () => ({ content: [] })), vi.fn(async () => ({ content: [] }))];
+    const tools = await connectCodexMcpTools(
+      {
+        docs: { command: 'configured', librarySourceId: sourceId },
+        [sourceId]: { command: 'legacy' },
+      },
+      {
+        cwd: '/fixture',
+        env: {},
+        signal: abort.signal,
+        connect: async (config) => ({
+          listTools: async () => ({ tools: [{ name: 'search', inputSchema: { type: 'object' } }] }),
+          callTool: calls[config.command === 'configured' ? 0 : 1],
+          close: async () => {},
+        }),
+      },
+    );
+    const permission = (name: string, input: Record<string, unknown>, signal: AbortSignal) =>
+      buildPermissionHandler('mixed', registry)(name, input, { signal, toolUseID: name });
+    let second: Promise<unknown> | undefined;
+    try {
+      const initial = tools.execute(tools.definitions[first].name, {}, permission, abort.signal);
+      await vi.waitFor(() => expect(requests).toHaveLength(1));
+      expect(
+        resolvePending(requests[0].permId as string, 'always', undefined, 'mixed-conversation'),
+      ).toBe(true);
+      await initial;
+      expect(calls[first]).toHaveBeenCalledOnce();
+      const other = 1 - first;
+      second = tools.execute(tools.definitions[other].name, {}, permission, abort.signal);
+      await vi.waitFor(() => expect(requests).toHaveLength(2));
+      expect(calls[other]).not.toHaveBeenCalled();
+      expect(
+        resolvePending(requests[1].permId as string, 'deny', undefined, 'mixed-conversation'),
+      ).toBe(true);
+      await second;
+      expect(calls[other]).not.toHaveBeenCalled();
+      await tools.execute(tools.definitions[first].name, {}, permission, abort.signal);
+      expect(requests).toHaveLength(2);
+      expect(calls[first]).toHaveBeenCalledTimes(2);
+    } finally {
+      abort.abort();
+      await second?.catch(() => {});
+      await tools.close();
+      registry.dispose();
+    }
+  },
+);
