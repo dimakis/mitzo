@@ -91,3 +91,5 @@ export type {
   EventSourceFactory,
   ConnectionChangeCallback,
 } from './event-bus.js';
+
+export { TelosWorkApiClient, TelosWorkApiError } from './telos-work-api.js';
