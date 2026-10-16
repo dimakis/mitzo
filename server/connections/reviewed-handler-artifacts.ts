@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.179';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.180';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -612,7 +612,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '6e24905d6de55157dfa056c4741c0270ce7905a4aa1fdb85982922e6659a2c59',
+    'b4060575aca606136e97cba14241bbe7effc2b627130f82b132764847e344b37',
+  // Approved Telos workspace wire contracts only; no work/session runtime activation.
+  '../../packages/protocol/src/telos-work.ts':
+    'e3c01517b0fd4009f7e4b79a05a1d88935cc95aa3c70f4811298487868ffb7ae',
   '../agent-context-authority.ts':
     '68b721db46cf6ba99de042cdf32be345bfc78c7ae27c2e31ee2b0b52a20ac266',
   '../agent-context-delivery.ts':
