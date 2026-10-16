@@ -1,4 +1,5 @@
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import Database from 'better-sqlite3';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -54,4 +55,36 @@ it('does not create a pool when OpenShell is absent', () => {
   expect(
     startWarmPoolHost(undefined, { root: '/unused', enrolled: true, onError: () => {} }),
   ).toBeUndefined();
+});
+
+it('serializes dead-owner takeover with a process-shared transaction before touching the lock file', () => {
+  const c = fixture();
+  const path = join(root, 'openshell-warm-pool.lock');
+  const retained = JSON.stringify({ pid: 2147483647, nonce: 'dead-owner' });
+  writeFileSync(path, retained);
+  const contender = new Database(join(root, 'openshell-warm-pool-controller.db'));
+  contender.exec('BEGIN IMMEDIATE');
+  try {
+    expect(() => {
+      host = startWarmPoolHost(c, { root, enrolled: false, onError: () => {} });
+    }).toThrow(/busy|locked|controller/i);
+    expect(readFileSync(path, 'utf8')).toBe(retained);
+  } finally {
+    contender.exec('ROLLBACK');
+    contender.close();
+  }
+});
+it('retains a dead owner and publishes the replacement while exclusively fenced', async () => {
+  const c = fixture();
+  const retained = JSON.stringify({ pid: 2147483647, nonce: 'dead-owner' });
+  writeFileSync(join(root, 'openshell-warm-pool.lock'), retained);
+  host = startWarmPoolHost(c, { root, enrolled: false, onError: () => {} });
+  const evidence = readdirSync(root).filter((x) =>
+    x.startsWith('openshell-warm-pool.lock.retained-'),
+  );
+  expect(evidence).toHaveLength(1);
+  expect(readFileSync(join(root, evidence[0]), 'utf8')).toBe(retained);
+  expect(() => startWarmPoolHost(c, { root, enrolled: false, onError: () => {} })).toThrow(
+    /controller|owner/i,
+  );
 });

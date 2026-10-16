@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.169';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.170';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -44,7 +44,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-warm-pool-router.ts':
     '4b9cdfd05514839d3828ef89774dc7766bd1dd810639e543ba3e13bc539f889f',
   '../openshell-warm-pool-host.ts':
-    '2577ff61c46fbf82e32eb1d65d0cbe80b89fe41c864b4c05f0210a49cd069634',
+    '7077eed9f9dc8004f8611cd9b4d9f5554044865f9fab91970455e27b1de0d0ec',
   '../openshell-lifecycle-service.ts':
     '5f6dfd0be3670a181b1dcc68a8633933ea95bf19574d0f3178a68dfcfe03d493',
   '../../frontend/src/pages/SandboxesView.tsx':

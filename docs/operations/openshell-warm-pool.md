@@ -70,7 +70,9 @@ without relaxing ownership or uncertainty accounting.
 
 The private `openshell-warm-pool.db` ledger records settings, revisions, physical
 IDs, operation reservations and claims. The host holds an exclusive controller
-lock. A dead owner's lock is retained as evidence before startup recovery;
+lock. An OS-backed SQLite transaction serializes the complete stale-owner
+takeover, including publishing the replacement owner. A dead owner's lock is
+retained as evidence before startup recovery;
 another live or unverified owner blocks startup. Interrupted preparation, claim
 and removal become uncertain, never Ready or automatically retried. A successful
 native create receipt persists its physical ID before waiting for readiness.

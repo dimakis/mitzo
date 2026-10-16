@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import {
   openSync,
   closeSync,
@@ -6,6 +7,7 @@ import {
   renameSync,
   unlinkSync,
   mkdirSync,
+  chmodSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -23,25 +25,42 @@ export function startWarmPoolHost(
   mkdirSync(options.root, { recursive: true, mode: 0o700 });
   const path = join(options.root, 'openshell-warm-pool.lock'),
     nonce = randomUUID();
-  let fd: number;
+  // SQLite's OS-backed write lock serializes the complete dead-owner takeover.
+  // A losing starter cannot rename a replacement created after its earlier read;
+  // process exit releases this fence without another stale lock to recover.
+  const fencePath = join(options.root, 'openshell-warm-pool-controller.db');
+  closeSync(openSync(fencePath, 'a', 0o600));
+  chmodSync(fencePath, 0o600);
+  const fence = new Database(fencePath);
+  fence.pragma('busy_timeout = 1000');
+  fence.pragma('synchronous = FULL');
   try {
-    fd = openSync(path, 'wx', 0o600);
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-    const old = JSON.parse(readFileSync(path, 'utf8')) as { pid: number };
-    if (!Number.isInteger(old.pid) || old.pid <= 0)
-      throw Error('Warm pool controller owner is unverified', { cause: e });
-    try {
-      process.kill(old.pid, 0);
-      throw Error('Another warm pool controller owns this host', { cause: e });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
-    }
-    renameSync(path, path + '.retained-' + randomUUID());
-    fd = openSync(path, 'wx', 0o600);
+    fence
+      .transaction(() => {
+        let fd: number;
+        try {
+          fd = openSync(path, 'wx', 0o600);
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+          const old = JSON.parse(readFileSync(path, 'utf8')) as { pid: number };
+          if (!Number.isInteger(old.pid) || old.pid <= 0)
+            throw Error('Warm pool controller owner is unverified', { cause: e });
+          try {
+            process.kill(old.pid, 0);
+            throw Error('Another warm pool controller owns this host', { cause: e });
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+          }
+          renameSync(path, path + '.retained-' + randomUUID());
+          fd = openSync(path, 'wx', 0o600);
+        }
+        writeFileSync(fd, JSON.stringify({ pid: process.pid, nonce }));
+        closeSync(fd);
+      })
+      .immediate();
+  } finally {
+    fence.close();
   }
-  writeFileSync(fd, JSON.stringify({ pid: process.pid, nonce }));
-  closeSync(fd);
   const abort = new AbortController();
   const adapter = createWarmPoolAdapter(config, undefined, undefined, abort.signal);
   if (!options.enrolled) {
