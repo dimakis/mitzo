@@ -58,8 +58,9 @@ command ledger and finalized visible-source reader. `recordReply` persists an
 attributed projection and its request receipt atomically. Exact retries recover
 before current source/access checks; a replayed source message cannot append a
 second projection or change its original command, blocks, end sequence or delivery.
-Reader-only deliveries cannot produce attributed replies. Attribution creates no
-new delivery, model turn or fanout and does not resolve an uncertain delivery by
+Reader-only deliveries cannot produce attributed replies. Several context receipts
+may reference one ordinary command while at most one reply delivery can own its
+attributed replies. Attribution creates no new delivery, model turn or fanout and does not resolve an uncertain delivery by
 itself. This owner is host-only; it does not enable the disabled public send route
 or constitute completed application delivery/context acknowledgement.
 

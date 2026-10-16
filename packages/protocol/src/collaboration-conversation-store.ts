@@ -413,6 +413,7 @@ export class CollaborationConversationStore {
         )
           throw new ContractError('invalid_transition');
         if (
+          delivery.purpose === 'reply' &&
           input.commandId &&
           this.db
             .prepare(
@@ -421,6 +422,7 @@ export class CollaborationConversationStore {
              SELECT 1 FROM collaboration_records newer WHERE newer.collaboration_id=r.collaboration_id
              AND newer.kind=r.kind AND newer.record_id=r.record_id AND newer.revision>r.revision)
            AND json_extract(d.value,'$.commandId')=?
+           AND json_extract(d.value,'$.purpose')='reply'
            AND json_extract(d.value,'$.deliveryId')<>? LIMIT 1`,
             )
             .get(input.commandId, deliveryId)

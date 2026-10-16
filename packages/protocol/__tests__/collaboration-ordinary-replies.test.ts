@@ -240,7 +240,7 @@ it('refuses empty or repeated text blocks and public text claims', () => {
   ).toThrow();
 });
 
-it('binds an ordinary command to one delivery across messages and collaborations', () => {
+it('binds an ordinary command to one reply-origin delivery across messages and collaborations', () => {
   const first = accepted();
   reply(first);
   const anotherGroup = randomUUID();
@@ -280,3 +280,109 @@ it('binds an ordinary command to one delivery across messages and collaborations
     ).toBe('pending');
   }
 });
+
+it.each(['context-first', 'reply-first'] as const)(
+  'allows multiple context receipts beside one reply origin on the same ordinary command (%s)',
+  (order) => {
+    const contexts = [accepted(), accepted()];
+    const response = store.collaborationConversation.acceptMessage(group, {
+      requestId: randomUUID(),
+      expectedMembershipRevision: 1,
+      expectedPolicySequence: store.collaborationConversation.view(group).policySequence,
+      text: 'Now please respond',
+      responders: { kind: 'selected', sessionIds: ['reader'] },
+      snapshot: null,
+    });
+    const contextTargets = contexts.map((message) => ({
+      message,
+      delivery: message.deliveries.find((delivery) => delivery.sessionId === 'reader')!,
+    }));
+    const responseTarget = {
+      message: response,
+      delivery: response.deliveries.find((delivery) => delivery.sessionId === 'reader')!,
+    };
+    const targets =
+      order === 'context-first'
+        ? [...contextTargets, responseTarget]
+        : [responseTarget, ...contextTargets];
+    const receipts = targets.map(({ message, delivery }) => {
+      const input = {
+        requestId: randomUUID(),
+        expectedRevision: 0,
+        status: 'queued' as const,
+        commandId: 'ordinary-reader-turn',
+        reason: null,
+      };
+      const receipt = store.collaborationConversation.recordDelivery(
+        group,
+        message.messageId,
+        delivery.deliveryId,
+        input,
+      );
+      expect(receipt).toMatchObject({
+        commandId: 'ordinary-reader-turn',
+        status: 'queued',
+        purpose: delivery.purpose,
+      });
+      return { message, delivery, input, receipt };
+    });
+    for (const { message, delivery, input, receipt } of receipts) {
+      store.collaborationConversation.recordDelivery(
+        group,
+        message.messageId,
+        delivery.deliveryId,
+        {
+          requestId: randomUUID(),
+          expectedRevision: 1,
+          status: 'delivered',
+          commandId: 'ordinary-reader-turn',
+          reason: null,
+        },
+      );
+      expect(
+        store.collaborationConversation.recordDelivery(
+          group,
+          message.messageId,
+          delivery.deliveryId,
+          input,
+        ),
+      ).toEqual(receipt);
+    }
+    const source = {
+      conversationId: 'reader',
+      commandId: 'ordinary-reader-turn',
+      messageId: 'reader-response',
+      blockIds: ['text-block'],
+      throughSequence: 42,
+    };
+    for (const { message, delivery } of contextTargets)
+      expect(() =>
+        store.collaborationConversation.recordReply(
+          group,
+          {
+            requestId: randomUUID(),
+            messageId: message.messageId,
+            deliveryId: delivery.deliveryId,
+            source,
+          },
+          resolve,
+        ),
+      ).toThrow('reply_conflict');
+    expect(
+      store.collaborationConversation.recordReply(
+        group,
+        {
+          requestId: randomUUID(),
+          messageId: response.messageId,
+          deliveryId: responseTarget.delivery.deliveryId,
+          source,
+        },
+        resolve,
+      ),
+    ).toMatchObject({
+      author: { sessionId: 'reader' },
+      replyToDeliveryId: responseTarget.delivery.deliveryId,
+    });
+    expect(store.getSessionEvents('reader')).toEqual([]);
+  },
+);
