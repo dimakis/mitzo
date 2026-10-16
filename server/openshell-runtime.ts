@@ -2134,25 +2134,49 @@ export class OpenShellRuntimeManager {
       !sandbox &&
       !warmPoolConversationName(this.config, conversationId)
     ) {
-      const claimed = await claimWarmPoolForCommand(
-        this.config,
-        conversationId,
-        signal,
-        admittedSeed?.seed,
-      );
-      if (claimed) {
-        // The durable claim picks a different physical name. Acquire its policy
-        // fence and recheck account authority after attachment, before use.
-        return this.serializeProviderPolicy(claimed.name, signal, () =>
-          this.ensureUnserialized(
-            conversationId,
-            signal,
-            undefined,
-            admittedSeed,
-            inheritedMigrationGrants,
-            initialCommandId,
-          ),
+      let preparedClaim: Awaited<ReturnType<typeof preparePublishedOpenShellSeed>> | undefined;
+      const claimStore = this.config.knowledgeStore;
+      try {
+        const claimed = await claimWarmPoolForCommand(
+          this.config,
+          conversationId,
+          signal,
+          admittedSeed?.seed,
+          async () => {
+            preparedClaim = await preparePublishedOpenShellSeed(this.config, signal);
+            return preparedClaim.seed;
+          },
         );
+        if (claimed) {
+          // Recheck the claimed physical resource and account under its own policy
+          // fence before issuing the command's one-use selection receipt.
+          const runtime = await this.serializeProviderPolicy(claimed.name, signal, () =>
+            this.ensureUnserialized(
+              conversationId,
+              signal,
+              undefined,
+              admittedSeed,
+              inheritedMigrationGrants,
+              initialCommandId,
+            ),
+          );
+          signal.throwIfAborted();
+          if (
+            preparedClaim?.publication &&
+            runtime.sandboxId === claimed.physicalId &&
+            claimStore &&
+            this.config.knowledgeStore === claimStore
+          )
+            this.initialPublications.set(conversationId, {
+              commandId: initialCommandId,
+              identity: this.initialPublicationIdentity(runtime),
+              store: claimStore,
+              publication: structuredClone(preparedClaim.publication),
+            });
+          return runtime;
+        }
+      } finally {
+        preparedClaim?.cleanup();
       }
     }
     const retained = Boolean(sandbox);

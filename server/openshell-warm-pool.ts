@@ -477,6 +477,8 @@ export class OpenShellWarmPool {
     seed?: string,
     providers?: readonly string[],
     connectionAccountId?: string,
+    /** New-claim admission only; retained/recovering claims cannot inherit it. */
+    prepareSeed?: () => Promise<string>,
   ) {
     const existing = this.lookup(conversationId, provider);
     if (existing) {
@@ -516,7 +518,9 @@ export class OpenShellWarmPool {
       record.provider = provider;
       record.connectionAccountId = connectionAccountId ?? null;
       this.persist(s);
-      await this.adapter.bind(record, provider, signal, seed, providers);
+      const selectedSeed = seed ?? (await prepareSeed?.());
+      signal.throwIfAborted();
+      await this.adapter.bind(record, provider, signal, selectedSeed, providers);
       const after = await this.adapter.inspect(record, signal);
       this.assertPhysical(record, after, false);
       const desired = [...new Set([provider, ...(providers ?? [])])];

@@ -20,6 +20,13 @@ import { SpanStatusCode } from '@opentelemetry/api';
 import { tracer } from '../tracing.js';
 import { canonicalJsonPayload } from '../../scripts/verify-openshell-production.mjs';
 import {
+  OpenShellWarmPool,
+  type WarmSandbox,
+  type WarmPoolAdapter,
+} from '../openshell-warm-pool.js';
+import { setOpenShellWarmPool } from '../openshell-warm-pool-binding.js';
+import { warmPoolScope } from '../openshell-warm-pool-runtime.js';
+import {
   OpenShellRuntimeManager,
   prepareOpenShellSeed,
   preparePublishedOpenShellSeed,
@@ -38,7 +45,11 @@ const compiledContext = {
 };
 
 let root = '';
+let warmPool: OpenShellWarmPool | undefined;
 afterEach(() => {
+  setOpenShellWarmPool(null);
+  warmPool?.close();
+  warmPool = undefined;
   if (root) rmSync(root, { recursive: true, force: true });
   root = '';
   vi.unstubAllEnvs();
@@ -281,6 +292,120 @@ function nextPublication(config: ReturnType<typeof firstCommandFixture>['config'
   );
   return { seed, sourceCommit: baseline.startingCommit, baselineSha256: digest(bytes) };
 }
+
+async function warmFirstCommandFixture() {
+  const f = firstCommandFixture();
+  f.config.policy = join(root, 'policy');
+  writeFileSync(f.config.policy, 'approved policy');
+  let physical: WarmSandbox;
+  const bind = vi.fn<WarmPoolAdapter['bind']>(async (_record, provider, signal, seed) => {
+    const prepared = seed
+      ? { seed, cleanup: () => undefined }
+      : await preparePublishedOpenShellSeed(f.config, signal);
+    try {
+      expect(readFileSync(join(prepared.seed, 'memory/example.md'), 'utf8')).toBe('Accepted A');
+      physical.providers = [provider];
+    } finally {
+      prepared.cleanup();
+    }
+  });
+  warmPool = new OpenShellWarmPool(join(root, 'pool.db'), {
+    available: true,
+    reason: null,
+    scope: warmPoolScope(f.config),
+    prepare: async (record) =>
+      (physical = {
+        id: 'warm-physical',
+        name: record.name,
+        poolId: record.id,
+        phase: 'Ready',
+        providers: [],
+      }),
+    inspect: async () => physical,
+    bind,
+    remove: async () => undefined,
+  });
+  await warmPool.mutate({ action: 'prepare', revision: 0, requestId: 'test-prepare' });
+  setOpenShellWarmPool(warmPool);
+  const original = f.run.getMockImplementation()!;
+  f.run.mockImplementation(async (args) => {
+    if (args.includes('get')) {
+      if (!args.includes(physical.name)) throw Error('sandbox not found');
+      return JSON.stringify({
+        ...physical,
+        workspace: f.config.workspace,
+        labels: { 'mitzo.warm_pool': physical.poolId },
+      });
+    }
+    if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+      return (
+        'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\n' +
+        physical.providers.map((p) => `${p} service 0 0`).join('\n')
+      );
+    return original(args);
+  });
+  return { ...f, bind };
+}
+
+it('shares only the fresh command-bound warm claim selection with its first turn', async () => {
+  const f = await warmFirstCommandFixture();
+  const runtime = await f.ensure();
+  expect(f.reconcile).toHaveBeenCalledTimes(1);
+  expect(f.bind).toHaveBeenCalledOnce();
+  const frozenSeed = f.bind.mock.calls[0][3];
+  expect(frozenSeed).toBeTruthy();
+  expect(existsSync(frozenSeed!)).toBe(false);
+  const next = nextPublication(f.config);
+  f.reconcile.mockResolvedValue(next);
+  const first = await f.manager.adoptKnowledge(
+    'first-conversation',
+    runtime,
+    AbortSignal.timeout(5000),
+    undefined,
+    'first',
+  );
+  expect(first?.sourceCommit).toBe('a'.repeat(40));
+  expect(f.reconcile).toHaveBeenCalledTimes(1);
+  const second = await f.manager.adoptKnowledge(
+    'first-conversation',
+    runtime,
+    AbortSignal.timeout(5000),
+    undefined,
+    'second',
+  );
+  expect(second?.sourceCommit).toBe(next.sourceCommit);
+  expect(f.reconcile).toHaveBeenCalledTimes(2);
+});
+
+it.each(['command', 'store', 'cancelled'] as const)(
+  'invalidates a fresh warm-claim selection after changed %s',
+  async (changed) => {
+    const f = await warmFirstCommandFixture();
+    const runtime = await f.ensure();
+    const next = nextPublication(f.config);
+    f.reconcile.mockResolvedValue(next);
+    if (changed === 'store') f.config.knowledgeStore = { id: 'other', reconcile: f.reconcile };
+    if (changed === 'cancelled')
+      await expect(
+        f.manager.adoptKnowledge(
+          'first-conversation',
+          runtime,
+          AbortSignal.abort(),
+          undefined,
+          'first',
+        ),
+      ).rejects.toThrow();
+    const selected = await f.manager.adoptKnowledge(
+      'first-conversation',
+      runtime,
+      AbortSignal.timeout(5000),
+      undefined,
+      changed === 'command' ? 'changed-command' : 'first',
+    );
+    expect(selected?.sourceCommit).toBe(next.sourceCommit);
+    expect(f.reconcile).toHaveBeenCalledTimes(2);
+  },
+);
 
 it.each(['legacy-api', 'native-api', 'native-subscription'] as const)(
   'selects published knowledge once for the exact new %s command and freshly for its next command',

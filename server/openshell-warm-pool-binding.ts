@@ -167,6 +167,7 @@ export async function claimWarmPoolForCommand(
   conversationId: string,
   signal: AbortSignal,
   seed?: string,
+  prepareSeed?: () => Promise<string>,
 ) {
   if (
     !pool ||
@@ -186,6 +187,7 @@ export async function claimWarmPoolForCommand(
     seed,
     config.serviceProviders,
     config.connectionAccountId,
+    prepareSeed,
   );
 }
 
