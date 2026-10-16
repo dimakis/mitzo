@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.171';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.172';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -183,7 +183,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionTray.tsx':
     'da210c89a8dd6821ddd98b1c6429ae58fa6731d1afe98c08a75f0867695d99ba',
   '../../frontend/src/components/WorkspaceControls.tsx':
-    '1e6640ff655b0b354c42e2aa1941dfc1a891630a3ba258be14347d63fdad7732',
+    'e81eb3531c111c21bf4a49486058fe52cfdc717a0e70f6401695ab3bb997a2e6',
   '../../frontend/src/hooks/ChatRuntimeDraftProvider.tsx':
     'fcebbeefa5ff14bd074515519a0c4e1d6774ecd7177921ca2264328239cc9720',
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':

@@ -126,6 +126,8 @@ it('shows conversation context separately from the compact settings trigger', ()
   );
   const trigger = screen.getByRole('button', { name: /^Workspace controls/ });
   expect(trigger.textContent).toBe('Settings');
+  expect(screen.getByRole('button', { name: /Settings/ })).toBe(trigger);
+  expect(trigger.getAttribute('aria-label')).toMatch(/Personal.*Luna.*High/);
   expect(screen.getByText('New chat').closest('button')).toBeNull();
   expect(view.container.querySelector('.workspace-controls-context')?.textContent).toContain(
     'Default Mitzo',

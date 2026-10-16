@@ -202,6 +202,7 @@ export function WorkspaceControls({
           data-attention={attention || undefined}
           aria-label={[
             'Workspace controls',
+            hasSettings ? 'Settings' : undefined,
             agent,
             summary?.profile,
             summary?.model,

@@ -920,6 +920,7 @@ The 24rem popover width is structural component geometry, bounded by shared page
 gutters. Its opaque surface uses the common tokens, with one scrolling body and
 reachable close/Done controls. Short-screen bounds are measured in rendered pixels.
 Settings motion uses the shared popover presence and retains the mounted fields.
+The trigger’s accessible name includes its visible Settings label and selected context.
 
 New and existing composers use the full chat pane with the same shared gutters.
 Commands, image attachment, Terminal, Resources, collaboration, context, voice and
@@ -929,8 +930,11 @@ The rounded composer row owns focus feedback; the textarea has no second square
 focus box. Appearance preferences and larger text remain effective.
 
 Missing web-access controls settle into an explicit unavailable state after bounded
-attachment retries. Check again exposes its pending state, leaves the explanation
-visible and does not change permissions. Native Symposium activation and integrated
+attachment retries. A ten-second deadline bounds the complete read, including
+response bodies and provider metadata, aborts stalled transport and restores Check
+again. Late results cannot replace a newer retry. Check again exposes its pending
+state, leaves the explanation visible and does not change permissions. Native
+Symposium activation and integrated
 review controls appear only in authoritatively classified native Symposium chats;
 ordinary chat retains its separate existing collaboration action. An unavailable
 native collaboration can copy its unsent text to a fresh saved chat draft. The

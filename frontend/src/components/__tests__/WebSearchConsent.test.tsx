@@ -540,3 +540,94 @@ it('settles repeated missing Codex grants as unavailable without claiming startu
   expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: /Web search permission/ })).toBeNull();
 });
+
+it.each(['consent request', 'consent body', 'metadata request', 'metadata body'])(
+  'restores retry after a stalled %s and ignores its late result',
+  async (stage) => {
+    vi.useFakeTimers();
+    let recovered = false;
+    let signal: AbortSignal | undefined;
+    let release: () => void = () => {};
+    const late = { ok: true, grant: 'denied', revision: 99, updatedAt: null };
+    const pending = new Promise<unknown>((resolve) => {
+      release = () => resolve(stage.endsWith('body') ? late : response('denied', 99));
+    });
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response)
+      .mockImplementation((url, options) => {
+        if (recovered) return Promise.resolve(response('allowed', 2));
+        if (stage.startsWith('metadata') && !String(url).endsWith('/meta'))
+          return Promise.resolve({ status: 404 } as Response);
+        signal = options?.signal as AbortSignal;
+        return stage.endsWith('body')
+          ? Promise.resolve({ ok: true, json: () => pending } as Response)
+          : (pending as Promise<Response>);
+      });
+    render(
+      <WebSearchConsent
+        sessionId="session-1"
+        mode="agent"
+        connected
+        connectionId="owner-1"
+        running={false}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(screen.getByRole('button', { name: 'Checking…' }).hasAttribute('disabled')).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(screen.getByRole('alert').textContent).toContain('Web access check timed out');
+    expect(screen.getByRole('button', { name: 'Check again' }).hasAttribute('disabled')).toBe(
+      false,
+    );
+    expect(signal?.aborted).toBe(true);
+    recovered = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('button', { name: 'Web search permission: Allowed' })).toBeTruthy();
+    await act(async () => {
+      release();
+    });
+    expect(screen.getByRole('button', { name: 'Web search permission: Allowed' })).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+  },
+);
+
+it('clears a previous grant when a completed refresh finds web access unavailable', async () => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response('allowed', 1))
+    .mockImplementation(async (url) =>
+      String(url).endsWith('/meta')
+        ? ({ ok: true, json: async () => ({ codexQueue: {} }) } as Response)
+        : ({ status: 404 } as Response),
+    );
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="owner"
+      running={false}
+    />,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getByRole('button', { name: 'Web search permission: Allowed' })).toBeTruthy();
+  fireEvent.focus(window);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(
+    screen.getByText('Web access controls are unavailable for this chat. You can keep chatting.'),
+  ).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Web search permission/ })).toBeNull();
+});

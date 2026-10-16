@@ -58,6 +58,7 @@ for (const appearance of ['dark', 'light'] as const) {
     const trigger = page.getByRole('button', { name: /^Workspace controls/ });
     const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await expect(trigger).toHaveAccessibleName(/Settings/);
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('.chat-input .agent-settings-picker')).toHaveCount(0);
     if (mobile) await expect(input).not.toBeFocused();
