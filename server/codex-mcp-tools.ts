@@ -15,14 +15,14 @@ interface Connection {
   ): Promise<{ content?: unknown; isError?: boolean }>;
   close(): Promise<void>;
 }
-interface Options {
+export interface McpToolsOptions {
   assertRuntimeCurrent?: () => void;
   cwd: string;
   env: Record<string, string>;
   signal: AbortSignal;
-  connect?: (config: McpServerConfig, options: Options) => Promise<Connection>;
+  connect?: (config: McpServerConfig, options: McpToolsOptions) => Promise<Connection>;
 }
-async function connect(config: McpServerConfig, options: Options): Promise<Connection> {
+async function connect(config: McpServerConfig, options: McpToolsOptions): Promise<Connection> {
   options.signal.throwIfAborted();
   options.assertRuntimeCurrent?.();
   const client = new Client({ name: 'mitzo-codex', version: '1.0.0' });
@@ -66,11 +66,12 @@ function mcpWireName(canonical: string): string {
 /** Owns configured MCP clients; all calls pass the same host permission boundary as native tools. */
 export async function connectCodexMcpTools(
   configs: Record<string, McpServerConfig>,
-  options: Options,
+  options: McpToolsOptions,
 ) {
   const peers: Connection[] = [];
   const mapping = new Map<string, { peer: Connection; name: string; canonical: string }>();
   const definitions: ToolDefinition[] = [];
+  const discovered: { server: string; tool: string; definition: ToolDefinition }[] = [];
   let closed = false;
   const close = async () => {
     if (closed) return;
@@ -97,9 +98,11 @@ export async function connectCodexMcpTools(
       options.assertRuntimeCurrent?.();
       let cursor: string | undefined;
       const seen = new Set<string>();
+      let pages = 0;
       do {
         options.signal.throwIfAborted();
         options.assertRuntimeCurrent?.();
+        if (++pages > 100) throw new Error('MCP pagination limit exceeded');
         const page = await peer.listTools(cursor);
         options.signal.throwIfAborted();
         options.assertRuntimeCurrent?.();
@@ -113,6 +116,13 @@ export async function connectCodexMcpTools(
             description: `${canonical}: ${tool.description ?? 'Configured MCP tool'}`,
             input_schema: tool.inputSchema,
           });
+          discovered.push({
+            server,
+            tool: tool.name,
+            definition: definitions[definitions.length - 1],
+          });
+          if (Buffer.byteLength(JSON.stringify(discovered)) > 1048576)
+            throw new Error('MCP definitions too large');
           if (definitions.length > 1000) throw new Error('MCP tool catalog too large');
         }
         cursor = page.nextCursor;
@@ -128,6 +138,7 @@ export async function connectCodexMcpTools(
   }
   return {
     definitions,
+    discovered,
     displayName: (wire: string) => mapping.get(wire)?.canonical ?? wire,
     close,
     async execute(wire: string, input: Input, permission: Permission, signal: AbortSignal) {
