@@ -23,7 +23,12 @@ import {
   bindAgentLibraryTransport,
   readBuiltinAgentLibraryProfile,
 } from '../../agent-library-transport.js';
-import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
+import {
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  type AgentLibraryVersion,
+} from '@mitzo/protocol';
+import { OrdinaryRepositoryPreparationSchema } from '../../ordinary-repository-preparation.js';
 
 import { nativeStartupSessionId } from '../../ordinary-repository-startup.js';
 export async function ownedRuntimeFixture(
@@ -136,7 +141,7 @@ export async function ownedRuntimeFixture(
         : {}),
     },
   });
-  let agentProfile = library.publish('user', {
+  let agentProfile: AgentLibraryVersion = library.publish('user', {
     profileId: 'developer',
     expectedVersion: 1,
     idempotencyKey: 'publish',
@@ -201,12 +206,12 @@ export async function ownedRuntimeFixture(
       capture: async (account, selection) => {
         const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
         if (resolved.status !== 'compatible') throw Error('Offline runtime unavailable');
-        return {
+        return OrdinaryRepositoryPreparationSchema.parse({
           version: 1,
           originalBinding: account,
           runtimeBinding: resolved.binding,
           credentialDigest: 'a'.repeat(64),
-        };
+        });
       },
       assert: async (_proof, account) => {
         loadAccountProfiles().resumeRouting(account);
