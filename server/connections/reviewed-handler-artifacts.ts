@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.164';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.165';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -388,7 +388,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    '2f05b9895bbf035d0890cb8456ac1850f1e35cb4044b581e47455e208e2e3bb1',
+    '043a098a0cf50ca2b0500347d0aebd5379aeab7cecb00d56e0d156fd55580c41',
+  // Read-only tool catalog cards and their shared visual presentation.
+  '../../frontend/src/components/ToolLibraryCatalog.tsx':
+    'a42dfbd4ae455252eb7e16b0e85df1247e448f570204ac7355ea63da4110f270',
+  '../../frontend/src/styles/tool-library.css':
+    '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
   '../../frontend/src/styles/agent-library.css':
     '56294ff4dbd0af5f343aa6d885db9b5f2daba5a0860daa4984eb7cc12587ec7d',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
