@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.239';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.243';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -358,7 +358,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
     'f9237e6f3bd200722044be249bedd48ff5ccbdabf68f92e4775901092493d8e6',
-  '../codex-mcp-tools.ts': '0ccedcc1e2f97646d63212dfc06a7d0e0a488ecfff4feff5382a72548a87b8a8',
+  '../codex-mcp-tools.ts': 'a89037b0f106299d91b9afafc58c0d7835915a3a1110c6bbded16598d50d8c99',
   '../codex-runtime-diagnostics.ts':
     '80730e66ff8aa543acfb4ce035c7cf2fbe936172498d3b8ed0d868143bee4513',
   'capabilities/approval.ts': '25c074b3091e67b0c3faba822e8e2c00ff32a34416fe0b37cb4f202d040d0320',
@@ -632,7 +632,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Batched knowledge admission preserves verification and retention under the lifecycle fence.
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
   '../openshell-runtime.ts': 'cc78a6d8bee46936bf4d5d5679a61ace24b9b94d2361150accfd4e654a869bc7',
-  '../codex-chat-session.ts': '9d51f04e1fd59e4101e57f62214a866c43a035500d5bab4f8f67e9d50a96efea',
+  '../codex-chat-session.ts': '7629fd301e02ea9ecf367d0dcbd638803d1cbf2e3c7451348ff19a97c06eee02',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -683,7 +683,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-responses-runner.ts':
     '7ce6e23c73ef66fdec29fc1ca001e6ed308287096203423efd813a8e5406f340',
   '../responses-chat-session.ts':
-    'e6e5ca0b462452b5513608ea91b2b59b15c37e92010b5ece93da6cf7199ddb4f',
+    '6f269d2455029ff39d96963162022b107bd4e0769713a5d563d828d94c4d77c6',
   // Image payload validation shares native queue admission and dispatch authority.
   '../responses-input.ts': 'b4be57d3535660a31597f07b075070a90b49b2e62239916937e9316e78cc4b05',
   '../symposium-agent-context.ts':
