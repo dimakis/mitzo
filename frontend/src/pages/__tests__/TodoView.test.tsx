@@ -355,7 +355,13 @@ describe('TodoView', () => {
   });
 
   it('keeps an outcome draft open when creation fails', async () => {
-    const createOutcome = vi.fn().mockResolvedValue(undefined);
+    let finish!: (value: undefined) => void;
+    const createOutcome = vi.fn(
+      () =>
+        new Promise<undefined>((resolve) => {
+          finish = resolve;
+        }),
+    );
     mockUseTodoData.mockReturnValue({
       loading: false,
       error: null,
@@ -393,7 +399,14 @@ describe('TodoView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create outcome' }));
 
     await waitFor(() => expect(createOutcome).toHaveBeenCalledOnce());
-    expect(screen.getByRole('alert').textContent).toContain('Unable to create outcome');
+    expect((screen.getByRole('button', { name: 'Creating…' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    finish(undefined);
+    expect((await screen.findByRole('alert')).textContent).toContain('Unable to create outcome');
     expect(screen.getByDisplayValue('Ship durable outcomes')).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Create outcome' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 });

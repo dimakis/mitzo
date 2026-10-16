@@ -438,6 +438,16 @@ export class CollaborationConversationStore {
           }
       }
     const input = CollaborationSnapshotDraftSchema.parse(draft);
+    for (const artifact of input.artifacts) {
+      if (artifact.contentBase64 === undefined) continue;
+      const bytes = Buffer.from(artifact.contentBase64, 'base64');
+      if (
+        bytes.toString('base64') !== artifact.contentBase64 ||
+        bytes.byteLength !== artifact.sizeBytes ||
+        createHash('sha256').update(bytes).digest('hex') !== artifact.sha256
+      )
+        throw new ContractError('snapshot_changed');
+    }
     if (Buffer.byteLength(JSON.stringify(input)) > 512 * 1024)
       throw new ContractError('capacity_refused');
     return this.mutation(

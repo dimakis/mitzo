@@ -585,7 +585,9 @@ it('shows reconnecting in collapsed workspace settings when disconnected', () =>
   );
   const toggle = screen.getByRole('button', { name: /^Workspace/ });
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
-  expect(toggle.textContent).toContain('Reconnecting');
+  expect(document.getElementById(toggle.getAttribute('aria-describedby')!)?.textContent).toBe(
+    'Reconnecting',
+  );
 });
 
 it('offers explicit collaboration for an ordinary desktop conversation without automatic work reads', async () => {
@@ -646,7 +648,9 @@ it('shows the profile, model and thinking in the collapsed top chat settings sum
   await waitFor(() =>
     expect(toggle.getAttribute('aria-label')).toContain('Work Vertex, Luna, Thinking: high'),
   );
-  expect(toggle.querySelector('.workspace-controls-profile')).toBeTruthy();
+  expect(
+    toggle.closest('.workspace-controls')?.querySelector('.workspace-controls-context'),
+  ).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });
@@ -683,7 +687,8 @@ it('replaces ordinary workspace actions and Ready with per-agent guidance for Sy
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
-  await screen.findByText('Symposium');
+  await screen.findByRole('button', { name: 'Agents' });
+  expect(screen.queryByText('Accounts and models per agent')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Auto' })).toBeNull();
   expect(screen.queryByTitle('Close session')).toBeNull();
@@ -746,7 +751,7 @@ it('retains the ordinary Close action after ordinary session metadata loads', as
   fireEvent.click(close);
   expect(store.getState().closeSession).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
-  fireEvent.click(screen.getByText('More options'));
+  fireEvent.click(screen.getByText('More settings'));
   expect(screen.getByRole('button', { name: 'Ask' })).toBeTruthy();
 });
 

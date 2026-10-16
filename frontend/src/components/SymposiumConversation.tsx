@@ -1,3 +1,7 @@
+import { ConversationAgents, type ConversationAgent } from './ConversationAgents';
+import { HomeDialog } from './HomeDialog';
+import { useMotionPresence } from '../hooks/useMotionPresence';
+import { RetainedConversationComposer } from './RetainedConversationComposer';
 import { createPortal } from 'react-dom';
 import { SymposiumAccessRequests } from './SymposiumAccessRequests';
 import {
@@ -16,6 +20,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -141,10 +146,12 @@ export function SymposiumConversation({
   ordinaryComposer,
   ordinaryConfirmed = false,
   ordinaryExcluded = false,
+  onContinueInNewChat,
   pendingSettings,
   ordinaryAfterMessages,
   profileToolsTarget,
   readOnly = false,
+  conversationLayout,
 }: {
   sessionId: string | null;
   chat: ChatAreaProps;
@@ -153,22 +160,48 @@ export function SymposiumConversation({
   ordinaryConfirmed?: boolean;
   /** Authoritative current-session special classification excludes ordinary send. */
   ordinaryExcluded?: boolean;
+  onContinueInNewChat?(draft: string): void;
   pendingSettings?: ReactNode;
   ordinaryAfterMessages?: ReactNode;
   profileToolsTarget: HTMLElement | null;
   readOnly?: boolean;
+  /** The responsive chat owns the header/settings slots, independently of native delivery. */
+  conversationLayout?: {
+    settings: ReactNode;
+    showHeader?: boolean;
+    leading?: ReactNode;
+    actions: ReactNode;
+    repository?: string;
+  };
 }) {
+  const sharedPresentation = conversationLayout !== undefined;
   const [status, setStatus] = useState<Status | null>(null);
   const [statusFresh, setStatusFresh] = useState(false);
-  const [selected, setSelected] = useState('all');
+  const [legacySelected, setSelected] = useState('all');
+  const selected = sharedPresentation ? 'all' : legacySelected;
   const [recipient, setRecipient] = useState('');
   const [profilesOpen, setProfilesOpen] = useState(false);
+  const [profilesVisited, setProfilesVisited] = useState(false);
+  const [profileContainer] = useState(() => document.createElement('div'));
+  const [profileInlineTarget, setProfileInlineTarget] = useState<HTMLDivElement | null>(null);
+  const [profileDialogTarget, setProfileDialogTarget] = useState<HTMLDivElement | null>(null);
+  // Move one stable portal target so unsaved edits and the reviewed catalog
+  // revision survive opening the dialog; never mount a second profile editor.
+  useLayoutEffect(() => {
+    const target = profilesOpen ? profileDialogTarget : profileInlineTarget;
+    target?.append(profileContainer);
+  }, [profilesOpen, profileContainer, profileInlineTarget, profileDialogTarget]);
   const profilesPanelId = useId();
   const [page, setPage] = useState<PerspectivePage>({ items: [], nextSeq: null, queued: [] });
   const [pageFor, setPageFor] = useState('');
   const [error, setError] = useState('');
   const [statusError, setStatusError] = useState('');
   const [share, setShare] = useState<Authored | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const { ref: shareMotionRef, present: sharePresent } = useMotionPresence(shareOpen, 'fade');
+  useEffect(() => {
+    if (!sharePresent && !shareOpen) setShare(null);
+  }, [sharePresent, shareOpen]);
   const [excerpt, setExcerpt] = useState('');
   const [shareRecipients, setShareRecipients] = useState<string[]>([]);
   const [shareBusy, setShareBusy] = useState(false);
@@ -192,6 +225,7 @@ export function SymposiumConversation({
   useEffect(() => {
     sessionEpoch.current += 1;
     setShare(null);
+    setShareOpen(false);
     setShareBusy(false);
     setStatus(null);
     setStatusFresh(false);
@@ -202,6 +236,7 @@ export function SymposiumConversation({
     setRecipient('');
     setSeatSeed(null);
     setProfilesOpen(false);
+    setProfilesVisited(false);
     setPage({ items: [], nextSeq: null, queued: [] });
     if (!base) return;
     let cancelled = false;
@@ -355,7 +390,7 @@ export function SymposiumConversation({
     if (compact && anchorSeatId) {
       setSelected(anchorSeatId);
       setRecipient((current) => current || anchorSeatId);
-      setShare(null);
+      setShareOpen(false);
     }
   }, [compact, anchorSeatId]);
   const recipients = admitted.filter((seatId) => seatId === recipient);
@@ -448,6 +483,7 @@ export function SymposiumConversation({
       readOnly ||
       !sessionId ||
       !share ||
+      !shareOpen ||
       !excerpt.trim() ||
       !share.content.includes(excerpt.trim()) ||
       shareRecipients.length === 0 ||
@@ -506,7 +542,7 @@ export function SymposiumConversation({
       }));
       if (sessionEpoch.current === epoch) {
         symposiumExcerptOperations.update(sessionId, key, () => undefined);
-        setShare(null);
+        setShareOpen(false);
         setError('');
         window.dispatchEvent(new Event('symposium-deliveries-changed'));
       }
@@ -522,7 +558,7 @@ export function SymposiumConversation({
       if (timer) clearTimeout(timer);
       if (sessionEpoch.current === epoch) setShareBusy(false);
     }
-  }, [base, sessionId, share, excerpt, shareRecipients, readOnly]);
+  }, [base, sessionId, share, shareOpen, excerpt, shareRecipients, readOnly]);
   const controlDelivery = async (deliveryId: string, action: 'approve' | 'send' | 'stop') => {
     if (readOnly && action !== 'stop') return;
     if (
@@ -539,37 +575,51 @@ export function SymposiumConversation({
       window.dispatchEvent(new Event('symposium-deliveries-changed'));
   };
 
-  const startShare = useCallback(
+  const shareSource = useCallback(
     (messageId: string, provenance?: SymposiumProvenance) => {
-      if (readOnly) return;
+      if (readOnly) return null;
+      const sourceSeat = sharedPresentation ? provenance?.seatId : selected;
       const matches = items.filter(
         (candidate): candidate is Authored =>
           candidate.kind === 'authored' &&
           candidate.messageId === messageId &&
-          candidate.seatId === selected &&
+          (sourceSeat ? candidate.seatId === sourceSeat : candidate.seatId !== null) &&
           (candidate.provenance?.membershipGeneration ?? null) ===
             (provenance?.membershipGeneration ?? null),
       );
-      if (matches.length !== 1) return;
-      const item = matches[0];
+      return matches.length === 1 ? matches[0] : null;
+    },
+    [items, selected, readOnly, sharedPresentation],
+  );
+  const startShare = useCallback(
+    (messageId: string, provenance?: SymposiumProvenance) => {
+      const item = shareSource(messageId, provenance);
+      if (!item) return;
       setShare(item);
+      setShareOpen(true);
       setExcerpt(item.content);
       setShareRecipients([]);
     },
-    [items, selected, readOnly],
+    [shareSource],
   );
 
   const profileDrafts =
     !readOnly && sessionId && status?.sessionId === sessionId ? (
-      <SymposiumProfileProposals
-        key={sessionId}
-        id={profilesPanelId}
-        sessionId={sessionId}
-        pendingOnly={!profilesOpen}
-        refreshKey={chat.messages.length}
-        seatSeed={seatSeed}
-        onSeatSeedDone={() => setSeatSeed(null)}
-      />
+      <>
+        <div ref={setProfileInlineTarget} />
+        {createPortal(
+          <SymposiumProfileProposals
+            key={sessionId}
+            id={profilesPanelId}
+            sessionId={sessionId}
+            pendingOnly={!profilesOpen}
+            refreshKey={chat.messages.length}
+            seatSeed={seatSeed}
+            onSeatSeedDone={() => setSeatSeed(null)}
+          />,
+          profileContainer,
+        )}
+      </>
     ) : null;
 
   const profileTools =
@@ -580,13 +630,24 @@ export function SymposiumConversation({
               type="button"
               aria-expanded={profilesOpen}
               aria-controls={profilesOpen ? profilesPanelId : undefined}
-              onClick={() => setProfilesOpen((open) => !open)}
+              onClick={() => {
+                setProfilesVisited(true);
+                setProfilesOpen(true);
+              }}
             >
               Reusable profile drafts
               <UiIcon name={profilesOpen ? 'up' : 'down'} />
             </button>
-            {profilesOpen && (
-              <>
+            {profilesVisited && (
+              <HomeDialog
+                title="Reusable profile drafts"
+                closeLabel="Close profile drafts"
+                className="profile-drafts-dialog"
+                open={profilesOpen}
+                onClose={() => {
+                  setProfilesOpen(false);
+                }}
+              >
                 {selected !== 'all' && status.seats.find((seat) => seat.seatId === selected) && (
                   <button
                     type="button"
@@ -600,16 +661,60 @@ export function SymposiumConversation({
                     Draft reusable profile from this seat
                   </button>
                 )}
-              </>
+                <div ref={setProfileDialogTarget} />
+              </HomeDialog>
             )}
           </div>,
           profileToolsTarget,
         )
       : null;
 
+  const participantHeader =
+    conversationLayout &&
+    conversationLayout.showHeader !== false &&
+    (ordinaryExcluded || (status?.sessionId === sessionId && !!status.config)) ? (
+      <ConversationAgents
+        scope={sessionId!}
+        agents={(status?.sessionId === sessionId ? status.seats : []).map((row) => {
+          const { seatId, seat } = row;
+          const configured = status?.config?.seats?.find((s) => s.id === seatId);
+          return {
+            id: seatId,
+            name: seat.name,
+            account: configured?.accountBinding?.accountLabel,
+            model: configured?.model,
+            thinking: configured?.reasoningEffort,
+            state: canRequestAgent(row)
+              ? 'Added'
+              : row.membership?.state === 'removed'
+                ? 'Removed'
+                : 'Unavailable',
+          } satisfies ConversationAgent;
+        })}
+        messages={chat.messages}
+        onDraftProfile={
+          readOnly
+            ? undefined
+            : (id) => {
+                const row = status?.seats.find((s) => s.seatId === id);
+                if (row) setSeatSeed({ seatId: id, ...row.seat });
+              }
+        }
+        unavailableReason="Start a new ordinary chat to add a fresh agent. This conversation keeps its agents and history."
+        settings={conversationLayout.settings}
+        actions={conversationLayout.actions}
+        leading={conversationLayout.leading}
+        renderPreview={(agent) => (
+          <RetainedPerspectivePreview base={base} seatId={agent.id} chat={chat} />
+        )}
+        repository={conversationLayout.repository}
+      />
+    ) : null;
+
   if (base && (!status || status.sessionId !== sessionId) && !ordinaryConfirmed)
     return (
       <>
+        {participantHeader}
         <ChatArea
           {...chat}
           afterMessages={
@@ -650,6 +755,7 @@ export function SymposiumConversation({
   if (status?.sessionId !== sessionId || !status?.config)
     return (
       <>
+        {participantHeader}
         {chat && (
           <ChatArea
             {...chat}
@@ -666,19 +772,14 @@ export function SymposiumConversation({
         {!ordinaryExcluded && ordinaryComposer}
       </>
     );
-  return (
-    <SymposiumPerspectiveTabs
-      compact={compact}
-      seats={seats}
-      selected={selected}
-      onSelect={(next) => {
-        setSelected(next);
-        setShare(null);
-      }}
-    >
-      <p className="symposium-boundary-note">
-        Messages go to the agents you select. File access follows each agent’s permissions.
-      </p>
+  const content = (
+    <>
+      {participantHeader}
+      {!conversationLayout && (
+        <p className="symposium-boundary-note">
+          Messages go to the agents you select. File access follows each agent’s permissions.
+        </p>
+      )}
       {profileTools}
       {queuedOperation && (
         <section aria-label="Saved queued message">
@@ -751,7 +852,16 @@ export function SymposiumConversation({
         current={current}
         currentByMessage={live}
         contextItems={contextItems}
-        onShareMessage={readOnly || selected === 'all' ? undefined : startShare}
+        onShareMessage={
+          readOnly || (!conversationLayout && selected === 'all') ? undefined : startShare
+        }
+        canShareMessage={
+          conversationLayout
+            ? (message) => !!shareSource(message.messageId, message.symposiumProvenance)
+            : undefined
+        }
+        shareInActions={sharedPresentation}
+        compactAttribution={sharedPresentation}
         running={chat.running && (selected === 'all' || Object.keys(live ?? {}).length > 0)}
         afterMessages={
           <>
@@ -904,76 +1014,248 @@ export function SymposiumConversation({
           </>
         }
       />
-      {share && (
-        <section className="symposium-share-preview" aria-label="Share excerpt preview">
-          <strong>Share only this excerpt from {seatName}</strong>
-          <textarea
-            aria-label="Excerpt to share"
-            value={excerpt}
-            onChange={(event) => setExcerpt(event.target.value)}
-          />
-          {seats
-            .filter((seat) => seat.id !== share.seatId && admitted.includes(seat.id))
-            .map((seat) => (
-              <label key={seat.id}>
-                <input
-                  type="checkbox"
-                  checked={shareRecipients.includes(seat.id)}
-                  onChange={(event) =>
-                    setShareRecipients((old) =>
-                      event.target.checked ? [...old, seat.id] : old.filter((id) => id !== seat.id),
-                    )
-                  }
-                />
-                {seat.name}
-              </label>
-            ))}
-          <p>Preview: {excerpt}</p>
-          <button
-            type="button"
-            disabled={
-              readOnly ||
-              shareBusy ||
-              Boolean(excerptOperation) ||
-              !excerpt.trim() ||
-              !share.content.includes(excerpt.trim()) ||
-              shareRecipients.length === 0
-            }
-            onClick={() => void submitShare()}
-          >
-            Queue excerpt for approval
-          </button>
-          <button type="button" onClick={() => setShare(null)}>
-            Cancel
-          </button>
-        </section>
+      {share && sharePresent && (
+        <HomeDialog
+          title="Share excerpt"
+          className="conversation-share-dialog"
+          inactive={!shareOpen}
+          onClose={() => setShareOpen(false)}
+        >
+          <div ref={shareMotionRef} inert={!shareOpen} aria-hidden={!shareOpen || undefined}>
+            <section className="symposium-share-preview" aria-label="Share excerpt preview">
+              <strong>
+                Share only this excerpt from{' '}
+                {seats.find((seat) => seat.id === share.seatId)?.name ?? seatName}
+              </strong>
+              <textarea
+                aria-label="Excerpt to share"
+                value={excerpt}
+                onChange={(event) => setExcerpt(event.target.value)}
+              />
+              {seats
+                .filter((seat) => seat.id !== share.seatId && admitted.includes(seat.id))
+                .map((seat) => (
+                  <label key={seat.id}>
+                    <input
+                      type="checkbox"
+                      checked={shareRecipients.includes(seat.id)}
+                      onChange={(event) =>
+                        setShareRecipients((old) =>
+                          event.target.checked
+                            ? [...old, seat.id]
+                            : old.filter((id) => id !== seat.id),
+                        )
+                      }
+                    />
+                    {seat.name}
+                  </label>
+                ))}
+              <p>Preview: {excerpt}</p>
+              <button
+                type="button"
+                disabled={
+                  readOnly ||
+                  shareBusy ||
+                  Boolean(excerptOperation) ||
+                  !excerpt.trim() ||
+                  !share.content.includes(excerpt.trim()) ||
+                  shareRecipients.length === 0
+                }
+                onClick={() => void submitShare()}
+              >
+                Queue excerpt for approval
+              </button>
+              <button type="button" onClick={() => setShareOpen(false)}>
+                Cancel
+              </button>
+            </section>
+          </div>
+        </HomeDialog>
       )}
-      <SymposiumAudienceComposer
-        key={sessionId}
-        audience={recipient}
-        seats={recipientChoices}
-        onSelectRecipient={
-          recipientChoices.length > 1 || !recipientChoices.some((seat) => seat.id === recipient)
-            ? (id) => {
-                if (id && !recipientChoices.some((seat) => seat.id === id)) return;
-                setRecipient(id);
-              }
-            : undefined
-        }
-        audienceLabel={recipientName}
-        recipients={recipients}
-        enabled={!readOnly && statusFresh && recipients.length > 0 && !queuedOperation}
-        disabledReason={
-          readOnly
-            ? 'Conversation controls are unavailable until its settings are confirmed.'
-            : queuedOperation
-              ? 'Check the saved queued message before sending another.'
-              : !statusFresh
-                ? 'Status refresh is pending. Your draft stays here.'
-                : undefined
-        }
-        onQueue={queue}
-      />
+      {conversationLayout ? (
+        <RetainedConversationComposer
+          onContinueInNewChat={onContinueInNewChat}
+          sessionId={sessionId!}
+          recipient={recipient}
+          seats={recipientChoices}
+          onSelectRecipient={setRecipient}
+          enabled={!readOnly && statusFresh && recipients.length > 0 && !queuedOperation}
+          disabledReason={
+            readOnly
+              ? 'Conversation settings need confirmation before sending.'
+              : queuedOperation
+                ? 'Check the saved queued message before sending another.'
+                : !statusFresh
+                  ? 'Status refresh is pending. Your draft stays here.'
+                  : undefined
+          }
+          onQueue={queue}
+        />
+      ) : (
+        <SymposiumAudienceComposer
+          onContinueInNewChat={onContinueInNewChat}
+          key={sessionId}
+          audience={recipient}
+          seats={recipientChoices}
+          onSelectRecipient={
+            recipientChoices.length > 1 || !recipientChoices.some((seat) => seat.id === recipient)
+              ? (id) => {
+                  if (id && !recipientChoices.some((seat) => seat.id === id)) return;
+                  setRecipient(id);
+                }
+              : undefined
+          }
+          audienceLabel={recipientName}
+          recipients={recipients}
+          enabled={!readOnly && statusFresh && recipients.length > 0 && !queuedOperation}
+          disabledReason={
+            readOnly
+              ? 'Conversation controls are unavailable until its settings are confirmed.'
+              : queuedOperation
+                ? 'Check the saved queued message before sending another.'
+                : !statusFresh
+                  ? 'Status refresh is pending. Your draft stays here.'
+                  : undefined
+          }
+          onQueue={queue}
+        />
+      )}
+    </>
+  );
+  return conversationLayout ? (
+    <div className="symposium-perspectives">
+      <div className="symposium-perspective-panel">{content}</div>
+    </div>
+  ) : (
+    <SymposiumPerspectiveTabs
+      compact={compact}
+      seats={seats}
+      selected={selected}
+      onSelect={(next) => {
+        setSelected(next);
+        setShareOpen(false);
+      }}
+    >
+      {content}
     </SymposiumPerspectiveTabs>
+  );
+}
+
+/** Read-only preview. It never changes the main discussion or composer recipient. */
+function RetainedPerspectivePreview({
+  base,
+  seatId,
+  chat,
+}: {
+  base: string;
+  seatId: string;
+  chat: ChatAreaProps;
+}) {
+  const [state, setState] = useState<{
+    items: PerspectiveItem[];
+    loading: boolean;
+    error?: string;
+    more?: boolean;
+  }>({ items: [], loading: true });
+  const [attempt, setAttempt] = useState(0);
+  const scroll = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setState({ items: [], loading: true });
+  }, [base, seatId]);
+  useEffect(() => {
+    let stopped = false;
+    let reading = false;
+    let pending = false;
+    let controller: AbortController | null = null;
+    const refresh = async () => {
+      if (stopped) return;
+      if (reading) {
+        pending = true;
+        return;
+      }
+      reading = true;
+      const read = new AbortController();
+      controller = read;
+      try {
+        const items: PerspectiveItem[] = [];
+        let after = 0;
+        let more = false;
+        for (let n = 0; n < 10; n++) {
+          const params = new URLSearchParams({
+            kind: 'seat',
+            seatId,
+            limit: '200',
+            afterSeq: String(after),
+          });
+          const page = await readJson<PerspectivePage>(`${base}/perspectives?${params}`, {
+            signal: read.signal,
+          });
+          if (stopped || read.signal.aborted) return;
+          if (
+            !Array.isArray(page.items) ||
+            (page.nextSeq !== null &&
+              (!Number.isSafeInteger(page.nextSeq) || page.nextSeq <= after))
+          )
+            throw Error('Conversation preview is incomplete.');
+          items.push(...page.items);
+          more = page.nextSeq !== null;
+          if (!more) break;
+          after = page.nextSeq!;
+        }
+        if (!stopped && !read.signal.aborted) setState({ items, loading: false, more });
+      } catch (cause) {
+        if (!stopped && !read.signal.aborted)
+          setState((current) => ({
+            ...current,
+            loading: false,
+            error: cause instanceof Error ? cause.message : 'Conversation preview unavailable.',
+          }));
+      } finally {
+        reading = false;
+        if (pending && !stopped) {
+          pending = false;
+          void refresh();
+        }
+      }
+    };
+    void refresh();
+    const changed = () => void refresh();
+    window.addEventListener('symposium-deliveries-changed', changed);
+    const timer = window.setInterval(changed, 5000);
+    return () => {
+      stopped = true;
+      controller?.abort();
+      window.clearInterval(timer);
+      window.removeEventListener('symposium-deliveries-changed', changed);
+    };
+  }, [base, seatId, attempt, chat.messages]);
+
+  return (
+    <>
+      {state.loading && <p role="status">Loading conversation…</p>}
+      {state.error && (
+        <p role="alert">
+          {state.error}{' '}
+          <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+            Retry preview
+          </button>
+        </p>
+      )}
+      {state.more && <p>Showing the first 2,000 durable events.</p>}
+      <ChatArea
+        {...chat}
+        scrollRef={scroll}
+        messages={richMessages(state.items, chat.messages)}
+        contextItems={state.items.filter(
+          (item): item is RecipientInput =>
+            item.kind === 'recipient-input' && item.recipientSeatId === seatId,
+        )}
+        current={null}
+        currentByMessage={liveForSeat(seatId, chat)}
+        running={false}
+        permission={null}
+        afterMessages={undefined}
+      />
+    </>
   );
 }

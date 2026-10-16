@@ -219,18 +219,19 @@ direct Web Animations calls outside the shared helper.
 ## Ordinary conversation runtime selection
 
 Ordinary conversations use one compact top summary and one settings dropdown on
-mobile and desktop. `WorkspaceControls` owns that disclosure and the always-visible
-Access action. The composer contains the message and its toolbar, with no repeated
-agent/account/model picker. The summary leads with the agent and keeps the selected
-account, model and thinking secondary; the full values remain in its accessible name.
+mobile and desktop. `WorkspaceControls` owns the compact opaque popover and the always-visible
+Access action. Conversation context stays at the left; a content-sized Settings
+button stays beside Access. The title leads, with agent, account, model, thinking
+and execution location secondary; full settings remain in the trigger’s accessible name.
+The composer contains the message and its existing toolbar, with no repeated picker.
 The dropdown starts closed for each conversation, independent of previous open
 preferences or attention states. Outside pointer interaction closes it without
 preventing that interaction or taking focus. Escape, Close and Done restore focus
 to the summary; only Done reviews the current execution intent.
 
 `AgentSettingsFields` retains one mounted set of Agent, Account, Model/Thinking
-and Run on controls inside the top dropdown. Secondary mode, voice, web search,
-collaboration and profile-draft controls live under **More options**. Existing
+and Run on controls immediately inside the top popover. Secondary mode, voice, web search,
+collaboration and profile-draft controls live under **More settings**. Existing
 account confirmation, runtime binding and preparation locks still apply.
 The dropdown scrolls within the available space above the composer on phones.
 The shared fields, motion presence, UiIcon, semantic colors, spacing/type/radius
@@ -624,8 +625,8 @@ details in this top panel, including legacy conversations without a runtime bind
 ## Approved conversation composition
 
 Conversation chrome keeps Account, Model and Thinking first in the single top
-settings disclosure, followed by Agent and Repository. Run on and runtime details
-live under Advanced. Repository keeps the existing account-bound catalogue,
+settings disclosure, followed by Agent and Repository. Run on is a primary field in the approved compact popover; repository preparation
+retains its account-bound controls, and session details stay on request. Repository keeps the existing account-bound catalogue,
 preview and preparation flow; it does not accept an arbitrary unverified checkout.
 The ordinary collaboration entry stays beside Resources in the composer. Unsupported
 Terminal and collaboration actions explain their unavailable state rather than
@@ -968,3 +969,106 @@ confirmation, failure preservation and replacement. Captures show
 [mobile light](assets/sandbox-obsolete-mobile-light.png),
 [desktop dark](assets/sandbox-obsolete-desktop-dark.png) and
 [desktop light](assets/sandbox-obsolete-desktop-light.png).
+
+## Symposium participant presentation
+
+The shared `ConversationAgents` surface follows the approved fresh-agent mock:
+compact participant header, one Agents dialog, inline Reads future discussion /
+Replies by default, a separate read-only conversation preview, and fresh Add agent
+setup. `HomeDialog`, `useMotionPresence`, `UiIcon`, ordinary account/profile fields
+and shared color/type/spacing/radius/control-height tokens own its presentation.
+The dialog body scrolls independently of the heading/footer; narrow participant
+names truncate instead of increasing header height. Checkbox/radio geometry is
+explicitly bounded so the shared full-width input rule cannot push labels offscreen.
+
+Ordinary chat retains its actual `ChatInput`, voice, attachments, commands, resources,
+queue and lifecycle controls. `ComposerResponders` adds an explicit stable-ID @
+selection without replacing that input. The retained native adapter also renders
+`ChatInput`, but keeps text-only single-recipient approval and its original Stop /
+uncertainty ownership. It does not acquire ordinary dispatch or multi-recipient
+support through this presentation change. Existing native settings remain on request.
+
+Policy changes require an actual supplied owner. Fresh setup uses the ordinary
+catalog and retains editable intent; its review action stays disabled without
+trusted source/capacity/preparation composition. No preview content is represented
+as a frozen server review. Exact artifact selection, joining-brief confirmation,
+ordinary allocation/delivery and full shared-conversation composition remain later
+integration work. Opening setup and previews does not call a model.
+
+The all-intercept `symposium-approved-design` fixture renders the actual mobile /
+desktop chat screens with simulated data. It checks WebKit, mobile Chromium and
+desktop Chromium, 320/390/1280px, light/dark, Mint/Georgia and Teal/System,
+body overflow, reachable footers, separate recipient drafts and history previews.
+The fixture-only preview banner is hidden during captures so it cannot cover the
+actual header. Captures are UI evidence, not live admission or provider qualification.
+
+Inspected captures: [mobile conversation](assets/symposium-conversation-mobile-dark.png),
+[mobile Agents](assets/symposium-agents-mobile-dark.png), and
+[desktop fresh setup](assets/symposium-setup-desktop-light.png).
+
+Native excerpt sharing remains in Message actions, guarded by exact source identity /
+membership generation and explicit recipients. Agent Details retains reusable-profile
+drafting through its original owner. Opening either action does not deliver context
+or grant account access. Retained native conversations direct fresh-agent setup to a
+new ordinary chat; no existing history or provider thread is moved.
+
+The integrated retained transcript shows speaker and role first. Its native Message details disclosure preserves the exact historical account/model/thinking/artifact provenance on request; it never substitutes the agent's current settings for a past reply.
+
+Agents and Share excerpt use the established portalled-dialog motion pattern: `useMotionPresence` retains the dialog body for exit, while `HomeDialog.inactive` immediately removes the closing portal from interaction and accessibility. The Agents opener receives focus explicitly so WebKit can restore it after a pointer-opened dialog closes.
+
+Retained recipient selection is locked while its queue receipt is pending, keeping the submitting shared composer mounted. A confirmed receipt clears only the submitted draft; edits made meanwhile remain. Read-only agent previews include both authored replies and that agent's delivered prompts/excerpts with their original receipt states.
+
+## Compact chat settings (16 October 2026)
+
+The approved compact popover supersedes the earlier full-width settings layout.
+It reuses WorkspaceControls, AgentSettingsFields, the real account/model/agent
+pickers and ChatExecutionPicker. Account and Model/Thinking come first, followed
+by Agent and the two OpenShell/Local Mac controls. Repository preparation retains its existing
+account-bound controls. The original monochrome
+OpenShell asset stays visible. Existing account confirmation, repository locks
+and bound-runtime rules remain authoritative; display changes grant no capability.
+The 24rem popover width is structural component geometry, bounded by shared page
+gutters. Its opaque surface uses the common tokens, with one scrolling body and
+reachable close/Done controls. Short-screen bounds are measured in rendered pixels.
+Settings motion uses the shared popover presence and retains the mounted fields.
+The trigger’s accessible name includes its visible Settings label and selected context.
+
+New and existing composers use the full chat pane with the same shared gutters.
+Commands, image attachment, Terminal, Resources, collaboration, context, voice and
+send/queue/interrupt controls retain their original order and behavior. Resources
+keeps its icon, accessible name and resource count, without a visible text label.
+The rounded composer row owns focus feedback; the textarea has no second square
+focus box. Appearance preferences and larger text remain effective.
+
+Missing web-access controls settle into an explicit unavailable state after bounded
+attachment retries. A ten-second deadline bounds the complete read, including
+response bodies and provider metadata, aborts stalled transport and restores Check
+again. Late results cannot replace a newer retry. Check again exposes its pending
+state, leaves the explanation visible and does not change permissions. Native
+Symposium activation and integrated
+review controls appear only in authoritatively classified native Symposium chats;
+ordinary chat retains its separate existing collaboration action. An unavailable
+native collaboration can copy its unsent text to a fresh saved chat draft. The
+original conversation is retained; no provider binding or repository authority is
+silently migrated.
+
+Reusable profile drafts opens the existing editor in HomeDialog, including a real
+empty or error state. The portal keeps the same editor and catalog revision when
+moving between pending transcript cards and the dialog. Opening/closing performs
+no save, preserves edits, and releases native modal/scroll ownership when closed.
+HomeDialog’s optional open property supports this retained form; existing callers
+keep their conditional modal behavior.
+
+Offline component and intercepted browser checks cover dark/light Mint/Georgia,
+320px/390px phones, 1280px desktop, 300px desktop height, keyboard dismissal, retained
+selections/drafts, account and execution choices, icon-only Resources, rounded
+focus feedback, opaque bounds and scroll-to-final-action. The real voice/commands/
+resources/context fixture remains in coverage. No backend, credential or model is
+used. Full application build and the complete UI suite remain CI acceptance.
+
+Inspected captures: [desktop popover](assets/compact-chat-desktop-dark.png),
+[desktop composer](assets/compact-chat-desktop-light.png),
+[short phone settings](assets/compact-chat-mobile-short.png) and
+[retained profile draft editor](assets/compact-chat-profile-drafts.png).
+
+The shared Symposium transcript always uses All independently of the legacy compact-seat selection. Expanding an anchor-only chat must retain every agent’s finished and streaming replies. Independent previews refresh after completed replies, delivery changes and a five-second fallback; closing cancels their read and removes their timer/listener. Refreshing retains the existing history while the next page is read.

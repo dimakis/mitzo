@@ -1,0 +1,337 @@
+.conversation-participants,
+.conversation-agents-entry,
+.conversation-participants-trigger,
+.conversation-agent-heading,
+.conversation-agents-footer,
+.conversation-agents-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.conversation-participants {
+  flex: none;
+  justify-content: space-between;
+  padding: var(--space-2) var(--page-gutter);
+  border-bottom: 1px solid var(--color-border);
+}
+.conversation-participants-trigger {
+  max-width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+}
+.conversation-participants-trigger > span,
+.conversation-agent-heading > div {
+  min-width: 0;
+}
+.conversation-participants-trigger strong,
+.conversation-agent-heading strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.conversation-participants-trigger small,
+.conversation-agent-heading small,
+.conversation-agent-record > small,
+.conversation-agent-state,
+.conversation-agents-explanation {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.conversation-agents-dialog {
+  max-width: min(calc(100vw - var(--space-4)), 36rem);
+}
+.conversation-agents-dialog .home-dialog-content {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2 * var(--page-gutter));
+}
+.conversation-agents-dialog .home-dialog-content > header {
+  padding: var(--space-3) var(--space-4);
+  flex: none;
+}
+.conversation-agents-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-3) var(--space-4);
+  display: grid;
+  gap: var(--space-4);
+}
+.conversation-agent-record {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-4);
+}
+.conversation-agent-heading > div {
+  flex: 1;
+}
+.conversation-agent-policy {
+  border: 0;
+  padding: 0;
+  margin: var(--space-3) 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.conversation-agent-policy label,
+.conversation-context-selection label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-height);
+}
+.conversation-agent-policy input,
+.conversation-context-selection input {
+  accent-color: var(--color-accent);
+  flex: none;
+}
+.conversation-agents-body h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+.conversation-agent-field {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.conversation-agents-dialog input:not([type='checkbox'], [type='radio']),
+.conversation-agents-dialog select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+}
+.conversation-agents-dialog button {
+  min-height: var(--control-height);
+}
+.conversation-agents-footer {
+  margin-top: 0;
+  justify-content: flex-end;
+  flex: none;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+.conversation-agents-footer button,
+.conversation-agents-row {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+.conversation-agents-footer .conversation-agents-primary {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.conversation-agents-row {
+  justify-content: space-between;
+  width: 100%;
+}
+.conversation-context-selection {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.conversation-context-selection span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.conversation-context-selection small {
+  display: block;
+  color: var(--color-muted);
+}
+
+.conversation-agent-run-on {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.conversation-agent-run-on legend {
+  margin-bottom: var(--space-2);
+}
+.conversation-agent-run-on label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.conversation-agent-run-on input {
+  accent-color: var(--color-accent);
+}
+
+.conversation-participants-trigger {
+  flex: 1;
+}
+.conversation-participants-trigger > span {
+  flex: 1;
+}
+.conversation-participants-trigger > svg {
+  flex: none;
+}
+.conversation-participants-trigger strong,
+.conversation-participants-trigger small {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conversation-agent-policy input,
+.conversation-context-selection input,
+.conversation-agent-run-on input {
+  width: var(--space-4);
+  min-width: var(--space-4);
+  height: var(--space-4);
+  flex: none;
+}
+.conversation-agent-policy span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.conversation-agents-footer {
+  flex-wrap: wrap;
+}
+
+.conversation-participant-count {
+  display: none;
+}
+.conversation-message-actions {
+  position: relative;
+  width: fit-content;
+  margin-inline-start: auto;
+}
+.conversation-message-actions > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  list-style: none;
+  cursor: pointer;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+  color: var(--color-muted);
+}
+.conversation-message-actions > summary::-webkit-details-marker {
+  display: none;
+}
+.conversation-message-actions > button {
+  position: absolute;
+  inset-inline-end: 0;
+  bottom: 100%;
+  z-index: 2;
+  white-space: nowrap;
+  min-height: var(--control-height);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  font: inherit;
+}
+.conversation-share-dialog .home-dialog-content {
+  max-height: calc(100dvh - 2 * var(--page-gutter));
+  overflow-y: auto;
+}
+.conversation-share-dialog .symposium-share-preview {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  max-height: none;
+}
+.conversation-share-dialog .symposium-share-preview label {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  gap: var(--space-2);
+  margin: 0;
+}
+.conversation-share-dialog input[type='checkbox'] {
+  width: var(--space-4);
+  min-width: var(--space-4);
+  height: var(--space-4);
+}
+.conversation-share-dialog button {
+  min-height: var(--control-height);
+}
+@media (max-width: 480px) {
+  .conversation-participants {
+    gap: var(--space-1);
+  }
+  .conversation-participants-trigger {
+    gap: var(--space-1);
+    padding-inline: 0;
+  }
+  .conversation-participants-trigger > svg:first-child,
+  .conversation-participants-trigger small {
+    display: none;
+  }
+  .conversation-participants-trigger strong {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .conversation-participant-names {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .conversation-participant-count {
+    display: inline;
+    flex: none;
+    color: var(--color-muted);
+    font-size: var(--text-xs);
+  }
+}
+
+.conversation-agent-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+.conversation-agent-facts dt {
+  color: var(--color-muted);
+}
+.conversation-agent-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.conversation-message-provenance > summary {
+  min-height: var(--control-height);
+  cursor: pointer;
+  list-style: none;
+}
+.conversation-message-provenance > summary::-webkit-details-marker {
+  display: none;
+}
+.conversation-message-provenance-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
