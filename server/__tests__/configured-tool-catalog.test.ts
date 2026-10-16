@@ -398,3 +398,20 @@ it('pins an absolute source directory when the configured discovery workspace is
     catalog.close();
   }
 });
+it('refuses malformed Unicode names before UTF-8 fingerprinting can collapse distinct names', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  f.setTools(
+    ['\ud800', '\ud801'].map((name) => ({
+      name,
+      description: 'Invalid name',
+      inputSchema: { type: 'object' },
+    })),
+  );
+  try {
+    await expect(catalog.refresh(f.options)).rejects.toThrow(/unicode/i);
+    expect(catalog.list()).toEqual([]);
+  } finally {
+    catalog.close();
+  }
+});

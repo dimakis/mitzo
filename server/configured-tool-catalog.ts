@@ -149,6 +149,8 @@ export class ConfiguredToolCatalog {
           const previous = new Map(this.list().map((entry) => [entry.id, this.receipt(entry)]));
           this.db.prepare('UPDATE configured_tools SET active=0').run();
           for (const tool of clients!.discovered) {
+            if (Buffer.from(tool.tool, 'utf8').toString('utf8') !== tool.tool)
+              throw Error('MCP tool name must contain valid Unicode');
             const source = sources[tool.server];
             const id = `mcp:${source.librarySourceId}:${createHash('sha256').update(tool.tool).digest('hex')}`;
             // Wire aliases embed mutable labels; pin the original definition independently.
