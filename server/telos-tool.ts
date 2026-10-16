@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toolInputError } from './tool-input-error.js';
 import type { ToolDefinition } from '@mitzo/harness';
 
 export const TELOS_CREATE_OUTCOME_TOOL = 'TelosCreateOutcome';
@@ -17,7 +18,14 @@ export const telosOutcomeShape = {
     .min(1)
     .max(24)
     .describe('Ordered milestones; the first unfinished entry is the next action'),
-  profile: z.string().trim().min(1).max(100),
+  profile: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .describe(
+      'Exact configured Telos processing profile, not an AI account, model or project. If rejected, use one of the profile names returned by the host.',
+    ),
   contextHints: z
     .object({
       repos: z.array(z.string()).optional(),
@@ -67,6 +75,11 @@ const TelosOutcomeResponse = z
       .optional(),
   })
   .passthrough();
+const TelosOutcomeReceipt = z.object({
+  ok: z.literal(true),
+  created: z.boolean(),
+  item: z.object({ id: z.string().min(1), summary: z.string().min(1) }),
+});
 
 export interface TelosToolResult {
   content: string;
@@ -82,7 +95,8 @@ export async function executeTelosCreateOutcome(
   signal?: AbortSignal,
 ): Promise<TelosToolResult> {
   const parsedInput = TelosOutcomeInput.safeParse(input);
-  if (!parsedInput.success) return { content: 'Invalid Telos outcome input', isError: true };
+  if (!parsedInput.success)
+    return toolInputError('Telos outcome input', TelosOutcomeInput, parsedInput.error);
 
   try {
     const response = await fetch(`${baseUrl}/api/internal/telos/outcomes`, {
@@ -104,12 +118,18 @@ export async function executeTelosCreateOutcome(
         content: result.error ?? `Live Telos request failed with HTTP ${response.status}`,
         isError: true,
       };
+    const receipt = TelosOutcomeReceipt.safeParse(result);
+    if (!receipt.success)
+      return {
+        content: 'Live Telos returned no confirmed outcome receipt; creation not confirmed',
+        isError: true,
+      };
     return {
       content: JSON.stringify({
-        created: result.created,
-        id: result.item?.id,
-        title: result.item?.summary,
-        path: result.item?.id ? `/todos/${result.item.id}` : undefined,
+        created: receipt.data.created,
+        id: receipt.data.item.id,
+        title: receipt.data.item.summary,
+        path: `/todos/${receipt.data.item.id}`,
       }),
       isError: false,
     };
