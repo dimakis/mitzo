@@ -80,11 +80,11 @@ vi.mock('../native-responses-runner.js', () => ({
   },
 }));
 vi.mock('../codex-mcp-tools.js', () => ({
-  connectCodexMcpTools: async () => ({
+  connectCodexMcpTools: vi.fn(async () => ({
     definitions: [],
     close: async () => {},
     displayName: (name: string) => name,
-  }),
+  })),
 }));
 import { openResponsesChat, trackResponsesProviderAdmission } from '../responses-chat-session.js';
 import {
@@ -1743,6 +1743,13 @@ it.each(['agent', 'ask'] as const)(
       { secret: 'jira-private-token' },
     );
     service.grant('jira-read-chat', connection.id, connection.revision);
+    const { bindAgentToolSelection } = await import('../agent-tool-selection.js');
+    bindAgentToolSelection(registry.get('jira-read-client')!, {
+      tools: ['ListConnections', 'RequestConnectionAccess', 'ConnectionRequest'].map((name) => ({
+        id: `mitzo:${name}`,
+        version: 1,
+      })),
+    } as never);
     const input = new AsyncQueue<{ message: { content: string } }>();
     input.close();
     const chat = await openResponsesChat({
@@ -1847,6 +1854,8 @@ it.each(['openai', 'google-vertex'] as const)(
       store: {} as never,
     });
     try {
+      const { connectCodexMcpTools } = await import('../codex-mcp-tools.js');
+      expect(connectCodexMcpTools).toHaveBeenLastCalledWith({}, expect.any(Object));
       const opts = calls.options.at(-1)! as {
         tools: { name: string }[];
         executeTool(
@@ -1896,6 +1905,115 @@ it.each(['openai', 'google-vertex'] as const)(
   },
 );
 
+it('retains a published tool selection through admitted metadata and cold restart while new profiles affect only new chats', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { AgentLibraryStore } = await import('../agent-library-store.js');
+  const { NativeResponsesStore } = await import('../native-responses-store.js');
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-tool-acceptance-'));
+  let library = new AgentLibraryStore(join(root, 'library.db'));
+  let events = new EventStore(join(root, 'events.db'));
+  let native = new NativeResponsesStore(join(root, 'native.db'));
+  const binding = {
+    accountId: 'work',
+    accountLabel: 'Work',
+    provider: 'openai' as const,
+    model: 'luna-fixture',
+    profileRevision: 'r1',
+  };
+  const registry = new SessionRegistry();
+  const definition = {
+    name: 'Limited',
+    role: 'agent',
+    instructions: 'Inspect only.',
+    expectedOutput: 'Facts',
+    acceptanceCriteria: ['Evidence'],
+    modelPolicyRole: 'agent',
+    tools: [
+      { id: 'mitzo:GetConnectionGuide', version: 1 },
+      { id: 'mitzo:Read', version: 1 },
+    ],
+  };
+  const open = async (id: string, resume = false) => {
+    registry.register(id, {
+      sessionId: id,
+      cwd: root,
+      mode: 'ask',
+      abortController: new AbortController(),
+      sessionAllowList: new Set(),
+    } as never);
+    return openResponsesChat({
+      conversationId: id,
+      resume,
+      binding,
+      apiKey: 'fake-key',
+      session: registry.get(id)!,
+      registry,
+      input: new AsyncQueue<{ message: { content: string } }>(),
+      eventStore: events,
+      store: native,
+      systemPrompt: 'fixture',
+      env: {},
+      mcpServers: {},
+    });
+  };
+  try {
+    const draft = library.saveDraft('user', {
+      profileId: 'limited',
+      expectedVersion: 0,
+      expectedRevision: 0,
+      definition,
+      idempotencyKey: 'draft',
+    });
+    const first = library.publish('user', {
+      profileId: 'limited',
+      expectedVersion: draft.version,
+      idempotencyKey: 'publish',
+    });
+    events.upsertSession({ sessionId: 'original', agentProfile: first });
+    const chat = await open('original');
+    const before = calls.options.at(-1)!.tools;
+    const next = library.saveDraft('user', {
+      profileId: 'limited',
+      expectedVersion: 0,
+      expectedRevision: first.revision,
+      definition: { ...definition, tools: [] },
+      idempotencyKey: 'empty-draft',
+    });
+    const second = library.publish('user', {
+      profileId: 'limited',
+      expectedVersion: next.version,
+      idempotencyKey: 'empty-publish',
+    });
+    expect(calls.options.at(-1)!.tools).toEqual(before);
+    expect(events.getSession('original')?.agentProfile).toEqual(first);
+    chat.close();
+    registry.dispose();
+    library.close();
+    events.close();
+    native.close();
+    library = new AgentLibraryStore(join(root, 'library.db'));
+    events = new EventStore(join(root, 'events.db'));
+    native = new NativeResponsesStore(join(root, 'native.db'));
+    const cold = await open('original', true);
+    expect(calls.options.at(-1)!.tools).toEqual(before);
+    cold.close();
+    expect(library.version('user', 'limited', 1)).toEqual(first);
+    events.upsertSession({ sessionId: 'new', agentProfile: second });
+    const fresh = await open('new');
+    expect((calls.options.at(-1)!.tools as { name: string }[]).map((tool) => tool.name)).toEqual([
+      'AskUserQuestion',
+    ]);
+    fresh.close();
+  } finally {
+    registry.dispose();
+    library.close();
+    events.close();
+    native.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 it.each([
   { provider: 'openai' as const, tools: [] },
   { provider: 'openai' as const, tools: [{ id: 'mitzo:Read', version: 1 }] },

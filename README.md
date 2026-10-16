@@ -14,8 +14,9 @@ tools and execution environments available to you depend on your installation.
   actions and return to saved conversations from mobile or desktop.
 - **Work with files and repositories.** Browse and edit documents, attach images,
   and opt into repository-backed chats with isolated working copies.
-- **Reuse guidance and knowledge.** Publish agent profiles in the Agent Library
-  and select reference material from the Knowledge Library.
+- **Reuse guidance and knowledge.** Publish agent profiles in the Agent Library,
+  select existing tools for supported chats, and select reference material from
+  the Knowledge Library.
 - **Track work.** Use Telos to organize outcomes and milestones, connect sessions
   to work, and record progress and evidence.
 - **Connect services.** Review account and service access in Connections. Eligible
