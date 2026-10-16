@@ -34,13 +34,15 @@ Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conv
 
 ## Dev Build Testing
 
-On the configured macOS host, reuse the canonical staging service at
-`http://mitzo-staging.localhost:3190`. Read
-[the staging procedure](docs/operations/canonical-staging.md) and run its check
-command before live testing. Prepare a pinned accepted-main release and inspect
-the exact-current plan before applying an update. Do not symlink production `.env`
-or start additional staging backends/custodians/background previews. Experimental
-branch testing and provider enrollment require separate reviewed configuration.
+Canonical staging and its pipeline on the configured macOS host are stood down
+as of 15 October 2026. Use offline tests, review and CI. Do not run staging checks,
+enqueue post-merge work, deploy, recover, restart or recreate staging during
+ordinary work. The retained staging procedures are historical; reactivation
+requires a new explicit user request. Preserve ownership, operation and diagnostic
+records. Any live testing needs a separately selected and authorized target.
+Do not borrow production credentials/configuration or use production as an
+automatic test fallback. Production deployment requires a separate explicit user
+action. See [AGENTS.md](AGENTS.md#staging-stood-down-on-this-mac).
 
 ## Architecture
 
