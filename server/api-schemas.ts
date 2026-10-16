@@ -57,6 +57,9 @@ export const ConnectionRevisionBody = z
 export const ConnectionAssignmentsBody = ConnectionRevisionBody.extend({
   accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
 }).strict();
+export const ConnectionGithubRepositoryBody = ConnectionRevisionBody.extend({
+  repository: z.string().trim().min(3).max(256),
+}).strict();
 export const ConnectionCapabilitiesBody = ConnectionRevisionBody.extend({
   capabilityId: z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/),
   capabilityVersion: z.number().int().positive(),

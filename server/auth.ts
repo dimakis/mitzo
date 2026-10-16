@@ -1,4 +1,5 @@
 import { custodianRequestAuthority } from './symposium-custodian-authority.js';
+import type { AuthSession } from './interactive-auth-core.js';
 import type { Request, Response, NextFunction } from 'express';
 import { isValidInternalToken, isValidSignalCallbackToken } from './internal-token.js';
 
@@ -52,6 +53,11 @@ export const {
 } = interactive;
 const { isSessionRevoked } = interactive;
 export type { AuthSession } from './interactive-auth-core.js';
+
+/** Recheck retained interactive authority immediately before a delayed mutation. */
+export function isAuthSessionCurrent(session: AuthSession): boolean {
+  return session.expiresAt > Date.now() && !isSessionRevoked(session);
+}
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
