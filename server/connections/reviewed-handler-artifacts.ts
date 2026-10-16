@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.190';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.191';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -48,8 +48,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent review compilation and metadata; execution remains disabled.
-  '../collaboration-context-compiler.ts':
-    '2cf0cd4b7c12c3615a09f85d007372819e2f5b239d656f5899180307f323619c',
+  '../collaboration-context-compiler.ts': '24432afe2c8880e03dea778eb42b2ee1bed207092a8af3921abbb9edffca5970',
   '../../packages/protocol/src/collaboration-conversation.ts':
     '9c79ecfa5ed7f46b0eb8fb72b91b282683782caccaa2099de70ed8a7df9071f7',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
