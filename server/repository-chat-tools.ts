@@ -21,7 +21,7 @@ import {
 import type { RepositoryChatPreparation } from './repository-workspaces.js';
 
 export const REPOSITORY_CHAT_INSTRUCTIONS =
-  '\nFor repository work, call ListRepositories then PrepareRepositoryChat. If the requested repository is missing, call RequestRepositoryAccess to ask the user to confirm adding it to their existing GitHub connection, then prepare the repository chat. Never ask for credentials in chat. The user reviews the draft to start a separate chat. Call GetRepositoryChatPreparation once to recover a missing ID; omit preparationId. Never repeat preparation or repeatedly poll.\n';
+  '\nFor repository work: ListRepositories; if missing, RequestRepositoryAccess asks for confirmation. PrepareRepositoryChat drafts a separate chat for user review. Call GetRepositoryChatPreparation once for a missing ID; omit preparationId. Never repeat preparation or poll.\n';
 
 export const repositoryChatSchemas = {
   ListRepositories: z.strictObject({}),

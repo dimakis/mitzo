@@ -414,7 +414,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c9c5fadf380fc72edc81ec7b762d1f69620d06dff5ca40a949568ee61a2a068c',
   '../../packages/protocol/src/symposium.ts':
     '129fd172bc38c895e31d0835adf799933ef7641a200c33a3b8135a2e318b848a',
-  '../repository-chat-tools.ts': 'dff5ebb1bb8bac6c12f92e7e513dda108cbe0a618dbeff081c864f2c946f58ba',
+  '../repository-chat-tools.ts': '58fa2a40e1e0828f3a41470d704091130ad7507ae28dbc1dc18bac538f8a9c8a',
   '../repository-task-copy.ts': 'cd15f77cfa45883556d10536296a28f7451d2259a5a3eb2a9aeb807d24c54d6d',
   '../credential-connection-schema.ts':
     '3489ff131cd0bc28de23d85e1ed7cd4749fcb12f062bdc76407bedc0efe28f47',
