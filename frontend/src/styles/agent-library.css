@@ -265,7 +265,9 @@
   min-height: 0;
   padding: 0;
 }
-.agent-library-context-recipe select {
+/* Native WebKit selects need an explicit height to retain touch targets. */
+.agent-library-context-recipe select,
+.agent-task-fields > label > select {
   padding: var(--space-2) var(--space-3);
   height: max(var(--control-height), calc(1.5em + var(--space-2) + var(--space-2) + 2px));
 }

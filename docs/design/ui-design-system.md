@@ -757,3 +757,9 @@ They render the actual page, shells and controls using intercepted data only.
 The 320px settings body scrolls while Close/Done remain reachable above navigation;
 Escape restores summary focus. Save failure/reload retries retain identical input,
 profile ID/revision/hash, selected account, model/thinking and target.
+
+Task-local working copies also retain incomplete model choices when another task
+is opened. A newer saved task revision leaves those choices intact until explicit
+Reload saved task; catalog hydration/review changes no task revision or retry key.
+Native task selects reuse the context editor's explicit token-based height because
+WebKit ignores their minimum height; offline geometry checks require 44px targets.

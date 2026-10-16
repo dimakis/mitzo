@@ -256,6 +256,13 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByRole('tab', { name: 'Tasks & schedules', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Use in Symposium/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Assign task', exact: true }).click();
+  for (const label of ['Agent profile', 'Schedule', 'Notifications']) {
+    expect(
+      await page
+        .getByRole('combobox', { name: label, exact: true })
+        .evaluate((element) => element.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+  }
   await page.getByLabel('Task name', { exact: true }).fill('Retained task');
   await page
     .getByLabel('Objective', { exact: true })
