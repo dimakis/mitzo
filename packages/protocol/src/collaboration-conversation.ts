@@ -92,6 +92,17 @@ export const CollaborationMessageInputSchema = z.strictObject({
   ]),
   snapshot: CollaborationSnapshotReferenceSchema.nullable(),
 });
+/** Trusted ordinary driver/source owner input. Text is read from finalized source events. */
+export const CollaborationReplyInputSchema = z.strictObject({
+  requestId: z.uuid(),
+  messageId: z.uuid(),
+  deliveryId: z.uuid(),
+  source: CollaborationMessageSourceSchema.refine(
+    (source) =>
+      source.blockIds.length > 0 && new Set(source.blockIds).size === source.blockIds.length,
+    'Reply source requires distinct text blocks',
+  ),
+});
 export const CollaborationDeliveryReceiptInputSchema = z.strictObject({
   requestId: z.uuid(),
   expectedRevision: sequence,
@@ -339,6 +350,8 @@ export type CollaborationView = z.infer<typeof CollaborationViewSchema>;
 export type CollaborationEvents = z.infer<typeof CollaborationEventsSchema>;
 export type CollaborationPolicyUpdate = z.infer<typeof CollaborationPolicyUpdateSchema>;
 export type CollaborationMessageInput = z.infer<typeof CollaborationMessageInputSchema>;
+export type CollaborationReplyInput = z.infer<typeof CollaborationReplyInputSchema>;
+export type CollaborationMessageSource = z.infer<typeof CollaborationMessageSourceSchema>;
 export type CollaborationJoinInput = z.infer<typeof CollaborationJoinInputSchema>;
 export type CollaborationSnapshotSelection = z.infer<typeof CollaborationSnapshotSelectionSchema>;
 export class CollaborationContractError extends Error {
@@ -354,7 +367,9 @@ export class CollaborationContractError extends Error {
       | 'capacity_refused'
       | 'invalid_transition'
       | 'allocation_conflict'
-      | 'execution_unavailable',
+      | 'execution_unavailable'
+      | 'reply_conflict'
+      | 'reply_unavailable',
   ) {
     super(code);
   }
