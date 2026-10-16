@@ -1,3 +1,12 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import {
+  OpenShellWarmPool,
+  type WarmPoolAdapter,
+  type WarmSandbox,
+} from '../openshell-warm-pool.js';
+import { setOpenShellWarmPool } from '../openshell-warm-pool-binding.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConnectionStore } from '../connections-store.js';
 import { ConnectionsService } from '../connections-service.js';
@@ -221,4 +230,65 @@ describe('durable connection recovery', () => {
     );
     expect(x.store.pendingProbes()).toEqual([]);
   });
+});
+
+it('removing account A from a shared connection preserves account B pooled conversations', async () => {
+  const x = setup();
+  const root = mkdtempSync(join(tmpdir(), 'connection-pool-'));
+  let actual: WarmSandbox | undefined;
+  const adapter: WarmPoolAdapter = {
+    scope: 'scope',
+    available: true,
+    reason: null,
+    prepare: async (r) =>
+      (actual = {
+        name: r.name,
+        id: 'opaque-pool-id',
+        poolId: r.id,
+        phase: 'Ready',
+        providers: [],
+      }),
+    inspect: async () => actual,
+    bind: async (_r, provider) => {
+      actual!.providers = [provider];
+    },
+    remove: vi.fn(),
+  };
+  Object.assign(adapter, { connectionAuthority: { gateway: 'openshell', workspace: 'default' } });
+  const pool = new OpenShellWarmPool(join(root, 'pool.db'), adapter);
+  try {
+    await pool.mutate({ action: 'prepare', requestId: 'prepare', revision: 0 });
+    await pool.claim(
+      'personal-chat',
+      'personal-provider',
+      AbortSignal.timeout(1000),
+      undefined,
+      undefined,
+      'personal',
+    );
+    setOpenShellWarmPool(pool);
+    const active = await x.service.provision(x.created, 'SECRET', AbortSignal.timeout(1000));
+    const shared = await x.service.setAssignments(active.id, active.revision, ['work', 'personal']);
+    x.attachments.set(active.gatewayProviderName, ['work-chat', actual!.name]);
+    vi.mocked(x.gateway.sandbox).mockImplementation(async (name) => ({
+      name,
+      phase: 'Ready',
+      labels:
+        name === 'work-chat'
+          ? { 'mitzo.connection_account': 'work' }
+          : { 'mitzo.warm_pool': actual!.poolId },
+    }));
+    await x.service.setAssignments(shared.id, shared.revision, ['personal']);
+    expect(x.gateway.stopSandbox).toHaveBeenCalledExactlyOnceWith('work-chat', expect.anything());
+    expect(x.gateway.detach).toHaveBeenCalledExactlyOnceWith(
+      'work-chat',
+      active.gatewayProviderName,
+      expect.anything(),
+    );
+    expect(x.attachments.get(active.gatewayProviderName)).toEqual([actual!.name]);
+  } finally {
+    setOpenShellWarmPool(null);
+    pool.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

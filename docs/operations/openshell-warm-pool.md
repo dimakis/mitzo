@@ -79,11 +79,14 @@ native create receipt persists its physical ID before waiting for readiness.
 
 Unclaimed resources carry immutable `mitzo.warm_pool` origin labels and no account
 or conversation labels. The ledger atomically assigns a physical resource to one
-conversation/provider before any account attachment. Only a confirmed exact
+conversation/provider and connection account ID before any account attachment. Only a confirmed exact
 physical ID and complete attachment result makes it claimed. Effective runtime
 ownership is projected from that durable claim plus current physical origin/scope;
 ordinary unpooled ownership label checks remain unchanged. A claimed resource
 never re-enters the spare pool, even on failed initialization or cancellation.
+Account-scoped connection cleanup resolves this durable account through the same
+gateway/workspace and a fresh exact physical-origin check. Missing authority
+blocks partial cleanup rather than stopping another account's conversation.
 Do not edit the ledger or gateway labels to repair uncertainty.
 
 Preparation freezes and verifies the configured shared knowledge seed into a

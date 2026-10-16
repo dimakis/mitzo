@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.170';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.171';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -36,11 +36,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/index.ts':
     '6ec891ed81e2d18d0fc375cfb8722d06df3831e3b1a30eb4b435ebcf70faba8c',
   // Configurable neutral spares: durable claims, protected controls and explicit host enrollment.
-  '../openshell-warm-pool.ts': '847b52c3deaff568d5ad98a788d09e0a50d4dd135887ce27a67f6c0cc2e881d6',
+  '../openshell-warm-pool.ts': '700bef90537f73bf2a20aeca93ee02a358f503d634d77eb5a171048a0c09a6f5',
   '../openshell-warm-pool-runtime.ts':
-    '69578048c40fbdf96a2aa2356b73b192ce361fdd34d18243fff8f471b2174ebf',
+    'b101a8f1745de5f38515e86566952d3556872cd95a3921281a9e64ee0424df58',
   '../openshell-warm-pool-binding.ts':
-    'e601d949edf713ed7017518c9b8a3deef490152df6f30fa23af2a628c65d2e5f',
+    'da4100e8cb025945de97c3eb1bdc71ebff255c3f4e7548ba1d67dadca5a8e16f',
   '../openshell-warm-pool-router.ts':
     '4b9cdfd05514839d3828ef89774dc7766bd1dd810639e543ba3e13bc539f889f',
   '../openshell-warm-pool-host.ts':
@@ -507,7 +507,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': 'afb2657c850dd4b3a64cd2d295ca8682204ddcdff0dba90ce6fa610c15596e93',
-  '../connections-service.ts': 'ed916c318cf9cb36e9a2d3e37d8068413ef91d9f37a3cfdb3cf56569588f9183',
+  '../connections-service.ts': '930b9fea2c31e82edbe16ab1cab670e338cbe4403f621ac7c6e744869fb9c905',
   // Repository acquisition and source claims share the ordinary runtime admission review.
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':

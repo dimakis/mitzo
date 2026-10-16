@@ -8,6 +8,7 @@ import {
   setOpenShellWarmPool,
   projectWarmPoolOwnership,
   warmPoolConversationName,
+  warmPoolConnectionAccount,
 } from '../openshell-warm-pool-binding.js';
 import { warmPoolScope } from '../openshell-warm-pool-runtime.js';
 import {
@@ -213,3 +214,45 @@ it.each([false, true])(
     expect(pool!.snapshot().spares).toHaveLength(1);
   },
 );
+
+it('persists the connection account at command claim and rejects account reassignment on reuse', async () => {
+  const f = await fixture();
+  f.config.connectionAccountId = 'personal-id';
+  const run = vi.fn(async (a: readonly string[]) => {
+    if (a.includes('provider')) return 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nwork service 0 0';
+    if (a.includes(f.physical().name)) return JSON.stringify(f.raw());
+    throw Error('not found');
+  });
+  await new OpenShellRuntimeManager(f.config, run).ensure(
+    'chat',
+    AbortSignal.timeout(5000),
+    undefined,
+    undefined,
+    undefined,
+    'command',
+  );
+  expect(pool!.lookup('chat', 'work')).toHaveProperty('connectionAccountId', 'personal-id');
+  expect(projectWarmPoolOwnership(f.config, f.raw()).labels).toHaveProperty(
+    'mitzo.connection_account',
+    'personal-id',
+  );
+  expect(() =>
+    warmPoolConversationName({ ...f.config, connectionAccountId: 'different-id' }, 'chat'),
+  ).toThrow(/account/i);
+});
+
+it('connection cleanup rejects changed physical identity, missing account and another gateway scope', async () => {
+  const f = await fixture();
+  pool!.adapter.connectionAuthority = { gateway: 'isolated', workspace: 'default' };
+  await pool!.claim('chat', 'work', AbortSignal.timeout(5000), undefined, undefined, 'work-id');
+  expect(
+    await warmPoolConnectionAccount(f.raw(), 'isolated', 'default', AbortSignal.timeout(5000)),
+  ).toBe('work-id');
+  await expect(
+    warmPoolConnectionAccount(f.raw(), 'other', 'default', AbortSignal.timeout(5000)),
+  ).rejects.toThrow(/unverified/);
+  f.physical().id = 'replacement';
+  await expect(
+    warmPoolConnectionAccount(f.raw(), 'isolated', 'default', AbortSignal.timeout(5000)),
+  ).rejects.toThrow(/identity/);
+});

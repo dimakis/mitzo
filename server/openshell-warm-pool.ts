@@ -23,6 +23,7 @@ export interface WarmPoolRecord {
   resources: { cpu: number; memoryGiB: number };
   conversationId: string | null;
   provider: string | null;
+  connectionAccountId?: string | null;
   failure: string | null;
   createdAt: number;
 }
@@ -37,6 +38,7 @@ export interface WarmPoolAdapter {
   scope: string;
   available: boolean;
   reason: string | null;
+  connectionAuthority?: { gateway: string; workspace: string };
   prepare(
     record: WarmPoolRecord,
     signal: AbortSignal,
@@ -359,9 +361,12 @@ export class OpenShellWarmPool {
     signal: AbortSignal,
     seed?: string,
     providers?: readonly string[],
+    connectionAccountId?: string,
   ) {
     const existing = this.lookup(conversationId, provider);
     if (existing) {
+      if ((existing.connectionAccountId ?? null) !== (connectionAccountId ?? null))
+        throw Error('Warm sandbox connection account binding differs');
       if (existing.state !== 'claimed')
         throw Error('Prior sandbox claim is uncertain; preserve the conversation.');
       return existing;
@@ -390,6 +395,7 @@ export class OpenShellWarmPool {
       record.state = 'claiming';
       record.conversationId = conversationId;
       record.provider = provider;
+      record.connectionAccountId = connectionAccountId ?? null;
       this.persist(s);
       await this.adapter.bind(record, provider, signal, seed, providers);
       const after = await this.adapter.inspect(record, signal);

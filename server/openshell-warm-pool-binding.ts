@@ -17,7 +17,10 @@ export function warmPoolConversationName(
   if (!pool) return undefined;
   const record = pool.snapshot().owned.find((x) => x.conversationId === conversationId);
   if (!record) return undefined;
-  if (record.provider !== config.account.provider)
+  if (
+    record.provider !== config.account.provider ||
+    (record.connectionAccountId ?? null) !== (config.connectionAccountId ?? null)
+  )
     throw Error('Warm sandbox account binding differs');
   if (record.scope !== warmPoolScope(config) || record.state !== 'claimed')
     throw Error('Warm sandbox claim or runtime identity is unverified');
@@ -36,6 +39,7 @@ export function projectWarmPoolOwnership<
   if (!record || record.state !== 'claimed')
     throw Error('Warm sandbox has no verified claimed owner');
   if (
+    (record.connectionAccountId ?? null) !== (config.connectionAccountId ?? null) ||
     record.provider !== config.account.provider ||
     record.name !== sandbox.name ||
     record.physicalId !== sandbox.id ||
@@ -54,6 +58,9 @@ export function projectWarmPoolOwnership<
         .digest('hex')
         .slice(0, 63),
       'mitzo.account_provider': record.provider!,
+      ...(record.connectionAccountId
+        ? { 'mitzo.connection_account': record.connectionAccountId }
+        : {}),
     },
   };
 }
@@ -74,7 +81,14 @@ export async function claimWarmPoolForCommand(
     warmPoolScope(config) !== pool.adapter.scope
   )
     return null;
-  return pool.claim(conversationId, config.account.provider, signal, seed, config.serviceProviders);
+  return pool.claim(
+    conversationId,
+    config.account.provider,
+    signal,
+    seed,
+    config.serviceProviders,
+    config.connectionAccountId,
+  );
 }
 
 /** Saved pool limits also govern compatible cold allocations; retained sandboxes
@@ -93,4 +107,38 @@ export function warmPoolCreateResources(config: BoundOpenShellRuntimeConfig) {
     return undefined;
   const { cpu, memoryGiB } = pool.snapshot().settings;
   return { cpu, memoryGiB };
+}
+
+/** Assignment cleanup cannot infer account ownership from the neutral origin label.
+ * Resolve the durable account only after observing the exact physical resource in
+ * the same gateway/workspace. Missing or changed authority blocks partial cleanup. */
+export async function warmPoolConnectionAccount(
+  sandbox: { name: string; labels: Record<string, string> },
+  gateway: string,
+  workspace: string,
+  signal: AbortSignal,
+) {
+  const id = sandbox.labels['mitzo.warm_pool'];
+  const record = pool?.snapshot().owned.find((x) => x.id === id);
+  const authority = pool?.adapter.connectionAuthority;
+  if (
+    !pool ||
+    !record ||
+    !record.connectionAccountId ||
+    !record.physicalId ||
+    record.name !== sandbox.name ||
+    record.scope !== pool.adapter.scope ||
+    authority?.gateway !== gateway ||
+    authority?.workspace !== workspace
+  )
+    throw Error('Warm sandbox connection account ownership is unverified');
+  const physical = await pool.adapter.inspect(record, signal);
+  if (
+    !physical ||
+    physical.id !== record.physicalId ||
+    physical.name !== record.name ||
+    physical.poolId !== record.id
+  )
+    throw Error('Warm sandbox connection account physical identity differs');
+  return record.connectionAccountId;
 }

@@ -109,6 +109,12 @@ export function createWarmPoolAdapter(
   };
   const adapter: WarmPoolAdapter = {
     scope,
+    connectionAuthority: {
+      gateway: config.gatewayEndpoint
+        ? 'endpoint:' + createHash('sha256').update(config.gatewayEndpoint).digest('hex')
+        : config.gateway,
+      workspace: config.workspace,
+    },
     available: !config.cliContract && !config.artifactDriverConfig && !config.sandboxNameOverride,
     reason:
       config.cliContract || config.artifactDriverConfig || config.sandboxNameOverride
