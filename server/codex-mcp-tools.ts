@@ -73,7 +73,12 @@ export async function connectCodexMcpTools(
   const peers: Connection[] = [];
   const mapping = new Map<string, { peer: Connection; name: string; canonical: string }>();
   const definitions: ToolDefinition[] = [];
-  const discovered: { server: string; tool: string; definition: ToolDefinition }[] = [];
+  const discovered: {
+    server: string;
+    tool: string;
+    definition: ToolDefinition;
+    descriptor: Input;
+  }[] = [];
   let closed = false;
   const close = async () => {
     if (closed) return;
@@ -125,6 +130,7 @@ export async function connectCodexMcpTools(
             server,
             tool: tool.name,
             definition: definitions[definitions.length - 1],
+            descriptor: JSON.parse(JSON.stringify(tool)) as Input,
           });
           if (Buffer.byteLength(JSON.stringify(discovered)) > 1048576)
             throw new Error('MCP definitions too large');

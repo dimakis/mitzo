@@ -20,6 +20,7 @@ interface Receipt {
   binding: string;
   launchCwd: string;
   definition: ToolDefinition;
+  descriptor: Record<string, unknown>;
 }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -157,7 +158,8 @@ export class ConfiguredToolCatalog {
             if (
               old &&
               old.binding === contract &&
-              canonical(old.definition) === canonical(definition)
+              canonical(old.definition) === canonical(definition) &&
+              canonical(old.descriptor) === canonical(tool.descriptor)
             ) {
               // A friendly rename changes the projection only, never the portable contract.
               old.entry.source = tool.server;
@@ -189,6 +191,7 @@ export class ConfiguredToolCatalog {
               binding: contract,
               launchCwd: options.cwd,
               definition,
+              descriptor: tool.descriptor,
             };
             this.db
               .prepare('INSERT INTO configured_tools VALUES (?,?,?,?,?)')
