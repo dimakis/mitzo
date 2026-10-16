@@ -90,7 +90,22 @@ describe('Telos host tool', () => {
         ...input,
         milestones: [],
       }),
-    ).resolves.toEqual({ content: 'Invalid Telos outcome input', isError: true });
+    ).resolves.toMatchObject({ content: expect.stringContaining('milestones'), isError: true });
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it.each([
+    {},
+    { ok: true },
+    { ok: true, created: true, item: {} },
+    { ok: true, created: true, item: { id: '', summary: 'Outcome' } },
+  ])(
+    'requires a confirmed creation receipt instead of treating malformed success as saved',
+    async (body) => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body))));
+      expect(
+        (await executeTelosCreateOutcome('http://host', 'client', 'token', input)).isError,
+      ).toBe(true);
+    },
+  );
 });

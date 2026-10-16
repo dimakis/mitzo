@@ -5,6 +5,7 @@ import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
+import { toolInputError } from './tool-input-error.js';
 import {
   sessionCredentialTools,
   CONNECTION_TOOL_INSTRUCTIONS,
@@ -1915,7 +1916,8 @@ async function openCodexChatBound(
       }
       if (connectedOpenShell && isTelosItemTool(name)) {
         const parsed = telosItemSchemas[name].safeParse(input);
-        if (!parsed.success) return { content: 'Invalid Telos item input', isError: true };
+        if (!parsed.success)
+          return toolInputError('Telos item input', telosItemSchemas[name], parsed.error);
         const owner = options.registry.findBySessionId(options.conversationId);
         if (!owner) return { content: 'Codex session unavailable', isError: true };
         const permission = await buildPermissionHandler(owner.clientId, options.registry, {
@@ -1950,7 +1952,8 @@ async function openCodexChatBound(
       }
       if (connectedOpenShell && isTelosArtifactTool(name)) {
         const parsed = telosArtifactSchemas[name].safeParse(input);
-        if (!parsed.success) return { content: 'Invalid Telos artifact input', isError: true };
+        if (!parsed.success)
+          return toolInputError('Telos artifact input', telosArtifactSchemas[name], parsed.error);
         const owner = options.registry.findBySessionId(options.conversationId);
         if (!owner) return { content: 'Codex session unavailable', isError: true };
         const permission = await buildPermissionHandler(owner.clientId, options.registry, {
@@ -1985,7 +1988,8 @@ async function openCodexChatBound(
       }
       if (connectedOpenShell && name === TELOS_CREATE_OUTCOME_TOOL) {
         const parsed = TelosOutcomeInput.safeParse(input);
-        if (!parsed.success) return { content: 'Invalid Telos outcome input', isError: true };
+        if (!parsed.success)
+          return toolInputError('Telos outcome input', TelosOutcomeInput, parsed.error);
         const owner = options.registry.findBySessionId(options.conversationId);
         if (!owner) return { content: 'Codex session unavailable', isError: true };
         const permission = await buildPermissionHandler(owner.clientId, options.registry, {

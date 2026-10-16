@@ -3197,7 +3197,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         turnId: 'turn',
         callId: 'publish',
       }),
-    ).resolves.toMatchObject({ content: 'Invalid GitHub publishing request', isError: true });
+    ).resolves.toMatchObject({ content: expect.stringContaining('repositoryPath'), isError: true });
     expect(f.lease.assertCurrent).toHaveBeenCalled();
     const connection = {
       id: 'owned-publisher',
