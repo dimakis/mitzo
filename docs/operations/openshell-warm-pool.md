@@ -18,7 +18,7 @@ permits operator preparation. It does not itself turn warming on. Save settings
 with warming enabled, or explicitly Prepare now, to allocate resources. An existing
 saved enabled policy resumes after a restart on an enrolled host. Disabling host
 enrollment prevents new claims/preparations; existing claimed ownership remains
-available to its conversation while its exact runtime identity still matches.
+available to its conversation while its recorded runtime authority still matches.
 
 The initial adapter supports ordinary OpenShell API-account Codex execution with
 the existing legacy CLI contract. Native OpenShell 0.1 seats, native subscription
@@ -27,6 +27,20 @@ existing on-demand paths. A pool recipe is scoped to the exact CLI/environment,
 gateway, workspace, image, policy digest, workdir and stack contract. Configuration
 metadata is not evidence that an unsupported route can claim a spare. Additional
 runtime classes require separate qualified adapters, not placeholder accounts.
+
+The ledger also pins a separate CLI/environment, gateway/endpoint, workspace and
+workdir authority. Updating the image, policy or seed/stack recipe does not revoke
+verified access to an existing physical resource. Its original recipe remains
+recorded; matching authority plus exact origin, physical ID and account permits
+inspection for the existing migration/cleanup owners. This is not attestation that
+the old resource satisfies the new recipe: normal physical image, policy,
+knowledge, custody and migration checks still apply before adoption. Obsolete
+spares cannot be claimed. Operators can recheck, remove or replace verified old
+spares; automatic refill retires settled obsolete Ready spares before filling the
+new recipe. Uncertain operations continue to reserve capacity. Different runtime
+authority stays blocked. Historical rows without separate authority require their
+exact original recipe; never infer or backfill missing authority from current
+configuration.
 
 CPU and memory are requested per sandbox through the native create flags. The
 saved limits also apply to compatible cold allocations on an enrolled host;
@@ -84,7 +98,7 @@ Unclaimed resources carry immutable `mitzo.warm_pool` origin labels and no accou
 or conversation labels. The ledger atomically assigns a physical resource to one
 conversation/provider and connection account ID before any account attachment. Only a confirmed exact
 physical ID and complete attachment result makes it claimed. Effective runtime
-ownership is projected from that durable claim plus current physical origin/scope;
+ownership is projected from that durable claim plus exact physical origin and recorded runtime authority;
 ordinary unpooled ownership label checks remain unchanged. A claimed resource
 never re-enters the spare pool, even on failed initialization or cancellation.
 Account-scoped connection cleanup resolves this durable account through the same

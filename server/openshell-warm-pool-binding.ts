@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import type { OpenShellWarmPool } from './openshell-warm-pool.js';
+import { hasWarmPoolRuntimeAuthority, type OpenShellWarmPool } from './openshell-warm-pool.js';
 import type { BoundOpenShellRuntimeConfig } from './openshell-runtime.js';
-import { warmPoolScope } from './openshell-warm-pool-runtime.js';
+import { warmPoolScope, warmPoolRuntimeAuthority } from './openshell-warm-pool-runtime.js';
 let pool: OpenShellWarmPool | null = null;
 /** Installed by the host composition, never by a command payload. */
 export function setOpenShellWarmPool(value: OpenShellWarmPool | null) {
@@ -22,7 +22,13 @@ export function warmPoolConversationName(
     (record.connectionAccountId ?? null) !== (config.connectionAccountId ?? null)
   )
     throw Error('Warm sandbox account binding differs');
-  if (record.scope !== warmPoolScope(config) || record.state !== 'claimed')
+  if (
+    !hasWarmPoolRuntimeAuthority(record, {
+      scope: warmPoolScope(config),
+      runtimeAuthority: warmPoolRuntimeAuthority(config),
+    }) ||
+    record.state !== 'claimed'
+  )
     throw Error('Warm sandbox claim or runtime identity is unverified');
   return record.name;
 }
@@ -44,7 +50,10 @@ export function projectWarmPoolOwnership<
     record.name !== sandbox.name ||
     record.physicalId !== sandbox.id ||
     sandbox.workspace !== config.workspace ||
-    record.scope !== warmPoolScope(config) ||
+    !hasWarmPoolRuntimeAuthority(record, {
+      scope: warmPoolScope(config),
+      runtimeAuthority: warmPoolRuntimeAuthority(config),
+    }) ||
     sandbox.labels?.['mitzo.conversation'] ||
     sandbox.labels?.['mitzo.account_provider']
   )
@@ -127,7 +136,7 @@ export async function warmPoolConnectionAccount(
     !record.connectionAccountId ||
     !record.physicalId ||
     record.name !== sandbox.name ||
-    record.scope !== pool.adapter.scope ||
+    !hasWarmPoolRuntimeAuthority(record, pool.adapter) ||
     authority?.gateway !== gateway ||
     authority?.workspace !== workspace
   )

@@ -5,7 +5,12 @@ import { execFile } from 'node:child_process';
 import { z } from 'zod';
 import { preparePublishedOpenShellSeed, type OpenShellRuntimeConfig } from './openshell-runtime.js';
 import { parseProviderAttachments } from './connections-gateway.js';
-import type { WarmPoolAdapter, WarmPoolRecord, WarmSandbox } from './openshell-warm-pool.js';
+import {
+  hasWarmPoolRuntimeAuthority,
+  type WarmPoolAdapter,
+  type WarmPoolRecord,
+  type WarmSandbox,
+} from './openshell-warm-pool.js';
 export function warmPoolScope(c: OpenShellRuntimeConfig) {
   return createHash('sha256')
     .update(
@@ -21,6 +26,25 @@ export function warmPoolScope(c: OpenShellRuntimeConfig) {
         c.workdir,
         c.seed,
         c.seedStackManifest ?? null,
+        c.cliEnvironment ?? null,
+      ]),
+    )
+    .digest('hex');
+}
+/** Access authority is stable across image/policy/seed contract updates. This
+ * permits verified observation for migration/retirement, never recipe adoption. */
+export function warmPoolRuntimeAuthority(c: OpenShellRuntimeConfig) {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        'warm-pool-runtime-authority-v1',
+        c.cli,
+        c.cliContract ?? null,
+        c.gateway,
+        c.workspace,
+        c.gatewayEndpoint ?? null,
+        c.gatewayInsecure,
+        c.workdir,
         c.cliEnvironment ?? null,
       ]),
     )
@@ -43,6 +67,7 @@ export function createWarmPoolAdapter(
   hostSignal?: AbortSignal,
 ): WarmPoolAdapter {
   const scope = warmPoolScope(config);
+  const runtimeAuthority = warmPoolRuntimeAuthority(config);
   const execute: Run =
     runner ??
     ((args, signal) =>
@@ -77,11 +102,18 @@ export function createWarmPoolAdapter(
   const assertCurrent = () => {
     if (warmPoolScope(config) !== scope) throw Error('Warm pool runtime configuration changed');
   };
+  const assertAccess = (record: WarmPoolRecord) => {
+    if (
+      warmPoolRuntimeAuthority(config) !== runtimeAuthority ||
+      !hasWarmPoolRuntimeAuthority(record, { scope, runtimeAuthority })
+    )
+      throw Error('Warm sandbox runtime authority differs');
+  };
   const inspect = async (
     record: WarmPoolRecord,
     signal: AbortSignal,
   ): Promise<WarmSandbox | undefined> => {
-    assertCurrent();
+    assertAccess(record);
     let raw: unknown;
     try {
       raw = JSON.parse(await run([...base, 'get', record.name, '--output', 'json'], signal));
@@ -98,7 +130,7 @@ export function createWarmPoolAdapter(
       s.labels['mitzo.conversation'] ||
       s.labels['mitzo.account_provider'] ||
       (record.physicalId && record.physicalId !== s.id) ||
-      record.scope !== scope
+      !hasWarmPoolRuntimeAuthority(record, { scope, runtimeAuthority })
     )
       throw Error('Warm sandbox physical identity differs');
     const providers = parseProviderAttachments(
@@ -109,6 +141,7 @@ export function createWarmPoolAdapter(
   };
   const adapter: WarmPoolAdapter = {
     scope,
+    runtimeAuthority,
     connectionAuthority: {
       gateway: config.gatewayEndpoint
         ? 'endpoint:' + createHash('sha256').update(config.gatewayEndpoint).digest('hex')
@@ -123,6 +156,8 @@ export function createWarmPoolAdapter(
     inspect,
     async prepare(record, signal, created, dispatched) {
       assertCurrent();
+      if (record.scope !== scope || !hasWarmPoolRuntimeAuthority(record, adapter))
+        throw Error('Warm sandbox preparation recipe differs');
       if (!adapter.available) throw Error(adapter.reason!);
       const prepared = await prepareSeed(config, signal);
       try {
@@ -204,6 +239,9 @@ export function createWarmPoolAdapter(
       throw Error('Sandbox removal outcome is not confirmed');
     },
     async bind(record, provider, signal, seed, services = []) {
+      assertCurrent();
+      if (record.scope !== scope || !hasWarmPoolRuntimeAuthority(record, adapter))
+        throw Error('Warm sandbox claim recipe differs');
       if (
         record.state !== 'claiming' ||
         !record.conversationId ||

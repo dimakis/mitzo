@@ -21,6 +21,8 @@ export interface WarmPoolRecord {
   /** False only when preparation has provably not dispatched native create. */
   creationStarted?: boolean;
   scope: string;
+  /** Immutable transport/workdir authority, independent of the creation recipe. */
+  runtimeAuthority?: string;
   state: 'preparing' | 'ready' | 'claiming' | 'claimed' | 'removing' | 'removed' | 'uncertain';
   resources: { cpu: number; memoryGiB: number };
   conversationId: string | null;
@@ -38,6 +40,7 @@ export interface WarmSandbox {
 }
 export interface WarmPoolAdapter {
   scope: string;
+  runtimeAuthority?: string;
   available: boolean;
   reason: string | null;
   connectionAuthority?: { gateway: string; workspace: string };
@@ -56,6 +59,16 @@ export interface WarmPoolAdapter {
     seed?: string,
     providers?: readonly string[],
   ): Promise<void>;
+}
+/** Legacy rows without authority may only use their exact original recipe. Never
+ * infer historical authority from the currently selected gateway or image. */
+export function hasWarmPoolRuntimeAuthority(
+  record: Pick<WarmPoolRecord, 'scope' | 'runtimeAuthority'>,
+  adapter: Pick<WarmPoolAdapter, 'scope' | 'runtimeAuthority'>,
+) {
+  return record.runtimeAuthority !== undefined
+    ? !!adapter.runtimeAuthority && record.runtimeAuthority === adapter.runtimeAuthority
+    : record.scope === adapter.scope;
 }
 interface State {
   revision: number;
@@ -174,7 +187,16 @@ export class OpenShellWarmPool {
           return {
             ...record,
             observedState:
-              record.state === 'ready' && actual?.phase === 'Ready' ? 'ready' : 'unverified',
+              record.scope === this.adapter.scope &&
+              record.state === 'ready' &&
+              actual?.phase === 'Ready'
+                ? 'ready'
+                : 'unverified',
+            failure:
+              record.failure ??
+              (record.scope !== this.adapter.scope
+                ? 'Sandbox uses an older runtime recipe; replace or remove it.'
+                : null),
             observedAt: this.now(),
           };
         } catch {
@@ -199,7 +221,7 @@ export class OpenShellWarmPool {
       p.name !== r.name ||
       p.poolId !== r.id ||
       (r.physicalId && p.id !== r.physicalId) ||
-      r.scope !== this.adapter.scope
+      !hasWarmPoolRuntimeAuthority(r, this.adapter)
     )
       throw Error('Sandbox pool physical identity changed; resource retained.');
     if (neutral && p.providers.length)
@@ -207,6 +229,11 @@ export class OpenShellWarmPool {
   }
   private async fill(s: State, signal: AbortSignal) {
     if (!this.adapter.available) throw Error(this.adapter.reason ?? 'Warm sandboxes unavailable');
+    // Retire only settled, unused Ready resources. Uncertain operations still reserve capacity.
+    for (const old of s.records.filter(
+      (r) => !r.conversationId && r.state === 'ready' && r.scope !== this.adapter.scope,
+    ))
+      await this.retire(s, old, signal);
     const slots = () => s.records.filter((x) => !x.conversationId && x.state !== 'removed');
     while (slots().length < s.settings.capacity) {
       signal.throwIfAborted();
@@ -217,6 +244,9 @@ export class OpenShellWarmPool {
           physicalId: null,
           creationStarted: false,
           scope: this.adapter.scope,
+          ...(this.adapter.runtimeAuthority
+            ? { runtimeAuthority: this.adapter.runtimeAuthority }
+            : {}),
           state: 'preparing',
           resources: { cpu: s.settings.cpu, memoryGiB: s.settings.memoryGiB },
           conversationId: null,
@@ -332,7 +362,7 @@ export class OpenShellWarmPool {
           if (!physical) {
             // Only an explicit operator recheck can release an absent reservation.
             // Inspect must report authoritative absence, never a transport failure.
-            if (record.scope !== this.adapter.scope)
+            if (!hasWarmPoolRuntimeAuthority(record, this.adapter))
               throw Error('Sandbox pool runtime scope changed; resource retained.');
             if (!record.physicalId && record.creationStarted !== false)
               throw Error('Sandbox create outcome is unknown or unsettled; reservation retained.');
@@ -382,6 +412,8 @@ export class OpenShellWarmPool {
   ) {
     const existing = this.lookup(conversationId, provider);
     if (existing) {
+      if (!hasWarmPoolRuntimeAuthority(existing, this.adapter))
+        throw Error('Warm sandbox runtime authority differs');
       if ((existing.connectionAccountId ?? null) !== (connectionAccountId ?? null))
         throw Error('Warm sandbox connection account binding differs');
       if (existing.state !== 'claimed')
@@ -440,7 +472,13 @@ export class OpenShellWarmPool {
       current.settings.expiryMinutes &&
       this.now() >= current.lastUse + current.settings.expiryMinutes * 60000;
     const slots = current.records.filter((x) => !x.conversationId && x.state !== 'removed').length;
-    if (!expired && (current.settings.refill !== 'auto' || slots >= current.settings.capacity))
+    const obsoleteReady = current.records.some(
+      (r) => !r.conversationId && r.state === 'ready' && r.scope !== this.adapter.scope,
+    );
+    if (
+      !expired &&
+      (current.settings.refill !== 'auto' || (slots >= current.settings.capacity && !obsoleteReady))
+    )
       return;
     const s = this.reserve();
     try {
