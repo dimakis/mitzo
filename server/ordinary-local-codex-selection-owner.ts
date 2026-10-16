@@ -55,9 +55,12 @@ export class OrdinaryLocalCodexSelectionOwner {
       this.owners.operator.assertCurrent();
       const expected = structuredClone(input),
         reservation = this.#reservation;
-      assertAgentToolRoute(expected.agentProfile?.definition, 'not-enrolled');
       const identity = { ...expected, agentContext: undefined };
       if (this.#snapshot && !isDeepStrictEqual(identity, this.#snapshot)) throw unavailable();
+      assertAgentToolRoute(
+        expected.agentProfile?.definition,
+        this.owners.responses ? 'local-api' : this.owners.vertex ? 'claude-sdk' : 'codex',
+      );
       assertOrdinaryCodexContextIdentity(
         expected.agentProfile,
         expected.selection,

@@ -1,3 +1,4 @@
+import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
   SdkHookLifetime,
@@ -1356,14 +1357,26 @@ async function _startChatInner(
         options.contributorGuidance,
       ),
     };
+    const toolRoute =
+      accountBinding?.provider === 'openai-codex'
+        ? 'codex'
+        : accountBinding?.provider === 'openai' &&
+            openShellAvailable &&
+            process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'
+          ? 'openshell'
+          : ['openai', 'google-vertex'].includes(accountBinding?.provider ?? '')
+            ? 'local-api'
+            : 'claude-sdk';
     if (options.agentProfile || storedMeta?.agentProfile)
       agentProfile = await resolveChatAgentProfile({
         requested: options.agentProfile,
         stored: storedMeta?.agentProfile,
         resume: !!options.resume,
         provider: accountBinding?.provider,
+        toolRoute,
         lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
       });
+    assertAgentToolRoute(agentProfile?.definition, toolRoute);
     // Reject unsupported context before credential preflight, workspace creation,
     // or snapshot persistence. Host Responses and SDK routes retain pack support.
     if (
@@ -1868,6 +1881,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  bindAgentToolSelection(session, agentProfile?.definition);
   if (options.contributorGuidance !== undefined && session.sessionId)
     saveOrdinaryContributorGuidance(
       eventStore,
@@ -2282,6 +2296,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
       q = await openResponsesChat({
+        agentProfile,
         resume: !!options.resume,
         conversationId,
         binding: accountBinding!,
@@ -6290,6 +6305,7 @@ export async function startOwnedLocalResponsesCommand(
       const env = nativeExecutionEnv();
       env.MITZO_SESSION_ID = sessionId;
       query = await openResponsesChat({
+        agentProfile: selected.expected.agentProfile,
         commandAuthority: owner,
         assertStartupCurrent: () => owner.assertSetupSync(selected.commandId),
         store: native,
