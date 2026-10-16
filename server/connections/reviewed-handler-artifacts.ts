@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.187';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.188';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Authorized ordinary visible source and exact inline output access.
+  '../collaboration-context-source.ts':
+    '5feb8135ccfd6d578ec5f9ac873bd7c260322d49f30d831147be29df3f084262',
+  '../../packages/protocol/src/collaboration-visible-source.ts':
+    '7ab77056d9c3520007d67015a145583562fb4a9baac941ded29c2216b29e20fc',
+
   // Recoverable tool validation and confirmed Telos creation receipts.
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',
   '../telos-tool.ts': 'ee590c58cc5417c5ddc8e250c64c58c311b6bad90a008da264b9443f73fe2359',
@@ -568,7 +574,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    'dc8723f5f873242ef92566394477d11ec2474ee31c2df8c8039c3b8d9977d30d',
+    '69c7f9f285a6a8f666c9cb65d92064a8025a2b3ed2869d503784970b80ce277c',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':

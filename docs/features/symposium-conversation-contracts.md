@@ -84,9 +84,22 @@ Historical reference-only snapshots remain readable; they do not become byte
 delivery proof. A review copy is not an independently registered durable artifact,
 retention policy or permission to share it later.
 
+The source capability in `server/collaboration-context-source.ts` now composes
+EventStore's bounded ordinary visible-text reader with the existing session access
+and registered inline-output owners. It preserves exact user/completed-assistant
+message and block identities, independently witnesses the complete frozen prefix,
+refuses unfinished/ambiguous turns and overflow, and checks source access again at
+the final fence. It excludes provider history, reasoning, tool I/O and native seat
+streams. Supported artifacts are authorized registered inline outputs at revision
+1 in that source conversation, copied only after exact source/hash checks. Other
+artifact kinds and shared collaboration projection sources remain unavailable.
+Later transcript appends do not change a pinned prefix; loss of access or changed
+source bytes refuses it. Narrow and brief-only review need not load a long prefix.
+
 The compiler's source and capacity ports are **not installed in the application**.
-The source owner must supply an independently witnessed visible prefix, exclude
-private provider history and verify the requested boundary before pagination.
+The new source capability is host-only and requires a live operator/session
+authorization callback from its eventual application owner. No review route or
+ordinary execution is enabled by this adapter.
 An ordinary adapter must measure its actual serialized input and overhead; mocked
 counts in tests do not qualify any provider/account/runtime. Public review, join
 and send stay disabled. Orchestration must recover the original operation receipt
@@ -95,7 +108,7 @@ source/artifact delivery at its ordinary admission barrier. This bounded compile
 does not allocate sessions, dispatch turns, implement a source reader or establish
 ordinary preparation/delivery acknowledgement.
 
-The application source/access adapter and token estimator remain unwired.
+The application source/access composition and token estimator remain unwired.
 `saveSnapshot` is a host-only port; HTTP callers cannot supply source bytes,
 capacity claims or receipt outcomes. Slice 3 must authorize visible source material,
 prove complete Conversation so far selection at the boundary, check exact artifact
