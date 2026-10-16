@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import { TelosUserUploadInput, validateUserUpload } from './telos-user-upload.js';
 import { Router, json, type Request, type RequestHandler } from 'express';
 import { TelosArtifactStore, MAX_TELOS_ARTIFACT_BYTES } from './telos-artifact-store.js';
@@ -19,6 +20,15 @@ export function createTelosArtifactRouter(options: {
   readFile(sessionId: string, path: string): Promise<{ path: string; bytes: Buffer }>;
 }) {
   const router = Router();
+  const documentId = z.string().regex(/^[a-f0-9]{32}$/);
+  const documentRevision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+  const editDocumentInput = z
+    .object({
+      expectedRevision: documentRevision,
+      content: z.string().max(MAX_TELOS_ARTIFACT_BYTES),
+      requestId: z.string().min(1).max(200),
+    })
+    .strict();
   const errorStatus = (error: unknown) => {
     if (error instanceof Error && 'status' in error && typeof error.status === 'number')
       return error.status;
@@ -35,6 +45,74 @@ export function createTelosArtifactRouter(options: {
     if (error instanceof Error && error.message === 'Artifact exceeds 5 MB') return 413;
     return 503;
   };
+  router.get('/api/telos/artifacts/:id/document', (req, res) => {
+    const id = documentId.safeParse(req.params.id);
+    const revision =
+      req.query.revision === undefined
+        ? undefined
+        : documentRevision.safeParse(
+            typeof req.query.revision === 'string' ? Number(req.query.revision) : NaN,
+          );
+    if (!id.success || (revision && !revision.success)) {
+      res.status(400).json({ error: 'Invalid artifact reference' });
+      return;
+    }
+    let store: TelosArtifactStore | undefined;
+    try {
+      store = new TelosArtifactStore(options.dbPath());
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.json(store.document(id.data, revision?.data));
+    } catch (error) {
+      res.status(errorStatus(error)).json({ error: 'Telos document unavailable' });
+    } finally {
+      store?.close();
+    }
+  });
+  router.put(
+    '/api/telos/artifacts/:id/document',
+    options.operatorAuth ??
+      ((_req, res) => {
+        res.status(403).json({ error: 'Interactive operator authentication is required' });
+      }),
+    (req, res) => {
+      const operatorId = res.locals.authSession?.id;
+      if (typeof operatorId !== 'string' || !operatorId) {
+        res.status(403).json({ error: 'Interactive operator authentication is required' });
+        return;
+      }
+      const id = documentId.safeParse(req.params.id);
+      const input = editDocumentInput.safeParse(req.body);
+      if (!id.success || !input.success) {
+        res.status(400).json({ error: 'Invalid document edit' });
+        return;
+      }
+      if (Buffer.byteLength(input.data.content) > MAX_TELOS_ARTIFACT_BYTES) {
+        res.status(413).json({ error: 'Artifact exceeds 5 MB' });
+        return;
+      }
+      let store: TelosArtifactStore | undefined;
+      try {
+        store = new TelosArtifactStore(options.dbPath());
+        const artifact = store.editDocument({ ...input.data, id: id.data, operatorId });
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.json({ ok: true, artifact });
+      } catch (error) {
+        const status = errorStatus(error);
+        res
+          .status(status)
+          .json({
+            error:
+              status === 503
+                ? 'Save unavailable; your draft is preserved'
+                : error instanceof Error
+                  ? error.message
+                  : 'Save failed',
+          });
+      } finally {
+        store?.close();
+      }
+    },
+  );
   for (const operation of ['save', 'find', 'read'] as const) {
     router.post(`/api/internal/telos/artifacts/${operation}`, async (req, res) => {
       if (!options.verifyInternal(req)) {
