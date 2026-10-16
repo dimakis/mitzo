@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.225';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.229';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -342,7 +342,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
     'f9237e6f3bd200722044be249bedd48ff5ccbdabf68f92e4775901092493d8e6',
-  '../codex-mcp-tools.ts': '0972be39f147a6e1ab00235796422a9a4680027c89eb39ec3067a841ac0812a5',
+  '../codex-mcp-tools.ts': '0ccedcc1e2f97646d63212dfc06a7d0e0a488ecfff4feff5382a72548a87b8a8',
   '../codex-runtime-diagnostics.ts':
     '80730e66ff8aa543acfb4ce035c7cf2fbe936172498d3b8ed0d868143bee4513',
   'capabilities/approval.ts': '25c074b3091e67b0c3faba822e8e2c00ff32a34416fe0b37cb4f202d040d0320',
