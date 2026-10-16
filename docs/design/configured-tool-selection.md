@@ -54,3 +54,10 @@ library only; removal, schema/config changes, disablement and replacement refuse
 old references. No active-session tool refresh is enrolled: new session required.
 Cold resume must match both private admitted definitions and source/tool/revision
 receipts, and recheck current authority. Revocation blocks an awaited approved call.
+
+Discovery uses the trusted discovery workspace directly and refuses inherited
+per-source directory overrides before starting a process. Admitted execution
+uses the exact private directory retained by that receipt. Configured source/tool
+tuples determine discovery wires as well as portable identity, so labels containing
+delimiters cannot collide. Cancellation retains and awaits one shared peer shutdown
+promise; the refresh and retained owner cannot settle ahead of real peer cleanup.

@@ -80,11 +80,13 @@ export async function connectCodexMcpTools(
     descriptor: Input;
   }[] = [];
   let closed = false;
-  const close = async () => {
-    if (closed) return;
+  let shutdown: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    if (shutdown) return shutdown;
     closed = true;
     options.signal.removeEventListener('abort', onAbort);
-    await Promise.allSettled(peers.map((p) => p.close()));
+    shutdown = Promise.allSettled(peers.map(async (peer) => peer.close())).then(() => {});
+    return shutdown;
   };
   const onAbort = () => {
     void close();

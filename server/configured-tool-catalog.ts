@@ -7,7 +7,7 @@ import { connectCodexMcpTools, type McpToolsOptions } from './codex-mcp-tools.js
 import type { McpServerConfig } from './mcp-config.js';
 
 type Sources = Record<string, McpServerConfig>;
-export interface ConfiguredCatalogOptions extends McpToolsOptions {
+export interface ConfiguredCatalogOptions extends Omit<McpToolsOptions, 'cwdForSource'> {
   /** Server-owned configuration getter: never supplied by the picker or profile. */
   readSources(): Sources;
   assertRuntimeCurrent: () => void;
@@ -119,6 +119,8 @@ export class ConfiguredToolCatalog {
   }
   async refresh(options: ConfiguredCatalogOptions): Promise<ConfiguredToolCatalogEntry[]> {
     if (!options.assertRuntimeCurrent) throw Error('Discovery requires runtime custody authority');
+    if ('cwdForSource' in options && options.cwdForSource !== undefined)
+      throw Error('Per-source discovery directory overrides are unsupported');
     const generation = ++this.generation;
     const sources = structuredClone(eligible(options.readSources()));
     const initial = hash(sources);
