@@ -3032,6 +3032,16 @@ it('uses the already verified owned client locally regardless of global OpenShel
       reasoningEffort: null,
     });
     (config.onProviderDispatch as (id: string) => void)('owned-command');
+    const source = {
+      commandId: 'owned-command',
+      messageId: 'visible-owned-reply',
+      providerThreadId: 'private-owned-thread',
+      providerTurnId: 'private-owned-turn',
+    };
+    (config.onProviderMessageSource as (source: unknown) => void)(source);
+    expect(
+      f.eventStore.getOrdinaryReplySourceEvents('owned-session', 'visible-owned-reply'),
+    ).toEqual([{ version: 1, ...source }]);
     expect(() => (config.onProviderDispatch as (id: string) => void)('owned-command')).toThrow(
       'Owned local Codex chat unavailable',
     );
