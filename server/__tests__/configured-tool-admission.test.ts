@@ -179,6 +179,11 @@ it.each(['openai', 'google-vertex'] as const)(
       await catalog.refresh(options);
       expect(catalog.list().some((row) => row.name === 'added')).toBe(true);
       expect(runtime.tools).toHaveLength(2);
+      const mutableSources = configs as Record<string, typeof configs.one>;
+      mutableSources.renamed = configs.one;
+      delete mutableSources.one;
+      await catalog.refresh(options);
+      expect(catalog.list().find((tool) => tool.id === ref.id)?.version).toBe(ref.version);
       const later = library.saveDraft('user', {
         profileId: draft.profileId,
         expectedVersion: 0,
@@ -229,6 +234,13 @@ it.each(['openai', 'google-vertex'] as const)(
       schema = { type: 'object', properties: { changed: { type: 'string' } } };
       await catalog.refresh(options);
       await expect(open(true)).rejects.toThrow(/changed|unavailable/);
+      expect(
+        await runtime.executeTool({ id: 'changed', name: wire, input: {} }, options.signal),
+      ).toMatchObject({ is_error: true });
+      names.splice(0, names.length, 'unselected');
+      await catalog.refresh(options);
+      await expect(open(true)).rejects.toThrow(/changed|unavailable/);
+      expect(peers['fake-one']).toHaveBeenCalledOnce();
       expect(events.getSession('selected')!.agentProfile).toEqual(published);
       expect(peers['fake-two']).not.toHaveBeenCalled();
     } finally {
