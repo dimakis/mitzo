@@ -154,7 +154,10 @@ export function useFileEditor(
       setReviewing(false);
     }
   }
-  function resolveConflict(replaceDraft: boolean, onLatest?: (content: string) => void) {
+  function resolveConflict(
+    replaceDraft: boolean,
+    onLatest?: (content: string, path?: string) => void,
+  ) {
     if (inFlight.current || latestContent === null) return;
     const next = replaceDraft ? latestContent : editContent;
     setBase(latestContent);
@@ -165,7 +168,9 @@ export function useFileEditor(
     setPosition(0);
     setHistoryResetKey((value) => value + 1);
     persist(next, latestContent, latestRevision);
-    onLatest?.(latestContent);
+    if (!telos) onLatest?.(latestContent);
+    else if (replaceDraft)
+      onLatest?.(latestContent, `${filePath.split('?')[0]}?revision=${latestRevision}`);
     setLatestContent(null);
     setError('');
   }

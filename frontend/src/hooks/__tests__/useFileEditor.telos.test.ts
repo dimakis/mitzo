@@ -146,3 +146,19 @@ it('saves on remote HTTP where randomUUID is unavailable', async () => {
   expect(result.current.error).toBe('');
   expect(result.current.dirty).toBe(false);
 });
+
+it.each([false, true])(
+  'keeps displayed bytes and revision aligned after conflict resolution (%s)',
+  async (replace) => {
+    const { result } = open();
+    act(() => result.current.startEditing());
+    act(() => result.current.handleEditChange('# Draft'));
+    vi.mocked(apiFetch).mockResolvedValue(response({ content: '# Latest', revision: 3 }));
+    await act(() => result.current.reviewLatest());
+    const latest = vi.fn();
+    act(() => result.current.resolveConflict(replace, latest));
+    if (replace)
+      expect(latest).toHaveBeenCalledWith('# Latest', path.replace('revision=1', 'revision=3'));
+    else expect(latest).not.toHaveBeenCalled();
+  },
+);
