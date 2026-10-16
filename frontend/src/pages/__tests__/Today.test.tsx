@@ -161,12 +161,12 @@ describe('Today', () => {
     });
     expect(screen.queryByRole('link', { name: 'Read briefing' })).toBeNull();
   });
-  it('resumes the same session and keeps tokens optional', async () => {
+  it('resumes the same session and keeps the display preference in Appearance', async () => {
     show();
     await act(async () => {});
     expect(screen.queryByText(/42k tokens/)).toBeNull();
-    fireEvent.click(screen.getByLabelText('Show session tokens on Today'));
-    expect(screen.getByText(/42k tokens/)).toBeTruthy();
+    expect(screen.queryByLabelText('Show session tokens on Today')).toBeNull();
+    expect(screen.getByText('Context unavailable')).toBeTruthy();
     expect(screen.getByRole('link', { name: /Resume investigation/ }).getAttribute('href')).toBe(
       '/chat/session-1',
     );

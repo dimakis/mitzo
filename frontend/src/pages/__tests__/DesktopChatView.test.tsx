@@ -418,10 +418,10 @@ describe('DesktopChatView', () => {
     expect(screen.getByTestId('command-center')).toBeTruthy();
   });
 
-  it('renders session panel in left slot', () => {
+  it('renders session panel in right slot', () => {
     renderWithRouter();
-    const left = screen.getByTestId('left');
-    expect(left.querySelector('[data-testid="session-panel"]')).toBeTruthy();
+    const right = screen.getByTestId('right');
+    expect(right.querySelector('[data-testid="session-panel"]')).toBeTruthy();
   });
 
   it('renders chat area and input in center slot', () => {
@@ -431,10 +431,10 @@ describe('DesktopChatView', () => {
     expect(center.querySelector('[data-testid="chat-input"]')).toBeTruthy();
   });
 
-  it('renders command center in right slot', () => {
+  it('renders command center in left slot', () => {
     renderWithRouter();
-    const right = screen.getByTestId('right');
-    expect(right.querySelector('[data-testid="command-center"]')).toBeTruthy();
+    const left = screen.getByTestId('left');
+    expect(left.querySelector('[data-testid="command-center"]')).toBeTruthy();
   });
 
   it('renders status bar', () => {

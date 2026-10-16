@@ -212,6 +212,6 @@ it('keeps the import list inside the scroll area and restores focus when closed'
   fireEvent.click(screen.getByRole('button', { name: 'Close import' }));
   expect(document.activeElement).toBe(options);
   expect(screen.getByLabelText('Current route').textContent).toBe('/');
-  fireEvent.click(screen.getByRole('button', { name: '+ New chat' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
   expect(screen.getByLabelText('Current route').textContent).toBe('/chat');
 });
