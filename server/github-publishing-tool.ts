@@ -3,6 +3,7 @@ import { realpathSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { toolInputError } from './tool-input-error.js';
 import { createLogger } from '@mitzo/harness';
 import { safeGithubSeedFailure, githubSeedFailureMessage } from './github-seeded-source.js';
 const publicationLog = createLogger('github-publication');
@@ -65,7 +66,10 @@ export const GithubPublishingFields = {
   repositoryPath: z.string().min(1).max(256),
   baseBranch: z.string().min(1).max(128),
   title: z.string().min(1).max(128),
-  body: z.string().max(512),
+  body: z
+    .string()
+    .max(512)
+    .describe('PR description, at most 512 characters; keep detailed evidence in committed files'),
   draft: z.boolean(),
 };
 const Input = z.object(GithubPublishingFields).strict();
@@ -102,7 +106,7 @@ export function createGithubPublishingTool(
       await assertRuntimeCurrent?.();
       signal.throwIfAborted();
       const parsed = Input.safeParse(input);
-      if (!parsed.success) return { content: 'Invalid GitHub publishing request', isError: true };
+      if (!parsed.success) return toolInputError('GitHub publishing request', Input, parsed.error);
       const conversationId = typeof conversation === 'function' ? conversation() : conversation;
       const owner = registry.findBySessionId(conversationId);
       const account = owner?.session.accountBinding;

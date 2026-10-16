@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toolInputError } from './tool-input-error.js';
 import type { ToolDefinition } from '@mitzo/harness';
 import { artifactFilename, MAX_TELOS_ARTIFACT_BYTES } from './telos-artifact-store.js';
 import type { TelosToolResult } from './telos-tool.js';
@@ -38,7 +39,8 @@ export const TelosSaveArtifactInput = z
   .refine(
     (input) => (input.path !== undefined) !== (input.content !== undefined),
     'Provide exactly one of path or content',
-  );
+  )
+  .describe('Provide exactly one of path or content.');
 export const telosFindArtifactsShape = {
   itemId: itemId.optional(),
   query: z.string().max(200).optional(),
@@ -116,7 +118,8 @@ export async function executeTelosArtifactTool(
   signal?: AbortSignal,
 ): Promise<TelosToolResult> {
   const parsed = telosArtifactSchemas[name].safeParse(input);
-  if (!parsed.success) return { content: 'Invalid Telos artifact input', isError: true };
+  if (!parsed.success)
+    return toolInputError('Telos artifact input', telosArtifactSchemas[name], parsed.error);
   const operation = {
     TelosSaveArtifact: 'save',
     TelosFindArtifacts: 'find',

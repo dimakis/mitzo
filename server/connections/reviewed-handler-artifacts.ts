@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.186';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.187';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Recoverable tool validation and confirmed Telos creation receipts.
+  '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',
+  '../telos-tool.ts': 'ee590c58cc5417c5ddc8e250c64c58c311b6bad90a008da264b9443f73fe2359',
   // Approved Agents presentation and retained native composer adaptation.
   '../../frontend/src/components/ConversationAgents.tsx':
     'bb48ebae21c28cd3536d5783a4e60586e007e755e92b6ad5f8c2892a91d01c5e',
@@ -124,7 +127,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Ordinary Telos item reads, atomic progress updates, tool exposure and approval tiers.
   '../telos-item-store.ts': '71e0414e15d24cf8c2856c14a739037024ba1657f2481dd2ede9634a25eee7f5',
   '../telos-item-routes.ts': 'b600aaad3c66f6221d526c6a16d11d61d99f761e640f4cc4d9c14bef84b12789',
-  '../telos-item-tools.ts': '24fe12678f81c370965d1be0c5855555cfacfd6c841c2ccfe9b8601cd7b44b8d',
+  '../telos-item-tools.ts': '6338abf7d20c0a7ee4f68de4c85e49a75acb8a76545822fba14246d86efe6abf',
   '../telos-mcp-server.ts': '4135db640e0a8f498acc120e22f9962ff6ff54734e5096d228597096ea62ca9b',
   '../../packages/harness/src/tool-tiers.ts':
     'f20dac35032adb67b331d54b3f412bdf6b925b5b19b7990ae383b3fbe4eaaf3a',
@@ -508,7 +511,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '434d2c56164bc372b9168fba26acb806f509a759eb2f8c24ba8eaff5c8c9f5f8',
   '../github-host-source.ts': '2720dd0fedf081780ebd64a485164ec5abc6dee7920de925d35e3e6aa647e084',
   '../github-publishing-tool.ts':
-    '82e8d7c216faab711a5c3dd55625a441cfce22a2d1801cb050b32d55df23ef4f',
+    '41d7b35a2306efb9709b53e08deae3971c549101e46d92dd604390018f19c82f',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
@@ -592,7 +595,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Batched knowledge admission preserves verification and retention under the lifecycle fence.
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
   '../openshell-runtime.ts': 'cc78a6d8bee46936bf4d5d5679a61ace24b9b94d2361150accfd4e654a869bc7',
-  '../codex-chat-session.ts': 'fd3189ecbaeddda8a5eaa0156409c6d8efd449d0dc0786979a765c7f456d9d2f',
+  '../codex-chat-session.ts': '9d51f04e1fd59e4101e57f62214a866c43a035500d5bab4f8f67e9d50a96efea',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -662,7 +665,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-seat-prompt.ts': '1f29774555808c5db22e0458f9767c2b498e99430dbd13da6ab94e607291bf4f',
   '../symposium-session-runtime.ts':
     'c60fc54ab05cd6fbcdbf1f549ac59664df9684df31d8a426e1441afce7fec788',
-  '../telos-artifact-tools.ts': 'f9a7d2f13e735d576382fe0e7f04082f2d1a39e90b7b47870025e7c76ceb63fa',
+  '../telos-artifact-tools.ts': '66400ed107aaf030de5cfade45a87428d883e7a6897a7acd7ff8c959f3a16179',
   '../symposium-agent-context-authorization.ts':
     '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',
   // Ordinary Codex continuation, persistent login revocation and physical custody.
