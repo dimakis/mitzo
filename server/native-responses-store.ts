@@ -7,7 +7,7 @@ import {
 } from '@mitzo/protocol';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
-import type { ConversationMessage, ResponsesCheckpoint } from '@mitzo/harness';
+import type { ConversationMessage, ResponsesCheckpoint, ToolDefinition } from '@mitzo/harness';
 
 export const OrdinaryResponsesCustodySchema = z
   .strictObject({
@@ -74,6 +74,42 @@ export class NativeResponsesStore {
       this.db.exec('ALTER TABLE native_responses ADD COLUMN custody TEXT');
     if (!columns.some((column) => column.name === 'ordinary_queue'))
       this.db.exec('ALTER TABLE native_responses ADD COLUMN ordinary_queue TEXT');
+  }
+  /** Exact admitted definitions survive restart. Drift refuses resume rather than replacing tools. */
+  bindAgentTools(
+    id: string,
+    binding: AccountBinding,
+    input: { profileHash: string; tools: ToolDefinition[] },
+    resume: boolean,
+  ): void {
+    if (
+      !/^[a-f0-9]{64}$/.test(input.profileHash) ||
+      Buffer.byteLength(JSON.stringify(input)) > 1048576
+    )
+      throw Error('Agent tool snapshot is invalid');
+    this.db.exec(
+      'CREATE TABLE IF NOT EXISTS agent_tool_snapshots (conversation_id TEXT PRIMARY KEY, binding TEXT NOT NULL, snapshot TEXT NOT NULL)',
+    );
+    this.db
+      .transaction(() => {
+        const row = this.db
+          .prepare('SELECT binding,snapshot FROM agent_tool_snapshots WHERE conversation_id=?')
+          .get(id) as { binding: string; snapshot: string } | undefined;
+        if (row) {
+          if (row.binding !== this.bindingKey(binding))
+            throw Error('Agent tool snapshot binding changed');
+          if (!isDeepStrictEqual(JSON.parse(row.snapshot), input))
+            throw Error('Agent tool catalog changed; start a new chat');
+        } else {
+          if (resume) throw Error('Admitted agent tool snapshot unavailable; start a new chat');
+          this.db
+            .prepare(
+              'INSERT INTO agent_tool_snapshots(conversation_id,binding,snapshot) VALUES (?,?,?)',
+            )
+            .run(id, this.bindingKey(binding), JSON.stringify(input));
+        }
+      })
+      .immediate();
   }
   readOrdinaryCustody(
     conversationId: string,

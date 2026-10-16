@@ -1,3 +1,4 @@
+import { useSessionInteraction, type SessionActionPoint } from '../hooks/useSessionInteraction';
 import { UiIcon, type UiIconName } from './UiIcon';
 import { sessionStatusIcons } from '../lib/status-icons';
 import { useCallback } from 'react';
@@ -32,11 +33,17 @@ function ActivityCard({
   activity,
   isActive,
   onTap,
+  onActions,
 }: {
   activity: SessionActivity;
   isActive: boolean;
   onTap: (sessionId: string) => void;
+  onActions?: (activity: SessionActivity, trigger: HTMLElement, point?: SessionActionPoint) => void;
 }) {
+  const handlers = useSessionInteraction(
+    () => onTap(activity.sessionId),
+    (trigger, point) => onActions?.(activity, trigger, point),
+  );
   const config = STATE_CONFIG[activity.state];
   const elapsed = Date.now() - activity.lastEventAt;
 
@@ -52,15 +59,13 @@ function ActivityCard({
   return (
     <button
       className={`cc-card cc-card--${activity.state}${isActive ? ' cc-card--current' : ''}`}
-      onClick={() => onTap(activity.sessionId)}
+      {...(onActions ? handlers : { onClick: () => onTap(activity.sessionId) })}
     >
       <span className="cc-card-icon" style={{ color: config.color }}>
         <UiIcon name={config.icon} />
       </span>
       <div className="cc-card-content">
-        <div className="cc-card-title">
-          {activity.repo && <span className="cc-card-repo">{activity.repo}:</span>} {activity.title}
-        </div>
+        <div className="cc-card-title">{activity.title}</div>
         <div className="cc-card-meta">{metaText}</div>
       </div>
     </button>
@@ -70,9 +75,14 @@ function ActivityCard({
 export interface ActiveSessionsListProps {
   activeSessionId?: string;
   onSelectSession: (id: string) => void;
+  onActions?: (activity: SessionActivity, trigger: HTMLElement, point?: SessionActionPoint) => void;
 }
 
-export function ActiveSessionsList({ activeSessionId, onSelectSession }: ActiveSessionsListProps) {
+export function ActiveSessionsList({
+  activeSessionId,
+  onSelectSession,
+  onActions,
+}: ActiveSessionsListProps) {
   const { activities, attendCount } = useSessionOverview();
 
   const visible = activities.filter((a) => a.state !== 'idle' && a.state !== 'init');
@@ -101,6 +111,7 @@ export function ActiveSessionsList({ activeSessionId, onSelectSession }: ActiveS
           activity={a}
           isActive={a.sessionId === activeSessionId}
           onTap={handleTap}
+          onActions={onActions}
         />
       ))}
     </div>

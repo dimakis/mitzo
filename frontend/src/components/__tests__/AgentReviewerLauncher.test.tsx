@@ -32,3 +32,21 @@ it('carries the chosen profile revision into an existing conversation without cr
   expect(url.searchParams.get('reviewerRevision')).toBe('3');
   expect(vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method)).toBe(true);
 });
+
+it('keeps an incompatible tool-selected profile out of reviewer setup without fetching sessions', () => {
+  render(
+    <MemoryRouter>
+      <AgentReviewerLauncher
+        selection={{ profileId: 'limited', revision: 1 }}
+        unsupportedReason="Reviewer sessions do not yet support explicit tool selections."
+      />
+    </MemoryRouter>,
+  );
+  const button = screen.getByRole('button', { name: 'Use as reviewer' }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  expect(
+    screen.getByText('Reviewer sessions do not yet support explicit tool selections.'),
+  ).toBeTruthy();
+  fireEvent.click(button);
+  expect(apiFetch).not.toHaveBeenCalled();
+});

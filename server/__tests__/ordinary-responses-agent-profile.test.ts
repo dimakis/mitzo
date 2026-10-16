@@ -43,3 +43,32 @@ it('projects builtin/plain eligibility but refuses runtime context independently
     ),
   ).toEqual(builtin);
 });
+
+it('projects explicit tool selection only for enrolled local API routes', () => {
+  const builtin = responsesBuiltinAgentProfile();
+  const selected = {
+    ...builtin,
+    kind: undefined,
+    profileId: 'limited',
+    definition: { ...builtin.definition, tools: [] },
+  };
+  expect(
+    ordinaryCodexAgentProfileRouteProjection([selected], 'openai-codex', 'local')
+      .agentProfileRejections[0]?.reason,
+  ).toBe('tool_selection_unavailable');
+  expect(
+    ordinaryCodexAgentProfileRouteProjection([selected], 'openai', 'openshell')
+      .agentProfileRejections[0]?.reason,
+  ).toBe('tool_selection_unavailable');
+  expect(
+    ordinaryCodexAgentProfileRouteProjection([selected], 'openai', 'local', undefined, {
+      contextRecipes: 'none',
+      toolSelection: true,
+    }).agentProfiles,
+  ).toHaveLength(1);
+  expect(
+    ordinaryCodexAgentProfileRouteProjection([selected], 'anthropic-vertex', 'local', undefined, {
+      contextRecipes: 'none',
+    }).agentProfileRejections[0]?.reason,
+  ).toBe('tool_selection_unavailable');
+});

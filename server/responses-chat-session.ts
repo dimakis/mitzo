@@ -1,4 +1,11 @@
-import { assertAgentToolRoute } from './agent-tool-selection.js';
+import {
+  assertAgentToolAvailability,
+  assertAgentToolRoute,
+  bindAgentToolSelection,
+  hasAgentToolSelection,
+  filterAgentTools,
+  agentToolAllowed,
+} from './agent-tool-selection.js';
 import {
   sessionCredentialTools,
   CONNECTION_TOOL_INSTRUCTIONS,
@@ -108,6 +115,7 @@ export function getNativeResponsesStore() {
   return privateStore;
 }
 interface Options {
+  agentProfile?: AgentLibraryVersion;
   commandAuthority?: ResponsesCommandAuthority;
   /** Server-owned initial/retained command fence before the first active turn exists. */
   assertStartupCurrent?: () => void;
@@ -136,7 +144,6 @@ interface Options {
   mcpServers: Record<string, McpServerConfig>;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   store?: NativeResponsesStore;
-  agentProfile?: AgentLibraryVersion;
   agentContext?: AgentContextSnapshot;
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
   onAgentContextAccepted?: (
@@ -148,11 +155,12 @@ interface Options {
 }
 /** API execution uses the shared interaction policy and a private continuation store. */
 export async function openResponsesChat(options: Options) {
-  assertAgentToolRoute(
-    (options.agentProfile ?? options.eventStore?.getSession(options.conversationId)?.agentProfile)
-      ?.definition,
-    'not-enrolled',
-  );
+  const agentProfile =
+    options.agentProfile ?? options.eventStore?.getSession(options.conversationId)?.agentProfile;
+  assertAgentToolRoute(agentProfile?.definition, 'local-api');
+  assertAgentToolAvailability(agentProfile?.definition, options.conversationId);
+  if (agentProfile) bindAgentToolSelection(options.session, agentProfile.definition);
+
   let initializing = true;
   let publishingTurnId: string = randomUUID();
   const assertRuntimeCurrent = options.commandAuthority
@@ -187,7 +195,10 @@ export async function openResponsesChat(options: Options) {
     options.conversationId,
     options.env,
     {
-      trustProjectHooks: !options.commandAuthority && process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
+      trustProjectHooks:
+        !hasAgentToolSelection(options.session) &&
+        !options.commandAuthority &&
+        process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
     },
   );
   let startup;
@@ -201,12 +212,15 @@ export async function openResponsesChat(options: Options) {
     dispose();
     throw error;
   }
-  const mcp = await connectCodexMcpTools(options.mcpServers, {
-    cwd: options.session.cwd!,
-    env: options.env,
-    signal,
-    assertRuntimeCurrent: assertMcpCurrent,
-  }).catch((error) => {
+  const mcp = await connectCodexMcpTools(
+    hasAgentToolSelection(options.session) ? {} : options.mcpServers,
+    {
+      cwd: options.session.cwd!,
+      env: options.env,
+      signal,
+      assertRuntimeCurrent: assertMcpCurrent,
+    },
+  ).catch((error) => {
     dispose();
     throw error;
   });
@@ -229,6 +243,31 @@ export async function openResponsesChat(options: Options) {
     WEB_ACCESS_INSTRUCTIONS +
     GITHUB_PUBLISHING_INSTRUCTIONS +
     (startup.context ? `\n\n${startup.context}` : '');
+  const definitions = structuredClone(
+    filterAgentTools(options.session, [
+      ...connectionTools.definitions,
+      ...nativeToolDefinitions,
+      ...mcp.definitions,
+      webAccessDefinition,
+      githubPublishingDefinition,
+    ]),
+  );
+  if (agentProfile?.definition.tools !== undefined) {
+    try {
+      privateStorage.bindAgentTools(
+        options.conversationId,
+        options.binding,
+        { profileHash: agentProfile.contentHash, tools: definitions },
+        !!options.resume,
+      );
+    } catch (error) {
+      githubPublishing.close();
+      dispose();
+      await mcp.close();
+      throw error;
+    }
+  }
+  const admittedNames = new Set(definitions.map((tool) => tool.name));
   const runner = new NativeResponsesRunner({
     commandAuthority: options.commandAuthority,
     conversationId: options.conversationId,
@@ -242,14 +281,19 @@ export async function openResponsesChat(options: Options) {
     maxTokens: 8192,
     selectedModel: options.selectedModel,
     reasoningEffort: options.reasoningEffort ?? undefined,
-    tools: [
-      ...connectionTools.definitions,
-      ...nativeToolDefinitions,
-      ...mcp.definitions,
-      webAccessDefinition,
-      githubPublishingDefinition,
-    ],
+    tools: definitions,
     executeTool: async (block, signal) => {
+      if (
+        hasAgentToolSelection(options.session) &&
+        (!admittedNames.has(block.name) || !agentToolAllowed(options.session, block.name))
+      )
+        return {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: 'Tool is not selected by this session’s published agent profile',
+          is_error: true,
+        };
+
       if (options.commandAuthority) await options.commandAuthority.assertEffect(publishingTurnId);
       const result = await hooks.executeTool(
         block.name,

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { fireEvent, screen } from '@testing-library/react';
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
@@ -140,13 +141,17 @@ describe('SessionList hash and tokens', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    const hash = container.querySelector('.session-item-hash');
-    expect(hash).not.toBeNull();
-    expect(hash!.textContent).toBe('abc123def456');
-    expect(hash!.closest('details')?.open).toBe(false);
+    HTMLDialogElement.prototype.showModal = function () {
+      this.open = true;
+    };
+    HTMLDialogElement.prototype.close = function () {
+      this.open = false;
+    };
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Test' }));
+    expect(screen.getByText('Session ID: abc123def456').closest('details')?.open).toBe(false);
   });
 
-  it('renders token count when totalTokens is present', async () => {
+  it('keeps cumulative tokens out of the conversation row', async () => {
     mockFetchResponses({
       '/api/sessions': [
         { id: 'abc123def456', summary: 'Test', lastModified: 1, totalTokens: 42500 },
@@ -160,8 +165,8 @@ describe('SessionList hash and tokens', () => {
     });
 
     const tokens = container.querySelector('.session-item-tokens');
-    expect(tokens).not.toBeNull();
-    expect(tokens!.textContent).toMatch(/43k/);
+    expect(tokens).toBeNull();
+    expect(screen.queryByText(/43k/)).toBeNull();
   });
 
   it('does not render token count when totalTokens is undefined', async () => {

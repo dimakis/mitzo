@@ -1,3 +1,4 @@
+import { removeConversationPins, renameConversationPin } from './useConversationPins';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '../types/chat';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
@@ -44,9 +45,9 @@ export interface UseSessionListReturn {
   hasMore: boolean;
   updateAvailable: boolean;
   checking: boolean;
-  dismissSession: (id: string) => void;
-  clearAll: () => void;
-  handleRename: (id: string, title: string) => void;
+  dismissSession: (id: string) => Promise<boolean>;
+  clearAll: () => Promise<boolean>;
+  handleRename: (id: string, title: string) => Promise<boolean>;
   checkForUpdates: () => Promise<void>;
   loadMore: () => void;
   retry: () => void;
@@ -175,30 +176,35 @@ export function useSessionList(): UseSessionListReturn {
   }, [loadingMore, hasMore]);
 
   const dismissSession = useCallback((id: string) => {
-    apiFetch(`/api/sessions/${id}`, { method: 'DELETE' })
+    return apiFetch(`/api/sessions/${id}`, { method: 'DELETE' })
       .then((response) => {
         if (response.ok) {
+          removeConversationPins(id);
           sessionCache.update((page) => ({
             ...page,
             sessions: page.sessions.filter((s) => s.id !== id),
           }));
           setSessions((prev) => prev.filter((s) => s.id !== id));
+          return true;
         }
+        return false;
       })
-      .catch(() => {});
+      .catch(() => false);
   }, []);
 
   const clearAll = useCallback(() => {
-    apiFetch('/api/sessions', { method: 'DELETE' })
+    return apiFetch('/api/sessions', { method: 'DELETE' })
       .then((response) => {
-        if (!response.ok) return;
+        if (!response.ok) return false;
+        removeConversationPins();
         sessionCache.clear();
         sessionCache.set(sessionsUrl, { sessions: [], hasMore: false });
         setSessions([]);
         setHasMore(false);
         nextOffset.current = 0;
+        return true;
       })
-      .catch(() => {});
+      .catch(() => false);
   }, []);
 
   const handleRename = useCallback(
@@ -208,10 +214,16 @@ export function useSessionList(): UseSessionListReturn {
         sessions: page.sessions.map((s) => (s.id === id ? { ...s, summary: title } : s)),
       }));
       setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, summary: title } : s)));
-      renameSessionApi(id, title).catch(() => {
-        sessionCache.invalidate();
-        void loadSessions();
-      });
+      return renameSessionApi(id, title)
+        .then(() => {
+          renameConversationPin(id, title);
+          return true;
+        })
+        .catch(() => {
+          sessionCache.invalidate();
+          void loadSessions();
+          return false;
+        });
     },
     [loadSessions],
   );

@@ -630,3 +630,14 @@ describe('design tokens', () => {
     }
   });
 });
+
+it('keeps session library scale references defined in shared tokens', () => {
+  const files = ['../session-library.css', '../../components/SessionPreview.css'];
+  for (const file of files) {
+    const source = readFileSync(resolve(__dirname, file), 'utf-8');
+    const scales = [...source.matchAll(/var\((--(?:space|text|radius)-[\w-]+)/g)].map(
+      (match) => match[1],
+    );
+    expect(scales.filter((name) => !ownedTokens.has(name))).toEqual([]);
+  }
+});

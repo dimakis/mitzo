@@ -415,3 +415,23 @@ it('retains the recovered server title after a rejected rename and remount', asy
   const restored = renderHook(() => useSessionList());
   expect(restored.result.current.sessions[0].summary).toBe('Original');
 });
+
+it.each([true, false])(
+  'removes a deleted conversation pin only after a successful deletion (%s)',
+  async (ok) => {
+    localStorage.setItem(
+      'mitzo-conversation-pins',
+      JSON.stringify([{ id: 'a', summary: 'A', lastModified: 1 }]),
+    );
+    vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+      Response.json(init?.method === 'DELETE' ? {} : [], {
+        status: init?.method === 'DELETE' && !ok ? 503 : 200,
+      }),
+    );
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => result.current.dismissSession('a'));
+    expect(JSON.parse(localStorage.getItem('mitzo-conversation-pins')!)).toHaveLength(ok ? 0 : 1);
+    localStorage.removeItem('mitzo-conversation-pins');
+  },
+);

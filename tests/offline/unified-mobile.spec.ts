@@ -1309,7 +1309,7 @@ test('Settings previews and persists every accent and font across navigation and
     await page
       .locator('.workspace-primary')
       .first()
-      .evaluate((element) => getComputedStyle(element).backgroundColor),
+      .evaluate((element) => getComputedStyle(element).color),
   ).toBe(accent);
   expect(
     await page
