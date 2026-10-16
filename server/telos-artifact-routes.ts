@@ -25,7 +25,7 @@ export function createTelosArtifactRouter(options: {
   const editDocumentInput = z
     .object({
       expectedRevision: documentRevision,
-      content: z.string().max(MAX_TELOS_ARTIFACT_BYTES),
+      content: z.string(),
       requestId: z.string().min(1).max(200),
     })
     .strict();

@@ -114,6 +114,7 @@ it('requires an interactive operator and strictly validates revision, provenance
   ])
     expect((await save(input)).status).toBe(400);
   expect((await save({ content: 'é'.repeat(3 * 1024 * 1024) })).status).toBe(413);
+  expect((await save({ content: 'x'.repeat(5 * 1024 * 1024 + 1) })).status).toBe(413);
   expect((await request(app).get(`${url}?revision=bad`)).status).toBe(400);
   expect(
     (
