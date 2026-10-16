@@ -186,18 +186,49 @@ describe('FileViewer quiet controls', () => {
   });
 });
 
-it('shows a durable filename and keeps saved revisions read-only', () => {
+it('offers editing for a saved document and labels saving as a new revision', () => {
   const original = mocks.nav.state.filePath;
   Object.assign(mocks.nav.state, {
     filePath: '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=2',
     displayName: 'Brief.md',
+    artifactEditable: true,
+    artifactRevision: 2,
+  });
+  try {
+    const view = showViewer();
+    expect(screen.getByText('Brief.md')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(mocks.editor.startEditing).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'File options' })).toBeTruthy();
+    mocks.editor.editing = true;
+    mocks.editor.dirty = true;
+    view.rerender(
+      <MemoryRouter>
+        <FileViewer />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save new revision' }));
+    expect(mocks.editor.saveFile).toHaveBeenCalledWith(mocks.nav.setContent);
+  } finally {
+    Object.assign(mocks.nav.state, {
+      filePath: original,
+      displayName: undefined,
+      artifactEditable: undefined,
+      artifactRevision: undefined,
+    });
+  }
+});
+
+it('keeps unsupported saved files read-only', () => {
+  const original = mocks.nav.state.filePath;
+  Object.assign(mocks.nav.state, {
+    filePath: '/api/telos/artifacts/' + 'a'.repeat(32),
+    artifactEditable: false,
   });
   try {
     showViewer();
-    expect(screen.getByText('Brief.md')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'File options' })).toBeTruthy();
   } finally {
-    Object.assign(mocks.nav.state, { filePath: original, displayName: undefined });
+    Object.assign(mocks.nav.state, { filePath: original, artifactEditable: undefined });
   }
 });
