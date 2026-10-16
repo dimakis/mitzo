@@ -3,6 +3,7 @@ import {
   executeTelosCreateOutcome,
   telosCreateOutcomeDefinition,
   TELOS_CREATE_OUTCOME_TOOL,
+  formatTelosSourceResult,
 } from '../telos-tool.js';
 
 const input = {
@@ -13,10 +14,62 @@ const input = {
   milestones: ['Expose the trusted host tool'],
   profile: 'manual',
 };
+const approvalId = '00000000-0000-4000-8000-000000000001';
+const approvedInput = { ...input, __mitzoTelosApproval: approvalId };
+const sourceReceipt = {
+  canonicalCreation: {
+    ok: true as const,
+    created: true,
+    item: { id: 'telos-1', summary: input.summary },
+  },
+  permId: 'permission',
+  sessionId: 'planning',
+  sourceSnapshotId: 'source',
+  operation: { kind: 'create', outcome: input },
+  receipt: {
+    commandId: 'command',
+    actorId: 'operator:user',
+    work: {
+      itemId: 'telos-1',
+      kind: 'outcome',
+      parentId: null,
+      revision: 'a'.repeat(64),
+      links: [],
+      assignments: [],
+      sources: [],
+      attempts: [],
+    },
+  },
+};
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Telos host tool', () => {
+  it('preserves a real recovered created:false receipt and its delivery metadata instead of inferring creation', () => {
+    const canonicalCreation = {
+      ok: true as const,
+      created: false,
+      item: { id: 'telos-1', summary: input.summary },
+      delivery: { state: 'retained' },
+      recovery: { request: 'original' },
+    };
+    const result = formatTelosSourceResult({
+      ...sourceReceipt,
+      operation: { kind: 'create', outcome: input },
+      canonicalCreation,
+    });
+    const body = JSON.parse(result.content);
+    expect(body.created).toBe(false);
+    expect(body.canonicalCreation).toEqual(canonicalCreation);
+  });
+  it('refuses an execution without a host-injected reviewed source receipt before contacting the host', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    expect((await executeTelosCreateOutcome('http://host', 'client', 'token', input)).isError).toBe(
+      true,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('advertises live host delivery instead of sandbox-local scripts', () => {
     expect(telosCreateOutcomeDefinition.name).toBe(TELOS_CREATE_OUTCOME_TOOL);
     expect(telosCreateOutcomeDefinition.description).toContain('live Telos');
@@ -25,14 +78,10 @@ describe('Telos host tool', () => {
 
   it('sends the approved outcome through the authenticated host endpoint', async () => {
     const fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          ok: true,
-          created: true,
-          item: { id: 'telos-1', summary: input.summary },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify(sourceReceipt), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     vi.stubGlobal('fetch', fetch);
 
@@ -40,27 +89,33 @@ describe('Telos host tool', () => {
       'http://localhost:3100',
       'client-1',
       'secret',
-      input,
+      approvedInput,
     );
 
     expect(result).toEqual({
       content: JSON.stringify({
         created: true,
+        canonicalCreation: sourceReceipt.canonicalCreation,
         id: 'telos-1',
         title: input.summary,
         path: '/todos/telos-1',
+        sourceSnapshotId: 'source',
       }),
       isError: false,
     });
     expect(fetch).toHaveBeenCalledWith(
-      'http://localhost:3100/api/internal/telos/outcomes',
+      'http://localhost:3100/api/internal/telos/source/execute',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
           'X-Internal-Token': 'secret',
           'X-Client-Id': 'client-1',
         }),
-        body: JSON.stringify(input),
+        body: JSON.stringify({
+          approvalReceiptId: approvalId,
+          proposal: input,
+          operation: 'create',
+        }),
       }),
     );
   });
@@ -77,7 +132,7 @@ describe('Telos host tool', () => {
     );
 
     await expect(
-      executeTelosCreateOutcome('http://localhost:3100', 'client-1', 'secret', input),
+      executeTelosCreateOutcome('http://localhost:3100', 'client-1', 'secret', approvedInput),
     ).resolves.toEqual({ content: 'Todo service unavailable', isError: true });
   });
 
@@ -104,7 +159,7 @@ describe('Telos host tool', () => {
     async (body) => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body))));
       expect(
-        (await executeTelosCreateOutcome('http://host', 'client', 'token', input)).isError,
+        (await executeTelosCreateOutcome('http://host', 'client', 'token', approvedInput)).isError,
       ).toBe(true);
     },
   );

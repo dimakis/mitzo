@@ -580,6 +580,9 @@ export function ChatArea({
         <PermissionBanner
           key={permission.permId}
           permId={permission.permId}
+          sessionId={sessionId ?? permission.sessionId}
+          reviewKind={permission.reviewKind}
+          recoveryOnly={permission.recoveryOnly}
           questions={permission.questions}
           expiresAt={permission.expiresAt}
           toolName={permission.toolName}

@@ -53,7 +53,7 @@ export function createTelosConversationSource(options: {
     return saved;
   };
   return {
-    async openConversation(raw: unknown) {
+    async openConversation(raw: unknown, inspection = false) {
       const selection = CollaborationSnapshotSelectionSchema.parse(raw);
       const sessionId = selection.sourceConversationId;
       const wanted = new Set(selection.messageIds);
@@ -74,6 +74,7 @@ export function createTelosConversationSource(options: {
         const active = new Map<string, { messageId: string; blocks: Map<string, string> }>();
         const seen = new Set<string>();
         const references = new Map<number, Pin[]>();
+        const unavailable: Record<string, string> = {};
         let after = 0,
           found = boundary === 0 && selection.boundary.messageId === null,
           bytes = 0,
@@ -137,20 +138,28 @@ export function createTelosConversationSource(options: {
                 event.payload.images !== undefined &&
                 (!Array.isArray(event.payload.images) || event.payload.images.length > 0)
               )
-                throw new TelosWorkError(
-                  'invalid',
-                  'Select text messages and save inline images as retained materials before capturing.',
-                );
+                if (inspection)
+                  unavailable[id] =
+                    'Save inline images as retained materials before capturing this message.';
+                else
+                  throw new TelosWorkError(
+                    'invalid',
+                    'Select text messages and save inline images as retained materials before capturing.',
+                  );
               if (
                 (selection.mode === 'conversation_so_far' || wanted.has(id)) &&
                 event.payload.sourceSnapshots !== undefined &&
                 (!Array.isArray(event.payload.sourceSnapshots) ||
                   event.payload.sourceSnapshots.length > 0)
               )
-                throw new TelosWorkError(
-                  'invalid',
-                  'Select text messages and save attached source snapshots as retained materials before capturing.',
-                );
+                if (inspection)
+                  unavailable[id] =
+                    'Save attached source snapshots as retained materials before capturing this message.';
+                else
+                  throw new TelosWorkError(
+                    'invalid',
+                    'Select text messages and save attached source snapshots as retained materials before capturing.',
+                  );
               if (typeof event.payload.text !== 'string') refuse();
               textBytes += Buffer.byteLength(event.payload.text);
               if (textBytes > MAX_BYTES) refuse();
@@ -213,15 +222,16 @@ export function createTelosConversationSource(options: {
         }
         if (
           !found ||
-          (boundary > 0 &&
+          (!inspection &&
+            boundary > 0 &&
             !completed.some(
               (message) =>
                 message.sequence === boundary && message.messageId === selection.boundary.messageId,
             )) ||
-          [...wanted].some((id) => !seen.has(id))
+          (!inspection && [...wanted].some((id) => !seen.has(id)))
         )
           refuse();
-        return { messages: completed, attributions, references: [...references] };
+        return { messages: completed, attributions, references: [...references], unavailable };
       };
       const retained = read();
       const pinsFor = (messages: Message[]) => [
@@ -244,6 +254,8 @@ export function createTelosConversationSource(options: {
         sourceConversationId: sessionId,
         boundary: structuredClone(selection.boundary),
         attributions: structuredClone(retained.attributions),
+        unavailable: structuredClone(retained.unavailable),
+        publicMessages: structuredClone(retained.messages),
         async readPrefixWitness() {
           current();
           if (selection.mode !== 'conversation_so_far') refuse();

@@ -30,36 +30,31 @@ function fixture(sessionId: string | undefined = 'planning') {
       verifyInternal: (req) => req.headers['x-internal-token'] === 'fixture',
       sessionId: () => sessionId,
       availableSource: (id) => id === 'planning',
-      createOutcome: create,
-      recordOrigin: origin,
     }),
   );
   return { app, create, origin };
 }
-it('derives origin and canonical recovery identity from the actual registered session', async () => {
+it('does not let an internal tool token create an outcome without a retained reviewed source approval', async () => {
   const f = fixture();
   const res = await request(f.app)
     .post('/outcome')
     .set('X-Internal-Token', 'fixture')
-    .set('X-Client-Id', 'transport-not-a-session')
+    .set('X-Client-Id', 'client')
     .send(body);
-  expect(res.status).toBe(200);
-  expect(res.body).toEqual({
-    ok: true,
-    created: true,
-    item: { id: 'item', summary: 'Studio' },
-    delivery: { state: 'pending' },
-  });
-  expect(f.create).toHaveBeenCalledWith(
-    expect.objectContaining({
-      contextHints: expect.objectContaining({ sessionIds: ['planning'] }),
-      idempotencyKey: expect.stringMatching(/^planning:/),
-    }),
-  );
-  expect(f.origin).toHaveBeenCalledWith(
-    { itemId: 'item', idempotencyKey: f.create.mock.calls[0][0].idempotencyKey },
-    { kind: 'conversation', id: 'planning' },
-  );
+  expect(res.status).toBe(403);
+  expect(f.create).not.toHaveBeenCalled();
+  expect(f.origin).not.toHaveBeenCalled();
+});
+it('keeps the retired transport closed while preserving registered source attribution', async () => {
+  const f = fixture();
+  const response = await request(f.app)
+    .post('/outcome')
+    .set('X-Internal-Token', 'fixture')
+    .send(body);
+  expect(response.status).toBe(403);
+  expect(response.body.error).toContain('Reviewed original source');
+  expect(f.create).not.toHaveBeenCalled();
+  expect(f.origin).not.toHaveBeenCalled();
 });
 it('never substitutes a client ID or unknown-session for missing or unavailable session authority', async () => {
   for (const id of [undefined, 'hidden']) {
@@ -74,8 +69,6 @@ it('never substitutes a client ID or unknown-session for missing or unavailable 
           verifyInternal: () => true,
           sessionId: () => undefined,
           availableSource: () => true,
-          createOutcome: f.create,
-          recordOrigin: f.origin,
         }),
       );
     }
@@ -89,7 +82,7 @@ it('never substitutes a client ID or unknown-session for missing or unavailable 
     expect(f.origin).not.toHaveBeenCalled();
   }
 });
-it('authenticates before creating and returns a safe error for uncertain linking', async () => {
+it('authenticates before refusing the retired creation transport', async () => {
   const f = fixture();
   expect((await request(f.app).post('/outcome').send(body)).status).toBe(401);
   expect(f.create).not.toHaveBeenCalled();
@@ -97,6 +90,6 @@ it('authenticates before creating and returns a safe error for uncertain linking
     throw Error('/private/database/source-bytes');
   });
   const res = await request(f.app).post('/outcome').set('X-Internal-Token', 'fixture').send(body);
-  expect(res.status).toBe(503);
+  expect(res.status).toBe(403);
   expect(JSON.stringify(res.body)).not.toContain('/private');
 });

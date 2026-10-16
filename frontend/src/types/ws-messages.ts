@@ -111,6 +111,8 @@ interface SessionEndMsg {
 }
 
 interface PermissionRequestMsg {
+  reviewKind?: 'telos_source';
+  recoveryOnly?: true;
   sessionId?: string;
   questions?: import('@mitzo/protocol').UserQuestion[];
   expiresAt?: number;

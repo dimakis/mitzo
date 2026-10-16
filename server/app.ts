@@ -1,5 +1,4 @@
 import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
-import { TelosWorkStore } from './telos-work-store.js';
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import { sessionListMetadata } from './session-list-metadata.js';
@@ -303,7 +302,12 @@ import {
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { requestPerformance } from './request-performance.js';
 import { authenticationRoute } from './auth-route-boundary.js';
-import { resolvePending, getPendingRequestsBySession } from './permissions.js';
+import {
+  resolvePending,
+  getPendingRequestsBySession,
+  configureTelosSourcePermissionRecovery,
+} from './permissions.js';
+import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { createLogger } from './logger.js';
 import {
@@ -1960,6 +1964,8 @@ app.use(
 
 app.use(
   createTelosSourceRouter({
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
     dbPath: telosDatabasePath,
     events: eventStore,
     operatorAuth: operatorAuthMiddleware,
@@ -1981,6 +1987,7 @@ app.use(
       ),
   }),
 );
+configureTelosSourcePermissionRecovery(createTelosSourcePermissionRecovery(telosDatabasePath));
 
 app.use(
   createTelosArtifactRouter({
@@ -2025,31 +2032,6 @@ app.post(
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     availableSource: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
-    createOutcome: (input) =>
-      createCanonicalTelosOutcome(
-        {
-          script: TODO_SCRIPT,
-          timeoutMs: TODO_TIMEOUT_MS,
-          maxBufferBytes: TODO_MAX_BUFFER_BYTES,
-          execute: (command, args, options) =>
-            execFileAsync(command, args, {
-              ...options,
-              env: { ...process.env, TELOS_DB_PATH: telosDatabasePath() },
-            }),
-        },
-        input,
-      ),
-    recordOrigin: (input, actor) => {
-      const work = new TelosWorkStore(telosDatabasePath(), {
-        ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
-        sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
-      });
-      try {
-        work.recordCreatedOrigin(input, actor);
-      } finally {
-        work.close();
-      }
-    },
   }),
 );
 

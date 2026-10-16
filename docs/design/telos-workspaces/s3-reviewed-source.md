@@ -43,17 +43,50 @@ canonical response reuses that key and verifies the actual created item, brief,
 links and milestones before recording its ID. Artifact and work-command receipts
 recover partial/completed adoption. Changed input under an existing request ID
 is refused. Uncertain saves stay uncertain; saving never dispatches execution.
-The original legacy create tool also uses its real registered chat ID, refusing
-stale client bindings. It records a proven origin while leaving any unrecorded
-reviewed selection unknown. Internal tokens confer no operator source authority.
+Historical legacy creation origins remain retained with unknown reviewed
+selections where appropriate. The former internal creation endpoint now refuses
+new unreviewed writes. Internal tokens confer no operator source authority.
 
-These reviewed preview/create/adopt routes and typed client methods are an API
-foundation. The production frontend does not yet call `previewSource`,
-`previewOutcomeSource`, `createOutcomeFromSource` or `adoptSource`; the existing
-creation flows retain their current owners. The frontend integration below reads
-and opens already retained sources. API tests prove reviewed capture through real
-temporary stores, but they do not establish an approved end-user capture flow.
-That frontend caller and its ordinary-chat journey remain outstanding S3 work.
+## Reviewed ordinary-tool approval
+
+`TelosCreateOutcome` now uses the ordinary permission card to review its fixed
+host proposal and explicitly select completed public messages and exact retained
+material revisions. Selecting a message selects all its actual public text
+blocks; no source is preselected. The authenticated preview binds the complete
+proposal, actual conversation/boundary, selected content and hashes. The existing
+Once action submits that exact digest through the protected approval route.
+`TelosAdoptSource` applies the same review to one explicitly requested existing
+item, without changing progress, assigning a collaborator or starting a turn.
+
+The implemented provider paths are the existing native Codex OpenShell host tool
+and SDK/MCP tool. They retain actual provider invocation identity. A generic Once
+or Session permission response cannot bypass source review; concurrent duplicate
+registrations cannot replace the original card, resolver or deadline. New review
+and approval revalidate the complete live pending proof after awaited reads and
+immediately before retaining consent. Cancellation, expiry or a replaced proposal
+refuses the save without preparing an approval or mutating the canonical item.
+
+The approval store retains the exact operator/session/invocation/proposal-bound
+attempt and immutable preview before crossing the existing canonical creator.
+It observes and preserves the creator's actual full receipt, including `created`
+and delivery/recovery metadata. Replays return that original observation; they
+never infer a new creation from the requested operation. The original tool
+execution receives a host-injected opaque receipt and can only retrieve its exact
+saved result. Model-supplied receipt fields are rejected at the proposal gate.
+
+After an interrupted save or host restart, authenticated reconnect replay exposes
+only that operator's unconsumed prepared attempts for the actual conversation.
+The recovery card offers Retry same save and Dismiss. Recovery uses the original
+immutable packet and input; it grants no fresh selection or extended approval
+deadline. Dismiss hides the card while retaining uncertain canonical/outbox and
+receipt records. Internal receipt retrieval stops further recovery-card replay;
+it is distinct from provider delivery, a model turn or outcome completion.
+
+The frontend now calls the pending-permission review, preview and approval APIs
+inside the normal chat permission card. Offline actual-route/provider fixtures
+cover this integration through temporary owners. Full acceptance still requires
+the completed browser recovery evidence, accepted integration/review and CI;
+this document does not claim live runtime or whole-product UX qualification.
 
 ## Sources, Outputs and Links
 
@@ -102,6 +135,10 @@ canonical link loss, retry/restart, backup restore and zero execution allocation
 New creation refuses duplicate canonical references before review/creation.
 Attachment refusal tests cover both selected and full-prefix messages and verify
 that rejection creates no item, packet, relationship, assignment or allocation.
+Approval regressions also cover actual SDK permission-hook/MCP callback/internal
+route delivery, native invocation identity, full pending-proof replacement races,
+duplicate registration, canonical `created: false` recovery, original receipt
+metadata, fresh-host same-invocation recovery and operator-bound reconnect replay.
 Legacy DTO round trips and retained artifact revision checks remain in #977.
 
 The scoped browser fixture mounts the actual `TodoDetailView` and

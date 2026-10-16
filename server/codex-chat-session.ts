@@ -122,6 +122,10 @@ import {
 import {
   executeTelosCreateOutcome,
   telosCreateOutcomeDefinition,
+  telosAdoptSourceDefinition,
+  TelosAdoptSourceInput,
+  executeTelosAdoptSource,
+  TELOS_ADOPT_SOURCE_TOOL,
   TelosOutcomeInput,
   TELOS_CREATE_OUTCOME_TOOL,
 } from './telos-tool.js';
@@ -974,6 +978,7 @@ async function openCodexChatBound(
   const openShellHostTools = connectedOpenShell
     ? [
         telosCreateOutcomeDefinition,
+        telosAdoptSourceDefinition,
         ...telosItemDefinitions,
         ...telosArtifactDefinitions,
         ...integrationTools,
@@ -1986,36 +1991,58 @@ async function openCodexChatBound(
           signal,
         );
       }
-      if (connectedOpenShell && name === TELOS_CREATE_OUTCOME_TOOL) {
-        const parsed = TelosOutcomeInput.safeParse(input);
-        if (!parsed.success)
-          return toolInputError('Telos outcome input', TelosOutcomeInput, parsed.error);
+      if (
+        connectedOpenShell &&
+        (name === TELOS_CREATE_OUTCOME_TOOL || name === TELOS_ADOPT_SOURCE_TOOL)
+      ) {
+        if (!callContext?.turnId || !callContext.callId)
+          return {
+            content: 'Verified provider invocation identity required for reviewed Telos capture.',
+            isError: true,
+          };
+        const schema =
+          name === TELOS_CREATE_OUTCOME_TOOL ? TelosOutcomeInput : TelosAdoptSourceInput;
+        const parsed = schema.safeParse(input);
+        if (!parsed.success) return toolInputError('Telos source input', schema, parsed.error);
         const owner = options.registry.findBySessionId(options.conversationId);
         if (!owner) return { content: 'Codex session unavailable', isError: true };
         const permission = await buildPermissionHandler(owner.clientId, options.registry, {
           onDemandCreate: options.onDemandCreate,
         })(name, parsed.data, {
           signal,
-          toolUseID: randomUUID(),
+          toolUseID:
+            'native:' +
+            createHash('sha256')
+              .update(JSON.stringify([callContext.turnId, callContext.callId]))
+              .digest('hex'),
           forcePrompt: true,
-          allowSessionGrant: true,
-          title: 'Create this outcome in live Telos?',
+          allowSessionGrant: false,
+          title:
+            name === TELOS_CREATE_OUTCOME_TOOL
+              ? 'Create this outcome in live Telos?'
+              : 'Save source to this Telos item?',
           description:
             'This writes the approved outcome and milestones to the host Telos store linked to this Mitzo session.',
         });
         signal.throwIfAborted();
         if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
-        if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
+        const { __mitzoTelosApproval, ...approvedProposal } = permission.updatedInput ?? {};
+        if (
+          typeof __mitzoTelosApproval !== 'string' ||
+          !isDeepStrictEqual(approvedProposal, parsed.data)
+        )
           return { content: 'Telos input changed during approval; retry the tool', isError: true };
         if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
           return { content: 'Session permissions changed; retry the tool', isError: true };
         await assertHostCurrent();
         const port = Number.parseInt(process.env.PORT || '3100', 10);
-        return executeTelosCreateOutcome(
+        return (
+          name === TELOS_CREATE_OUTCOME_TOOL ? executeTelosCreateOutcome : executeTelosAdoptSource
+        )(
           localHttpBaseUrl(port, localServerUsesTls()),
           owner.clientId,
           INTERNAL_TOKEN,
-          parsed.data,
+          { ...parsed.data, __mitzoTelosApproval },
           signal,
         );
       }
