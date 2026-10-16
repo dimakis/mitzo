@@ -425,6 +425,50 @@ describe('ConnectionRegistry', () => {
       vi.useRealTimers();
     });
 
+    it('redacts private provenance while advancing the periodic delivery cursor across it', async () => {
+      vi.useFakeTimers();
+      const transport = mockTransport();
+      const store = mockEventStore([
+        {
+          seq: 7,
+          payload: {
+            type: 'ordinary_reply_source',
+            version: 1,
+            commandId: 'command',
+            messageId: 'message',
+            providerThreadId: 'private-thread',
+            providerTurnId: 'private-turn',
+            futurePrivateValue: 'private-future',
+          },
+        },
+        { seq: 9, payload: { type: 'message_end', messageId: 'message' } },
+      ]);
+      store.getSessionPredecessorSeq = (_sessionId, seq) => (seq === 7 ? 3 : 7);
+      registry.setEventStore(store);
+      registry.register('connection', transport);
+      registry.watch('connection', 'session');
+      registry.resetCursor('connection', 'session', 3);
+      registry.startPeriodicSync();
+      try {
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(vi.mocked(transport.send).mock.calls.map(([event]) => event)).toEqual([
+          { type: 'ordinary_reply_source', sessionId: 'session', seq: 7, prevSessionSeq: 3 },
+          {
+            type: 'message_end',
+            sessionId: 'session',
+            seq: 9,
+            prevSessionSeq: 7,
+            messageId: 'message',
+          },
+        ]);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(store.getEventsAfter).toHaveBeenLastCalledWith('session', 9, 50);
+        expect(transport.send).toHaveBeenCalledTimes(2);
+      } finally {
+        registry.stopPeriodicSync();
+      }
+    });
+
     it('retries missed events from EventStore', async () => {
       vi.useFakeTimers();
       const t = mockTransport(true);
