@@ -102,7 +102,7 @@ export function openCollaborationVisibleSource(
         )
         .get(session, anchor.seq) as { text: unknown };
       if (typeof row.text !== 'string') fail();
-      blocks.push({ blockId: anchor.messageId, content: row.text, sha256: hash(row.text) });
+      blocks.push({ blockId: `user-${anchor.messageId}`, content: row.text, sha256: hash(row.text) });
     } else {
       const start = db
         .prepare(
