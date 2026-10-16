@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.182';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.183';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../telos-work-routes.ts': '5d4c6cc5b4ef2abacf158f9dc3a49d311ae6aa156716ec3fdeefbd8dd1e0199f',
+  '../../packages/client/src/telos-work-api.ts':
+    'e16b59f86bc1f0c6044b7333c9efeafecd8198ec09ebda0a748c2cbf19fd18ce',
   '../telos-work-schema.ts': '15f4071e9d4263a62ab50407466ff69fc8b993f421ed7ddfe4b8e5cafcf610d9',
   '../telos-work-store.ts': 'bbfcf01df2cbd55993f412976b7f5751b48bd7dbee1027d3c7fa876d99557344',
   '../../packages/protocol/src/telos-work-api.ts':
@@ -38,7 +41,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/collaboration-projection.ts':
     '21028cd31c292b11f9e70e2cac476d478f90d2b278c28b07d942aa153f09060a',
   '../../packages/client/src/index.ts':
-    '6ec891ed81e2d18d0fc375cfb8722d06df3831e3b1a30eb4b435ebcf70faba8c',
+    '529e2c6f580c5a2f110d742a95addcb98d9f84a9bea05e9e896c2c5f0777a491',
   // Configurable neutral spares: durable claims, protected controls and explicit host enrollment.
   '../openshell-cli-environment.ts':
     '77f66ceaffb019038fe06479459505dbb37480b7791c596c8e869bef14c2b456',
@@ -378,7 +381,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '1359863c48d98f37039873a6d2f4599fb5e8f93e4bc171ed3e2c259f50b7dbad',
+  '../app.ts': 'f8014f954649cf6a8bf6cc3dea8ad451ad83b1d1c8a64d567252db017f06f559',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
