@@ -102,3 +102,7 @@ is prototype reference evidence, not implemented product acceptance. Dimitri
 accepted that preview before S2 began. The frozen files are unchanged; no UX
 amendment is proposed. Live product, physical-device and runtime qualification
 remain outstanding. No model calls, staging operations or deployment occurred.
+
+## Review fixes
+
+Centaur CEN-93D148A5595A and CEN-3DB3CAFDAFC9 are covered by failing-then-passing tests using the actual `EventStore.hideSession` deletion path and a later conversation-policy change. The shared production predicate excludes hidden chats from new work, assignment and lead eligibility while preserving their history. Item and backlink projections both compute current availability; no stored historical attribution is rewritten. Accepted main #967 is integrated, with its UI changes and manifest hashes preserved.

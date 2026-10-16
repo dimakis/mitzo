@@ -98,6 +98,17 @@ export class TelosWorkStore {
   private json<T>(sql: string, ...args: unknown[]): T[] {
     return (this.db.prepare(sql).all(...args) as JsonRow[]).map((row) => JSON.parse(row.data) as T);
   }
+  private currentAvailability(link: TelosWorkSessionLink): TelosWorkSessionLink {
+    return {
+      ...link,
+      availability:
+        link.conversation.namespace === 'mitzo'
+          ? this.policy.ordinaryConversation(link.conversation.conversationId)
+            ? 'available'
+            : 'unavailable'
+          : link.availability,
+    };
+  }
   private snapshot(itemId: string): TelosWorkView {
     const row = this.item(itemId);
     const kind =
@@ -108,15 +119,7 @@ export class TelosWorkStore {
     const links = this.json<TelosWorkSessionLink>(
       'SELECT data FROM telos_work_links WHERE item_id=? ORDER BY seq',
       itemId,
-    ).map((link) => ({
-      ...link,
-      availability:
-        link.conversation.namespace === 'mitzo'
-          ? this.policy.ordinaryConversation(link.conversation.conversationId)
-            ? ('available' as const)
-            : ('unavailable' as const)
-          : link.availability,
-    }));
+    ).map((link) => this.currentAvailability(link));
     const assignments = this.json<TelosWorkAssignment>(
       'SELECT data FROM telos_work_assignments WHERE item_id=? ORDER BY role',
       itemId,
@@ -147,11 +150,11 @@ export class TelosWorkStore {
         !this.policy.ordinaryConversation(actor.id))
     )
       throw new TelosWorkError('unauthorized', 'Conversation is not authorized');
-    return this.json(
+    return this.json<TelosWorkSessionLink>(
       'SELECT data FROM telos_work_links WHERE namespace=? AND conversation_id=? ORDER BY seq',
       ref.namespace,
       ref.conversationId,
-    );
+    ).map((link) => this.currentAvailability(link));
   }
   assignmentHistory(itemId: string, actor: TelosWorkActor): TelosWorkAssignment[] {
     this.authorizeRead(itemId, actor);

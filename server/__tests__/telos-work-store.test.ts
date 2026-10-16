@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TelosWorkStore, type TelosWorkActor } from '../telos-work-store.js';
 import { EventStore } from '../event-store.js';
+import { isAvailableTelosWorkConversation } from '../telos-work-conversation.js';
 import { SessionService, childInputHash } from '../session-service.js';
 import { TaskStore } from '../task-store.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
@@ -48,14 +49,7 @@ function fixture() {
     });
   }
   const policy = {
-    ordinaryConversation: (id: string) => {
-      const session = events.getSession(id);
-      return (
-        !!session &&
-        session.conversationSource !== 'external_import' &&
-        session.sessionType !== 'symposium'
-      );
-    },
+    ordinaryConversation: (id: string) => isAvailableTelosWorkConversation(events.getSession(id)),
   };
   const stores: TelosWorkStore[] = [];
   const open = () => {
@@ -249,6 +243,89 @@ describe('durable Telos work relationships (offline, existing SQLite owners)', (
     expect(() => f.command('slice', { operation: 'classify', kind: 'coordinator' }, actor)).toThrow(
       /authorized/i,
     );
+  });
+
+  it('treats the real hideSession deletion path as unavailable while retaining role and assignment evidence', () => {
+    const f = fixture();
+    f.link('slice', 'worker', 'worker-a');
+    f.command('slice', {
+      operation: 'assign',
+      role: 'worker',
+      conversationId: 'worker-a',
+      expectedAssignmentRevision: 0,
+    });
+    f.link('outcome', 'lead', 'lead');
+    f.command('outcome', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'lead',
+      expectedAssignmentRevision: 0,
+    });
+    f.command('slice', {
+      operation: 'source',
+      snapshot: {
+        ...createTelosWorkFixtures().homeStudio.snapshots[0],
+        itemId: 'slice',
+        snapshotId: 'context',
+      },
+    });
+    f.events.hideSession('worker-a');
+    f.events.hideSession('lead');
+    expect(f.events.getSession('worker-a')?.isHidden).toBe(true);
+    expect(f.store.forConversation(conversation('worker-a'), operator)).toMatchObject([
+      { availability: 'unavailable' },
+    ]);
+    expect(f.store.read('slice', operator).links).toMatchObject([
+      { conversation: conversation('worker-a'), availability: 'unavailable' },
+    ]);
+    expect(f.store.read('outcome', operator).links).toMatchObject([
+      { conversation: conversation('lead'), availability: 'unavailable' },
+    ]);
+    expect(() => f.link('other', 'worker', 'worker-a')).toThrow(/ordinary/i);
+    expect(() =>
+      f.command('slice', {
+        operation: 'assign',
+        role: 'worker',
+        conversationId: 'worker-a',
+        expectedAssignmentRevision: 1,
+      }),
+    ).toThrow(/ordinary/i);
+    expect(() => f.store.read('slice', { kind: 'conversation', id: 'worker-a' })).toThrow(
+      /authorized/i,
+    );
+    const config = createTelosWorkFixtures().multipleChats.conversations[0];
+    expect(() =>
+      f.command('slice', {
+        operation: 'request_attempt',
+        attemptId: 'hidden-lead',
+        predecessorAttemptId: null,
+        leadConversationId: 'lead',
+        contextSnapshotId: 'context',
+        configuration: { binding: config.binding, selection: config.selection },
+      }),
+    ).toThrow(/lead/i);
+    expect(f.store.read('slice', operator).assignments).toMatchObject([
+      { conversation: conversation('worker-a'), revision: 1 },
+    ]);
+    expect(f.store.assignmentHistory('slice', operator)).toHaveLength(1);
+    expect(f.store.read('slice', operator).attempts).toEqual([]);
+  });
+
+  it('refreshes backlink availability after the ordinary conversation policy changes', () => {
+    const f = fixture();
+    f.link('slice', 'worker', 'worker-a');
+    expect(f.store.forConversation(conversation('worker-a'), operator)).toMatchObject([
+      { availability: 'available' },
+    ]);
+    const metadata = new Database(join(f.root, 'events.db'));
+    try {
+      metadata.prepare("DELETE FROM sessions WHERE session_id='worker-a'").run();
+    } finally {
+      metadata.close();
+    }
+    const current = f.store.read('slice', operator).links;
+    expect(current).toMatchObject([{ availability: 'unavailable' }]);
+    expect(f.store.forConversation(conversation('worker-a'), operator)).toEqual(current);
   });
 
   it('retains unavailable conversation attribution instead of deleting role and assignment history', () => {
