@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.194';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.195';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-context-source.ts':
     '5feb8135ccfd6d578ec5f9ac873bd7c260322d49f30d831147be29df3f084262',
   '../../packages/protocol/src/collaboration-visible-source.ts':
-    'a78e04caea0b3b387bf70e4640be6df31830192782ed887fcd787f04eb55e1a3',
+    '689c1925f2ba21871adbda5d79201d786cd88a55ed0b383130aad668e005b4f1',
 
   '../telos-work-conversation.ts':
     '66e562495602881b314abf7877bfc68d1bc7055524ec03ac815dd6f3c384321d',
