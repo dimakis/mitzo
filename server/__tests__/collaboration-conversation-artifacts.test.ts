@@ -10,6 +10,8 @@ it('pins the conversation contracts, persistence, authenticated API and client p
   for (const file of [
     '../session-collaboration-router.ts',
     '../collaboration-context-compiler.ts',
+    '../collaboration-context-source.ts',
+    '../../packages/protocol/src/collaboration-visible-source.ts',
     '../../packages/protocol/src/session-collaboration-store.ts',
     '../../packages/protocol/src/collaboration-conversation.ts',
     '../../packages/protocol/src/collaboration-conversation-store.ts',
