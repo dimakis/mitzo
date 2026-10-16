@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.196';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.201';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -49,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../configured-tool-admission.ts':
     '76d56a2582972ce00acc43fb3b907206ab2d3441ef4fbebcac6b2740bb3ff972',
   '../configured-tool-catalog.ts':
-    '6100b980d245ab5b2ca1fb27b79c882ae43dc9ce1881da03bdb36c07c5514f9a',
+    'f29e53b98c2bd86049483aab21893f29810a818064bf323f0bf94318ac757524',
   '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent conversation metadata and offline client projection; execution remains disabled.

@@ -1,3 +1,4 @@
+import { isAbsolute, resolve as resolvePath } from 'node:path';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, openSync } from 'node:fs';
@@ -109,6 +110,8 @@ export class ConfiguredToolCatalog {
     options.assertRuntimeCurrent();
     options.signal.throwIfAborted();
     const receipt = this.receipt(ref);
+    if (typeof receipt.launchCwd !== 'string' || !isAbsolute(receipt.launchCwd))
+      throw Error('Pinned source directory is unavailable; rediscover configured tools');
     const source = Object.values(eligible(options.readSources())).find(
       (config) => config.librarySourceId === receipt.sourceId,
     );
@@ -121,6 +124,7 @@ export class ConfiguredToolCatalog {
     if (!options.assertRuntimeCurrent) throw Error('Discovery requires runtime custody authority');
     if ('cwdForSource' in options && options.cwdForSource !== undefined)
       throw Error('Per-source discovery directory overrides are unsupported');
+    const launchOptions = { ...options, cwd: resolvePath(options.cwd), env: { ...options.env } };
     const generation = ++this.generation;
     const sources = structuredClone(eligible(options.readSources()));
     const initial = hash(sources);
@@ -136,7 +140,7 @@ export class ConfiguredToolCatalog {
     let clients;
     try {
       clients = await connectCodexMcpTools(sources, {
-        ...options,
+        ...launchOptions,
         assertRuntimeCurrent: assertCurrent,
       });
       assertCurrent();
@@ -145,6 +149,8 @@ export class ConfiguredToolCatalog {
           const previous = new Map(this.list().map((entry) => [entry.id, this.receipt(entry)]));
           this.db.prepare('UPDATE configured_tools SET active=0').run();
           for (const tool of clients!.discovered) {
+            if (Buffer.from(tool.tool, 'utf8').toString('utf8') !== tool.tool)
+              throw Error('MCP tool name must contain valid Unicode');
             const source = sources[tool.server];
             const id = `mcp:${source.librarySourceId}:${createHash('sha256').update(tool.tool).digest('hex')}`;
             // Wire aliases embed mutable labels; pin the original definition independently.
@@ -155,7 +161,7 @@ export class ConfiguredToolCatalog {
                 `mcp__${tool.server}__${tool.tool}: `.length,
               ),
             };
-            const contract = binding(source, options);
+            const contract = binding(source, launchOptions);
             const old = previous.get(id);
             if (
               old &&
@@ -191,7 +197,7 @@ export class ConfiguredToolCatalog {
               sourceId: source.librarySourceId!,
               tool: tool.tool,
               binding: contract,
-              launchCwd: options.cwd,
+              launchCwd: launchOptions.cwd,
               definition,
               descriptor: tool.descriptor,
             };
