@@ -12,6 +12,7 @@ type Props = {
   selectedId?: string;
   onSelect: (id: string, session: Session) => void;
   onPreview?: (session: Session) => void;
+  onOpen?: (id: string) => void;
   onActions: (session: Session, trigger: HTMLElement, point?: SessionActionPoint) => void;
 };
 function PinRow({ session, props }: { session: Session; props: Props }) {
@@ -27,6 +28,7 @@ function PinRow({ session, props }: { session: Session; props: Props }) {
         {...handlers}
         className="conversation-pin-select"
         onFocus={() => props.onPreview?.(session)}
+        onDoubleClick={props.onOpen ? () => props.onOpen?.(session.id) : undefined}
         title={title}
       >
         <span>{title}</span>
