@@ -323,13 +323,13 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   }
   await page.getByLabel('Task name', { exact: true }).fill('Retained task');
   await page
-    .getByLabel('Objective', { exact: true })
+    .getByRole('textbox', { name: 'Objective', exact: true })
     .fill('Review the queue without losing this input');
   await page.getByRole('combobox', { name: 'Schedule', exact: true }).selectOption('cron');
   await page.getByLabel('Cron expression', { exact: true }).fill('');
   await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
   await page.getByRole('tab', { name: 'Tasks & schedules', exact: true }).click();
-  await expect(page.getByLabel('Objective', { exact: true })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: 'Objective', exact: true })).toHaveValue(
     'Review the queue without losing this input',
   );
   await page.reload();
@@ -356,7 +356,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Task save unavailable');
   await page.reload();
-  await expect(page.getByLabel('Objective', { exact: true })).toHaveValue(
+  await expect(page.getByRole('textbox', { name: 'Objective', exact: true })).toHaveValue(
     'Review the queue without losing this input',
   );
   taskSaveError = false;
@@ -619,7 +619,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         await expect(
           page.getByText('A newer saved task revision is available. Your input is retained.'),
         ).toBeVisible();
-        await expect(page.getByLabel('Objective', { exact: true })).toHaveValue(
+        await expect(page.getByRole('textbox', { name: 'Objective', exact: true })).toHaveValue(
           'Review the queue without losing this input',
         );
         await page.getByRole('button', { name: 'Reload saved task', exact: true }).click();
