@@ -16,7 +16,7 @@ Phase 1's separately authorized live qualification remains outstanding.
 3. [Library/editor #968](https://github.com/dimakis/mitzo/pull/968): explicit
    cancellable operator refresh over retained-owner IPC, saved read projections,
    compact cards, source distinctions, exact receipt selection and availability.
-4. Acceptance: extended lifecycle/authority/import/concurrency tests and current
+4. Acceptance (this slice): extended lifecycle/authority/import/concurrency tests and current
    operating documentation. Current-head CI and trusted exact-head Centaur gates
    remain mandatory before any merge. A user-authorized merge hold applies until
    independently owned #962 lands and its owning session releases the hold.
@@ -47,7 +47,12 @@ Package/frontend and focused server typechecks pass after correcting a catalog
 return type and explicit admission-map narrowing reported by CI. Broad server
 builds and the production Vite/full-app browser suite remain CI gates under the
 local heap limit; focused actual-page renders do not substitute for those checks.
-Earlier and final focused counts overlap and must not be added as a unique total.
+The final combined focused run passed 298 checks in 26 files. The combined actual-page
+tool matrix passed 20 checks (18 page cases and two startup checks), including the
+existing Phase 1 journeys, configured-source unavailability, cancellation and focus
+restoration. The design command passed 107 checks. These counts overlap and must
+not be added as a unique aggregate. Focused lint, formatting, unique manifest entry
+validation and package/frontend/focused-server typechecks pass.
 
 ## Supported source/runtime matrix and operating limits
 
