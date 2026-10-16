@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.164';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.166';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
+  '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent conversation metadata and offline client projection; execution remains disabled.
   '../../packages/protocol/src/collaboration-conversation.ts':
     '8bdd5ec37c5f2bfa59f79f401bb4955dde9dba64fe6acdc963b5bb0f76745653',
@@ -258,7 +260,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../bounded-file-read.ts': '8332b3e5908ebe1464eeb7c99a8963bc402ae1f2d89a979a7495f53d54914070',
   '../session-permission-revision.ts':
     'cf71bb38e2008352cbccfd22aae88f747625a3533c26aad22537d9509c11a26a',
-  '../auth.ts': '6b7ada724468d45f8cce01ba0a1b40915376b3c0af4620184616fdf391612ac7',
+  '../auth.ts': '87920c89768d613ce00f84bf20ab405d95e139d96a168595e7a8c6431d80e963',
   '../native-file-operation.ts': '0bdd92a554e86f5adc56f3607ba053eca7de22281343f97a9e6cc5e6c046f1cc',
   '../sandboxed-command.ts': '869823153e5588ee18ce6e16303bd4e8567f52c636e1f3bc4ba3951fba7802be',
   // Shared approval scopes, transport custody and provider environment delivery.
@@ -486,8 +488,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
-  '../connections-router.ts': '6620ec153b72f42b18370bc375ab88331205ac9eb8c4ccd9a1bfe7655646599b',
-  '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
+  '../connections-router.ts': 'afb2657c850dd4b3a64cd2d295ca8682204ddcdff0dba90ce6fa610c15596e93',
+  '../connections-service.ts': 'ed916c318cf9cb36e9a2d3e37d8068413ef91d9f37a3cfdb3cf56569588f9183',
   // Repository acquisition and source claims share the ordinary runtime admission review.
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':

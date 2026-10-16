@@ -552,6 +552,51 @@ export class ConnectionStore {
     )
       throw new ConnectionAssignmentConflictError();
   }
+  /** Additive GitHub scope only; provider identity, credentials and assignments stay fixed. */
+  extendGithubRepositories(id: string, revision: number, repositories: string[], actor: string) {
+    const db = this.database();
+    return db
+      .transaction(() => {
+        const current = this.get(id);
+        if (!current || current.archivedAt || current.ownerId !== actor)
+          throw new Error('Connection not found');
+        if (current.revision !== revision) throw new RevisionConflictError();
+        const original = current.publicConfig.allowedRepositories;
+        if (
+          current.templateId !== 'github-readonly' ||
+          current.templateVersion !== 1 ||
+          current.status !== 'active' ||
+          !current.identity ||
+          !current.verifiedAt ||
+          !current.gatewayProviderId ||
+          !Array.isArray(original) ||
+          original.some((repository) => !repositories.includes(repository)) ||
+          new Set(repositories).size !== repositories.length
+        )
+          throw new Error('GitHub repository scope cannot be changed');
+        const added = repositories.filter((repository) => !original.includes(repository));
+        if (!added.length) return current;
+        if (added.length !== 1 || repositories.length !== original.length + 1)
+          throw new Error('Add exactly one GitHub repository');
+        const publicConfig = { ...current.publicConfig, allowedRepositories: repositories };
+        const now = Date.now();
+        db.prepare(
+          'UPDATE connections SET public_config=?, revision=?, updated_at=? WHERE id=?',
+        ).run(JSON.stringify(publicConfig), revision + 1, now, id);
+        db.prepare('INSERT INTO connection_audit VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+          randomUUID(),
+          id,
+          revision + 1,
+          'github_repository',
+          'added',
+          actor,
+          JSON.stringify(added),
+          now,
+        );
+        return this.get(id)!;
+      })
+      .immediate();
+  }
   setAssignments(id: string, revision: number, accountIds: string[], actor: string) {
     const current = this.get(id);
     if (!current) throw new Error('Connection not found');
