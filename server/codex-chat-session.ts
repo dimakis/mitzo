@@ -2073,10 +2073,11 @@ async function openCodexChatBound(
             return mcp.execute(
               name,
               input,
-              async (canonical, args, s) =>
+              async (canonical, args, s, grant) =>
                 buildPermissionHandler(owner.clientId, options.registry, {
                   onDemandCreate: options.onDemandCreate,
                 })(canonical, args, {
+                  ...grant,
                   signal: s,
                   toolUseID: randomUUID(),
                   forcePrompt,
