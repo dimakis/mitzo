@@ -150,9 +150,10 @@ cases check 320px mobile WebKit/Chromium and 1280px desktop Chromium in light/da
 appearance with alternate accents/font, exact source anchoring, ordinary bound
 account/model/thinking settings, Resources backlinks and composer draft retention
 through item/chat navigation. A later simulated streamed reply preserves the
-reader's source position. Screenshots are recorded per platform/theme. This is
-offline route integration evidence; reviewed capture still needs its frontend
-caller, and full S9 device/runtime qualification remains outstanding. No backend,
-provider or model starts, and no deployment is claimed. Focused tests use one
-worker and a 1 GiB heap; broad frontend builds exceeded that local heap and remain
-a required CI gate.
+reader's source position. Screenshots are recorded per platform/theme. These six
+source-navigation cases are separate from the implemented ordinary approval
+caller and its actual-owner approval/recovery fixture. Both provide scoped offline
+integration evidence; full S9 device/runtime qualification remains outstanding.
+No live backend, provider or model starts, and no deployment is claimed. Focused
+tests use one worker and a 1 GiB heap; broad frontend builds exceeded that local
+heap and remain a required CI gate.
