@@ -1,6 +1,14 @@
 import { useState, type ReactNode } from 'react';
-import type { AgentProfileSelection, FinishedMessage } from '@mitzo/protocol';
-import type { AccountSelection } from '../types/account-selection';
+import type { FinishedMessage } from '@mitzo/protocol';
+import type {
+  ConversationAgentSetup,
+  ConversationJoiningOwner,
+} from '../lib/conversation-joining-review';
+import { useConversationJoiningReview } from '../hooks/useConversationJoiningReview';
+import {
+  ConversationJoiningReview,
+  ConversationJoiningReviewActions,
+} from './ConversationJoiningReview';
 import { HomeDialog } from './HomeDialog';
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { UiIcon } from './UiIcon';
@@ -18,20 +26,12 @@ export interface ConversationAgent {
   state: string;
   policy?: { reads: boolean; replies: boolean };
 }
-type Setup = {
-  name: string;
-  purpose: string;
-  context: 'conversation_so_far' | 'selected';
-  messageIds: string[];
-  runOn: 'openshell' | 'local';
-  selection: AccountSelection | null;
-  agent: AgentProfileSelection | null;
-};
-const initial = (): Setup => ({
+const initial = (): ConversationAgentSetup => ({
   name: '',
   purpose: '',
   context: 'conversation_so_far',
   messageIds: [],
+  artifacts: [],
   runOn: 'openshell',
   selection: null,
   agent: null,
@@ -54,6 +54,8 @@ export function ConversationAgents(props: {
   unavailableReason?: string;
   renderPreview?(agent: ConversationAgent): ReactNode;
   onPolicyChange?(id: string, policy: { reads: boolean; replies: boolean }): void;
+  /** Supplied only when real source, capacity and ordinary preparation owners exist. */
+  joiningOwner?: ConversationJoiningOwner;
 }) {
   // A route change synchronously retires the dialog, callbacks and private setup.
   return <ConversationAgentsBody key={props.scope} {...props} />;
@@ -71,25 +73,40 @@ function ConversationAgentsBody({
   unavailableReason,
   renderPreview,
   onPolicyChange,
+  joiningOwner,
 }: Parameters<typeof ConversationAgents>[0]) {
-  const [view, setView] = useState<'agents' | 'add' | 'settings' | 'preview' | 'details'>('agents');
+  const [view, setView] = useState<
+    'agents' | 'add' | 'review' | 'settings' | 'preview' | 'details'
+  >('agents');
   const [open, setOpen] = useState(false);
   const { ref: dialogMotionRef, present } = useMotionPresence(open, 'fade');
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewAgent = agents.find((agent) => agent.id === previewId);
   const [setup, setSetup] = useState(initial);
   const [profileReason, setProfileReason] = useState<string>();
+  const joining = useConversationJoiningReview(joiningOwner, () => {
+    setOpen(false);
+    setView('agents');
+    setSetup(initial());
+    setProfileReason(undefined);
+  });
   const names = agents.map((a) => a.name).join(', ');
+  const nameValid =
+    /^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(setup.name) &&
+    setup.name.toLowerCase() !== 'all' &&
+    !agents.some((a) => a.name.toLowerCase() === setup.name.toLowerCase());
   const title =
     view === 'add'
       ? 'Add agent'
-      : view === 'settings'
-        ? 'Chat settings'
-        : view === 'preview'
-          ? `${previewAgent?.name ?? 'Agent'} conversation`
-          : view === 'details'
-            ? (previewAgent?.name ?? 'Agent details')
-            : 'Agents';
+      : view === 'review'
+        ? 'Before joining'
+        : view === 'settings'
+          ? 'Chat settings'
+          : view === 'preview'
+            ? `${previewAgent?.name ?? 'Agent'} conversation`
+            : view === 'details'
+              ? (previewAgent?.name ?? 'Agent details')
+              : 'Agents';
   const selectable = messages.filter((m) =>
     m.blocks.some((b) => b.blockType === 'text' && b.content),
   );
@@ -149,7 +166,9 @@ function ConversationAgentsBody({
           closeLabel="Close Agents"
           inactive={!open}
           onClose={() => setOpen(false)}
-          className="conversation-agents-dialog"
+          className={`conversation-agents-dialog${view === 'review' ? ' conversation-joining-dialog' : ''}`}
+          onBack={view === 'review' ? () => setView(joining.locked ? 'agents' : 'add') : undefined}
+          backLabel="Back from joining review"
         >
           <div
             ref={dialogMotionRef}
@@ -367,7 +386,10 @@ function ConversationAgentsBody({
                   <select
                     value={setup.context}
                     onChange={(e) =>
-                      setSetup((s) => ({ ...s, context: e.target.value as Setup['context'] }))
+                      setSetup((s) => ({
+                        ...s,
+                        context: e.target.value as ConversationAgentSetup['context'],
+                      }))
                     }
                   >
                     <option value="conversation_so_far">Conversation so far</option>
@@ -418,10 +440,60 @@ function ConversationAgentsBody({
                         </label>
                       ))}
                     </fieldset>
-                    <p className="conversation-agents-explanation">
-                      Saved artifact versions are not available for selection yet.
-                    </p>
-                    {setup.messageIds.length === 0 && <p>Joining brief only.</p>}
+                    {joiningOwner?.artifacts ? (
+                      <fieldset className="conversation-context-selection">
+                        <legend>Artifacts</legend>
+                        {joiningOwner.artifacts.length === 0 && (
+                          <p>No artifacts in this conversation.</p>
+                        )}
+                        {joiningOwner.artifacts.map((artifact) => (
+                          <label
+                            key={`${artifact.artifactId}:${artifact.revision}:${artifact.sha256}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={setup.artifacts.some(
+                                (a) =>
+                                  a.artifactId === artifact.artifactId &&
+                                  a.revision === artifact.revision &&
+                                  a.sha256 === artifact.sha256,
+                              )}
+                              onChange={(event) =>
+                                setSetup((s) => ({
+                                  ...s,
+                                  artifacts: event.target.checked
+                                    ? [
+                                        ...s.artifacts,
+                                        {
+                                          artifactId: artifact.artifactId,
+                                          revision: artifact.revision,
+                                          sha256: artifact.sha256,
+                                        },
+                                      ]
+                                    : s.artifacts.filter(
+                                        (a) =>
+                                          a.artifactId !== artifact.artifactId ||
+                                          a.revision !== artifact.revision ||
+                                          a.sha256 !== artifact.sha256,
+                                      ),
+                                }))
+                              }
+                            />
+                            <span>
+                              {artifact.title}
+                              <small>Saved version {artifact.revision}</small>
+                            </span>
+                          </label>
+                        ))}
+                      </fieldset>
+                    ) : (
+                      <p className="conversation-agents-explanation">
+                        Saved artifact versions are not available for selection yet.
+                      </p>
+                    )}
+                    {setup.messageIds.length === 0 && setup.artifacts.length === 0 && (
+                      <p>Joining brief only.</p>
+                    )}
                   </>
                 )}
                 <label className="conversation-agent-field">
@@ -438,37 +510,77 @@ function ConversationAgentsBody({
                   shared conversation context.
                 </p>
                 {profileReason && <p role="alert">{profileReason}</p>}
-                <p role="status">{unavailable}</p>
+                {setup.name && !nameValid && (
+                  <p role="alert">
+                    Choose a unique name using letters, numbers, underscores or hyphens. “all” is
+                    reserved.
+                  </p>
+                )}
+                {!joiningOwner && <p role="status">{unavailable}</p>}
               </>
+            )}
+            {view === 'review' && (
+              <ConversationJoiningReview
+                flow={joining}
+                agents={agents}
+                onAgents={() => setView('agents')}
+              />
             )}
           </div>
-          <footer className="conversation-agents-footer">
-            {view === 'agents' ? (
-              <>
-                <button type="button" onClick={() => setOpen(false)}>
-                  Done
-                </button>
-                <button
-                  type="button"
-                  className="conversation-agents-primary"
-                  onClick={() => setView('add')}
-                >
-                  Add agent
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" onClick={() => setView('agents')}>
-                  Back to Agents
-                </button>
-                {view === 'add' && (
-                  <button type="button" disabled title={unavailable}>
-                    Review joining brief
+          {view === 'review' ? (
+            <ConversationJoiningReviewActions
+              flow={joining}
+              onBack={() => setView(joining.locked ? 'agents' : 'add')}
+            />
+          ) : (
+            <footer className="conversation-agents-footer">
+              {view === 'agents' ? (
+                <>
+                  <button type="button" onClick={() => setOpen(false)}>
+                    Done
                   </button>
-                )}
-              </>
-            )}
-          </footer>
+                  <button
+                    type="button"
+                    className="conversation-agents-primary"
+                    onClick={() => {
+                      if (joining.join?.state === 'linked') {
+                        joining.startNew();
+                        setView('add');
+                      } else
+                        setView(joining.locked || joining.hasAttemptFor(setup) ? 'review' : 'add');
+                    }}
+                  >
+                    Add agent
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={() => setView('agents')}>
+                    Back to Agents
+                  </button>
+                  {view === 'add' && (
+                    <button
+                      type="button"
+                      disabled={
+                        !joiningOwner ||
+                        !nameValid ||
+                        !setup.purpose.trim() ||
+                        !setup.selection?.accountId ||
+                        !!profileReason
+                      }
+                      title={!joiningOwner ? unavailable : undefined}
+                      onClick={() => {
+                        setView('review');
+                        void joining.prepare(setup);
+                      }}
+                    >
+                      Review joining brief
+                    </button>
+                  )}
+                </>
+              )}
+            </footer>
+          )}
         </HomeDialog>
       )}
     </>
