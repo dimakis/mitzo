@@ -196,7 +196,7 @@ function FileViewerDocument() {
               <button
                 type="button"
                 className={`viewer-header-action${editor.dirty ? ' viewer-header-action--danger' : ''}`}
-                onClick={editor.cancelEditing}
+                onClick={() => editor.cancelEditing(nav.setContent)}
                 disabled={editor.saving}
               >
                 {editor.dirty ? 'Discard' : 'Done'}

@@ -123,10 +123,17 @@ export function useFileEditor(
     setEditing(false);
     setError('');
   }
-  function cancelEditing() {
+  function cancelEditing(onLatest?: (content: string, path?: string) => void) {
     if (inFlight.current || (dirty && !confirm('Discard unsaved changes?'))) return;
     persist(base);
     resetEditor();
+    if (
+      telos &&
+      baseRevision !== undefined &&
+      artifactRevision !== undefined &&
+      baseRevision > artifactRevision
+    )
+      onLatest?.(base, `${filePath.split('?')[0]}?revision=${baseRevision}`);
   }
   async function reviewLatest() {
     if (inFlight.current || reviewing) return;

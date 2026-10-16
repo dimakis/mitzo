@@ -98,6 +98,27 @@ it.each([false, true])(
   },
 );
 
+it.each([false, true])(
+  'opens the reviewed baseline after finishing or discarding a rebased draft (%s)',
+  async (discard) => {
+    const { result } = open();
+    act(() => result.current.startEditing());
+    act(() => result.current.handleEditChange('# Draft'));
+    vi.mocked(apiFetch).mockResolvedValue(response({ content: '# Draft', revision: 3 }));
+    await act(() => result.current.reviewLatest());
+    act(() => result.current.resolveConflict(false));
+    expect(result.current.dirty).toBe(false);
+    if (discard) {
+      act(() => result.current.handleEditChange('# Another draft'));
+      vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+    }
+    const opened = vi.fn();
+    act(() => result.current.cancelEditing(opened));
+    expect(opened).toHaveBeenCalledWith('# Draft', path.replace('revision=1', 'revision=3'));
+    expect(result.current.editing).toBe(false);
+  },
+);
+
 it('retains the draft when a save receipt is missing or belongs to another document', async () => {
   const { result } = open();
   act(() => result.current.startEditing());
