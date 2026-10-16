@@ -126,7 +126,13 @@ export async function connectCodexMcpTools(
               : canonical,
           );
           if (mapping.has(wire)) throw new Error('Duplicate MCP tool');
-          mapping.set(wire, { peer, name: tool.name, canonical });
+          mapping.set(wire, {
+            peer,
+            name: tool.name,
+            canonical: config.librarySourceId
+              ? `mcp__${config.librarySourceId}__${tool.name}`
+              : canonical,
+          });
           definitions.push({
             name: wire,
             description: `${canonical}: ${tool.description ?? 'Configured MCP tool'}`,
