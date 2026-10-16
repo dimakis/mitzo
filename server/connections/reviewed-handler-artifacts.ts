@@ -426,10 +426,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '07a86dcaa8861b07a5305890a8c863ca2370969bbce1d079de7e5287db4a9a11',
+  '../chat.ts': '9724e5b75fc75a1b643dd8743df412b31dd3fb7661d7b0d243f22361c6bbdf05',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
-    'd5b795c7cf178c0cfd3b8e2cb4a2470b4af25af276f02652ba878e09a9a3ca21',
+    '5598e9c45fcc2e24eb8def0237fc5e3c2f6c395038c9f9af876ca79372605aec',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
@@ -613,7 +613,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '5708a6e09129765ab760a6c078fb2571dc73dc1125c9be31b43f1865fe5e461b',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '95799f43eed7d0f818bcbb1cf9cc504d99168bc31877f4f17a19ae9fd0539d13',
-  '../repository-workspaces.ts': '457e90c02845d8417d417daa3045f0db8db97e6e5e4ca4a580daa4316e3b75b2',
+  '../repository-workspaces.ts': '46c951d3a21088fbc9d0df7dee99d300e436cd109c31e65ad14ee8f3fb0f2488',
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
@@ -733,7 +733,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-openshell-codex-entry-owner.ts':
     '0bac6e9d3bd1d0919a0f7e9d2dc823a53574f41c80ef72cb1e5da5d81ffe5009',
   '../ordinary-openshell-codex-entry.ts':
-    '46f6e3d6143b4de12b757f9de178477178fb6359fea0d0feb6094266155ca272',
+    '8dad572f09e482002f8427dab91fe09ad0a8ac82e90ce2866ff6b273334d49e4',
   '../ordinary-openshell-codex-owned-runtime.ts':
     '14dd412c1fca9b723c7675fc2867fa02ad653ffa9f99e90dbd0d8624f5808085',
   '../ordinary-openshell-codex-route.ts':
