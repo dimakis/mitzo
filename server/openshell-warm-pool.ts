@@ -247,7 +247,8 @@ export class OpenShellWarmPool {
       const id = randomUUID(),
         r: WarmPoolRecord = {
           id,
-          name: 'mitzo-warm-' + id,
+          // The legacy CLI permits at most 19 characters; full origin identity stays in the ledger/label.
+          name: 'mw-' + id.replaceAll('-', '').slice(0, 16),
           physicalId: null,
           creationStarted: false,
           scope: this.adapter.scope,

@@ -88,3 +88,42 @@ it('retains a dead owner and publishes the replacement while exclusively fenced'
     /controller|owner/i,
   );
 });
+
+it('keeps an unenrolled host inert when its policy is unavailable, without losing saved settings', async () => {
+  const c = fixture();
+  rmSync(c.policy);
+  const errors: unknown[] = [];
+  host = startWarmPoolHost(c, { root, enrolled: false, onError: (e) => errors.push(e) });
+  expect(host).toBeDefined();
+  expect(host!.pool.snapshot()).toMatchObject({ available: false, settings: { enabled: false } });
+  expect(errors).toHaveLength(1);
+  await host!.pool.mutate({
+    action: 'settings',
+    revision: 0,
+    requestId: 'disabled-missing-policy',
+    settings: { ...host!.pool.snapshot().settings, capacity: 2 },
+  });
+  await expect(
+    host!.pool.mutate({
+      action: 'prepare',
+      revision: host!.pool.snapshot().revision,
+      requestId: 'unavailable-prepare',
+    }),
+  ).rejects.toThrow(/unavailable|enabled/i);
+  expect(host!.pool.snapshot().spares).toHaveLength(0);
+  await host!.close();
+  host = undefined;
+  writeFileSync(c.policy, 'policy');
+  host = startWarmPoolHost(c, { root, enrolled: false, onError: (e) => errors.push(e) });
+  expect(host!.pool.snapshot().settings.capacity).toBe(2);
+  expect(errors).toHaveLength(1);
+});
+
+it('releases its own controller lock when enrolled adapter initialization fails', () => {
+  const c = fixture();
+  rmSync(c.policy);
+  expect(() => startWarmPoolHost(c, { root, enrolled: true, onError: () => {} })).toThrow();
+  writeFileSync(c.policy, 'policy');
+  host = startWarmPoolHost(c, { root, enrolled: true, onError: () => {} });
+  expect(host!.pool.snapshot().available).toBe(true);
+});

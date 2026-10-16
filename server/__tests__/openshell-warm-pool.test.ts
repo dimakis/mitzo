@@ -279,3 +279,23 @@ it('absence cannot release a create that was dispatched without a terminal physi
   expect(f.pool.snapshot().spares[0].state).toBe('uncertain');
   expect(f.adapter.prepare).toHaveBeenCalledTimes(1);
 });
+
+it('prepares unique names accepted by the legacy CLI while keeping the full durable origin ID', async () => {
+  const f = fixture();
+  const prepare = f.adapter.prepare;
+  f.adapter.prepare = vi.fn(async (...args: Parameters<WarmPoolAdapter['prepare']>) => {
+    const [record] = args;
+    expect(record.name).toMatch(/^[a-z][a-z0-9-]{0,18}$/);
+    expect(record.id).toMatch(/^[0-9a-f-]{36}$/);
+    return prepare(...args);
+  });
+  await f.pool.mutate(
+    f.request('settings', {
+      settings: { ...f.pool.snapshot().settings, enabled: true, capacity: 2 },
+    }),
+  );
+  const spares = f.pool.snapshot().spares;
+  expect(spares.map((r) => r.state)).toEqual(['ready', 'ready']);
+  expect(new Set(spares.map((r) => r.name)).size).toBe(2);
+  expect(f.adapter.prepare).toHaveBeenCalledTimes(2);
+});

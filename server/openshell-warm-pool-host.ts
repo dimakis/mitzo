@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
 import { createWarmPoolAdapter } from './openshell-warm-pool-runtime.js';
-import { OpenShellWarmPool } from './openshell-warm-pool.js';
+import { OpenShellWarmPool, type WarmPoolAdapter } from './openshell-warm-pool.js';
 import { setOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 /** The lock fences startup recovery: never recover another live controller's
  * reservation. Stale lock evidence is retained, not silently discarded. */
@@ -62,13 +62,33 @@ export function startWarmPoolHost(
     fence.close();
   }
   const abort = new AbortController();
-  const adapter = createWarmPoolAdapter(config, undefined, undefined, abort.signal);
-  if (!options.enrolled) {
-    adapter.available = false;
-    adapter.reason = 'Warm sandbox preparation is not enabled on this host.';
-  }
+  let adapter: WarmPoolAdapter;
   let pool: OpenShellWarmPool;
   try {
+    try {
+      adapter = createWarmPoolAdapter(config, undefined, undefined, abort.signal);
+    } catch (error) {
+      if (options.enrolled) throw error;
+      options.onError(error);
+      // Preserve the ledger/settings without asserting a recipe or access authority.
+      // A disabled optional feature must not require a readable OpenShell policy.
+      const unavailable = async () => {
+        throw Error('Warm sandbox configuration is unavailable on this host.');
+      };
+      adapter = {
+        scope: 'unavailable',
+        available: false,
+        reason: 'Warm sandbox configuration is unavailable on this host.',
+        prepare: unavailable,
+        inspect: unavailable,
+        bind: unavailable,
+        remove: unavailable,
+      };
+    }
+    if (!options.enrolled) {
+      adapter.available = false;
+      adapter.reason ??= 'Warm sandbox preparation is not enabled on this host.';
+    }
     pool = new OpenShellWarmPool(join(options.root, 'openshell-warm-pool.db'), adapter);
     pool.recoverInterrupted();
   } catch (e) {

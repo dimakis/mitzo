@@ -19,6 +19,10 @@ with warming enabled, or explicitly Prepare now, to allocate resources. An exist
 saved enabled policy resumes after a restart on an enrolled host. Disabling host
 enrollment prevents new claims/preparations; existing claimed ownership remains
 available to its conversation while its recorded runtime authority still matches.
+If adapter configuration cannot be read on an unenrolled host, the pool remains
+unavailable without preventing server startup. Its ledger and settings remain
+retained; no recipe or physical access authority is inferred. An enrolled host
+rejects invalid adapter configuration and releases its own startup lock.
 
 The initial adapter supports ordinary OpenShell API-account Codex execution with
 the existing legacy CLI contract. Native OpenShell 0.1 seats, native subscription
@@ -103,6 +107,8 @@ native create receipt persists its physical ID before waiting for readiness.
 Create dispatch is persisted before the CLI call, separately from seed preparation;
 missing historical dispatch evidence is treated as unknown, never as not started.
 
+Generated spare names fit the legacy CLI’s 19-character limit; the ledger and
+origin label retain the full UUID independently of that compact physical name.
 Unclaimed resources carry immutable `mitzo.warm_pool` origin labels and no account
 or conversation labels. The ledger atomically assigns a physical resource to one
 conversation/provider and connection account ID before any account attachment. Only a confirmed exact
