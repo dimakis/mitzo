@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.175';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.176';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -324,7 +324,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14',
   '../url-access-tool.ts': '3db73be08b7d4d7c06ceac75c75735d6fed9dd3da926003dfb4640e8be691cd3',
   '../web-access-tool.ts': '5850cc94cff84037d50a9e0ed4d47895f06b498d6ef34da21ace23d81f3abdb2',
-  '../index.ts': '863f00934d19acb19c374de817d3aa8bb8ae4d743fb2302e38e232e84770859d',
+  '../index.ts': '6500630cb59a1d8119f80511ecf576f3557ef0406f5b694be90c9835e8a72a30',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
 

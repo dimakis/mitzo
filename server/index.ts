@@ -1,7 +1,7 @@
-import { startWarmPoolHost } from './openshell-warm-pool-host.js';
-import { codexPrivateDirectory } from './codex-private-path.js';
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { startWarmPoolHost } from './openshell-warm-pool-host.js';
+import { codexPrivateDirectory } from './codex-private-path.js';
 import {
   assertLegacyOwnedControlAllowed,
   legacyChatOwnsAttachment,
