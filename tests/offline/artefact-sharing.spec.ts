@@ -35,6 +35,20 @@ for (const appearance of ['dark', 'light'] as const) {
       if (url.hostname !== 'mitzo-ui.test') return route.abort();
       const path = url.pathname;
       if (path.startsWith('/api/')) {
+        if (path === artifact + '/document') {
+          requests.push(url.search);
+          return route.fulfill({
+            json: {
+              path: `${artifact}${url.search}`,
+              name: 'Résumé.docx',
+              ext: '.docx',
+              revision: Number(url.searchParams.get('revision')),
+              editable: false,
+              previewUnavailable: true,
+              content: 'This file has no in-app preview.',
+            },
+          });
+        }
         if (path === artifact) {
           requests.push(url.search);
           expect(route.request().headers().authorization).toBe('Bearer offline-fixture');
