@@ -16,6 +16,7 @@ import {
   joiningSetupFixture,
 } from '../../frontend/src/preview/conversation-joining-fixture';
 import type { ConversationJoiningOwner } from '../../frontend/src/lib/conversation-joining-review';
+import { createBrowserId, sha256Hex } from '../../frontend/src/lib/browser-crypto';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/workspace.css';
@@ -44,14 +45,8 @@ const owner: ConversationJoiningOwner = {
         ? {}
         : {
             joiningBrief,
-            snapshotId: crypto.randomUUID(),
-            sha256: Array.from(
-              new Uint8Array(
-                await crypto.subtle.digest('SHA-256', new TextEncoder().encode(joiningBrief)),
-              ),
-            )
-              .map((n) => n.toString(16).padStart(2, '0'))
-              .join(''),
+            snapshotId: createBrowserId(),
+            sha256: sha256Hex(joiningBrief),
           },
     );
     if (mode === 'capacity')

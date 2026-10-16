@@ -1082,8 +1082,11 @@ recheck their original receipt. Only an authoritative linked receipt closes the
 review and permits a new fresh setup. Full application restart discovery remains
 with the future ordinary owner; this UI introduces no receipt/session store.
 
-Focused offline hook/component/HomeDialog/design checks pass (139 tests), with
-focused ESLint and source-alias TypeScript checks. The intercepted browser fixture
+Focused offline hook/component/HomeDialog/design checks pass (140 tests), with
+focused ESLint and source-alias TypeScript checks. Runtime manifest/source-closure
+checks also pass (160 tests including the focused UI checks). Correlation IDs and
+review hashing use the shared browser-crypto helper on supported remote HTTP
+without secure-context UUID/SubtleCrypto APIs. The intercepted browser fixture
 uses synthetic callbacks and no backend, credentials or model. An independent
 reviewer compared the final code and five actual component captures against the
 approved HTML and screenshot: [desktop dark](assets/symposium-joining-desktop-dark.png),

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createBrowserId } from '../lib/browser-crypto';
 import {
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
@@ -180,7 +181,7 @@ export function useConversationJoiningReview(
     const input = retryInput
       ? structuredClone(retryInput)
       : {
-          requestId: crypto.randomUUID(),
+          requestId: createBrowserId(),
           setup: captured,
           ...(brief !== undefined ? { joiningBrief: brief } : {}),
           ...(previous
@@ -226,7 +227,7 @@ export function useConversationJoiningReview(
     if (!input) {
       if (!ready(state) || !state.review || !state.setup) return;
       input = CollaborationJoinInputSchema.parse({
-        requestId: crypto.randomUUID(),
+        requestId: createBrowserId(),
         expectedMembershipRevision: state.review.expectedMembershipRevision,
         name: state.setup.name.trim(),
         settings: state.review.settings,

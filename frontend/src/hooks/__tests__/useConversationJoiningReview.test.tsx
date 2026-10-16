@@ -9,7 +9,10 @@ import {
 } from '../../preview/conversation-joining-fixture';
 import type { ConversationJoiningOwner } from '../../lib/conversation-joining-review';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 function owner() {
   const review = vi.fn<ConversationJoiningOwner['review']>(async () => joiningReviewFixture());
   const confirm = vi.fn<ConversationJoiningOwner['confirm']>(async (input) => receipt(input));
@@ -47,6 +50,18 @@ it('opening a flow performs no read, allocation or confirmation', () => {
   expect(port.review).not.toHaveBeenCalled();
   expect(port.confirm).not.toHaveBeenCalled();
   expect(port.recover).not.toHaveBeenCalled();
+});
+it('reviews and confirms on supported remote HTTP without randomUUID or SubtleCrypto', async () => {
+  const getRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+  vi.stubGlobal('crypto', { getRandomValues });
+  const port = owner();
+  const { result } = renderHook(() => useConversationJoiningReview(port));
+  await act(() => result.current.prepare(joiningSetupFixture()));
+  expect(result.current.canConfirm).toBe(true);
+  await act(() => result.current.confirm());
+  expect(port.review.mock.calls[0][0].requestId).toMatch(/^[a-f0-9-]{36}$/);
+  expect(port.confirm.mock.calls[0][0].requestId).toMatch(/^[a-f0-9-]{36}$/);
+  expect(result.current.join?.state).toBe('pending_preparation');
 });
 it('replays the same review request after a lost response; explicit edits create a distinct request', async () => {
   const port = owner();
