@@ -5,6 +5,7 @@ import type { MitzoStoreOptions, MitzoStoreState } from '../src/store.js';
 import type { TransportAdapter } from '../src/types.js';
 import type { WebSocketLike } from '../src/ws-connection.js';
 import { WS_READY_STATE } from '../src/types.js';
+import { storedEventToClientMessage } from '@mitzo/protocol';
 import { INITIAL_TOKENS_STATE } from '../src/slices/tokens.js';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -91,6 +92,49 @@ function createReadyStore(transport?: TransportAdapter) {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('createMitzoStore', () => {
+  it('applies a redacted private provenance envelope before its successor without changing transcript content', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('session');
+    const messages = store.getState().messages;
+    const marker = storedEventToClientMessage({
+      type: 'ordinary_reply_source',
+      sessionId: 'session',
+      seq: 7,
+      prevSessionSeq: 0,
+      payload: {
+        providerThreadId: 'private-thread',
+        providerTurnId: 'private-turn',
+        futurePrivateValue: 'private-future',
+      },
+    });
+    expect(marker).toEqual({
+      type: 'ordinary_reply_source',
+      sessionId: 'session',
+      seq: 7,
+      prevSessionSeq: 0,
+    });
+    lastWs.simulateMessage(marker);
+    expect(store.getState().messages).toBe(messages);
+    expect(lastWs.parsedSent()).toContainEqual({
+      type: 'session_event_applied',
+      sessionId: 'session',
+      seq: 7,
+    });
+    lastWs.simulateMessage({
+      type: 'message_start',
+      sessionId: 'session',
+      seq: 9,
+      prevSessionSeq: 7,
+      messageId: 'next',
+    });
+    expect(store.getState().messages.current?.messageId).toBe('next');
+    expect(lastWs.parsedSent()).toContainEqual({
+      type: 'session_event_applied',
+      sessionId: 'session',
+      seq: 9,
+    });
+  });
+
   it.each(['codex_queue', 'user_message', 'session_end'])(
     'invalidates queue metadata for an active %s event only',
     async (type) => {

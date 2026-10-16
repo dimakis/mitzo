@@ -799,6 +799,40 @@ describe('session routes', () => {
     expect(reader).not.toHaveBeenCalled();
   });
 
+  it('GET session events redacts private reply provenance without dropping its sequence', async () => {
+    const { eventStore } = await import('../chat.js');
+    vi.mocked(eventStore.getEventsAfter).mockReturnValueOnce([
+      {
+        seq: 7,
+        sessionId: 's1',
+        type: 'ordinary_reply_source',
+        createdAt: 1,
+        payload: {
+          version: 1,
+          commandId: 'command',
+          messageId: 'message',
+          providerThreadId: 'private-thread',
+          providerTurnId: 'private-turn',
+          futurePrivateValue: 'private-future',
+        },
+      },
+      {
+        seq: 9,
+        sessionId: 's1',
+        type: 'message_end',
+        createdAt: 2,
+        payload: { messageId: 'message' },
+      },
+    ]);
+    const res = await request(app).get('/api/sessions/s1/events?after=3').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { type: 'ordinary_reply_source', sessionId: 's1', seq: 7 },
+      { type: 'message_end', sessionId: 's1', seq: 9, messageId: 'message' },
+    ]);
+    expect(eventStore.getEventsAfter).toHaveBeenLastCalledWith('s1', 3);
+  });
+
   it('GET /api/sessions/:id/meta — returns session metadata', async () => {
     const res = await request(app).get('/api/sessions/s1/meta').set('Cookie', authCookie);
     expect(res.status).toBe(200);
