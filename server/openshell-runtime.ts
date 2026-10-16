@@ -1,3 +1,8 @@
+import {
+  warmPoolConversationName,
+  projectWarmPoolOwnership,
+  claimWarmPoolForCommand,
+} from './openshell-warm-pool-binding.js';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { tracer } from './tracing.js';
 import { TASK_CAPABILITY_PROBE, TaskCapabilities } from './task-runtime-guidance.js';
@@ -1078,6 +1083,7 @@ export class OpenShellRuntimeManager {
   private nameForConversation(conversationId: string) {
     return (
       this.config.sandboxNameOverride ??
+      warmPoolConversationName(this.config, conversationId) ??
       sandboxNameForConversation(conversationId, this.config.sandboxIdLength)
     );
   }
@@ -1085,8 +1091,11 @@ export class OpenShellRuntimeManager {
     if (!runtime.sandboxId) throw new Error('Runtime source physical identity is missing');
     const owned = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
     if (owned.phase !== 'Ready') throw new Error('Runtime source is not Ready');
-    const detail = JSON.parse(
-      await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+    const detail = projectWarmPoolOwnership(
+      this.config,
+      JSON.parse(
+        await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+      ),
     );
     if (
       detail.id !== runtime.sandboxId ||
@@ -1250,8 +1259,11 @@ export class OpenShellRuntimeManager {
       runtimePolicyHash(this.providerPolicyState.read(owned.name)) !== runtimePolicyHash(approved)
     )
       throw new Error('Runtime provider approval changed during attestation');
-    const after = JSON.parse(
-      await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+    const after = projectWarmPoolOwnership(
+      this.config,
+      JSON.parse(
+        await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+      ),
     );
     if (
       after.id !== detail.id ||
@@ -1459,7 +1471,12 @@ export class OpenShellRuntimeManager {
   private async get(name: string, signal: AbortSignal) {
     try {
       const sandbox = Sandbox.parse(
-        JSON.parse(await this.run(['sandbox', ...this.base(), 'get', name, '-o', 'json'], signal)),
+        projectWarmPoolOwnership(
+          this.config,
+          JSON.parse(
+            await this.run(['sandbox', ...this.base(), 'get', name, '-o', 'json'], signal),
+          ),
+        ),
       );
       if (
         this.config.cliContract === 'v0.1' &&
@@ -2060,6 +2077,28 @@ export class OpenShellRuntimeManager {
       () => this.config.verifyAccountProviderUnion?.(),
       signal,
     );
+    if (initialCommandId && !expected && !warmPoolConversationName(this.config, conversationId)) {
+      const claimed = await claimWarmPoolForCommand(
+        this.config,
+        conversationId,
+        signal,
+        admittedSeed?.seed,
+      );
+      if (claimed) {
+        // The durable claim picks a different physical name. Acquire its policy
+        // fence and recheck account authority after attachment, before use.
+        return this.serializeProviderPolicy(claimed.name, signal, () =>
+          this.ensureUnserialized(
+            conversationId,
+            signal,
+            undefined,
+            admittedSeed,
+            inheritedMigrationGrants,
+            initialCommandId,
+          ),
+        );
+      }
+    }
     const accountProvider = this.config.account.provider;
     // The account provider is a separately-bound inference/account role. It
     // can happen to have a service-provider name (for example `github`), but
