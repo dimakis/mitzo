@@ -283,7 +283,21 @@ for (const theme of ['dark', 'light'])
         await row.dblclick();
       }
       await expect(page.getByRole('button', { name: 'Opened conversation' })).toBeVisible();
+      // Returning remounts the list and starts four reads. Settle those reads
+      // before the next action can reload the document; WebKit rejects reads
+      // started by the old document once navigation has already begun.
+      const restoredReads = Promise.all(
+        ['/api/todos', '/api/sessions', '/api/config', '/api/version'].map((path) =>
+          page
+            .waitForResponse((response) => new URL(response.url()).pathname === path)
+            .then(async (response) => {
+              expect(response.ok()).toBe(true);
+              expect(await response.finished()).toBeNull();
+            }),
+        ),
+      );
       await page.getByRole('button', { name: 'Opened conversation' }).click();
+      await restoredReads;
     }
     await page.goto('/');
     await expect(page.getByRole('meter', { name: 'Context used' }).first()).toHaveAttribute(
