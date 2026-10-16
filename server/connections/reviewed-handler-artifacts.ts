@@ -891,7 +891,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../logger.ts': '7716ffb5d69ddf4307d7c7b45aa4fcde937f1ddb2c5af71f27f9706c54caf6c2',
   '../request-performance.ts': '0e12542fbd0b53f61fbf96b6ef26bddb1bf77962e50d4cb3325d7c81def56cd9',
   '../runtime-performance.ts': '617d0732c9bde4619be7ae36a2513e275c0a897bd354acf9459b8bd3e61c0810',
-  '../mcp-launch-environment.ts': '97ac57133ca19edc39bc8b6ccf58bb4fdfab261ca71483d1c7ab937ffd03742a',
+  '../mcp-launch-environment.ts':
+    '97ac57133ca19edc39bc8b6ccf58bb4fdfab261ca71483d1c7ab937ffd03742a',
   '../mcp-config.ts': '6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b',
-  '../configured-tool-catalog.ts': 'be5dee6d6aa14542c2ab45b296fd1025a6ebe435ba1abb4c94a25c39fd6c1f02',
+  '../configured-tool-catalog.ts':
+    'be5dee6d6aa14542c2ab45b296fd1025a6ebe435ba1abb4c94a25c39fd6c1f02',
 });
