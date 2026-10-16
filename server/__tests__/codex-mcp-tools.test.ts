@@ -481,19 +481,17 @@ it.each([
         },
       }),
     );
-    const runner = vi
-      .fn<commands.ProtectedSdkCommandRunner>()
-      .mockResolvedValue({
-        stdout: JSON.stringify({
-          hookSpecificOutput: deny
-            ? {
-                permissionDecision: 'deny',
-                permissionDecisionReason: 'Project hook denied this tool',
-              }
-            : { updatedInput: { query: 'validated' } },
-        }),
-        stderr: '',
-      });
+    const runner = vi.fn<commands.ProtectedSdkCommandRunner>().mockResolvedValue({
+      stdout: JSON.stringify({
+        hookSpecificOutput: deny
+          ? {
+              permissionDecision: 'deny',
+              permissionDecisionReason: 'Project hook denied this tool',
+            }
+          : { updatedInput: { query: 'validated' } },
+      }),
+      stderr: '',
+    });
     const runnerSpy = vi
       .spyOn(commands, 'createWorkspaceRuntimeCommandRunner')
       .mockReturnValue(runner);
