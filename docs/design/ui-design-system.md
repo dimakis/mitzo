@@ -866,6 +866,36 @@ and [desktop profile usage loading state](assets/tool-library-profile-loading-de
 These isolated renders use intercepted requests and no backend or model. The
 full-app Agent Library fixture retains its separate CI acceptance journey.
 
+## Sandbox controls
+
+More → Sandboxes uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`,
+`UiIcon`, `EmptyState`, grouped Connections rows/fields, `HomeDialog`, shared
+secondary controls and disclosure motion. Settings use Save/Cancel with retained
+failed drafts and a revision fence. CPU/memory resource controls inherit shared
+type, spacing, radius and control-height tokens. WebKit selects use that token as
+an explicit height as well as a minimum; the native appearance remains intact.
+Disk stays visibly unavailable when the native adapter cannot enforce its limit.
+
+Spare details keep provider/account unassigned; conversation cleanup retains the
+existing ownership, checkpoint and retention policies. Failed actions remain
+visible inside the active dialog. Late cleanup previews are fenced to their
+selected conversation. Opening inventory cannot allocate a sandbox or start a
+model. The page has no private palette, font, wordmark or navigation height.
+
+The fully intercepted sandbox fixture verifies configuration, refusal/confirmation,
+More navigation, modal dismissal, long titles, final-row access, 44px touch targets
+and bounded scrolling at 320px mobile WebKit/Chromium and 1280px desktop Chromium,
+in dark Mint/System and light Teal/Georgia with larger text. Inspected captures:
+[mobile dark](assets/sandbox-controls-mobile-dark.png),
+[mobile light](assets/sandbox-controls-mobile-light.png),
+[desktop dark](assets/sandbox-controls-desktop-dark.png) and
+[desktop light](assets/sandbox-controls-desktop-light.png).
+These are mocked component-route checks; native runtime qualification and full-app
+build/browser acceptance remain separate. See the
+[pool operating contract](../operations/openshell-warm-pool.md).
+
+## Tool catalog browsing
+
 Tool browsing uses the shared `ToolLibraryCatalog` collection component. Quiet
 cards lead with a category icon, tool name, a two-line description and behavior
 badges. Required tools and unavailable explicit selections remain visible.
@@ -897,3 +927,17 @@ checks, the design guard, frontend type checking and focused lint pass. The full
 build exceeded the required 1 GiB local heap; full app build acceptance remains
 with CI. Shell-owned masthead/safe-area behavior is unchanged; these focused
 captures isolate the actual page without the shell. No deployment is performed.
+
+Verified obsolete warm spares retain Replace, confirmed Remove and Recheck in the
+existing Sandboxes `HomeDialog`, including paused and manual pools. The server's
+fresh retirement capability is independent of recipe compatibility; unknown or
+unsettled physical ownership exposes only Recheck. These controls reuse existing
+secondary/destructive buttons and shared focus, spacing and motion. Facts stack label above value on mobile and retain the existing desktop grid,
+keeping larger type readable. Offline rendered checks cover
+320px mobile WebKit/Chromium and 1280px desktop Chromium, dark Mint/System and light
+Teal/Georgia with larger text, desktop tab navigation, mobile focus/touch targets,
+confirmation, failure preservation and replacement. Captures show
+[mobile dark](assets/sandbox-obsolete-mobile-dark.png),
+[mobile light](assets/sandbox-obsolete-mobile-light.png),
+[desktop dark](assets/sandbox-obsolete-desktop-dark.png) and
+[desktop light](assets/sandbox-obsolete-desktop-light.png).
