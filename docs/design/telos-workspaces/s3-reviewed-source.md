@@ -26,7 +26,12 @@ date and revision) cannot silently disappear from a full/text source selection.
 Capture refuses a selected message containing these attachments with advice to
 retain them as materials. An unrelated textual selection remains available even
 when its later boundary message carries attachments. Mutable unversioned material
-links cannot stand in for a full-prefix capture witness.
+links cannot stand in for a full-prefix capture witness. Material discovery uses
+the existing Markdown parser family and shared pure path/link normalization.
+Bare retained URLs, titled links, used reference definitions and Markdown images
+resolve exact revision/hash pins through the retained artifact owner. Code,
+escaped Markdown, HTML literals, link labels/titles and unused definitions do
+not invent material references. The shared preprocessor preserves parsed reference definitions so completed chat links retain their exact destination.
 
 New capture qualifies attribution across the chosen prefix before filtering selected
 messages. Payload seat/provenance markers cannot establish an ordinary author;

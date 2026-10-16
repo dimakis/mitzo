@@ -8,7 +8,7 @@ import { TelosWorkStore } from '../../server/telos-work-store';
 import { TelosSourceCapture } from '../../server/telos-source-capture';
 
 /** Actual temporary source/artifact owners, synthetic public messages only. */
-export async function telosSourceBrowserData() {
+export async function telosSourceBrowserData({ assistantBoundary = false } = {}) {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'telos-browser-'));
   const path = join(root, 'telos.db');
   const db = new Database(path);
@@ -27,8 +27,14 @@ export async function telosSourceBrowserData() {
     });
     const messages = Array.from({ length: 61 }, (_, i) => ({
       messageId: i === 30 ? 'approved' : 'message-' + i,
-      role: 'user' as const,
+      role: i === 30 && assistantBoundary ? ('assistant' as const) : ('user' as const),
       blocks: [
+        ...(i === 30 && assistantBoundary
+          ? [
+              { blockId: 'empty', blockType: 'text' as const, content: '' },
+              { blockId: 'whitespace', blockType: 'text' as const, content: ' \n\t' },
+            ]
+          : []),
         {
           blockId: 'text-' + i,
           blockType: 'text' as const,
@@ -42,12 +48,24 @@ export async function telosSourceBrowserData() {
       ],
     }));
     let boundary = 0;
+    let cursor = 0;
     for (const message of messages) {
-      const sequence = events.append('planning', 'user_message', {
-        messageId: message.messageId,
-        text: message.blocks[0].content,
-      });
-      if (message.messageId === 'approved') boundary = sequence;
+      if (message.role === 'assistant') {
+        events.append('planning', 'message_start', { messageId: message.messageId });
+        for (const block of message.blocks) {
+          const identity = { messageId: message.messageId, blockId: block.blockId };
+          events.append('planning', 'block_start', { ...identity, blockType: 'text' });
+          events.append('planning', 'block_delta', { ...identity, delta: block.content });
+          events.append('planning', 'block_end', identity);
+        }
+        cursor = events.append('planning', 'message_end', { messageId: message.messageId });
+      } else {
+        cursor = events.append('planning', 'user_message', {
+          messageId: message.messageId,
+          text: message.blocks[0].content,
+        });
+      }
+      if (message.messageId === 'approved') boundary = cursor;
     }
     const capture = new TelosSourceCapture({
       events,
@@ -83,7 +101,7 @@ export async function telosSourceBrowserData() {
     );
     const source = capture.read('studio', receipt.work.sources[0].snapshotId, actor);
     const outputs = artifacts.list({ itemId: 'studio' });
-    return { work: receipt.work, source, messages, outputs };
+    return { work: receipt.work, source, messages, outputs, cursor };
   } finally {
     work.close();
     artifacts.close();

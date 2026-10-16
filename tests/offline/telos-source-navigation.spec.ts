@@ -19,15 +19,23 @@ const compiled = build({
     '@mitzo/client/hooks': resolve('packages/client/src/hooks/index.ts'),
   },
 });
-for (const theme of ['dark', 'light'] as const)
-  test(`retained source restores the actual exchange and returns to its item (${theme})`, async ({
+const sourceCases = (['dark', 'light'] as const).flatMap((theme) =>
+  (['ready', 'unavailable'] as const).map((sourceStatus) => ({ theme, sourceStatus })),
+);
+for (const { theme, sourceStatus } of sourceCases)
+  test(`retained source ${sourceStatus === 'ready' ? 'anchors visible assistant text and returns to its item' : 'failure releases ordinary restore, send and stream following'} (${theme})`, async ({
     page,
   }, info) => {
-    const data = await telosSourceBrowserData();
+    const data = await telosSourceBrowserData({ assistantBoundary: true });
     const files = (await compiled).outputFiles;
     const errors: string[] = [];
     const transcripts: string[] = [];
     const unexpected: string[] = [];
+    let sourceReads = 0;
+    let releaseSourceFailure!: () => void;
+    const sourceFailureBarrier = new Promise<void>((resolve) => {
+      releaseSourceFailure = resolve;
+    });
     const account = {
       id: 'offline-source-account',
       label: 'Offline fixture account',
@@ -72,8 +80,13 @@ for (const theme of ['dark', 'light'] as const)
       }
       expect(route.request().method()).toBe('GET');
       if (path === '/api/telos/work/items/studio') return route.fulfill({ json: data.work });
-      if (path === '/api/telos/work/items/studio/sources/' + data.source.snapshot.snapshotId)
-        return route.fulfill({ json: data.source });
+      if (path === '/api/telos/work/items/studio/sources/' + data.source.snapshot.snapshotId) {
+        // The item opener first verifies the target; fail the later chat-owned read.
+        if (++sourceReads === 1 || sourceStatus === 'ready')
+          return route.fulfill({ json: data.source });
+        await sourceFailureBarrier;
+        return route.fulfill({ status: 503, json: { error: 'Retained source unavailable' } });
+      }
       if (path === '/api/telos/items/studio/artifacts')
         return route.fulfill({ json: { artifacts: data.outputs, limit: 100 } });
       if (path === '/api/todos')
@@ -116,7 +129,7 @@ for (const theme of ['dark', 'light'] as const)
         expect(url.searchParams.get('transcript')).toBe('1');
         transcripts.push(path);
         return route.fulfill({
-          json: { messages: data.messages, current: null, currents: [], cursor: 61 },
+          json: { messages: data.messages, current: null, currents: [], cursor: data.cursor },
         });
       }
       if (path === '/api/sessions/planning/meta') return route.fulfill({ json: metadata });
@@ -176,7 +189,68 @@ for (const theme of ['dark', 'light'] as const)
     await page.screenshot({ path: info.outputPath(`telos-item-sources-${theme}.png`) });
     await page.getByRole('button', { name: 'Open original chat' }).click();
     await expect(page).toHaveURL(new RegExp('/chat/planning\\?telosItem=studio&telosSource='));
+    if (sourceStatus === 'unavailable') {
+      await expect(page.getByText('Opening original exchange…', { exact: true })).toBeVisible();
+      await expect(page.getByText('Studio discussion 60:', { exact: false })).toBeAttached();
+      const scroll = page.locator('.chat-messages');
+      releaseSourceFailure();
+      await expect(page.getByText('Original exchange unavailable', { exact: true })).toBeVisible();
+      await expect(
+        page.getByText('Use the approved acoustic plan.', { exact: true }),
+      ).toBeAttached();
+      await expect(page.locator('[data-telos-source-anchor="true"]')).toHaveCount(0);
+      const distanceFromBottom = () =>
+        scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+      await expect.poll(distanceFromBottom).toBeLessThan(3);
+      await scroll.evaluate((el) => {
+        el.scrollTop = 0;
+        el.dispatchEvent(new Event('scroll'));
+      });
+      await page.evaluate(() => window.dispatchEvent(new Event('fixture-stream-reply')));
+      await expect(
+        page.getByText('Later reply from the offline transport.', { exact: true }),
+      ).toBeAttached();
+      expect(await scroll.evaluate((el) => el.scrollTop)).toBe(0);
+      await page.evaluate(() => window.dispatchEvent(new Event('fixture-finish-reply')));
+      await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
+      await scroll.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+        el.dispatchEvent(new Event('scroll'));
+      });
+      await page
+        .getByRole('textbox', { name: 'Message Mitzo' })
+        .fill('Continue the ordinary chat.');
+      await page.getByRole('button', { name: 'Send message', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => window.fixtureSends.length)).toBe(1);
+      expect(await page.evaluate(() => window.fixtureSends[0])).toMatchObject({
+        type: 'send',
+        sessionId: 'planning',
+        prompt: 'Continue the ordinary chat.',
+      });
+      await page.evaluate(() => window.dispatchEvent(new Event('fixture-stream-reply')));
+      const heightBefore = await scroll.evaluate((el) => el.scrollHeight);
+      await page.evaluate(() =>
+        window.dispatchEvent(
+          new CustomEvent('fixture-continue-reply', {
+            detail: '\n\nFollowing the ordinary reply after source failure. '.repeat(200),
+          }),
+        ),
+      );
+      await expect
+        .poll(() => scroll.evaluate((el) => el.scrollHeight))
+        .toBeGreaterThan(heightBefore);
+      await expect.poll(distanceFromBottom).toBeLessThan(3);
+      await expect(page).toHaveURL(new RegExp('/chat/planning\\?telosItem=studio&telosSource='));
+      await page.screenshot({
+        path: info.outputPath(`telos-source-unavailable-following-${theme}.png`),
+      });
+      expect(transcripts).toHaveLength(1);
+      expect(unexpected).toEqual([]);
+      expect(errors).toEqual([]);
+      return;
+    }
     const anchor = page.locator('[data-telos-source-anchor="true"]');
+    await expect(anchor).toHaveCount(1);
     await expect(anchor).toContainText('Use the approved acoustic plan.');
     await expect(anchor).toBeInViewport();
     await expect(page.getByRole('link', { name: 'Home studio', exact: true })).toBeVisible();
