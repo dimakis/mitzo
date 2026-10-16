@@ -796,6 +796,14 @@ saved user/assistant text and never attach or resume a provider. Repository path
 branches, IDs and cumulative usage live in details. A work link requires an exact
 recorded `telosTaskId`; a repeated folder name is not a task association.
 
+Desktop conversations keep the conversation sidebar on the left and the command
+center (Telos/tasks) on the right, collapsed by default. In Chats, a single click
+previews a recent, pinned or search-result conversation; a double-click opens it.
+Enter or Space on a recent/search row opens it directly. Row action buttons keep
+their separate behavior. Mobile continues to open with one tap and uses its
+existing long-press preview/actions. The shared iOS UI ships in the separately
+built Capacitor bundle; deploying the web app does not update an installed app.
+
 Mobile details retain cumulative token usage, including recorded zero totals;
 unknown totals remain absent. This uses the existing muted detail text and compact
 formatter, separately from context occupancy.
