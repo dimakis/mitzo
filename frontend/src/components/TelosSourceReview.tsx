@@ -161,6 +161,7 @@ export function useTelosSourceReview({
   const [locked, setLocked] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [readAttempt, setReadAttempt] = useState(0);
   const abort = useRef<AbortController | null>(null);
   const loadingPage = useRef(false);
   const valid = useCallback(
@@ -263,7 +264,14 @@ export function useTelosSourceReview({
             setReview(null);
             setPreview(null);
             setPreviewInput(null);
-            setError('Source review unavailable. Deny this request and ask again.');
+            if (lostAuthority(failure)) setBlocked(true);
+            setError(
+              recoveryOnly
+                ? lostAuthority(failure)
+                  ? 'Sign in again to recover the original save. Dismiss only hides this card.'
+                  : 'The original save is still unconfirmed. Retry recovery to retrieve the same reviewed save, or Dismiss to hide this card.'
+                : 'Source review unavailable. Deny this request and ask again.',
+            );
           }
         })
         .finally(() => {
@@ -290,7 +298,7 @@ export function useTelosSourceReview({
       controller.abort();
       window.removeEventListener(AUTH_LOST_EVENT, authLost);
     };
-  }, [identity, enabled, permId, sessionId, recoveryOnly, valid]);
+  }, [identity, enabled, permId, sessionId, recoveryOnly, readAttempt, valid]);
 
   const activeReview = review?.permId === permId && review.sessionId === sessionId ? review : null;
   const isExpired = () =>
@@ -456,85 +464,92 @@ export function useTelosSourceReview({
               (activeReview.operation.kind === 'create' ? activeReview.operation.outcome : {})
             }
           />
-          <fieldset className="telos-source-choices" disabled={disabled}>
-            <legend>Select the agreed exchange</legend>
-            <p className="perm-banner-scope">
-              {locked
-                ? 'Your reviewed selection is fixed for this save.'
-                : 'Choose completed messages to retain. Nothing is selected automatically.'}
-            </p>
-            {activeReview.messages.map((message) => (
-              <label key={message.messageId} className="telos-source-choice">
-                <input
-                  type="checkbox"
-                  checked={selectedMessages.includes(message.messageId)}
-                  disabled={!!message.unavailableReason}
-                  onChange={() => changeSelection('message', message.messageId)}
-                />
-                <span>
-                  <span className="telos-source-text">
-                    {message.blocks.map((block) => block.content).join('\n\n')}
-                  </span>
-                  <SourceAttribution attribution={message.attribution} author={message.author} />
-                  {message.unavailableReason && <small>{message.unavailableReason}</small>}
-                </span>
-              </label>
-            ))}
-            {!activeReview.messages.length && (
-              <p className="perm-banner-scope">
-                {locked
-                  ? 'Your reviewed selection is retained below.'
-                  : 'No completed public messages are available.'}
-              </p>
-            )}
-            {activeReview.hasMore && (
-              <button type="button" className="perm-banner-btn" onClick={() => void loadMore()}>
-                Load more source messages
+          {!recoveryOnly && (
+            <>
+              <fieldset className="telos-source-choices" disabled={disabled}>
+                <legend>Select the agreed exchange</legend>
+                <p className="perm-banner-scope">
+                  {locked
+                    ? 'Your reviewed selection is fixed for this save.'
+                    : 'Choose completed messages to retain. Nothing is selected automatically.'}
+                </p>
+                {activeReview.messages.map((message) => (
+                  <label key={message.messageId} className="telos-source-choice">
+                    <input
+                      type="checkbox"
+                      checked={selectedMessages.includes(message.messageId)}
+                      disabled={!!message.unavailableReason}
+                      onChange={() => changeSelection('message', message.messageId)}
+                    />
+                    <span>
+                      <span className="telos-source-text">
+                        {message.blocks.map((block) => block.content).join('\n\n')}
+                      </span>
+                      <SourceAttribution
+                        attribution={message.attribution}
+                        author={message.author}
+                      />
+                      {message.unavailableReason && <small>{message.unavailableReason}</small>}
+                    </span>
+                  </label>
+                ))}
+                {!activeReview.messages.length && (
+                  <p className="perm-banner-scope">
+                    {locked
+                      ? 'Your reviewed selection is retained below.'
+                      : 'No completed public messages are available.'}
+                  </p>
+                )}
+                {activeReview.hasMore && (
+                  <button type="button" className="perm-banner-btn" onClick={() => void loadMore()}>
+                    Load more source messages
+                  </button>
+                )}
+              </fieldset>
+              {!!activeReview.artifacts.length && (
+                <fieldset className="telos-source-choices" disabled={disabled}>
+                  <legend>Select retained materials</legend>
+                  {activeReview.artifacts.map((artifact) => (
+                    <label
+                      key={artifact.artifactId + ':' + artifact.revision}
+                      className="telos-source-choice"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedArtifacts.includes(
+                          artifact.artifactId + ':' + artifact.revision,
+                        )}
+                        onChange={() =>
+                          changeSelection('artifact', artifact.artifactId + ':' + artifact.revision)
+                        }
+                      />
+                      <span>
+                        {artifact.title}
+                        <small>
+                          {artifact.filename} · revision {artifact.revision} · {artifact.sizeBytes}{' '}
+                          bytes
+                        </small>
+                        <small>
+                          Created {artifact.createdAt ?? 'date unknown'} ·{' '}
+                          {artifact.sessionId === activeReview.source.conversationId
+                            ? (activeReview.source.title ?? 'This conversation')
+                            : 'Source conversation recorded'}
+                        </small>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              )}
+              <button
+                type="button"
+                className="perm-banner-btn"
+                disabled={disabled || !selectedMessages.length}
+                onClick={() => void reviewSelection()}
+              >
+                Review selected source
               </button>
-            )}
-          </fieldset>
-          {!!activeReview.artifacts.length && (
-            <fieldset className="telos-source-choices" disabled={disabled}>
-              <legend>Select retained materials</legend>
-              {activeReview.artifacts.map((artifact) => (
-                <label
-                  key={artifact.artifactId + ':' + artifact.revision}
-                  className="telos-source-choice"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedArtifacts.includes(
-                      artifact.artifactId + ':' + artifact.revision,
-                    )}
-                    onChange={() =>
-                      changeSelection('artifact', artifact.artifactId + ':' + artifact.revision)
-                    }
-                  />
-                  <span>
-                    {artifact.title}
-                    <small>
-                      {artifact.filename} · revision {artifact.revision} · {artifact.sizeBytes}{' '}
-                      bytes
-                    </small>
-                    <small>
-                      Created {artifact.createdAt ?? 'date unknown'} ·{' '}
-                      {artifact.sessionId === activeReview.source.conversationId
-                        ? (activeReview.source.title ?? 'This conversation')
-                        : 'Source conversation recorded'}
-                    </small>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
+            </>
           )}
-          <button
-            type="button"
-            className="perm-banner-btn"
-            disabled={disabled || !selectedMessages.length}
-            onClick={() => void reviewSelection()}
-          >
-            Review selected source
-          </button>
         </>
       )}
       {loading && (
@@ -620,6 +635,15 @@ export function useTelosSourceReview({
         <p role="alert" className="perm-banner-response-error">
           {error}
         </p>
+      )}
+      {recoveryOnly && error && !activeReview && !loading && !blocked && (
+        <button
+          type="button"
+          className="perm-banner-btn"
+          onClick={() => setReadAttempt((attempt) => attempt + 1)}
+        >
+          Retry recovery
+        </button>
       )}
       {saved && (
         <p role="status" className="perm-banner-scope">

@@ -54,6 +54,7 @@ for (const theme of ['dark', 'light'] as const)
         const previews: TelosSourcePermissionPreview[] = [],
           receipts: TelosSourcePermissionReceipt[] = [];
         const reviews: TelosSourcePermissionReview[] = [];
+        let recoveryReadUnavailable = false;
         const account = {
           id: 'offline-account',
           label: 'Offline fixture account',
@@ -138,6 +139,12 @@ for (const theme of ['dark', 'light'] as const)
             try {
               const permId = decodeURIComponent(permission[1]);
               const operation = permission[2];
+              if (!operation && recoveryReadUnavailable) {
+                return route.fulfill({
+                  status: 503,
+                  json: { code: 'unavailable', error: 'Offline fixture interrupts recovery reads' },
+                });
+              }
               const result =
                 operation === 'preview'
                   ? await host.service.preview(permId, request.postDataJSON(), host.actor)
@@ -517,8 +524,28 @@ for (const theme of ['dark', 'light'] as const)
         await page.clock.install();
         await page.clock.fastForward(121_000);
         expect(await page.evaluate(() => Date.now())).toBeGreaterThan(originalDeadline);
+        recoveryReadUnavailable = true;
+        const previewCountBeforeRecovery = previews.length;
         await page.reload();
         const recoveryCard = page.getByRole('region', { name: 'Save recovery', exact: true });
+        await expect(recoveryCard.getByRole('alert')).toContainText(
+          'The original save is still unconfirmed',
+        );
+        await expect(recoveryCard.getByRole('alert')).not.toContainText(
+          /deny|ask again|new request/i,
+        );
+        await expect(
+          recoveryCard.getByRole('button', { name: 'Dismiss', exact: true }),
+        ).toBeEnabled();
+        await expect(
+          recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }),
+        ).toBeDisabled();
+        await expect(
+          recoveryCard.getByRole('region', { name: 'Reviewed source', exact: true }),
+        ).toHaveCount(0);
+        expect(host.counts().canonicalCreates).toBe(savedBeforeRestart.canonicalCreates);
+        recoveryReadUnavailable = false;
+        await recoveryCard.getByRole('button', { name: 'Retry recovery', exact: true }).click();
         await expect(
           recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }),
         ).toBeEnabled();
@@ -529,6 +556,16 @@ for (const theme of ['dark', 'light'] as const)
           recoveryCard.getByRole('button', { name: 'Allow for session', exact: true }),
         ).toHaveCount(0);
         await expect(recoveryCard.getByRole('timer')).toHaveCount(0);
+        await expect(
+          recoveryCard.getByRole('group', { name: 'Select the agreed exchange' }),
+        ).toHaveCount(0);
+        await expect(
+          recoveryCard.getByRole('group', { name: 'Select retained materials' }),
+        ).toHaveCount(0);
+        await expect(
+          recoveryCard.getByRole('button', { name: 'Review selected source', exact: true }),
+        ).toHaveCount(0);
+        expect(previews.length).toBe(previewCountBeforeRecovery);
         await expect(
           recoveryCard.getByRole('region', { name: 'Reviewed source', exact: true }),
         ).toContainText('Use the approved acoustic plan.');

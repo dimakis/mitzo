@@ -498,6 +498,11 @@ describe('ordinary Telos source approval', () => {
     );
     await screen.findByText('Reviewed source');
     expect(screen.getByLabelText('Save recovery')).toBeTruthy();
+    expect(screen.queryByRole('group', { name: 'Select the agreed exchange' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Select retained materials' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Review selected source' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Outcome brief' })).toBeTruthy();
+    expect(screen.getByText('Source details')).toBeTruthy();
     expect(screen.queryByRole('timer')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Allow Once' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Retry same save' }).hasAttribute('disabled')).toBe(
@@ -507,5 +512,57 @@ describe('ordinary Telos source approval', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(props.onRespond).toHaveBeenCalledWith(review.permId, 'deny', props.toolName);
     expect(api.approveSourcePermission).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed recovery read for the same original save without preparing a replacement', async () => {
+    const input = {
+      sessionId: review.sessionId,
+      requestId: '12345678-1234-4234-8234-123456789abc',
+      proposalSha256,
+      selection: {
+        mode: 'selected',
+        boundary: review.source.boundary,
+        messageIds: ['assistant-1'],
+        artifacts: [],
+      },
+    };
+    const originalPreview = await api.previewSourcePermission.getMockImplementation()!(
+      review.permId,
+      input,
+    );
+    api.getSourcePermission
+      .mockRejectedValueOnce(new Error('Recovery connection interrupted'))
+      .mockResolvedValueOnce({
+        ...review,
+        messages: [],
+        artifacts: [],
+        recovery: { ...input, previewSha256, preview: originalPreview.preview, receipt: null },
+      });
+    render(<PermissionBanner {...props} recoveryOnly expiresAt={Date.now() - 1} />);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('The original save is still unconfirmed');
+    expect(alert.textContent).not.toMatch(/deny|ask again|new request/i);
+    expect(screen.queryByText('The agreed studio brief.')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Dismiss' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Retry same save' }).hasAttribute('disabled')).toBe(
+      true,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Retry recovery' }));
+    await screen.findByText('Reviewed source');
+    expect(
+      api.getSourcePermission.mock.calls.map(([permId, sessionId]) => [permId, sessionId]),
+    ).toEqual([
+      [review.permId, review.sessionId],
+      [review.permId, review.sessionId],
+    ]);
+    expect(api.previewSourcePermission).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry same save' }));
+    await waitFor(() =>
+      expect(api.approveSourcePermission).toHaveBeenCalledWith(review.permId, {
+        ...input,
+        previewSha256,
+      }),
+    );
+    expect(props.onRespond).not.toHaveBeenCalled();
   });
 });
