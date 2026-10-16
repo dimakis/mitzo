@@ -1194,3 +1194,74 @@ it('preserves the actual builtin profile namespace through silent workspace prep
   });
   expect(f.dispatch).toHaveBeenCalledOnce();
 });
+
+it('prepares and starts two independent ordinary sessions sharing one account and profile', async () => {
+  const first = await fixture({ silentPreparation: true });
+  const second = await first.prepareSibling();
+  const prepared = [first.preparation!, second.preparation];
+  expect(new Set(prepared.map((item) => item.receipt.workspaceId)).size).toBe(2);
+  expect(new Set(prepared.map((item) => item.receipt.sessionId)).size).toBe(2);
+  expect(new Set(prepared.map((item) => item.receipt.allocationOperationId)).size).toBe(2);
+  expect(first.reservation.binding).toEqual(second.reservation.binding);
+  expect(first.request.selection.agent).toEqual(second.request.selection.agent);
+  for (const item of prepared) {
+    expect(item.receipt.sessionId).not.toBe(item.receipt.workspaceId);
+    expect(first.events.getOrdinaryInitialCommandId(item.receipt.sessionId)).toBeUndefined();
+    expect(first.events.getSendCommand(item.receipt.allocationOperationId)).toBeUndefined();
+    expect(first.events.getEventsAfter(item.receipt.sessionId, 0)).toEqual([]);
+  }
+  expect(first.launch).not.toHaveBeenCalled();
+  expect(second.launch).not.toHaveBeenCalled();
+  expect(first.dispatch).not.toHaveBeenCalled();
+  expect(second.dispatch).not.toHaveBeenCalled();
+  const firstOwner = first.create(),
+    secondOwner = second.create();
+  await expect(
+    Promise.all([
+      firstOwner.admitPreparedFirst(
+        first.preparation!.receipt.allocationOperationId,
+        first.request,
+      ),
+      secondOwner.admitPreparedFirst(
+        second.preparation.receipt.allocationOperationId,
+        second.request,
+      ),
+    ]),
+  ).resolves.toEqual([{ dispatched: true }, { dispatched: true }]);
+  expect(first.dispatch).toHaveBeenCalledOnce();
+  expect(second.dispatch).toHaveBeenCalledOnce();
+  expect(first.launch).toHaveBeenCalledOnce();
+  expect(second.launch).toHaveBeenCalledOnce();
+  expect(first.rpc).not.toBe(second.rpc);
+  const firstTurn = first.dispatch.mock.calls[0][0],
+    secondTurn = second.dispatch.mock.calls[0][0];
+  expect(firstTurn.lease.privateHome).not.toBe(secondTurn.lease.privateHome);
+  expect(firstTurn.workspace.directory).not.toBe(secondTurn.workspace.directory);
+  expect(first.events.getSendCommand(first.request.clientMsgId)?.sessionId).toBe(
+    first.preparation!.receipt.sessionId,
+  );
+  expect(first.events.getSendCommand(second.request.clientMsgId)?.sessionId).toBe(
+    second.preparation.receipt.sessionId,
+  );
+  expect(
+    first.events.getOrdinarySessionPreparation(first.preparation!.receipt.allocationOperationId)
+      ?.firstCommandId,
+  ).toBe(first.request.clientMsgId);
+  expect(
+    first.events.getOrdinarySessionPreparation(second.preparation.receipt.allocationOperationId)
+      ?.firstCommandId,
+  ).toBe(second.request.clientMsgId);
+  await expect(
+    secondOwner.admitPreparedFirst(
+      first.preparation!.receipt.allocationOperationId,
+      second.request,
+    ),
+  ).rejects.toThrow();
+  firstTurn.admission.assertCurrentSync();
+  secondTurn.admission.assertCurrentSync();
+  await expect(
+    firstOwner.admitPreparedFirst(first.preparation!.receipt.allocationOperationId, first.request),
+  ).resolves.toEqual({ dispatched: false });
+  expect(first.dispatch).toHaveBeenCalledOnce();
+  expect(second.dispatch).toHaveBeenCalledOnce();
+});

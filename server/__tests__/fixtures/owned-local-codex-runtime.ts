@@ -298,83 +298,144 @@ export async function ownedRuntimeFixture(
     reservation = preparation.reservation;
     reserved = workspace.getHostReservation(reservation);
   }
-  const rpc = {
-    initialize: vi.fn(async () => {}),
-    request: vi.fn(async (method: string) => {
-      if (method === 'account/read')
-        return { account: { type: 'chatgpt', email: configuration[0].email, planType: 'plus' } };
-      if (method === 'config/read') return { config: {} };
-      if (method === 'model/list')
-        return {
-          data: [
-            {
-              model: 'fixture-model',
-              displayName: 'Fixture',
-              supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
-            },
-          ],
-          nextCursor: null,
-        };
-      throw Error('Unexpected native execution');
-    }),
-    close: vi.fn(),
-  };
-  const launch = vi.fn(() => {
-    expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
-    expect(workspace.getHostReservation(reservation).state).toBe('reserved');
-    return rpc;
-  });
-  const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
-    expect(value.admission).toBeInstanceOf(OwnedLocalCodexChatAdmission);
-    expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
-    expect(await readFile(join(value.workspace.directory!, 'task.txt'), 'utf8')).toBe(
-      'accepted source',
-    );
-    value.admission.assertOptions({
-      conversationId: reservation.conversationId,
-      messageId: commandId,
-      binding,
-      profile: value.profile,
-      session: { cwd: value.workspace.directory, mode: 'agent' },
-      prompt: value.payload.text,
-      systemPrompt: value.payload.systemPrompt,
-      intent: value.payload.intent,
-      model: request.selection.model,
-      reasoningEffort: request.selection.thinking,
-      agentProfile: value.expected.agentProfile,
-      agentContext: value.expected.agentContext,
-      repositoryWorkspace: value.workspace,
-    });
-    expect(
-      value.admission.attach({
-        onNotification: () => {},
-        onRequest: async () => ({}),
-        onClose: () => {},
+  type CommandRequest = typeof request;
+  // Each command fixture retains its own mocked native transport while sharing
+  // the same real account/profile, repository and admission authorities.
+  function commandFixture(
+    reservation: Omit<
+      import('../../repository-workspaces.js').HostRepositoryReservationInput,
+      'signal'
+    >,
+    request: CommandRequest,
+  ) {
+    const commandId = request.clientMsgId;
+    const rpc = {
+      initialize: vi.fn(async () => {}),
+      request: vi.fn(async (method: string) => {
+        if (method === 'account/read')
+          return { account: { type: 'chatgpt', email: configuration[0].email, planType: 'plus' } };
+        if (method === 'config/read') return { config: {} };
+        if (method === 'model/list')
+          return {
+            data: [
+              {
+                model: 'fixture-model',
+                displayName: 'Fixture',
+                supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+              },
+            ],
+            nextCursor: null,
+          };
+        throw Error('Unexpected native execution');
       }),
-    ).toBe(rpc);
-  });
-  const dependencies = {
-    enabled: true,
-    eventStore: events,
-    library,
-    workspace,
-    reservation,
-    commandId,
-    operatorConnectionId,
-    signal: signal.signal,
-    env,
-    privateRoot,
-    launch,
-    dispatch,
-  };
-  const create = () => {
-    const driver = new OrdinaryLocalCodexOwnedRuntime(dependencies);
-    cleanups.push(() => driver.close());
-    return driver;
+      close: vi.fn(),
+    };
+    const launch = vi.fn(() => {
+      expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
+      expect(workspace.getHostReservation(reservation).state).toBe('reserved');
+      return rpc;
+    });
+    const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
+      expect(value.admission).toBeInstanceOf(OwnedLocalCodexChatAdmission);
+      expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
+      expect(await readFile(join(value.workspace.directory!, 'task.txt'), 'utf8')).toBe(
+        'accepted source',
+      );
+      value.admission.assertOptions({
+        conversationId: reservation.conversationId,
+        messageId: commandId,
+        binding,
+        profile: value.profile,
+        session: { cwd: value.workspace.directory, mode: 'agent' },
+        prompt: value.payload.text,
+        systemPrompt: value.payload.systemPrompt,
+        intent: value.payload.intent,
+        model: request.selection.model,
+        reasoningEffort: request.selection.thinking,
+        agentProfile: value.expected.agentProfile,
+        agentContext: value.expected.agentContext,
+        repositoryWorkspace: value.workspace,
+      });
+      expect(
+        value.admission.attach({
+          onNotification: () => {},
+          onRequest: async () => ({}),
+          onClose: () => {},
+        }),
+      ).toBe(rpc);
+    });
+    const dependencies = {
+      enabled: true,
+      eventStore: events,
+      library,
+      workspace,
+      reservation,
+      commandId,
+      operatorConnectionId,
+      signal: signal.signal,
+      env,
+      privateRoot,
+      launch,
+      dispatch,
+    };
+    const create = () => {
+      const driver = new OrdinaryLocalCodexOwnedRuntime(dependencies);
+      cleanups.push(() => driver.close());
+      return driver;
+    };
+    return { rpc, launch, dispatch, dependencies, create };
+  }
+  const owner = commandFixture(reservation, request);
+  const prepareSibling = async () => {
+    const preview = await workspace.preview(
+      binding,
+      'fixture-github',
+      'example/repo',
+      signal.signal,
+      {
+        runOn: 'local',
+        runtime: {
+          account: request.runtime.account,
+          harness: 'codex',
+          targetId: request.runtime.targetId,
+        },
+      },
+    );
+    const ready = await workspace.prepare(preview.id, binding, signal.signal);
+    const resolved = catalog.resolve(request.runtime);
+    if (resolved.status !== 'compatible') throw Error('Offline runtime unavailable');
+    const prepared = await workspace.prepareOrdinarySession(
+      {
+        allocationOperationId: randomUUID(),
+        id: ready.id,
+        binding,
+        taskRoot,
+        settings: {
+          binding: resolved.binding,
+          selection: request.selection,
+          repositoryWorkspaceId: ready.id,
+        },
+        agentProfile,
+        signal: signal.signal,
+      },
+      events,
+    );
+    const nextRequest = {
+      ...structuredClone(request),
+      clientMsgId: randomUUID(),
+      payload: { text: 'Independently implement the second task', intent: 'Second user intent' },
+    };
+    return {
+      ...commandFixture(prepared.reservation, nextRequest),
+      request: nextRequest,
+      reservation: prepared.reservation,
+      reserved: workspace.getHostReservation(prepared.reservation),
+      preparation: prepared,
+    };
   };
   return {
-    create,
-    dependencies,
+    ...owner,
+    prepareSibling,
     request,
     events,
     library,
@@ -383,9 +444,6 @@ export async function ownedRuntimeFixture(
     reserved: reserved!,
     preparation,
     agentProfile,
-    dispatch,
-    rpc,
-    launch,
     root,
     targetPath,
     target,
