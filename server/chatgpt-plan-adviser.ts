@@ -91,7 +91,7 @@ async function verifyIdToken(
   if (nonce && payload.nonce !== nonce) throw Error('Sign-in nonce changed');
   return identitySchema.parse(payload);
 }
-async function boundedJson(response: Response): Promise<unknown> {
+async function boundedJson(response: Response, maximumBytes = 262144): Promise<unknown> {
   if (!response.ok || !response.body) throw Error('ChatGPT account request failed');
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -101,13 +101,20 @@ async function boundedJson(response: Response): Promise<unknown> {
       const { value, done } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > 262144) throw Error('ChatGPT account response exceeded limit');
+      if (size > maximumBytes) throw Error('ChatGPT account response exceeded limit');
       chunks.push(value);
     }
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
+  }
+}
+export class ChatGptPlanAdviserCatalogError extends Error {
+  constructor() {
+    super(
+      'ChatGPT connected, but its models could not be loaded. Return to Mitzo and retry the saved connection.',
+    );
   }
 }
 function permitted(scope: string) {
@@ -288,6 +295,7 @@ export class ChatGptPlanAdviserAccounts {
     this.exchange = true;
     this.exchangingOwner = owner;
     const generation = this.generation;
+    let registrationRetained = false;
     const assertCurrent = () => {
       this.assertOwnership();
       signal.throwIfAborted();
@@ -358,6 +366,7 @@ export class ChatGptPlanAdviserAccounts {
         ...this.state,
         accounts: [...this.state.accounts.filter((row) => row.id !== id), account],
       });
+      registrationRetained = true;
       // Retain the verified registration and rotating credentials even if discovery fails.
       // The row remains unavailable for inference until the catalog is confirmed.
       const models = await this.models(account.accessToken, signal);
@@ -367,6 +376,7 @@ export class ChatGptPlanAdviserAccounts {
       this.persist(this.state);
       return this.list().find((row) => row.id === id)!;
     } catch {
+      if (registrationRetained) throw new ChatGptPlanAdviserCatalogError();
       throw Error('ChatGPT adviser sign-in did not complete');
     } finally {
       this.exchange = false;
@@ -396,6 +406,10 @@ export class ChatGptPlanAdviserAccounts {
           signal,
           headers: { Authorization: `Bearer ${accessToken}` },
         }),
+        // Account catalogues include instructions and capability metadata in
+        // addition to the small projection we retain. Keep a separate bound
+        // from the token and OIDC responses (observed catalogue: 569 KB).
+        2 * 1024 * 1024,
       ),
     );
     const models = page.models
@@ -417,8 +431,9 @@ export class ChatGptPlanAdviserAccounts {
       throw Error('Adviser model catalog unavailable');
     return models;
   }
-  private async refresh(account: Account, signal: AbortSignal): Promise<Account> {
+  private async refresh(account: Account, signal: AbortSignal, recovery = false): Promise<Account> {
     let refreshOwner = account;
+    const originalState = account.state;
     try {
       const tokens = await this.tokens(
         {
@@ -436,7 +451,8 @@ export class ChatGptPlanAdviserAccounts {
         identity.sub !== account.subject ||
         this.closed ||
         !this.state.accounts.includes(account) ||
-        account.state !== 'connected'
+        account.state !== originalState ||
+        (!recovery && originalState !== 'connected')
       )
         throw Error('Adviser registration changed');
       signal.throwIfAborted();
@@ -456,19 +472,79 @@ export class ChatGptPlanAdviserAccounts {
       refreshOwner = next;
       next.models = await this.models(next.accessToken, signal);
       signal.throwIfAborted();
-      if (this.closed || !this.state.accounts.includes(next) || next.state !== 'connected')
+      if (this.closed || !this.state.accounts.includes(next) || next.state !== originalState)
         throw Error('Adviser registration changed');
+      next.state = 'connected';
       this.persist(this.state);
       return next;
     } catch {
       const current = this.state.accounts.find((row) => row.id === account.id);
-      if (current === refreshOwner && current.state === 'connected') {
+      if (current === refreshOwner && current.state !== 'disconnected') {
         current.state = 'reauth_required';
         this.controllers.get(account.id)?.abort();
         this.persist(this.state);
       }
       throw Error('ChatGPT adviser needs sign-in');
     }
+  }
+  /** Retry a retained, verified grant without starting another browser login.
+   * Serialized with inference refreshes; signed identity, scopes and ownership
+   * are checked again before publishing a usable model catalogue.
+   */
+  async retryConnection(id: string, signal: AbortSignal) {
+    this.assertOwnership();
+    signal.throwIfAborted();
+    const account = this.state.accounts.find((row) => row.id === id);
+    if (!account || account.state === 'disconnected' || this.pending || this.exchange)
+      throw Error('Saved adviser connection unavailable or busy');
+    let pending = this.refreshes.get(id);
+    if (!pending) {
+      let controller = this.controllers.get(id);
+      if (!controller || controller.signal.aborted) {
+        controller = new AbortController();
+        this.controllers.set(id, controller);
+      }
+      const generation = this.generation;
+      const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30000)]);
+      const assertCurrent = () => {
+        this.assertOwnership();
+        combined.throwIfAborted();
+        if (
+          generation !== this.generation ||
+          !this.state.accounts.includes(account) ||
+          account.state === 'disconnected'
+        )
+          throw Error('Saved adviser connection changed');
+      };
+      pending = (async () => {
+        assertCurrent();
+        permitted(account.grantedScopes.join(' '));
+        if (account.expiresAt <= this.now() + 60000) return this.refresh(account, combined, true);
+        const identity = identitySchema.parse(
+          await this.verify(account.idToken, account.clientId, undefined, combined),
+        );
+        assertCurrent();
+        if (identity.sub !== account.subject) throw Error('Saved adviser identity changed');
+        const models = await this.models(account.accessToken, combined);
+        assertCurrent();
+        account.models = models;
+        account.state = 'connected';
+        this.persist(this.state);
+        return account;
+      })();
+      this.refreshes.set(id, pending);
+      void pending
+        .finally(() => {
+          if (this.refreshes.get(id) === pending) this.refreshes.delete(id);
+        })
+        .catch(() => {});
+    }
+    await pending;
+    signal.throwIfAborted();
+    this.assertOwnership();
+    const restored = this.list().find((row) => row.id === id);
+    if (restored?.state !== 'connected') throw Error('Saved adviser connection changed');
+    return restored;
   }
   async ready(id: string, model: string, effort: string | null | undefined, signal: AbortSignal) {
     this.assertOwnership();
