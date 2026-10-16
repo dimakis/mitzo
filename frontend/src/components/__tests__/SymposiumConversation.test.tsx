@@ -64,6 +64,12 @@ vi.mock('../../lib/symposium-delivery-actions', async (importOriginal) => {
   return { ...actual, getSymposiumDeliveryActions: vi.fn() };
 });
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
   vi.mocked(getSymposiumDeliveryActions).mockReturnValue(createSymposiumDeliveryActions());
 });
 vi.mock('../SymposiumAccessRequests', () => ({
@@ -467,13 +473,17 @@ describe('SymposiumConversation', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    const panel = await screen.findByRole('complementary', { name: 'Reusable profile drafts' });
+    const dialog = await screen.findByRole('dialog', { name: 'Reusable profile drafts' });
+    const panel = await within(dialog).findByRole('complementary', {
+      name: 'Reusable profile drafts',
+    });
     expect(toggle.getAttribute('aria-controls')).toBe(panel.id);
     await within(panel).findByText('No profile drafts in this chat yet.');
     expect(within(panel).getByText(/Ask Mitzo to draft a reusable agent profile/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Ordinary send' })).toBeTruthy();
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method)).toBe(false);
-    fireEvent.click(toggle);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close profile drafts' }));
+    expect(screen.queryByRole('dialog', { name: 'Reusable profile drafts' })).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Reusable profile drafts' })).toBeNull();
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
