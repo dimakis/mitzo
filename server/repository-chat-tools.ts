@@ -1,10 +1,14 @@
 import {
+  buildPermissionHandler,
   checkSkillPolicy,
   effectivePermissionMode,
   type ManagedSession,
   type SessionRegistry,
   type ToolDefinition,
 } from '@mitzo/harness';
+import { randomUUID } from 'node:crypto';
+import { loadAccountProfiles } from './account-profiles.js';
+import { getConnectionsRuntime } from './connections-runtime.js';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { canonicalRepositorySelection } from './github-repository-source.js';
@@ -17,10 +21,11 @@ import {
 import type { RepositoryChatPreparation } from './repository-workspaces.js';
 
 export const REPOSITORY_CHAT_INSTRUCTIONS =
-  '\nFor repository work, call ListRepositories then PrepareRepositoryChat. The user reviews the draft to start a separate chat. Call GetRepositoryChatPreparation once to recover a missing ID; omit preparationId. Never repeat preparation or repeatedly poll.\n';
+  '\nFor repository work: ListRepositories; if missing, RequestRepositoryAccess asks for confirmation. PrepareRepositoryChat drafts a separate chat for user review. Call GetRepositoryChatPreparation once for a missing ID; omit preparationId. Never repeat preparation or poll.\n';
 
 export const repositoryChatSchemas = {
   ListRepositories: z.strictObject({}),
+  RequestRepositoryAccess: z.strictObject({ repository: z.string().min(1).max(512) }),
   PrepareRepositoryChat: z.strictObject({
     repository: z.string().min(1).max(512),
     prompt: z
@@ -34,6 +39,8 @@ export const repositoryChatSchemas = {
 const descriptions = {
   ListRepositories:
     'Discover repositories authorized for this chat’s current AI account. Returns repository names and connection labels, without credentials or filesystem paths.',
+  RequestRepositoryAccess:
+    'Ask the user to confirm adding a repository to the existing managed GitHub connection for this chat’s AI account. Supply owner/repository or its canonical GitHub HTTPS URL. The confirmation shows all affected accounts and allowed base branches. Reuses existing credentials; never supply secrets. Does not start a chat or grant publishing access. Requires Agent or Auto mode.',
   PrepareRepositoryChat:
     'Prepare a separate repository chat for a user-requested task. Supply only an authorized repository name or canonical GitHub HTTPS URL and the task prompt. Returns a draft review link; the user starts the new chat. Does not switch the current workspace, grant integration access, execute the task, or publish changes. Requires Agent or Auto mode.',
   GetRepositoryChatPreparation:
@@ -122,7 +129,11 @@ export function sessionRepositoryTools(
       const parsed =
         repositoryChatSchemas[name as keyof typeof repositoryChatSchemas].safeParse(input);
       if (!parsed.success) return { content: 'Invalid repository tool input', isError: true };
-      if (name === 'PrepareRepositoryChat' && effectivePermissionMode(session) === 'ask')
+      const changesAccess = name === 'RequestRepositoryAccess';
+      if (
+        (name === 'PrepareRepositoryChat' || changesAccess) &&
+        effectivePermissionMode(session) === 'ask'
+      )
         return askRemedy();
       if (!repositoryWorkspacesEnabled())
         return {
@@ -159,7 +170,8 @@ export function sessionRepositoryTools(
           !repositoryWorkspacesEnabled() ||
           !isDeepStrictEqual(session.accountBinding, liveBinding) ||
           (session.model ?? session.accountBinding?.model) !== model ||
-          (name === 'PrepareRepositoryChat' && effectivePermissionMode(session) === 'ask')
+          ((name === 'PrepareRepositoryChat' || changesAccess) &&
+            effectivePermissionMode(session) === 'ask')
         )
           return false;
         try {
@@ -185,6 +197,96 @@ export function sessionRepositoryTools(
         if (name === 'ListRepositories') {
           const catalog = repositoryWorkspaceCatalog(binding);
           return current() ? { content: JSON.stringify(catalog), isError: false } : unavailable();
+        }
+        if (name === 'RequestRepositoryAccess') {
+          const repository = canonicalRepositorySelection(
+            repositoryChatSchemas.RequestRepositoryAccess.parse(parsed.data).repository,
+          );
+          const runtime = getConnectionsRuntime();
+          const matches = runtime?.service
+            .catalog('operator')
+            .filter(
+              (connection) =>
+                connection.templateId === 'github-readonly' &&
+                connection.templateVersion === 1 &&
+                connection.status === 'active' &&
+                connection.verifiedAt !== null &&
+                connection.identity &&
+                connection.gatewayProviderId &&
+                connection.desiredAccountIds.includes(binding.accountId),
+            );
+          if (!runtime || matches?.length !== 1)
+            return {
+              content:
+                'A single verified GitHub connection must be assigned to this account. Open Connections to set it up, then request repository access again. Never send credentials in chat.',
+              isError: true,
+            };
+          const connection = structuredClone(matches[0]);
+          const unchanged = () =>
+            current() &&
+            getConnectionsRuntime() === runtime &&
+            isDeepStrictEqual(runtime.store.get(connection.id), connection);
+          if (!unchanged()) return unavailable();
+          const repositories = connection.publicConfig.allowedRepositories;
+          if (Array.isArray(repositories) && repositories.includes(repository))
+            return {
+              content: JSON.stringify({ repository, authorized: true, alreadyAuthorized: true }),
+              isError: false,
+            };
+          const accounts = loadAccountProfiles().catalog();
+          const accountLabels = connection.desiredAccountIds.map(
+            (id) => accounts.find((account) => account.id === id)?.label ?? id,
+          );
+          const approvalInput = {
+            repository,
+            connectionId: connection.id,
+            revision: connection.revision,
+            affectedAccountIds: [...connection.desiredAccountIds],
+            allowedBaseBranches: connection.publicConfig.allowedBaseBranches,
+          };
+          await assertRuntimeCurrent?.();
+          if (!unchanged()) return unavailable();
+          const owner = registry.findBySessionId(sessionId)!;
+          const decision = await buildPermissionHandler(owner.clientId, registry)(
+            toolPrefix + name,
+            approvalInput,
+            {
+              signal: combined,
+              toolUseID: randomUUID(),
+              forcePrompt: true,
+              allowSessionGrant: false,
+              rememberSessionGrant: false,
+              approvalScope: 'request',
+              title: `Add ${repository} to GitHub access?`,
+              description: `Use ${connection.label} (${connection.identity}). This shared connection grants repository access to these accounts: ${accountLabels.join(', ')}. Allowed base branches: ${String(connection.publicConfig.allowedBaseBranches)}. Existing repository access is retained. Publishing changes still requires separate approval.`,
+            },
+          );
+          if (decision.behavior !== 'allow')
+            return {
+              content: 'Repository access was not approved. No repository was added.',
+              isError: true,
+            };
+          await assertRuntimeCurrent?.();
+          if (!unchanged() || !isDeepStrictEqual(decision.updatedInput, approvalInput))
+            return {
+              content:
+                'The connection or session changed. Request repository access again to review its current scope.',
+              isError: true,
+            };
+          await runtime.service.addGithubRepository(
+            connection.id,
+            connection.revision,
+            repository,
+            'operator',
+            combined,
+            () => {
+              if (!unchanged()) throw new Error('Repository approval is no longer current');
+            },
+          );
+          return {
+            content: JSON.stringify({ repository, authorized: true, connectionId: connection.id }),
+            isError: false,
+          };
         }
         if (name === 'GetRepositoryChatPreparation') {
           const { preparationId } = repositoryChatSchemas.GetRepositoryChatPreparation.parse(
@@ -226,9 +328,11 @@ export function sessionRepositoryTools(
         if (!current()) return unavailable();
         return {
           content:
-            name === 'PrepareRepositoryChat'
-              ? 'Repository chat preparation could not complete. Use GetRepositoryChatPreparation once to inspect any existing draft before preparing another. Preserve running or interrupted preparations for inspection; clear only an unused ready or failed draft. If no draft exists, check repository access through ListRepositories.'
-              : 'Repository chat preparation is unavailable for this account and source chat. Check the draft selection and retry.',
+            name === 'RequestRepositoryAccess'
+              ? 'Repository access could not be confirmed. Call ListRepositories once to check whether it was added before requesting approval again. Existing repositories and credentials are retained.'
+              : name === 'PrepareRepositoryChat'
+                ? 'Repository chat preparation could not complete. Use GetRepositoryChatPreparation once to inspect any existing draft before preparing another. Preserve running or interrupted preparations for inspection; clear only an unused ready or failed draft. If no draft exists, check repository access through ListRepositories.'
+                : 'Repository chat preparation is unavailable for this account and source chat. Check the draft selection and retry.',
           isError: true,
         };
       }

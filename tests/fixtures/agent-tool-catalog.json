@@ -176,6 +176,17 @@
     "requirement": "Requires an authorized repository connection for the selected account."
   },
   {
+    "id": "mitzo:RequestRepositoryAccess",
+    "version": 1,
+    "name": "RequestRepositoryAccess",
+    "description": "Ask the user to confirm adding a repository to the existing managed GitHub connection for this chat’s AI account. Supply owner/repository or its canonical GitHub HTTPS URL. The confirmation shows all affected accounts and allowed base branches. Reuses existing credentials; never supply secrets. Does not start a chat or grant publishing access. Requires Agent or Auto mode.",
+    "source": "Repositories",
+    "required": false,
+    "behavior": "write",
+    "routes": ["local-api"],
+    "requirement": "Requires an existing verified GitHub connection for the selected account and explicit confirmation of the shared repository scope."
+  },
+  {
     "id": "mitzo:PrepareRepositoryChat",
     "version": 1,
     "name": "PrepareRepositoryChat",

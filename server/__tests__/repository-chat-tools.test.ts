@@ -94,6 +94,7 @@ it('exposes strict tool definitions and concise separate-chat review instruction
   const { tools } = fixture();
   expect(tools.definitions.map((tool) => tool.name)).toEqual([
     'ListRepositories',
+    'RequestRepositoryAccess',
     'PrepareRepositoryChat',
     'GetRepositoryChatPreparation',
   ]);
