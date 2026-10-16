@@ -6,6 +6,7 @@ import type { AgentToolCatalogEntry, AgentToolReference } from '@mitzo/protocol'
 import type { ToolDefinition } from '@mitzo/harness';
 import { connectCodexMcpTools, type McpToolsOptions } from './codex-mcp-tools.js';
 import type { McpServerConfig } from './mcp-config.js';
+import { snapshotMcpEnvironment } from './mcp-launch-environment.js';
 
 type Sources = Record<string, McpServerConfig>;
 export interface ConfiguredCatalogOptions extends Omit<McpToolsOptions, 'cwdForSource'> {
@@ -60,7 +61,11 @@ function binding(config: McpServerConfig, options: Pick<McpToolsOptions, 'cwd' |
     env: config.env,
     execution: config.execution,
   };
-  return hash({ config: launch, cwd: options.cwd, env: options.env });
+  return hash({
+    config: launch,
+    cwd: options.cwd,
+    env: snapshotMcpEnvironment(options.env, config.env),
+  });
 }
 /** Durable discovery receipts. Read projections never start a peer. One host owner per database. */
 export class ConfiguredToolCatalog {
@@ -124,10 +129,17 @@ export class ConfiguredToolCatalog {
     if (!options.assertRuntimeCurrent) throw Error('Discovery requires runtime custody authority');
     if ('cwdForSource' in options && options.cwdForSource !== undefined)
       throw Error('Per-source discovery directory overrides are unsupported');
-    const launchOptions = { ...options, cwd: resolvePath(options.cwd), env: { ...options.env } };
+    const launchOptions = {
+      ...options,
+      cwd: resolvePath(options.cwd),
+      env: snapshotMcpEnvironment(options.env),
+    };
     const generation = ++this.generation;
     const sources = structuredClone(eligible(options.readSources()));
     const initial = hash(sources);
+    const initialBindings = new Map(
+      Object.entries(sources).map(([name, config]) => [name, binding(config, launchOptions)]),
+    );
     const assertCurrent = () => {
       if (this.closed || generation !== this.generation)
         throw Error('Discovery superseded or cancelled');
@@ -135,6 +147,10 @@ export class ConfiguredToolCatalog {
       options.assertRuntimeCurrent();
       if (hash(eligible(options.readSources())) !== initial)
         throw Error('Configured sources changed during discovery');
+      for (const [name, config] of Object.entries(sources)) {
+        if (binding(config, { ...options, cwd: launchOptions.cwd }) !== initialBindings.get(name))
+          throw Error('Configured source launch environment changed during discovery');
+      }
     };
     assertCurrent();
     let clients;
@@ -161,7 +177,7 @@ export class ConfiguredToolCatalog {
                 `mcp__${tool.server}__${tool.tool}: `.length,
               ),
             };
-            const contract = binding(source, launchOptions);
+            const contract = initialBindings.get(tool.server)!;
             const old = previous.get(id);
             if (
               old &&

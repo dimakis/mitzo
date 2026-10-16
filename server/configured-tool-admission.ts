@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { AgentToolReference } from '@mitzo/protocol';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { ConfiguredToolCatalog, type ConfiguredCatalogOptions } from './configured-tool-catalog.js';
+import { snapshotMcpEnvironment } from './mcp-launch-environment.js';
 
 /** Resolves receipts before starting peers; only selected sources are ever started. */
 export async function admitConfiguredTools(
@@ -15,7 +16,7 @@ export async function admitConfiguredTools(
   const sourceSnapshot = structuredClone(options.readSources());
   const launchOptions = {
     ...options,
-    env: { ...options.env },
+    env: snapshotMcpEnvironment(options.env),
     readSources: () => sourceSnapshot,
   };
   const receipts = selected.map((ref) => catalog.resolve(ref, launchOptions));
