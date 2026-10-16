@@ -142,7 +142,7 @@ it.each(['openai', 'google-vertex'] as const)(
       );
       const wire = runtime.tools.find(
         (tool: { name: string }) => tool.name !== 'AskUserQuestion',
-      ).name;
+      )!.name;
       expect(
         await runtime.executeTool({ id: 'allowed', name: wire, input: {} }, options.signal),
       ).toMatchObject({ content: 'correct peer' });

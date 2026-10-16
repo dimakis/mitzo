@@ -23,6 +23,8 @@ export async function admitConfiguredTools(
   };
   const peers = await connectCodexMcpTools(sources, {
     ...options,
+    cwdForSource: (server) =>
+      receipts.find((receipt) => receipt.sourceId === sources[server].librarySourceId)!.launchCwd,
     assertRuntimeCurrent: assertCurrent,
   });
   try {

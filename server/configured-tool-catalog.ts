@@ -12,11 +12,13 @@ export interface ConfiguredCatalogOptions extends McpToolsOptions {
   readSources(): Sources;
   assertRuntimeCurrent: () => void;
 }
+export type ConfiguredToolCatalogEntry = AgentToolCatalogEntry & { revision: string };
 interface Receipt {
-  entry: AgentToolCatalogEntry & { revision: string };
+  entry: ConfiguredToolCatalogEntry;
   sourceId: string;
   tool: string;
   binding: string;
+  launchCwd: string;
   definition: ToolDefinition;
 }
 function canonical(value: unknown): string {
@@ -42,11 +44,12 @@ function eligible(sources: Sources): Sources {
       throw Error('Invalid configured source identity');
     if (seen.has(config.librarySourceId)) throw Error('Duplicate configured source identity');
     seen.add(config.librarySourceId);
+    if (seen.size > 64) throw Error('Configured source limit exceeded');
     result[name] = config;
   }
   return result;
 }
-function binding(config: McpServerConfig, options: McpToolsOptions): string {
+function binding(config: McpServerConfig, options: Pick<McpToolsOptions, 'cwd' | 'env'>): string {
   // Private only. Labels and source identity are excluded; actual launch inputs are pinned.
   const launch = {
     type: config.type,
@@ -82,7 +85,7 @@ export class ConfiguredToolCatalog {
     if (!('revision' in entry)) throw Error('Configured revision unavailable');
     return { id: entry.id, version: entry.version, revision: entry.revision };
   }
-  list(): AgentToolCatalogEntry[] {
+  list(): ConfiguredToolCatalogEntry[] {
     return (
       this.db
         .prepare('SELECT receipt FROM configured_tools WHERE active=1 ORDER BY rowid')
@@ -109,11 +112,11 @@ export class ConfiguredToolCatalog {
       (config) => config.librarySourceId === receipt.sourceId,
     );
     if (!source) throw Error('Selected configured source is unavailable or no longer configured');
-    if (binding(source, options) !== receipt.binding)
+    if (binding(source, { ...options, cwd: receipt.launchCwd }) !== receipt.binding)
       throw Error('Selected source configuration changed; new discovery and session required');
     return { ...structuredClone(receipt), name: receipt.tool };
   }
-  async refresh(options: ConfiguredCatalogOptions): Promise<AgentToolCatalogEntry[]> {
+  async refresh(options: ConfiguredCatalogOptions): Promise<ConfiguredToolCatalogEntry[]> {
     if (!options.assertRuntimeCurrent) throw Error('Discovery requires runtime custody authority');
     const generation = ++this.generation;
     const sources = structuredClone(eligible(options.readSources()));
@@ -184,6 +187,7 @@ export class ConfiguredToolCatalog {
               sourceId: source.librarySourceId!,
               tool: tool.tool,
               binding: contract,
+              launchCwd: options.cwd,
               definition,
             };
             this.db
