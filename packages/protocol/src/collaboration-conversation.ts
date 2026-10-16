@@ -167,6 +167,11 @@ const artifact = z.strictObject({
   sourceConversationId: id,
   mediaType: z.string().min(1).max(200),
   sizeBytes: sequence,
+  // Absent on historical reference-only snapshots. Present only after authorized exact-byte reads.
+  contentBase64: z
+    .string()
+    .max(512 * 1024)
+    .optional(),
 });
 const capacity = z.discriminatedUnion('status', [
   z.strictObject({
@@ -179,8 +184,30 @@ const capacity = z.discriminatedUnion('status', [
             availableTokens: sequence,
             estimatedTokens: sequence,
             estimatorRevision: id,
+            components: z
+              .strictObject({
+                contextTokens: sequence,
+                adapterTokens: sequence,
+                bootTokens: sequence,
+                toolTokens: sequence,
+                reservedOutputTokens: sequence,
+                contextWindowTokens: sequence,
+              })
+              .optional(),
           })
-          .refine((c) => c.estimatedTokens <= c.availableTokens),
+          .refine((c) => c.estimatedTokens <= c.availableTokens)
+          .refine(
+            (c) =>
+              !c.components ||
+              (c.estimatedTokens ===
+                c.components.contextTokens +
+                  c.components.adapterTokens +
+                  c.components.bootTokens +
+                  c.components.toolTokens &&
+                c.availableTokens ===
+                  c.components.contextWindowTokens - c.components.reservedOutputTokens),
+            'Capacity accounting mismatch',
+          ),
       )
       .min(1)
       .max(16),

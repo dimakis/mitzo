@@ -1,0 +1,64 @@
+.composer-responders {
+  position: relative;
+}
+.composer-responder-picker {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  inset-inline-start: 0;
+  z-index: 15;
+  width: min(22rem, calc(100vw - var(--space-6)));
+  max-height: 40dvh;
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  color: var(--color-text);
+  box-shadow: 0 var(--space-2) var(--space-6) var(--color-shadow);
+}
+.composer-responder-picker label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-height);
+}
+.composer-responder-picker span {
+  overflow-wrap: anywhere;
+}
+.composer-responder-picker input {
+  accent-color: var(--color-accent);
+}
+.composer-responder-picker button {
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font: inherit;
+}
+
+.composer-responder-picker input {
+  width: var(--space-4);
+  min-width: var(--space-4);
+  height: var(--space-4);
+  flex: none;
+}
+
+.chat-input-btn.composer-responders-trigger,
+.chat-input--compact .chat-input-btn.composer-responders-trigger {
+  width: auto;
+  max-width: min(12rem, 38vw);
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-control);
+  gap: var(--space-2);
+}
+.composer-responders-trigger span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+}

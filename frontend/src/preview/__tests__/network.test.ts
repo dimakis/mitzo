@@ -12,6 +12,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('classifies retained Symposium and ordinary preview conversations consistently with their status', async () => {
+  expect(await (await window.fetch('/api/sessions/preview-1/meta')).json()).toMatchObject({
+    sessionType: 'symposium',
+  });
+  expect(await (await window.fetch('/api/sessions/preview-2/meta')).json()).toMatchObject({
+    sessionType: 'chat',
+  });
+});
+
+it('serves the ordinary Agent Library shape for fresh setup without a native profile fallback', async () => {
+  expect(await (await window.fetch('/api/agent-library')).json()).toMatchObject({
+    drafts: [],
+    versions: expect.any(Array),
+  });
+});
+
 it('returns an array for the desktop inbox consumer on a fresh preview load', async () => {
   const response = await window.fetch('/api/inbox');
   expect(await response.json()).toEqual([]);
