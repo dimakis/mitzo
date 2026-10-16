@@ -165,6 +165,14 @@ export class TelosWorkStore {
       }
     })();
   }
+  /** One consistent brief/relationship boundary for a source preview. */
+  readSourceTarget(itemId: string, actor: TelosWorkActor) {
+    this.operator(actor);
+    return this.db.transaction(() => ({
+      record: this.readRecord(itemId, actor),
+      work: this.snapshot(itemId),
+    }))();
+  }
   forConversation(input: unknown, actor: TelosWorkActor): TelosWorkSessionLink[] {
     const ref = TelosSourceConversationReferenceSchema.parse(input);
     if (
