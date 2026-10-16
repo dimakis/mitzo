@@ -1,4 +1,5 @@
 import { assertAgentToolRoute } from './agent-tool-selection.js';
+import { recordOrdinaryReplySource } from './collaboration-ordinary-replies.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
@@ -1812,6 +1813,12 @@ async function openCodexChatBound(
         );
       options.ordinaryTurnLifecycle?.accepted(messageId, threadId, turnId);
     },
+    ...(options.ownedLocal || options.ownedOpenShell
+      ? {
+          onProviderMessageSource: (source: unknown) =>
+            recordOrdinaryReplySource(options.eventStore, options.conversationId, source),
+        }
+      : {}),
     onProviderTerminal: (messageId, turnId, status) =>
       options.ordinaryTurnLifecycle?.terminal(messageId, turnId, status),
     onProviderTerminalConflict: (messageId, _threadId, turnId) =>

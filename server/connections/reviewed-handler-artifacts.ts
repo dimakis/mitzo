@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.213';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.216';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -67,6 +67,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-conversation-source.ts':
     '250f7c85c36d56b18ad96bac7baf5a143f1bdf808ad182d6e99f82453a887f06',
   '../telos-work-record.ts': '7a1da4212ae06394702807b31421c371fac600904fa526937544587cbff56d93',
+  '../../packages/protocol/src/stored-event-wire.ts':
+    '703771f13d7003cf5dfb8d817162bb1daf12f87ca5648b5207a87a206e35222e',
+  '../collaboration-ordinary-replies.ts':
+    '599f1574e4fb2deace9d5b0aa19e639d6bd7aed727837d404f44ff916eba8a5f',
+  '../codex-session-events.ts': 'b9fb887675ae4baaa5ed8dd4206810642b97fc800551ad6922b9749b56481d01',
+
   // Authorized ordinary visible source and exact inline output access.
   '../collaboration-context-source.ts':
     '5feb8135ccfd6d578ec5f9ac873bd7c260322d49f30d831147be29df3f084262',
@@ -123,9 +129,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-context-compiler.ts':
     '24432afe2c8880e03dea778eb42b2ee1bed207092a8af3921abbb9edffca5970',
   '../../packages/protocol/src/collaboration-conversation.ts':
-    '9c79ecfa5ed7f46b0eb8fb72b91b282683782caccaa2099de70ed8a7df9071f7',
+    '7af0022bfab7db8cb69dee73d949e2eb9df0d031f61a88b8a46228bf85a88657',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    'c38666a633b201f82e945203615fa2262912a10555b665d538af25eeb48049d0',
+    '90cd2d92aaa7296643408ef141f60dcdb5df82c860ac35726c7a277a4c639e43',
   '../../packages/client/src/collaboration-api.ts':
     '05ef5f932a9bd36ff9cddf70971449e25c1376fc539150ff0a523446733e6cbb',
   '../../packages/client/src/collaboration-projection.ts':
@@ -498,7 +504,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'a5e631cf462808c96164d58902c9a58332ff330a70479379014cf35a42037997',
+  '../codex-conversation.ts': 'd83bf9dac7bac58444a230986f9a72f28bfa8fb1acbf188bcefa0d7b2d311776',
   '../codex-conversation-store.ts':
     'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
   // Retained-owner inference cancellation preserves actual handler cleanup and drain.
@@ -649,7 +655,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    '5cea0c873c0ecf9b77c06bf12de7d9638ca888872d2ba738f18b24cba8826ed7',
+    '541394244cf8830e3e1c689fa851cf869b8cb6483aacfcfe2803539ab733e671',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -678,7 +684,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Batched knowledge admission preserves verification and retention under the lifecycle fence.
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
   '../openshell-runtime.ts': 'cc78a6d8bee46936bf4d5d5679a61ace24b9b94d2361150accfd4e654a869bc7',
-  '../codex-chat-session.ts': 'aba199e088d3474d30ab4fd39fa456846316a7214a451003d76805c9c6254f41',
+  '../codex-chat-session.ts': '32ab60678fde4abd6a666b0adba20aa80c3d4a5cddf4f9a33d0217c704ce86e0',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

@@ -184,6 +184,13 @@ export interface CodexConversationOptions {
   onProviderDispatch?: (commandId: string) => void;
   /** Persist an exact provider turn receipt after turn/start confirms its ID. */
   onProviderAccepted?: (commandId: string, threadId: string, turnId: string) => void;
+  /** Private exact ACK-bound mapping of a generated visible message to its command. */
+  onProviderMessageSource?: (source: {
+    commandId: string;
+    messageId: string;
+    providerThreadId: string;
+    providerTurnId: string;
+  }) => void;
   /** Called only after the provider confirms the exact turn/start request carrying this context. */
   onApplicationContextAccepted?: (
     commandId: string,
@@ -361,6 +368,7 @@ export class CodexConversation {
     accepted: boolean;
     ownershipPending?: boolean;
     completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
+    replySources: Map<string, string>;
     completionHook?: 'pending' | 'done';
     completionOperation?: Promise<void>;
     interruptRequested?: boolean;
@@ -1729,7 +1737,29 @@ export class CodexConversation {
       threadId,
       this.binding!.model,
       this.opts.emit,
-      { freshThread },
+      {
+        freshThread,
+        requireExactTurnIdentity: Boolean(this.opts.onProviderMessageSource),
+        onTextMessageStarted: (messageId, providerTurnId) => {
+          const active = this.active;
+          if (
+            !active ||
+            this.closed ||
+            this.threadId !== threadId ||
+            !this.opts.onProviderMessageSource
+          )
+            return;
+          if (active.accepted && !active.ownershipPending) {
+            if (active.turnId === providerTurnId)
+              this.opts.onProviderMessageSource({
+                commandId: active.command.id,
+                messageId,
+                providerThreadId: threadId,
+                providerTurnId,
+              });
+          } else active.replySources.set(messageId, providerTurnId);
+        },
+      },
     );
   }
 
@@ -1830,6 +1860,7 @@ export class CodexConversation {
       ownershipPending: false,
       completionOperation: undefined as Promise<void> | undefined,
       completions: new Map<string, { first: ObjectValue; conflict?: ObjectValue }>(),
+      replySources: new Map<string, string>(),
       interruptRequested: false,
       span: undefined as Span | undefined,
       firstOutputSpan: undefined as Span | undefined,
@@ -2065,6 +2096,17 @@ export class CodexConversation {
           }
           active.ownershipPending = false;
         }
+        // Output can race turn/start's response. Only the response's exact turn identity
+        // authorizes a durable source binding; stale or uncertain output stays unmapped.
+        for (const [messageId, providerTurnId] of active.replySources)
+          if (providerTurnId === active.turnId)
+            this.opts.onProviderMessageSource?.({
+              commandId: command.id,
+              messageId,
+              providerThreadId: this.threadId!,
+              providerTurnId,
+            });
+        active.replySources.clear();
         const completion = active.completions.get(active.turnId);
         if (completion) {
           this.notification('turn/completed', completion.first);
