@@ -4193,7 +4193,7 @@ const legacyExecFileAsync = promisify(execFile);
 async function execFileAsync(
   command: string,
   args: string[],
-  options: { timeout: number; maxBuffer?: number },
+  options: { timeout: number; maxBuffer?: number; env?: NodeJS.ProcessEnv; encoding?: 'utf8' },
 ) {
   // Mutable workspace entrypoints run with the same authority fence as hooks.
   // An unavailable enrolled fence must never fall back to controller execution.
@@ -4202,7 +4202,7 @@ async function execFileAsync(
     return protectedRunner(command, args, {
       ...options,
       cwd: process.cwd(),
-      env: process.env,
+      env: options.env ?? process.env,
     });
   return legacyExecFileAsync(command, args, options);
 }
