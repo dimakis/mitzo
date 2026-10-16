@@ -270,14 +270,16 @@ it('removing account A from a shared connection preserves account B pooled conve
     const active = await x.service.provision(x.created, 'SECRET', AbortSignal.timeout(1000));
     const shared = await x.service.setAssignments(active.id, active.revision, ['work', 'personal']);
     x.attachments.set(active.gatewayProviderName, ['work-chat', actual!.name]);
-    vi.mocked(x.gateway.sandbox).mockImplementation(async (name) => ({
-      name,
-      phase: 'Ready',
-      labels:
-        name === 'work-chat'
-          ? { 'mitzo.connection_account': 'work' }
-          : { 'mitzo.warm_pool': actual!.poolId },
-    }));
+    vi.mocked(x.gateway.sandbox).mockImplementation(
+      async (name): Promise<{ name: string; phase: string; labels: Record<string, string> }> => ({
+        name,
+        phase: 'Ready',
+        labels:
+          name === 'work-chat'
+            ? { 'mitzo.connection_account': 'work' }
+            : { 'mitzo.warm_pool': actual!.poolId },
+      }),
+    );
     await x.service.setAssignments(shared.id, shared.revision, ['personal']);
     expect(x.gateway.stopSandbox).toHaveBeenCalledExactlyOnceWith('work-chat', expect.anything());
     expect(x.gateway.detach).toHaveBeenCalledExactlyOnceWith(
