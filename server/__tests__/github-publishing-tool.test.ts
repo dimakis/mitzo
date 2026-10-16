@@ -22,6 +22,25 @@ const input = {
   body: 'Change',
   draft: true,
 };
+it('explains rejected publishing fields and accepts a corrected retry without weakening bounds', async () => {
+  const f = fixture('openai');
+  const result = await f.execute(
+    { ...input, body: 'x'.repeat(513) },
+    new AbortController().signal,
+    { turnId: 'turn', callId: 'invalid' },
+  );
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('body');
+  expect(result.content).toContain('512');
+  expect(f.invoke).not.toHaveBeenCalled();
+  expect(mocks.approve).not.toHaveBeenCalled();
+  expect(
+    await f.execute({ ...input, body: 'x'.repeat(512) }, new AbortController().signal, {
+      turnId: 'turn',
+      callId: 'corrected',
+    }),
+  ).toMatchObject({ isError: false });
+});
 function fixture(provider: string) {
   const session = {
     sessionId: 'conversation',

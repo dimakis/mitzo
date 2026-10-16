@@ -12,7 +12,15 @@ const body = {
   milestones: ['Plan'],
 };
 function fixture(sessionId: string | undefined = 'planning') {
-  const create = vi.fn(async (_input: TelosOutcomeCreation) => ({ itemId: 'item' }));
+  const create = vi.fn(async (_input: TelosOutcomeCreation) => ({
+    itemId: 'item',
+    receipt: {
+      ok: true as const,
+      created: true,
+      item: { id: 'item', summary: 'Studio' },
+      delivery: { state: 'pending' },
+    },
+  }));
   const origin = vi.fn();
   const app = express();
   app.use(express.json());
@@ -36,7 +44,12 @@ it('derives origin and canonical recovery identity from the actual registered se
     .set('X-Client-Id', 'transport-not-a-session')
     .send(body);
   expect(res.status).toBe(200);
-  expect(res.body.item.id).toBe('item');
+  expect(res.body).toEqual({
+    ok: true,
+    created: true,
+    item: { id: 'item', summary: 'Studio' },
+    delivery: { state: 'pending' },
+  });
   expect(f.create).toHaveBeenCalledWith(
     expect.objectContaining({
       contextHints: expect.objectContaining({ sessionIds: ['planning'] }),

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { Request, RequestHandler } from 'express';
 import { TelosOutcomeProposalSchema, type TelosOutcomeCreation } from '@mitzo/protocol';
-import type { TelosWorkActor } from './telos-work-store.js';
+import { TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
+import type { CanonicalTelosOutcomeResult } from './telos-outcome-owner.js';
 
 /** Legacy tool transport: host binding proves the origin, never a client/provider
  * ID or caller actor. A legacy approval has no reviewed message selection; this
@@ -10,7 +11,7 @@ export function createTelosOutcomeHandler(options: {
   verifyInternal(req: Request): boolean;
   sessionId(clientId: string): string | undefined;
   availableSource(id: string): boolean;
-  createOutcome(input: TelosOutcomeCreation): Promise<{ itemId: string }>;
+  createOutcome(input: TelosOutcomeCreation): Promise<CanonicalTelosOutcomeResult>;
   recordOrigin(input: { itemId: string; idempotencyKey: string }, actor: TelosWorkActor): void;
 }): RequestHandler {
   return async (req, res) => {
@@ -44,8 +45,12 @@ export function createTelosOutcomeHandler(options: {
         { itemId: created.itemId, idempotencyKey },
         { kind: 'conversation', id: sessionId },
       );
-      res.json({ ok: true, item: { id: created.itemId, summary: parsed.data.summary } });
-    } catch {
+      res.json(created.receipt);
+    } catch (error) {
+      if (error instanceof TelosWorkError && error.code === 'invalid') {
+        res.status(400).json({ ok: false, error: error.message });
+        return;
+      }
       res.status(503).json({
         ok: false,
         error:
