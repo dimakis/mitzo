@@ -380,3 +380,110 @@ it('serves the real tool inventory only to operators and routes it to the retain
     'library.tools',
   );
 });
+it('projects saved configured tools without starting servers and refreshes only by explicit operator action', async () => {
+  const { ConfiguredToolCatalog } = await import('../configured-tool-catalog.js');
+  const catalog = new ConfiguredToolCatalog(':memory:');
+  const connect = vi.fn(async () => ({
+    listTools: async () => ({ tools: [{ name: 'search', inputSchema: { type: 'object' } }] }),
+    callTool: vi.fn(),
+    close: vi.fn(async () => {}),
+  }));
+  const sources = {
+    work: { command: 'fixture-only', librarySourceId: '11111111-1111-4111-8111-111111111111' },
+  };
+  const options = {
+    configuredTools: () => ({
+      catalog,
+      cwd: '/fixture',
+      env: {},
+      readSources: () => sources,
+      connect,
+    }),
+  };
+  try {
+    const host = app(true, options);
+    expect(
+      (await request(host).get('/api/agent-library/tools')).body.tools.every(
+        (tool: { id: string }) => tool.id.startsWith('mitzo:'),
+      ),
+    ).toBe(true);
+    expect(connect).not.toHaveBeenCalled();
+    expect(
+      (await request(app(false, options)).post('/api/agent-library/tools/refresh').send({})).status,
+    ).toBe(403);
+    expect(connect).not.toHaveBeenCalled();
+    const refresh = await request(host).post('/api/agent-library/tools/refresh').send({});
+    expect(refresh.status).toBe(200);
+    const selected = refresh.body.tools.find((tool: { name: string }) => tool.name === 'search');
+    expect(selected.source).toBe('work');
+    expect(selected.revision).toMatch(/^[a-f0-9-]{36}$/);
+    expect(connect).toHaveBeenCalledOnce();
+    expect((await request(host).get('/api/agent-library/tools')).body.tools).toContainEqual(
+      selected,
+    );
+    expect(connect).toHaveBeenCalledOnce();
+    sources.work.command = 'replaced';
+    const stale = (await request(host).get('/api/agent-library/tools')).body.tools.find(
+      (tool: { id: string }) => tool.id === selected.id,
+    );
+    expect(stale.routes).toEqual([]);
+    expect(stale.requirement).toMatch(/configuration changed/i);
+    expect(
+      (await request(host).post('/api/agent-library/tools/refresh').send({ command: 'forbidden' }))
+        .status,
+    ).toBe(400);
+    expect(selectCustodianOperation('POST', '/api/agent-library/tools/refresh')?.operation).toBe(
+      'library.toolsRefresh',
+    );
+  } finally {
+    catalog.close();
+  }
+});
+it('cancels configured discovery after operator revocation and never publishes late results', async () => {
+  const { ConfiguredToolCatalog } = await import('../configured-tool-catalog.js');
+  const catalog = new ConfiguredToolCatalog(':memory:');
+  const auth = { id: `discovery-${++login}`, expiresAt: Date.now() + 60000 };
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const close = vi.fn(async () => {});
+  const connect = vi.fn(async () => ({
+    listTools: async () => {
+      await waiting;
+      return { tools: [{ name: 'late', inputSchema: { type: 'object' } }] };
+    },
+    callTool: vi.fn(),
+    close,
+  }));
+  const host = app(
+    true,
+    {
+      configuredTools: () => ({
+        catalog,
+        cwd: '/fixture',
+        env: {},
+        readSources: () => ({
+          work: { command: 'fixture', librarySourceId: '11111111-1111-4111-8111-111111111111' },
+        }),
+        connect,
+      }),
+    },
+    auth,
+  );
+  try {
+    const pending = request(host)
+      .post('/api/agent-library/tools/refresh')
+      .send({})
+      .then((result) => result);
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledOnce());
+    revokeAuthSession(auth);
+    release();
+    const response = await pending;
+    expect(response.status).toBe(403);
+    expect(catalog.list()).toEqual([]);
+    expect(close).toHaveBeenCalled();
+  } finally {
+    catalog.close();
+  }
+});

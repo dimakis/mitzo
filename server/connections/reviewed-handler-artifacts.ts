@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.170';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.171';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -346,7 +346,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '871767b8a5c5a409e76136785a0cc12f7be82f120da594fe87f65272435d9252',
+  '../chat.ts': '2ad257f5026f7a780fbe1b6bcddfc51aba1b9e3598996a55156f2328ac5fbecd',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     'd5b795c7cf178c0cfd3b8e2cb4a2470b4af25af276f02652ba878e09a9a3ca21',
@@ -359,7 +359,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'c8dc4680d247c3ac48c38a7c2ed24e5b5450f2fbc86b791acd6b151918d83b19',
+  '../app.ts': '1674fbfc320be705f912e849904705207af7e84043c4a3bf0250d7654d798f9b',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -391,7 +391,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
   // Retained-owner inference cancellation preserves actual handler cleanup and drain.
   '../symposium-custodian-ipc.ts':
-    '1bb9c006d3d893c0ab70ff512c8cbefb55c2ccdea7256161b93044416ea00536',
+    '11a37641aaf37d5b22b19ecea82910c16e026194261bdabef541bacbc530b674',
   '../symposium-custodian-authority.ts':
     '5ef9405e845e24f9d19af0820deac42d3404dbd5fb86d4f09f814e45226edd6b',
   '../symposium-custodian-controller.ts':
@@ -417,14 +417,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-library-transport.ts':
     '1ddf221a25d11c991b669007ef900140056c321f8bb67d12218940a7dd4c4ec2',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
-  '../agent-library-router.ts': '09788a2df86f8bda237bcce03306639b526e37a4bfbdbd20d5de1d069d66ae6f',
+  '../agent-library-router.ts': '4d8695cc278b674ee1856eab5dcb809faf9021f7c5213593d1ea12d232deef7d',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',
   '../agent-library-prompt.ts': '3be39c6cd2fb12c744c5f53e45b8c8b306398146edfcb2af479d4fa1c9159c28',
   '../symposium-profile-portability.ts':
     'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
-    '1a07f1725f1c29a3478f78f9f582d69cabbd35b17c08dc3badfb2f6cb9fb2876',
+    '2da41e2421063f0dde46dbb29f3f2e20137f0ff3d540ed17a08eca026cf2e431',
   '../symposium-custodian-proxy.ts':
     'beb0d632c863e1486911e1c4b096ab65be34ad09faee7587ef21dc83d00ac6b9',
   '../../packages/protocol/src/agent-library.ts':

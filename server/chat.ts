@@ -742,7 +742,7 @@ function prependConfiguredVenvPaths(env: Record<string, string>): void {
 }
 
 /** Keep native provider environments narrow while preserving configured project runtimes. */
-function nativeExecutionEnv(): Record<string, string> {
+export function nativeExecutionEnv(): Record<string, string> {
   const env = restrictedChildEnv();
   prependConfiguredVenvPaths(env);
   return env;
