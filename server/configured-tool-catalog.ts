@@ -175,9 +175,9 @@ export class ConfiguredToolCatalog {
               source: tool.server,
               required: false,
               behavior: 'mixed',
-              routes: [],
+              routes: ['local-api'],
               requirement:
-                'Configured stdio discovery receipt. Selection enrollment pending; new session required.',
+                'Configured stdio source. Current source authorization and tool approval required; new session required for catalog changes.',
             };
             const receipt: Receipt = {
               entry,

@@ -108,9 +108,19 @@ export async function connectCodexMcpTools(
         options.assertRuntimeCurrent?.();
         for (const tool of page.tools) {
           const canonical = `mcp__${server}__${tool.name}`;
-          const wire = mcpWireName(canonical);
+          const wire = mcpWireName(
+            config.librarySourceId
+              ? JSON.stringify([config.librarySourceId, tool.name])
+              : canonical,
+          );
           if (mapping.has(wire)) throw new Error('Duplicate MCP tool');
-          mapping.set(wire, { peer, name: tool.name, canonical });
+          mapping.set(wire, {
+            peer,
+            name: tool.name,
+            canonical: config.librarySourceId
+              ? `mcp__${config.librarySourceId}__${tool.name}`
+              : canonical,
+          });
           definitions.push({
             name: wire,
             description: `${canonical}: ${tool.description ?? 'Configured MCP tool'}`,

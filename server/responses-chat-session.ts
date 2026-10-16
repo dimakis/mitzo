@@ -1,7 +1,12 @@
+import { admitConfiguredTools } from './configured-tool-admission.js';
+import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
+import type { ConfiguredToolCatalog, ConfiguredCatalogOptions } from './configured-tool-catalog.js';
+import { loadMcpServers } from './mcp-config.js';
 import {
   assertAgentToolAvailability,
   assertAgentToolRoute,
   bindAgentToolSelection,
+  bindConfiguredAgentTools,
   hasAgentToolSelection,
   filterAgentTools,
   agentToolAllowed,
@@ -116,6 +121,8 @@ export function getNativeResponsesStore() {
 }
 interface Options {
   agentProfile?: AgentLibraryVersion;
+  /** Trusted offline seam, never client input. */
+  configuredTools?: ConfiguredCatalogOptions & { catalog: ConfiguredToolCatalog };
   commandAuthority?: ResponsesCommandAuthority;
   /** Server-owned initial/retained command fence before the first active turn exists. */
   assertStartupCurrent?: () => void;
@@ -212,18 +219,48 @@ export async function openResponsesChat(options: Options) {
     dispose();
     throw error;
   }
-  const mcp = await connectCodexMcpTools(
-    hasAgentToolSelection(options.session) ? {} : options.mcpServers,
-    {
-      cwd: options.session.cwd!,
-      env: options.env,
-      signal,
-      assertRuntimeCurrent: assertMcpCurrent,
+  const configuredRefs =
+    agentProfile?.definition.tools?.filter((ref) => ref.id.startsWith('mcp:')) ?? [];
+  const configuredOptions: ConfiguredCatalogOptions = {
+    cwd: options.session.cwd!,
+    env: options.env,
+    signal,
+    readSources: options.configuredTools?.readSources ?? loadMcpServers,
+    connect: options.configuredTools?.connect,
+    assertRuntimeCurrent: () => {
+      signal.throwIfAborted();
+      assertMcpCurrent?.();
+      options.configuredTools?.assertRuntimeCurrent();
+      if (options.registry.findBySessionId(options.conversationId)?.session !== options.session)
+        throw Error('Configured tool session ownership changed');
     },
+  };
+  const mcp = await (
+    configuredRefs.length
+      ? admitConfiguredTools(
+          options.configuredTools?.catalog ?? getConfiguredToolCatalog(),
+          configuredRefs,
+          configuredOptions,
+        )
+      : connectCodexMcpTools(hasAgentToolSelection(options.session) ? {} : options.mcpServers, {
+          cwd: options.session.cwd!,
+          env: options.env,
+          signal,
+          assertRuntimeCurrent: assertMcpCurrent,
+        })
   ).catch((error) => {
     dispose();
     throw error;
   });
+  const configuredAdmissions = 'admitted' in mcp ? mcp.admitted : [];
+  try {
+    if (configuredAdmissions.length)
+      bindConfiguredAgentTools(options.session, configuredAdmissions);
+  } catch (error) {
+    dispose();
+    await mcp.close();
+    throw error;
+  }
   initializing = false;
   const githubPublishing = createGithubPublishingTool(
     options.conversationId,
@@ -257,7 +294,11 @@ export async function openResponsesChat(options: Options) {
       privateStorage.bindAgentTools(
         options.conversationId,
         options.binding,
-        { profileHash: agentProfile.contentHash, tools: definitions },
+        {
+          profileHash: agentProfile.contentHash,
+          tools: definitions,
+          ...(configuredAdmissions.length ? { configuredTools: configuredAdmissions } : {}),
+        },
         !!options.resume,
       );
     } catch (error) {
