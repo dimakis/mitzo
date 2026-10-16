@@ -52,7 +52,7 @@ local heap limit; focused actual-page renders do not substitute for those checks
 The initial combined focused run passed 298 checks in 26 files. After accepted-main
 integration and the initial review corrections, the combined run passed 306 checks in 27 files.
 After the design/compiler hold was released and the source-environment review fixes
-were integrated, the final combined run passed 314 checks in 30 files. The combined
+were integrated, the final combined run passed 316 checks in 30 files. The combined
 actual-page tool and session-library matrix passed 26 checks (24 page cases and two
 startup checks), including the
 existing Phase 1 journeys, configured-source unavailability, cancellation and focus
@@ -108,3 +108,9 @@ with one worker and the 1 GiB heap.
 All corrections are propagated through the stack over current accepted main.
 Previous approvals and green CI do not approve these new heads; fresh current-head
 checks and final trusted Centaur reports remain required before merging.
+
+`CEN-76164B0975A6` was reproduced with both approval orders for an opted-in
+source and a legacy server named with the same UUID. Configured session grants now
+use an exact source/tool tuple in a distinct namespace. Legacy server-wide grants
+cannot authorize configured tools, and configured grants cannot authorize legacy
+peers. Both directions pass the real permission-handler regression.

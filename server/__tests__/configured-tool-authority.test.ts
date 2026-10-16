@@ -54,8 +54,8 @@ it('keeps delimiter collisions distinct and permissions source-scoped despite un
       for (const tool of admitted.definitions)
         await admitted.execute(tool.name, {}, permission, f.abort.signal);
       expect(permission.mock.calls.map((call) => call[0])).toEqual([
-        'mcp__11111111-1111-4111-8111-111111111111__c',
-        'mcp__22222222-2222-4222-8222-222222222222__b__c',
+        `configured-mcp:${JSON.stringify(['11111111-1111-4111-8111-111111111111', 'c'])}`,
+        `configured-mcp:${JSON.stringify(['22222222-2222-4222-8222-222222222222', 'b__c'])}`,
       ]);
       expect(f.call.mock.calls.map((call) => call[0].name)).toEqual(['c', 'b__c']);
     } finally {

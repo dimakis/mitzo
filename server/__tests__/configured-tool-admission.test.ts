@@ -80,7 +80,7 @@ it.each(['openai', 'google-vertex'] as const)(
         sessionId: 'selected',
         cwd: root,
         sessionAllowList: new Set([
-          `configured-mcp:${JSON.stringify([configs.one.librarySourceId, 'search'])}`,
+          `configured-mcp:${JSON.stringify(['11111111-1111-4111-8111-111111111111', 'search'])}`,
         ]),
       });
       const input = new AsyncQueue<{ message: { content: string } }>();
