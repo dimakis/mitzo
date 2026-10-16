@@ -10,6 +10,7 @@ const sessions = Array.from({ length: 12 }, (_, index) => ({
       : `Conversation ${index}`,
   lastModified: Date.now() - index * 3600000,
   cwd: '/workspace/mgmt',
+  totalTokens: 1200000,
   isActive: false,
   telosTaskId: index === 1 ? 'work-one' : undefined,
   contextUsage: {
@@ -181,6 +182,12 @@ for (const theme of ['dark', 'light'])
         .boundingBox();
       expect(deleteAction!.y + deleteAction!.height).toBeLessThanOrEqual(844);
       await page.screenshot({ path: testInfo.outputPath(`session-preview-${theme}.png`) });
+      await dialog.getByText('Session details', { exact: true }).click();
+      const cumulative = dialog.getByText('Cumulative usage: 1.2M tokens');
+      await cumulative.scrollIntoViewIfNeeded();
+      await expect(cumulative).toBeInViewport();
+      await expect(dialog.getByRole('button', { name: 'Delete conversation' })).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath(`session-preview-usage-${theme}.png`) });
       await dialog.getByRole('button', { name: 'Close preview' }).click();
       await page.locator('.session-list-scroll').evaluate((el) => (el.scrollTop = el.scrollHeight));
       await expect(page.getByText('Conversation 11', { exact: true })).toBeVisible();

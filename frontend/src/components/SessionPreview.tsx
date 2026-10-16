@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import type { FinishedMessage, Session } from '../types/chat';
 import { apiFetch } from '../lib/api-fetch';
 import { formatRelativeTime } from '../lib/formatTime';
+import { formatTokens } from '../lib/formatTokens';
 import { UiIcon } from './UiIcon';
 import { recordTitle } from '../lib/record-title';
 import './SessionPreview.css';
@@ -153,6 +154,9 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
             <p>Repository: {session.cwd || 'Not reported'}</p>
             {session.branch && <p>Branch: {session.branch}</p>}
             <p>Session ID: {session.id}</p>
+            {session.totalTokens != null && (
+              <p>Cumulative usage: {formatTokens(session.totalTokens)} tokens</p>
+            )}
           </details>
         </section>
         <div className="session-preview-actions" aria-label="Session actions">

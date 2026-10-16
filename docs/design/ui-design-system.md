@@ -758,6 +758,10 @@ saved user/assistant text and never attach or resume a provider. Repository path
 branches, IDs and cumulative usage live in details. A work link requires an exact
 recorded `telosTaskId`; a repeated folder name is not a task association.
 
+Mobile details retain cumulative token usage, including recorded zero totals;
+unknown totals remain absent. This uses the existing muted detail text and compact
+formatter, separately from context occupancy.
+
 The mobile history sheet bounds its reader and keeps its action group on screen;
 long headings/details remain scrollable. Geometry exceptions are the separator's
 1px rule and 3px grip/meter, its percentage bounds, and viewport-constrained scroll
@@ -778,6 +782,7 @@ Inspected captures: [desktop library](assets/session-library-desktop-dark.png),
 [light desktop](assets/session-library-desktop-light.png),
 [mobile library](assets/session-library-mobile-dark.png),
 [mobile history/actions](assets/session-preview-mobile-light.png),
+[mobile cumulative usage](assets/session-preview-usage-mobile-light.png),
 [desktop Today context](assets/session-context-desktop-dark.png),
 [mobile Today context](assets/session-context-mobile-dark.png) and
 [Appearance preference](assets/session-appearance-desktop-light.png).

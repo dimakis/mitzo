@@ -155,3 +155,30 @@ it('moves through actions even when the platform omits buttons from native Tab o
   fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
   expect(document.activeElement).toBe(rename);
 });
+
+it.each([
+  [0, '0'],
+  [12345, '12k'],
+] as const)('retains cumulative usage in mobile details (%s tokens)', (totalTokens, formatted) => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise(() => {})),
+  );
+  render(<SessionPreview {...props} session={{ ...session, totalTokens }} />);
+  fireEvent.click(screen.getByText('Session details'));
+  expect(screen.getByText(`Cumulative usage: ${formatted} tokens`)).toBeTruthy();
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch).toHaveBeenCalledWith(
+    '/api/sessions/one/messages',
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+});
+it('does not invent cumulative usage for a session without a recorded total', () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise(() => {})),
+  );
+  render(<SessionPreview {...props} />);
+  fireEvent.click(screen.getByText('Session details'));
+  expect(screen.queryByText(/Cumulative usage:/)).toBeNull();
+});
