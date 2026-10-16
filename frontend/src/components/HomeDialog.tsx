@@ -28,6 +28,7 @@ export function HomeDialog({
   children,
   className,
   inactive = false,
+  open = true,
   ariaLabel,
   closeLabel = 'Close',
 }: {
@@ -36,12 +37,18 @@ export function HomeDialog({
   children: ReactNode;
   className?: string;
   inactive?: boolean;
+  /** Retain a form between openings without keeping a modal/scroll lock active. */
+  open?: boolean;
   ariaLabel?: string;
   closeLabel?: string;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocus = useRef(document.activeElement);
   useEffect(() => {
+    if (!open) {
+      restoreFocus.current = document.activeElement;
+      return;
+    }
     const dialog = dialogRef.current!;
     const focus = restoreFocus.current;
     dialog.showModal();
@@ -59,14 +66,15 @@ export function HomeDialog({
         (trigger ?? focus).focus({ preventScroll: true });
       }
     };
-  }, []);
+  }, [open]);
   return createPortal(
     <dialog
       ref={dialogRef}
       className={['home-dialog', className].filter(Boolean).join(' ')}
       aria-label={ariaLabel ?? title}
-      inert={inactive || undefined}
-      aria-hidden={inactive || undefined}
+      hidden={!open}
+      inert={!open || inactive || undefined}
+      aria-hidden={!open || inactive || undefined}
       onKeyDown={(event) => event.stopPropagation()}
       onCancel={(event) => {
         event.preventDefault();

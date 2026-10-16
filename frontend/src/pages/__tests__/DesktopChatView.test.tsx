@@ -418,10 +418,10 @@ describe('DesktopChatView', () => {
     expect(screen.getByTestId('command-center')).toBeTruthy();
   });
 
-  it('renders session panel in right slot', () => {
+  it('renders session panel in left slot', () => {
     renderWithRouter();
-    const right = screen.getByTestId('right');
-    expect(right.querySelector('[data-testid="session-panel"]')).toBeTruthy();
+    const left = screen.getByTestId('left');
+    expect(left.querySelector('[data-testid="session-panel"]')).toBeTruthy();
   });
 
   it('renders chat area and input in center slot', () => {
@@ -431,10 +431,10 @@ describe('DesktopChatView', () => {
     expect(center.querySelector('[data-testid="chat-input"]')).toBeTruthy();
   });
 
-  it('renders command center in left slot', () => {
+  it('renders command center in right slot', () => {
     renderWithRouter();
-    const left = screen.getByTestId('left');
-    expect(left.querySelector('[data-testid="command-center"]')).toBeTruthy();
+    const right = screen.getByTestId('right');
+    expect(right.querySelector('[data-testid="command-center"]')).toBeTruthy();
   });
 
   it('renders status bar', () => {
@@ -585,7 +585,9 @@ it('shows reconnecting in collapsed workspace settings when disconnected', () =>
   );
   const toggle = screen.getByRole('button', { name: /^Workspace/ });
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
-  expect(toggle.textContent).toContain('Reconnecting');
+  expect(document.getElementById(toggle.getAttribute('aria-describedby')!)?.textContent).toBe(
+    'Reconnecting',
+  );
 });
 
 it('offers explicit collaboration for an ordinary desktop conversation without automatic work reads', async () => {
@@ -646,7 +648,9 @@ it('shows the profile, model and thinking in the collapsed top chat settings sum
   await waitFor(() =>
     expect(toggle.getAttribute('aria-label')).toContain('Work Vertex, Luna, Thinking: high'),
   );
-  expect(toggle.querySelector('.workspace-controls-profile')).toBeTruthy();
+  expect(
+    toggle.closest('.workspace-controls')?.querySelector('.workspace-controls-context'),
+  ).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });
@@ -746,7 +750,7 @@ it('retains the ordinary Close action after ordinary session metadata loads', as
   fireEvent.click(close);
   expect(store.getState().closeSession).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
-  fireEvent.click(screen.getByText('More options'));
+  fireEvent.click(screen.getByText('More settings'));
   expect(screen.getByRole('button', { name: 'Ask' })).toBeTruthy();
 });
 

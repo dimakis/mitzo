@@ -601,7 +601,7 @@ it('keeps account and permission controls in one top panel with no composer pick
   expect(screen.getAllByRole('region', { name: 'Agent settings' })).toHaveLength(1);
   const advanced = screen.getByTestId('web-search-connection');
   expect(advanced.closest('details')?.open).toBe(false);
-  fireEvent.click(screen.getByText('More options'));
+  fireEvent.click(screen.getByText('More settings'));
   expect(advanced.closest('details')?.open).toBe(true);
   expect(
     within(workspace.parentElement!.parentElement!).queryByRole('combobox', { name: 'Account' }),
@@ -701,7 +701,9 @@ it('shows the profile, model and thinking in the collapsed top chat settings sum
   await waitFor(() =>
     expect(toggle.getAttribute('aria-label')).toContain('Work Vertex, Luna, Thinking: high'),
   );
-  expect(toggle.querySelector('.workspace-controls-profile')).toBeTruthy();
+  expect(
+    toggle.closest('.workspace-controls')?.querySelector('.workspace-controls-context'),
+  ).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });

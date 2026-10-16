@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom';
+import { HomeDialog } from './HomeDialog';
 import { SymposiumAccessRequests } from './SymposiumAccessRequests';
 import {
   symposiumQueueOperations,
@@ -16,6 +17,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -141,6 +143,7 @@ export function SymposiumConversation({
   ordinaryComposer,
   ordinaryConfirmed = false,
   ordinaryExcluded = false,
+  onContinueInNewChat,
   pendingSettings,
   ordinaryAfterMessages,
   profileToolsTarget,
@@ -153,6 +156,7 @@ export function SymposiumConversation({
   ordinaryConfirmed?: boolean;
   /** Authoritative current-session special classification excludes ordinary send. */
   ordinaryExcluded?: boolean;
+  onContinueInNewChat?(draft: string): void;
   pendingSettings?: ReactNode;
   ordinaryAfterMessages?: ReactNode;
   profileToolsTarget: HTMLElement | null;
@@ -163,6 +167,16 @@ export function SymposiumConversation({
   const [selected, setSelected] = useState('all');
   const [recipient, setRecipient] = useState('');
   const [profilesOpen, setProfilesOpen] = useState(false);
+  const [profilesVisited, setProfilesVisited] = useState(false);
+  const [profileContainer] = useState(() => document.createElement('div'));
+  const [profileInlineTarget, setProfileInlineTarget] = useState<HTMLDivElement | null>(null);
+  const [profileDialogTarget, setProfileDialogTarget] = useState<HTMLDivElement | null>(null);
+  // Move one stable portal target so unsaved edits and the reviewed catalog
+  // revision survive opening the dialog; never mount a second profile editor.
+  useLayoutEffect(() => {
+    const target = profilesOpen ? profileDialogTarget : profileInlineTarget;
+    target?.append(profileContainer);
+  }, [profilesOpen, profileContainer, profileInlineTarget, profileDialogTarget]);
   const profilesPanelId = useId();
   const [page, setPage] = useState<PerspectivePage>({ items: [], nextSeq: null, queued: [] });
   const [pageFor, setPageFor] = useState('');
@@ -202,6 +216,7 @@ export function SymposiumConversation({
     setRecipient('');
     setSeatSeed(null);
     setProfilesOpen(false);
+    setProfilesVisited(false);
     setPage({ items: [], nextSeq: null, queued: [] });
     if (!base) return;
     let cancelled = false;
@@ -561,15 +576,21 @@ export function SymposiumConversation({
 
   const profileDrafts =
     !readOnly && sessionId && status?.sessionId === sessionId ? (
-      <SymposiumProfileProposals
-        key={sessionId}
-        id={profilesPanelId}
-        sessionId={sessionId}
-        pendingOnly={!profilesOpen}
-        refreshKey={chat.messages.length}
-        seatSeed={seatSeed}
-        onSeatSeedDone={() => setSeatSeed(null)}
-      />
+      <>
+        <div ref={setProfileInlineTarget} />
+        {createPortal(
+          <SymposiumProfileProposals
+            key={sessionId}
+            id={profilesPanelId}
+            sessionId={sessionId}
+            pendingOnly={!profilesOpen}
+            refreshKey={chat.messages.length}
+            seatSeed={seatSeed}
+            onSeatSeedDone={() => setSeatSeed(null)}
+          />,
+          profileContainer,
+        )}
+      </>
     ) : null;
 
   const profileTools =
@@ -580,13 +601,24 @@ export function SymposiumConversation({
               type="button"
               aria-expanded={profilesOpen}
               aria-controls={profilesOpen ? profilesPanelId : undefined}
-              onClick={() => setProfilesOpen((open) => !open)}
+              onClick={() => {
+                setProfilesVisited(true);
+                setProfilesOpen(true);
+              }}
             >
               Reusable profile drafts
               <UiIcon name={profilesOpen ? 'up' : 'down'} />
             </button>
-            {profilesOpen && (
-              <>
+            {profilesVisited && (
+              <HomeDialog
+                title="Reusable profile drafts"
+                closeLabel="Close profile drafts"
+                className="profile-drafts-dialog"
+                open={profilesOpen}
+                onClose={() => {
+                  setProfilesOpen(false);
+                }}
+              >
                 {selected !== 'all' && status.seats.find((seat) => seat.seatId === selected) && (
                   <button
                     type="button"
@@ -600,7 +632,8 @@ export function SymposiumConversation({
                     Draft reusable profile from this seat
                   </button>
                 )}
-              </>
+                <div ref={setProfileDialogTarget} />
+              </HomeDialog>
             )}
           </div>,
           profileToolsTarget,
@@ -949,6 +982,7 @@ export function SymposiumConversation({
         </section>
       )}
       <SymposiumAudienceComposer
+        onContinueInNewChat={onContinueInNewChat}
         key={sessionId}
         audience={recipient}
         seats={recipientChoices}
