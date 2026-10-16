@@ -57,6 +57,7 @@ import { SessionOutputReferenceStore } from './session-output-reference-store.js
 import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
 import { openCollaborationVisibleSource } from './collaboration-visible-source.js';
+import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
 import {
   OutputContributorBindingSchema,
@@ -2331,12 +2332,16 @@ export class EventStore {
     this.assertConversationIdentity(sessionId);
     if (!this.isCollaborationParticipantAvailable(sessionId))
       throw new SessionCollaborationError('not_found');
-    return openCollaborationVisibleSource(
-      this.db!,
-      sessionId,
-      boundary,
-      this.getSession(sessionId)?.initialPrompt,
-    );
+    const initialPrompt = this.getSession(sessionId)?.initialPrompt ?? null;
+    const source = openCollaborationVisibleSource(this.db!, sessionId, boundary, initialPrompt);
+    return {
+      ...source,
+      assertCurrent: () => {
+        if ((this.getSession(sessionId)?.initialPrompt ?? null) !== initialPrompt)
+          throw new CollaborationContractError('snapshot_changed');
+        source.assertCurrent();
+      },
+    };
   }
 
   /** Return only the bounded text projection needed to rebuild conversation

@@ -173,3 +173,159 @@ it('reauthorizes at the final fence and refuses hidden/native source conversatio
   authorize.mockRejectedValueOnce(Error('revoked'));
   await expect(source().openConversation(selection(end, 'answer'))).rejects.toThrow('revoked');
 });
+
+const unverifiedMarkers = [
+  { seatId: null },
+  { seatId: 'retained-seat' },
+  { symposiumProvenance: null },
+  { symposiumProvenance: {} },
+];
+it.each(unverifiedMarkers)(
+  'refuses unverified payload marker %j in user sources',
+  async (marker) => {
+    const end = store.append('one', 'user_message', {
+      messageId: 'ambiguous',
+      text: 'Private seat text',
+      ...marker,
+    });
+    for (const mode of ['selected', 'conversation_so_far'] as const)
+      await expect(
+        compileCollaborationContext(
+          {
+            ...selection(end, 'ambiguous', mode),
+            messageIds: mode === 'selected' ? ['ambiguous'] : [],
+          },
+          [settings],
+          source(),
+        ),
+      ).rejects.toMatchObject({ code: 'snapshot_changed' });
+    const trailing = store.append('one', 'user_message', {
+      messageId: 'ordinary',
+      text: 'Ordinary after ambiguous source',
+    });
+    for (const mode of ['selected', 'conversation_so_far'] as const)
+      await expect(
+        compileCollaborationContext(
+          {
+            ...selection(trailing, 'ordinary', mode),
+            messageIds: mode === 'selected' ? ['ordinary'] : [],
+          },
+          [settings],
+          source(),
+        ),
+      ).rejects.toMatchObject({ code: 'snapshot_changed' });
+  },
+);
+it.each(
+  ['message_start', 'block_start', 'block_delta', 'block_end', 'message_end'].flatMap((type) =>
+    unverifiedMarkers.map((marker) => ({ type, marker })),
+  ),
+)(
+  'refuses assistant payload attribution $type $marker without omitting or sharing it',
+  async ({ type: markedType, marker }) => {
+    let end = 0;
+    for (const [type, payload] of [
+      ['message_start', {}],
+      ['block_start', { blockId: 'text', blockType: 'text' }],
+      ['block_delta', { blockId: 'text', delta: 'Private assistant text' }],
+      ['block_end', { blockId: 'text', blockType: 'text' }],
+      ['message_end', {}],
+    ] as const)
+      end = store.append('one', type, {
+        messageId: 'ambiguous',
+        ...payload,
+        ...(type === markedType ? marker : {}),
+      });
+    for (const mode of ['selected', 'conversation_so_far'] as const)
+      await expect(
+        compileCollaborationContext(
+          {
+            ...selection(end, 'ambiguous', mode),
+            messageIds: mode === 'selected' ? ['ambiguous'] : [],
+          },
+          [settings],
+          source(),
+        ),
+      ).rejects.toMatchObject({ code: 'snapshot_changed' });
+    const trailing = store.append('one', 'user_message', {
+      messageId: 'ordinary',
+      text: 'Ordinary after ambiguous source',
+    });
+    for (const mode of ['selected', 'conversation_so_far'] as const)
+      await expect(
+        compileCollaborationContext(
+          {
+            ...selection(trailing, 'ordinary', mode),
+            messageIds: mode === 'selected' ? ['ordinary'] : [],
+          },
+          [settings],
+          source(),
+        ),
+      ).rejects.toMatchObject({ code: 'snapshot_changed' });
+  },
+);
+it('refuses delayed legacy initial prompts whose canonical displayed order differs from durable sequence', async () => {
+  store.upsertSession({ sessionId: 'one', initialPrompt: 'Question' });
+  assistant('answer');
+  const end = store.append('one', 'user_message', { messageId: 'initial', text: 'Question' });
+  for (const mode of ['selected', 'conversation_so_far'] as const)
+    await expect(
+      compileCollaborationContext(
+        { ...selection(end, 'initial', mode), messageIds: mode === 'selected' ? ['answer'] : [] },
+        [settings],
+        source(),
+      ),
+    ).rejects.toMatchObject({ code: 'snapshot_changed' });
+});
+
+it.each(unverifiedMarkers)(
+  'refuses brief-only artifact bytes from an unverified assistant source %j',
+  async (marker) => {
+    const messageId = 'artifact-source',
+      blockId = 'text';
+    store.append('one', 'message_start', { messageId });
+    store.append('one', 'block_start', { messageId, blockId, blockType: 'text' });
+    store.append('one', 'block_delta', {
+      messageId,
+      blockId,
+      delta: 'Private saved output',
+      ...marker,
+    });
+    store.append('one', 'block_end', { messageId, blockId, blockType: 'text' });
+    const end = store.append('one', 'message_end', { messageId });
+    // The retained output owner accepts these legacy bytes; it is not sufficient visibility proof.
+    const output = store.registerSessionOutput('one', {
+      requestId: 'unverified-artifact',
+      title: 'Private output',
+      source: { messageId, blockId, messageEndSeq: end, sha256: hash('Private saved output') },
+    });
+    const input = {
+      ...selection(end, messageId, 'selected'),
+      artifacts: [{ artifactId: output.outputId, revision: 1, sha256: output.source.sha256 }],
+    };
+    await expect(compileCollaborationContext(input, [settings], source())).rejects.toMatchObject({
+      code: 'snapshot_changed',
+    });
+  },
+);
+
+it('refuses changed canonical initial-prompt metadata at the final visible-source fence', async () => {
+  store.upsertSession({ sessionId: 'one', initialPrompt: 'Question' });
+  store.append('one', 'user_message', { messageId: 'initial', text: 'Question' });
+  const end = assistant('answer');
+  const selected = await source().openConversation(selection(end, 'answer', 'selected'));
+  await selected.readSelected(['answer']);
+  const full = await source().openConversation(selection(end, 'answer'));
+  await full.readPrefixWitness();
+  store.upsertSession({ sessionId: 'one', initialPrompt: 'Changed' });
+  await expect(selected.assertCurrent()).rejects.toMatchObject({ code: 'snapshot_changed' });
+  await expect(full.assertCurrent()).rejects.toMatchObject({ code: 'snapshot_changed' });
+});
+
+it('preserves canonical recipient-only bookkeeping exceptions without granting authorship', async () => {
+  store.append('one', 'user_message', { messageId: 'visible', text: 'Visible' });
+  store.append('one', 'symposium_delivery_dispatched', { seatId: 'recipient-only' });
+  const end = store.append('one', 'symposium_thread_migrated', { seatId: 'recipient-only' });
+  const draft = await compileCollaborationContext(selection(end, 'visible'), [settings], source());
+  expect(draft.messages.map((message) => message.messageId)).toEqual(['visible']);
+});

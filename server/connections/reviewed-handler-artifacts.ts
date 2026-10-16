@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-context-source.ts':
     '5feb8135ccfd6d578ec5f9ac873bd7c260322d49f30d831147be29df3f084262',
   '../../packages/protocol/src/collaboration-visible-source.ts':
-    '219c984a60e6c5ceb08b15c28fb10903c312a0b2b5f62d60fcf91653283ea290',
+    'a78e04caea0b3b387bf70e4640be6df31830192782ed887fcd787f04eb55e1a3',
 
   '../telos-work-conversation.ts':
     '66e562495602881b314abf7877bfc68d1bc7055524ec03ac815dd6f3c384321d',
@@ -583,7 +583,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    '69c7f9f285a6a8f666c9cb65d92064a8025a2b3ed2869d503784970b80ce277c',
+    '5cea0c873c0ecf9b77c06bf12de7d9638ca888872d2ba738f18b24cba8826ed7',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
