@@ -10,7 +10,13 @@ function object(value: unknown): ObjectValue {
 export class CodexSessionEvents {
   private texts = new Map<
     string,
-    { text: string; closed: boolean; messageId: string; kind: 'text' | 'thinking' }
+    {
+      text: string;
+      closed: boolean;
+      messageId: string;
+      kind: 'text' | 'thinking';
+      providerTurnId?: string;
+    }
   >();
   private finishedTurns = new Set<string>();
   private startedTurns = new Set<string>();
@@ -31,6 +37,8 @@ export class CodexSessionEvents {
     private emit: (event: ObjectValue) => void,
     private options: {
       freshThread?: boolean;
+      /** Owned provenance binds every item observation to one immutable turn and kind. */
+      requireExactTurnIdentity?: boolean;
       /** Trusted generated visible text identity; never thinking or tool messages. */
       onTextMessageStarted?: (messageId: string, providerTurnId: string) => void;
     } = {},
@@ -75,11 +83,29 @@ export class CodexSessionEvents {
     });
   }
   private start(id: string, kind: 'text' | 'thinking' = 'text', providerTurnId?: unknown) {
+    if (
+      this.options.requireExactTurnIdentity &&
+      (typeof providerTurnId !== 'string' || !providerTurnId)
+    )
+      return;
     let item = this.texts.get(id);
-    if (item) return item;
+    if (item) {
+      if (
+        this.options.requireExactTurnIdentity &&
+        (item.kind !== kind || item.providerTurnId !== providerTurnId)
+      )
+        return;
+      return item;
+    }
     // The existing renderer has one active assistant message. Finish it before another begins.
     this.flush();
-    item = { text: '', closed: false, messageId: randomUUID(), kind };
+    item = {
+      text: '',
+      closed: false,
+      messageId: randomUUID(),
+      kind,
+      ...(typeof providerTurnId === 'string' ? { providerTurnId } : {}),
+    };
     this.texts.set(id, item);
     if (kind === 'text' && typeof providerTurnId === 'string' && providerTurnId)
       this.options.onTextMessageStarted?.(item.messageId, providerTurnId);
@@ -291,8 +317,8 @@ export class CodexSessionEvents {
       Number.isInteger(params.summaryIndex)
     ) {
       const id = `reasoning:${params.itemId}:${params.summaryIndex}`;
-      const item = this.start(id, 'thinking');
-      if (item.closed) return;
+      const item = this.start(id, 'thinking', params.turnId);
+      if (!item || item.closed) return;
       if (this.replayedReasoningDelta(id, item, params.delta)) return;
       item.text += params.delta;
       this.stream({
@@ -313,8 +339,8 @@ export class CodexSessionEvents {
           if (typeof text !== 'string' || !text) return;
           const id = `reasoning:${final.id}:${index}`;
           this.reasoningReplayOffsets.delete(id);
-          const item = this.start(id, 'thinking');
-          if (item.closed) return;
+          const item = this.start(id, 'thinking', params.turnId);
+          if (!item || item.closed) return;
           const suffix = this.finalReasoningSuffix(item.text, text);
           if (suffix) {
             item.text += suffix;
@@ -335,7 +361,7 @@ export class CodexSessionEvents {
       typeof params.delta === 'string'
     ) {
       const item = this.start(params.itemId, 'text', params.turnId);
-      if (item.closed) return;
+      if (!item || item.closed) return;
       item.text += params.delta;
       this.stream({
         type: 'content_block_delta',
@@ -351,7 +377,7 @@ export class CodexSessionEvents {
       )
         return;
       const item = this.start(final.id, 'text', params.turnId);
-      if (item.closed) return;
+      if (!item || item.closed) return;
       if (!item.text && final.text) {
         item.text = final.text;
         this.stream({

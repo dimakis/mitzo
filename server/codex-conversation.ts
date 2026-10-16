@@ -1739,6 +1739,7 @@ export class CodexConversation {
       this.opts.emit,
       {
         freshThread,
+        requireExactTurnIdentity: Boolean(this.opts.onProviderMessageSource),
         onTextMessageStarted: (messageId, providerTurnId) => {
           const active = this.active;
           if (

@@ -168,3 +168,94 @@ it('leaves output unmapped after an uncertain transport close', async () => {
   await pending.catch(() => {});
   expect(f.sources).not.toHaveBeenCalled();
 });
+
+it.each(['stale-turn', undefined])(
+  'rejects reused-item deltas and completion with %s turn identity after ACK',
+  async (turnId) => {
+    const f = await fixture();
+    const pending = f.conversation.send({ id: 'ordinary-command', prompt: 'Review' });
+    await f.ready();
+    f.acknowledge();
+    await pending;
+    f.text('shared-item');
+    f.callbacks.onNotification('item/agentMessage/delta', {
+      threadId: 'private-thread',
+      turnId,
+      itemId: 'shared-item',
+      delta: 'FOREIGN TEXT',
+    });
+    f.callbacks.onNotification('item/completed', {
+      threadId: 'private-thread',
+      turnId,
+      item: { id: 'shared-item', type: 'agentMessage', text: 'FOREIGN TEXT' },
+    });
+    expect(f.events.filter((event) => event.type === 'assistant')).toHaveLength(0);
+    expect(JSON.stringify(f.events)).not.toContain('FOREIGN TEXT');
+    f.callbacks.onNotification('item/completed', {
+      threadId: 'private-thread',
+      turnId: 'private-turn',
+      item: { id: 'shared-item', type: 'agentMessage', text: 'Attributed text' },
+    });
+    expect(f.events.filter((event) => event.type === 'assistant')).toEqual([
+      expect.objectContaining({
+        message: { content: [{ type: 'text', text: 'Attributed text' }] },
+      }),
+    ]);
+    expect(f.sources).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('rejects reused-item foreign text before ACK and preserves the exact eventual binding', async () => {
+  const f = await fixture();
+  const pending = f.conversation.send({ id: 'ordinary-command', prompt: 'Review' });
+  await f.ready();
+  f.text('shared-item');
+  f.callbacks.onNotification('item/agentMessage/delta', {
+    threadId: 'private-thread',
+    turnId: 'other-turn',
+    itemId: 'shared-item',
+    delta: 'FOREIGN BEFORE ACK',
+  });
+  f.callbacks.onNotification('item/completed', {
+    threadId: 'private-thread',
+    turnId: 'other-turn',
+    item: { id: 'shared-item', type: 'agentMessage', text: 'FOREIGN BEFORE ACK' },
+  });
+  expect(f.sources).not.toHaveBeenCalled();
+  expect(f.events.filter((event) => event.type === 'assistant')).toHaveLength(0);
+  expect(JSON.stringify(f.events)).not.toContain('FOREIGN BEFORE ACK');
+  f.acknowledge();
+  await pending;
+  f.callbacks.onNotification('item/completed', {
+    threadId: 'private-thread',
+    turnId: 'private-turn',
+    item: { id: 'shared-item', type: 'agentMessage', text: 'Attributed text' },
+  });
+  expect(f.sources).toHaveBeenCalledTimes(1);
+  expect(f.events.filter((event) => event.type === 'assistant')).toHaveLength(1);
+});
+
+it('does not let a reused reasoning key mutate a mapped text item', async () => {
+  const f = await fixture();
+  const pending = f.conversation.send({ id: 'ordinary-command', prompt: 'Review' });
+  await f.ready();
+  f.acknowledge();
+  await pending;
+  f.text('reasoning:collision:0');
+  f.callbacks.onNotification('item/reasoning/summaryTextDelta', {
+    threadId: 'private-thread',
+    turnId: 'private-turn',
+    itemId: 'collision',
+    summaryIndex: 0,
+    delta: 'PRIVATE REASONING',
+  });
+  expect(JSON.stringify(f.events)).not.toContain('PRIVATE REASONING');
+  f.callbacks.onNotification('item/completed', {
+    threadId: 'private-thread',
+    turnId: 'private-turn',
+    item: { id: 'reasoning:collision:0', type: 'agentMessage', text: 'Attributed text' },
+  });
+  expect(f.events.filter((event) => event.type === 'assistant')).toEqual([
+    expect.objectContaining({ message: { content: [{ type: 'text', text: 'Attributed text' }] } }),
+  ]);
+});
