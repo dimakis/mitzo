@@ -110,6 +110,7 @@ for (const theme of ['dark', 'light'])
         return route.fulfill({ json: version });
       }
       if (url.pathname.endsWith('/export')) return route.fulfill({ json: catalog.versions[0] });
+      if (url.pathname === '/api/agent-tasks') return route.fulfill({ json: [] });
       if (url.pathname.startsWith('/api/'))
         return route.fulfill({
           json: { accounts: [], models: [], sessions: [], drafts: [], versions: [] },
@@ -174,6 +175,11 @@ for (const theme of ['dark', 'light'])
     await page
       .getByRole('searchbox', { name: 'Search tool library', exact: true })
       .fill('GetConnectionGuide');
+    await page
+      .getByRole('article')
+      .filter({ has: page.getByRole('heading', { name: 'GetConnectionGuide', exact: true }) })
+      .locator('.tool-library-details > summary')
+      .click();
     await page
       .getByRole('article')
       .filter({ has: page.getByRole('heading', { name: 'GetConnectionGuide', exact: true }) })
