@@ -397,6 +397,134 @@ it('previews a retained agent independently without switching the discussion or 
   expect(screen.queryByRole('tablist')).toBeNull();
 });
 
+it('keeps the shared transcript on All when an anchor-only conversation gains another agent', async () => {
+  let expanded = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).endsWith('/status')
+        ? {
+            ...status,
+            config: { ...status.config, anchorSeatId: 'architect', revision: expanded ? 3 : 2 },
+            seats: status.seats.filter((seat) => expanded || seat.seatId === 'architect'),
+          }
+        : page,
+    ),
+  );
+  const props = {
+    sessionId: 'session',
+    ordinaryComposer: null,
+    conversationLayout: { settings: null, actions: null },
+  };
+  const view = render(
+    <SymposiumConversation {...props} chat={{ ...chat, messages: [chat.messages[0]] }} />,
+  );
+  await screen.findByRole('button', { name: 'Agents, Architect' });
+  expanded = true;
+  view.rerender(<SymposiumConversation {...props} chat={chat} />);
+  act(() => window.dispatchEvent(new Event('symposium-roster-changed')));
+  await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' });
+  expect(within(screen.getByTestId('rich-chat')).getByText('reviewer-reply')).toBeTruthy();
+});
+
+it('refreshes an open independent preview when a later reply finishes', async () => {
+  let finished = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).endsWith('/status')
+        ? status
+        : {
+            ...page,
+            items: [
+              page.items[0],
+              ...(finished
+                ? [
+                    {
+                      ...page.items[0],
+                      eventSeq: 8,
+                      messageId: 'later-architect-reply',
+                      content: 'Later reply',
+                    },
+                  ]
+                : []),
+            ],
+          },
+    ),
+  );
+  const props = {
+    sessionId: 'session',
+    ordinaryComposer: null,
+    conversationLayout: { settings: null, actions: null },
+  };
+  const view = render(<SymposiumConversation {...props} chat={chat} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview Architect conversation' }));
+  const dialog = screen.getByRole('dialog', { name: 'Architect conversation' });
+  await within(dialog).findByText('architect-reply');
+  finished = true;
+  view.rerender(
+    <SymposiumConversation
+      {...props}
+      chat={{
+        ...chat,
+        messages: [...chat.messages, { ...chat.messages[0], messageId: 'later-architect-reply' }],
+      }}
+    />,
+  );
+  await within(dialog).findByText('later-architect-reply');
+  expect(within(dialog).getByText('architect-reply')).toBeTruthy();
+});
+
+it('refreshes preview receipts on delivery changes and releases its reads when closed', async () => {
+  let received = false;
+  const previewReads: AbortSignal[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).includes('kind=seat')) previewReads.push(init?.signal as AbortSignal);
+    return json(
+      String(url).endsWith('/status')
+        ? status
+        : {
+            ...page,
+            items: [
+              page.items[0],
+              ...(received
+                ? [
+                    {
+                      ...page.items[1],
+                      recipientSeatId: 'architect',
+                      deliveryId: 'late-preview-input',
+                    },
+                  ]
+                : []),
+            ],
+          },
+    );
+  });
+  const view = render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryComposer={null}
+      conversationLayout={{ settings: null, actions: null }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview Architect conversation' }));
+  const dialog = screen.getByRole('dialog', { name: 'Architect conversation' });
+  await within(dialog).findByText('architect-reply');
+  received = true;
+  act(() => window.dispatchEvent(new Event('symposium-deliveries-changed')));
+  await within(dialog).findByText('late-preview-input:received');
+  view.unmount();
+  const reads = previewReads.length;
+  expect(previewReads.at(-1)?.aborted).toBe(true);
+  vi.useFakeTimers();
+  await act(async () => {
+    window.dispatchEvent(new Event('symposium-deliveries-changed'));
+    await vi.advanceTimersByTimeAsync(6000);
+  });
+  expect(previewReads).toHaveLength(reads);
+});
+
 describe('SymposiumConversation', () => {
   it.each(['accepted', 'failed'] as const)(
     'does not dispatch or remove persisted queued input while session type is pending (%s receipt)',

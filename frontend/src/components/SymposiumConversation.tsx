@@ -177,7 +177,8 @@ export function SymposiumConversation({
   const sharedPresentation = conversationLayout !== undefined;
   const [status, setStatus] = useState<Status | null>(null);
   const [statusFresh, setStatusFresh] = useState(false);
-  const [selected, setSelected] = useState('all');
+  const [legacySelected, setSelected] = useState('all');
+  const selected = sharedPresentation ? 'all' : legacySelected;
   const [recipient, setRecipient] = useState('');
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [profilesVisited, setProfilesVisited] = useState(false);
@@ -1159,43 +1160,76 @@ function RetainedPerspectivePreview({
   const [attempt, setAttempt] = useState(0);
   const scroll = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const controller = new AbortController();
     setState({ items: [], loading: true });
-    void (async () => {
-      const items: PerspectiveItem[] = [];
-      let after = 0;
-      let more = false;
-      for (let n = 0; n < 10; n++) {
-        const params = new URLSearchParams({
-          kind: 'seat',
-          seatId,
-          limit: '200',
-          afterSeq: String(after),
-        });
-        const page = await readJson<PerspectivePage>(`${base}/perspectives?${params}`, {
-          signal: controller.signal,
-        });
-        if (
-          !Array.isArray(page.items) ||
-          (page.nextSeq !== null && (!Number.isSafeInteger(page.nextSeq) || page.nextSeq <= after))
-        )
-          throw Error('Conversation preview is incomplete.');
-        items.push(...page.items);
-        more = page.nextSeq !== null;
-        if (!more) break;
-        after = page.nextSeq!;
+  }, [base, seatId]);
+  useEffect(() => {
+    let stopped = false;
+    let reading = false;
+    let pending = false;
+    let controller: AbortController | null = null;
+    const refresh = async () => {
+      if (stopped) return;
+      if (reading) {
+        pending = true;
+        return;
       }
-      if (!controller.signal.aborted) setState({ items, loading: false, more });
-    })().catch((cause) => {
-      if (!controller.signal.aborted)
-        setState({
-          items: [],
-          loading: false,
-          error: cause instanceof Error ? cause.message : 'Conversation preview unavailable.',
-        });
-    });
-    return () => controller.abort();
-  }, [base, seatId, attempt]);
+      reading = true;
+      const read = new AbortController();
+      controller = read;
+      try {
+        const items: PerspectiveItem[] = [];
+        let after = 0;
+        let more = false;
+        for (let n = 0; n < 10; n++) {
+          const params = new URLSearchParams({
+            kind: 'seat',
+            seatId,
+            limit: '200',
+            afterSeq: String(after),
+          });
+          const page = await readJson<PerspectivePage>(`${base}/perspectives?${params}`, {
+            signal: read.signal,
+          });
+          if (stopped || read.signal.aborted) return;
+          if (
+            !Array.isArray(page.items) ||
+            (page.nextSeq !== null &&
+              (!Number.isSafeInteger(page.nextSeq) || page.nextSeq <= after))
+          )
+            throw Error('Conversation preview is incomplete.');
+          items.push(...page.items);
+          more = page.nextSeq !== null;
+          if (!more) break;
+          after = page.nextSeq!;
+        }
+        if (!stopped && !read.signal.aborted) setState({ items, loading: false, more });
+      } catch (cause) {
+        if (!stopped && !read.signal.aborted)
+          setState((current) => ({
+            ...current,
+            loading: false,
+            error: cause instanceof Error ? cause.message : 'Conversation preview unavailable.',
+          }));
+      } finally {
+        reading = false;
+        if (pending && !stopped) {
+          pending = false;
+          void refresh();
+        }
+      }
+    };
+    void refresh();
+    const changed = () => void refresh();
+    window.addEventListener('symposium-deliveries-changed', changed);
+    const timer = window.setInterval(changed, 5000);
+    return () => {
+      stopped = true;
+      controller?.abort();
+      window.clearInterval(timer);
+      window.removeEventListener('symposium-deliveries-changed', changed);
+    };
+  }, [base, seatId, attempt, chat.messages]);
+
   return (
     <>
       {state.loading && <p role="status">Loading conversation…</p>}

@@ -1051,3 +1051,5 @@ Inspected captures: [desktop popover](assets/compact-chat-desktop-dark.png),
 [desktop composer](assets/compact-chat-desktop-light.png),
 [short phone settings](assets/compact-chat-mobile-short.png) and
 [retained profile draft editor](assets/compact-chat-profile-drafts.png).
+
+The shared Symposium transcript always uses All independently of the legacy compact-seat selection. Expanding an anchor-only chat must retain every agent’s finished and streaming replies. Independent previews refresh after completed replies, delivery changes and a five-second fallback; closing cancels their read and removes their timer/listener. Refreshing retains the existing history while the next page is read.
