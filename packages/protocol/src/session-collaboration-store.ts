@@ -26,7 +26,10 @@ function decode(row: CollaborationRow): SessionCollaboration {
  * References deliberately do not cascade when a participant becomes unavailable.
  */
 export class SessionCollaborationStore {
-  constructor(private readonly db: Database.Database) {
+  constructor(
+    private readonly db: Database.Database,
+    private readonly changed?: (membership: SessionCollaboration) => void,
+  ) {
     db.exec(`CREATE TABLE IF NOT EXISTS session_collaboration_revisions (
       collaboration_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision > 0),
       participant_session_ids TEXT NOT NULL, created_at INTEGER NOT NULL,
@@ -65,6 +68,27 @@ export class SessionCollaborationStore {
     };
   }
   set(id: string, raw: unknown, isLinkable: (sessionId: string) => boolean): SessionCollaboration {
+    return this.write(id, raw, isLinkable, 2);
+  }
+  /** Host-only ordinary-chat preparation. The public association API retains its two-session minimum. */
+  start(
+    id: string,
+    sessionId: string,
+    isLinkable: (sessionId: string) => boolean,
+  ): SessionCollaboration {
+    return this.write(
+      id,
+      { expectedRevision: 0, participantSessionIds: [sessionId] },
+      isLinkable,
+      1,
+    );
+  }
+  private write(
+    id: string,
+    raw: unknown,
+    isLinkable: (sessionId: string) => boolean,
+    minimum: number,
+  ): SessionCollaboration {
     SessionCollaborationIdSchema.parse(id);
     const input = SessionCollaborationUpdateSchema.parse(raw);
     const ids = [...input.participantSessionIds].sort();
@@ -79,7 +103,8 @@ export class SessionCollaborationStore {
           !(current && same && input.expectedRevision === current.revision - 1)
         )
           throw new SessionCollaborationError('conflict');
-        if (!current && ids.length < 2) throw new SessionCollaborationError('invalid_membership');
+        if (!current && ids.length < minimum)
+          throw new SessionCollaborationError('invalid_membership');
         if (current && same) return current;
         const retained = new Set(current?.participantSessionIds);
         // Availability gates new links; retained references survive participant loss.
@@ -98,6 +123,8 @@ export class SessionCollaborationStore {
         (collaboration_id,revision,participant_session_ids,created_at) VALUES (?,?,?,?)`,
           )
           .run(id, result.revision, JSON.stringify(ids), Date.now());
+        // Existing readers need membership changes in the same durable projection transaction.
+        if (current) this.changed?.(result);
         return result;
       })
       .immediate();

@@ -55,6 +55,7 @@ import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import { SessionCollaborationStore } from './session-collaboration-store.js';
+import { CollaborationConversationStore } from './collaboration-conversation-store.js';
 import { SessionCollaborationError } from './session-collaboration.js';
 import {
   OutputContributorBindingSchema,
@@ -373,6 +374,7 @@ export class EventStore {
   private db: Database.Database | null;
   private readonly sessionOutputs: SessionOutputReferenceStore;
   private readonly sessionCollaborations: SessionCollaborationStore;
+  readonly collaborationConversation: CollaborationConversationStore;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
   private readonly sessionLifecycle: SessionLifecycleStore;
@@ -1047,7 +1049,57 @@ export class EventStore {
     this.migrateConversationSource(db);
     this.migrateUserMessageIndex(db);
     this.sessionOutputs = new SessionOutputReferenceStore(db);
-    this.sessionCollaborations = new SessionCollaborationStore(db);
+    this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
+      this.collaborationConversation.membershipChanged(membership),
+    );
+    this.collaborationConversation = new CollaborationConversationStore(db, {
+      membership: (id) => this.getSessionCollaboration(id),
+      setMembership: (id, input) => this.setSessionCollaboration(id, input),
+      beginMembership: (id, sourceSessionId) =>
+        this.sessionCollaborations.start(id, sourceSessionId, (sessionId) =>
+          this.isCollaborationParticipantAvailable(sessionId),
+        ),
+      available: (id) => {
+        return this.isCollaborationParticipantAvailable(id);
+      },
+      settings: (id) => {
+        const admission = this.getLatestOrdinaryCommandAdmission(id);
+        const binding = this.getSessionRuntimeBinding(id);
+        const session = this.getSession(id);
+        if (
+          !admission ||
+          !binding ||
+          binding.version !== 2 ||
+          !isDeepStrictEqual(binding, admission.binding) ||
+          session?.repositoryWorkspaceId !== admission.workspace.workspaceId
+        )
+          return undefined;
+        return {
+          binding,
+          selection: admission.selection,
+          repositoryWorkspaceId: admission.workspace.workspaceId,
+        };
+      },
+      allocation: (operationId) => {
+        const command = this.getSendCommand(operationId);
+        const admission = this.getOrdinaryCommandAdmission(operationId);
+        if (!command?.sessionId || command.error || !admission) return undefined;
+        const first = db
+          .prepare(
+            'SELECT client_msg_id FROM send_commands WHERE session_id=? ORDER BY rowid LIMIT 1',
+          )
+          .get(command.sessionId) as { client_msg_id: string } | undefined;
+        if (first?.client_msg_id !== operationId) return undefined;
+        return {
+          sessionId: command.sessionId,
+          settings: {
+            binding: admission.binding,
+            selection: admission.selection,
+            repositoryWorkspaceId: admission.workspace.workspaceId,
+          },
+        };
+      },
+    });
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -1861,6 +1913,15 @@ export class EventStore {
   }
 
   /** Ordinary session associations only. Never creates a conversation or grants execution. */
+  private isCollaborationParticipantAvailable(sessionId: string): boolean {
+    const session = this.getSession(sessionId);
+    return Boolean(
+      session &&
+      !session.isHidden &&
+      session.sessionType !== 'symposium' &&
+      !session.symposiumConfig,
+    );
+  }
   getSessionCollaboration(id: string) {
     return this.sessionCollaborations.get(id);
   }
@@ -1876,15 +1937,9 @@ export class EventStore {
     return this.sessionCollaborations.listForSession(sessionId, after);
   }
   setSessionCollaboration(id: string, input: unknown) {
-    return this.sessionCollaborations.set(id, input, (sessionId) => {
-      const session = this.getSession(sessionId);
-      return Boolean(
-        session &&
-        !session.isHidden &&
-        session.sessionType !== 'symposium' &&
-        !session.symposiumConfig,
-      );
-    });
+    return this.sessionCollaborations.set(id, input, (sessionId) =>
+      this.isCollaborationParticipantAvailable(sessionId),
+    );
   }
 
   /** Host-only exact association lookup, never caller-provided ownership. */
