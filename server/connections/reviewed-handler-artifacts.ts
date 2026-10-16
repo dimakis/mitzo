@@ -40,7 +40,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationJoiningReview.tsx':
     '281a3331627c21bbd34149d697927291d355da0f0505d1b5666647219bfa7a31',
   '../../frontend/src/hooks/useConversationJoiningReview.ts':
-    'e51e76e8c0a3e2eb9792f6b64a42022b192716c832a575d5f38255f9267e29c2',
+    '1c5b67de86e13680ae212d1bd34e0528d56e59f8a63dd534e00edf6eb4405a0d',
   '../../frontend/src/lib/conversation-joining-review.ts':
     '522a7df7880187236b963b01b38149ccc0f7ae2fc1e3ba1f46164d9903c676a7',
   '../../frontend/src/styles/home.css':
@@ -57,7 +57,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   // Approved Agents presentation and retained native composer adaptation.
   '../../frontend/src/components/ConversationAgents.tsx':
-    'a4b2c81c15ed46a9c59a5d0f5085ee7579d588a1757dc00f628df8c8465074d8',
+    '48696180754aca127bb0224121302a9453f262ff7cb85b78762bd2ed33d7ffe1',
   '../../frontend/src/components/ConversationAgents.css':
     '67b0a7dfde19ce25f31fc5ff2571fa111f20ca323bf8220d86906899ca5eae16',
   '../../frontend/src/components/ComposerResponders.tsx':

@@ -1077,14 +1077,17 @@ preparation owner. No production owner is installed by this presentation slice;
 ordinary setup therefore retains its explicit unavailable review state. Display
 metadata must identify every exact artifact pin before confirmation. Confirmation
 uses the exact server-returned snapshot, settings and request identity; uncertain
-review/confirmation retries retain their original complete request. Pending joins
+review/confirmation retries retain their original complete request. Back / Review
+resumes the edited frozen brief when setup is unchanged; closing and reopening
+also retains failed initial review attempts and their Check again action. Only an
+explicit setup change creates a new review intent. Pending joins
 recheck their original receipt. Only an authoritative linked receipt closes the
 review and permits a new fresh setup. Full application restart discovery remains
 with the future ordinary owner; this UI introduces no receipt/session store.
 
-Focused offline hook/component/HomeDialog/design checks pass (140 tests), with
+Focused offline hook/component/HomeDialog/design checks pass (144 tests), with
 focused ESLint and source-alias TypeScript checks. Runtime manifest/source-closure
-checks also pass (160 tests including the focused UI checks). Correlation IDs and
+checks also pass (164 tests including the focused UI checks). Correlation IDs and
 review hashing use the shared browser-crypto helper on supported remote HTTP
 without secure-context UUID/SubtleCrypto APIs. The intercepted browser fixture
 uses synthetic callbacks and no backend, credentials or model. An independent

@@ -51,6 +51,26 @@ it('opening a flow performs no read, allocation or confirmation', () => {
   expect(port.confirm).not.toHaveBeenCalled();
   expect(port.recover).not.toHaveBeenCalled();
 });
+it('resumes the same setup when ordinary picker fields have equivalent key ordering', async () => {
+  const port = owner();
+  const { result } = renderHook(() => useConversationJoiningReview(port));
+  const setup = joiningSetupFixture();
+  await act(() => result.current.prepare(setup));
+  const reordered = {
+    ...setup,
+    selection: {
+      reasoningEffort: setup.selection!.reasoningEffort,
+      model: setup.selection!.model,
+      accountId: setup.selection!.accountId,
+    },
+  };
+  expect(result.current.hasAttemptFor(reordered)).toBe(true);
+  await act(() => result.current.prepare(reordered));
+  expect(port.review).toHaveBeenCalledTimes(1);
+  expect(result.current.review?.snapshot.snapshotId).toBe(
+    joiningReviewFixture().snapshot.snapshotId,
+  );
+});
 it('reviews and confirms on supported remote HTTP without randomUUID or SubtleCrypto', async () => {
   const getRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
   vi.stubGlobal('crypto', { getRandomValues });

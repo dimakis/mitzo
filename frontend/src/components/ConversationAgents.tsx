@@ -547,9 +547,7 @@ function ConversationAgentsBody({
                         joining.startNew();
                         setView('add');
                       } else
-                        setView(
-                          joining.review || joining.locked || joining.pending ? 'review' : 'add',
-                        );
+                        setView(joining.locked || joining.hasAttemptFor(setup) ? 'review' : 'add');
                     }}
                   >
                     Add agent

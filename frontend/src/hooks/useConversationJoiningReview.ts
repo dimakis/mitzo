@@ -34,7 +34,13 @@ const initial = (): State => ({
   uncertain: false,
   join: null,
 });
-const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const stableJson = (input: unknown) =>
+  JSON.stringify(input, (_key, value: unknown) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+      : value,
+  );
+const equal = (a: unknown, b: unknown) => stableJson(a) === stableJson(b);
 function sourcePins(review: ConversationJoiningReviewResult) {
   const { sourceConversationId, boundary, mode, purpose, messages, artifacts, summary } =
     review.snapshot;
@@ -286,7 +292,20 @@ export function useConversationJoiningReview(
     ...state,
     canConfirm: ownerAvailable && ready(state),
     locked: state.submission !== null,
-    prepare: (setup: ConversationAgentSetup) => review(setup),
+    hasAttemptFor: (setup: ConversationAgentSetup) =>
+      current.current.setup !== null && equal(current.current.setup, setup),
+    prepare: (setup: ConversationAgentSetup) => {
+      const saved = lastReview.current;
+      const state = current.current;
+      // Back/Review resumes the operator's existing brief and exact source pins.
+      // A lost response replays its complete receipt instead of creating a new intent.
+      if (saved && equal(saved.input.setup, setup)) {
+        return state.error && !state.pending
+          ? review(saved.input.setup, saved.input.joiningBrief, saved.previous, saved.input)
+          : Promise.resolve();
+      }
+      return review(setup);
+    },
     editBrief: (brief: string) => {
       const state = current.current;
       if (!state.setup || !state.review || state.submission) return Promise.resolve();

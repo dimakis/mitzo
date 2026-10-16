@@ -168,6 +168,114 @@ it('preserves setup, edited review and operation across policy inspection and cl
   expect(owner.confirm).not.toHaveBeenCalled();
 });
 
+it('resumes the edited frozen brief after Back and Review with unchanged setup', async () => {
+  const owner = mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await screen.findByRole('textbox', { name: /Joining brief · sent to every participant/ });
+  fireEvent.change(
+    screen.getByRole('textbox', { name: /Joining brief · sent to every participant/ }),
+    {
+      target: { value: 'Keep this operator-edited joining brief.' },
+    },
+  );
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Join conversation' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
+  const refreeze = structuredClone(vi.mocked(owner.review).mock.calls[1][0]);
+  fireEvent.click(screen.getByRole('button', { name: /^Back$/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole('textbox', {
+          name: /Joining brief · sent to every participant/,
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe('Keep this operator-edited joining brief.'),
+  );
+  expect(owner.review).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(owner.review).mock.calls[1][0]).toEqual(refreeze);
+  fireEvent.click(screen.getByRole('button', { name: 'Join conversation' }));
+  await screen.findByText(/Reviewer joining\./);
+  expect(vi.mocked(owner.confirm).mock.calls[0][0].snapshot).toEqual({
+    snapshotId: '00000000-0000-4000-8000-000000000002',
+    sha256: 'b'.repeat(64),
+  });
+});
+
+it('retains a lost initial review attempt through Close, Agents and Add agent and retries its exact request', async () => {
+  const owner = mount();
+  vi.mocked(owner.review).mockRejectedValueOnce(new Error('Saved response was lost'));
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await screen.findByRole('alert');
+  const original = structuredClone(vi.mocked(owner.review).mock.calls[0][0]);
+  fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  const review = screen.getByRole('dialog', { name: 'Before joining' });
+  expect(within(review).getByRole('alert')).toBeTruthy();
+  expect(owner.review).toHaveBeenCalledTimes(1);
+  fireEvent.click(within(review).getByRole('button', { name: 'Check again' }));
+  await within(review).findByText('Context for the fresh agent');
+  expect(owner.review).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(owner.review).mock.calls[1][0]).toEqual(original);
+  expect(owner.confirm).not.toHaveBeenCalled();
+});
+
+it('invalidates the old brief and frozen source only when setup is explicitly changed', async () => {
+  const owner = mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await screen.findByRole('textbox', { name: /Joining brief · sent to every participant/ });
+  fireEvent.change(
+    screen.getByRole('textbox', { name: /Joining brief · sent to every participant/ }),
+    {
+      target: { value: 'Earlier operator-edited brief.' },
+    },
+  );
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Join conversation' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
+  const earlier = structuredClone(vi.mocked(owner.review).mock.calls[1][0]);
+  fireEvent.click(screen.getByRole('button', { name: /^Back$/ }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Purpose' }), {
+    target: { value: 'Check authentication.' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Back to Agents' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  expect(screen.getByRole('dialog', { name: 'Add agent' })).toBeTruthy();
+  expect((screen.getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value).toBe(
+    'Check authentication.',
+  );
+  vi.mocked(owner.review).mockImplementationOnce(async ({ setup }) =>
+    joiningReviewFixture({
+      purpose: setup.purpose,
+      joiningBrief: 'Fresh review for the changed purpose.',
+      snapshotId: '00000000-0000-4000-8000-000000000003',
+      sha256: 'c'.repeat(64),
+    }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole('textbox', {
+          name: /Joining brief · sent to every participant/,
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe('Fresh review for the changed purpose.'),
+  );
+  const changed = vi.mocked(owner.review).mock.calls[2][0];
+  expect(changed.requestId).not.toBe(earlier.requestId);
+  expect(changed.setup.purpose).toBe('Check authentication.');
+  expect(changed.joiningBrief).toBeUndefined();
+  expect(changed.previousSnapshot).toBeUndefined();
+  expect(owner.confirm).not.toHaveBeenCalled();
+});
+
 it('closes only after linked confirmation and offers the next agent a fresh editable setup', async () => {
   const owner = mount();
   fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
