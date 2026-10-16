@@ -1,3 +1,4 @@
+import type { ModelTokenLimits } from './token-limits.js';
 import type { SourceSnapshot } from './source-snapshot.js';
 import type { AccountBinding } from './account-binding.js';
 import type { AgentLibraryVersion } from './agent-library.js';
@@ -327,6 +328,12 @@ export interface SessionStateEvent {
   timestamp: number;
 }
 
+export interface SessionContextUsage {
+  used: number | null;
+  measuredAt: number;
+  limits: ModelTokenLimits | null;
+}
+
 export interface Session {
   id: string;
   summary: string;
@@ -337,6 +344,8 @@ export interface Session {
   totalTokens?: number;
   numTurns?: number;
   telosTaskId?: string;
+  cwd?: string;
+  contextUsage?: SessionContextUsage;
   closedBy?: SessionClosedBy;
 }
 

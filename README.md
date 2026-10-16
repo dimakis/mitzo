@@ -29,6 +29,23 @@ execution require additional services or host configuration. Provider and runtim
 features have different limits; an option in source code is not proof that it has
 been enabled and verified on your host.
 
+## Conversation library
+
+On desktop, **Chats** automatically previews saved history in a resizable right-hand
+pane. **Open conversation** enters the chat. Hold on iOS, right-click on web or use
+Shift+F10 for consistent actions, including in the desktop chat sidebar.
+
+**Pin conversation** creates device shortcuts in a collapsible Pinned group: four
+rows stay visible and additional pins scroll. **Pin to Today** remains a separate
+workspace pin. Repository paths live in session details; work links require a
+recorded Telos task association.
+
+Today shows each session's latest recorded context count and percentage when a
+current model limit is known. Cumulative tokens remain separate in details.
+**Settings → Appearance → Show session context on Today** controls both recent
+sessions and Today pins on this device. Missing counts and stale or unknown limits
+are labelled explicitly. Previewing saved history never starts a provider turn.
+
 ## Before you install
 
 Mitzo is under active development. The deployment tooling targets macOS, and

@@ -8,7 +8,7 @@ import type { OpenShellRuntime } from './openshell-runtime.js';
 import type { TerminalBackend, TerminalRecord } from './terminal-service.js';
 
 const execute = promisify(execFile);
-function isMissingSession(error: unknown, id: string) {
+function isMissingSession(error: unknown, id: string, namespace: string) {
   if (
     !error ||
     typeof error !== 'object' ||
@@ -19,7 +19,14 @@ function isMissingSession(error: unknown, id: string) {
   )
     return false;
   const detail = error.stderr.trim();
-  return detail.startsWith('no server running on ') || detail === `can't find session: ${id}`;
+  return (
+    detail.startsWith('no server running on ') ||
+    detail === `can't find session: ${id}` ||
+    // Once tmux removes its last session, the owned socket may already be gone.
+    (detail.startsWith('error connecting to /') &&
+      !detail.includes('\n') &&
+      detail.endsWith(`/${namespace} (No such file or directory)`))
+  );
 }
 export function safeTerminalEnvironment(base: NodeJS.ProcessEnv = process.env) {
   const env: Record<string, string> = {};
@@ -187,7 +194,7 @@ export class TmuxTerminalBackend implements TerminalBackend {
         maxBuffer: 64 * 1024,
       });
     } catch (error) {
-      if (isMissingSession(error, record.id)) throw new TerminalSessionMissing();
+      if (isMissingSession(error, record.id, this.namespace)) throw new TerminalSessionMissing();
       // Process errors include SSH proxy arguments and their short-lived grant token.
       // eslint-disable-next-line preserve-caught-error
       throw Error('Terminal transport unavailable');
@@ -276,7 +283,7 @@ export class TmuxTerminalBackend implements TerminalBackend {
         maxBuffer: 64 * 1024,
       });
     } catch (error) {
-      if (isMissingSession(error, record.id)) return;
+      if (isMissingSession(error, record.id, this.namespace)) return;
       // Process failures may include a short-lived SSH grant in their arguments.
       // eslint-disable-next-line preserve-caught-error
       throw Error('Terminal cleanup unavailable');

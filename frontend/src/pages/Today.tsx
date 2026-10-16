@@ -9,11 +9,11 @@ import { DailyQuoteLink } from '../components/DailyQuoteLink';
 import { recordTitle } from '../lib/record-title';
 import '../styles/home.css';
 import { formatRelativeTime } from '../lib/formatTime';
-import { formatTokens } from '../lib/formatTokens';
+import { SessionContextUsage } from '../components/SessionContextUsage';
+import { useSessionDisplay } from '../hooks/useSessionDisplay';
 import { apiFetch } from '../lib/api-fetch';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 
-const TOKEN_PREFERENCE = 'mitzo-today-tokens';
 const BRIEFING_REFRESH_MS = 60_000;
 interface Briefing {
   path: string;
@@ -31,9 +31,7 @@ export function Today() {
   const search = useSessionSearch();
   const home = useHomePreferences();
   const [now, setNow] = useState(() => new Date());
-  const [showTokens, setShowTokens] = useState(
-    () => localStorage.getItem(TOKEN_PREFERENCE) === 'true',
-  );
+  const { showContext } = useSessionDisplay();
   const [briefingState, setBriefing] = useState<{ date: string; result: Briefing | null }>(() => ({
     date: localDate(new Date()),
     result: null,
@@ -165,11 +163,7 @@ export function Today() {
                         {session.isActive ? 'Active · ' : ''}
                         {formatRelativeTime(session.lastModified)}
                       </small>
-                      {showTokens && session.totalTokens != null && (
-                        <small className="workspace-tokens">
-                          {formatTokens(session.totalTokens)} tokens · session
-                        </small>
-                      )}
+                      {showContext && <SessionContextUsage usage={session.contextUsage} />}
                     </span>
                     <span aria-hidden="true">
                       <UiIcon name="forward" size={16} />
@@ -177,17 +171,6 @@ export function Today() {
                   </Link>
                 ))
               )}
-              <label className="today-token-toggle">
-                <input
-                  type="checkbox"
-                  checked={showTokens}
-                  onChange={(event) => {
-                    setShowTokens(event.target.checked);
-                    localStorage.setItem(TOKEN_PREFERENCE, String(event.target.checked));
-                  }}
-                />
-                Show session tokens on Today
-              </label>
             </section>
           </div>
           <section className="today-brief home-brief" aria-labelledby="brief-title">

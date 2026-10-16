@@ -97,10 +97,19 @@ vi.mock('../../components/SymposiumConversation', () => ({
   ),
 }));
 vi.mock('../../components/DesktopShell', () => ({
-  DesktopShell: ({ center, left }: { center: React.ReactNode; left: React.ReactNode }) => (
+  DesktopShell: ({
+    center,
+    left,
+    right,
+  }: {
+    center: React.ReactNode;
+    left: React.ReactNode;
+    right: React.ReactNode;
+  }) => (
     <>
       {left}
       {center}
+      {right}
     </>
   ),
 }));

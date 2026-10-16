@@ -1,3 +1,4 @@
+import { sessionListMetadata } from './session-list-metadata.js';
 import { projectCompactions } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
@@ -2647,6 +2648,7 @@ app.get('/api/sessions', async (req, res) => {
         totalTokens: meta
           ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
           : undefined,
+        ...sessionListMetadata(meta ?? {}, eventStore.getLatestEvent(s.id, 'token_update')),
         numTurns: meta?.numTurns,
         closedBy: meta?.closedBy ?? undefined,
       };
@@ -2671,6 +2673,20 @@ app.get('/api/sessions', async (req, res) => {
     log.error('GET /api/sessions failed', { error: err });
     res.status(500).json({ error: 'Failed to list sessions' });
   }
+});
+
+// Pinned Today sessions need their own read-only observation, beyond the recent page.
+app.get('/api/sessions/:id/context', (req, res) => {
+  const meta = eventStore.getSession(req.params.id);
+  if (!meta || meta.isHidden) {
+    res.status(404).json({ error: 'Session not found' });
+    return;
+  }
+  const { contextUsage } = sessionListMetadata(
+    meta,
+    eventStore.getLatestEvent(meta.sessionId, 'token_update'),
+  );
+  res.json({ sessionId: meta.sessionId, contextUsage: contextUsage ?? null });
 });
 
 app.get(

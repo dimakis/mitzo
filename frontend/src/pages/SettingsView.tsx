@@ -1,3 +1,4 @@
+import { useSessionDisplay } from '../hooks/useSessionDisplay';
 import { UiIcon } from '../components/UiIcon';
 import { Link } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
@@ -9,6 +10,7 @@ import { useMitzoUpdates } from '../hooks/useMitzoUpdates';
 export function SettingsView() {
   const { preference, setTheme } = useTheme();
   const appearance = useAppearance();
+  const sessionDisplay = useSessionDisplay();
   const updates = useMitzoUpdates();
   return (
     <main className="workspace-page settings-page">
@@ -81,6 +83,15 @@ export function SettingsView() {
               ))}
             </select>
           </label>
+          <label className="workspace-setting">
+            <span>Show session context on Today</span>
+            <input
+              type="checkbox"
+              checked={sessionDisplay.showContext}
+              onChange={(event) => sessionDisplay.setShowContext(event.target.checked)}
+            />
+          </label>
+          {sessionDisplay.error && <p role="alert">{sessionDisplay.error}</p>}
           <div className="appearance-preview" aria-label="Appearance preview">
             <p className="workspace-eyebrow">Your Mitzo</p>
             <h3>A little more room for what matters.</h3>

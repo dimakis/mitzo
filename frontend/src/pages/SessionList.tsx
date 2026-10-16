@@ -1,3 +1,13 @@
+import { ConversationPins } from '../components/ConversationPins';
+import { ResizableSessionLayout } from '../components/ResizableSessionLayout';
+import { SessionInspector } from '../components/SessionInspector';
+import { SessionContextMenu, type SessionMenuState } from '../components/SessionContextMenu';
+import { SessionRenameDialog } from '../components/SessionRenameDialog';
+import { SessionDetailsDialog } from '../components/SessionDetailsDialog';
+import { SessionWorkLink } from '../components/SessionWorkLink';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import type { SessionActionPoint } from '../hooks/useSessionInteraction';
+import '../styles/session-library.css';
 import { SdkConversationImport } from '../components/SdkConversationImport';
 import { sessionAttentionReason } from '../lib/session-attention';
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -11,7 +21,6 @@ import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
-import { formatTokens } from '../lib/formatTokens';
 import { useSessionSearch } from '../hooks/useSessionSearch';
 import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
 import { SessionPreview } from '../components/SessionPreview';
@@ -24,8 +33,16 @@ function SwipeableSession({
   onDismiss,
   onClick,
   onRename,
+  desktop = false,
+  selected = false,
+  onPreview,
+  onActions,
 }: {
   session: Session;
+  desktop?: boolean;
+  selected?: boolean;
+  onPreview?: (session: Session) => void;
+  onActions?: (session: Session, trigger: HTMLElement, point?: SessionActionPoint) => void;
   snippet?: string;
   activity?: SessionActivity;
   onDismiss: (id: string) => void;
@@ -50,12 +67,19 @@ function SwipeableSession({
     setEditing(true);
   }, [session.summary]);
 
-  const showPreview = useCallback(() => {
-    if (editing) return;
-    ref.current?.querySelector<HTMLElement>('.session-item-navigation')?.focus();
-    selectionChanged();
-    setPreviewing(true);
-  }, [editing]);
+  const showPreview = useCallback(
+    (point?: SessionActionPoint) => {
+      if (editing) return;
+      const trigger = ref.current?.querySelector<HTMLElement>('.session-item-navigation');
+      trigger?.focus();
+      selectionChanged();
+      if (desktop && trigger) {
+        onPreview?.(session);
+        onActions?.(session, trigger, point);
+      } else setPreviewing(true);
+    },
+    [editing, desktop, onPreview, onActions, session],
+  );
   const closePreview = useCallback(() => setPreviewing(false), []);
   const longPress = useLongPress(showPreview);
 
@@ -178,7 +202,7 @@ function SwipeableSession({
   }
 
   return (
-    <div className="session-item-wrapper">
+    <div className="session-item-wrapper" data-selected={selected}>
       <div
         className="session-item-delete-action"
         onClick={handleDeleteTap}
@@ -189,6 +213,10 @@ function SwipeableSession({
       <div
         ref={ref}
         className="session-item"
+        data-selected={selected}
+        onDoubleClick={() => {
+          if (desktop && !editing) onClick(session.id);
+        }}
         onClick={() => handleClick()}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -201,7 +229,7 @@ function SwipeableSession({
         onContextMenu={(event) => {
           if (editing) return;
           event.preventDefault();
-          showPreview();
+          showPreview({ x: event.clientX, y: event.clientY });
         }}
       >
         {session.isActive && session.isAttached != null && (
@@ -226,9 +254,12 @@ function SwipeableSession({
           ) : (
             <div
               className="session-item-navigation"
-              role="link"
+              role={desktop ? 'button' : 'link'}
               tabIndex={0}
-              aria-label={`Open ${session.summary || 'Untitled conversation'}`}
+              aria-label={`${desktop ? 'Preview' : 'Open'} ${session.summary || 'Untitled conversation'}`}
+              onFocus={() => {
+                if (desktop) onPreview?.(session);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
                   e.preventDefault();
@@ -260,34 +291,25 @@ function SwipeableSession({
                 <span className="session-item-time">
                   {formatRelativeTime(session.lastModified)}
                 </span>
-                {activity?.repo && <span className="conversation-repo">{activity.repo}</span>}
               </div>
             </div>
           )}
-          <details
-            className="conversation-details"
-            onClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
+          <button
+            type="button"
+            className="session-action-trigger conversation-row-actions"
+            aria-label={`Actions for ${session.summary || 'Untitled conversation'}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              showPreview({
+                x: event.currentTarget.getBoundingClientRect().right,
+                y: event.currentTarget.getBoundingClientRect().bottom,
+              });
+            }}
+            onTouchStart={(event) => event.stopPropagation()}
           >
-            <summary aria-label={`Details for ${session.summary || 'Untitled conversation'}`}>
-              <UiIcon name="more" />
-            </summary>
-            <div className="conversation-details-body">
-              <button onClick={showPreview}>Preview conversation</button>
-              <div>
-                Session <span className="session-item-hash">{session.id}</span>
-              </div>
-              {session.branch && <div>Branch: {session.branch}</div>}
-              {session.totalTokens != null && session.totalTokens > 0 && (
-                <div className="session-item-tokens">
-                  {formatTokens(session.totalTokens)} tokens
-                </div>
-              )}
-              <button onClick={enterEditMode}>Rename</button>
-              <button onClick={handleDeleteTap}>Delete conversation</button>
-            </div>
-          </details>
+            <UiIcon name="more" size={16} />
+          </button>
+          {session.telosTaskId && <SessionWorkLink taskId={session.telosTaskId} />}
         </div>
         {!editing && (
           <span className="session-item-chevron">
@@ -320,6 +342,20 @@ function SwipeableSession({
 
 export function SessionList() {
   const navigate = useNavigate();
+  const desktop = useMediaQuery('(min-width: 768px)');
+  const [mobilePinPreview, setMobilePinPreview] = useState<Session | null>(null);
+  const [preview, setPreview] = useState<Session | null>(null);
+  const [menu, setMenu] = useState<SessionMenuState | null>(null);
+  const [renaming, setRenaming] = useState<Session | null>(null);
+  const [details, setDetails] = useState<Session | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const showActions = useCallback(
+    (session: Session, trigger: HTMLElement, point?: SessionActionPoint) => {
+      setPreview(session);
+      setMenu({ session, trigger, point });
+    },
+    [],
+  );
   const drafts = useSavedChatDrafts();
   const {
     sessions,
@@ -330,7 +366,7 @@ export function SessionList() {
     hasMore,
     dismissSession,
     clearAll,
-    handleRename,
+    handleRename: renameSession,
     loadMore,
     retry,
   } = useSessionList();
@@ -359,12 +395,30 @@ export function SessionList() {
     return activity && sessionAttentionReason(activity) !== null;
   });
   const visible = filter === 'active' ? active : filter === 'attention' ? attention : all;
+  const selectedPreview = preview
+    ? (combined.get(preview.id) ?? preview)
+    : search.active
+      ? search.results[0]
+        ? {
+            ...combined.get(search.results[0].sessionId),
+            id: search.results[0].sessionId,
+            summary: search.results[0].summary || '',
+            lastModified: search.results[0].updatedAt,
+          }
+        : null
+      : (visible[0] ?? null);
+  const previewSession = useCallback((session: Session) => setPreview(session), []);
   function openSession(id: string) {
     selectionChanged();
     navigate(`/chat/${id}`);
   }
-  function dismiss(id: string) {
-    dismissSession(id);
+  async function dismiss(id: string) {
+    if (await dismissSession(id)) setPreview((current) => (current?.id === id ? null : current));
+  }
+
+  async function handleRename(id: string, title: string) {
+    if (await renameSession(id, title))
+      setPreview((current) => (current?.id === id ? { ...current, summary: title } : current));
   }
 
   function handleQuickAction(action: QuickAction) {
@@ -386,12 +440,14 @@ export function SessionList() {
         <div className="conversation-header-actions">
           <button
             className="hero-chat-btn workspace-primary"
+            aria-label="New chat"
             onClick={() => {
               selectionChanged();
               navigate('/chat');
             }}
           >
-            + New chat
+            <UiIcon name="edit" size={16} />
+            <span className="conversation-new-label">New chat</span>
           </button>
           <details className="conversation-options">
             <summary ref={conversationOptions} aria-label="Conversation options">
@@ -414,9 +470,12 @@ export function SessionList() {
                   </button>
                 ))}
               <button
-                onClick={() => {
-                  search.clear();
-                  clearAll();
+                onClick={async () => {
+                  if (await clearAll()) {
+                    search.clear();
+                    setPreview(null);
+                    setMobilePinPreview(null);
+                  }
                 }}
               >
                 Clear conversation history
@@ -448,112 +507,201 @@ export function SessionList() {
           </button>
         </div>
       )}
-      <div className="session-list-scroll">
-        {drafts.length > 0 && (
-          <Link to="/sessions/drafts" className="conversation-drafts-link">
-            <UiIcon name="edit" />
-            <span>
-              <strong>Drafts</strong>
-              <span className="workspace-muted">Pick up where you left off</span>
-            </span>
-            <span className="conversation-draft-count">{drafts.length}</span>
-            <UiIcon name="forward" size={16} />
-          </Link>
-        )}
-        {importOpen && (
-          <SdkConversationImport
-            onClose={() => {
-              setImportOpen(false);
-              conversationOptions.current?.focus();
+      <ResizableSessionLayout
+        preview={
+          desktop && selectedPreview ? (
+            <SessionInspector
+              session={selectedPreview}
+              onOpen={() => openSession(selectedPreview.id)}
+              onActions={showActions}
+            />
+          ) : undefined
+        }
+      >
+        <div className="session-list-scroll">
+          <ConversationPins
+            sessions={all}
+            selectedId={desktop ? selectedPreview?.id : undefined}
+            onSelect={(id, session) => {
+              if (desktop) setPreview(session);
+              else openSession(id);
             }}
-            onImported={(id) => {
-              setImportOpen(false);
-              openSession(id);
+            onPreview={desktop ? previewSession : undefined}
+            onActions={(session, trigger, point) => {
+              if (desktop) showActions(session, trigger, point);
+              else setMobilePinPreview(session);
             }}
           />
-        )}
-        {search.active ? (
-          <div className="conversation-results" aria-live="polite">
-            {!search.error && (
-              <p className="conversation-list-caption">
-                {search.searching ? 'Searching…' : `${search.results.length} results`}
-              </p>
-            )}
-            {search.error && (
-              <div className="session-list-error" role="alert">
-                <span>{search.error}</span>
-                <button type="button" onClick={search.retry}>
-                  Try again
-                </button>
-              </div>
-            )}
-            {!search.searching && !search.error && search.results.length === 0 && (
-              <p className="session-list-empty">No matching conversations</p>
-            )}
-            {search.results.map((r) => (
-              <SwipeableSession
-                key={r.sessionId}
-                session={{
-                  ...combined.get(r.sessionId),
-                  id: r.sessionId,
-                  summary: r.summary || '',
-                  lastModified: r.updatedAt,
-                }}
-                snippet={r.snippet}
-                activity={byId.get(r.sessionId)}
-                onDismiss={dismiss}
-                onClick={openSession}
-                onRename={handleRename}
-              />
-            ))}
-          </div>
-        ) : (
-          <>
-            <p className="conversation-list-caption">
-              {filter === 'all'
-                ? 'Recent conversations'
-                : filter === 'active'
-                  ? 'In progress'
-                  : 'Waiting for you'}
-            </p>
-            {loading && <p className="session-list-empty">Loading…</p>}
-            {!loading && error && (
-              <div className="session-list-error" role="alert">
-                <span>{error}</span>
-                <button type="button" onClick={retry}>
-                  Try again
-                </button>
-              </div>
-            )}
-            {!loading && !error && visible.length === 0 && (
-              <p className="session-list-empty">
-                {filter === 'attention'
-                  ? 'Nothing needs your attention'
-                  : filter === 'active'
-                    ? 'No active conversations'
-                    : 'Start your first conversation'}
-              </p>
-            )}
-            <div className="session-list">
-              {visible.map((s) => (
+          {drafts.length > 0 && (
+            <Link to="/sessions/drafts" className="conversation-drafts-link">
+              <UiIcon name="edit" />
+              <span>
+                <strong>Drafts</strong>
+                <span className="workspace-muted">Pick up where you left off</span>
+              </span>
+              <span className="conversation-draft-count">{drafts.length}</span>
+              <UiIcon name="forward" size={16} />
+            </Link>
+          )}
+          {importOpen && (
+            <SdkConversationImport
+              onClose={() => {
+                setImportOpen(false);
+                conversationOptions.current?.focus();
+              }}
+              onImported={(id) => {
+                setImportOpen(false);
+                openSession(id);
+              }}
+            />
+          )}
+          {search.active ? (
+            <div className="conversation-results" aria-live="polite">
+              {!search.error && (
+                <p className="conversation-list-caption">
+                  {search.searching ? 'Searching…' : `${search.results.length} results`}
+                </p>
+              )}
+              {search.error && (
+                <div className="session-list-error" role="alert">
+                  <span>{search.error}</span>
+                  <button type="button" onClick={search.retry}>
+                    Try again
+                  </button>
+                </div>
+              )}
+              {!search.searching && !search.error && search.results.length === 0 && (
+                <p className="session-list-empty">No matching conversations</p>
+              )}
+              {search.results.map((r) => (
                 <SwipeableSession
-                  key={s.id}
-                  session={s}
-                  activity={byId.get(s.id)}
+                  key={r.sessionId}
+                  session={{
+                    ...combined.get(r.sessionId),
+                    id: r.sessionId,
+                    summary: r.summary || '',
+                    lastModified: r.updatedAt,
+                  }}
+                  snippet={r.snippet}
+                  activity={byId.get(r.sessionId)}
                   onDismiss={dismiss}
-                  onClick={openSession}
+                  desktop={desktop}
+                  selected={desktop && selectedPreview?.id === r.sessionId}
+                  onPreview={previewSession}
+                  onActions={showActions}
+                  onClick={(id) => {
+                    const result = search.results.find((item) => item.sessionId === id);
+                    if (desktop && result)
+                      setPreview({
+                        ...combined.get(id),
+                        id,
+                        summary: result.summary || '',
+                        lastModified: result.updatedAt,
+                      });
+                    else openSession(id);
+                  }}
                   onRename={handleRename}
                 />
               ))}
             </div>
-            {hasMore && filter === 'all' && (
-              <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? 'Loading…' : 'Load more conversations'}
-              </button>
-            )}
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              <p className="conversation-list-caption">
+                {filter === 'all'
+                  ? 'Recent conversations'
+                  : filter === 'active'
+                    ? 'In progress'
+                    : 'Waiting for you'}
+              </p>
+              {loading && <p className="session-list-empty">Loading…</p>}
+              {!loading && error && (
+                <div className="session-list-error" role="alert">
+                  <span>{error}</span>
+                  <button type="button" onClick={retry}>
+                    Try again
+                  </button>
+                </div>
+              )}
+              {!loading && !error && visible.length === 0 && (
+                <p className="session-list-empty">
+                  {filter === 'attention'
+                    ? 'Nothing needs your attention'
+                    : filter === 'active'
+                      ? 'No active conversations'
+                      : 'Start your first conversation'}
+                </p>
+              )}
+              <div className="session-list">
+                {visible.map((s) => (
+                  <SwipeableSession
+                    key={s.id}
+                    session={s}
+                    activity={byId.get(s.id)}
+                    onDismiss={dismiss}
+                    desktop={desktop}
+                    selected={desktop && selectedPreview?.id === s.id}
+                    onPreview={previewSession}
+                    onActions={showActions}
+                    onClick={(id) => {
+                      if (desktop) setPreview(s);
+                      else openSession(id);
+                    }}
+                    onRename={handleRename}
+                  />
+                ))}
+              </div>
+              {hasMore && filter === 'all' && (
+                <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? 'Loading…' : 'Load more conversations'}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </ResizableSessionLayout>
+      <SessionContextMenu
+        state={menu}
+        onClose={closeMenu}
+        onOpen={() => {
+          if (menu) openSession(menu.session.id);
+          closeMenu();
+        }}
+        onRename={() => {
+          if (menu) setRenaming(menu.session);
+          closeMenu();
+        }}
+        onDelete={() => {
+          if (menu) dismiss(menu.session.id);
+          closeMenu();
+        }}
+        onDetails={() => {
+          if (menu) setDetails(menu.session);
+          closeMenu();
+        }}
+      />
+      {renaming && (
+        <SessionRenameDialog
+          session={renaming}
+          onSave={handleRename}
+          onClose={() => setRenaming(null)}
+        />
+      )}
+      {details && <SessionDetailsDialog session={details} onClose={() => setDetails(null)} />}
+      {mobilePinPreview && (
+        <SessionPreview
+          session={mobilePinPreview}
+          onClose={() => setMobilePinPreview(null)}
+          onOpen={() => openSession(mobilePinPreview.id)}
+          onRename={() => {
+            setRenaming(mobilePinPreview);
+            setMobilePinPreview(null);
+          }}
+          onDelete={() => {
+            dismiss(mobilePinPreview.id);
+            setMobilePinPreview(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ export interface DesktopShellProps {
   right?: ReactNode;
   statusBar?: ReactNode;
   rightDefaultCollapsed?: boolean;
+  leftDefaultCollapsed?: boolean;
 }
 
 const STORAGE_KEY_LEFT = 'mitzo-sidebar-left-collapsed';
@@ -29,11 +30,14 @@ export function DesktopShell({
   right,
   statusBar,
   rightDefaultCollapsed = false,
+  leftDefaultCollapsed = false,
 }: DesktopShellProps) {
   const [railCollapsed, setRailCollapsed] = useState(() =>
     readCollapsed('mitzo-navigation-collapsed'),
   );
-  const [leftCollapsed, setLeftCollapsed] = useState(() => readCollapsed(STORAGE_KEY_LEFT));
+  const [leftCollapsed, setLeftCollapsed] = useState(() =>
+    readCollapsed(STORAGE_KEY_LEFT, leftDefaultCollapsed),
+  );
   const [rightCollapsed, setRightCollapsed] = useState(() =>
     readCollapsed(STORAGE_KEY_RIGHT, rightDefaultCollapsed),
   );
