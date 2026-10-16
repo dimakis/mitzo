@@ -15,6 +15,11 @@ it('binds assigned task authority, persistence and protocol to the reviewed runt
     '../symposium-custodian-protocol.ts',
     '../symposium-custodian-proxy.ts',
     '../../packages/protocol/src/agent-tasks.ts',
+    '../../frontend/src/components/AgentTaskEditor.tsx',
+    '../../frontend/src/components/AgentTaskList.tsx',
+    '../../frontend/src/components/AgentTaskSettings.tsx',
+    '../../frontend/src/hooks/useAgentTasks.ts',
+    '../../frontend/src/lib/agent-task-working-copy.ts',
   ]) {
     const source = await readFile(new URL(`../connections/${file}`, import.meta.url), 'utf8');
     expect(artifacts[file], file).toBe(reviewedHandlerSourceFingerprint(source));

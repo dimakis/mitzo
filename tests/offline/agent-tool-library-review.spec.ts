@@ -81,6 +81,7 @@ for (const theme of ['dark', 'light'])
             tools,
           },
         });
+      if (url.pathname === '/api/agent-tasks') return route.fulfill({ json: [] });
       if (url.pathname.startsWith('/api/'))
         return route.fulfill({ json: { accounts: [], models: [], sessions: [] } });
       return route.fulfill({

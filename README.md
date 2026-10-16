@@ -15,8 +15,8 @@ tools and execution environments available to you depend on your installation.
 - **Work with files and repositories.** Browse and edit documents, attach images,
   and opt into repository-backed chats with isolated working copies.
 - **Reuse guidance and knowledge.** Publish agent profiles in the Agent Library,
-  select existing tools for supported chats, and select reference material from
-  the Knowledge Library.
+  select existing tools for supported sessions, or assign recoverable task drafts;
+  schedules remain paused. Select reference material from the Knowledge Library.
 - **Track work.** Use Telos to organize outcomes and milestones, connect sessions
   to work, and record progress and evidence.
 - **Connect services.** Review account and service access in Connections. Eligible
@@ -159,7 +159,7 @@ Capacitor app and Xcode setup.
 | Agent profiles and reusable context       | [Agent Library](docs/features/agent-library.md)                               |
 | Reference documents                       | [Knowledge Library](docs/operations/knowledge-library.md)                     |
 | Outcomes and progress                     | [Telos workflow](docs/operations/telos-artifacts.md)                          |
-| Assigned agent tasks (backend API)        | [Persistence and current limits](docs/features/agent-tasks.md)                |
+| Assigned agent tasks and current limits   | [Persistence and current limits](docs/features/agent-tasks.md)                |
 | Account and service inventory             | [Connections](docs/features/connections.md)                                   |
 | Authenticated APIs and credential storage | [Keychain connections](docs/keychain-connections.md)                          |
 | Tool approvals and execution limits       | [Unified chat permissions](docs/design/unified-chat-permissions.md)           |

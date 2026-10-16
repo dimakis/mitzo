@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.167';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.169';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -43,6 +43,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd4f76bbc478cdac274c1bd9ff75d0d007e86c710614d2836d0c1a9c65d54ed2d',
   '../symposium-session-create.ts':
     '1696f970ee8d8680ce3d73f80cc06b5712dfe78159a1a6635cad81f24e040640',
+  // Task presentation and retained execution intent; no execution enrollment.
+  '../../frontend/src/components/AgentTaskEditor.tsx':
+    '4897a1e58d37ce34dbe126d5a13fe65cb2fc34219e9dbd01153e1372e4f809ed',
+  '../../frontend/src/components/AgentTaskList.tsx':
+    'dddafd483aad19d3e6267a69b318640f592b645c6236627a1372074756386366',
+  '../../frontend/src/components/AgentTaskSettings.tsx':
+    'd8b931037fc4f4eafa71af6c7073e5d9f78df19607949138174e902e27146414',
+  '../../frontend/src/hooks/useAgentTasks.ts':
+    '0c279c93389daaa51781864b8254e716f6e76fc5422e4c8580d4e026ec433576',
+  '../../frontend/src/lib/agent-task-working-copy.ts':
+    '6839267a3a64555cd4eb3fa2d38353d13cf4ea6c1b194fa711169928409aa058',
   // Assigned task persistence and authenticated owner dispatch; no execution activation.
   '../agent-task-store.ts': 'f1b47b3ee410e5a5727255b5939cd60ab22713858e1b05cd54c2611611143f84',
   '../agent-task-service.ts': '226f42689d54ad511770c22cc62cfdfcad65673e7f5d2850793a043c73f69dc7',
@@ -176,9 +187,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/ChatRuntimeDraftProvider.tsx':
     'fcebbeefa5ff14bd074515519a0c4e1d6774ecd7177921ca2264328239cc9720',
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
-    '4c009cd0b30ef5c507c47310a535c5f94be85f553d6224eac04db37383db73d7',
+    '32660ff240dd5f62c2a8ab976941553a84b7f3809ed3455ffe4e64ccfcd2613d',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    '5067ed33ccd0b5c15d32bcb12df53f076a99b9456ae887d40875eb6679c8a26e',
+    '28ece5f7a69035e5bde15896f01fd4419e58a48bd676c0b9157b1db6a4aa1f6c',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '63427b971465eab55442c1f38cf99e9cf546cb0853ec552a45fc1191758150ae',
   '../../frontend/src/lib/launch-draft-delivery.ts':
@@ -390,14 +401,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    '043a098a0cf50ca2b0500347d0aebd5379aeab7cecb00d56e0d156fd55580c41',
+    'cde2e44336a37719543d4eef6088f1ef5774fab2884bb1af21575e54b290f58e',
   // Read-only tool catalog cards and their shared visual presentation.
   '../../frontend/src/components/ToolLibraryCatalog.tsx':
     'a42dfbd4ae455252eb7e16b0e85df1247e448f570204ac7355ea63da4110f270',
   '../../frontend/src/styles/tool-library.css':
     '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
   '../../frontend/src/styles/agent-library.css':
-    '56294ff4dbd0af5f343aa6d885db9b5f2daba5a0860daa4984eb7cc12587ec7d',
+    '2c5810ac26ec0e50a97f700f027d20d0c1cb662dd9a70d0dffa30b913dfde5d1',
+
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     '71fa6b5d798815b452b26f7df5c58733abb793222bfa21ec71926b8bba2d8e74',
