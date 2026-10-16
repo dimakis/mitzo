@@ -1,4 +1,5 @@
 import { AgentToolsEditor } from '../components/AgentToolsEditor';
+import { ToolLibraryCatalog } from '../components/ToolLibraryCatalog';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -126,7 +127,7 @@ export function AgentLibrary() {
   const [tab, setTab] = useState<Tab>('identity');
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'agents' | 'tools'>('agents');
-  const [toolQuery, setToolQuery] = useState('');
+  const [toolFilters, setToolFilters] = useState({ query: '', source: '' });
   const [tools, setTools] = useState<AgentToolCatalogEntry[]>([]);
   const [toolError, setToolError] = useState('');
   const [toolLoaded, setToolLoaded] = useState(false);
@@ -348,9 +349,7 @@ export function AgentLibrary() {
       <WorkspacePageHeading
         title={view === 'agents' ? 'Agent Library' : 'Tool library'}
         description={
-          view === 'agents'
-            ? 'Give an agent a job. Use it wherever you work.'
-            : 'Browse existing tools and the profiles that use them.'
+          view === 'agents' ? 'Give an agent a job. Use it wherever you work.' : undefined
         }
         actions={
           view === 'agents' && (
@@ -383,9 +382,9 @@ export function AgentLibrary() {
       </div>
       {view === 'tools' && (
         <section aria-label="Tool library">
-          <p>
-            Browse implemented tools. Selection grants no access; compatibility and current session
-            permissions still apply.
+          <p className="tool-library-intro">
+            Explore tools by category. Adding a tool to a profile still requires the usual
+            permissions.
           </p>
           {catalogError && (
             <p role="alert" className="agent-library-error">
@@ -396,67 +395,13 @@ export function AgentLibrary() {
             </p>
           )}
           {!catalog && !catalogError && <p role="status">Loading profile usage…</p>}
-          <label>
-            Search tool library
-            <input
-              type="search"
-              value={toolQuery}
-              onChange={(event) => setToolQuery(event.target.value)}
-            />
-          </label>
-          {tools
-            .filter((tool) =>
-              `${tool.name} ${tool.description} ${tool.source}`
-                .toLowerCase()
-                .includes(toolQuery.toLowerCase()),
-            )
-            .map((tool) => (
-              <article className="agent-tool-row" key={tool.id}>
-                <div>
-                  <h2>{tool.name}</h2>
-                  <p>{tool.description}</p>
-                  <small>
-                    {tool.id} · v{tool.version} · {tool.source} · {tool.behavior} ·{' '}
-                    {tool.required ? 'Required platform tool' : 'Optional profile tool'}
-                  </small>
-                  <p>
-                    {tool.routes.includes('local-api')
-                      ? 'Local OpenAI Responses and Gemini/Vertex API chats'
-                      : 'Explicit selection unsupported on its runtime'}
-                  </p>
-                  <p>{tool.requirement}</p>
-                  {catalog && (
-                    <details>
-                      <summary>Profiles using this tool</summary>
-                      {[...catalog.drafts, ...catalog.versions]
-                        .filter((profile) =>
-                          profile.definition.tools?.some(
-                            (ref) => ref.id === tool.id && ref.version === tool.version,
-                          ),
-                        )
-                        .map((profile) => (
-                          <p
-                            key={`${profile.profileId}:${'version' in profile ? 'draft' : profile.revision}`}
-                          >
-                            {agentProfileLabel(profile.definition)} ·{' '}
-                            {'version' in profile ? 'Draft' : `r${profile.revision}`}
-                          </p>
-                        ))}
-                      {![catalog.drafts, catalog.versions]
-                        .flat()
-                        .some((profile) =>
-                          profile.definition.tools?.some(
-                            (ref) => ref.id === tool.id && ref.version === tool.version,
-                          ),
-                        ) && (
-                        <p>No explicit references. Legacy profiles use their runtime catalog.</p>
-                      )}
-                    </details>
-                  )}
-                </div>
-              </article>
-            ))}
-          {toolLoaded && !tools.length && <p>No implemented tools are available.</p>}
+          <ToolLibraryCatalog
+            tools={tools}
+            catalog={catalog}
+            loaded={toolLoaded}
+            filters={toolFilters}
+            onFiltersChange={setToolFilters}
+          />
         </section>
       )}
       {toolError && (view === 'tools' || tab === 'tools') && (
