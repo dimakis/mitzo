@@ -66,7 +66,36 @@ A summary is a new review object with attribution and the exact original snapsho
 digest and source pins. It never replaces the original evidence in place.
 An artifact pin establishes a version reference, not retained bytes or read access.
 
-The source compiler/access adapter and token estimator are deliberately not wired.
+The host-only compiler is implemented in `server/collaboration-context-compiler.ts`.
+It accepts public selectors and separately supplied trusted source/capacity ports.
+It verifies complete prefix counts/digests, ordered bounded pagination, exact
+selected messages, source/block identities and hashes, authorized artifact
+revision/hash/bytes, and source/artifact authority again before returning a draft.
+Empty selected context reads no messages or artifacts. Overflow refuses rather
+than truncates. A capacity adapter must measure the actual joining packet plus
+ordinary boot, guidance, repository, tools and framing for each exact setting;
+the resulting component counts are inspectable. No registered adapter means
+unverified capacity; an oversized packet requires narrower selection or a separate
+reviewed summary and retains all original pins.
+
+New compiled artifacts include bounded base64 bytes inside the immutable review.
+EventStore checks canonical encoding, byte length and hash before saving them.
+Historical reference-only snapshots remain readable; they do not become byte
+delivery proof. A review copy is not an independently registered durable artifact,
+retention policy or permission to share it later.
+
+The compiler's source and capacity ports are **not installed in the application**.
+The source owner must supply an independently witnessed visible prefix, exclude
+private provider history and verify the requested boundary before pagination.
+An ordinary adapter must measure its actual serialized input and overhead; mocked
+counts in tests do not qualify any provider/account/runtime. Public review, join
+and send stay disabled. Orchestration must recover the original operation receipt
+before recompiling a retry, persist the review through EventStore, and reauthorize
+source/artifact delivery at its ordinary admission barrier. This bounded compiler
+does not allocate sessions, dispatch turns, implement a source reader or establish
+ordinary preparation/delivery acknowledgement.
+
+The application source/access adapter and token estimator remain unwired.
 `saveSnapshot` is a host-only port; HTTP callers cannot supply source bytes,
 capacity claims or receipt outcomes. Slice 3 must authorize visible source material,
 prove complete Conversation so far selection at the boundary, check exact artifact
