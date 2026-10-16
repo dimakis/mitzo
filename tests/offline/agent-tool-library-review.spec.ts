@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+const tools = JSON.parse(
+  readFileSync(new URL('../fixtures/agent-tool-catalog.json', import.meta.url), 'utf8'),
+);
 import { deployedSecurityHeaders } from '../support/response-security';
 
 const bundle = build({
@@ -74,17 +78,7 @@ for (const theme of ['dark', 'light'])
       if (url.pathname === '/api/agent-library/tools')
         return route.fulfill({
           json: {
-            tools: ['Read', 'Write'].map((name) => ({
-              id: `mitzo:${name}`,
-              version: 1,
-              name,
-              description: `${name} workspace files.`,
-              source: 'Workspace',
-              required: false,
-              behavior: name === 'Read' ? 'read' : 'write',
-              routes: ['local-api'],
-              requirement: 'Workspace permissions apply.',
-            })),
+            tools,
           },
         });
       if (url.pathname.startsWith('/api/'))
@@ -117,15 +111,41 @@ for (const theme of ['dark', 'light'])
       fullPage: true,
     });
     await library.getByRole('button', { name: 'Retry profiles', exact: true }).click();
+    await expect(library.getByRole('alert')).toHaveCount(0);
     const read = library
       .getByRole('article')
       .filter({ has: page.getByRole('heading', { name: 'Read', exact: true }) });
+    await expect(library.getByRole('article')).toHaveCount(tools.length);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({
+      path: info.outputPath(`tool-library-cards-${theme}.png`),
+      fullPage: false,
+    });
+    const category = library.getByLabel('Category', { exact: true });
+    const search = library.getByRole('searchbox', { name: 'Search tool library' });
+    expect((await category.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await category.selectOption('Web');
+    await search.fill('mitzo:Read');
+    await expect(library.getByText('No matching tools', { exact: true })).toBeVisible();
+    await library.getByRole('button', { name: 'Clear filters' }).click();
+    await expect(library.getByRole('article')).toHaveCount(tools.length);
+    await search.fill('mitzo:Read');
+    await expect(library.getByRole('article')).toHaveCount(1);
+    const toggle = read.locator('.tool-library-details > summary');
+    expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(
+      read.getByText('Existing session permissions, cancellation and runtime admission apply.'),
+    ).toBeVisible();
     await read.getByText('Profiles using this tool', { exact: true }).click();
     await expect(read).toContainText('Evidence reader');
     await expect(read.getByText(/No explicit references/)).toHaveCount(0);
+    await search.fill('mitzo:Write');
     const write = library
       .getByRole('article')
       .filter({ has: page.getByRole('heading', { name: 'Write', exact: true }) });
+    await write.locator('.tool-library-details > summary').click();
     await write.getByText('Profiles using this tool', { exact: true }).click();
     await expect(write.getByText(/No explicit references/)).toBeVisible();
     await expect(library.getByRole('alert')).toHaveCount(0);
@@ -136,9 +156,27 @@ for (const theme of ['dark', 'light'])
       path: info.outputPath(`tool-library-review-${theme}.png`),
       fullPage: true,
     });
+    await search.fill('');
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '125%';
+    });
+    const last = library.getByRole('article').last();
+    await last.locator('.tool-library-details > summary').click();
+    await last.scrollIntoViewIfNeeded();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: info.outputPath(`tool-library-large-text-${theme}.png`),
+      fullPage: true,
+    });
+    await search.fill('mitzo:Write');
     await page.getByRole('button', { name: 'Agent library', exact: true }).click();
     await expect(page.getByLabel('Agent name', { exact: true })).toHaveValue('Evidence reader');
     await expect(page.getByRole('button', { name: 'New agent', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'New agent', exact: true }).click();
     await expect(page.getByLabel('Agent name', { exact: true })).toHaveValue('');
+    await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+    await expect(search).toHaveValue('mitzo:Write');
+    await expect(library.getByRole('article')).toHaveCount(1);
   });

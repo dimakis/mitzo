@@ -176,6 +176,11 @@ for (const theme of ['dark', 'light'])
     await page
       .getByRole('article')
       .filter({ has: page.getByRole('heading', { name: 'GetConnectionGuide', exact: true }) })
+      .locator('.tool-library-details > summary')
+      .click();
+    await page
+      .getByRole('article')
+      .filter({ has: page.getByRole('heading', { name: 'GetConnectionGuide', exact: true }) })
       .getByText('Profiles using this tool', { exact: true })
       .click();
     await expect(page.getByRole('region', { name: 'Tool library', exact: true })).toContainText(
