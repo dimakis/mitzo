@@ -50,6 +50,53 @@ it('uses the existing configured key without creating another enrollment', async
     expect.objectContaining({ credentialBinding: expect.any(String) }),
   );
 });
+it('checks existing gateway custody without resolving or copying a host key', async () => {
+  let gated = false;
+  const ready = vi.fn(async () => {
+    expect(gated).toBe(true);
+  });
+  state.runtime = {
+    assertOpenAIKeyReady: ready,
+    service: {
+      withCredentialMutation: async (work: () => Promise<void>) => {
+        gated = true;
+        try {
+          await work();
+        } finally {
+          gated = false;
+        }
+      },
+    },
+  };
+  await openAIAccountKeyAuthority(binding).assertReady(signal());
+  expect(ready).toHaveBeenCalledWith('work', expect.any(AbortSignal));
+  expect(state.key).not.toHaveBeenCalled();
+  ready.mockRejectedValueOnce(Error('unresolved rotation'));
+  await expect(openAIAccountKeyAuthority(binding).assertReady(signal())).rejects.toThrow(
+    'unresolved rotation',
+  );
+  expect(state.key).not.toHaveBeenCalled();
+});
+it('rejects controller drift or cancellation during gateway custody checks', async () => {
+  const ready = vi.fn(async () => {
+    state.runtime = {};
+  });
+  const runtime = {
+    assertOpenAIKeyReady: ready,
+    service: { withCredentialMutation: async (work: () => Promise<void>) => work() },
+  };
+  state.runtime = runtime;
+  await expect(openAIAccountKeyAuthority(binding).assertReady(signal())).rejects.toThrow(
+    'controller changed',
+  );
+  const controller = new AbortController();
+  ready.mockImplementation(async () => {
+    controller.abort();
+  });
+  state.runtime = runtime;
+  await expect(openAIAccountKeyAuthority(binding).assertReady(controller.signal)).rejects.toThrow();
+  expect(state.key).not.toHaveBeenCalled();
+});
 it('keeps existing managed keys inside their credential controller', async () => {
   const resolveKey = vi.fn(async () => 'managed-key');
   state.runtime = {

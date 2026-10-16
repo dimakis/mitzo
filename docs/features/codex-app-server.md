@@ -127,6 +127,11 @@ as well as new Connections enrollments. It reuses the selected account's credent
 reference and its existing rotation/enrollment controller. Missing enrollment custody,
 unresolved credential journals and account changes remain blocking; re-entering a
 key or creating a second account is not required to select an existing account locally.
+The enrolled OpenShell picker also includes existing API accounts with a configured
+provider name and pinned provider ID. Owning admission checks the existing credential
+custody under its mutation gate and verifies the exact provider ID, type and workspace
+before sandbox effects, without copying the host key. An unpinned API profile remains
+available locally; it cannot establish a new explicit sandbox route.
 
 When Local Mac Codex is enrolled, host account discovery uses that runtime's pinned
 native executable for metadata-only account and model checks. It does not depend

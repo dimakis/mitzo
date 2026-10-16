@@ -42,6 +42,22 @@ export function openAIAccountKeyAuthority(
       throw Error('OpenAI account controller changed');
   }
   return {
+    /** Gateway consumers check retained custody without copying the host key. */
+    async assertReady(signal: AbortSignal): Promise<void> {
+      signal.throwIfAborted();
+      assertCurrent();
+      if (runtime?.assertOpenAIKeyReady) {
+        await runtime.service.withCredentialMutation(async () => {
+          signal.throwIfAborted();
+          assertCurrent();
+          await runtime.assertOpenAIKeyReady!(binding.accountId, signal);
+          signal.throwIfAborted();
+          assertCurrent();
+        });
+      } else if (manager) throw Error('OpenAI account controller unavailable');
+      signal.throwIfAborted();
+      assertCurrent();
+    },
     async resolveKey(accountId: string, signal: AbortSignal): Promise<string> {
       if (accountId !== binding.accountId) throw Error('OpenAI account changed');
       signal.throwIfAborted();

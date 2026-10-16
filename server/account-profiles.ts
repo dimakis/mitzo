@@ -461,7 +461,7 @@ export class AccountProfiles {
         profile.provider === 'openai' &&
         openaiApi &&
         profile.sandboxProvider &&
-        this.isEnrolledOpenAIAccount(profile.id)
+        profile.sandboxProviderId
       ) {
         account = {
           accountId: profile.id,
