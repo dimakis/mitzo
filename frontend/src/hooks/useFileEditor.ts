@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 import { isTelosArtifactUrl, telosDocumentUrl } from '../lib/file-paths';
+import { createBrowserId } from '../lib/browser-crypto';
 
 // Budget UTF-16 storage conservatively, including both undo and redo snapshots.
 const MAX_HISTORY_BYTES = 20 * 1024 * 1024;
@@ -48,6 +49,13 @@ export function useFileEditor(
   const identity = useRef(key);
   identity.current = key;
   const dirty = editing && editContent !== base;
+
+  useEffect(() => {
+    identity.current = key;
+    return () => {
+      identity.current = '';
+    };
+  }, [key]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -171,7 +179,7 @@ export function useFileEditor(
       if (telos) {
         if (!Number.isSafeInteger(baseRevision) || baseRevision! < 1)
           throw new Error('Reload the saved document before editing. Your draft is preserved.');
-        requestId.current ??= crypto.randomUUID();
+        requestId.current ??= createBrowserId();
         persist(editContent);
       }
       const res = await apiFetch(telos ? telosDocumentUrl(filePath, true) : '/api/files/write', {
@@ -205,8 +213,10 @@ export function useFileEditor(
             'Save confirmation unavailable. Your draft is preserved; try saving again.',
           );
         savedPath = artifact.url;
+        if (identity.current !== requestKey) return;
         setBaseRevision(artifact.revision);
       }
+      if (identity.current !== requestKey) return;
       try {
         sessionStorage.removeItem(requestKey);
         setDraftStorageError('');

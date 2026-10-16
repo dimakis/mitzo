@@ -109,3 +109,40 @@ it('retains the draft when a save receipt is missing or belongs to another docum
   expect(result.current.error).toBeTruthy();
   expect(saved).not.toHaveBeenCalled();
 });
+
+it('does not navigate or remove a recovered draft when an old mounted editor finishes saving', async () => {
+  let finish!: (response: Response) => void;
+  vi.mocked(apiFetch).mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const first = open();
+  act(() => first.result.current.startEditing());
+  act(() => first.result.current.handleEditChange('# Draft'));
+  const saved = vi.fn();
+  let saving!: Promise<void>;
+  act(() => {
+    saving = first.result.current.saveFile(saved);
+  });
+  first.unmount();
+  await act(async () => {
+    finish(response(receipt(2)));
+    await saving;
+  });
+  expect(saved).not.toHaveBeenCalled();
+  const next = open();
+  act(() => next.result.current.startEditing());
+  expect(next.result.current.editContent).toBe('# Draft');
+});
+
+it('saves on remote HTTP where randomUUID is unavailable', async () => {
+  vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+  vi.mocked(apiFetch).mockResolvedValue(response(receipt(2)));
+  const { result } = open();
+  act(() => result.current.startEditing());
+  act(() => result.current.handleEditChange('# HTTP draft'));
+  await act(() => result.current.saveFile(vi.fn()));
+  expect(result.current.error).toBe('');
+  expect(result.current.dirty).toBe(false);
+});
