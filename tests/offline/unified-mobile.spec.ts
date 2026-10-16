@@ -814,12 +814,12 @@ test.beforeEach(async ({ page }) => {
 const routes = ['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access', '/knowledge'];
 const todayDetailRoutes = ['/briefings/2026-10-10', '/quotes/2026-10-10'];
 
-test('every mobile collection keeps one wordmark, one palette and reachable navigation', async ({
-  page,
-  isMobile,
-}, testInfo) => {
-  test.skip(!isMobile, 'Mobile shell');
-  for (const width of [320, 390, 440]) {
+for (const width of [320, 390, 440]) {
+  test(`every mobile collection keeps one wordmark, one palette and reachable navigation (${width}px)`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    test.skip(!isMobile, 'Mobile shell');
     await page.setViewportSize({ width, height: 844 });
     let reference: unknown;
     for (const route of [...routes, ...todayDetailRoutes]) {
@@ -853,8 +853,8 @@ test('every mobile collection keeps one wordmark, one palette and reachable navi
         });
       }
     }
-  }
-});
+  });
+}
 
 test('one token change updates the accent and font on every main page', async ({
   page,
