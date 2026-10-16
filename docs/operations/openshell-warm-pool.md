@@ -50,7 +50,10 @@ and provider-free creation before enabling this on a real target.
   immediately creating replacements. A compatible new chat or Prepare now wakes
   it. Uncertain resources are retained, count against the ceiling and require review.
 - Spare details expose ownership, resources and provider-unassigned status.
-  Unverified resources offer recheck, not a fabricated successful deletion.
+  Unverified resources offer explicit recheck. Authoritative absence releases the
+  reservation without deleting anything; a late resource is adopted only with the
+  exact neutral origin, runtime scope and physical identity, then observed Ready.
+  Transport failures and unexpected providers preserve uncertainty.
 - Conversation details open the owning chat. Cleanup uses the existing lifecycle
   preview/confirmation service and its checkpoint, active-work, queue and retention
   checks. The page does not add immediate deletion or bypass that policy. A late

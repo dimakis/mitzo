@@ -313,10 +313,19 @@ export class OpenShellWarmPool {
           throw Error('Only an unclaimed sandbox can be changed.');
         if (r.action === 'recheck') {
           const physical = await this.adapter.inspect(record, signal);
-          this.assertPhysical(record, physical);
-          if (!record.physicalId || physical?.phase !== 'Ready')
-            throw Error('Sandbox readiness is unverified');
-          record.state = 'ready';
+          if (!physical) {
+            // Only an explicit operator recheck can release an absent reservation.
+            // Inspect must report authoritative absence, never a transport failure.
+            if (record.scope !== this.adapter.scope)
+              throw Error('Sandbox pool runtime scope changed; resource retained.');
+            record.state = 'removed';
+          } else {
+            this.assertPhysical(record, physical);
+            record.physicalId = physical.id;
+            this.persist(s);
+            if (physical.phase !== 'Ready') throw Error('Sandbox readiness is unverified');
+            record.state = 'ready';
+          }
           record.failure = null;
           this.persist(s);
         } else {

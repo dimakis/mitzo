@@ -228,3 +228,39 @@ it('retains an accepted create physical ID when readiness later fails', async ()
     physicalId: 'accepted-physical-id',
   });
 });
+it('operator recheck releases an uncertain preparation after authoritative absence without retrying it', async () => {
+  const f = fixture();
+  vi.mocked(f.adapter.prepare).mockRejectedValueOnce(Error('seed publication unavailable'));
+  await expect(f.pool.mutate(f.request('prepare'))).rejects.toThrow(/publication/);
+  const record = f.pool.snapshot().spares[0];
+  expect(record.physicalId).toBeNull();
+  await f.pool.mutate(f.request('recheck', { id: record.id }));
+  expect(f.pool.snapshot().spares).toHaveLength(0);
+  expect(f.adapter.remove).not.toHaveBeenCalled();
+  expect(f.adapter.prepare).toHaveBeenCalledTimes(1);
+  await f.pool.mutate(f.request('prepare'));
+  expect(f.pool.snapshot().spares[0].state).toBe('ready');
+});
+it('operator recheck adopts a late preparation only after exact neutral origin and Ready observation', async () => {
+  const f = fixture();
+  vi.mocked(f.adapter.prepare).mockRejectedValueOnce(Error('create response lost'));
+  await expect(f.pool.mutate(f.request('prepare'))).rejects.toThrow(/lost/);
+  const record = f.pool.snapshot().spares[0];
+  const actual = {
+    id: 'late-physical',
+    name: record.name,
+    poolId: record.id,
+    phase: 'Ready',
+    providers: ['unexpected'],
+  };
+  f.physical.set(record.name, actual);
+  await expect(f.pool.mutate(f.request('recheck', { id: record.id }))).rejects.toThrow(/provider/);
+  expect(f.pool.snapshot().spares[0].physicalId).toBeNull();
+  actual.providers = [];
+  await f.pool.mutate(f.request('recheck', { id: record.id }));
+  expect(f.pool.snapshot().spares[0]).toMatchObject({
+    physicalId: 'late-physical',
+    state: 'ready',
+    failure: null,
+  });
+});

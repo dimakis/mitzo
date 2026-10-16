@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.168';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.169';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -36,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/index.ts':
     '6ec891ed81e2d18d0fc375cfb8722d06df3831e3b1a30eb4b435ebcf70faba8c',
   // Configurable neutral spares: durable claims, protected controls and explicit host enrollment.
-  '../openshell-warm-pool.ts': '33310f0f80c258b713abbb4a3dfc477532c22b84e351c16954610520880848ad',
+  '../openshell-warm-pool.ts': '847b52c3deaff568d5ad98a788d09e0a50d4dd135887ce27a67f6c0cc2e881d6',
   '../openshell-warm-pool-runtime.ts':
     '69578048c40fbdf96a2aa2356b73b192ce361fdd34d18243fff8f471b2174ebf',
   '../openshell-warm-pool-binding.ts':
