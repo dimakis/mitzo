@@ -23,11 +23,12 @@ const settings = {
   repositoryWorkspaceId: 'workspace',
 } as const;
 let store: EventStore;
-let authorize: ReturnType<typeof vi.fn>;
+type Authorize = (sessionId: string) => Promise<void>;
+let authorize: ReturnType<typeof vi.fn<Authorize>>;
 beforeEach(() => {
   store = new EventStore(':memory:');
   store.upsertSession({ sessionId: 'one', conversationSource: 'mitzo' });
-  authorize = vi.fn(async () => {});
+  authorize = vi.fn<Authorize>(async () => {});
 });
 afterEach(() => store.close());
 function assistant(messageId: string, text = 'Visible answer') {
