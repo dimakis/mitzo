@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createChatDraft,
+  newChatPathWithDraft,
   saveChatDraft,
   getChatDraft,
   listChatDrafts,
@@ -267,4 +268,31 @@ it('creates independent persistent draft identities on remote HTTP without rando
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+it('copies blocked chat text into a fresh draft without inheriting runtime or account authority', () => {
+  const original = { ...createChatDraft(), text: 'Original draft' };
+  saveChatDraft(original);
+  const before = JSON.stringify(getChatDraft(original.id));
+  const path = newChatPathWithDraft('  Continue this exact question  ');
+  const id = new URL(path, 'https://mitzo.test').searchParams.get('draft')!;
+  const copied = getChatDraft(id)!;
+  expect(copied.text).toBe('  Continue this exact question  ');
+  expect(copied.id).not.toBe(original.id);
+  expect(copied.settings.selection).toBeNull();
+  expect(copied.settings.runtimeSelection).toBeUndefined();
+  expect(copied.settings.repositoryWorkspaceId).toBeUndefined();
+  expect(JSON.stringify(getChatDraft(original.id))).toBe(before);
+});
+it('starts an empty continuation at New chat without linking to an unsaved draft', () => {
+  expect(newChatPathWithDraft(' \n ')).toBe('/chat');
+  expect(listChatDrafts()).toEqual([]);
+});
+it('refuses to navigate with text when saving the copied draft fails', () => {
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw Error('full');
+  });
+  expect(() => newChatPathWithDraft('Keep this')).toThrow(
+    'Could not save the new chat draft. Retry.',
+  );
 });

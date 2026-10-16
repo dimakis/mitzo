@@ -126,6 +126,7 @@ describe('ChatInput command strip', () => {
   it('keeps Session with the controls, including while its resources are open', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     const session = screen.getByRole('button', { name: 'Open session tray' });
+    expect(session.textContent).toBe('');
     expect(session.closest('.composer-toolbar')).toBeTruthy();
     fireEvent.click(session);
     expect(session.closest('.composer-toolbar')).toBeTruthy();

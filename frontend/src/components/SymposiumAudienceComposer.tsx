@@ -10,6 +10,7 @@ export function SymposiumAudienceComposer({
   onQueue,
   seats = [],
   onSelectRecipient,
+  onContinueInNewChat,
 }: {
   audience: string;
   audienceLabel: string;
@@ -18,6 +19,7 @@ export function SymposiumAudienceComposer({
   disabledReason?: string;
   seats?: { id: string; name: string; role?: string }[];
   onSelectRecipient?(seatId: string): void;
+  onContinueInNewChat?(draft: string): void;
   onQueue: (recipientSeatIds: string[], content: string) => Promise<boolean>;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -155,8 +157,28 @@ export function SymposiumAudienceComposer({
       </button>
       {!enabled && (
         <span role="status">
-          {disabledReason ?? 'Provider admission is pending. Your draft stays here.'}
+          {disabledReason ?? 'Collaboration isn’t ready. Your draft stays here.'}
         </span>
+      )}
+      {!enabled && onContinueInNewChat && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setError('');
+            try {
+              onContinueInNewChat(value);
+            } catch (cause) {
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : 'Could not save the new chat draft. Retry.',
+              );
+            }
+          }}
+        >
+          Continue in new chat
+        </button>
       )}
       {error && <span role="alert">{error}</span>}
     </form>
