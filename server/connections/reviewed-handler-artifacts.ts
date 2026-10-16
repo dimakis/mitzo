@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.184';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.185';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -241,7 +241,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/ChatView.tsx':
     'b02403418da496d2a03458247a9f65cb398ae5d3c72d641bb7de125250bdb80a',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'd3f9e0fe84a9f078ac805a625ed96d01fa756c51ed3d7247bbf9ef6b5547ccea',
+    '41285264af048ce67092c43d5e898ec15c44690bb51181d356132c65bbabf2be',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':

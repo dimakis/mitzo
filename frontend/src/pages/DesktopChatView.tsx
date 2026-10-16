@@ -989,8 +989,14 @@ export function DesktopChatView() {
 
   return (
     <DesktopShell
-      leftDefaultCollapsed
-      left={<CommandCenter />}
+      rightDefaultCollapsed
+      left={
+        <SessionPanel
+          activeSessionId={activeSessionId ?? undefined}
+          onSelectSession={handleSelectSession}
+          onNewChat={handleNewChat}
+        />
+      }
       center={
         <div
           className={`desktop-chat-center workspace-chat${!activeSessionId ? ' chat-page--new' : ''}`}
@@ -1409,13 +1415,7 @@ export function DesktopChatView() {
           />
         </div>
       }
-      right={
-        <SessionPanel
-          activeSessionId={activeSessionId ?? undefined}
-          onSelectSession={handleSelectSession}
-          onNewChat={handleNewChat}
-        />
-      }
+      right={<CommandCenter />}
       statusBar={
         <StatusBar
           connected={connected}
