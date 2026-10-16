@@ -86,6 +86,31 @@ or Save. Discard remains a visibly labelled destructive action; Done remains
 neutral. Save, loading, error and conflict states retain the existing behavior.
 Colors, fonts, spacing, focus, radii and motion come from the shared token source.
 
+## Saved document revisions
+
+Saved Telos Markdown and HTML documents reuse the Files header, `DocumentEditor`,
+draft status and conflict controls. Edit opens the existing editor; **Save new
+revision** appends a revision and opens its pinned URL. Previous links retain their
+original bytes. The revision status explains saving, and output provenance labels
+human changes as Edited by user. Unsupported formats stay read-only. Existing
+semantic tokens, focus, large-text wrapping, mobile touch targets, theme/font
+preferences and shared toolbar motion remain effective; no new styling is added.
+
+The all-intercept `telos-document-editing` fixture renders the actual page at
+320px mobile WebKit/Chromium and 1280px desktop Chromium in dark Mint/System and
+light Teal/Georgia. It checks keyboard focus, larger text, failure/reload recovery,
+both conflict choices, new-revision navigation and sharing the saved bytes. Six
+scenarios and two browser startup checks pass, alongside 155 focused unit/route
+regressions, 107 design checks, frontend type checking and focused lint. The full
+`test:ui` build exceeded the required local 1 GiB heap; full application build and
+suite acceptance remain CI checks. The fixture isolates Files from the shell and
+uses no backend, credentials or model. No staging or production activation occurs.
+
+Inspected captures: [mobile dark editing](assets/telos-document-mobile-dark.png),
+[mobile light editing](assets/telos-document-mobile-light.png),
+[desktop light editing](assets/telos-document-desktop-light.png) and
+[saved desktop revision](assets/telos-document-saved-desktop.png).
+
 ## Interactive HTML previews
 
 Standalone HTML file links in assistant paragraphs use the shared `HtmlPreviewCard`

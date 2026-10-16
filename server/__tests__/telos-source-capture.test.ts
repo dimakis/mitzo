@@ -729,7 +729,14 @@ describe('reviewed Telos source capture through existing owners', () => {
         bytes: Buffer.from(text),
       });
     const original = save('Approved plan r1');
-    save('Later plan r2');
+    const edited = f.artifacts.editDocument({
+      id: original.id,
+      expectedRevision: original.revision,
+      content: 'Later plan r2',
+      requestId: 'human-edit',
+      operatorId: 'authenticated-user',
+    });
+    expect(edited).toMatchObject({ revision: 2, sourceKind: 'user_edit' });
     f.selection.artifacts.push({
       artifactId: original.id,
       revision: original.revision,
