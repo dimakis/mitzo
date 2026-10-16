@@ -52,7 +52,7 @@ local heap limit; focused actual-page renders do not substitute for those checks
 The initial combined focused run passed 298 checks in 26 files. After accepted-main
 integration and the initial review corrections, the combined run passed 306 checks in 27 files.
 After the design/compiler hold was released and the source-environment review fixes
-were integrated, the final combined run passed 316 checks in 30 files. The combined
+were integrated, the final combined run passed 326 checks in 31 files. The combined
 actual-page tool and session-library matrix passed 26 checks (24 page cases and two
 startup checks), including the
 existing Phase 1 journeys, configured-source unavailability, cancellation and focus
@@ -114,3 +114,10 @@ source and a legacy server named with the same UUID. Configured session grants n
 use an exact source/tool tuple in a distinct namespace. Legacy server-wide grants
 cannot authorize configured tools, and configured grants cannot authorize legacy
 peers. Both directions pass the real permission-handler regression.
+
+`CEN-C17FBFB40E16` exposed a project-hook compatibility regression in the grant
+identity change. Three connector-to-`NativeHooks` cases failed before the fix:
+exact and wildcard denial matchers, and a matcher that validates/replaces input.
+The connector now retains `mcp__<server>__<tool>` for hooks/display and uses a
+separate source/tool key for approvals. Denied calls reach neither permission nor
+the peer; validated input reaches the selected peer with the isolated grant key.
