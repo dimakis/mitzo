@@ -355,3 +355,4 @@ export {
   SessionCollaborationError,
   type SessionCollaboration,
 } from './session-collaboration.js';
+export * from './telos-work.js';

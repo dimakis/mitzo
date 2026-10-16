@@ -1,0 +1,163 @@
+[
+  {
+    "ownerId": "86255ad3cd29fcf1",
+    "boundary": "Manage work: coordination identities, child allocation, grants and receipt ownership",
+    "repository": "mitzo",
+    "existingPaths": [
+      "server/session-service.ts",
+      "packages/protocol/src/orchestration.ts",
+      "server/task-orchestrator.ts",
+      "docs/design/manage-work-orchestration.md"
+    ],
+    "proposedPaths": ["server/telos-work-store.ts", "server/telos-work-tools.ts"],
+    "integrationGap": "SessionService owns durable child allocations, authority, start outbox and reconciliation; it has no application/TaskOrchestrator consumer on this baseline. General unrelated-session controls and scoped holds remain unwired. S2/S5/S6 must consume and extend these owners, separating allocation from starting a model turn."
+  },
+  {
+    "ownerId": "79f4be72f17b8273",
+    "boundary": "O7: shared orchestration policy and ordinary Symposium contributors",
+    "repository": "mitzo",
+    "existingPaths": [
+      "packages/protocol/src/orchestration.ts",
+      "server/symposium-ordinary-turn.ts",
+      "server/ordinary-contributor-execution.ts"
+    ],
+    "proposedPaths": [],
+    "integrationGap": "Consume exact identity, scope and admission contracts; a Symposium seat grant does not confer work-level coordination or access to unrelated transcripts. Shared role policy is not a second scheduler."
+  },
+  {
+    "ownerId": "4f55b423d0731750",
+    "boundary": "Work/artifacts: immutable retained documents, adopted references and progress",
+    "repository": "mitzo",
+    "existingPaths": [
+      "server/telos-artifact-store.ts",
+      "server/telos-artifact-routes.ts",
+      "server/telos-item-store.ts",
+      "server/backup/mitzo-telos.ts",
+      "server/backup/mitzo-telos-binding.ts"
+    ],
+    "proposedPaths": ["server/telos-work-routes.ts"],
+    "integrationGap": "Retained bytes/revisions/provenance already exist. S3 must add exact original exchange selections and lossless DTO fields without rewriting retained artifacts. Include new relations in existing backup ownership."
+  },
+  {
+    "ownerId": "c0851ba23fcc5d04",
+    "boundary": "Symposium and ordinary collaboration: reviewed context and attributed messages",
+    "repository": "mitzo",
+    "existingPaths": [
+      "packages/protocol/src/collaboration-conversation.ts",
+      "packages/protocol/src/collaboration-conversation-store.ts",
+      "server/session-collaboration-router.ts",
+      "docs/features/symposium.md"
+    ],
+    "proposedPaths": [],
+    "integrationGap": "Snapshot/join/delivery contracts exist, but public message/join/snapshot mutations currently return execution_unavailable. Reuse attribution/context semantics while preserving independent ordinary chats and explicit grants."
+  },
+  {
+    "ownerId": "2f58567a6c487079",
+    "boundary": "Runtime selection: trusted catalogs and unchanged ordinary settings",
+    "repository": "mitzo",
+    "existingPaths": [
+      "server/ordinary-session-runtime.ts",
+      "packages/protocol/src/session-runtime-binding.ts",
+      "frontend/src/components/ChatExecutionPicker.tsx",
+      "docs/design/session-runtime-selection.md"
+    ],
+    "proposedPaths": [],
+    "integrationGap": "The pure resolver alone does not prove route readiness. Consume trusted configured capability, immutable session binding and ordinary control owners; retain unavailable selections and exact account/model/thinking/target/workspace across retries."
+  },
+  {
+    "ownerId": "c44884c370d26704",
+    "boundary": "Execution backend: ordinary preparation, admission, FIFO and provider lifecycle",
+    "repository": "mitzo",
+    "existingPaths": [
+      "server/ordinary-repository-preparation.ts",
+      "server/repository-chat-startup.ts",
+      "server/owned-local-codex-chat-admission.ts",
+      "server/ordinary-local-codex-owned-runtime.ts",
+      "server/ordinary-openshell-codex-owned-runtime.ts",
+      "server/ordinary-local-responses-owned-runtime.ts",
+      "packages/protocol/src/execution-ledger.ts"
+    ],
+    "proposedPaths": [],
+    "integrationGap": "Resolve and prepare through existing route-specific owners. Session linkage/allocation is separate from queue admission, physical provider execution and verified completion; do not introduce a parallel runtime or launch path."
+  },
+  {
+    "ownerId": "e90ba17663b377c0",
+    "boundary": "Telos bridge: reconcile intent-to-execution links",
+    "repository": "mitzo",
+    "existingPaths": [
+      "server/app.ts",
+      "server/task-store.ts",
+      "packages/client/src/slices/todos.ts"
+    ],
+    "proposedPaths": ["server/telos-work-store.ts"],
+    "integrationGap": "Existing promotion and execution trees must reconcile with the authoritative Telos parent tree. S2/S5 must recover partial cross-store writes and repeated promotion instead of creating another root."
+  },
+  {
+    "ownerId": "a4d34a98b4d20bbc",
+    "boundary": "Presentation: approved outcome workspace and the existing full ordinary chat",
+    "repository": "mitzo",
+    "existingPaths": [
+      "frontend/src/pages/TodoView.tsx",
+      "frontend/src/pages/TodoDetailView.tsx",
+      "frontend/src/pages/TaskBoard.tsx",
+      "frontend/src/components/ResponsiveChatView.tsx",
+      "frontend/src/components/SessionWorkLink.tsx",
+      "frontend/src/components/SessionTray.tsx",
+      "frontend/src/pages/ChatView.tsx",
+      "frontend/src/pages/DesktopChatView.tsx"
+    ],
+    "proposedPaths": ["frontend/src/components/TelosChatList.tsx"],
+    "integrationGap": "S7/S8 own frozen mock conformance and all actual user navigation. S1 fixtures do not prove chooser behavior, ordinary chat parity, mobile layout or back-state restoration."
+  },
+  {
+    "ownerId": "2d80ca5c140bac5f",
+    "boundary": "Dispatch correctness and completion callbacks",
+    "repository": "mitzo",
+    "existingPaths": [
+      "server/task-orchestrator.ts",
+      "server/task-store.ts",
+      "server/chat.ts",
+      "server/task-context.ts",
+      "server/task-mcp-server.ts"
+    ],
+    "proposedPaths": ["server/telos-work-tools.ts"],
+    "integrationGap": "S5 must dispatch only the selected item through an explicit ordinary conversation and recover the same attempt after uncertainty. Existing task completion is not verified parent-outcome completion."
+  },
+  {
+    "ownerId": "9fc7bdfb6a9d81fd",
+    "boundary": "Goal accounting: intent, execution, conversation and spend namespaces",
+    "repository": "mitzo",
+    "existingPaths": [
+      "server/goal-client.ts",
+      "packages/protocol/src/session-metadata-store.ts",
+      "packages/protocol/src/orchestration.ts"
+    ],
+    "proposedPaths": [],
+    "integrationGap": "Preserve Telos IDs, task execution IDs and ContexGin accounting goal IDs independently. Work linkage and chat allocation cannot create or relabel accounting spend or claim final tokens-to-goal."
+  },
+  {
+    "ownerId": "b5cd51ac8a56007f",
+    "boundary": "Identity and data boundaries: user/grant enforcement and lossless canonical composition",
+    "repository": "mitzo",
+    "existingPaths": [
+      "server/session-service.ts",
+      "server/session-access.ts",
+      "server/session-messages-route.ts",
+      "packages/protocol/src/conversation-identity.ts"
+    ],
+    "proposedPaths": ["server/telos-work-store.ts", "server/telos-work-routes.ts"],
+    "integrationGap": "Host authorization must enforce work/session relationships and reviewed context; role labels cannot mint grants. External Codex origins stay external and must never be inserted as ordinary Mitzo allocations."
+  },
+  {
+    "ownerId": "b5cd51ac8a56007f",
+    "boundary": "Canonical Telos item, legacy provenance and parent-tree ownership",
+    "repository": "mgmt",
+    "existingPaths": [
+      "command_center/lib/todo/models.py",
+      "command_center/lib/todo/store.py",
+      "command_center/todo_api.py"
+    ],
+    "proposedPaths": [],
+    "integrationGap": "Existing DTO truncates source raw_snippet to 200 characters and omits authoritative dates. S2/S3 must expose existing original values, keep parent_id authoritative and preserve unknown kind/provenance without inventing an assignment."
+  }
+]

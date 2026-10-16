@@ -63,7 +63,9 @@ describe('OpenShell runtime lifecycle', () => {
       workspace: 'mitzo',
       type: 'mitzo-openai-keychain-spike',
     };
-    const run = vi.fn(async () => JSON.stringify([provider]));
+    const run = vi
+      .fn<(args: readonly string[]) => Promise<string>>()
+      .mockResolvedValue(JSON.stringify([provider]));
     const manager = new OpenShellRuntimeManager(config, run);
     await manager.verifyAPIAccountProvider('saved-provider', new AbortController().signal);
     expect(run).toHaveBeenCalledOnce();

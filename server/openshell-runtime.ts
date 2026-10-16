@@ -1,3 +1,11 @@
+import {
+  warmPoolConversationName,
+  recoverWarmPoolClaim,
+  projectWarmPoolInventoryOwnership,
+  projectWarmPoolOwnership,
+  claimWarmPoolForCommand,
+  warmPoolCreateResources,
+} from './openshell-warm-pool-binding.js';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { tracer } from './tracing.js';
 import { TASK_CAPABILITY_PROBE, TaskCapabilities } from './task-runtime-guidance.js';
@@ -31,7 +39,7 @@ import {
 } from './knowledge-view.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
-  validateOpenShellCliEnvironment,
+  openShellCliEnvironment,
   type OpenShellCliEnvironment,
 } from './openshell-cli-environment.js';
 import { parseProviderAttachments } from './connections-gateway.js';
@@ -626,13 +634,7 @@ function command(
         binary,
         [...args],
         {
-          env: cliEnvironment
-            ? validateOpenShellCliEnvironment(cliEnvironment)
-            : Object.fromEntries(
-                ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-                  process.env[key] ? [[key, process.env[key]!]] : [],
-                ),
-              ),
+          env: openShellCliEnvironment(cliEnvironment),
           signal,
           timeout: 120_000,
           maxBuffer: 1024 * 1024,
@@ -1078,6 +1080,7 @@ export class OpenShellRuntimeManager {
   private nameForConversation(conversationId: string) {
     return (
       this.config.sandboxNameOverride ??
+      warmPoolConversationName(this.config, conversationId) ??
       sandboxNameForConversation(conversationId, this.config.sandboxIdLength)
     );
   }
@@ -1085,8 +1088,11 @@ export class OpenShellRuntimeManager {
     if (!runtime.sandboxId) throw new Error('Runtime source physical identity is missing');
     const owned = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
     if (owned.phase !== 'Ready') throw new Error('Runtime source is not Ready');
-    const detail = JSON.parse(
-      await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+    const detail = projectWarmPoolOwnership(
+      this.config,
+      JSON.parse(
+        await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+      ),
     );
     if (
       detail.id !== runtime.sandboxId ||
@@ -1250,8 +1256,11 @@ export class OpenShellRuntimeManager {
       runtimePolicyHash(this.providerPolicyState.read(owned.name)) !== runtimePolicyHash(approved)
     )
       throw new Error('Runtime provider approval changed during attestation');
-    const after = JSON.parse(
-      await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+    const after = projectWarmPoolOwnership(
+      this.config,
+      JSON.parse(
+        await this.run(['sandbox', ...this.base(), 'get', owned.name, '-o', 'json'], signal),
+      ),
     );
     if (
       after.id !== detail.id ||
@@ -1459,7 +1468,12 @@ export class OpenShellRuntimeManager {
   private async get(name: string, signal: AbortSignal) {
     try {
       const sandbox = Sandbox.parse(
-        JSON.parse(await this.run(['sandbox', ...this.base(), 'get', name, '-o', 'json'], signal)),
+        projectWarmPoolOwnership(
+          this.config,
+          JSON.parse(
+            await this.run(['sandbox', ...this.base(), 'get', name, '-o', 'json'], signal),
+          ),
+        ),
       );
       if (
         this.config.cliContract === 'v0.1' &&
@@ -1561,12 +1575,14 @@ export class OpenShellRuntimeManager {
           throw new Error('OpenShell sandbox pagination repeated a token');
         if (token) seen.add(token);
       } while (token);
-      return sandboxes.filter(
-        (sandbox) =>
-          sandbox.labels?.['mitzo.conversation'] &&
-          sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
-          sandbox.workspace === this.config.workspace,
-      );
+      return sandboxes
+        .map((sandbox) => projectWarmPoolInventoryOwnership(this.config, sandbox))
+        .filter(
+          (sandbox) =>
+            sandbox.labels?.['mitzo.conversation'] &&
+            sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+            sandbox.workspace === this.config.workspace,
+        );
     }
     const limit = 100;
     for (let offset = 0; ; offset += limit) {
@@ -1591,12 +1607,14 @@ export class OpenShellRuntimeManager {
       sandboxes.push(...page);
       if (page.length < limit) break;
     }
-    return sandboxes.filter(
-      (sandbox) =>
-        sandbox.labels?.['mitzo.conversation'] &&
-        sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
-        (!sandbox.workspace || sandbox.workspace === this.config.workspace),
-    );
+    return sandboxes
+      .map((sandbox) => projectWarmPoolInventoryOwnership(this.config, sandbox))
+      .filter(
+        (sandbox) =>
+          sandbox.labels?.['mitzo.conversation'] &&
+          sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+          (!sandbox.workspace || sandbox.workspace === this.config.workspace),
+      );
   }
 
   /** Read the current physical sandbox for a lifecycle record.  This keeps
@@ -2025,6 +2043,11 @@ export class OpenShellRuntimeManager {
   async ensure(
     ...args: Parameters<OpenShellRuntimeManager['ensureUnserialized']>
   ): Promise<OpenShellRuntime> {
+    await recoverWarmPoolClaim(this.config, args[0], args[1], args[3]?.seed, args[2], async () => {
+      this.config.verifyAccountProviderUnion?.();
+      await this.verifyAccountProvider(args[1]);
+      this.config.verifyAccountProviderUnion?.();
+    });
     const current = this.nameForConversation(args[0]);
     const legacy = legacySandboxNameForConversation(
       createHash('sha256').update(args[0]).digest('hex'),
@@ -2125,6 +2148,33 @@ export class OpenShellRuntimeManager {
         sandbox = legacy;
       }
     }
+    if (
+      initialCommandId &&
+      !expected &&
+      !sandbox &&
+      !warmPoolConversationName(this.config, conversationId)
+    ) {
+      const claimed = await claimWarmPoolForCommand(
+        this.config,
+        conversationId,
+        signal,
+        admittedSeed?.seed,
+      );
+      if (claimed) {
+        // The durable claim picks a different physical name. Acquire its policy
+        // fence and recheck account authority after attachment, before use.
+        return this.serializeProviderPolicy(claimed.name, signal, () =>
+          this.ensureUnserialized(
+            conversationId,
+            signal,
+            undefined,
+            admittedSeed,
+            inheritedMigrationGrants,
+            initialCommandId,
+          ),
+        );
+      }
+    }
     const retained = Boolean(sandbox);
     if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
@@ -2164,6 +2214,7 @@ export class OpenShellRuntimeManager {
             !['chatgpt-subscription-native', 'api'].includes(this.config.account.kind))
         )
           throw new Error('Phased creation requires native OpenShell seats');
+        const poolResources = initialCommandId ? warmPoolCreateResources(this.config) : undefined;
         const args = [
           'sandbox',
           ...this.base(),
@@ -2174,6 +2225,9 @@ export class OpenShellRuntimeManager {
           this.config.image,
           '--policy',
           this.config.policy,
+          ...(poolResources
+            ? ['--cpu', String(poolResources.cpu), '--memory', poolResources.memoryGiB + 'Gi']
+            : []),
           ...(!phasedCreate && !artifactConfig
             ? [
                 '--upload',
