@@ -161,7 +161,6 @@ export function AgentLibrary() {
     if (discovery.current) return;
     const controller = new AbortController();
     discovery.current = controller;
-    ++toolReads.current;
     setDiscovering(true);
     setDiscoveryError('');
     setDiscoveryNotice('');
@@ -174,6 +173,7 @@ export function AgentLibrary() {
       controller.signal.throwIfAborted();
       if (!Array.isArray(result.tools)) throw Error('Tool library response is invalid');
       if (mounted.current) {
+        ++toolReads.current;
         setTools(result.tools);
         setToolLoaded(true);
         setToolError('');

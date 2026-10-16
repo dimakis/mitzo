@@ -235,13 +235,17 @@ export async function openResponsesChat(options: Options) {
         throw Error('Configured tool session ownership changed');
     },
   };
+  let configuredAdmissions: Awaited<ReturnType<typeof admitConfiguredTools>>['admitted'] = [];
   const mcp = await (
     configuredRefs.length
       ? admitConfiguredTools(
           options.configuredTools?.catalog ?? getConfiguredToolCatalog(),
           configuredRefs,
           configuredOptions,
-        )
+        ).then((result) => {
+          configuredAdmissions = result.admitted;
+          return result;
+        })
       : connectCodexMcpTools(hasAgentToolSelection(options.session) ? {} : options.mcpServers, {
           cwd: options.session.cwd!,
           env: options.env,
@@ -252,7 +256,6 @@ export async function openResponsesChat(options: Options) {
     dispose();
     throw error;
   });
-  const configuredAdmissions = 'admitted' in mcp ? mcp.admitted : [];
   try {
     if (configuredAdmissions.length)
       bindConfiguredAgentTools(options.session, configuredAdmissions);

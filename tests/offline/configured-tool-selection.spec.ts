@@ -52,6 +52,11 @@ for (const theme of ['dark', 'light'])
     const toolFailure = false;
     let discovered = false;
     let refreshes = 0;
+    let toolReads = 0;
+    let releaseFirstRead!: () => void;
+    const firstRead = new Promise<void>((resolve) => {
+      releaseFirstRead = resolve;
+    });
     let releaseDiscovery!: () => void;
     const waiting = new Promise<void>((resolve) => {
       releaseDiscovery = resolve;
@@ -94,7 +99,8 @@ for (const theme of ['dark', 'light'])
         discovered = true;
         return route.fulfill({ json: { tools: [...catalogFixture, ...configured] } });
       }
-      if (url.pathname === '/api/agent-library/tools')
+      if (url.pathname === '/api/agent-library/tools') {
+        if (++toolReads === 1) await firstRead;
         return route.fulfill(
           toolFailure
             ? { status: 503, json: { error: 'Tool catalog unavailable' } }
@@ -114,6 +120,7 @@ for (const theme of ['dark', 'light'])
                 },
               },
         );
+      }
       if (url.pathname === '/api/agent-library/drafts') {
         const body = route.request().postDataJSON();
         const draft: AgentLibraryDraft = {
@@ -154,6 +161,7 @@ for (const theme of ['dark', 'light'])
     const refresh = page.getByRole('button', { name: 'Refresh configured servers', exact: true });
     await refresh.click();
     await expect(page.getByRole('alert')).toContainText('Discovery fixture unavailable');
+    releaseFirstRead();
     await expect(page.getByRole('heading', { name: 'Read', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Retry discovery', exact: true }).click();
     await expect(

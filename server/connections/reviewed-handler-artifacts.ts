@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.175';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.183';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,9 +24,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../mcp-config.ts': '6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b',
   '../configured-tool-runtime.ts': '60b98526368eebc431ffe848bc51f88d98ac1dff1a4b5fda7938055677651133',
-  '../configured-tool-admission.ts': '0275d3084ca7fe116c54b3ce6e345cd51047870bd7318a4d706352da34f8a8a1',
+  '../configured-tool-admission.ts': '913b2e07553f9f7b8430e595f5e55dbb97a750b6ef7a92659c628cef7b7ed545',
   '../configured-tool-catalog.ts':
-    'fe271014b231cbb25e7cf2abbb24afc411fb51fe3c80026ccb011d0c1d1d9b72',
+    'b4344c667cdd4cd804d7f272587ea93ab8b5d991f97d52bc45ce5e4217fd640d',
   '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent conversation metadata and offline client projection; execution remains disabled.
@@ -292,7 +292,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
     'f9237e6f3bd200722044be249bedd48ff5ccbdabf68f92e4775901092493d8e6',
-  '../codex-mcp-tools.ts': '825d579e60d0b98014ad456b39dd7c8e61f101d0ce96894ff4f5a3745e955b55',
+  '../codex-mcp-tools.ts': '08d8697f5efc21b406033857dac8aceaeb732bc33e70f74378c16f53f132cb63',
   '../codex-runtime-diagnostics.ts':
     '80730e66ff8aa543acfb4ce035c7cf2fbe936172498d3b8ed0d868143bee4513',
   'capabilities/approval.ts': '25c074b3091e67b0c3faba822e8e2c00ff32a34416fe0b37cb4f202d040d0320',
@@ -406,7 +406,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    '322add20750d106e93d160b3c883cbb68c55f260dfaed6f78d25582774513489',
+    '959a0248cd87d43dedc132f7be390d65f3a6d1c958588b99bc7ae008befc9939',
   // Read-only tool catalog cards and their shared visual presentation.
   '../../frontend/src/components/ToolLibraryCatalog.tsx':
     '9109209f65551e4d3dbf28389fa8e1bd9f5462aa369a6678b527b7ff59d12132',
@@ -617,7 +617,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-responses-runner.ts':
     '7ce6e23c73ef66fdec29fc1ca001e6ed308287096203423efd813a8e5406f340',
   '../responses-chat-session.ts':
-    'a87fd77c22ddd71cf2ac16b21a65309c95a936ca858a61921255c65f9bb28300',
+    '0c3466a952bdf04b5f6433b025639892c224fde87d0b8c832e2b36c137e859aa',
   // Image payload validation shares native queue admission and dispatch authority.
   '../responses-input.ts': 'b4be57d3535660a31597f07b075070a90b49b2e62239916937e9316e78cc4b05',
   '../symposium-agent-context.ts':

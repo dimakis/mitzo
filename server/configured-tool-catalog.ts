@@ -18,6 +18,7 @@ interface Receipt {
   sourceId: string;
   tool: string;
   binding: string;
+  launchCwd: string;
   definition: ToolDefinition;
 }
 function canonical(value: unknown): string {
@@ -48,7 +49,7 @@ function eligible(sources: Sources): Sources {
   }
   return result;
 }
-function binding(config: McpServerConfig): string {
+function binding(config: McpServerConfig, options: Pick<McpToolsOptions, 'cwd' | 'env'>): string {
   // Private only. Labels and source identity are excluded; actual launch inputs are pinned.
   const launch = {
     type: config.type,
@@ -57,7 +58,7 @@ function binding(config: McpServerConfig): string {
     env: config.env,
     execution: config.execution,
   };
-  return hash(launch);
+  return hash({ config: launch, cwd: options.cwd, env: options.env });
 }
 /** Durable discovery receipts. Read projections never start a peer. One host owner per database. */
 export class ConfiguredToolCatalog {
@@ -111,7 +112,7 @@ export class ConfiguredToolCatalog {
       (config) => config.librarySourceId === receipt.sourceId,
     );
     if (!source) throw Error('Selected configured source is unavailable or no longer configured');
-    if (binding(source) !== receipt.binding)
+    if (binding(source, { ...options, cwd: receipt.launchCwd }) !== receipt.binding)
       throw Error('Selected source configuration changed; new discovery and session required');
     return { ...structuredClone(receipt), name: receipt.tool };
   }
@@ -151,7 +152,7 @@ export class ConfiguredToolCatalog {
                 `mcp__${tool.server}__${tool.tool}: `.length,
               ),
             };
-            const contract = binding(source);
+            const contract = binding(source, options);
             const old = previous.get(id);
             if (
               old &&
@@ -186,6 +187,7 @@ export class ConfiguredToolCatalog {
               sourceId: source.librarySourceId!,
               tool: tool.tool,
               binding: contract,
+              launchCwd: options.cwd,
               definition,
             };
             this.db
