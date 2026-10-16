@@ -1,4 +1,5 @@
 import { SeatLabel } from './SeatLabel';
+import { UiIcon } from './UiIcon';
 import { CompactionMarker } from './CompactionMarker';
 import type { ContextCompaction } from '@mitzo/protocol';
 import { seatAccentColor } from '../lib/seat-color';
@@ -44,6 +45,9 @@ export interface ChatAreaProps {
   /** Additional transcript cards inside the same scroll area. */
   afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
+  canShareMessage?: (message: FinishedMessage) => boolean;
+  shareInActions?: boolean;
+  compactAttribution?: boolean;
   running: boolean;
   permission: PermissionRequest | null;
   onPermissionExpire?: (permId: string) => void;
@@ -61,7 +65,13 @@ export interface ChatAreaProps {
   voice?: ChatAreaVoice;
 }
 
-function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
+function SeatAttribution({
+  provenance,
+  compact = false,
+}: {
+  provenance?: SymposiumProvenance;
+  compact?: boolean;
+}) {
   if (!provenance) return null;
   if (!('version' in provenance) || (provenance.version !== 2 && provenance.version !== 3)) {
     return (
@@ -73,6 +83,28 @@ function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
       </div>
     );
   }
+  if (compact)
+    return (
+      <details className="conversation-message-provenance">
+        <summary
+          className="chat-seat-attribution"
+          aria-label={`Message details for ${provenance.seatLabel}`}
+        >
+          <strong>
+            <SeatLabel seatId={provenance.seatId} name={provenance.seatLabel} />
+          </strong>
+          <span>{provenance.seatRole}</span>
+        </summary>
+        <div className="conversation-message-provenance-details">
+          <span>{provenance.accountBinding.accountLabel}</span>
+          <span>{provenance.accountBinding.model}</span>
+          <span>{provenance.reasoningEffort ?? 'effort unspecified'}</span>
+          {provenance.version === 3 && (
+            <span>Artifact {provenance.artifact.artifactGenerationId}</span>
+          )}
+        </div>
+      </details>
+    );
   return (
     <div className="chat-seat-attribution" aria-label={`Seat ${provenance.seatLabel}`}>
       <strong>
@@ -102,6 +134,9 @@ export function ChatArea({
   contextItems = [],
   afterMessages,
   onShareMessage,
+  canShareMessage,
+  shareInActions = false,
+  compactAttribution = false,
   running,
   permission,
   onPermissionRespond,
@@ -362,29 +397,65 @@ export function ChatArea({
           return {
             key: `${ownerKey}:${bid}`,
             scope,
-            attribution: <SeatAttribution provenance={msg.symposiumProvenance} />,
+            attribution: (
+              <SeatAttribution provenance={msg.symposiumProvenance} compact={compactAttribution} />
+            ),
             block,
             streaming,
             keepVisible,
             value: (
               <div className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}>
                 {index === 0 && (keepVisible || block.blockType === 'text') && (
-                  <SeatAttribution provenance={msg.symposiumProvenance} />
+                  <SeatAttribution
+                    provenance={msg.symposiumProvenance}
+                    compact={compactAttribution}
+                  />
                 )}
                 {content}
               </div>
             ),
           };
         });
-      if (!streaming && onShareMessage) {
-        const share = (
+      if (
+        !streaming &&
+        'role' in msg &&
+        onShareMessage &&
+        (!canShareMessage || canShareMessage(msg))
+      ) {
+        const shareButton = (
           <button
             type="button"
             className="symposium-share-action"
-            onClick={() => onShareMessage(msg.messageId, msg.symposiumProvenance)}
+            onClick={(event) => {
+              const disclosure = event.currentTarget.closest('details');
+              if (disclosure) {
+                disclosure.open = false;
+                disclosure.querySelector('summary')?.focus();
+              }
+              onShareMessage(msg.messageId, msg.symposiumProvenance);
+            }}
           >
             Share excerpt
           </button>
+        );
+        const share = shareInActions ? (
+          <details
+            className="conversation-message-actions"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                event.currentTarget.open = false;
+                event.currentTarget.querySelector('summary')?.focus();
+              }
+            }}
+          >
+            <summary aria-label="Message actions">
+              <UiIcon name="more" />
+            </summary>
+            {shareButton}
+          </details>
+        ) : (
+          shareButton
         );
         const last = rows.at(-1);
         if (last)
@@ -401,7 +472,10 @@ export function ChatArea({
             activityControl: true,
             value: (
               <div className="msg-turn">
-                <SeatAttribution provenance={msg.symposiumProvenance} />
+                <SeatAttribution
+                  provenance={msg.symposiumProvenance}
+                  compact={compactAttribution}
+                />
                 {share}
               </div>
             ),
