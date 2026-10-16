@@ -16,13 +16,15 @@ Phase 1 remains active until its remaining gates pass.
 3. [Runtime PR 951](https://github.com/dimakis/mitzo/pull/951): local API model
    exposure and invocation ceiling, private admitted catalog snapshot, unsupported
    native-route refusals and runtime-selection reasons.
-4. Acceptance/documentation slice: published-profile cold-restart regression,
+4. [Acceptance/documentation PR 955](https://github.com/dimakis/mitzo/pull/955):
+   published-profile cold-restart regression,
    explicit empty behavior, missing connection checks, README and this record.
 
-These PRs are stacked review candidates. Partial merge/deployment is not a completed
-feature. Each changed reviewed source closure advances its runtime contract, so
-existing independently enrolled targets must follow their normal reviewed update
-process; source publication alone does not enroll or qualify a runtime.
+The slices are reviewed and accepted in dependency order. Source acceptance does
+not qualify or activate a live runtime. Each changed reviewed source closure
+advances its runtime contract, so existing independently enrolled targets must
+follow their normal reviewed update process; source publication alone does not
+enroll or qualify a runtime.
 
 ## Offline evidence
 
