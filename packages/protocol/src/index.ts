@@ -356,3 +356,5 @@ export {
   type SessionCollaboration,
 } from './session-collaboration.js';
 export * from './telos-work.js';
+
+export * from './telos-work-api.js';
