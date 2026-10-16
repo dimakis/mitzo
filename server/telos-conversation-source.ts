@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   CollaborationSnapshotSelectionSchema,
   CollaborationSnapshotMessageSchema,
+  SymposiumProvenanceSchema,
   type StoredEvent,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
@@ -60,7 +61,7 @@ export function createTelosConversationSource(options: {
       if (wanted.size !== selection.messageIds.length) refuse();
       if (selection.mode === 'conversation_so_far' && wanted.size) refuse();
       const read = () => {
-        authorize(sessionId);
+        const initialPrompt = authorize(sessionId).initialPrompt || null;
         const boundary = selection.boundary.sequence;
         const completed: Message[] = [];
         const attributions: Record<
@@ -71,7 +72,22 @@ export function createTelosConversationSource(options: {
             createdAt: number;
           }
         > = {};
-        const active = new Map<string, { messageId: string; blocks: Map<string, string> }>();
+        const active = new Map<
+          string,
+          {
+            messageId: string;
+            blockIds: Set<string>;
+            blocks: Map<string, { content: string; closed: boolean }>;
+          }
+        >();
+        const nativeTurns = new Map<
+          string,
+          { messageId: string; snapshot: string; blockIds: Set<string> }
+        >();
+        const nativeCompleted = new Set<string>();
+        let ordinaryActive: string | undefined;
+        let firstOrdinaryMessage: number | undefined;
+        let initialPromptSequence: number | undefined;
         const seen = new Set<string>();
         const references = new Map<number, Pin[]>();
         let after = 0,
@@ -122,6 +138,86 @@ export function createTelosConversationSource(options: {
               break;
             }
             after = event.seq;
+            // Match normal transcript attribution before selection can hide an
+            // ambiguous event. These two host records name recipients, not authors.
+            if (event.seatId === undefined && event.symposiumProvenance === undefined) {
+              if (
+                !('symposiumProvenance' in event.payload) &&
+                ['symposium_delivery_dispatched', 'symposium_thread_migrated'].includes(event.type)
+              )
+                continue;
+              if ('seatId' in event.payload || 'symposiumProvenance' in event.payload) refuse();
+              if (event.type === 'session_end') {
+                for (const turn of nativeTurns.values())
+                  nativeCompleted.add(JSON.stringify([turn.snapshot, turn.messageId]));
+                nativeTurns.clear();
+              }
+              if (event.type === 'user_message' || event.type === 'message_start') {
+                firstOrdinaryMessage ??= event.seq;
+                if (ordinaryActive !== undefined) refuse();
+                if (event.type === 'message_start') {
+                  if (typeof event.payload.messageId !== 'string') refuse();
+                  ordinaryActive = event.payload.messageId;
+                } else if (initialPrompt && event.payload.text === initialPrompt) {
+                  if (initialPromptSequence !== undefined || event.seq !== firstOrdinaryMessage)
+                    refuse();
+                  initialPromptSequence = event.seq;
+                }
+              } else if (
+                event.type === 'message_end' &&
+                event.payload.messageId === ordinaryActive
+              ) {
+                ordinaryActive = undefined;
+              }
+            } else {
+              const provenance = SymposiumProvenanceSchema.safeParse(event.symposiumProvenance);
+              if (!provenance.success || event.seatId !== provenance.data.seatId) refuse();
+              // A valid row shape does not qualify a whole native turn. Match
+              // modern replay's immutable snapshot/seat ownership before filtering.
+              const snapshot = JSON.stringify(provenance.data);
+              const seat = JSON.stringify([
+                provenance.data.seatId,
+                provenance.data.membershipGeneration ?? null,
+              ]);
+              const turn = nativeTurns.get(seat);
+              const messageId = event.payload.messageId;
+              if (event.type === 'message_start') {
+                if (turn || typeof messageId !== 'string' || !messageId) refuse();
+                nativeTurns.set(seat, { messageId, snapshot, blockIds: new Set() });
+              } else if (event.type === 'message_end') {
+                const completed = JSON.stringify([snapshot, messageId]);
+                if (turn && turn.messageId === messageId && turn.snapshot === snapshot) {
+                  nativeCompleted.add(completed);
+                  nativeTurns.delete(seat);
+                } else if (!nativeCompleted.has(completed)) refuse();
+              } else if (event.type === 'session_end') {
+                if (turn && turn.snapshot !== snapshot) refuse();
+                if (turn) nativeCompleted.add(JSON.stringify([snapshot, turn.messageId]));
+                nativeTurns.delete(seat);
+              } else if (['block_start', 'block_delta', 'block_end'].includes(event.type)) {
+                const blockId = event.payload.blockId;
+                if (
+                  !turn ||
+                  turn.snapshot !== snapshot ||
+                  turn.messageId !== messageId ||
+                  typeof blockId !== 'string' ||
+                  !blockId
+                )
+                  refuse();
+                if (event.type === 'block_start') {
+                  if (turn.blockIds.has(blockId)) refuse();
+                  turn.blockIds.add(blockId);
+                } else if (!turn.blockIds.has(blockId)) refuse();
+              } else if (event.type.startsWith('subagent_')) {
+                if (
+                  !turn ||
+                  turn.snapshot !== snapshot ||
+                  typeof event.payload.parentBlockId !== 'string' ||
+                  !turn.blockIds.has(event.payload.parentBlockId)
+                )
+                  refuse();
+              }
+            }
             const id = event.payload.messageId;
             if (event.seq === boundary) {
               found =
@@ -154,7 +250,7 @@ export function createTelosConversationSource(options: {
               if (typeof event.payload.text !== 'string') refuse();
               textBytes += Buffer.byteLength(event.payload.text);
               if (textBytes > MAX_BYTES) refuse();
-              // User text has a message anchor, not an invented persisted block.
+              // Preserve the modern normal-chat block identity for a real user row.
               add(event, {
                 conversationId: sessionId,
                 messageId: id,
@@ -162,23 +258,26 @@ export function createTelosConversationSource(options: {
                 author: 'operator',
                 source: null,
                 blocks: [
-                  { blockId: id, content: event.payload.text, sha256: sha(event.payload.text) },
+                  {
+                    blockId: `user-${id}`,
+                    content: event.payload.text,
+                    sha256: sha(event.payload.text),
+                  },
                 ],
               });
             } else if (event.type === 'message_start') {
               if (active.has(key) || seen.has(id)) refuse();
-              active.set(key, { messageId: id, blocks: new Map() });
+              active.set(key, { messageId: id, blockIds: new Set(), blocks: new Map() });
             } else {
               const message = active.get(key);
               if (!message) continue;
               const blockId = event.payload.blockId;
-              if (
-                event.type === 'block_start' &&
-                event.payload.blockType === 'text' &&
-                typeof blockId === 'string'
-              ) {
-                if (message.blocks.has(blockId)) refuse();
-                message.blocks.set(blockId, '');
+              if (event.type === 'block_start' && typeof blockId === 'string') {
+                if (message.blockIds.has(blockId) || typeof event.payload.blockType !== 'string')
+                  refuse();
+                message.blockIds.add(blockId);
+                if (event.payload.blockType === 'text')
+                  message.blocks.set(blockId, { content: '', closed: false });
               } else if (
                 event.type === 'block_delta' &&
                 typeof blockId === 'string' &&
@@ -187,15 +286,26 @@ export function createTelosConversationSource(options: {
               ) {
                 textBytes += Buffer.byteLength(event.payload.delta);
                 if (textBytes > MAX_BYTES) refuse();
-                const text = message.blocks.get(blockId)! + event.payload.delta;
+                const block = message.blocks.get(blockId)!;
+                if (block.closed) refuse();
+                const text = block.content + event.payload.delta;
                 if (Buffer.byteLength(text) > MAX_BYTES) refuse();
-                message.blocks.set(blockId, text);
+                block.content = text;
+              } else if (
+                event.type === 'block_end' &&
+                typeof blockId === 'string' &&
+                message.blocks.has(blockId)
+              ) {
+                const block = message.blocks.get(blockId)!;
+                if (block.closed) refuse();
+                block.closed = true;
               } else if (event.type === 'message_end') {
-                const blocks = [...message.blocks].map(([blockId, content]) => ({
-                  blockId,
-                  content,
-                  sha256: sha(content),
-                }));
+                const blocks = [...message.blocks].map(([blockId, block]) => {
+                  // Existing replay paths differ for unfinished text; the
+                  // accepted bounded source contract cannot qualify it for capture.
+                  if (!block.closed) refuse();
+                  return { blockId, content: block.content, sha256: sha(block.content) };
+                });
                 if (blocks.length)
                   add(event, {
                     conversationId: sessionId,
@@ -213,6 +323,8 @@ export function createTelosConversationSource(options: {
         }
         if (
           !found ||
+          ordinaryActive !== undefined ||
+          (initialPrompt !== null && initialPromptSequence === undefined) ||
           (boundary > 0 &&
             !completed.some(
               (message) =>
@@ -221,7 +333,7 @@ export function createTelosConversationSource(options: {
           [...wanted].some((id) => !seen.has(id))
         )
           refuse();
-        return { messages: completed, attributions, references: [...references] };
+        return { messages: completed, attributions, references: [...references], initialPrompt };
       };
       const retained = read();
       const pinsFor = (messages: Message[]) => [

@@ -58,6 +58,7 @@ function fixture() {
     blockId: 'visible',
     delta: 'Approved public plan.',
   });
+  append('block_end', { messageId: 'answer', blockId: 'visible', blockType: 'text' });
   const boundary = append('message_end', { messageId: 'answer' });
   const selection = {
     requestId: randomUUID(),
@@ -194,6 +195,7 @@ describe('Telos adapter for the existing authorized context compiler', () => {
     append('message_start', {});
     append('block_start', { blockId: 'plan', blockType: 'text' });
     append('block_delta', { blockId: 'plan', delta: 'Native public plan.' });
+    append('block_end', { blockId: 'plan', blockType: 'text' });
     const sequence = append('message_end', {});
     const opened = await f.source.openConversation({
       ...f.selection,
