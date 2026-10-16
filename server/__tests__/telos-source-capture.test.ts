@@ -163,6 +163,44 @@ function fixture() {
 }
 
 describe('reviewed Telos source capture through existing owners', () => {
+  it('keeps distinct create and adopt request identities separate without concatenated-prefix collisions', async () => {
+    const f = fixture();
+    const first = await f.preview('other');
+    const adopted = await f.capture.adopt(
+      {
+        itemId: 'other',
+        requestId: 'create:identity',
+        selection: f.selection,
+        expectedRevision: first.packet.workRevision,
+        previewSha256: first.sha256,
+      },
+      actor,
+    );
+    const proposal = {
+      requestId: 'identity',
+      outcome: {
+        summary: 'Studio',
+        intent: 'Record',
+        rationale: 'Music',
+        acceptanceCriteria: ['Ready'],
+        profile: 'personal',
+        milestones: ['Plan'],
+      },
+      selection: f.selection,
+    };
+    const preview = await f.capture.previewNew(proposal, actor);
+    const created = await f.capture.createReviewed(
+      { ...proposal, previewSha256: preview.sha256 },
+      actor,
+      f.createOutcome,
+    );
+    expect(created.work.itemId).toBe('created-1');
+    expect(created.work.sources[0].snapshotId).not.toBe(adopted.work.sources[0].snapshotId);
+    expect(f.capture.read('other', adopted.work.sources[0].snapshotId, actor).packet).toEqual(
+      first.packet,
+    );
+  });
+
   it('round trips reviewed canonical links and rejects duplicate references before creating anything', async () => {
     const f = fixture();
     const link = {

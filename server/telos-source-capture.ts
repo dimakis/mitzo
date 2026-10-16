@@ -25,6 +25,8 @@ import {
 } from './telos-artifact-store.js';
 
 const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+const requestKey = (operation: string, actorId: string, requestId: string) =>
+  hash(JSON.stringify([operation, actorId, requestId]));
 function operator(actor: TelosWorkActor) {
   if (actor.kind !== 'operator' || !actor.id.trim())
     throw new TelosWorkError('unauthorized', 'Interactive operator authority required');
@@ -213,7 +215,7 @@ export class TelosSourceCapture {
     }
     if (!record.itemId || !record.itemRevision) conflict();
     const sessionId = 'source-capture:' + hash(actorId),
-      requestId = hash(actorId + ':create:' + input.requestId);
+      requestId = requestKey('create-artifact', actorId, input.requestId);
     let artifact = this.options.artifacts.retryReceipt(sessionId, requestId, inputHash);
     if (!artifact)
       artifact = this.options.artifacts.save({
@@ -232,7 +234,8 @@ export class TelosSourceCapture {
       artifact,
       {
         itemId: record.itemId,
-        requestId: 'create:' + input.requestId,
+        requestId: input.requestId,
+        scope: 'create',
         expectedRevision: record.itemRevision,
       },
       actor,
@@ -244,7 +247,7 @@ export class TelosSourceCapture {
     const actorId = operator(actor);
     const input = TelosSourceAdoptRequestSchema.parse(raw);
     const sessionId = 'source-capture:' + hash(actorId);
-    const requestId = hash(actorId + ':' + input.requestId);
+    const requestId = requestKey('adopt-artifact', actorId, input.requestId);
     const inputHash = hash(JSON.stringify(input));
     // Check the original request before source rereads or any mutable/current data.
     let artifact = this.options.artifacts.retryReceipt(sessionId, requestId, inputHash);
@@ -283,17 +286,22 @@ export class TelosSourceCapture {
       packet.workRevision !== input.expectedRevision
     )
       conflict();
-    return this.linkPacket(packet, artifact, input, actor);
+    return this.linkPacket(packet, artifact, { ...input, scope: 'adopt' }, actor);
   }
 
   private linkPacket(
     packet: TelosSourcePacket,
     artifact: TelosArtifactMetadata,
-    input: { itemId: string; requestId: string; expectedRevision: string },
+    input: {
+      itemId: string;
+      requestId: string;
+      expectedRevision: string;
+      scope: 'create' | 'adopt';
+    },
     actor: TelosWorkActor,
   ) {
     const actorId = operator(actor),
-      requestId = hash(actorId + ':' + input.requestId);
+      requestId = requestKey(input.scope + '-command', actorId, input.requestId);
     return this.options.work.execute(
       {
         operation: 'source',
@@ -302,7 +310,7 @@ export class TelosSourceCapture {
         expectedRevision: input.expectedRevision,
         snapshot: {
           version: 1,
-          snapshotId: hash(actorId + ':' + input.requestId),
+          snapshotId: requestId,
           itemId: input.itemId,
           source: { namespace: 'mitzo', conversationId: packet.context.sourceConversationId },
           selection: {
