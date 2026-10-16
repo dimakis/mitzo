@@ -296,7 +296,7 @@ export function buildPermissionHandler(
             void pending.acceptRetainedGrant();
         }
         const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };
-        for (const transport of new Set([session.transport, ...session.observers]))
+        for (const transport of registry.getPermissionTransports(session))
           transportSend(transport, resolved);
         resolve(result);
         return result;
@@ -410,7 +410,7 @@ export function buildPermissionHandler(
         });
       }
       const event = { type: 'permission_request', ...request };
-      for (const transport of new Set([session.transport, ...session.observers]))
+      for (const transport of registry.getPermissionTransports(session))
         transportSend(transport, event);
     });
   };

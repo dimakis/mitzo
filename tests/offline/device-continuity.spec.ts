@@ -99,6 +99,21 @@ for (const theme of ['dark', 'light']) {
       }),
     ).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`device-continuity-${theme}.png`) });
+    await emit({ type: 'permission_resolved', permId: 'approval' });
+    await expect(page.getByText('git status', { exact: false })).toHaveCount(0);
+    await expect(input).toHaveValue('Continue from this device');
+    await expect(input).toBeFocused();
+    await emit({
+      type: 'permission_request',
+      permId: 'next-approval',
+      toolName: 'Bash',
+      toolInput: 'git diff',
+    });
+    await expect(page.getByText('git diff', { exact: false })).toBeVisible();
+    await emit({ type: 'permission_timeout', permId: 'next-approval' });
+    await expect(page.getByText('git diff', { exact: false })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Stop generation', exact: true })).toBeVisible();
+    await expect(input).toBeFocused();
     expect(errors).toEqual([]);
   });
 }

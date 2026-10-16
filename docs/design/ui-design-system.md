@@ -1023,3 +1023,12 @@ continued streaming, composer content and keyboard focus. Inspected captures sho
 renders omit the shell. The full-app activity fixture also covers a legacy
 handoff during a reply; broad app builds and browser acceptance remain in CI
 under the host's 1 GiB local heap limit. No backend or model is used.
+
+Live approval requests, resolutions, expiry and abort events use the same current
+v2 subscriber list as both interfaces, alongside the owner and legacy observers.
+Physical attachment identity deduplicates decorated transports. Offline harness
+and real chat-registry fixtures resolve pending approvals after handoff, deliver
+later requests to both devices, and cover joining/unwatching subscribers, closed
+or failing sockets and expiry/cancellation. The browser continuity fixture also
+verifies resolved/expired cards disappear while the draft, focus and live reply
+remain intact. No approval scope or decision authority is added by subscription.

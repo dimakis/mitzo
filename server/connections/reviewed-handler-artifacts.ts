@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.184';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.185';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -300,7 +300,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     '32ddeeac4956678ed920f150acfb314fdacc8a6afb743eb34d3183d7e6699fb4',
   '../../packages/harness/src/permission-handler.ts':
-    '20d09ccadeb668c91008713b45aaffd5762d34c0a6dc1651b3e234732743a7fa',
+    '620c192850ee9a538fb88624198c3724bf37098a9a961a480ce6d3d3f0bf479f',
   '../../packages/harness/src/permissions.ts':
     'e00992d7d86e56d950964a9f6a801f541a425df818a5ff3b6405e2778a1ca0df',
   '../../packages/protocol/src/session-approval-scope.ts':
@@ -361,10 +361,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '871767b8a5c5a409e76136785a0cc12f7be82f120da594fe87f65272435d9252',
+  '../chat.ts': '244f30d86f03c9a61a1061d44e874a8beca0ab132333ce43e75ebfd50a56a0f6',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
-    'd5b795c7cf178c0cfd3b8e2cb4a2470b4af25af276f02652ba878e09a9a3ca21',
+    '4cf252b1a2e695de8eaff9b1be227f537de5559b5c9771ea6986e3066e736a21',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
