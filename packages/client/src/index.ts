@@ -52,6 +52,12 @@ export type { ServerMessage, WsMsg } from './server-messages.js';
 
 // API client
 export { MitzoApiClient } from './api-client.js';
+export { CollaborationApiClient, CollaborationApiError } from './collaboration-api.js';
+export {
+  createCollaborationProjection,
+  applyCollaborationEvents,
+} from './collaboration-projection.js';
+export type { CollaborationProjection } from './collaboration-projection.js';
 export type {
   ApiFetch,
   AppConfig,

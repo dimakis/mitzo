@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.149';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.150';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,17 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Fresh-agent conversation metadata and offline client projection; execution remains disabled.
+  '../../packages/protocol/src/collaboration-conversation.ts':
+    '8bdd5ec37c5f2bfa59f79f401bb4955dde9dba64fe6acdc963b5bb0f76745653',
+  '../../packages/protocol/src/collaboration-conversation-store.ts':
+    'a003f142f1d8da9d2e99369b43536faa45b5098da34bf39f0f5bebcaa3e623ab',
+  '../../packages/client/src/collaboration-api.ts':
+    '05ef5f932a9bd36ff9cddf70971449e25c1376fc539150ff0a523446733e6cbb',
+  '../../packages/client/src/collaboration-projection.ts':
+    '67e577d8c51e6129f24777be3e9f56be603c4ec16d7c0730edac5d6950c5ec1f',
+  '../../packages/client/src/index.ts':
+    '6ec891ed81e2d18d0fc375cfb8722d06df3831e3b1a30eb4b435ebcf70faba8c',
   // Assigned task persistence and authenticated owner dispatch; no execution activation.
   '../agent-task-store.ts': 'f1b47b3ee410e5a5727255b5939cd60ab22713858e1b05cd54c2611611143f84',
   '../agent-task-service.ts': '226f42689d54ad511770c22cc62cfdfcad65673e7f5d2850793a043c73f69dc7',
@@ -31,11 +42,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1b56cfe7f6958a042ee1fa0858df1c4a638f90690180a9087f5ef4b0e38a1d5f',
   // Durable references between existing ordinary sessions, without execution authority.
   '../session-collaboration-router.ts':
-    'd81fac17e0f009db92c78c2792e697d1da7e26c3a6cee432f1367196afae2d57',
+    'f9904e62fab0b1b50245896fb3a3674ac4949bbcb86c7f16b543b9cdd293fa4d',
   '../../packages/protocol/src/session-collaboration.ts':
     'e8e47f2b79832f0288063745acbed93c7c5f8f4db71f5c8a71705b1b02a59198',
   '../../packages/protocol/src/session-collaboration-store.ts':
-    '073bcdd866bd9c74fdd0b86250be33faa2a09cd87baa6bce48d89927dc5d0e93',
+    '7361e3e2ad32247ae6eecd12dfe68b2b7b27590cc95d5c46729b503de94bb62c',
   // Saved-history navigation keeps each mockup read bound to the selected chat.
   '../../frontend/src/pages/MockupsView.tsx':
     'fd7891f65bc8f64fd04d63c222425166e1bc05c5cffc69b67f035ddc36ba33f7',
@@ -494,7 +505,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    '0d3fe1f0f321cfacd7f55d75eea76cd3894b7d699341e8e4912c83b3f4b76c3d',
+    'dc8723f5f873242ef92566394477d11ec2474ee31c2df8c8039c3b8d9977d30d',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -554,7 +565,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '84f07868a27cc617cec53dd6da3d20a24fda238f3d2df4ece5a04ec6ac78c1b8',
+    '319797ea0e625e9f1cfc47e6eb8fed7359eca740d0db28c7a6571e14c7904675',
   '../agent-context-authority.ts':
     '68b721db46cf6ba99de042cdf32be345bfc78c7ae27c2e31ee2b0b52a20ac266',
   '../agent-context-delivery.ts':
@@ -720,7 +731,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/biometric.ts':
     '7b107f137a143c9d30f9baeb6b685abe813d7a5b01eac33020014f1f1db33173',
   '../../packages/client/src/api-client.ts':
-    '05777d4f9db2dd8412a00b35d9336d450fbba22e19a1639f113fc5c4ae79ebfc',
+    'a19575a8f5cba037f6aee6ac8c8e475131a3d2a0c7236d8ea8e0b5048f3a0181',
   '../../packages/client/src/applied-delivery.ts':
     'ee75ecc60e14a6e034fc8486a830d542eb1de7ca7c2392df0eb9a3c2fb7d8e2a',
   '../../packages/client/src/applied-event-acks.ts':

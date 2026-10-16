@@ -344,6 +344,7 @@ export * from './ordinary-local-vertex-admission.js';
 
 export * from './ordinary-local-vertex-custody.js';
 export type { ContextCompaction } from './context-compaction.js';
+export * from './collaboration-conversation.js';
 export {
   SessionCollaborationIdSchema,
   SessionCollaborationSchema,

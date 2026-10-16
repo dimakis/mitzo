@@ -36,6 +36,14 @@ unified chat UI cutover below remain required.
 
 ## Accepted owners reused by the bounded service
 
+The approved fresh-agent successor uses the [slice 2 conversation contracts](symposium-conversation-contracts.md).
+Its host-only first-chat preparation records one ordinary source, pending joins and
+the exact allocation operation; it does not use the older coordinator/child allocator
+below. Policies and projection reads are wired under the association resource.
+Public source review, Add agent and send remain explicitly disabled pending ordinary
+driver composition. Existing-chat import is deferred; broader association semantics
+do not authorize exposing an import flow.
+
 | Operation              | Owner and boundary                                                                                                                                                                                                                                                                               |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Account discovery      | `server/app.ts` composes `OutputContributors` with `loadAccountProfiles`; `list` validates existing account profiles and ordinary route compatibility. No separate contributor account store.                                                                                                    |
@@ -96,8 +104,9 @@ idempotent retry, atomic persistence/backup, real Express composition with mocke
 providers and uncertainty isolated to the original contributor. These tests make
 no model calls and do not grant runtime capacity or provider enrollment.
 
-Canonical staging currently refuses its retained owner check; use the recorded
-incident and existing recovery owner rather than create another backend or force
-restart. Provider enrollment needs separately reviewed staging configuration.
+Canonical staging and its pipeline were stood down on 15 October. Do not check,
+enqueue, recover, restart, recreate or deploy them. Retained incident and ownership
+records are historical evidence to preserve. Live qualification requires a separately
+selected authorized target; no production fallback is permitted.
 Live qualification must explicitly use a supported Luna model and announce its
 exact charged account before calling it. Production activation is separate.
