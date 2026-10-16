@@ -17,6 +17,7 @@ const COLLECTION_ROUTES = new Set([
   '/todos',
   '/more',
   '/mockups',
+  '/sandboxes',
   '/terminal',
   '/connections-access',
   '/connections',

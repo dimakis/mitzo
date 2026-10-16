@@ -58,6 +58,7 @@ describe('MobileShell navigation', () => {
     '/todos',
     '/more',
     '/mockups',
+    '/sandboxes',
     '/connections-access',
     '/knowledge',
   ])('owns the full wordmark on %s', (path) => {

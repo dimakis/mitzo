@@ -27,3 +27,15 @@ export function validateOpenShellCliEnvironment(
     throw new Error('Private OpenShell CLI environment requires explicit home, config and path');
   return result;
 }
+
+/** Match every OpenShell subprocess to the same explicit or restricted ambient
+ * namespace. Never merge inherited variables into a private environment. */
+export function openShellCliEnvironment(value?: OpenShellCliEnvironment): Record<string, string> {
+  return value
+    ? validateOpenShellCliEnvironment(value)
+    : Object.fromEntries(
+        ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+          process.env[key] ? [[key, process.env[key]!]] : [],
+        ),
+      );
+}

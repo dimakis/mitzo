@@ -40,3 +40,12 @@ it('offers the per-chat mockup collections from More', () => {
   );
   expect(screen.getByRole('link', { name: 'Mockups' }).getAttribute('href')).toBe('/mockups');
 });
+
+it('opens sandbox management from More', () => {
+  render(
+    <MemoryRouter>
+      <MoreView />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'Sandboxes' }).getAttribute('href')).toBe('/sandboxes');
+});
