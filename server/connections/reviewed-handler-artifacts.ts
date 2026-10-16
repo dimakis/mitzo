@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.235';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.239';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/collaboration-visible-source.ts':
+    '689c1925f2ba21871adbda5d79201d786cd88a55ed0b383130aad668e005b4f1',
+  '../collaboration-context-source.ts':
+    '5feb8135ccfd6d578ec5f9ac873bd7c260322d49f30d831147be29df3f084262',
   '../../frontend/src/components/ConversationJoiningReview.tsx':
     '281a3331627c21bbd34149d697927291d355da0f0505d1b5666647219bfa7a31',
   '../../frontend/src/hooks/useConversationJoiningReview.ts':
@@ -599,7 +603,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    'dc8723f5f873242ef92566394477d11ec2474ee31c2df8c8039c3b8d9977d30d',
+    '5cea0c873c0ecf9b77c06bf12de7d9638ca888872d2ba738f18b24cba8826ed7',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
