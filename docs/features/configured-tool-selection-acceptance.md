@@ -49,7 +49,8 @@ Package/frontend and focused server typechecks pass after correcting a catalog
 return type and explicit admission-map narrowing reported by CI. Broad server
 builds and the production Vite/full-app browser suite remain CI gates under the
 local heap limit; focused actual-page renders do not substitute for those checks.
-The final combined focused run passed 298 checks in 26 files. The combined actual-page
+The initial combined focused run passed 298 checks in 26 files. After accepted-main
+integration and review corrections, the combined run passed 306 checks in 27 files. The combined actual-page
 tool matrix passed 20 checks (18 page cases and two startup checks), including the
 existing Phase 1 journeys, configured-source unavailability, cancellation and focus
 restoration. The design command passed 107 checks. These counts overlap and must
