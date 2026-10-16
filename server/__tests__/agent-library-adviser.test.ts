@@ -100,3 +100,25 @@ it('does not start inference after cancellation during session preparation', asy
   await cancelled;
   expect(turn).not.toHaveBeenCalled();
 });
+
+it('includes only the real catalog in advisor context and preserves omitted tool selections', async () => {
+  const tools = [{ id: 'mitzo:Read', version: 1 }];
+  const adviser = new AgentLibraryAdviser(async () => ({
+    provider: 'fake',
+    async *turn(messages) {
+      expect(messages.at(-1)?.content).toContain('mitzo:Read');
+      expect(messages.at(-1)?.content).toContain('Available tool references');
+      yield {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: `\`\`\`json\n${JSON.stringify(definition)}\n\`\`\`` },
+      };
+    },
+  }));
+  const result = await adviser.ask(
+    'owner',
+    { ...input, draft: JSON.stringify({ ...definition, tools }) },
+    new AbortController().signal,
+  );
+  expect(result.proposal?.tools).toEqual(tools);
+});
