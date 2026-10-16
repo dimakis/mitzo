@@ -83,3 +83,43 @@ it('refuses changed output schemas before exposure even when the library has not
     catalog.close();
   }
 });
+
+it('never launches a source captured from a different configuration read than its receipt', async () => {
+  const catalog = new ConfiguredToolCatalog(':memory:');
+  const approved = {
+    docs: { command: 'approved-peer', librarySourceId: '11111111-1111-4111-8111-111111111111' },
+  };
+  const substituted = { docs: { ...approved.docs, command: 'unbound-peer' } };
+  const connect = vi.fn(async () => ({
+    listTools: async () => ({ tools: [{ name: 'search', inputSchema: { type: 'object' } }] }),
+    callTool: vi.fn(),
+    close: vi.fn(async () => {}),
+  }));
+  const options = {
+    cwd: '/source',
+    env: {},
+    signal: new AbortController().signal,
+    readSources: () => approved,
+    assertRuntimeCurrent: vi.fn(),
+    connect,
+  };
+  try {
+    const ref = catalog.reference((await catalog.refresh(options))[0]);
+    connect.mockClear();
+    const readSources = vi
+      .fn()
+      .mockReturnValueOnce(approved)
+      .mockReturnValueOnce(substituted)
+      .mockReturnValue(approved);
+    await expect(
+      (async () => {
+        const admitted = await admitConfiguredTools(catalog, [ref], { ...options, readSources });
+        await admitted.close();
+        return admitted;
+      })(),
+    ).rejects.toThrow(/configuration changed|MCP initialization failed/);
+    expect(connect).not.toHaveBeenCalled();
+  } finally {
+    catalog.close();
+  }
+});
