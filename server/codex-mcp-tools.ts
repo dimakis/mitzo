@@ -3,6 +3,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { McpServerConfig } from './mcp-config.js';
+import {
+  mcpStdioEnvironment,
+  snapshotMcpEnvironment,
+  type McpLaunchEnvironment,
+} from './mcp-launch-environment.js';
 type Input = Record<string, unknown>;
 interface Connection {
   listTools(cursor?: string): Promise<{
@@ -20,7 +25,7 @@ export interface McpToolsOptions {
   cwd: string;
   /** Private receipt-owned launch directory for an admitted source. */
   cwdForSource?: (server: string) => string;
-  env: Record<string, string>;
+  env: McpLaunchEnvironment;
   signal: AbortSignal;
   connect?: (config: McpServerConfig, options: McpToolsOptions) => Promise<Connection>;
 }
@@ -32,7 +37,9 @@ async function connect(config: McpServerConfig, options: McpToolsOptions): Promi
     command: config.command,
     args: config.args,
     cwd: options.cwd,
-    env: { ...options.env, ...config.env },
+    env: config.librarySourceId
+      ? mcpStdioEnvironment(options.env, config.env)
+      : ({ ...options.env, ...config.env } as Record<string, string>),
     stderr: 'pipe',
   });
   try {
@@ -107,6 +114,7 @@ export async function connectCodexMcpTools(
       options.assertRuntimeCurrent?.();
       const peer = await (options.connect ?? connect)(config, {
         ...options,
+        env: config.librarySourceId ? snapshotMcpEnvironment(options.env) : options.env,
         cwd: options.cwdForSource?.(server) ?? options.cwd,
       });
       peers.push(peer);
