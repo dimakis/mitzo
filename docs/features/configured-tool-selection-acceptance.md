@@ -1,7 +1,8 @@
 # Configured tool selection: Phase 2 acceptance
 
 Telos phase `fe020c5eb8557e9a`, parent `a27aa207cce82024`. Work began from
-accepted `f995c9d5`; accepted compact-card redesign #960 (`405b0192`) is preserved.
+accepted `f995c9d5`; accepted compact-card redesign #960 (`405b0192`) is preserved. Accepted main
+`41c4b051` also includes #962 and #973; their sources and manifest entries are preserved.
 This is source implementation evidence. No live route is qualified or activated.
 Phase 1's separately authorized live qualification remains outstanding.
 
@@ -18,8 +19,9 @@ Phase 1's separately authorized live qualification remains outstanding.
    compact cards, source distinctions, exact receipt selection and availability.
 4. [Acceptance #969](https://github.com/dimakis/mitzo/pull/969) (this slice): extended lifecycle/authority/import/concurrency tests and current
    operating documentation. Current-head CI and trusted exact-head Centaur gates
-   remain mandatory before any merge. A user-authorized merge hold applies until
-   independently owned #962 lands and its owning session releases the hold.
+   remain mandatory before any merge. The user-authorized merge hold was released after #962 merged at
+   `41c4b051f82347841f2cda51b1ef252e3895d413`; no staging, deployment or pool
+   activation was authorized by that release.
 
 ## Deterministic execution evidence
 
@@ -77,3 +79,19 @@ ownership and diagnostic records are preserved. Production is not a test fallbac
 Any future live test needs a separately selected and explicitly authorized target,
 a supported Luna model and an exact model/charged-account declaration before calls.
 Source acceptance must not close Phase 1's outstanding live qualification.
+
+## Review corrections after the merge hold
+
+The exact-head reports on the prior candidates approved #966 and #969 but blocked
+#965 and #968. Three discovery regressions were reproduced red and corrected:
+`CEN-8D925CF3FF6E` uses structured source/tool wires, `CEN-E881915CF4A0`
+rejects inherited directory overrides before peer creation, and `CEN-B7842C6315BF`
+retains and awaits the shared peer shutdown promise. A follow-up red test scopes
+approval identities by source UUID as well, preventing colliding labels from
+sharing a session approval. The real HTTP refresh regression also waits on a
+deferred peer close after revocation. Concurrent refresh/publication preserves the
+published receipt and reports its supersession rather than changing its contract.
+
+All corrections are propagated through the stack over current accepted main.
+Previous approvals and green CI do not approve these new heads; fresh current-head
+checks and final trusted Centaur reports remain required before merging.
