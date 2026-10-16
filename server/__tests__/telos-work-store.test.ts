@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TelosWorkStore, type TelosWorkActor } from '../telos-work-store.js';
 import { EventStore } from '../event-store.js';
+import { SessionService, childInputHash } from '../session-service.js';
 import { TaskStore } from '../task-store.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
 import { captureMitzoTelosCore } from '../backup/mitzo-telos.js';
@@ -50,7 +51,9 @@ function fixture() {
     ordinaryConversation: (id: string) => {
       const session = events.getSession(id);
       return (
-        !!session && session.conversationSource === 'mitzo' && session.sessionType !== 'symposium'
+        !!session &&
+        session.conversationSource !== 'external_import' &&
+        session.sessionType !== 'symposium'
       );
     },
   };
@@ -335,6 +338,164 @@ describe('durable Telos work relationships (offline, existing SQLite owners)', (
     ).toThrow(/conflict/i);
   });
 
+  it('recovers the existing SessionService allocation after a crash between the two stores, without starting a turn', () => {
+    const f = fixture();
+    f.link('outcome', 'lead', 'lead');
+    f.command('outcome', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'lead',
+      expectedAssignmentRevision: 0,
+    });
+    f.command('slice', {
+      operation: 'source',
+      snapshot: {
+        ...createTelosWorkFixtures().homeStudio.snapshots[0],
+        itemId: 'slice',
+        snapshotId: 'context',
+      },
+    });
+    const config = createTelosWorkFixtures().multipleChats.conversations[0];
+    f.command('slice', {
+      operation: 'request_attempt',
+      attemptId: 'allocated-before-crash',
+      predecessorAttemptId: null,
+      leadConversationId: 'lead',
+      contextSnapshotId: 'context',
+      configuration: { binding: config.binding, selection: config.selection },
+    });
+    const intent = f.store.pendingAllocations(operator)[0];
+    expect(intent.attempt).toMatchObject({
+      childItemId: 'slice',
+      leadConversationId: 'lead',
+      contextSnapshotId: 'context',
+    });
+    const accountBinding = {
+      accountId: config.binding.account.accountId,
+      accountLabel: 'Offline fixture',
+      provider: 'openai-codex' as const,
+      model: config.selection.model,
+      profileRevision: config.binding.account.profileRevision,
+    };
+    const authority = {
+      parentConversationId: 'lead',
+      parentActive: true,
+      grantId: 'host-grant',
+      grantRevision: 1,
+      accountBinding,
+      reasoningEffort: config.selection.thinking,
+      taskRootId: 'execution-root',
+      taskNodeId: 'execution-child',
+      planRevision: 'pinned-plan',
+      allowedFiles: ['src/**'],
+      allowedCapabilities: ['read'],
+      maxChildren: 2,
+      maxConcurrent: 2,
+      maxDepth: 2,
+      maxSpawnsPerMinute: 2,
+    };
+    let starts = 0;
+    const runtime = {
+      inspect: async () => 'absent' as const,
+      start: async () => {
+        starts++;
+        throw Error('No model execution authorized');
+      },
+      stop: async () => 'confirmed' as const,
+    };
+    const service = new SessionService(join(f.root, 'events.db'), runtime, async () => authority);
+    cleanups.push(() => service.close());
+    service.recordHostGrant(authority, 'operator-session');
+    const request = {
+      parentConversationId: 'lead',
+      idempotencyKey: intent.allocationKey,
+      prompt: 'Exact synthetic reviewed slice context',
+      taskRootId: 'execution-root',
+      taskNodeId: 'execution-child',
+      planRevision: 'pinned-plan',
+      grantId: 'host-grant',
+      grantRevision: 1,
+      accountBinding,
+      reasoningEffort: config.selection.thinking,
+      scope: { files: ['src/**'], capabilities: ['read'] },
+      isolation: 'independent' as const,
+    };
+    const allocationInput = { ...request, inputHash: childInputHash(request) };
+    const allocated = service.createChild(allocationInput, authority);
+    // Simulate a lost response before Telos linking. Replay the ordinary owner key.
+    const restarted = f.open();
+    const recovered = service.createChild(allocationInput, authority);
+    expect(recovered).toEqual(allocated);
+    restarted.recordAllocation(
+      intent.attemptId,
+      { workerConversationId: recovered.conversationId, allocationReceiptId: recovered.inputHash },
+      (evidence) => {
+        const child = service.getChild(evidence.workerConversationId);
+        return (
+          !!child &&
+          child.parentConversationId === 'lead' &&
+          child.idempotencyKey === evidence.allocationKey &&
+          child.inputHash === evidence.allocationReceiptId
+        );
+      },
+    );
+    expect(f.store.read('slice', operator).attempts).toMatchObject([
+      { state: 'chat_ready', workerConversationId: allocated.conversationId },
+    ]);
+    expect(f.events.getSession(allocated.conversationId)?.accountBinding).toEqual(accountBinding);
+    expect(starts).toBe(0);
+    f.command('slice', {
+      operation: 'request_attempt',
+      attemptId: 'explicit-retry',
+      predecessorAttemptId: intent.attemptId,
+      leadConversationId: 'lead',
+      contextSnapshotId: 'context',
+      configuration: { binding: config.binding, selection: config.selection },
+    });
+    expect(f.store.read('slice', operator).attempts).toHaveLength(2);
+    expect(f.store.pendingAllocations(operator)).toMatchObject([
+      { attemptId: 'explicit-retry', allocationKey: 'explicit-retry' },
+    ]);
+  });
+
+  it('rejects linking the lead as its own delegated worker even if the allocation adapter accepts it', () => {
+    const f = fixture();
+    f.link('outcome', 'lead', 'lead');
+    f.command('outcome', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'lead',
+      expectedAssignmentRevision: 0,
+    });
+    f.command('slice', {
+      operation: 'source',
+      snapshot: {
+        ...createTelosWorkFixtures().homeStudio.snapshots[0],
+        itemId: 'slice',
+        snapshotId: 'context',
+      },
+    });
+    const config = createTelosWorkFixtures().multipleChats.conversations[0];
+    f.command('slice', {
+      operation: 'request_attempt',
+      attemptId: 'attempt-1',
+      predecessorAttemptId: null,
+      leadConversationId: 'lead',
+      contextSnapshotId: 'context',
+      configuration: { binding: config.binding, selection: config.selection },
+    });
+    const before = f.store.read('slice', operator);
+    expect(() =>
+      f.store.recordAllocation(
+        'attempt-1',
+        { workerConversationId: 'lead', allocationReceiptId: 'wrong-worker' },
+        () => true,
+      ),
+    ).toThrow(/lead/i);
+    expect(f.store.read('slice', operator)).toEqual(before);
+    expect(f.store.pendingAllocations(operator)).toHaveLength(1);
+  });
+
   it('restores relationship history, source bytes and pending command receipts through the existing backup group', async () => {
     const f = fixture();
     f.command('slice', { operation: 'link', role: 'origin', conversation: external });
@@ -351,21 +512,70 @@ describe('durable Telos work relationships (offline, existing SQLite owners)', (
       tasks.close();
       artifacts.close();
     });
+    const artifact = artifacts.save({
+      itemId: 'slice',
+      filename: 'brief.md',
+      title: 'Exact source brief',
+      bytes: Buffer.from('APPROVED-SYNTHETIC-BRIEF'),
+      sessionId: 'worker-a',
+      requestId: 'source-byte-pin',
+    });
+    const snapshot = {
+      ...createTelosWorkFixtures().homeStudio.snapshots[0],
+      itemId: 'slice',
+      snapshotId: 'backup-source',
+      artifacts: [
+        { artifactId: artifact.id, revision: artifact.revision, sha256: artifact.sha256 },
+      ],
+    };
+    f.command('slice', { operation: 'source', snapshot });
+    f.link('outcome', 'lead', 'lead');
+    f.command('outcome', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'lead',
+      expectedAssignmentRevision: 0,
+    });
+    const config = createTelosWorkFixtures().multipleChats.conversations[0];
+    const command = {
+      operation: 'request_attempt',
+      itemId: 'slice',
+      requestId: 'pending-before-backup',
+      expectedRevision: f.store.read('slice', operator).revision,
+      attemptId: 'pending',
+      predecessorAttemptId: null,
+      leadConversationId: 'lead',
+      contextSnapshotId: 'backup-source',
+      configuration: { binding: config.binding, selection: config.selection },
+    };
+    const receipt = f.store.execute(command, operator);
     const before = f.store.read('slice', operator);
     const destination = join(f.root, 'backup');
     await captureMitzoTelosCore({
       owners: { events: f.events, tasks, telos: artifacts },
       destination,
     });
+    const restoredEvents = new EventStore(join(destination, 'mitzo-events', 'store.db'));
+    const restoredArtifacts = new TelosArtifactStore(join(destination, 'telos', 'store.db'));
     const restored = new TelosWorkStore(join(destination, 'telos', 'store.db'), {
-      ordinaryConversation: (id) => !!f.events.getSession(id),
+      ordinaryConversation: (id) => !!restoredEvents.getSession(id),
     });
     try {
       expect(restored.read('slice', operator)).toEqual(before);
       expect(restored.assignmentHistory('slice', operator)).toHaveLength(1);
       expect(restored.forConversation(external, operator)).toHaveLength(1);
+      expect(restored.execute(command, operator)).toEqual(receipt);
+      expect(restored.pendingAllocations(operator)).toMatchObject([
+        { attemptId: 'pending', allocationKey: 'pending' },
+      ]);
+      expect(restoredArtifacts.read(artifact.id, artifact.revision).bytes.toString()).toBe(
+        'APPROVED-SYNTHETIC-BRIEF',
+      );
+      expect(restoredEvents.getSession('worker-a')).toEqual(f.events.getSession('worker-a'));
     } finally {
       restored.close();
+      restoredArtifacts.close();
+      restoredEvents.close();
     }
   });
 });

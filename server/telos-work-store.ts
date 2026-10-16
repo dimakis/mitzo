@@ -374,16 +374,18 @@ export class TelosWorkStore {
     return (
       this.db
         .prepare(
-          "SELECT attempt_id,configuration,allocation_key,state FROM telos_work_allocation_outbox WHERE state!='recorded' ORDER BY rowid",
+          "SELECT o.attempt_id,o.configuration,o.allocation_key,o.state,a.data FROM telos_work_allocation_outbox o JOIN telos_work_attempts a ON a.attempt_id=o.attempt_id WHERE o.state!='recorded' ORDER BY a.seq",
         )
         .all() as Array<{
         attempt_id: string;
+        data: string;
         configuration: string;
         allocation_key: string;
         state: string;
       }>
     ).map((row) => ({
       attemptId: row.attempt_id,
+      attempt: TelosWorkAttemptSchema.parse(JSON.parse(row.data)),
       configuration: JSON.parse(row.configuration) as Extract<
         TelosWorkCommand,
         { operation: 'request_attempt' }
@@ -412,6 +414,8 @@ export class TelosWorkStore {
           attemptId,
         )[0];
         if (!row) throw new TelosWorkError('not_found', 'Attempt not found');
+        if (allocation.workerConversationId === row.leadConversationId)
+          invalid('Lead conversation cannot be its delegated worker');
         if (row.state === 'chat_ready') {
           if (
             row.workerConversationId !== allocation.workerConversationId ||
