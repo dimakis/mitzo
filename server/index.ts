@@ -1,5 +1,7 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { startWarmPoolHost } from './openshell-warm-pool-host.js';
+import { codexPrivateDirectory } from './codex-private-path.js';
 import {
   assertLegacyOwnedControlAllowed,
   legacyChatOwnsAttachment,
@@ -281,6 +283,14 @@ setConnectionRegistry(connRegistry);
 // Lifecycle construction happens only after the authoritative session, event,
 // task and queue readers exist. It is still inert unless OpenShell is enabled.
 const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
+const warmPoolHost = startWarmPoolHost(configuredOpenShellRuntime, {
+  root: codexPrivateDirectory(),
+  enrolled: process.env.MITZO_OPENSHELL_WARM_POOL_ENABLED === '1',
+  onError: (error) =>
+    log.warn('Warm sandbox pool reconciliation failed', {
+      error: error instanceof Error ? error.message : String(error),
+    }),
+});
 const lifecycleEnabled = configuredOpenShellRuntime && openShellLifecycleEnabled(process.env);
 const lifecycleObservability = lifecycleEnabled
   ? new OpenShellLifecycleObservability({
@@ -1424,6 +1434,13 @@ async function shutdown(signal: string) {
   await terminalPlanAdviserHost?.close();
   lifecycleAbort.abort();
   if (lifecycleTimer) clearInterval(lifecycleTimer);
+  try {
+    await warmPoolHost?.close();
+  } catch (error) {
+    log.warn('Warm pool shutdown retained uncertain ownership', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   openShellLifecycle?.store.close();
   try {
     await drainOwnedSymposium();

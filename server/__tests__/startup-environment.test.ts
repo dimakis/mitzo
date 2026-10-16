@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 // Cover the child process's 20-second startup budget plus fixture cleanup on busy CI runners.
-it('boots with authentication and workspace settings supplied only by the default dotenv file', () => {
+it('boots with authentication, workspace and tracing settings supplied only by the default dotenv file', () => {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-startup-env-'));
   const workspace = join(root, 'workspace');
   mkdirSync(workspace);
@@ -21,6 +21,8 @@ it('boots with authentication and workspace settings supplied only by the defaul
         'MITZO_OPENSHELL_ENABLED=0',
         'MITZO_BIND_HOST=127.0.0.1',
         'PORT=4199',
+        'OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318',
+        'TRACE_CONTENT_MAX_CHARS=1234',
       ].join('\n'),
     );
     const gate = join(root, 'before-listen.mjs');
@@ -31,12 +33,25 @@ it('boots with authentication and workspace settings supplied only by the defaul
       `
       import net from 'node:net';
       globalThis.fetch = async () => new Response('offline fixture', { status: 503 });
+      net.Socket.prototype.connect = function () {
+        queueMicrotask(() => this.emit('error', new Error('offline fixture refuses outbound sockets')));
+        return this;
+      };
       net.Server.prototype.listen = function () {
-        const ready = process.env.AUTH_PASSPHRASE === 'startup-fixture-passphrase'
-          && process.env.AUTH_SECRET === 'startup-fixture-secret-long-enough-for-hs256'
-          && process.env.REPO_PATH === ${JSON.stringify(workspace)};
-        process.stdout.write('STARTUP_ENV_READY=' + ready + '\\n');
-        process.exit(ready ? 0 : 71);
+        Promise.all([
+          import(${JSON.stringify(new URL('../constants.ts', import.meta.url).href)}),
+          import(${JSON.stringify(createRequire(import.meta.url).resolve('@opentelemetry/api'))}),
+        ]).then(([constants, { trace }]) => {
+          const span = trace.getTracer('startup-fixture').startSpan('dotenv-configuration');
+          const ready = process.env.AUTH_PASSPHRASE === 'startup-fixture-passphrase'
+            && process.env.AUTH_SECRET === 'startup-fixture-secret-long-enough-for-hs256'
+            && process.env.REPO_PATH === ${JSON.stringify(workspace)}
+            && constants.TRACE_CONTENT_MAX_CHARS === 1234
+            && span.isRecording();
+          process.stdout.write('STARTUP_ENV_READY=' + ready + '\\n');
+          process.exit(ready ? 0 : 71);
+        }).catch((error) => { console.error(error); process.exit(72); });
+        return this;
       };
     `,
     );

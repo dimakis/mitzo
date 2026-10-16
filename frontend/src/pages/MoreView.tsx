@@ -16,6 +16,7 @@ export function MoreView() {
             title: 'Workspace',
             items: [
               ['Terminal', '/terminal', 'terminal'],
+              ['Sandboxes', '/sandboxes', 'layers'],
               ['Connections', '/connections-access', 'connections'],
               ['Calendar', '/calendar', 'calendar'],
               ['Agent taskboard', '/tasks', 'agents'],
