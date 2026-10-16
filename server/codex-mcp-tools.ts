@@ -71,7 +71,10 @@ export async function connectCodexMcpTools(
   options: McpToolsOptions,
 ) {
   const peers: Connection[] = [];
-  const mapping = new Map<string, { peer: Connection; name: string; canonical: string }>();
+  const mapping = new Map<
+    string,
+    { peer: Connection; name: string; canonical: string; permissionName: string }
+  >();
   const definitions: ToolDefinition[] = [];
   const discovered: {
     server: string;
@@ -129,7 +132,8 @@ export async function connectCodexMcpTools(
           mapping.set(wire, {
             peer,
             name: tool.name,
-            canonical: config.librarySourceId
+            canonical,
+            permissionName: config.librarySourceId
               ? `configured-mcp:${JSON.stringify([config.librarySourceId, tool.name])}`
               : canonical,
           });
@@ -169,7 +173,7 @@ export async function connectCodexMcpTools(
       if (!tool) throw new Error('Unknown MCP tool');
       if (closed) throw new Error('MCP clients closed');
       signal.throwIfAborted();
-      const decision = await permission(tool.canonical, input, signal);
+      const decision = await permission(tool.permissionName, input, signal);
       signal.throwIfAborted();
       if (decision.behavior !== 'allow')
         return { content: decision.message || 'MCP tool permission denied', isError: true };
