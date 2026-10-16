@@ -12,8 +12,9 @@ export interface ConfiguredCatalogOptions extends McpToolsOptions {
   readSources(): Sources;
   assertRuntimeCurrent: () => void;
 }
+export type ConfiguredToolCatalogEntry = AgentToolCatalogEntry & { revision: string };
 interface Receipt {
-  entry: AgentToolCatalogEntry & { revision: string };
+  entry: ConfiguredToolCatalogEntry;
   sourceId: string;
   tool: string;
   binding: string;
@@ -83,7 +84,7 @@ export class ConfiguredToolCatalog {
     if (!('revision' in entry)) throw Error('Configured revision unavailable');
     return { id: entry.id, version: entry.version, revision: entry.revision };
   }
-  list(): AgentToolCatalogEntry[] {
+  list(): ConfiguredToolCatalogEntry[] {
     return (
       this.db
         .prepare('SELECT receipt FROM configured_tools WHERE active=1 ORDER BY rowid')
@@ -114,7 +115,7 @@ export class ConfiguredToolCatalog {
       throw Error('Selected source configuration changed; new discovery and session required');
     return { ...structuredClone(receipt), name: receipt.tool };
   }
-  async refresh(options: ConfiguredCatalogOptions): Promise<AgentToolCatalogEntry[]> {
+  async refresh(options: ConfiguredCatalogOptions): Promise<ConfiguredToolCatalogEntry[]> {
     if (!options.assertRuntimeCurrent) throw Error('Discovery requires runtime custody authority');
     const generation = ++this.generation;
     const sources = structuredClone(eligible(options.readSources()));
