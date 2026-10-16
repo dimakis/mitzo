@@ -242,7 +242,6 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
         }}
       >
         <UiIcon name="files" />
-        <span className="composer-toolbar-label">Resources</span>
         {draftImages.length + selectedContextBlocks.length > 0 && (
           <span className="composer-resource-count">
             {draftImages.length + selectedContextBlocks.length}

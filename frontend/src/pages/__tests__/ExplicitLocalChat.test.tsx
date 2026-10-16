@@ -320,7 +320,7 @@ for (const [name, Screen] of [
     const agent = screen.getByRole('combobox', { name: 'Agent' });
     const account = screen.getByRole('combobox', { name: 'Account' });
     expect(account.compareDocumentPosition(agent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(screen.getByText('Advanced', { exact: true }));
+    expect(screen.getByRole('group', { name: 'Run on' }).closest('details')).toBeNull();
     expect(account.closest('.workspace-controls')).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Run on' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Local Mac' })).toHaveAttribute(
@@ -569,7 +569,7 @@ for (const [name, Screen] of [
     expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Reusable profile drafts' })).toBeNull();
     expect(screen.queryByTestId('web-search-connection')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Open review findings' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Open review findings' })).toBeNull();
     const setMode = vi.spyOn(store.getState(), 'setMode');
     const agentMode = screen.queryByRole('button', { name: /^Agent$/ });
     if (agentMode) {
@@ -584,7 +584,9 @@ for (const [name, Screen] of [
     recoverMetadata();
     fireEvent.click(retry);
     await screen.findByText('Fixed for this conversation');
-    expect(workspace.querySelector('.conversation-state')).toHaveTextContent('First command');
+    expect(
+      workspace.closest('.workspace-controls')?.querySelector('.conversation-state'),
+    ).toHaveTextContent('First command');
     expect(workspace).toHaveAccessibleDescription('First command');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
   });
@@ -708,7 +710,9 @@ for (const [name, Screen] of [
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByText('Fixed for this conversation');
     expect(workspace).toHaveAccessibleName(/Personal ChatGPT, Luna fixture, low, local/);
-    expect(workspace.querySelector('.conversation-state')).toHaveTextContent('Conversation');
+    expect(
+      workspace.closest('.workspace-controls')?.querySelector('.conversation-state'),
+    ).toHaveTextContent('Conversation');
     expect(workspace).toHaveAccessibleDescription('Conversation');
     expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Thinking level' })).toBeEnabled();
@@ -738,7 +742,9 @@ for (const [name, Screen] of [
     const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByText('Fixed for this conversation');
-    expect(workspace.querySelector('.conversation-state')).toHaveTextContent('First command');
+    expect(
+      workspace.closest('.workspace-controls')?.querySelector('.conversation-state'),
+    ).toHaveTextContent('First command');
     expect(workspace).toHaveAccessibleDescription('First command');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     await waitFor(() => expect(screen.getByRole('button', { name: /^Agent$/ })).toBeDisabled());

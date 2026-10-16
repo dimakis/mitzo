@@ -252,7 +252,7 @@ it('does not show the control for a session without a Codex grant', async () => 
     });
     expect(apiFetch).toHaveBeenCalledTimes(4);
     expect(screen.queryByText(/Web search permission:/)).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Refresh setting' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull();
   } finally {
     vi.useRealTimers();
   }
@@ -282,12 +282,12 @@ it('offers retry when Codex startup exceeds the attach window', async () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(screen.getByRole('button', { name: 'Refresh setting' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy();
     expect(apiFetch).toHaveBeenNthCalledWith(4, '/api/sessions/slow-codex/meta', {
       signal: expect.any(AbortSignal),
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh setting' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -331,7 +331,7 @@ it('reloads the grant after a revision conflict', async () => {
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Web search permission: Choose' }));
   fireEvent.click(screen.getByRole('button', { name: 'Allow for this conversation' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Refresh setting' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Check again' }));
   await screen.findByRole('button', { name: 'Web search permission: Denied' });
   expect(apiFetch).toHaveBeenCalledTimes(3);
 });
@@ -507,4 +507,36 @@ it('does not display raw metadata parse errors', async () => {
     await vi.advanceTimersByTimeAsync(2000);
   });
   expect(screen.getByRole('alert').textContent).not.toContain('private response content');
+});
+
+it('settles repeated missing Codex grants as unavailable without claiming startup or permission', async () => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/meta')
+      ? ({ ok: true, json: async () => ({ codexQueue: { connected: true } }) } as Response)
+      : ({ status: 404 } as Response),
+  );
+  render(
+    <WebSearchConsent
+      sessionId="missing-grant"
+      mode="agent"
+      connected
+      connectionId="owner"
+      running={false}
+    />,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(
+    screen.getByText('Web access controls are unavailable for this chat. You can keep chatting.'),
+  ).toBeTruthy();
+  expect(screen.queryByText(/still starting/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+  expect(screen.getByRole('button', { name: 'Checking…' }).hasAttribute('disabled')).toBe(true);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Web search permission/ })).toBeNull();
 });

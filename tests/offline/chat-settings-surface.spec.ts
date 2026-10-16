@@ -15,6 +15,7 @@ const output = build({
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
   alias: {
     '@mitzo/client': resolve('packages/client/src/index.ts'),
+    '@mitzo/client/hooks': resolve('packages/client/src/hooks/index.ts'),
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
   },
 });
@@ -34,9 +35,16 @@ for (const appearance of ['dark', 'light'] as const) {
           body: file.text,
           contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
         });
-      if (path === '/mitzo-wordmark.png' || path === '/mitzo-icon.png')
+      if (
+        path === '/mitzo-wordmark.png' ||
+        path === '/mitzo-icon.png' ||
+        path === '/openshell-mark.svg'
+      )
         return readFile(resolve('frontend/public', path.slice(1))).then((body) =>
-          route.fulfill({ body, contentType: 'image/png' }),
+          route.fulfill({
+            body,
+            contentType: path.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
+          }),
         );
       if (path !== '/') return route.abort();
       return route.fulfill({
@@ -52,11 +60,15 @@ for (const appearance of ['dark', 'light'] as const) {
     const input = page.getByRole('textbox', { name: 'Message Mitzo' });
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('.chat-input .agent-settings-picker')).toHaveCount(0);
-    await expect(input).not.toBeFocused();
+    if (mobile) await expect(input).not.toBeFocused();
     await page.screenshot({
       path: testInfo.outputPath(`single-chat-settings-${appearance}-closed.png`),
     });
+    const newWidth = (await page.locator('.chat-input-row').boundingBox())!.width;
     await input.fill('Keep my draft');
+    await expect(input).toHaveCSS('outline-style', 'none');
+    await expect(input).toHaveCSS('border-top-width', '0px');
+    await expect(page.getByRole('button', { name: 'Open session tray' })).toHaveText('');
     await trigger.click();
     await expect(panel).toBeVisible();
     await expect(panel.getByRole('combobox')).toHaveCount(4);
@@ -65,8 +77,18 @@ for (const appearance of ['dark', 'light'] as const) {
     await expect(page.getByRole('button', { name: 'Collaborate' })).toBeHidden();
     const model = panel.getByRole('combobox', { name: 'Thinking level' });
     await model.selectOption('Low');
-    await page.getByText('More options', { exact: true }).click();
+    await page.getByText('More settings', { exact: true }).click();
     await expect(page.getByRole('button', { name: 'Collaborate' })).toBeVisible();
+    await panel.getByRole('combobox', { name: 'Account', exact: true }).selectOption('Work');
+    await panel.getByRole('button', { name: 'Local Mac', exact: true }).click();
+    await expect(panel.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    if (!mobile) expect((await panel.boundingBox())!.width).toBeLessThanOrEqual(384);
+    expect(await panel.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(
+      'rgba(0, 0, 0, 0)',
+    );
     await panel.locator('.workspace-controls-content').evaluate((element) => {
       element.scrollTop = 0;
     });
@@ -106,6 +128,8 @@ for (const appearance of ['dark', 'light'] as const) {
       await expect(page.getByRole('navigation')).toBeHidden();
       await page.getByRole('button', { name: 'Start session', exact: true }).click();
       await expect(page.getByTestId('sent-count')).toHaveText('1');
+      expect((await page.locator('.chat-input-row').boundingBox())!.width).toBe(newWidth);
+      await input.fill('Keep my draft');
       await expect(page.getByRole('navigation')).toBeHidden();
       await page.evaluate(() => {
         Reflect.deleteProperty(window.visualViewport!, 'height');
@@ -120,7 +144,6 @@ for (const appearance of ['dark', 'light'] as const) {
     await trigger.click();
     await expect(panel).toBeVisible();
     await expect(input).toBeInViewport();
-    await panel.locator('.chat-settings-advanced > summary').click();
     const local = panel.getByRole('button', { name: 'Local Mac', exact: true });
     await local.scrollIntoViewIfNeeded();
     const localBox = (await local.boundingBox())!;
@@ -148,3 +171,87 @@ for (const appearance of ['dark', 'light'] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+test('profile drafts: real dialog keeps edits and explains the empty state', async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const files = (await output).outputFiles!;
+  let populated = true,
+    catalogReads = 0;
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.route('**/*', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() !== 'GET') return route.abort();
+    if (path === '/api/sessions/fixture/symposium/status')
+      return route.fulfill({ json: { sessionId: 'fixture', config: null, seats: [] } });
+    if (path === '/api/symposium/profiles') {
+      catalogReads++;
+      return route.fulfill({ json: [] });
+    }
+    if (path === '/api/symposium/profile-proposals')
+      return route.fulfill({
+        json: populated
+          ? [
+              {
+                proposalId: 'draft',
+                suggestedProfileId: null,
+                state: 'pending',
+                definition: {
+                  name: 'Reviewer',
+                  role: 'reviewer',
+                  instructions: 'Review the changes',
+                  expectedOutput: 'Findings',
+                  acceptanceCriteria: ['Cite evidence'],
+                  modelPolicyRole: 'reviewer',
+                },
+              },
+            ]
+          : [],
+      });
+    if (path.startsWith('/api/')) return route.fulfill({ json: [] });
+    const file = files.find((file) => path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'));
+    if (file)
+      return route.fulfill({
+        body: file.text,
+        contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+      });
+    if (path !== '/') return route.abort();
+    return route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><html data-theme="dark" data-accent="mint" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body{margin:0;height:100%;overflow:hidden}.workspace-tabs{position:fixed;bottom:0;inset-inline:0;min-height:64px;display:flex;align-items:center;justify-content:center}</style><div id="root"></div><script src="/fixture.js"></script></html>',
+    });
+  });
+  await page.setViewportSize({
+    width: testInfo.project.name.startsWith('mobile') ? 320 : 1280,
+    height: 900,
+  });
+  await page.goto('https://mitzo-ui.test/?recovery=profiles');
+  const trigger = page.getByRole('button', { name: /^Workspace controls/ });
+  async function openDrafts() {
+    if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+    const more = page.locator('.workspace-controls-options');
+    if ((await more.getAttribute('open')) === null) await more.locator('summary').click();
+    await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
+  }
+  await openDrafts();
+  const dialog = page.getByRole('dialog', { name: 'Reusable profile drafts' });
+  const input = dialog.getByRole('textbox', { name: 'Instructions', exact: true });
+  await input.fill('Keep these edits between openings');
+  await dialog.getByRole('button', { name: 'Close profile drafts' }).click();
+  await expect(dialog).toBeHidden();
+  await openDrafts();
+  await expect(input).toHaveValue('Keep these edits between openings');
+  expect(catalogReads).toBe(1);
+  await page.screenshot({ path: testInfo.outputPath('compact-profile-drafts.png') });
+  await dialog.getByRole('button', { name: 'Close profile drafts' }).click();
+  populated = false;
+  await page.reload();
+  await openDrafts();
+  await expect(dialog.getByText('No profile drafts in this chat yet.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});

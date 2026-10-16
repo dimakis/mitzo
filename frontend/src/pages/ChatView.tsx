@@ -16,6 +16,7 @@ import {
 import { createBrowserId } from '../lib/browser-crypto';
 import { useNewChatDraft, useChatDraftSearch } from '../hooks/useNewChatDraft';
 import {
+  newChatPathWithDraft,
   CHAT_DRAFTS_CHANGED,
   getChatDraft,
   chatDraftStorageKey,
@@ -104,6 +105,9 @@ export function ChatView() {
   const sendError = useMitzoStore((s) => s.sendError);
   const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const conversationTitle = useMitzoStore(
+    (s) => s.sessions.list?.find((item) => item.id === s.sessions.active)?.summary,
+  );
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
@@ -1052,6 +1056,13 @@ export function ChatView() {
               <UiIcon name="edit" />
             </button>
           }
+          title={
+            !activeSessionId
+              ? 'New chat'
+              : briefingChat.isBriefing
+                ? briefingChat.name
+                : conversationTitle || 'Chat'
+          }
           settings={settings}
           agent={!isSymposium ? (agentLabel ?? 'Mitzo') : undefined}
           scopeKey={activeSessionId ?? newChatDraft.draft.id}
@@ -1217,7 +1228,7 @@ export function ChatView() {
                 (ordinaryControls ? null : isSymposium ? (
                   <AddAgentSheet sessionId={activeSessionId} />
                 ) : null)}
-              {activeSessionId && (
+              {activeSessionId && isSymposium && (
                 <SymposiumReviewEntry
                   key={activeSessionId}
                   sessionId={activeSessionId}
@@ -1225,7 +1236,7 @@ export function ChatView() {
                 />
               )}
             </div>
-            {activeSessionId && !controlsBlocked && !localBound && (
+            {activeSessionId && isSymposium && !controlsBlocked && !localBound && (
               <SymposiumDirectorPanel sessionId={activeSessionId} />
             )}
             <div ref={setProfileToolsTarget} />
@@ -1270,6 +1281,11 @@ export function ChatView() {
         }
       />
       <SymposiumConversation
+        onContinueInNewChat={(text) => {
+          const path = newChatPathWithDraft(text);
+          storeNewSession();
+          navigate(path);
+        }}
         ordinaryConfirmed={
           (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
         }

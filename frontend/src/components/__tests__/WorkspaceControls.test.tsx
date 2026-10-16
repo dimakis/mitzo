@@ -87,7 +87,7 @@ it('closes when changing conversations without resetting mounted fields', () => 
   expect(trigger.getAttribute('aria-expanded')).toBe('false');
 });
 
-it('groups secondary controls behind More options in the single top panel', () => {
+it('groups secondary controls behind More settings in the single top panel', () => {
   const view = render(
     <WorkspaceControls
       {...props}
@@ -108,7 +108,28 @@ it('groups secondary controls behind More options in the single top panel', () =
   expect(screen.getByRole('combobox', { name: 'Agent' })).toBeTruthy();
   const options = view.container.querySelector('details')!;
   expect(options.open).toBe(false);
-  fireEvent.click(screen.getByText('More options'));
+  fireEvent.click(screen.getByText('More settings'));
   expect(options.open).toBe(true);
   expect(screen.getByRole('button', { name: 'Collaborate' })).toBeTruthy();
+});
+
+it('shows conversation context separately from the compact settings trigger', () => {
+  const view = render(
+    <WorkspaceControls
+      {...props}
+      title="New chat"
+      agent="Default Mitzo"
+      settings={<input aria-label="Account" />}
+    >
+      <button>Permissions</button>
+    </WorkspaceControls>,
+  );
+  const trigger = screen.getByRole('button', { name: /^Workspace controls/ });
+  expect(trigger.textContent).toBe('Settings');
+  expect(screen.getByText('New chat').closest('button')).toBeNull();
+  expect(view.container.querySelector('.workspace-controls-context')?.textContent).toContain(
+    'Default Mitzo',
+  );
+  fireEvent.click(trigger);
+  expect(screen.getByRole('region', { name: 'Agent settings' })).toBeTruthy();
 });

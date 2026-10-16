@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { AgentSettingsPicker } from '../AgentSettingsPicker';
+import { AgentSettingsPicker, AgentSettingsFields } from '../AgentSettingsPicker';
 
 afterEach(cleanup);
 
@@ -348,4 +348,25 @@ it('keeps independent settings and keyboard focus outside a conversation compose
   expect(document.activeElement).toBe(triggers[1]);
   // Shared settings embedded outside chat must have their own bounded scrolling surface.
   expect(region.style.getPropertyValue('--agent-settings-space')).not.toBe('');
+});
+
+it('keeps Account, Model, Agent and Run on directly available in compact settings', () => {
+  const { container } = render(
+    <AgentSettingsFields
+      {...props}
+      details={<p>Session details</p>}
+      repository={<button>Add repository</button>}
+    />,
+  );
+  const runtime = screen.getByRole('group', { name: 'Run on' });
+  expect(runtime.closest('details')).toBeNull();
+  expect(container.querySelector('.chat-settings-group')).toBeNull();
+  const controls = screen.getAllByRole('combobox');
+  expect(controls.map((control) => control.getAttribute('aria-label'))).toEqual([
+    'Account',
+    'Model',
+    'Thinking',
+    'Agent',
+  ]);
+  expect(screen.getByRole('button', { name: 'Add repository' }).closest('details')).toBeNull();
 });

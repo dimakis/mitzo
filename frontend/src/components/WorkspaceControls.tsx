@@ -11,6 +11,7 @@ export function WorkspaceControls({
   status,
   summary,
   agent,
+  title,
   settings,
   onDone,
   reviewDisabled = false,
@@ -18,6 +19,7 @@ export function WorkspaceControls({
   attention = false,
 }: {
   agent?: string;
+  title?: string;
   settings?: ReactNode;
   onDone?: () => void;
   reviewDisabled?: boolean;
@@ -35,7 +37,7 @@ export function WorkspaceControls({
   const [open, setOpen] = useState(false);
   const hasSettings = !!settings;
   useEffect(() => setOpen(false), [scopeKey]);
-  const { ref, present } = useMotionPresence(open, 'disclosure', false);
+  const { ref, present } = useMotionPresence(open, hasSettings ? 'popover' : 'disclosure', false);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {
@@ -138,6 +140,17 @@ export function WorkspaceControls({
         getComputedStyle(owner).getPropertyValue('--control-height'),
       );
       panel.toggleAttribute('data-constrained', space < 6 * controlHeight);
+      if (hasSettings) {
+        const top = panel.getBoundingClientRect().top;
+        const aboveComposer = composer.getBoundingClientRect().top - top;
+        const viewportSpace = Math.max(0, bottom - top);
+        // Keep the composer clear when possible. Short/keyboard viewports retain
+        // a reachable header, footer and one scrolling control row.
+        panel.style.setProperty(
+          '--workspace-popover-space',
+          `${Math.min(viewportSpace, Math.max(6 * controlHeight, aboveComposer))}px`,
+        );
+      }
     };
     const observer = new ResizeObserver(measure);
     // Account selection and repository preparation can add a new launch surface
@@ -155,9 +168,33 @@ export function WorkspaceControls({
     };
   }, [open, attention, ref, hasSettings]);
   return (
-    <section className={`workspace-controls${leading ? ' workspace-controls--navigation' : ''}`}>
+    <section
+      className={`workspace-controls${leading ? ' workspace-controls--navigation' : ''}${hasSettings ? ' workspace-controls--compact' : ''}`}
+    >
       <div className="workspace-controls-heading">
         {leading}
+        {hasSettings && (
+          <div className="workspace-controls-context">
+            <strong className="workspace-controls-profile">
+              {title ?? agent ?? summary?.profile ?? 'Chat'}
+            </strong>
+            <span>
+              {[
+                title ? agent : undefined,
+                summary?.profile,
+                summary?.model,
+                summary?.thinking,
+                summary?.location === 'local'
+                  ? 'Local Mac'
+                  : summary?.location === 'openshell'
+                    ? 'OpenShell'
+                    : undefined,
+              ]
+                .filter(Boolean)
+                .join(' · ') || 'Loading settings…'}
+            </span>
+          </div>
+        )}
         <button
           ref={triggerRef}
           type="button"
@@ -181,35 +218,49 @@ export function WorkspaceControls({
             setOpen(!open);
           }}
         >
-          <UiIcon name={agent ? 'bot' : 'settings'} />
-          <span className="workspace-controls-summary">
-            {summary ? (
-              <>
-                <span className="workspace-controls-profile">{agent ?? summary.profile}</span>
-                {(agent || summary.model || summary.thinking) && (
-                  <span className="workspace-controls-details">
-                    {agent && <span>{summary.profile}</span>}
-                    {summary.model && <span>{summary.model}</span>}
-                    {summary.location && (
-                      <span>{summary.location === 'local' ? 'Local' : 'OpenShell'}</span>
+          {hasSettings ? (
+            <>
+              <UiIcon name="settings" />
+              <span className="workspace-controls-label">Settings</span>
+            </>
+          ) : (
+            <>
+              <UiIcon name={agent ? 'bot' : 'settings'} />
+              <span className="workspace-controls-summary">
+                {summary ? (
+                  <>
+                    <span className="workspace-controls-profile">{agent ?? summary.profile}</span>
+                    {(agent || summary.model || summary.thinking) && (
+                      <span className="workspace-controls-details">
+                        {agent && <span>{summary.profile}</span>}
+                        {summary.model && <span>{summary.model}</span>}
+                        {summary.location && (
+                          <span>{summary.location === 'local' ? 'Local' : 'OpenShell'}</span>
+                        )}
+                        {summary.thinking && <span>{summary.thinking}</span>}
+                      </span>
                     )}
-                    {summary.thinking && <span>{summary.thinking}</span>}
-                  </span>
+                  </>
+                ) : (
+                  <span>Loading profile…</span>
                 )}
-              </>
-            ) : (
-              <span>Loading profile…</span>
-            )}
-          </span>
-          <span
-            id={`${id}-status`}
-            className={`conversation-state${leading ? ' sr-only' : ''}`}
-            title={status}
-          >
+              </span>
+              <span
+                id={`${id}-status`}
+                className={`conversation-state${leading ? ' sr-only' : ''}`}
+                title={status}
+              >
+                {status}
+              </span>
+              <UiIcon name={open ? 'up' : 'down'} />
+            </>
+          )}
+        </button>
+        {hasSettings && (
+          <span id={`${id}-status`} className="conversation-state sr-only">
             {status}
           </span>
-          <UiIcon name={open ? 'up' : 'down'} />
-        </button>
+        )}
         {actions}
         {trailing}
       </div>
@@ -242,7 +293,9 @@ export function WorkspaceControls({
           <div className="workspace-controls-content">
             {settings}
             <details className="workspace-controls-options">
-              <summary>More options</summary>
+              <summary>
+                More settings <UiIcon name="down" size={16} />
+              </summary>
               {children}
             </details>
           </div>

@@ -283,9 +283,6 @@ async function openAgentSettings(page: Page) {
   const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
-  const advanced = page.locator('.chat-settings-advanced');
-  if ((await advanced.getAttribute('open')) === null)
-    await advanced.locator(':scope > summary').click();
 }
 async function assertBoundRunOn(page: Page, location: 'local' | 'openshell', firstCommand = false) {
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
@@ -305,8 +302,8 @@ async function assertBoundRunOn(page: Page, location: 'local' | 'openshell', fir
       `This ${location === 'local' ? 'Local' : 'OpenShell'} conversation supports its first command only. Start a new chat for another command.`,
     );
     await expect(
-      page.getByRole('button', { name: /^Workspace controls/ }).locator('.conversation-state'),
-    ).toHaveText('First command');
+      page.getByRole('button', { name: /^Workspace controls/ }),
+    ).toHaveAccessibleDescription('First command');
   }
 }
 async function assertSettingsGeometry(page: Page) {
@@ -518,7 +515,7 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add agent', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reusable profile drafts' })).toHaveCount(0);
-  await page.getByText('More options', { exact: true }).click();
+  await page.getByText('More settings', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Open review findings' })).toBeEnabled();
   for (const mode of ['Ask', 'Agent', 'Auto']) {
     const control = page.getByRole('button', { name: mode, exact: true });

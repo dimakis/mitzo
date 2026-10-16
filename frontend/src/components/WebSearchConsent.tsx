@@ -35,6 +35,7 @@ export function WebSearchConsent({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const [loading, setLoading] = useState(false);
   const previousTurn = useRef({ sessionId, running });
   const pendingTurnRetry = useRef(false);
   const loadPending = useRef(false);
@@ -52,6 +53,7 @@ export function WebSearchConsent({
     if (!sessionId || !connected || !connectionId) return;
     const controller = new AbortController();
     loadPending.current = true;
+    setLoading(true);
     void (async () => {
       try {
         let transientFailure: Error | null = null;
@@ -110,7 +112,8 @@ export function WebSearchConsent({
           .safeParse(await metaResponse.json()).success;
         if (!cancelled) {
           setConsent(null);
-          if (isCodex) setError('Web search setting is still starting.');
+          if (isCodex)
+            setError('Web access controls are unavailable for this chat. You can keep chatting.');
         }
       } catch (cause) {
         if (!cancelled)
@@ -120,7 +123,10 @@ export function WebSearchConsent({
               : 'Cannot reach the server to load web access. Retry when connected.',
           );
       } finally {
-        if (!cancelled) loadPending.current = false;
+        if (!cancelled) {
+          loadPending.current = false;
+          setLoading(false);
+        }
       }
     })();
     return () => {
@@ -195,18 +201,26 @@ export function WebSearchConsent({
         </button>
       )}
       {error && (
-        <span role="alert">
-          {error}{' '}
+        <div role={error.startsWith('Web access controls are unavailable') ? 'status' : 'alert'}>
+          <p>{error}</p>
           <button
+            disabled={loading || !connected || !connectionId}
             type="button"
             onClick={() => {
-              setError('');
+              setLoading(true);
               setReload((value) => value + 1);
             }}
           >
-            Refresh setting
+            {loading ? 'Checking…' : 'Check again'}
           </button>
-        </span>
+          <details className="web-search-consent-details">
+            <summary>Details</summary>
+            <p>
+              The server could not load this chat’s web-access controls. No permission has been
+              changed.
+            </p>
+          </details>
+        </div>
       )}
       {consent && open && (
         <div className="web-search-consent-panel">
