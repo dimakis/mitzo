@@ -91,6 +91,21 @@ function createReadyStore(transport?: TransportAdapter) {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('createMitzoStore', () => {
+  it.each(['codex_queue', 'user_message', 'session_end'])(
+    'invalidates queue metadata for an active %s event only',
+    async (type) => {
+      const store = createReadyStore();
+      await store.getState().switchSession('queue-session');
+      const revision = store.getState().queueRevision;
+      expect(revision).toBe(0);
+      lastWs.simulateMessage({ type, sessionId: 'another-session', items: [] });
+      lastWs.simulateMessage({ type, items: [] });
+      expect(store.getState().queueRevision).toBe(revision);
+      lastWs.simulateMessage({ type, sessionId: 'queue-session', items: [] });
+      expect(store.getState().queueRevision).toBe(revision + 1);
+    },
+  );
+
   it('retains injected context when an older history request overlaps an optimistic send', async () => {
     const transport = mockTransport();
     const store = createReadyStore(transport);

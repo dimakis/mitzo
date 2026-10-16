@@ -2,6 +2,8 @@ import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/da
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { extname } from 'node:path';
+import { findArtifactCapabilityByExtension } from '@mitzo/protocol';
 
 export const MAX_TELOS_ARTIFACT_BYTES = 5 * 1024 * 1024;
 export const artifactFilename = z
@@ -24,7 +26,8 @@ export interface TelosArtifactMetadata {
   sha256: string;
   size: number;
   sessionId: string;
-  sourceKind: 'user_upload' | 'session_artifact' | 'external_codex_report' | 'source_capture';
+  sourceKind:
+    'user_upload' | 'user_edit' | 'session_artifact' | 'external_codex_report' | 'source_capture';
   sourcePath: string | null;
   createdAt: string;
   url: string;
@@ -56,9 +59,11 @@ function metadata(row: ArtifactRow): TelosArtifactMetadata {
       ? 'source_capture'
       : row.session_id.startsWith('user-upload:')
         ? 'user_upload'
-        : row.session_id.startsWith('external-codex:')
-          ? 'external_codex_report'
-          : 'session_artifact',
+        : row.session_id.startsWith('user-edit:')
+          ? 'user_edit'
+          : row.session_id.startsWith('external-codex:')
+            ? 'external_codex_report'
+            : 'session_artifact',
     sourcePath: row.source_path,
     createdAt: row.created_at,
     url: `/api/telos/artifacts/${row.id}?revision=${row.revision}`,
@@ -284,6 +289,97 @@ export class TelosArtifactStore {
     if (rows.length > 100)
       throw new Error('Narrow the retained material selection before reviewing');
     return rows.filter((row) => this.userUploadAllowed(row.item_id)).map(metadata);
+  }
+  document(id: string, revision?: number) {
+    const artifact = this.read(id, revision);
+    const ext = extname(artifact.filename).toLowerCase();
+    const content = artifact.bytes.toString('utf8');
+    const text = !artifact.bytes.includes(0) && Buffer.from(content).equals(artifact.bytes);
+    const preview =
+      text &&
+      [
+        '.md',
+        '.mdx',
+        '.html',
+        '.htm',
+        '.txt',
+        '.json',
+        '.csv',
+        '.yaml',
+        '.yml',
+        '.css',
+        '.js',
+        '.ts',
+        '.tsx',
+        '.jsx',
+        '.py',
+        '.sh',
+        '.svg',
+      ].includes(ext);
+    return {
+      path: artifact.url,
+      name: artifact.filename,
+      ext,
+      revision: artifact.revision,
+      editable:
+        artifact.sourceKind !== 'source_capture' &&
+        text &&
+        this.userUploadAllowed(artifact.itemId) &&
+        (['.md', '.mdx'].includes(ext) ||
+          findArtifactCapabilityByExtension(ext)?.artifact?.editable === true),
+      previewUnavailable: !preview,
+      content: preview
+        ? content
+        : 'This file has no in-app preview. Use the file options to share or save it.',
+    };
+  }
+  /** Compare and append under one writer lock; successful retries precede the revision fence. */
+  editDocument(input: {
+    id: string;
+    expectedRevision: number;
+    content: string;
+    requestId: string;
+    operatorId: string;
+  }): TelosArtifactMetadata {
+    const sessionId = `user-edit:${input.operatorId}`;
+    const requestInputHash = createHash('sha256')
+      .update(JSON.stringify([input.id, input.expectedRevision, input.content]))
+      .digest('hex');
+    return this.db
+      .transaction(() => {
+        const receipt = this.retryReceipt(sessionId, input.requestId, requestInputHash);
+        if (receipt) return receipt;
+        const latest = this.read(input.id);
+        if (!this.userUploadAllowed(latest.itemId))
+          throw Object.assign(new Error('LifeOps documents require private case storage.'), {
+            status: 403,
+          });
+        if (
+          !this.document(input.id).editable ||
+          input.content.includes('\u0000') ||
+          Buffer.from(input.content).toString('utf8') !== input.content
+        )
+          throw Object.assign(new Error('This document cannot be edited in Mitzo.'), {
+            status: 400,
+          });
+        if (latest.revision !== input.expectedRevision)
+          throw Object.assign(
+            new Error(
+              'A newer revision is available. Review the latest version before saving; your draft is preserved.',
+            ),
+            { status: 409 },
+          );
+        return this.save({
+          itemId: latest.itemId,
+          filename: latest.filename,
+          title: latest.title,
+          bytes: Buffer.from(input.content),
+          sessionId,
+          requestId: input.requestId,
+          requestInputHash,
+        });
+      })
+      .immediate();
   }
   list(filter: {
     itemId?: string;
