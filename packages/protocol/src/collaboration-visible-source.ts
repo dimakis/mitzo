@@ -12,19 +12,24 @@ type Boundary = { sequence: number; messageId: string | null };
 type Pin = { artifactId: string; revision: number; sha256: string };
 type Anchor = { seq: number; type: string; messageId: string };
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
-const fail = (): never => {
+function fail(): never {
   throw new CollaborationContractError('snapshot_changed');
-};
-const overflow = (): never => {
+}
+function overflow(): never {
   throw new CollaborationContractError('capacity_refused');
+}
+// Presence, including explicit JSON null, must match the canonical renderer's attribution fence.
+const ordinary = (alias = '') => {
+  const prefix = alias ? `${alias}.` : '';
+  return `${prefix}seat_id IS NULL AND ${prefix}symposium_provenance IS NULL
+    AND json_type(${prefix}payload,'$.seatId') IS NULL
+    AND json_type(${prefix}payload,'$.symposiumProvenance') IS NULL`;
 };
-const ordinary =
-  "seat_id IS NULL AND symposium_provenance IS NULL AND json_extract(payload,'$.symposiumProvenance') IS NULL";
 // Completed visible text only. No SDK history, tool I/O, reasoning or provider payload is read.
-const anchors = `session_id=@session AND seq<=@through AND ${ordinary} AND
+const anchors = `session_id=@session AND seq<=@through AND ${ordinary()} AND
  (type='user_message' OR (type='message_end' AND EXISTS (
  SELECT 1 FROM events b WHERE b.session_id=events.session_id AND b.seq<events.seq
- AND b.type='block_start' AND b.seat_id IS NULL AND b.symposium_provenance IS NULL
+ AND b.type='block_start' AND ${ordinary('b')}
  AND json_extract(b.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
  AND json_extract(b.payload,'$.blockType')='text')))`;
 
@@ -46,16 +51,31 @@ export function openCollaborationVisibleSource(
       !db.prepare('SELECT 1 FROM events WHERE session_id=? AND seq=?').get(session, through)
     )
       fail();
-    if (
-      initialPrompt &&
-      !db
+    // Canonical replay rejects any payload attribution without verified column provenance.
+    // The two host bookkeeping records name recipients, not transcript authors.
+    const unverified = db
+      .prepare(
+        `SELECT 1 FROM events WHERE session_id=@session AND seq<=@through
+      AND seat_id IS NULL AND symposium_provenance IS NULL AND (
+        json_type(payload,'$.symposiumProvenance') IS NOT NULL OR
+        (json_type(payload,'$.seatId') IS NOT NULL AND type NOT IN
+          ('symposium_delivery_dispatched','symposium_thread_migrated'))) LIMIT 1`,
+      )
+      .get(args);
+    if (unverified) fail();
+    if (initialPrompt) {
+      const prompt = db
         .prepare(
-          `SELECT 1 FROM events WHERE session_id=? AND seq<=? AND ${ordinary}
-      AND type='user_message' AND json_extract(payload,'$.text')=? LIMIT 1`,
+          `SELECT seq FROM events WHERE session_id=? AND seq<=? AND ${ordinary()}
+        AND type='user_message' AND json_extract(payload,'$.text')=? ORDER BY seq LIMIT 1`,
         )
-        .get(session, through, initialPrompt)
-    )
-      fail();
+        .get(session, through, initialPrompt) as { seq: number } | undefined;
+      const first = db
+        .prepare(`SELECT seq FROM events WHERE ${anchors} ORDER BY seq LIMIT 1`)
+        .get(args) as { seq: number } | undefined;
+      // Legacy replay hoists delayed initial prompts. That ordering is not qualified by this reader.
+      if (!prompt || prompt.seq !== first?.seq) fail();
+    }
     const last = db
       .prepare(
         `SELECT json_extract(payload,'$.messageId') AS messageId FROM events WHERE ${anchors} ORDER BY seq DESC LIMIT 1`,
@@ -66,16 +86,16 @@ export function openCollaborationVisibleSource(
     const active = db
       .prepare(
         `SELECT 1 FROM events s WHERE s.session_id=@session AND s.seq<=@through
-      AND s.type='message_start' AND s.seat_id IS NULL AND s.symposium_provenance IS NULL
+      AND s.type='message_start' AND ${ordinary('s')}
       AND NOT EXISTS (SELECT 1 FROM events e WHERE e.session_id=s.session_id AND e.seq>s.seq AND e.seq<=@through
-      AND e.type='message_end' AND e.seat_id IS NULL AND e.symposium_provenance IS NULL
+      AND e.type='message_end' AND ${ordinary('e')}
       AND json_extract(e.payload,'$.messageId')=json_extract(s.payload,'$.messageId')) LIMIT 1`,
       )
       .get(args);
     if (active) fail();
     const duplicate = db
       .prepare(
-        `SELECT 1 FROM events WHERE session_id=@session AND seq<=@through AND ${ordinary}
+        `SELECT 1 FROM events WHERE session_id=@session AND seq<=@through AND ${ordinary()}
       AND type IN ('user_message','message_start') GROUP BY json_extract(payload,'$.messageId') HAVING count(*)>1 LIMIT 1`,
       )
       .get(args);
@@ -98,16 +118,20 @@ export function openCollaborationVisibleSource(
       const row = db
         .prepare(
           `SELECT CASE WHEN length(CAST(json_extract(payload,'$.text') AS BLOB))<=524288
-        THEN json_extract(payload,'$.text') END AS text FROM events WHERE session_id=? AND seq=?`,
+        THEN json_extract(payload,'$.text') END AS text FROM events WHERE session_id=? AND seq=? AND ${ordinary()}`,
         )
         .get(session, anchor.seq) as { text: unknown };
       if (typeof row.text !== 'string') fail();
-      blocks.push({ blockId: `user-${anchor.messageId}`, content: row.text, sha256: hash(row.text) });
+      blocks.push({
+        blockId: `user-${anchor.messageId}`,
+        content: row.text,
+        sha256: hash(row.text),
+      });
     } else {
       const start = db
         .prepare(
           `SELECT seq FROM events WHERE session_id=? AND seq<? AND type='message_start'
-        AND ${ordinary} AND json_extract(payload,'$.messageId')=? ORDER BY seq DESC LIMIT 1`,
+        AND ${ordinary()} AND json_extract(payload,'$.messageId')=? ORDER BY seq DESC LIMIT 1`,
         )
         .get(session, anchor.seq, anchor.messageId) as { seq: number } | undefined;
       if (!start) fail();
@@ -118,12 +142,12 @@ export function openCollaborationVisibleSource(
         json_extract(payload,'$.blockType') AS blockType,
         CASE WHEN EXISTS (SELECT 1 FROM events text_block WHERE text_block.session_id=events.session_id
           AND text_block.seq>? AND text_block.seq<events.seq AND text_block.type='block_start'
-          AND text_block.seat_id IS NULL AND text_block.symposium_provenance IS NULL
+          AND ${ordinary('text_block')}
           AND json_extract(text_block.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
           AND json_extract(text_block.payload,'$.blockId')=json_extract(events.payload,'$.blockId')
           AND json_extract(text_block.payload,'$.blockType')='text')
         AND length(CAST(json_extract(payload,'$.delta') AS BLOB))<=524288 THEN json_extract(payload,'$.delta') END AS delta
-        FROM events WHERE session_id=? AND seq>? AND seq<? AND ${ordinary}
+        FROM events WHERE session_id=? AND seq>? AND seq<? AND ${ordinary()}
         AND json_extract(payload,'$.messageId')=? AND type IN ('block_start','block_delta','block_end')
         ORDER BY seq LIMIT 20001`,
         )

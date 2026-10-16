@@ -111,6 +111,11 @@ streams. Supported artifacts are authorized registered inline outputs at revisio
 artifact kinds and shared collaboration projection sources remain unavailable.
 Later transcript appends do not change a pinned prefix; loss of access or changed
 source bytes refuses it. Narrow and brief-only review need not load a long prefix.
+Payload attribution fields, including explicit JSON null, cannot establish ordinary
+authorship without the canonical verified provenance. An ambiguous source prefix
+is refused even for selected/brief-only artifact review. Canonical initial-prompt
+metadata is fenced through final authorization; legacy delayed initial prompts
+that the normal renderer hoists into another order are unsupported and refused.
 
 The compiler's source and capacity ports are **not installed in the application**.
 The new source capability is host-only and requires a live operator/session
