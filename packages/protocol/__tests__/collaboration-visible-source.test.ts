@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { openCollaborationVisibleSource } from '../src/collaboration-visible-source.js';
 
 let db: Database.Database;
@@ -8,7 +8,18 @@ beforeEach(() => {
   db.exec(`CREATE TABLE events(seq INTEGER PRIMARY KEY,session_id TEXT,type TEXT,payload TEXT,seat_id TEXT,symposium_provenance TEXT);
     CREATE TABLE session_output_references(output_id TEXT,session_id TEXT,message_end_seq INTEGER,sha256 TEXT,provenance TEXT);`);
 });
-afterEach(() => db.close());
+afterEach(() => {
+  vi.restoreAllMocks();
+  db.close();
+});
+function event(seq: number, type: string, payload: Record<string, unknown>) {
+  db.prepare('INSERT INTO events VALUES(?,?,?,?,NULL,NULL)').run(
+    seq,
+    'one',
+    type,
+    JSON.stringify(payload),
+  );
+}
 function user(seq: number, id: string, text: string) {
   db.prepare('INSERT INTO events VALUES(?,?,?,?,NULL,NULL)').run(
     seq,
@@ -94,4 +105,164 @@ it('preserves an empty frozen prefix after later appends and refuses a missing l
       'Legacy initial prompt',
     ),
   ).toThrow('snapshot_changed');
+});
+
+it.each(['witness', 'page', 'assistant', 'user', 'empty'])(
+  'refuses an interleaved assistant prefix before any %s selection can qualify it',
+  (mode) => {
+    user(1, 'u1', 'First');
+    event(2, 'message_start', { messageId: 'a1' });
+    event(3, 'block_start', { messageId: 'a1', blockId: 'b1', blockType: 'text' });
+    event(4, 'block_delta', { messageId: 'a1', blockId: 'b1', delta: 'Answer' });
+    user(5, 'u2', 'Second');
+    event(6, 'block_end', { messageId: 'a1', blockId: 'b1' });
+    event(7, 'message_end', { messageId: 'a1' });
+    expect(() => {
+      const source = openCollaborationVisibleSource(db, 'one', { sequence: 7, messageId: 'a1' });
+      if (mode === 'witness') source.readPrefixWitness();
+      else if (mode === 'page') source.readPage(0, 50);
+      else source.readSelected(mode === 'empty' ? [] : [mode === 'user' ? 'u1' : 'a1']);
+    }).toThrow('snapshot_changed');
+  },
+);
+it('refuses overlapping completed assistants and newly introduced interleaving at every read fence', () => {
+  event(1, 'message_start', { messageId: 'a1' });
+  event(2, 'block_start', { messageId: 'a1', blockId: 'b1', blockType: 'text' });
+  event(4, 'block_delta', { messageId: 'a1', blockId: 'b1', delta: 'First' });
+  event(6, 'block_end', { messageId: 'a1', blockId: 'b1' });
+  event(8, 'message_end', { messageId: 'a1' });
+  const source = openCollaborationVisibleSource(db, 'one', { sequence: 8, messageId: 'a1' });
+  source.readSelected(['a1']);
+  user(5, 'u1', 'Interleaved after opening');
+  for (const read of [
+    () => source.readPrefixWitness(),
+    () => source.readPage(0, 50),
+    () => source.readSelected([]),
+    () => source.assertCurrent(),
+  ])
+    expect(read).toThrow('snapshot_changed');
+  db.prepare('DELETE FROM events WHERE seq=5').run();
+  event(3, 'message_start', { messageId: 'a2' });
+  event(5, 'block_start', { messageId: 'a2', blockId: 'b2', blockType: 'text' });
+  event(7, 'block_end', { messageId: 'a2', blockId: 'b2' });
+  event(9, 'message_end', { messageId: 'a2' });
+  expect(() => openCollaborationVisibleSource(db, 'one', { sequence: 9, messageId: 'a2' })).toThrow(
+    'snapshot_changed',
+  );
+});
+it.each(['page', 'selected'])(
+  'bounds cumulative escaped %s bytes before reading a malformed continuation',
+  (mode) => {
+    user(1, 'first', '\u0000'.repeat(50000));
+    user(2, 'second', '\u0000'.repeat(50000));
+    event(3, 'user_message', { messageId: 'third', text: 42 });
+    const source = openCollaborationVisibleSource(db, 'one', { sequence: 3, messageId: 'third' });
+    expect(() =>
+      mode === 'page' ? source.readPage(0, 50) : source.readSelected(['first', 'second', 'third']),
+    ).toThrow('capacity_refused');
+    expect(source.readSelected(['first'])).toHaveLength(1);
+    expect(() => source.assertCurrent()).not.toThrow();
+  },
+);
+it('stops SQLite delta hydration at the byte limit rather than collecting the entire assistant', () => {
+  event(1, 'message_start', { messageId: 'a1' });
+  event(2, 'block_start', { messageId: 'a1', blockId: 'b1', blockType: 'text' });
+  for (let n = 3; n <= 7; n++)
+    event(n, 'block_delta', { messageId: 'a1', blockId: 'b1', delta: 'x'.repeat(280000) });
+  event(8, 'block_end', { messageId: 'a1', blockId: 'b1' });
+  event(9, 'message_end', { messageId: 'a1' });
+  let hydrated = 0;
+  db.function('observe_delta', (value: string) => {
+    hydrated++;
+    return value;
+  });
+  const prepare = db.prepare.bind(db);
+  vi.spyOn(db, 'prepare').mockImplementation((sql: string) =>
+    prepare(
+      sql.replace(
+        "THEN json_extract(payload,'$.delta') END AS delta",
+        "THEN observe_delta(json_extract(payload,'$.delta')) END AS delta",
+      ),
+    ),
+  );
+  const source = openCollaborationVisibleSource(db, 'one', { sequence: 9, messageId: 'a1' });
+  expect(() => source.readSelected(['a1'])).toThrow('capacity_refused');
+  expect(hydrated).toBe(2);
+});
+
+it('charges escaped assistant content before consuming malformed later rows', () => {
+  event(1, 'message_start', { messageId: 'a1' });
+  event(2, 'block_start', { messageId: 'a1', blockId: 'b1', blockType: 'text' });
+  for (let n = 3; n <= 4; n++)
+    event(n, 'block_delta', {
+      messageId: 'a1',
+      blockId: 'b1',
+      delta: '\u0000'.repeat(50000),
+    });
+  event(5, 'block_end', { messageId: 'a1', blockId: 42 });
+  event(6, 'message_end', { messageId: 'a1' });
+  const source = openCollaborationVisibleSource(db, 'one', { sequence: 6, messageId: 'a1' });
+  expect(() => source.readSelected(['a1'])).toThrow('capacity_refused');
+});
+
+it('refuses oversized SQL identifier projections at the boundary, anchor, block and artifact paths', () => {
+  const oversized = 'x'.repeat(10000);
+  user(1, oversized, 'Text');
+  expect(() =>
+    openCollaborationVisibleSource(db, 'one', { sequence: 1, messageId: oversized }),
+  ).toThrow('snapshot_changed');
+  user(2, 'last', 'Last');
+  const source = openCollaborationVisibleSource(db, 'one', { sequence: 2, messageId: 'last' });
+  expect(() => source.readPage(0, 50)).toThrow('snapshot_changed');
+  expect(() => source.readSelected([oversized])).toThrow('snapshot_changed');
+  expect(() => source.readPrefixWitness()).toThrow('snapshot_changed');
+  db.prepare('DELETE FROM events WHERE seq=1').run();
+  event(3, 'message_start', { messageId: 'a1' });
+  event(4, 'block_start', { messageId: 'a1', blockId: oversized, blockType: 'text' });
+  event(5, 'block_end', { messageId: 'a1', blockId: oversized });
+  event(6, 'message_end', { messageId: 'a1' });
+  const assistant = openCollaborationVisibleSource(db, 'one', { sequence: 6, messageId: 'a1' });
+  expect(() => assistant.readSelected(['a1'])).toThrow('snapshot_changed');
+  db.prepare('INSERT INTO session_output_references VALUES(?,?,?,?,NULL)').run(
+    oversized,
+    'one',
+    2,
+    '0'.repeat(64),
+  );
+  expect(() => source.readPrefixWitness()).toThrow('snapshot_changed');
+});
+
+it('keeps repeated selected reads independent and bounds the final aggregate recheck', () => {
+  user(1, 'first', 'x'.repeat(280000));
+  user(2, 'second', 'y'.repeat(280000));
+  const source = openCollaborationVisibleSource(db, 'one', { sequence: 2, messageId: 'second' });
+  source.readSelected(['first']);
+  source.readSelected(['first']);
+  expect(() => source.assertCurrent()).not.toThrow();
+  source.readSelected(['second']);
+  expect(() => source.assertCurrent()).toThrow('capacity_refused');
+});
+
+it('accepts the exact serialized byte boundary consistently at selection and the final fence', () => {
+  user(1, 'first', 'x'.repeat(250000));
+  user(2, 'second', '');
+  const boundary = { sequence: 2, messageId: 'second' };
+  const initial = openCollaborationVisibleSource(db, 'one', boundary).readSelected([
+    'first',
+    'second',
+  ]);
+  const padding = 512 * 1024 - Buffer.byteLength(JSON.stringify(initial));
+  const update = db.prepare('UPDATE events SET payload=? WHERE seq=2');
+  update.run(JSON.stringify({ messageId: 'second', text: 'y'.repeat(padding) }));
+  const exact = openCollaborationVisibleSource(db, 'one', boundary);
+  expect(Buffer.byteLength(JSON.stringify(exact.readSelected(['first', 'second'])))).toBe(
+    512 * 1024,
+  );
+  expect(exact.readPage(0, 50).messages).toHaveLength(2);
+  expect(exact.readPrefixWitness().messageCount).toBe(2);
+  expect(() => exact.assertCurrent()).not.toThrow();
+  update.run(JSON.stringify({ messageId: 'second', text: 'y'.repeat(padding + 1) }));
+  expect(() =>
+    openCollaborationVisibleSource(db, 'one', boundary).readSelected(['first', 'second']),
+  ).toThrow('capacity_refused');
 });

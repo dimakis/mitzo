@@ -330,3 +330,30 @@ it('preserves canonical recipient-only bookkeeping exceptions without granting a
   const draft = await compileCollaborationContext(selection(end, 'visible'), [settings], source());
   expect(draft.messages.map((message) => message.messageId)).toEqual(['visible']);
 });
+
+it('refuses canonical interleaving even for an empty selection with an explicit registered artifact', async () => {
+  store.append('one', 'user_message', { messageId: 'u1', text: 'First question' });
+  store.append('one', 'message_start', { messageId: 'answer' });
+  store.append('one', 'block_start', { messageId: 'answer', blockId: 'text', blockType: 'text' });
+  store.append('one', 'block_delta', { messageId: 'answer', blockId: 'text', delta: 'Answer' });
+  store.append('one', 'user_message', { messageId: 'u2', text: 'Second question' });
+  store.append('one', 'block_end', { messageId: 'answer', blockId: 'text', blockType: 'text' });
+  const end = store.append('one', 'message_end', { messageId: 'answer' });
+  const output = store.registerSessionOutput('one', {
+    requestId: 'interleaved-artifact',
+    title: 'Answer',
+    source: { messageId: 'answer', blockId: 'text', messageEndSeq: end, sha256: hash('Answer') },
+  });
+  for (const messageId of ['answer', 'u2'])
+    for (const mode of ['selected', 'conversation_so_far'] as const)
+      await expect(
+        compileCollaborationContext(
+          {
+            ...selection(end, messageId, mode),
+            artifacts: [{ artifactId: output.outputId, revision: 1, sha256: output.source.sha256 }],
+          },
+          [settings],
+          source(),
+        ),
+      ).rejects.toMatchObject({ code: 'snapshot_changed' });
+});

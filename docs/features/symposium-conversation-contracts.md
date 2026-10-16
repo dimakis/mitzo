@@ -117,6 +117,14 @@ authorship without the canonical verified provenance. An ambiguous source prefix
 is refused even for selected/brief-only artifact review. Canonical initial-prompt
 metadata is fenced through final authorization; legacy delayed initial prompts
 that the normal renderer hoists into another order are unsupported and refused.
+Ordinary user/new-assistant starts interleaved within an assistant turn are also
+refused across the complete pinned prefix, including artifact-only selections;
+the reader retains exact completion-sequence pins instead of changing canonical
+display order. Text rows are consumed incrementally, SQL identifiers are bounded
+before transfer, and each page, selection, witness and final recheck has a 512 KiB
+serialized-message budget. Retained observations contain bounded identities and
+fingerprints rather than copied transcript text; overflow does not consume a
+later independent narrow selection's budget.
 
 The compiler's source and capacity ports are **not installed in the application**.
 The new source capability is host-only and requires a live operator/session
