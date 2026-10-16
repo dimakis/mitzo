@@ -30,7 +30,7 @@ function Surface() {
           element={
             <DesktopShell
               center={<p>Retained conversation</p>}
-              right={
+              left={
                 <SessionPanel
                   activeSessionId="session-0"
                   onSelectSession={() => {}}

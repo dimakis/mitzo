@@ -110,6 +110,16 @@ for (const theme of ['dark', 'light'])
           contextUsage: sessions[0].contextUsage,
         },
         '/api/config': { quickActions: [] },
+        '/api/sessions/search': {
+          results: [
+            {
+              sessionId: 'search-only',
+              summary: 'Search-only conversation',
+              snippet: 'Matching saved message',
+              updatedAt: 1,
+            },
+          ],
+        },
         '/api/briefings/latest': null,
         '/api/version': { updateAvailable: false },
         '/api/home/preferences': {
@@ -243,6 +253,38 @@ for (const theme of ['dark', 'light'])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
+    // Opening works directly from recent, pinned and search rows. Single desktop
+    // clicks keep previewing; a mobile tap keeps its existing immediate navigation.
+    for (const kind of ['recent', 'pin', 'search']) {
+      if (kind === 'search')
+        await page.getByRole('searchbox', { name: 'Search conversations' }).fill('Matching');
+      const row =
+        kind === 'pin'
+          ? page
+              .getByRole('region', { name: 'Pinned conversations' })
+              .getByRole('button', { name: /^Conversation 1 / })
+          : page.getByRole(isMobile ? 'link' : 'button', {
+              name: `${isMobile ? 'Open' : 'Preview'} ${kind === 'search' ? 'Search-only conversation' : 'Conversation 2'}`,
+            });
+      if (isMobile) await row.tap();
+      else await row.click();
+      if (!isMobile) {
+        await expect(page.getByRole('button', { name: 'Opened conversation' })).toHaveCount(0);
+        await expect(
+          page.getByRole('complementary', { name: 'Conversation preview' }).getByRole('heading', {
+            name:
+              kind === 'pin'
+                ? 'Conversation 1'
+                : kind === 'search'
+                  ? 'Search-only conversation'
+                  : 'Conversation 2',
+          }),
+        ).toBeVisible();
+        await row.dblclick();
+      }
+      await expect(page.getByRole('button', { name: 'Opened conversation' })).toBeVisible();
+      await page.getByRole('button', { name: 'Opened conversation' }).click();
+    }
     await page.goto('/');
     await expect(page.getByRole('meter', { name: 'Context used' }).first()).toHaveAttribute(
       'aria-valuenow',
