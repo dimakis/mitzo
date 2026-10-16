@@ -198,7 +198,8 @@ function SwipeableSession({
       closeReveal();
       return;
     }
-    onClick(session.id);
+    if (desktop && !keyboard) onPreview?.(session);
+    else onClick(session.id);
   }
 
   return (
@@ -214,7 +215,8 @@ function SwipeableSession({
         ref={ref}
         className="session-item"
         data-selected={selected}
-        onDoubleClick={() => {
+        onDoubleClick={(event) => {
+          if (event.target instanceof Element && event.target.closest('button, a, input')) return;
           if (desktop && !editing) onClick(session.id);
         }}
         onClick={() => handleClick()}
@@ -527,6 +529,7 @@ export function SessionList() {
               else openSession(id);
             }}
             onPreview={desktop ? previewSession : undefined}
+            onOpen={desktop ? openSession : undefined}
             onActions={(session, trigger, point) => {
               if (desktop) showActions(session, trigger, point);
               else setMobilePinPreview(session);
@@ -589,17 +592,7 @@ export function SessionList() {
                   selected={desktop && selectedPreview?.id === r.sessionId}
                   onPreview={previewSession}
                   onActions={showActions}
-                  onClick={(id) => {
-                    const result = search.results.find((item) => item.sessionId === id);
-                    if (desktop && result)
-                      setPreview({
-                        ...combined.get(id),
-                        id,
-                        summary: result.summary || '',
-                        lastModified: result.updatedAt,
-                      });
-                    else openSession(id);
-                  }}
+                  onClick={openSession}
                   onRename={handleRename}
                 />
               ))}
@@ -642,10 +635,7 @@ export function SessionList() {
                     selected={desktop && selectedPreview?.id === s.id}
                     onPreview={previewSession}
                     onActions={showActions}
-                    onClick={(id) => {
-                      if (desktop) setPreview(s);
-                      else openSession(id);
-                    }}
+                    onClick={openSession}
                     onRename={handleRename}
                   />
                 ))}
