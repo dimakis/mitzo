@@ -5,6 +5,7 @@ import {
   TelosSourceConversationReferenceSchema,
   TelosConversationWorkLinksSchema,
   TelosWorkIdSchema,
+  TelosWorkItemSchema,
   type TelosWorkCommand,
   type TelosWorkSessionLink,
 } from '@mitzo/protocol';
@@ -55,6 +56,16 @@ export class TelosWorkApiClient {
     const id = TelosWorkIdSchema.parse(itemId);
     if (/[\\/?#]/.test(id)) return Promise.reject(new Error('Invalid work item ID'));
     return this.request('items/' + encodeURIComponent(id), TelosWorkViewSchema, undefined, signal);
+  }
+  readRecord(itemId: string, signal?: AbortSignal) {
+    const id = TelosWorkIdSchema.parse(itemId);
+    if (/[\\/?#]/.test(id)) return Promise.reject(new Error('Invalid work item ID'));
+    return this.request(
+      'items/' + encodeURIComponent(id) + '/record',
+      TelosWorkItemSchema,
+      undefined,
+      signal,
+    );
   }
   execute(input: TelosWorkCommand) {
     return this.request(

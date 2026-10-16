@@ -75,6 +75,16 @@ export function createTelosWorkRouter(options: {
     }
     run(res, (store) => store.read(id.data, authority));
   });
+  router.get('/api/telos/work/items/:itemId/record', options.operatorAuth, (req, res) => {
+    const authority = actor(res);
+    if (!authority) return;
+    const id = TelosWorkIdSchema.safeParse(req.params.itemId);
+    if (!id.success) {
+      res.status(400).json({ code: 'invalid', error: 'Invalid work item ID' });
+      return;
+    }
+    run(res, (store) => store.readRecord(id.data, authority));
+  });
   router.post('/api/telos/work/commands', options.operatorAuth, (req, res) => {
     const authority = actor(res);
     if (!authority) return;
