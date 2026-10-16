@@ -399,7 +399,9 @@ it('projects membership atomically and does not restore old reader policy on re-
   expect(
     store.collaborationConversation.view(group).policies.find((p) => p.sessionId === 'two'),
   ).toMatchObject({
-    revision: 1,
+    revision: 2,
+    membershipRevision: 3,
+    effectiveFromSequence: store.collaborationConversation.view(group).cursor + 1,
     readsFutureDiscussion: false,
     repliesByDefault: false,
   });

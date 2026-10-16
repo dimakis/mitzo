@@ -26,11 +26,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-conversation.ts':
     '8bdd5ec37c5f2bfa59f79f401bb4955dde9dba64fe6acdc963b5bb0f76745653',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    'a003f142f1d8da9d2e99369b43536faa45b5098da34bf39f0f5bebcaa3e623ab',
+    '4e5beee2384230e40b662bb84b5aec2f0e8f437b2a51b99231ef33e0d564537b',
   '../../packages/client/src/collaboration-api.ts':
     '05ef5f932a9bd36ff9cddf70971449e25c1376fc539150ff0a523446733e6cbb',
   '../../packages/client/src/collaboration-projection.ts':
-    '67e577d8c51e6129f24777be3e9f56be603c4ec16d7c0730edac5d6950c5ec1f',
+    '21028cd31c292b11f9e70e2cac476d478f90d2b278c28b07d942aa153f09060a',
   '../../packages/client/src/index.ts':
     '6ec891ed81e2d18d0fc375cfb8722d06df3831e3b1a30eb4b435ebcf70faba8c',
   // Assigned task persistence and authenticated owner dispatch; no execution activation.

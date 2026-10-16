@@ -241,7 +241,7 @@ export class CollaborationConversationStore {
       this.db
         .prepare(
           `SELECT coalesce(max(sequence),0) AS value FROM collaboration_events
-      WHERE collaboration_id=? AND json_extract(body,'$.change.kind')='policy'`,
+      WHERE collaboration_id=? AND json_extract(body,'$.change.kind') IN ('policy','membership')`,
         )
         .get(group) as { value: number }
     ).value;
@@ -249,6 +249,36 @@ export class CollaborationConversationStore {
   /** Called inside the existing membership owner's immediate transaction. */
   membershipChanged(membership: SessionCollaboration): void {
     if (!this.db.inTransaction) throw new ContractError('invalid_transition');
+    const previous = this.db
+      .prepare(
+        `SELECT participant_session_ids FROM session_collaboration_revisions
+      WHERE collaboration_id=? AND revision=?`,
+      )
+      .get(membership.collaborationId, membership.revision - 1) as
+      { participant_session_ids: string } | undefined;
+    if (!previous) throw new ContractError('conflict');
+    const priorIds = SessionCollaborationSchema.shape.participantSessionIds.parse(
+      JSON.parse(previous.participant_session_ids),
+    );
+    for (const sessionId of membership.participantSessionIds) {
+      if (priorIds.includes(sessionId)) continue;
+      const priorPolicy = this.current(
+        membership.collaborationId,
+        'policy',
+        sessionId,
+        CollaborationPolicySchema,
+      );
+      const reset = CollaborationPolicySchema.parse({
+        version: 1,
+        sessionId,
+        revision: (priorPolicy?.revision ?? 0) + 1,
+        membershipRevision: membership.revision,
+        effectiveFromSequence: this.cursor(membership.collaborationId) + 2,
+        readsFutureDiscussion: false,
+        repliesByDefault: false,
+      });
+      this.put(membership.collaborationId, 'policy', sessionId, reset);
+    }
     this.event(membership.collaborationId, {
       kind: 'membership',
       membership,

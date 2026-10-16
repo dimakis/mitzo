@@ -42,6 +42,7 @@ export function applyCollaborationEvents(
           view.participantSessionIds.includes(id),
         );
         view.policies = change.policies;
+        view.policySequence = event.sequence;
         break;
       case 'policy': {
         const current = view.policies.find((p) => p.sessionId === change.policy.sessionId);

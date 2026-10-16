@@ -20,8 +20,9 @@ provider session, queue or scheduler is introduced.
 
 Per-participant policy has an independent revision and expected membership revision.
 Its journal event at sequence N takes effect at N+1. Both controls initially default
-off; addressed agents necessarily read their own exchange. Removal and re-addition
-do not restore an old reader/default-responder policy. Existing membership edits
+off; addressed agents necessarily read their own exchange. Re-addition persists a
+new policy revision with both controls off and a new effective boundary. The
+aggregate policy sequence advances for policy and membership changes. Existing membership edits
 append projection events in their original transaction; exact retries append none.
 
 Host-side message acceptance resolves stable session IDs from current membership,
