@@ -1097,3 +1097,52 @@ Inspected captures: [desktop popover](assets/compact-chat-desktop-dark.png),
 [retained profile draft editor](assets/compact-chat-profile-drafts.png).
 
 The shared Symposium transcript always uses All independently of the legacy compact-seat selection. Expanding an anchor-only chat must retain every agent’s finished and streaming replies. Independent previews refresh after completed replies, delivery changes and a five-second fallback; closing cancels their read and removes their timer/listener. Refreshing retains the existing history while the next page is read.
+
+## Frozen Symposium joining review (16 October 2026)
+
+The owner-driven Before joining surface follows the approved
+`symposium-fresh-agent-review.html` flow and `06-fresh-agent-context-review.png`:
+back/title/close, fresh-session separation, context mode and counts, an attributed
+included-context disclosure with exact saved artifact versions and filenames,
+the editable joining brief and its original explanation, the flat Agents policy
+row, and left-aligned Back / Join conversation. Brief edits request a new frozen
+review in the same screen; no extra review step or manual freeze control is added.
+
+`HomeDialog` supplies an optional shared back affordance. Existing callers retain
+their header layout. The review uses `UiIcon`, shared semantic colors, fonts,
+spacing/type/radius/control-height tokens and existing dialog focus/motion owners.
+The 32.5rem maximum width reproduces the approved 520px structural dialog geometry;
+the content height subtracts its two 1px borders to prevent an outer scrollbar.
+The body scrolls independently while the heading/footer remain reachable.
+Review-only typography, button and field rules preserve the other accepted dialogs.
+
+The application must explicitly supply the authenticated source/capacity/ordinary
+preparation owner. No production owner is installed by this presentation slice;
+ordinary setup therefore retains its explicit unavailable review state. Display
+metadata must identify every exact artifact pin before confirmation. Confirmation
+uses the exact server-returned snapshot, settings and request identity; uncertain
+review/confirmation retries retain their original complete request. Back / Review
+resumes the edited frozen brief when setup is unchanged; closing and reopening
+also retains failed initial review attempts and their Check again action. Only an
+explicit setup change creates a new review intent. Pending joins
+recheck their original receipt. Only an authoritative linked receipt closes the
+review and permits a new fresh setup. Full application restart discovery remains
+with the future ordinary owner; this UI introduces no receipt/session store.
+
+Focused offline hook/component/HomeDialog/design checks pass (144 tests), with
+focused ESLint and source-alias TypeScript checks. Runtime manifest/source-closure
+checks also pass (164 tests including the focused UI checks). Correlation IDs and
+review hashing use the shared browser-crypto helper on supported remote HTTP
+without secure-context UUID/SubtleCrypto APIs. The intercepted browser fixture
+uses synthetic callbacks and no backend, credentials or model. An independent
+reviewer compared the final code and five actual component captures against the
+approved HTML and screenshot: [desktop dark](assets/symposium-joining-desktop-dark.png),
+[desktop light](assets/symposium-joining-desktop-light.png),
+[320px mobile top](assets/symposium-joining-mobile-dark.png),
+[320px mobile scrolled](assets/symposium-joining-mobile-dark-bottom.png), and
+[390px mobile light](assets/symposium-joining-mobile-light.png).
+Desktop/mobile checks cover light/dark, Mint/Georgia and Teal/System, exact context
+content, long brief scrolling, pinned/reachable controls and retained edits.
+The full browser acceptance run is recorded separately with the PR checks.
+These captures qualify this bounded presentation, not application admission,
+saved-file artifact access, all-account/runtime operation or native iOS behavior.
