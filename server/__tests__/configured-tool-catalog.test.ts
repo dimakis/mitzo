@@ -276,3 +276,95 @@ it('versions the full discovered descriptor including output schema and annotati
     catalog.close();
   }
 });
+it('discovers delimiter-colliding server/tool labels using structured source identities', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  try {
+    const entries = await catalog.refresh({
+      ...f.options,
+      readSources: () => ({ work__docs: f.sources.left, work: f.sources.right }),
+      connect: async (config) => ({
+        listTools: async () => ({
+          tools: [
+            {
+              name: config.librarySourceId === left ? 'search' : 'docs__search',
+              inputSchema: { type: 'object' },
+            },
+          ],
+        }),
+        callTool: f.call,
+        close: f.close,
+      }),
+    });
+    expect(entries).toHaveLength(2);
+    expect(entries[0].id).not.toBe(entries[1].id);
+    expect(f.call).not.toHaveBeenCalled();
+  } finally {
+    catalog.close();
+  }
+});
+it('refuses inherited per-source discovery directory overrides before launching a peer', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  try {
+    await expect(
+      catalog.refresh({ ...f.options, cwdForSource: () => '/unrecorded' } as never),
+    ).rejects.toThrow(/directory override/i);
+    expect(f.connect).not.toHaveBeenCalled();
+  } finally {
+    catalog.close();
+  }
+});
+it('keeps cancelled refresh unsettled until the real peer shutdown has finished', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  const abort = new AbortController();
+  let finishList!: () => void;
+  let finishClose!: () => void;
+  const listing = new Promise<void>((resolve) => {
+    finishList = resolve;
+  });
+  const shutdown = new Promise<void>((resolve) => {
+    finishClose = resolve;
+  });
+  const listTools = vi.fn(async () => {
+    await listing;
+    return { tools: [] };
+  });
+  const close = vi.fn(async () => {
+    await shutdown;
+  });
+  let settled = false;
+  const pending = catalog
+    .refresh({
+      ...f.options,
+      signal: abort.signal,
+      connect: async () => ({ listTools, callTool: f.call, close }),
+    })
+    .then(
+      () => {
+        settled = true;
+        return undefined;
+      },
+      (error: unknown) => {
+        settled = true;
+        return error;
+      },
+    );
+  try {
+    await vi.waitFor(() => expect(listTools).toHaveBeenCalledOnce());
+    abort.abort();
+    finishList();
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+    finishClose();
+    expect(await pending).toBeInstanceOf(Error);
+    expect(catalog.list()).toEqual([]);
+  } finally {
+    finishList();
+    finishClose();
+    await pending;
+    catalog.close();
+  }
+});

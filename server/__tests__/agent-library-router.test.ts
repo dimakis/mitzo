@@ -487,3 +487,62 @@ it('cancels configured discovery after operator revocation and never publishes l
     catalog.close();
   }
 });
+it('retains the real discovery request until a cancelled peer finishes shutting down', async () => {
+  const { ConfiguredToolCatalog } = await import('../configured-tool-catalog.js');
+  const catalog = new ConfiguredToolCatalog(':memory:');
+  const auth = { id: `deferred-discovery-${++login}`, expiresAt: Date.now() + 60000 };
+  let finishList!: () => void;
+  let finishClose!: () => void;
+  const listing = new Promise<void>((resolve) => {
+    finishList = resolve;
+  });
+  const closing = new Promise<void>((resolve) => {
+    finishClose = resolve;
+  });
+  const listTools = vi.fn(async () => {
+    await listing;
+    return { tools: [] };
+  });
+  const close = vi.fn(async () => {
+    await closing;
+  });
+  const host = app(
+    true,
+    {
+      configuredTools: () => ({
+        catalog,
+        cwd: '/fixture',
+        env: {},
+        readSources: () => ({
+          docs: { command: 'fake', librarySourceId: '11111111-1111-4111-8111-111111111111' },
+        }),
+        connect: async () => ({ listTools, close, callTool: vi.fn() }),
+      }),
+    },
+    auth,
+  );
+  let settled = false;
+  const pending = request(host)
+    .post('/api/agent-library/tools/refresh')
+    .send({})
+    .then((response) => {
+      settled = true;
+      return response;
+    });
+  try {
+    await vi.waitFor(() => expect(listTools).toHaveBeenCalledOnce());
+    revokeAuthSession(auth);
+    finishList();
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+    finishClose();
+    expect((await pending).status).toBe(403);
+    expect(catalog.list()).toEqual([]);
+  } finally {
+    finishList();
+    finishClose();
+    await pending;
+    catalog.close();
+  }
+});
