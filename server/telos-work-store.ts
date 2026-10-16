@@ -12,8 +12,10 @@ import {
   type TelosWorkAssignment,
   type TelosWorkSourceSnapshot,
   type TelosWorkAttempt,
+  type TelosWorkItem,
 } from '@mitzo/protocol';
 import { initializeTelosWorkSchema } from './telos-work-schema.js';
+import { projectTelosWorkRecord } from './telos-work-record.js';
 
 /** Authority is supplied by host middleware, never accepted in command JSON.
  * Conversations can read only items to which they are explicitly linked. S4/S5
@@ -139,6 +141,28 @@ export class TelosWorkStore {
     return this.db.transaction(() => {
       this.authorizeRead(itemId, actor);
       return this.snapshot(itemId);
+    })();
+  }
+  /** The original brief and evidence stay in the canonical tables. This read
+   * shares the relationship store's exact-item authority and transaction.
+   */
+  readRecord(itemId: string, actor: TelosWorkActor): TelosWorkItem {
+    return this.db.transaction(() => {
+      this.authorizeRead(itemId, actor);
+      const item = this.item(itemId);
+      const kind = this.db
+        .prepare('SELECT kind FROM telos_work_kinds WHERE item_id=?')
+        .get(itemId) as { kind: TelosWorkItem['kind'] } | undefined;
+      const rows = (table: 'sources' | 'links') =>
+        this.db
+          .prepare(`SELECT * FROM ${table} WHERE item_id=? ORDER BY rowid`)
+          .all(itemId) as Record<string, unknown>[];
+      try {
+        return projectTelosWorkRecord(item, rows('sources'), rows('links'), kind?.kind ?? null);
+      } catch (cause) {
+        // Invalid stored data is an unavailable read, not invalid operator input.
+        throw new Error('Stored Telos record unavailable', { cause });
+      }
     })();
   }
   forConversation(input: unknown, actor: TelosWorkActor): TelosWorkSessionLink[] {
@@ -298,11 +322,15 @@ export class TelosWorkStore {
           .get(input.snapshot.snapshotId) as JsonRow | undefined;
         if (existing) {
           if (existing.data !== data) conflict('Source snapshot is immutable');
-          break;
+        } else {
+          this.db
+            .prepare('INSERT INTO telos_work_sources(snapshot_id,item_id,data) VALUES(?,?,?)')
+            .run(input.snapshot.snapshotId, input.itemId, data);
         }
-        this.db
-          .prepare('INSERT INTO telos_work_sources(snapshot_id,item_id,data) VALUES(?,?,?)')
-          .run(input.snapshot.snapshotId, input.itemId, data);
+        // The source and its backlink are one adoption. This records provenance;
+        // it never selects a lead, assigns a worker or requests an allocation.
+        if (input.snapshot.source)
+          this.addLink(input.itemId, 'origin', input.snapshot.source, actorId);
         break;
       }
       case 'request_attempt':
