@@ -6,6 +6,7 @@ import {
 import { SymposiumProvenanceSchema } from './symposium.js';
 import { TelosWorkIdSchema } from './telos-work-api.js';
 import { TelosWorkSourceSnapshotSchema } from './telos-work.js';
+import { TelosOutcomeProposalSchema } from './telos-outcome.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const TelosSourcePreviewRequestSchema = z.strictObject({
@@ -18,7 +19,7 @@ export const TelosSourcePreviewRequestSchema = z.strictObject({
 export const TelosSourcePacketSchema = z.strictObject({
   version: z.literal(1),
   actorId: z.string().min(1),
-  itemId: TelosWorkIdSchema,
+  itemId: TelosWorkIdSchema.nullable(),
   workRevision: digest,
   selection: CollaborationSnapshotSelectionSchema,
   brief: z.strictObject({ sha256: digest, text: z.string() }),
@@ -33,6 +34,17 @@ export const TelosSourcePacketSchema = z.strictObject({
   ),
   sourceTitle: z.string().nullable(),
   sourceCreatedAt: z.string().min(1).nullable(),
+  creation: z
+    .strictObject({ requestId: TelosWorkIdSchema, outcome: TelosOutcomeProposalSchema })
+    .optional(),
+});
+export const TelosSourceNewPreviewRequestSchema = z.strictObject({
+  requestId: TelosWorkIdSchema,
+  outcome: TelosOutcomeProposalSchema,
+  selection: CollaborationSnapshotSelectionSchema,
+});
+export const TelosSourceCreateRequestSchema = TelosSourceNewPreviewRequestSchema.extend({
+  previewSha256: digest,
 });
 export const TelosSourcePreviewSchema = z.strictObject({
   sha256: digest,

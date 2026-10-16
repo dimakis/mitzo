@@ -5,6 +5,9 @@ import {
   TelosSourceConversationReferenceSchema,
   TelosWorkAttemptSchema,
   TelosWorkViewSchema,
+  TelosSourcePacketSchema,
+  TelosWorkCommandReceiptSchema,
+  TelosOutcomeContextHintsSchema,
   type TelosWorkCommand,
   type TelosWorkCommandReceipt,
   type TelosWorkView,
@@ -13,6 +16,7 @@ import {
   type TelosWorkSourceSnapshot,
   type TelosWorkAttempt,
   type TelosWorkItem,
+  type TelosSourcePacket,
 } from '@mitzo/protocol';
 import { initializeTelosWorkSchema } from './telos-work-schema.js';
 import { projectTelosWorkRecord } from './telos-work-record.js';
@@ -31,6 +35,14 @@ interface Item {
 interface JsonRow {
   data: string;
 }
+interface SourceCreationRow {
+  input_hash: string;
+  packet: string;
+  idempotency_key: string;
+  item_id: string | null;
+  item_revision: string | null;
+  receipt: string | null;
+}
 export class TelosWorkError extends Error {
   constructor(
     readonly code: 'not_found' | 'unauthorized' | 'conflict' | 'invalid',
@@ -40,12 +52,12 @@ export class TelosWorkError extends Error {
   }
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const conflict = (message: string): never => {
+function conflict(message: string): never {
   throw new TelosWorkError('conflict', message);
-};
-const invalid = (message: string): never => {
+}
+function invalid(message: string): never {
   throw new TelosWorkError('invalid', message);
-};
+}
 
 /** Extends the canonical Telos database, not session allocation or composition.
  * parent_id stays on items. No event/session/task store write occurs here.
@@ -172,6 +184,166 @@ export class TelosWorkStore {
       record: this.readRecord(itemId, actor),
       work: this.snapshot(itemId),
     }))();
+  }
+  /** Creation preparation is an outbox for the existing canonical creator, not
+   * another item/milestone engine. Keep the reviewed source before crossing owners.
+   */
+  sourceCreation(requestId: string, inputHash: string, actor: TelosWorkActor) {
+    this.operator(actor);
+    const row = this.db
+      .prepare('SELECT * FROM telos_work_source_creations WHERE actor_id=? AND request_id=?')
+      .get('operator:' + actor.id, requestId) as SourceCreationRow | undefined;
+    if (!row) return null;
+    if (row.input_hash !== inputHash)
+      conflict('Creation request identity reused with different input');
+    return {
+      packet: TelosSourcePacketSchema.parse(JSON.parse(row.packet)),
+      idempotencyKey: row.idempotency_key,
+      itemId: row.item_id,
+      itemRevision: row.item_revision,
+      receipt: row.receipt ? TelosWorkCommandReceiptSchema.parse(JSON.parse(row.receipt)) : null,
+    };
+  }
+  prepareSourceCreation(
+    requestId: string,
+    inputHash: string,
+    packet: TelosSourcePacket,
+    actor: TelosWorkActor,
+  ) {
+    this.operator(actor);
+    return this.db
+      .transaction(() => {
+        const prior = this.sourceCreation(requestId, inputHash, actor);
+        if (prior) return prior;
+        const parsed = TelosSourcePacketSchema.parse(packet);
+        if (
+          parsed.itemId !== null ||
+          parsed.actorId !== 'operator:' + actor.id ||
+          parsed.creation?.requestId !== requestId
+        )
+          invalid('Invalid reviewed creation scope');
+        const key = 'telos-source:' + hash(['source-create', parsed.actorId, requestId]);
+        this.db
+          .prepare(
+            'INSERT INTO telos_work_source_creations(actor_id,request_id,input_hash,packet,idempotency_key) VALUES(?,?,?,?,?)',
+          )
+          .run(parsed.actorId, requestId, inputHash, JSON.stringify(parsed), key);
+        return this.sourceCreation(requestId, inputHash, actor)!;
+      })
+      .immediate();
+  }
+  recordSourceCreationItem(
+    requestId: string,
+    inputHash: string,
+    itemId: string,
+    actor: TelosWorkActor,
+  ) {
+    this.operator(actor);
+    return this.db
+      .transaction(() => {
+        const record = this.sourceCreation(requestId, inputHash, actor);
+        if (!record?.packet.creation) invalid('Reviewed creation not prepared');
+        if (record.itemId) {
+          if (record.itemId !== itemId) conflict('Creation item identity changed');
+          return record;
+        }
+        const item = this.item(itemId);
+        if (item.idempotency_key !== record.idempotencyKey)
+          invalid('Canonical creation identity mismatch');
+        const proposal = record.packet.creation.outcome;
+        const actual = this.readRecord(itemId, actor);
+        const childRows = this.db
+          .prepare('SELECT id,summary FROM items WHERE parent_id=? ORDER BY created_at,rowid')
+          .all(itemId) as { id: string; summary: string }[];
+        const children = childRows.map((child) => child.summary);
+        if (
+          JSON.stringify([
+            actual.summary,
+            actual.intent,
+            actual.rationale,
+            actual.acceptanceCriteria,
+            actual.profile,
+            actual.contextHints,
+            children,
+          ]) !==
+          JSON.stringify([
+            proposal.summary,
+            proposal.intent,
+            proposal.rationale,
+            proposal.acceptanceCriteria,
+            proposal.profile,
+            TelosOutcomeContextHintsSchema.parse(proposal.contextHints ?? {}),
+            proposal.milestones,
+          ])
+        )
+          conflict('Created outcome differs from the reviewed proposal');
+        const kind = this.snapshot(itemId).kind;
+        if (kind && kind !== 'outcome') conflict('Created item classification changed');
+        if (!kind)
+          this.db
+            .prepare("INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,'outcome')")
+            .run(itemId);
+        for (const child of childRows) {
+          const kind = this.snapshot(child.id).kind;
+          if (kind && kind !== 'work_item') conflict('Created milestone classification changed');
+          if (!kind)
+            this.db
+              .prepare("INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,'work_item')")
+              .run(child.id);
+        }
+        const revision = this.snapshot(itemId).revision;
+        this.db
+          .prepare(
+            'UPDATE telos_work_source_creations SET item_id=?,item_revision=? WHERE actor_id=? AND request_id=?',
+          )
+          .run(itemId, revision, 'operator:' + actor.id, requestId);
+        return this.sourceCreation(requestId, inputHash, actor)!;
+      })
+      .immediate();
+  }
+  completeSourceCreation(
+    requestId: string,
+    inputHash: string,
+    receipt: TelosWorkCommandReceipt,
+    actor: TelosWorkActor,
+  ) {
+    this.operator(actor);
+    return this.db
+      .transaction(() => {
+        const record = this.sourceCreation(requestId, inputHash, actor);
+        if (
+          !record?.itemId ||
+          record.itemId !== receipt.work.itemId ||
+          receipt.actorId !== 'operator:' + actor.id
+        )
+          invalid('Creation receipt scope mismatch');
+        if (record.receipt) return record.receipt;
+        const recorded = this.db
+          .prepare(
+            "SELECT receipt FROM telos_work_commands WHERE actor_id=? AND json_extract(receipt,'$.commandId')=?",
+          )
+          .get(receipt.actorId, receipt.commandId) as { receipt: string } | undefined;
+        if (!recorded || recorded.receipt !== JSON.stringify(receipt))
+          invalid('Creation requires an actual source adoption receipt');
+        this.db
+          .prepare(
+            'UPDATE telos_work_source_creations SET receipt=? WHERE actor_id=? AND request_id=?',
+          )
+          .run(recorded.receipt, receipt.actorId, requestId);
+        return receipt;
+      })
+      .immediate();
+  }
+  sourceCreationBinds(itemId: string, packet: TelosSourcePacket, actor: TelosWorkActor) {
+    this.operator(actor);
+    if (!packet.creation || packet.itemId !== null) return false;
+    const row = this.db
+      .prepare(
+        'SELECT item_id,packet FROM telos_work_source_creations WHERE actor_id=? AND request_id=?',
+      )
+      .get(packet.actorId, packet.creation.requestId) as
+      { item_id: string | null; packet: string } | undefined;
+    return !!row && row.item_id === itemId && row.packet === JSON.stringify(packet);
   }
   forConversation(input: unknown, actor: TelosWorkActor): TelosWorkSessionLink[] {
     const ref = TelosSourceConversationReferenceSchema.parse(input);

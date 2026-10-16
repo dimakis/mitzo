@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.194';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.195';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,9 +26,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '2e02bc7096e531552c3eeec437f4e777d5b9a14089c3d6a9eb00b5d7942bf758',
   '../telos-source-routes.ts': '3d0da82d5b21f2a40f3a65865b8335ba5b24bc23eeb4c9eac455cfc13b02ac7c',
   '../../packages/protocol/src/telos-source.ts':
-    '322c0e8deca79276d54e09896d89a775b4e9238618198628242c8bc9cf5a3c9a',
+    '786230cd34a6f9433fdb92202d8381fc1e119086badb5667cb9b3ac6063535b6',
   '../telos-artifact-store.ts': '00faf68a218218a7ee0a6d8b43e881f17af870bcadcdd657735f7b66fc624ead',
-  '../telos-source-capture.ts': '5556e43a01f2ca7ac4a053866849a90f68bd1b6e2504f1377dbc6ed4905e2b44',
+  '../telos-source-capture.ts': '8a6e79313bc603f06c87aa98c504c3f2e2fef6944669cc8fb62c235f7dc6f91a',
   '../telos-conversation-source.ts':
     '0d49dd2b8c1b4bed343b6ceed6d65de5a71245c36d9585e2b5588d4f0f09bfcf',
   '../telos-work-record.ts': '7a1da4212ae06394702807b31421c371fac600904fa526937544587cbff56d93',
@@ -37,8 +37,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-work-routes.ts': 'dffb91f42e1bc07b44974d9bbc20ca29e4d0b3c2f42fbf783c26cc0f234fcfd3',
   '../../packages/client/src/telos-work-api.ts':
     '80827a9f7997a82598c2ef7ad9f1a3b922466fb8e40c8b755d7623ffc80860bf',
-  '../telos-work-schema.ts': '15f4071e9d4263a62ab50407466ff69fc8b993f421ed7ddfe4b8e5cafcf610d9',
-  '../telos-work-store.ts': 'a5bea9cdd7315b97b10eba5685ea154cae55272939866e183fa110d241ae81d0',
+  '../telos-work-schema.ts': '4f5c457cd446cb1a1aebde1f2d8b03ceb0ef1306e0a5cee8285d11b873a6df5a',
+  '../telos-work-store.ts': 'bd5445c06033ca2625afa6295639a3ddf2c5bf699444d4f94c918bf20e70a25a',
   '../../packages/protocol/src/telos-work-api.ts':
     '60655a07a4e2af570cb1d918f57970a2ea667f77d1d126fe37583ec8206df5a7',
   // Approved Agents presentation and retained native composer adaptation.

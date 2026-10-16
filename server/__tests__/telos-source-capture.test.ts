@@ -33,6 +33,9 @@ function fixture() {
     INSERT INTO items SELECT 'other',parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at FROM items;
     CREATE TABLE sources(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,source_id TEXT,url TEXT,title TEXT,author TEXT,timestamp TEXT,raw_snippet TEXT);
     CREATE TABLE links(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,url TEXT,title TEXT,description TEXT,created_at TEXT);`);
+  db.exec(
+    'ALTER TABLE items ADD COLUMN idempotency_key TEXT; CREATE UNIQUE INDEX creation_identity ON items(idempotency_key)',
+  );
   const events = new EventStore(join(root, 'events.db'));
   const artifacts = new TelosArtifactStore(dbPath);
   const work = new TelosWorkStore(dbPath, {
@@ -78,6 +81,53 @@ function fixture() {
   };
   const capture = new TelosSourceCapture(options);
   const preview = (itemId = 'item') => capture.preview({ itemId, selection }, actor);
+  let allocations = 0;
+  const createOutcome = vi.fn(
+    async (body: {
+      idempotencyKey: string;
+      summary: string;
+      intent: string;
+      rationale: string;
+      acceptanceCriteria: string[];
+      profile: string;
+      milestones: string[];
+      contextHints?: Record<string, unknown>;
+    }) => {
+      const prior = db
+        .prepare('SELECT id FROM items WHERE idempotency_key=?')
+        .get(body.idempotencyKey) as { id: string } | undefined;
+      if (prior) return { itemId: prior.id };
+      const id = 'created-' + ++allocations;
+      const hints = body.contextHints ?? {};
+      const storedHints = {
+        ...hints,
+        doc_ids: hints.docIds ?? [],
+        jira_keys: hints.jiraKeys ?? [],
+        task_hint: hints.taskHint ?? '',
+        session_ids: hints.sessionIds ?? [],
+      };
+      db.prepare(
+        "INSERT INTO items VALUES(?,NULL,?,?,?,?,?,'active',1,?,'created','created',?)",
+      ).run(
+        id,
+        body.summary,
+        body.intent,
+        body.rationale,
+        JSON.stringify(body.acceptanceCriteria),
+        body.profile,
+        JSON.stringify(storedHints),
+        body.idempotencyKey,
+      );
+      body.milestones.forEach((title, i) =>
+        db
+          .prepare(
+            "INSERT INTO items VALUES(?,?,?,'','','[]',?,'active',1,'{}','created','created',NULL)",
+          )
+          .run(id + '-slice-' + i, id, title, body.profile),
+      );
+      return { itemId: id };
+    },
+  );
   return {
     db,
     dbPath,
@@ -88,6 +138,7 @@ function fixture() {
     options,
     selection,
     preview,
+    createOutcome,
     revoke: () => {
       permitted = false;
     },
@@ -95,6 +146,148 @@ function fixture() {
 }
 
 describe('reviewed Telos source capture through existing owners', () => {
+  it('reviews a new outcome before creation and saves one source-only outcome through the canonical creator', async () => {
+    const f = fixture();
+    const outcome = {
+      summary: 'Home studio',
+      intent: 'Record clearly',
+      rationale: 'Make music',
+      acceptanceCriteria: ['Recording approved'],
+      profile: 'personal',
+      milestones: ['Plan acoustics'],
+    };
+    const proposal = { requestId: 'save-from-chat', outcome, selection: f.selection };
+    const preview = await f.capture.previewNew(proposal, actor);
+    expect(preview.packet.itemId).toBeNull();
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 2 });
+    const input = { ...proposal, previewSha256: preview.sha256 };
+    const receipt = await f.capture.createReviewed(input, actor, f.createOutcome);
+    expect(receipt.work).toMatchObject({
+      itemId: 'created-1',
+      kind: 'outcome',
+      assignments: [],
+      attempts: [],
+      links: [{ role: 'origin' }],
+    });
+    expect(f.work.read('created-1-slice-0', actor).kind).toBe('work_item');
+    const view = f.capture.read(receipt.work.itemId, receipt.work.sources[0].snapshotId, actor);
+    expect(view.packet).toEqual(preview.packet);
+    expect(f.createOutcome).toHaveBeenCalledTimes(1);
+    expect(f.createOutcome.mock.calls[0][0].contextHints).toMatchObject({ sessionIds: ['origin'] });
+    expect(await f.capture.createReviewed(input, actor, f.createOutcome)).toEqual(receipt);
+    expect(f.createOutcome).toHaveBeenCalledTimes(1);
+    expect(f.events.listSessions()).toHaveLength(1);
+    expect(f.db.prepare('SELECT * FROM telos_work_allocation_outbox').all()).toEqual([]);
+  });
+
+  it('recovers canonical creation after losing its response before recording the item identity', async () => {
+    const f = fixture();
+    const proposal = {
+      requestId: 'crash-during-save',
+      selection: f.selection,
+      outcome: {
+        summary: 'Reviewed feature',
+        intent: 'Ship it',
+        rationale: 'Why',
+        acceptanceCriteria: ['Verified'],
+        profile: 'mitzo',
+        milestones: ['Slice one'],
+      },
+    };
+    const preview = await f.capture.previewNew(proposal, actor);
+    const input = { ...proposal, previewSha256: preview.sha256 };
+    const record = vi.spyOn(f.work, 'recordSourceCreationItem').mockImplementationOnce(() => {
+      throw Error('Lost creation response');
+    });
+    await expect(f.capture.createReviewed(input, actor, f.createOutcome)).rejects.toThrow(
+      /Lost creation response/,
+    );
+    expect(
+      f.db.prepare('SELECT COUNT(*) AS n FROM items WHERE idempotency_key IS NOT NULL').get(),
+    ).toEqual({ n: 1 });
+    record.mockRestore();
+    f.events.append('origin', 'user_message', {
+      messageId: 'after-create',
+      text: 'Keep this later turn out',
+    });
+    const receipt = await new TelosSourceCapture(f.options).createReviewed(
+      input,
+      actor,
+      f.createOutcome,
+    );
+    expect(receipt.work.itemId).toBe('created-1');
+    expect(f.createOutcome.mock.calls[0][0].idempotencyKey).toBe(
+      f.createOutcome.mock.calls[1][0].idempotencyKey,
+    );
+    expect(f.capture.read('created-1', receipt.work.sources[0].snapshotId, actor).packet).toEqual(
+      preview.packet,
+    );
+    await expect(
+      f.capture.createReviewed(
+        { ...input, outcome: { ...proposal.outcome, intent: 'Different intent' } },
+        actor,
+        f.createOutcome,
+      ),
+    ).rejects.toThrow();
+    expect(
+      f.db.prepare('SELECT COUNT(*) AS n FROM items WHERE idempotency_key IS NOT NULL').get(),
+    ).toEqual({ n: 1 });
+  });
+
+  it('creates nothing for an unreviewed or no-longer-authorized new outcome', async () => {
+    const f = fixture();
+    const proposal = {
+      requestId: 'not-approved',
+      selection: f.selection,
+      outcome: {
+        summary: 'Outcome',
+        intent: 'Result',
+        rationale: 'Why',
+        acceptanceCriteria: ['Evidence'],
+        profile: 'manual',
+        milestones: ['One'],
+      },
+    };
+    await expect(
+      f.capture.createReviewed(
+        { ...proposal, previewSha256: '0'.repeat(64) },
+        actor,
+        f.createOutcome,
+      ),
+    ).rejects.toThrow();
+    const preview = await f.capture.previewNew(proposal, actor);
+    f.revoke();
+    await expect(
+      f.capture.createReviewed(
+        { ...proposal, previewSha256: preview.sha256 },
+        actor,
+        f.createOutcome,
+      ),
+    ).rejects.toThrow();
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 2 });
+  });
+
+  it('retains a valid large canonical proposal without inventing a recipient joining brief or truncating the outcome', async () => {
+    const f = fixture();
+    const outcome = {
+      summary: 'Large outcome',
+      intent: 'i'.repeat(2000),
+      rationale: 'r'.repeat(2000),
+      acceptanceCriteria: Array.from({ length: 12 }, () => 'a'.repeat(500)),
+      profile: 'manual',
+      milestones: Array.from({ length: 24 }, () => 'm'.repeat(500)),
+    };
+    const preview = await f.capture.previewNew(
+      { requestId: 'large-proposal', outcome, selection: f.selection },
+      actor,
+    );
+    expect(preview.packet.brief.text.length).toBeGreaterThan(20000);
+    expect(JSON.parse(preview.packet.brief.text)).toMatchObject(outcome);
+    expect(preview.packet.context.joiningBrief).toBe('');
+    expect(f.createOutcome).not.toHaveBeenCalled();
+  });
   it('pins capture, wire contracts and the touched artifact/work owners in the reviewed manifest', () => {
     const manifest: Record<string, string> = reviewedHandlerSourceArtifacts;
     for (const file of [
