@@ -20,7 +20,9 @@ The event adapter retains actual message/block IDs, public text and immutable
 native seat/account attribution. Thinking, tool/private extensions and unfinished
 replies are excluded. Hidden/imported conversations and ambiguous message IDs
 are refused. Full-prefix capture uses the compiler's complete bounded witness;
-selected artifacts resolve exact retained revisions and verified bytes. Mutable
+selected artifacts resolve exact retained revisions and verified bytes. Inline
+image attachments cannot silently disappear from a full/text source selection:
+the caller must select textual messages and retain image materials explicitly. Mutable
 unversioned material links cannot stand in for a full-prefix capture witness.
 
 Preview writes no item, assignment, session allocation or model turn. Adoption

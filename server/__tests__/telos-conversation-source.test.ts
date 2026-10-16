@@ -83,6 +83,24 @@ function fixture() {
 }
 
 describe('Telos adapter for the existing authorized context compiler', () => {
+  it('refuses inline images in captured content rather than claiming a complete text-only exchange', async () => {
+    const f = fixture();
+    const sequence = f.append('user_message', {
+      messageId: 'inline-mock',
+      text: 'Use this approved mock.',
+      images: ['data:image/png;base64,fixture-image'],
+    });
+    const selection = { ...f.selection, boundary: { sequence, messageId: 'inline-mock' } };
+    await expect(
+      f.source.openConversation({ ...selection, mode: 'conversation_so_far', messageIds: [] }),
+    ).rejects.toThrow(/images.*retained materials/);
+    await expect(
+      f.source.openConversation({ ...selection, messageIds: ['inline-mock'] }),
+    ).rejects.toThrow(/images.*retained materials/);
+    const narrow = await f.source.openConversation({ ...selection, messageIds: ['answer'] });
+    expect((await narrow.readSelected(['answer'])).map((m) => m.messageId)).toEqual(['answer']);
+  });
+
   it('retains immutable native seat attribution through the actual event owner', async () => {
     const f = fixture();
     const seats = ['builder', 'reviewer'].map((id, i) => ({

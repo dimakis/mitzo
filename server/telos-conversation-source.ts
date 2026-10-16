@@ -1,3 +1,4 @@
+import { TelosWorkError } from './telos-work-store.js';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -131,6 +132,15 @@ export function createTelosConversationSource(options: {
             if (typeof id !== 'string' || !keep(event)) continue;
             const key = identity(event);
             if (event.type === 'user_message') {
+              if (
+                (selection.mode === 'conversation_so_far' || wanted.has(id)) &&
+                event.payload.images !== undefined &&
+                (!Array.isArray(event.payload.images) || event.payload.images.length > 0)
+              )
+                throw new TelosWorkError(
+                  'invalid',
+                  'Select text messages and save inline images as retained materials before capturing.',
+                );
               if (typeof event.payload.text !== 'string') refuse();
               textBytes += Buffer.byteLength(event.payload.text);
               if (textBytes > MAX_BYTES) refuse();

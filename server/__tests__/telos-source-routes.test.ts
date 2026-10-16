@@ -129,6 +129,29 @@ function fixture() {
   return { app, events, selection, dbPath, post, createOutcome };
 }
 describe('authenticated Telos source capture API', () => {
+  it('reports unsupported inline images as an actionable selection error without creating work', async () => {
+    const f = fixture();
+    const sequence = f.events.append('origin', 'user_message', {
+      messageId: 'mock',
+      text: 'Use this mock',
+      images: ['data:image/png;base64,fixture'],
+    });
+    const response = await f.post('preview', {
+      itemId: 'item',
+      selection: {
+        ...f.selection,
+        mode: 'conversation_so_far',
+        messageIds: [],
+        boundary: { sequence, messageId: 'mock' },
+      },
+    });
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('invalid');
+    expect(response.body.error).toMatch(/images.*retained materials/);
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    expect(f.events.listSessions()).toHaveLength(1);
+  });
+
   it('creates one reviewed outcome through the canonical owner and returns its source-only work receipt', async () => {
     const f = fixture();
     const proposal = {
