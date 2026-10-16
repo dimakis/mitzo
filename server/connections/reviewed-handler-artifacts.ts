@@ -467,7 +467,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'c75dbd5f859323ce3ab43eda28f2c20baa0ef44d4f59afeb556790fc00982c50',
+  '../codex-conversation.ts': '5869138b6872839aaf3fe3a3d2a279eb3647e7c8e0ffbfaf98f9126cc581455d',
   '../codex-conversation-store.ts':
     'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
   // Retained-owner inference cancellation preserves actual handler cleanup and drain.
@@ -614,7 +614,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '5708a6e09129765ab760a6c078fb2571dc73dc1125c9be31b43f1865fe5e461b',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '95799f43eed7d0f818bcbb1cf9cc504d99168bc31877f4f17a19ae9fd0539d13',
-  '../repository-workspaces.ts': '46c951d3a21088fbc9d0df7dee99d300e436cd109c31e65ad14ee8f3fb0f2488',
+  '../repository-workspaces.ts': '87b74050cf4abf770b164b27d5524b23f2f395bf6adc4bc9bbf977ffd30fdbc5',
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
