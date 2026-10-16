@@ -229,6 +229,8 @@ The source process starts in its pinned discovery directory even when the chat
 uses a different authorized task workspace. Changed configuration or launch
 environment requires discovery and deliberate selection again. These receipts do
 not attest to executable bytes or a remote implementation behind the same contract.
+When replacing an implementation under unchanged launch inputs, the operator must
+assign a new source UUID rather than treating the old receipt as an attestation.
 
 New discoveries never rewrite the editor's references, published profiles or
 admitted sessions. Additions become available for new selections. Changed or

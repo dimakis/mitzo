@@ -16,7 +16,7 @@ Phase 1's separately authorized live qualification remains outstanding.
 3. [Library/editor #968](https://github.com/dimakis/mitzo/pull/968): explicit
    cancellable operator refresh over retained-owner IPC, saved read projections,
    compact cards, source distinctions, exact receipt selection and availability.
-4. Acceptance (this slice): extended lifecycle/authority/import/concurrency tests and current
+4. [Acceptance #969](https://github.com/dimakis/mitzo/pull/969) (this slice): extended lifecycle/authority/import/concurrency tests and current
    operating documentation. Current-head CI and trusted exact-head Centaur gates
    remain mandatory before any merge. A user-authorized merge hold applies until
    independently owned #962 lands and its owning session releases the hold.
