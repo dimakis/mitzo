@@ -543,6 +543,9 @@ it('preserves an existing skill allowlist after source opt-in and rechecks pendi
     pending = tools.execute(wire, {}, permission, abort.signal);
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     expect(requests[0].toolName).toBe('mcp__docs__search');
+    expect(requests[0].sessionGrantDescription).toBe(
+      'Session allowance covers only search from docs until the session ends.',
+    );
     setSkillPolicy(registry, 'skill', []);
     expect(
       resolvePending(requests[0].permId as string, 'always', undefined, 'skill-conversation'),
@@ -651,7 +654,11 @@ it.each([
           'mcp__docs__search',
           { query: 'validated' },
           signal,
-          { sessionGrantKey: 'configured-mcp:["11111111-1111-4111-8111-111111111111","search"]' },
+          {
+            sessionGrantKey: 'configured-mcp:["11111111-1111-4111-8111-111111111111","search"]',
+            sessionGrantDescription:
+              'Session allowance covers only search from docs until the session ends.',
+          },
         );
         expect(callTool).toHaveBeenCalledWith(
           { name: 'search', arguments: { query: 'validated' } },
