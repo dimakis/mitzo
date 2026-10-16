@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '80ff1b619e945d38883e2cabeb0c8c018c98e2231e5fff629bc742fab95beef3',
   '../collaboration-review-owner.ts':
     '3c76ab1873cf72a103d1b5def5cde2793e0cf7c1f85b239d1664e49214134fb1',
-  '../codex-ordinary-packet.ts': '097e40b428262a388226ad05234a6e986a7a675b0979006b9b436329fb142073',
+  '../codex-ordinary-packet.ts': 'ddb79df4bbadab7ecc5231a5b88723c5642ce4e00af4364a6f7e93597b1e530a',
   '../../packages/protocol/src/ordinary-prepared-session.ts':
     'bc3c9556216aaea4e4abd405e6bbab9e8158c6d3f7daed51b0d370273ca2c54f',
   '../telos-work-record.ts': '7a1da4212ae06394702807b31421c371fac600904fa526937544587cbff56d93',
