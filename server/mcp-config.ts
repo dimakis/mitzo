@@ -6,6 +6,7 @@ import { createLogger } from './logger.js';
 const log = createLogger('mcp');
 
 interface CursorMcpEntry {
+  librarySourceId?: string;
   command: string;
   args?: string[];
   env?: Record<string, string>;
@@ -22,6 +23,7 @@ interface CursorMcpFile {
 
 export interface McpServerConfig {
   type?: 'stdio';
+  librarySourceId?: string;
   command: string;
   args?: string[];
   env?: Record<string, string>;
@@ -108,6 +110,10 @@ export function loadFromFile(configPath: string): Record<string, McpServerConfig
 
       configs[name] = {
         command: entry.command,
+        ...(typeof entry.librarySourceId === 'string' &&
+        /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(entry.librarySourceId)
+          ? { librarySourceId: entry.librarySourceId }
+          : {}),
         ...(entry.args ? { args: entry.args } : {}),
         ...(entry.env ? { env: entry.env } : {}),
         ...(entry.execution === 'host' || entry.execution === 'sandbox'
