@@ -56,6 +56,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
+import { openCollaborationVisibleSource } from './collaboration-visible-source.js';
+import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
 import {
   OutputContributorBindingSchema,
@@ -2320,6 +2322,26 @@ export class EventStore {
   /** Read the immutable transcript prefix belonging to a reconnect boundary. */
   getSessionEventsThroughCursor(sessionId: string, cursor: number): StoredEvent[] {
     return this.conversationReplay.getSessionEventsThroughCursor(sessionId, cursor);
+  }
+
+  /** Host-only visible source capability. The caller retains normal operator/session authorization. */
+  openCollaborationVisibleSource(
+    sessionId: string,
+    boundary: { sequence: number; messageId: string | null },
+  ) {
+    this.assertConversationIdentity(sessionId);
+    if (!this.isCollaborationParticipantAvailable(sessionId))
+      throw new SessionCollaborationError('not_found');
+    const initialPrompt = this.getSession(sessionId)?.initialPrompt ?? null;
+    const source = openCollaborationVisibleSource(this.db!, sessionId, boundary, initialPrompt);
+    return {
+      ...source,
+      assertCurrent: () => {
+        if ((this.getSession(sessionId)?.initialPrompt ?? null) !== initialPrompt)
+          throw new CollaborationContractError('snapshot_changed');
+        source.assertCurrent();
+      },
+    };
   }
 
   /** Return only the bounded text projection needed to rebuild conversation

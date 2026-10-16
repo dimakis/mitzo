@@ -28,6 +28,27 @@ retain them as materials. An unrelated textual selection remains available even
 when its later boundary message carries attachments. Mutable unversioned material
 links cannot stand in for a full-prefix capture witness.
 
+New capture qualifies attribution across the chosen prefix before filtering selected
+messages. Payload seat/provenance markers cannot establish an ordinary author;
+verified native column provenance and host recipient bookkeeping keep their existing
+meaning. Real operator rows retain the modern normal-chat `user-<messageId>` block
+identity. Metadata-only initial prompts without a durable message boundary, and
+legacy prompts or overlapping turns that normal chat displays in another order,
+are refused rather than silently omitted or reordered. Later events beyond the
+chosen boundary do not affect that qualification.
+
+Native turn ownership checks the complete retained provenance snapshot, not just
+seat/message/generation. A schema-valid snapshot change within a turn is refused
+before selected-message filtering. Block IDs remain unique across public text,
+thinking and tool blocks, so reuse cannot relabel private deltas as public text.
+
+The two existing chat replay paths differ for legacy unfinished blocks: modern
+reconnect may display their text at `message_end`, while historical REST can omit
+them. The accepted bounded-source contract requires closed public text blocks, so
+new capture refuses such records explicitly; neither chat renderer is changed.
+The native writer closes remaining blocks before its message end. Existing source
+packets and unknown historical selections remain readable and are not rewritten.
+
 Preview writes no item, assignment, session allocation or model turn. Adoption
 retains a versioned source packet through `TelosArtifactStore`, then commits its
 source reference and origin backlink through `TelosWorkStore`. The full brief,

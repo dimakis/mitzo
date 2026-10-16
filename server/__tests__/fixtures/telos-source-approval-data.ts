@@ -65,7 +65,7 @@ export function createTelosSourceApprovalData() {
     return {
       messageId,
       role: 'user' as const,
-      blocks: [{ blockId: messageId + '-text', blockType: 'text' as const, content: text }],
+      blocks: [{ blockId: `user-${messageId}`, blockType: 'text' as const, content: text }],
     };
   });
   const material = artifacts.save({

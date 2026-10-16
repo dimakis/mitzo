@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import express from 'express';
@@ -129,6 +129,113 @@ function fixture() {
   return { app, events, selection, dbPath, post, createOutcome };
 }
 describe('authenticated Telos source capture API', () => {
+  it.each(['thinking', 'tool_use'])(
+    'refuses private %s block-ID reuse before preview/creation and retains no private source',
+    async (blockType) => {
+      const f = fixture();
+      for (const [type, fields] of [
+        ['message_start', {}],
+        ['block_start', { blockId: 'reused', blockType: 'text' }],
+        ['block_delta', { blockId: 'reused', delta: 'Public text' }],
+        ['block_start', { blockId: 'reused', blockType }],
+        ['block_delta', { blockId: 'reused', delta: 'PRIVATE REUSED DELTA' }],
+        ['block_end', { blockId: 'reused', blockType }],
+      ] as const)
+        f.events.append('origin', type, { messageId: 'mixed', ...fields });
+      const sequence = f.events.append('origin', 'message_end', { messageId: 'mixed' });
+      const input = {
+        requestId: randomUUID(),
+        outcome: {
+          summary: 'Reviewed outcome',
+          intent: 'Result',
+          rationale: 'Why',
+          acceptanceCriteria: ['Evidence'],
+          milestones: ['One'],
+          profile: 'manual',
+        },
+        selection: {
+          ...f.selection,
+          boundary: { sequence, messageId: 'mixed' },
+          messageIds: ['mixed'],
+        },
+      };
+      const preview = await f.post('outcome/preview', input);
+      expect.soft(preview.status).toBe(503);
+      expect.soft(JSON.stringify(preview.body)).not.toContain('PRIVATE REUSED DELTA');
+      const saved = await f.post('outcome/create', {
+        ...input,
+        previewSha256: preview.body.sha256 ?? '0'.repeat(64),
+      });
+      expect.soft(saved.status).toBe(503);
+      expect.soft(f.createOutcome).not.toHaveBeenCalled();
+      const db = new Database(f.dbPath());
+      try {
+        expect.soft(db.prepare('SELECT id FROM items').all()).toEqual([{ id: 'item' }]);
+        for (const table of [
+          'telos_artifact_revisions',
+          'telos_work_sources',
+          'telos_work_links',
+          'telos_work_assignments',
+          'telos_work_attempts',
+          'telos_work_source_creations',
+        ])
+          expect
+            .soft(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table)
+            .toEqual({ n: 0 });
+      } finally {
+        db.close();
+      }
+    },
+  );
+  it('refuses newly unverified attribution after preview before canonical creation or retained-source mutation', async () => {
+    const f = fixture();
+    const input = {
+      requestId: randomUUID(),
+      outcome: {
+        summary: 'Reviewed outcome',
+        intent: 'Result',
+        rationale: 'Why',
+        acceptanceCriteria: ['Evidence'],
+        milestones: ['One'],
+        profile: 'manual',
+      },
+      selection: f.selection,
+    };
+    const preview = await f.post('outcome/preview', input);
+    expect(preview.status).toBe(200);
+    const events = new Database(join(dirname(f.dbPath()), 'events.db'));
+    try {
+      events
+        .prepare(
+          "UPDATE events SET payload=json_set(payload,'$.seatId',NULL) WHERE session_id='origin' AND type='user_message'",
+        )
+        .run();
+    } finally {
+      events.close();
+    }
+    const response = await f.post('outcome/create', {
+      ...input,
+      previewSha256: preview.body.sha256,
+    });
+    expect(response.status).toBe(503);
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    const db = new Database(f.dbPath());
+    try {
+      expect(db.prepare('SELECT id FROM items').all()).toEqual([{ id: 'item' }]);
+      for (const table of [
+        'telos_artifact_revisions',
+        'telos_work_sources',
+        'telos_work_links',
+        'telos_work_assignments',
+        'telos_work_attempts',
+        'telos_work_source_creations',
+      ])
+        expect(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table).toEqual({ n: 0 });
+      expect(f.events.listSessions()).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
   it('refuses attached saved source snapshots before retaining or creating work', async () => {
     const f = fixture();
     const content = 'The exact saved briefing content.';
