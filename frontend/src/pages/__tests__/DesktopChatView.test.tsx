@@ -687,7 +687,8 @@ it('replaces ordinary workspace actions and Ready with per-agent guidance for Sy
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
-  await screen.findByText('Symposium');
+  await screen.findByRole('button', { name: 'Agents' });
+  expect(screen.queryByText('Accounts and models per agent')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Auto' })).toBeNull();
   expect(screen.queryByTitle('Close session')).toBeNull();
