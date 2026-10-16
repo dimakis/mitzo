@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.182';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.186';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,9 +24,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../mcp-config.ts': '6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b',
   '../configured-tool-runtime.ts': '60b98526368eebc431ffe848bc51f88d98ac1dff1a4b5fda7938055677651133',
-  '../configured-tool-admission.ts': '913b2e07553f9f7b8430e595f5e55dbb97a750b6ef7a92659c628cef7b7ed545',
+  '../configured-tool-admission.ts': '76d56a2582972ce00acc43fb3b907206ab2d3441ef4fbebcac6b2740bb3ff972',
   '../configured-tool-catalog.ts':
-    'b4344c667cdd4cd804d7f272587ea93ab8b5d991f97d52bc45ce5e4217fd640d',
+    'bd4a1e2d1612733f7739c287f5d337ac9a325f1c3d065bdea0f8d6a4a05e9234',
   '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent conversation metadata and offline client projection; execution remains disabled.
@@ -292,7 +292,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
     'f9237e6f3bd200722044be249bedd48ff5ccbdabf68f92e4775901092493d8e6',
-  '../codex-mcp-tools.ts': '08d8697f5efc21b406033857dac8aceaeb732bc33e70f74378c16f53f132cb63',
+  '../codex-mcp-tools.ts': 'ad5b7508bf68d25d91c3bd070c3d2dfaf1f156d354716dd1856f0f8729cbf41d',
   '../codex-runtime-diagnostics.ts':
     '80730e66ff8aa543acfb4ce035c7cf2fbe936172498d3b8ed0d868143bee4513',
   'capabilities/approval.ts': '25c074b3091e67b0c3faba822e8e2c00ff32a34416fe0b37cb4f202d040d0320',
