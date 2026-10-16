@@ -167,6 +167,21 @@ it.each(['script.py', 'script.js'])(
   },
 );
 
+it('preserves SVG source as read-only text rather than suppressing or editing it', async () => {
+  const content =
+    '<svg xmlns="http://www.w3.org/2000/svg"><script>alert("source only")</script><text>Diagram</text></svg>';
+  const { app, url, save } = setup('diagram.svg', Buffer.from(content));
+  const read = await request(app).get(url);
+  expect(read.status).toBe(200);
+  expect(read.body).toMatchObject({
+    ext: '.svg',
+    content,
+    editable: false,
+    previewUnavailable: false,
+  });
+  expect((await save()).status).toBe(400);
+});
+
 it('authenticates before parsing edits and rechecks a revoked operator at mutation', async () => {
   const { login, operatorAuthMiddleware, authMiddleware, revokeAuthSession } =
     await import('../auth.js');

@@ -297,6 +297,7 @@ export class TelosArtifactStore {
         '.jsx',
         '.py',
         '.sh',
+        '.svg',
       ].includes(ext);
     return {
       path: artifact.url,
