@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.167';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.168';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -48,7 +48,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-lifecycle-service.ts':
     '5f6dfd0be3670a181b1dcc68a8633933ea95bf19574d0f3178a68dfcfe03d493',
   '../../frontend/src/pages/SandboxesView.tsx':
-    '9628ebcc09ceeff4e55a1b672aca92a3eafe1ce04b91d8a32fc8411d9b50223b',
+    'c3b02b0509b57999a1da50a050ee8d7a8e1cd0bb1f9fd75e764c26a1d4878679',
   '../../frontend/src/pages/SandboxesView.css':
     'fc0fc8920489a087dbd7ee07d060f88ec44a4028ee4d056b899ba7c2834adf8f',
   '../../frontend/src/types/sandboxes.ts':

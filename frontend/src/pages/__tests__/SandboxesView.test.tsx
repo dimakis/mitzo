@@ -179,3 +179,18 @@ it('explicit refresh preserves the refused draft and allows a retry against the 
   await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
   expect(JSON.parse(vi.mocked(apiFetch).mock.calls[1][1]!.body as string).revision).toBe(2);
 });
+it('preparing a spare preserves unsaved settings and requires review against the new inventory revision', async () => {
+  vi.mocked(readApiJson).mockResolvedValue(snapshot);
+  vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 200 }));
+  mount();
+  await screen.findByLabelText('Warm spares');
+  fireEvent.change(screen.getByLabelText('Warm spares'), { target: { value: '2' } });
+  vi.mocked(readApiJson).mockResolvedValue({ ...snapshot, revision: 9 });
+  fireEvent.click(screen.getByRole('button', { name: 'Prepare now' }));
+  await screen.findByText('Pool prepared.');
+  expect((screen.getByLabelText('Warm spares') as HTMLSelectElement).value).toBe('2');
+  expect(screen.getByText('Unsaved changes')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls[1][1]!.body as string).revision).toBe(1);
+});

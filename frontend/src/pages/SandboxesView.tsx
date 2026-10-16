@@ -127,8 +127,8 @@ export function SandboxesView() {
       if (!mounted.current) return;
       setSelected(null);
       setRemove(false);
-      dirtyRef.current = false;
-      await refresh(undefined, true);
+      if (action === 'settings') dirtyRef.current = false;
+      await refresh(undefined, action === 'settings');
       setMessage(success);
     } catch (e) {
       if (mounted.current)
