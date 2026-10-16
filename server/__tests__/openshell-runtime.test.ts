@@ -56,6 +56,43 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('qualifies the existing API provider identity without creating a sandbox or reading a key', async () => {
+    const provider = {
+      id: 'saved-provider',
+      name: 'openai-work',
+      workspace: 'mitzo',
+      type: 'mitzo-openai-keychain-spike',
+    };
+    const run = vi
+      .fn<(args: readonly string[]) => Promise<string>>()
+      .mockResolvedValue(JSON.stringify([provider]));
+    const manager = new OpenShellRuntimeManager(config, run);
+    await manager.verifyAPIAccountProvider('saved-provider', new AbortController().signal);
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0][0]).toEqual(expect.arrayContaining(['provider', 'list']));
+    for (const change of [
+      { id: 'another' },
+      { workspace: 'another' },
+      { type: 'another' },
+      { name: 'another' },
+    ]) {
+      run.mockResolvedValueOnce(JSON.stringify([{ ...provider, ...change }]));
+      await expect(
+        manager.verifyAPIAccountProvider('saved-provider', new AbortController().signal),
+      ).rejects.toThrow('binding changed');
+    }
+    run.mockResolvedValueOnce(JSON.stringify([provider, provider]));
+    await expect(
+      manager.verifyAPIAccountProvider('saved-provider', new AbortController().signal),
+    ).rejects.toThrow('binding changed');
+    const cancelled = new AbortController();
+    cancelled.abort();
+    const before = run.mock.calls.length;
+    await expect(
+      manager.verifyAPIAccountProvider('saved-provider', cancelled.signal),
+    ).rejects.toThrow();
+    expect(run.mock.calls.length).toBe(before);
+  });
   it('reads a bounded task capability inventory over the selected sandbox transport', async () => {
     const observation = { mgmtCli: false, meetingPrep: false, gws: true };
     const runSsh = vi.fn(async () => JSON.stringify(observation));

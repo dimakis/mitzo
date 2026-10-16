@@ -122,6 +122,24 @@ Resolution fails closed; secrets are not stored in account profiles, tool
 environments, or session metadata. The API model is fixed for the conversation.
 Its private native history is separate from the Codex durable follow-up queue.
 
+The enrolled Local Responses runtime offers existing configured OpenAI API accounts
+as well as new Connections enrollments. It reuses the selected account's credential
+reference and its existing rotation/enrollment controller. Missing enrollment custody,
+unresolved credential journals and account changes remain blocking; re-entering a
+key or creating a second account is not required to select an existing account locally.
+The enrolled OpenShell picker also includes existing API accounts with a configured
+provider name and pinned provider ID. Owning admission checks the existing credential
+custody under its mutation gate and verifies the exact provider ID, type and workspace
+before sandbox effects, without copying the host key. An unpinned API profile remains
+available locally; it cannot establish a new explicit sandbox route.
+
+When Local Mac Codex is enrolled, host account discovery uses that runtime's pinned
+native executable for metadata-only account and model checks. It does not depend
+on the globally installed CLI version, start threads or perform inference. Existing
+Mac sign-ins can be registered as host account profiles using their actual verified
+identity and login directory. A differently signed-in sandbox account keeps its own
+profile; registering a Mac account does not replace that account or copy its tokens.
+
 Project command hooks are disabled by default because their commands are repository-
 controlled host code. An operator may explicitly trust them with
 `MITZO_TRUST_PROJECT_HOOKS=1`. Supported events are SessionStart, PreToolUse,

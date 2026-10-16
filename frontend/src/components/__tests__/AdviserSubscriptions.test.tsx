@@ -18,6 +18,34 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
+it('retries a saved connection without opening another ChatGPT sign-in', async () => {
+  let state = 'reauth_required';
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/retry')) {
+      state = 'connected';
+      return new Response(
+        JSON.stringify({ id: 'saved', label: 'Personal', email: 'user@example.test', state }),
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [{ id: 'saved', label: 'Personal', email: 'user@example.test', state }],
+        pendingAttempt: null,
+      }),
+    );
+  });
+  render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage adviser accounts' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry connection to Personal' }));
+  await screen.findByText('ChatGPT adviser connected. Choose its account and model.');
+  expect(screen.queryByRole('button', { name: 'Retry connection to Personal' })).toBeNull();
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
+  expect(mocks.changed).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(
+    screen.getByRole('button', { name: 'Refresh adviser accounts' }),
+  );
+});
 it('recovers a host-owned pending sign-in on remount and allows cancellation without starting another attempt', async () => {
   let pending = true;
   mocks.fetch.mockImplementation(

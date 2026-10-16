@@ -17,7 +17,7 @@ import type {
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { loadAccountProfiles } from './account-profiles.js';
-import { getConnectionsRuntime } from './connections-runtime.js';
+import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import {
@@ -182,14 +182,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       this.#adc!.assertCurrent(this.#adcEnv!);
       return undefined;
     }
-    profiles.apiRoutingProfile(binding);
-    const manager = getConnectionsRuntime()?.openAIEnrollmentAuthority;
-    if (
-      !profiles.isEnrolledOpenAIAccount(binding.accountId) ||
-      !manager?.manages(binding.accountId)
-    )
-      throw unavailable();
-    return manager;
+    return openAIAccountKeyAuthority(binding, profiles);
   }
   geminiOptions(): GeminiOptions {
     this.assertOwner();
