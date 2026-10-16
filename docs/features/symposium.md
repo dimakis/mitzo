@@ -21,6 +21,15 @@ immutable review objects, pending fresh allocation, authenticated API reads and
 offline client projection. Public preparation/send routes remain explicitly disabled;
 application wiring and account-by-runtime qualification remain outstanding.
 
+The UI fidelity correction is a separate frontend checkpoint before further backend
+integration. Ordinary chat now exposes one Agents view; retained native conversations
+use the compact participant header and shared ordinary composer instead of a permanent
+All/agent tab bar and recipient form. Native approval, Stop and recovery remain with
+the original native owner. Fresh setup is editable but review/confirmation remains
+unavailable until trusted source, capacity and ordinary preparation are installed.
+This is not acceptance of joining, shared delivery, artifact-version selection or
+all-account/runtime parity. The approved mock remains the product acceptance reference.
+
 Canonical staging and its pipeline were stood down by the user on 15 October.
 Historical staging procedures below do not authorize checks, enqueue, recovery,
 restart, recreation or deployment. Use offline tests, review and CI. Live work

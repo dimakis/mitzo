@@ -370,6 +370,12 @@ for (const [name, Screen] of [
     expect(legacySend).not.toHaveBeenCalled();
   });
   it(`${name}: retains known Symposium classification through picker remount and guards the next unknown session`, async () => {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.open = true;
+    };
+    HTMLDialogElement.prototype.close = function () {
+      this.open = false;
+    };
     const { store, localSend, legacySend } = setup(Screen);
     vi.mocked(apiFetch).mockImplementation(async (url) => {
       if (String(url).includes('unknown-session')) return new Promise<Response>(() => {});
@@ -386,10 +392,13 @@ for (const [name, Screen] of [
     );
     await screen.findByText('Agent chat');
     await waitFor(() => expect(document.querySelector('.agent-settings-picker')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Chat settings' }));
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
     expect((await screen.findByText('Symposium')).closest('.workspace-controls')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
     act(() => store.setState({ switchSession: async () => {} }));
     fireEvent.click(screen.getByRole('button', { name: 'Navigate before assignment' }));
     expect(store.getState().sessions.active).toBe('symposium-session');

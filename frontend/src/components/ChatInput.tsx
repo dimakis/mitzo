@@ -1,4 +1,5 @@
 import { MotionPresence } from './MotionPresence';
+import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
 import {
   useState,
   useRef,
@@ -39,9 +40,14 @@ import {
 export interface ChatInputDraftControl {
   storageKey: string | undefined;
   clear: () => void;
+  /** Read the current edited text without waiting for debounced persistence. */
+  readText?: () => string;
 }
 
 interface Props {
+  responders?: ComposerResponderSelection;
+  /** A retained delivery route may support text and voice but no attachments. */
+  textOnly?: boolean;
   settings?: ReactNode;
   sendLabel?: string;
   onSend: (
@@ -97,6 +103,8 @@ interface Props {
 const EMPTY_MESSAGES: FinishedMessage[] = [];
 
 export function ChatInput({
+  responders,
+  textOnly = false,
   settings,
   sendLabel = 'Send message',
   onSend,
@@ -157,10 +165,11 @@ export function ChatInput({
     draftStorageKey,
     assignment,
   );
-  useImperativeHandle(draftControl, () => ({ storageKey: draftStorageKey, clear: clearDraft }), [
-    draftStorageKey,
-    clearDraft,
-  ]);
+  useImperativeHandle(
+    draftControl,
+    () => ({ storageKey: draftStorageKey, clear: clearDraft, readText: () => text }),
+    [draftStorageKey, clearDraft, text],
+  );
   const [images, setImages] = useState<ImageAttachment[]>(savedChatDraft?.images ?? []);
   const [preview, setPreview] = useState<{
     image: ImageAttachment;
@@ -201,9 +210,17 @@ export function ChatInput({
       assignedDraft.current = null;
   }, [assignment, sessionId]);
   const useExternal = externalContextBlocks !== undefined;
+  const [respondersOpen, setRespondersOpen] = useState(false);
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
   const sendDisabledReason =
     suppliedSendDisabledReason ??
+    (respondersOpen ? 'Choose who replies, or close the picker to keep your draft.' : undefined) ??
+    (responders?.selectedIds.some((id) => !responders.members.some((m) => m.id === id))
+      ? 'A selected agent is unavailable. Choose who replies before sending.'
+      : undefined) ??
+    (textOnly && (images.length || activeContextBlocks.length)
+      ? 'Remove attachments and context before sending through this conversation’s text-only route.'
+      : undefined) ??
     ((boundedFirstCommand || guardedConversation) && activeContextBlocks.length
       ? boundedFirstCommand
         ? 'Remove attached context before sending the Local command.'
@@ -517,6 +534,19 @@ export function ChatInput({
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (respondersOpen && ['ArrowDown', 'Enter', 'Escape'].includes(e.key) && !e.shiftKey) {
+      e.preventDefault();
+      const panel = textareaRef.current
+        ?.closest('.chat-input')
+        ?.querySelector<HTMLElement>('.composer-responder-picker');
+      if (e.key === 'Escape') panel?.querySelector<HTMLButtonElement>('button:last-child')?.click();
+      else {
+        const choice = panel?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+        if (e.key === 'Enter') choice?.click();
+        else choice?.focus();
+      }
+      return;
+    }
     if (previewOpen) {
       if (e.key === 'Enter') e.preventDefault();
       return;
@@ -544,6 +574,7 @@ export function ChatInput({
   }
 
   async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    if (textOnly) return;
     const files = e.target.files;
     if (!files) return;
 
@@ -573,6 +604,7 @@ export function ChatInput({
   }
 
   async function handlePaste(e: React.ClipboardEvent) {
+    if (textOnly) return;
     const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
     if (remaining <= 0) return;
 
@@ -893,7 +925,13 @@ export function ChatInput({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={running ? 'Type to queue or interrupt...' : 'Message Mitzo...'}
+          placeholder={
+            running
+              ? 'Type to queue or interrupt...'
+              : responders
+                ? 'Message… @ to choose who replies'
+                : 'Message Mitzo...'
+          }
           rows={1}
         />
         {settings}
@@ -906,6 +944,15 @@ export function ChatInput({
               }
             }}
           >
+            {responders && (
+              <ComposerResponders
+                selection={responders}
+                text={text}
+                onTextChange={setText}
+                input={textareaRef}
+                onOpenChange={setRespondersOpen}
+              />
+            )}
             <ComposerTools
               terminalHref={
                 sessionId && !boundedFirstCommand && !guardedConversation
@@ -918,9 +965,9 @@ export function ChatInput({
                 textareaRef.current?.focus();
               }}
               commandsExpanded={showSlashPicker}
-              commandsDisabled={boundedFirstCommand || guardedConversation}
+              commandsDisabled={boundedFirstCommand || guardedConversation || textOnly}
               onAttach={() => fileInputRef.current?.click()}
-              attachmentDisabled={images.length >= MAX_IMAGE_ATTACHMENTS}
+              attachmentDisabled={textOnly || images.length >= MAX_IMAGE_ATTACHMENTS}
               onDismiss={() => textareaRef.current?.focus()}
               isolation={isolation}
               onIsolationChange={onIsolationChange}
