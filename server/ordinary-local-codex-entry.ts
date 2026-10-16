@@ -358,7 +358,12 @@ export function createOwnedLocalCodexEntryRouter(
               target.location,
               presets,
               ['responses', 'gemini', 'claude-sdk'].includes(route.harness)
-                ? { contextRecipes: 'none' }
+                ? {
+                    contextRecipes: 'none',
+                    toolSelection:
+                      ['responses', 'gemini'].includes(route.harness) &&
+                      target.location === 'local',
+                  }
                 : undefined,
             ),
           };
@@ -562,6 +567,11 @@ export function createOwnedLocalCodexEntryRouter(
             binding.provider,
             input.runOn,
             agentContextPresets,
+            {
+              contextRecipes: 'supported',
+              toolSelection:
+                input.runOn === 'local' && ['responses', 'gemini'].includes(input.runtime.harness),
+            },
           ).agentProfileRejections.length
         )
           throw Error(unavailable);

@@ -1,3 +1,8 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { AgentLibraryStore } from '../agent-library-store.js';
+import { NativeResponsesStore } from '../native-responses-store.js';
 import { expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { SessionRegistry } from '@mitzo/harness';
@@ -1803,45 +1808,226 @@ it.each(['agent', 'ask'] as const)(
   },
 );
 
-it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
-  'refuses a retained selected-tool snapshot before unenrolled API startup: %j',
-  async ({ tools }) => {
+it.each(['openai', 'google-vertex'] as const)(
+  'enforces a published subset at exposure and every dispatch on %s without discovering unselected MCP servers',
+  async (provider) => {
+    const { bindAgentToolSelection } = await import('../agent-tool-selection.js');
     const registry = new SessionRegistry();
-    registry.register('selection-client', {
-      transport: { send: () => {}, isOpen: () => true },
-      abortController: new AbortController(),
-      mode: 'agent',
-      sessionId: 'selected-app',
+    registry.register('selected-client', {
+      sessionId: `selected-${provider}`,
       cwd: '/tmp',
+      mode: 'agent',
+      abortController: new AbortController(),
       sessionAllowList: new Set(),
-    });
-    const before = calls.options.length;
+    } as never);
+    const session = registry.get('selected-client')!;
+    bindAgentToolSelection(session, {
+      tools: [
+        { id: 'mitzo:GetConnectionGuide', version: 1 },
+        { id: 'mitzo:Read', version: 1 },
+      ],
+    } as never);
     const input = new AsyncQueue<{ message: { content: string } }>();
-    input.close();
+    const chat = await openResponsesChat({
+      conversationId: `selected-${provider}`,
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider,
+        model: 'luna-fixture',
+        profileRevision: 'r1',
+      },
+      apiKey: provider === 'openai' ? 'fake-key' : undefined,
+      session,
+      registry,
+      input,
+      systemPrompt: 'test',
+      env: {},
+      mcpServers: { private: { command: 'must-never-launch', args: [] } },
+      store: {} as never,
+    });
     try {
-      await expect(
-        openResponsesChat({
+      const opts = calls.options.at(-1)! as {
+        tools: { name: string }[];
+        executeTool(
+          block: { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> },
+          signal: AbortSignal,
+        ): Promise<{ content: string; is_error: boolean }>;
+      };
+      expect(opts.tools.map((tool) => tool.name).sort()).toEqual([
+        'AskUserQuestion',
+        'GetConnectionGuide',
+        'Read',
+      ]);
+      for (const name of [
+        'ConnectionRequest',
+        'RequestGithubPublish',
+        'mitzo_mcp_forged',
+        'mcp__mitzo-connections__ConnectionRequest',
+        'ExecuteProviderCapability',
+        'Bash',
+      ]) {
+        const result = await opts.executeTool(
+          { type: 'tool_use', id: `call-${name}`, name, input: {} },
+          session.abortController.signal,
+        );
+        expect(result).toMatchObject({
+          is_error: true,
+          content: expect.stringMatching(/not selected/i),
+        });
+      }
+      expect(
+        await opts.executeTool(
+          { type: 'tool_use', id: 'selected-guide', name: 'GetConnectionGuide', input: {} },
+          session.abortController.signal,
+        ),
+      ).toMatchObject({ is_error: false });
+      session.activeSkillPolicy = new Set(['Read']);
+      expect(
+        await opts.executeTool(
+          { type: 'tool_use', id: 'revoked-guide', name: 'GetConnectionGuide', input: {} },
+          session.abortController.signal,
+        ),
+      ).toMatchObject({ is_error: true });
+    } finally {
+      chat.close();
+      registry.dispose();
+    }
+  },
+);
+
+it.each([
+  { provider: 'openai' as const, tools: [] },
+  { provider: 'openai' as const, tools: [{ id: 'mitzo:Read', version: 1 }] },
+  { provider: 'google-vertex' as const, tools: [] },
+  { provider: 'google-vertex' as const, tools: [{ id: 'mitzo:Read', version: 1 }] },
+])(
+  'keeps the retained published selection after edits and cold API resume: %j',
+  async ({ provider, tools }) => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-selected-api-'));
+    const database = join(root, 'events.db');
+    const privateDatabase = join(root, 'private.db');
+    let events = new EventStore(database);
+    let library = new AgentLibraryStore(database);
+    let store = new NativeResponsesStore(privateDatabase);
+    const binding = {
+      accountId: 'work',
+      accountLabel: 'Work',
+      provider,
+      model: 'offline-fixture',
+      profileRevision: 'r1',
+    };
+    const definition = {
+      name: 'Limited',
+      role: 'agent' as const,
+      instructions: 'Inspect.',
+      expectedOutput: 'Facts',
+      acceptanceCriteria: ['Evidence'],
+      modelPolicyRole: 'agent' as const,
+      tools,
+    };
+    const registry = new SessionRegistry();
+    const expectedNames = ['AskUserQuestion', ...(tools.length ? ['Read'] : [])];
+    try {
+      const draft = library.saveDraft('user', {
+        profileId: 'limited',
+        expectedVersion: 0,
+        expectedRevision: 0,
+        idempotencyKey: 'first-draft',
+        definition,
+      });
+      const published = library.publish('user', {
+        profileId: 'limited',
+        expectedVersion: draft.version,
+        idempotencyKey: 'first-publish',
+      });
+      events.upsertSession({ sessionId: 'selected-app', agentProfile: published });
+      for (const resume of [false, true]) {
+        registry.register('selection-client', {
+          sessionId: 'selected-app',
+          cwd: '/tmp',
+          mode: 'agent',
+          abortController: new AbortController(),
+          sessionAllowList: new Set(),
+        } as never);
+        const session = registry.get('selection-client')!;
+        const input = new AsyncQueue<{ message: { content: string } }>();
+        input.close();
+        const chat = await openResponsesChat({
           conversationId: 'selected-app',
-          binding: {
-            accountId: 'work',
-            accountLabel: 'Work',
-            provider: 'openai',
-            model: 'test',
-            profileRevision: 'revision',
-          },
-          session: registry.get('selection-client')!,
+          binding,
+          session,
           registry,
           input,
           systemPrompt: '',
           env: {},
-          mcpServers: {},
-          store: {} as never,
-          eventStore: { getSession: () => ({ agentProfile: { definition: { tools } } }) } as never,
-        }),
-      ).rejects.toThrow('tool selection is not supported');
-      expect(calls.options).toHaveLength(before);
+          mcpServers: { hidden: { command: 'must-never-launch', args: [] } },
+          eventStore: events,
+          store,
+          resume,
+        });
+        try {
+          const options = calls.options.at(-1)! as {
+            tools: { name: string }[];
+            executeTool(
+              block: { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> },
+              signal: AbortSignal,
+            ): Promise<{ is_error: boolean; content: string }>;
+          };
+          expect(options.tools.map((tool) => tool.name).sort()).toEqual(expectedNames);
+          for (const name of [
+            'Bash',
+            'ConnectionRequest',
+            'mcp__mitzo-connections__ConnectionRequest',
+            'ExecuteProviderCapability',
+            'mitzo_mcp_forged',
+            ...(!tools.length ? ['Read', 'mcp__mitzo-connections__Read'] : []),
+          ]) {
+            await expect(
+              options.executeTool(
+                { type: 'tool_use', id: `deny-${name}`, name, input: {} },
+                session.abortController.signal,
+              ),
+            ).resolves.toMatchObject({
+              is_error: true,
+              content: expect.stringMatching(/not selected/i),
+            });
+          }
+        } finally {
+          chat.close();
+          session.abortController.abort();
+        }
+        if (!resume) {
+          const next = library.saveDraft('user', {
+            profileId: 'limited',
+            expectedVersion: 0,
+            expectedRevision: 1,
+            idempotencyKey: 'next-draft',
+            definition: {
+              ...definition,
+              tools: tools.length ? [] : [{ id: 'mitzo:Read', version: 1 }],
+            },
+          });
+          library.publish('user', {
+            profileId: 'limited',
+            expectedVersion: next.version,
+            idempotencyKey: 'next-publish',
+          });
+          store.close();
+          events.close();
+          library.close();
+          store = new NativeResponsesStore(privateDatabase);
+          events = new EventStore(database);
+          library = new AgentLibraryStore(database);
+          expect(events.getSession('selected-app')?.agentProfile).toEqual(published);
+        }
+      }
     } finally {
       registry.dispose();
+      library.close();
+      events.close();
+      store.close();
+      rmSync(root, { recursive: true, force: true });
     }
   },
 );
