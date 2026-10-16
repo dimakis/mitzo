@@ -95,6 +95,7 @@ import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { createTelosItemRouter } from './telos-item-routes.js';
 import { createTelosWorkRouter } from './telos-work-routes.js';
+import { createTelosSourceRouter } from './telos-source-routes.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
@@ -1947,6 +1948,15 @@ app.use(
     dbPath: telosDatabasePath,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
+  }),
+);
+
+app.use(
+  createTelosSourceRouter({
+    dbPath: telosDatabasePath,
+    events: eventStore,
+    operatorAuth: operatorAuthMiddleware,
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
   }),
 );
 

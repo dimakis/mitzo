@@ -6,6 +6,12 @@ import {
   TelosConversationWorkLinksSchema,
   TelosWorkIdSchema,
   TelosWorkItemSchema,
+  TelosSourcePreviewRequestSchema,
+  TelosSourcePreviewSchema,
+  TelosSourceAdoptRequestSchema,
+  TelosReviewedSourceViewSchema,
+  type TelosSourcePreviewRequest,
+  type TelosSourceAdoptRequest,
   type TelosWorkCommand,
   type TelosWorkSessionLink,
 } from '@mitzo/protocol';
@@ -63,6 +69,33 @@ export class TelosWorkApiClient {
     return this.request(
       'items/' + encodeURIComponent(id) + '/record',
       TelosWorkItemSchema,
+      undefined,
+      signal,
+    );
+  }
+  async previewSource(input: TelosSourcePreviewRequest, signal?: AbortSignal) {
+    return this.request(
+      'source/preview',
+      TelosSourcePreviewSchema,
+      TelosSourcePreviewRequestSchema.parse(input),
+      signal,
+    );
+  }
+  async adoptSource(input: TelosSourceAdoptRequest) {
+    return this.request(
+      'source/adopt',
+      TelosWorkCommandReceiptSchema,
+      TelosSourceAdoptRequestSchema.parse(input),
+    );
+  }
+  readSource(itemId: string, snapshotId: string, signal?: AbortSignal) {
+    const item = TelosWorkIdSchema.parse(itemId),
+      snapshot = TelosWorkIdSchema.parse(snapshotId);
+    if (/[\\/?#]/.test(item) || /[\\/?#]/.test(snapshot))
+      return Promise.reject(new Error('Invalid source reference'));
+    return this.request(
+      'items/' + encodeURIComponent(item) + '/sources/' + encodeURIComponent(snapshot),
+      TelosReviewedSourceViewSchema,
       undefined,
       signal,
     );

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.192';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.193';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,8 +22,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../telos-source-routes.ts': '3d0da82d5b21f2a40f3a65865b8335ba5b24bc23eeb4c9eac455cfc13b02ac7c',
   '../../packages/protocol/src/telos-source.ts':
-    'e863b3846c52e9c2eb48ef3af704a9d1f672f8ada53783c81d5a5560ca2a62f6',
+    '322c0e8deca79276d54e09896d89a775b4e9238618198628242c8bc9cf5a3c9a',
   '../telos-artifact-store.ts': '00faf68a218218a7ee0a6d8b43e881f17af870bcadcdd657735f7b66fc624ead',
   '../telos-source-capture.ts': '5556e43a01f2ca7ac4a053866849a90f68bd1b6e2504f1377dbc6ed4905e2b44',
   '../telos-conversation-source.ts':
@@ -33,7 +34,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '66e562495602881b314abf7877bfc68d1bc7055524ec03ac815dd6f3c384321d',
   '../telos-work-routes.ts': 'dffb91f42e1bc07b44974d9bbc20ca29e4d0b3c2f42fbf783c26cc0f234fcfd3',
   '../../packages/client/src/telos-work-api.ts':
-    'e24cda48880b2364d36e9de27c1d473933843653883a1c94473deccc5d9e0259',
+    '80827a9f7997a82598c2ef7ad9f1a3b922466fb8e40c8b755d7623ffc80860bf',
   '../telos-work-schema.ts': '15f4071e9d4263a62ab50407466ff69fc8b993f421ed7ddfe4b8e5cafcf610d9',
   '../telos-work-store.ts': 'a5bea9cdd7315b97b10eba5685ea154cae55272939866e183fa110d241ae81d0',
   '../../packages/protocol/src/telos-work-api.ts':
@@ -403,7 +404,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'a3fdc07108184342034299f131e821eb736599733be95323db57f6a15d836077',
+  '../app.ts': '794878c24038bd01649f3cefa60e1dd26bc7c8a29f2ddbb6f58c5a181a8e7368',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':

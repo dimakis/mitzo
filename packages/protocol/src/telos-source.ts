@@ -50,5 +50,6 @@ export const TelosReviewedSourceViewSchema = z.strictObject({
   available: z.boolean(),
 });
 export type TelosSourcePacket = z.infer<typeof TelosSourcePacketSchema>;
+export type TelosSourcePreviewRequest = z.infer<typeof TelosSourcePreviewRequestSchema>;
 export type TelosSourcePreview = z.infer<typeof TelosSourcePreviewSchema>;
 export type TelosSourceAdoptRequest = z.infer<typeof TelosSourceAdoptRequestSchema>;
