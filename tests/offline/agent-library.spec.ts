@@ -364,6 +364,8 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await expect.poll(() => !!releaseTaskSave).toBe(true);
   await page.getByRole('link', { name: isMobile ? 'More' : 'Today', exact: true }).click();
+  await expect(page).toHaveURL(isMobile ? /\/more$/ : /mitzo-ui\.test\/$/);
+  await expect(page.getByRole('region', { name: 'Task editor', exact: true })).toHaveCount(0);
   await page.goBack();
   await expect(page.getByLabel('Task name', { exact: true })).toHaveValue('Retained task');
   await page.getByLabel('Workspace reference').fill('workspace-after-return');
