@@ -22,6 +22,7 @@ export function useAgentTasks() {
   const live = useRef(false);
   const inFlight = useRef(false);
   const listGeneration = useRef(0);
+  const pendingReceipts = useRef(new Map<string, AgentTaskRecord>());
   const update = useCallback((next: AgentTaskWorkingCopy | null) => {
     const retained = next && loadAgentTaskWorkingCopy(next.taskId);
     if (next && retained && retained.expectedRevision > next.expectedRevision)
@@ -39,6 +40,8 @@ export function useAgentTasks() {
   }, []);
   const refresh = useCallback(async () => {
     const generation = ++listGeneration.current;
+    // A read started after an acknowledgement observes that committed revision.
+    pendingReceipts.current.clear();
     setLoading(true);
     setError('');
     try {
@@ -46,7 +49,19 @@ export function useAgentTasks() {
       const body = await response.json();
       if (!response.ok) throw Error(body.error || 'Tasks unavailable');
       const rows = z.array(AgentTaskRecordSchema).parse(body);
-      if (live.current && generation === listGeneration.current) setTasks(rows);
+      const receipts = [...pendingReceipts.current.values()];
+      if (live.current && generation === listGeneration.current)
+        setTasks((known) => {
+          if (!live.current || generation !== listGeneration.current) return known;
+          const merged = new Map(rows.map((row) => [row.taskId, row]));
+          for (const receipt of receipts) {
+            const current = known?.find((row) => row.taskId === receipt.taskId);
+            const saved = current && current.revision > receipt.revision ? current : receipt;
+            const fetched = merged.get(saved.taskId);
+            if (!fetched || fetched.revision < saved.revision) merged.set(saved.taskId, saved);
+          }
+          return [...merged.values()];
+        });
     } catch (cause) {
       if (live.current && generation === listGeneration.current)
         setError(cause instanceof Error ? cause.message : 'Tasks unavailable');
@@ -60,8 +75,9 @@ export function useAgentTasks() {
       const { record, stored } = (event as CustomEvent<AgentTaskSavedEvent>).detail;
       const current = loadAgentTaskWorkingCopy();
       setCopy(current);
-      listGeneration.current++;
-      setLoading(false);
+      const prior = pendingReceipts.current.get(record.taskId);
+      if (!prior || prior.revision < record.revision)
+        pendingReceipts.current.set(record.taskId, record);
       setTasks((rows) => {
         const known = rows?.find((task) => task.taskId === record.taskId);
         return known && known.revision > record.revision

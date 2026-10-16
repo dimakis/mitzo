@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.166';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.167';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -47,9 +47,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentTaskList.tsx':
     'dddafd483aad19d3e6267a69b318640f592b645c6236627a1372074756386366',
   '../../frontend/src/components/AgentTaskSettings.tsx':
-    '966ebe0f6e775b5124467e628f6bb2f7ee62536ed1f0e9e95abdd3fe213fea46',
+    'd8b931037fc4f4eafa71af6c7073e5d9f78df19607949138174e902e27146414',
   '../../frontend/src/hooks/useAgentTasks.ts':
-    '5045f3dc5af780de870a7af687dbfc736cdc924f90de1ff9689e6618c47b7ca0',
+    '0c279c93389daaa51781864b8254e716f6e76fc5422e4c8580d4e026ec433576',
   '../../frontend/src/lib/agent-task-working-copy.ts':
     '6839267a3a64555cd4eb3fa2d38353d13cf4ea6c1b194fa711169928409aa058',
   // Assigned task persistence and authenticated owner dispatch; no execution activation.

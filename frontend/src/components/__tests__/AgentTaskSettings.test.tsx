@@ -197,70 +197,105 @@ it('does not erase saved execution intent when unavailable settings are merely r
   );
 });
 
-it('restores and reviews a saved target without marking task input dirty or changing its retry key', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => inventory } as Response);
-  const seed = {
-    ...createAgentTaskWorkingCopy({
-      profileId: 'bob',
-      revision: 3,
-      contentHash: 'a'.repeat(64),
-      definition: {
-        name: 'Bob',
-        role: 'agent',
-        instructions: 'Review',
-        expectedOutput: 'Brief',
-        acceptanceCriteria: ['Evidence'],
-        modelPolicyRole: 'agent',
+it.each([false, true])(
+  'restores the saved route without dirtying input when target IDs collide: %s',
+  async (collidingTargets) => {
+    const subscription = {
+      accountId: 'subscription',
+      provider: 'openai-codex',
+      profileRevision: 'r2',
+    };
+    const catalog = collidingTargets
+      ? {
+          ...inventory,
+          accounts: [
+            ...inventory.accounts,
+            { ...inventory.accounts[0], account: subscription, label: 'Subscription' },
+          ],
+          targets: [
+            ...inventory.targets,
+            {
+              targetId: 'mac',
+              targetRevision: 't2',
+              label: 'OpenShell Codex',
+              location: 'openshell',
+              harness: 'codex',
+            },
+          ],
+          routes: [
+            ...inventory.routes,
+            { account: subscription, targetId: 'mac', harness: 'codex', modes: ['agent'] },
+          ],
+        }
+      : inventory;
+    vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => catalog } as Response);
+    const seed = {
+      ...createAgentTaskWorkingCopy({
+        profileId: 'bob',
+        revision: 3,
+        contentHash: 'a'.repeat(64),
+        definition: {
+          name: 'Bob',
+          role: 'agent',
+          instructions: 'Review',
+          expectedOutput: 'Brief',
+          acceptanceCriteria: ['Evidence'],
+          modelPolicyRole: 'agent',
+        },
+      }),
+      expectedRevision: 1,
+      dirty: false,
+      execution: {
+        account,
+        harness: 'responses' as const,
+        targetId: 'mac',
+        model: 'luna',
+        reasoningEffort: 'high',
+        mode: 'agent' as const,
+        authorityRefs: [],
       },
-    }),
-    expectedRevision: 1,
-    dirty: false,
-    execution: {
-      account,
-      harness: 'responses' as const,
-      targetId: 'mac',
-      model: 'luna',
-      reasoningEffort: 'high',
-      mode: 'agent' as const,
-      authorityRefs: [],
-    },
-  };
-  seed.runtime = {
-    ...seed.runtime,
-    account: { accountId: 'work', model: 'luna', reasoningEffort: 'high' },
-    accountReference: account,
-    execution: { location: 'openshell', targetId: 'mac' },
-  };
-  function Editor() {
-    const [copy, update] = useState<AgentTaskWorkingCopy>(seed);
-    return (
-      <>
-        <AgentTaskEditor copy={copy} update={update} versions={[]} busy={false} save={() => {}} />
-        <output aria-label="Copy">{JSON.stringify(copy)}</output>
-      </>
+    };
+    seed.runtime = {
+      ...seed.runtime,
+      account: { accountId: 'work', model: 'luna', reasoningEffort: 'high' },
+      accountReference: account,
+      execution: { location: 'openshell', targetId: 'mac' },
+    };
+    function Editor() {
+      const [copy, update] = useState<AgentTaskWorkingCopy>(seed);
+      return (
+        <>
+          <AgentTaskEditor copy={copy} update={update} versions={[]} busy={false} save={() => {}} />
+          <output aria-label="Copy">{JSON.stringify(copy)}</output>
+        </>
+      );
+    }
+    render(
+      <MemoryRouter>
+        <Editor />
+      </MemoryRouter>,
     );
-  }
-  render(
-    <MemoryRouter>
-      <Editor />
-    </MemoryRouter>,
-  );
-  await waitFor(() =>
-    expect(JSON.parse(screen.getByLabelText('Copy').textContent!).runtime.execution.location).toBe(
-      'local',
-    ),
-  );
-  expect(JSON.parse(screen.getByLabelText('Copy').textContent!)).toMatchObject({
-    dirty: false,
-    idempotencyKey: seed.idempotencyKey,
-  });
-  fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-  expect(JSON.parse(screen.getByLabelText('Copy').textContent!)).toMatchObject({
-    dirty: false,
-    idempotencyKey: seed.idempotencyKey,
-  });
-});
+    await waitFor(() =>
+      expect(
+        JSON.parse(screen.getByLabelText('Copy').textContent!).runtime.execution.location,
+      ).toBe('local'),
+    );
+    expect(JSON.parse(screen.getByLabelText('Copy').textContent!)).toMatchObject({
+      dirty: false,
+      idempotencyKey: seed.idempotencyKey,
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
+    expect(screen.getByRole('option', { name: 'Luna fixture' })).toBeTruthy();
+    expect(screen.getByText('Runs with Mitzo Responses')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(JSON.parse(screen.getByLabelText('Copy').textContent!)).toMatchObject({
+      dirty: false,
+      idempotencyKey: seed.idempotencyKey,
+      execution: seed.execution,
+      runtime: { accountReference: account, execution: { location: 'local', targetId: 'mac' } },
+    });
+  },
+);
 
 it.each([
   { revision: 1, dirty: false },

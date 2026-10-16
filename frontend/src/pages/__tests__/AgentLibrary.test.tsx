@@ -727,7 +727,9 @@ it('does not replace newer task recovery input when a save completes after navig
   });
 });
 
-it('keeps the saved task receipt when an older list request completes afterward', async () => {
+it('merges unrelated tasks from a delayed list while retaining the newer save receipt', async () => {
+  let saved!: import('@mitzo/protocol').AgentTaskRecord;
+  saveAgentTaskWorkingCopy({ ...createAgentTaskWorkingCopy(published), name: 'Saved receipt' });
   let finishList!: (value: Response) => void;
   vi.mocked(apiFetch).mockImplementation((path, init) => {
     if (path === '/api/agent-tasks' && !init?.method)
@@ -736,17 +738,16 @@ it('keeps the saved task receipt when an older list request completes afterward'
       });
     if (init?.method === 'POST') {
       const body = JSON.parse(init.body as string);
-      return Promise.resolve(
-        response({
-          taskId: body.taskId,
-          revision: 1,
-          definition: body.definition,
-          configuration: { state: 'draft' },
-          deleted: false,
-          createdAt: '2026-10-15T00:00:00.000Z',
-          updatedAt: '2026-10-15T00:00:00.000Z',
-        }),
-      );
+      saved = {
+        taskId: body.taskId,
+        revision: 1,
+        definition: body.definition,
+        configuration: { state: 'draft' },
+        deleted: false,
+        createdAt: '2026-10-15T00:00:00.000Z',
+        updatedAt: '2026-10-15T00:00:00.000Z',
+      };
+      return Promise.resolve(response(saved));
     }
     return Promise.resolve(response({ drafts: [], versions: [published] }));
   });
@@ -755,15 +756,23 @@ it('keeps the saved task receipt when an older list request completes afterward'
       <AgentLibrary />
     </MemoryRouter>,
   );
-  await screen.findByDisplayValue('Bob');
-  fireEvent.click(screen.getByRole('button', { name: 'Assign task' }));
-  fireEvent.change(await screen.findByLabelText('Task name'), {
-    target: { value: 'Saved receipt' },
-  });
+  await screen.findByLabelText('Task name');
   fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   await screen.findByText('Task saved. Execution is not available yet.');
-  await act(async () => finishList(response([])));
+  const unrelated = {
+    ...saved,
+    taskId: 'unrelated',
+    definition: { ...saved.definition, name: 'Other saved task' },
+  };
+  await act(async () => finishList(response([unrelated])));
+  await screen.findByRole('button', { name: 'Task settings: Other saved task' });
   expect(screen.getByRole('button', { name: 'Task settings: Saved receipt' })).toBeTruthy();
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    response(path === '/api/agent-tasks' ? [] : { drafts: [], versions: [published] }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh tasks' }));
+  await screen.findByText('No assigned tasks yet.');
+  expect(screen.queryByRole('button', { name: 'Task settings: Saved receipt' })).toBeNull();
 });
 
 it('keeps a newer known task row when an exact create retry returns its older durable receipt', async () => {

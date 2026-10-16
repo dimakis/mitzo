@@ -34,7 +34,27 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   let taskSaveError = true;
   let holdTaskSave = false;
   let releaseTaskSave: (() => void) | undefined;
-  const tasks: import('@mitzo/protocol').AgentTaskRecord[] = [];
+  let releaseTaskList: (() => void) | undefined;
+  const tasks: import('@mitzo/protocol').AgentTaskRecord[] = [
+    {
+      taskId: 'other-task',
+      revision: 1,
+      definition: {
+        name: 'Other saved task',
+        objective: 'Independent task',
+        profile: { profileId: 'bob', revision: 3, contentHash: 'a'.repeat(64) },
+        execution: null,
+        workspace: null,
+        schedule: null,
+        notificationPolicy: 'results',
+        outputPolicy: 'session',
+      },
+      configuration: { state: 'draft' },
+      deleted: false,
+      createdAt: '2026-10-15T00:00:00.000Z',
+      updatedAt: '2026-10-15T00:00:00.000Z',
+    },
+  ];
   const taskWrites: unknown[] = [];
   const account = { accountId: 'task-account', provider: 'openai', profileRevision: 'r1' };
   const taskInventory = {
@@ -78,6 +98,29 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     ],
     agentProfiles: [],
   };
+  const subscription = {
+    accountId: 'subscription',
+    provider: 'openai-codex',
+    profileRevision: 'r2',
+  };
+  taskInventory.accounts.push({
+    ...taskInventory.accounts[0],
+    account: subscription,
+    label: 'Subscription',
+  });
+  taskInventory.targets.push({
+    targetId: 'task-mac',
+    targetRevision: 't2',
+    label: 'OpenShell Codex',
+    location: 'openshell',
+    harness: 'codex',
+  });
+  taskInventory.routes.push({
+    account: subscription,
+    targetId: 'task-mac',
+    harness: 'codex',
+    modes: ['agent'],
+  });
   page.on('dialog', (dialog) => dialog.accept());
   page.on('pageerror', (error) => errors.push(error.message));
   await page.routeWebSocket('**/*', (socket) => socket.close());
@@ -91,7 +134,14 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     )
       return route.fulfill({ json: taskInventory });
     if (url.pathname === '/api/agent-tasks') {
-      if (route.request().method() === 'GET') return route.fulfill({ json: tasks });
+      if (route.request().method() === 'GET') {
+        const snapshot = structuredClone(tasks);
+        if (holdTaskSave && releaseTaskSave)
+          await new Promise<void>((resolve) => {
+            releaseTaskList = resolve;
+          });
+        return route.fulfill({ json: snapshot });
+      }
       const body = route.request().postDataJSON();
       taskWrites.push(body);
       if (taskSaveError)
@@ -106,7 +156,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      tasks.push(saved);
+      tasks.unshift(saved);
       if (holdTaskSave)
         await new Promise<void>((resolve) => {
           releaseTaskSave = resolve;
@@ -376,6 +426,15 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByLabel('Workspace reference')).toHaveValue('workspace-after-return');
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await expect(page.getByText('Task saved. Execution is not available yet.')).toBeVisible();
+  await expect.poll(() => !!releaseTaskList).toBe(true);
+  holdTaskSave = false;
+  releaseTaskList!();
+  await expect(
+    page.getByRole('button', { name: 'Task settings: Other saved task', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Task settings: Retained task', exact: true }),
+  ).toBeVisible();
   expect(taskWrites).toHaveLength(3);
   expect(taskWrites[1]).toEqual(taskWrites[0]);
   expect(tasks[0].definition).toMatchObject({

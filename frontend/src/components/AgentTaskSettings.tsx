@@ -3,7 +3,11 @@ import { ChatRuntimeDraftContext } from '../hooks/chat-runtime-draft-context';
 import type { ExplicitLocalInventory } from '../lib/explicit-local-chat';
 import type { AgentTaskDefinition } from '@mitzo/protocol';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
-import { runtimeModelAccounts, selectedRuntimeRoute } from '../lib/chat-runtime-route';
+import {
+  runtimeModelAccounts,
+  runtimeRoutes,
+  selectedRuntimeRoute,
+} from '../lib/chat-runtime-route';
 import type { ChatRuntimeSelection } from '../lib/chat-runtime-selection';
 import { AgentSettingsPicker } from './AgentSettingsPicker';
 import { AccountModelPicker } from './AccountModelPicker';
@@ -57,6 +61,7 @@ function TaskSettingsFields({
   profileLabel,
   disabled,
   resolveSavedTarget,
+  retainedExecution,
   onChange,
   inventoryRef,
 }: Parameters<typeof AgentTaskSettings>[0] & {
@@ -73,12 +78,31 @@ function TaskSettingsFields({
       !runtime.inventory
     )
       return;
+    if (
+      retainedExecution &&
+      (value.execution.targetId !== retainedExecution.targetId ||
+        value.accountReference?.accountId !== retainedExecution.account.accountId ||
+        value.accountReference?.provider !== retainedExecution.account.provider ||
+        value.accountReference?.profileRevision !== retainedExecution.account.profileRevision)
+    )
+      return;
     const targets = runtime.inventory.targets.filter(
-      (t) => t.targetId === value.execution.targetId,
+      (target) =>
+        target.targetId === value.execution.targetId &&
+        (!retainedExecution ||
+          (target.harness === retainedExecution.harness &&
+            runtimeRoutes(
+              { ...value, execution: { ...value.execution, location: target.location } },
+              runtime.inventory,
+            ).some(
+              (route) =>
+                route.targetId === retainedExecution.targetId &&
+                route.harness === retainedExecution.harness,
+            ))),
     );
     if (targets.length === 1 && targets[0].location !== value.execution.location)
       onChange({ ...value, execution: { ...value.execution, location: targets[0].location } });
-  }, [resolveSavedTarget, value, runtime.inventory, onChange]);
+  }, [resolveSavedTarget, retainedExecution, value, runtime.inventory, onChange]);
   const accounts = runtimeModelAccounts(intent, runtime.inventory);
   return (
     <AgentSettingsPicker
