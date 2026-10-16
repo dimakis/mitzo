@@ -60,6 +60,7 @@ type Permission = (
   name: string,
   input: Input,
   signal: AbortSignal,
+  grant?: { sessionGrantKey: string },
 ) => Promise<{ behavior: 'allow' | 'deny'; updatedInput?: Input; message?: string }>;
 function mcpWireName(canonical: string): string {
   const identity = createHash('sha256').update(canonical).digest('hex').slice(0, 32);
@@ -73,7 +74,7 @@ export async function connectCodexMcpTools(
   const peers: Connection[] = [];
   const mapping = new Map<
     string,
-    { peer: Connection; name: string; canonical: string; permissionName: string }
+    { peer: Connection; name: string; canonical: string; sessionGrantKey?: string }
   >();
   const definitions: ToolDefinition[] = [];
   const discovered: {
@@ -133,9 +134,9 @@ export async function connectCodexMcpTools(
             peer,
             name: tool.name,
             canonical,
-            permissionName: config.librarySourceId
+            sessionGrantKey: config.librarySourceId
               ? `configured-mcp:${JSON.stringify([config.librarySourceId, tool.name])}`
-              : canonical,
+              : undefined,
           });
           definitions.push({
             name: wire,
@@ -173,7 +174,11 @@ export async function connectCodexMcpTools(
       if (!tool) throw new Error('Unknown MCP tool');
       if (closed) throw new Error('MCP clients closed');
       signal.throwIfAborted();
-      const decision = await permission(tool.permissionName, input, signal);
+      // Skill policy and user-facing identity retain the existing canonical name.
+      // Only retained approval scope uses the source/tool-specific grant key.
+      const decision = tool.sessionGrantKey
+        ? await permission(tool.canonical, input, signal, { sessionGrantKey: tool.sessionGrantKey })
+        : await permission(tool.canonical, input, signal);
       signal.throwIfAborted();
       if (decision.behavior !== 'allow')
         return { content: decision.message || 'MCP tool permission denied', isError: true };

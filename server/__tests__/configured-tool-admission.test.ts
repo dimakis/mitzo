@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { SessionRegistry } from '@mitzo/harness';
+import { SessionRegistry, setSkillPolicy } from '@mitzo/harness';
 import { AgentLibraryStore } from '../agent-library-store.js';
 import { EventStore } from '../event-store.js';
 import { NativeResponsesStore } from '../native-responses-store.js';
@@ -32,7 +32,7 @@ vi.mock('../native-responses-runner.js', () => ({
 import { openResponsesChat } from '../responses-chat-session.js';
 
 it.each(['openai', 'google-vertex'] as const)(
-  'publishes one duplicate-name source, filters every call, and cold resumes on %s',
+  'retains canonical skill policy and scoped grants while filtering and cold resuming on %s',
   async (provider) => {
     const root = mkdtempSync(join(tmpdir(), 'configured-admission-'));
     const files = (name: string) => join(root, `${name}.db`);
@@ -76,13 +76,14 @@ it.each(['openai', 'google-vertex'] as const)(
       registry.register(clientId, {
         transport: { send: () => {}, isOpen: () => true },
         abortController: abort,
-        mode: 'auto',
+        mode: 'agent',
         sessionId: 'selected',
         cwd: root,
         sessionAllowList: new Set([
           `configured-mcp:${JSON.stringify([configs.one.librarySourceId, 'search'])}`,
         ]),
       });
+      setSkillPolicy(registry, clientId, ['mcp__one__search']);
       const input = new AsyncQueue<{ message: { content: string } }>();
       const chat = await openResponsesChat({
         conversationId: 'selected',
