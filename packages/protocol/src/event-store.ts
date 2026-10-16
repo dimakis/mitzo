@@ -1790,6 +1790,10 @@ export class EventStore {
       db.exec(`CREATE INDEX IF NOT EXISTS idx_events_message_identity
         ON events(session_id, type, json_extract(payload, '$.messageId'), seq)
         WHERE type IN ('message_start', 'user_message', 'message_end')`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_ordinary_collaboration_command
+        ON events(session_id, json_extract(payload,'$.commandId'), type, seq)
+        WHERE type IN ('ordinary_collaboration_context_staged',
+          'ordinary_collaboration_context_prepared','ordinary_collaboration_context_accepted')`);
       db.exec(`DROP INDEX IF EXISTS idx_events_perspective_anchors`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_events_completed_perspective_anchors
         ON events(session_id, seq)
@@ -2200,6 +2204,56 @@ export class EventStore {
        AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 2`,
     ).all(sessionId, messageId) as Array<{ payload: string }>;
     return rows.map((row) => JSON.parse(row.payload));
+  }
+
+  /** Private exact delivery ledger; never load unrelated conversation payloads. */
+  getOrdinaryCollaborationDeliveryEvents(sessionId: string, commandId: string): StoredEvent[] {
+    const rows = this.db!.prepare(
+      `SELECT * FROM events WHERE session_id=?
+       AND type IN ('ordinary_collaboration_context_staged',
+         'ordinary_collaboration_context_prepared','ordinary_collaboration_context_accepted')
+       AND json_extract(payload,'$.commandId')=? ORDER BY seq LIMIT 4`,
+    ).all(sessionId, commandId) as EventRow[];
+    if (rows.length > 3) throw new Error('Ambiguous ordinary collaboration delivery ledger');
+    return rows.map(rowToEvent);
+  }
+
+  /** Atomic private claims prevent two commands from carrying the same pending delivery.
+   * One immutable record per boundary also fences concurrent/restarted ACK effects.
+   */
+  recordOrdinaryCollaborationDeliveryEvent(
+    sessionId: string,
+    commandId: string,
+    type:
+      | 'ordinary_collaboration_context_staged'
+      | 'ordinary_collaboration_context_prepared'
+      | 'ordinary_collaboration_context_accepted',
+    payload: Record<string, unknown>,
+  ): void {
+    if (payload.commandId !== commandId)
+      throw new Error('Ordinary collaboration command identity changed');
+    this.db!.transaction(() => {
+      const previous = this.getOrdinaryCollaborationDeliveryEvents(sessionId, commandId).find(
+        (event) => event.type === type,
+      );
+      if (previous) {
+        if (!isDeepStrictEqual(previous.payload, payload))
+          throw new Error('Ordinary collaboration delivery receipt conflict');
+        return;
+      }
+      if (type === 'ordinary_collaboration_context_staged') {
+        const deliveries = payload.deliveries as Array<{ deliveryId: string }>;
+        for (const delivery of deliveries) {
+          const claimed = this.db!.prepare(
+            `SELECT 1 FROM events e, json_each(e.payload,'$.deliveries') d
+             WHERE e.type='ordinary_collaboration_context_staged'
+             AND json_extract(d.value,'$.deliveryId')=? LIMIT 1`,
+          ).get(delivery.deliveryId);
+          if (claimed) throw new Error('Ordinary collaboration delivery already claimed');
+        }
+      }
+      this.append(sessionId, type, payload);
+    }).immediate();
   }
 
   getEventsAfter(sessionId: string, afterSeq: number, limit?: number): StoredEvent[] {

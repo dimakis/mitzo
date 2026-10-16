@@ -841,6 +841,12 @@ export class CollaborationConversationStore {
       };
     })();
   }
+  /** Exact host delivery lookup, independent of the bounded recent-message view. */
+  getMessage(group: string, messageId: string) {
+    this.group(group);
+    z.uuid().parse(messageId);
+    return this.current(group, 'message', messageId, CollaborationMessageSchema);
+  }
   view(group: string) {
     return this.db.transaction(() => {
       const membership = this.group(group);

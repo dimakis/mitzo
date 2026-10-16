@@ -63,7 +63,11 @@ import {
   SUPPORTED_CODEX_CLI_VERSION,
   type OpenShellCodexOptions,
 } from './codex-app-server-client.js';
-import { CodexConversation } from './codex-conversation.js';
+import { CodexConversation, type CodexConversationOptions } from './codex-conversation.js';
+import {
+  ordinaryCollaborationContextHooks,
+  type OrdinaryCollaborationDelivery,
+} from './collaboration-ordinary-delivery.js';
 import { taskRuntimeGuidance, meetingPrepGuidance } from './task-runtime-guidance.js';
 import {
   CodexConversationStore,
@@ -519,6 +523,8 @@ interface Options {
   /** Exact admitted ordinary OpenShell target; bypasses deployment route inference. */
   ownedOpenShell?: OwnedOpenShellCodexChatAdmission;
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+  /** Host-owned admitted-command context delivery; never a public execution port. */
+  ordinaryCollaborationDelivery?: OrdinaryCollaborationDelivery;
   contributorGuidance?: string;
   agentProfile?: AgentLibraryVersion;
   /** Captured from verified operator transport, never caller JSON; admission only. */
@@ -1445,7 +1451,7 @@ async function openCodexChatBound(
         ),
     );
   };
-  const runtime: CodexConversation = new CodexConversation({
+  const runtimeOptions: CodexConversationOptions = {
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
     profile: options.profile,
@@ -2116,7 +2122,16 @@ async function openCodexChatBound(
           error: publicCodexRuntimeError(error),
         });
     },
-  });
+  };
+  Object.assign(
+    runtimeOptions,
+    ordinaryCollaborationContextHooks(
+      options.conversationId,
+      options.ordinaryCollaborationDelivery,
+      runtimeOptions,
+    ),
+  );
+  const runtime: CodexConversation = new CodexConversation(runtimeOptions);
   function close() {
     if (closed) return;
     runtime.close();
