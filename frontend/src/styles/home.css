@@ -103,6 +103,10 @@
   font-weight: 550;
   margin: 0;
 }
+.home-dialog-header--back h2 {
+  flex: 1;
+  min-width: 0;
+}
 .home-dialog button {
   min-height: var(--control-height);
 }
