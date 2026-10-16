@@ -278,6 +278,7 @@ export class TelosSourceApproval {
       return record.receipt;
     }
     const approvalId = record.id;
+    const originalProof = record.proof;
     try {
       const operation = record.operation,
         requestId = sourceApprovalHash([permId, record.proof.toolUseId, input.requestId]);
@@ -291,6 +292,17 @@ export class TelosSourceApproval {
             ? 'Create reviewed Telos outcome'
             : 'Adopt reviewed Telos source',
         joiningBrief: '',
+      };
+      const readPreparedPreview = () => {
+        const retained = this.options.store.find(permId, input.sessionId, actorId, input);
+        if (
+          !retained ||
+          retained.id !== approvalId ||
+          !isDeepStrictEqual(retained.operation, operation) ||
+          !isDeepStrictEqual(retained.proof, originalProof)
+        )
+          throw new TelosWorkError('conflict', 'Original reviewed source approval changed');
+        return retained.preview;
       };
       const receipt =
         operation.kind === 'create'
@@ -307,6 +319,7 @@ export class TelosSourceApproval {
                 this.options.store.observeCanonical(approvalId, created.itemId, created.receipt);
                 return created;
               },
+              readPreparedPreview,
             )
           : await this.capture.adopt(
               {
@@ -317,6 +330,7 @@ export class TelosSourceApproval {
                 previewSha256: input.previewSha256,
               },
               actor,
+              readPreparedPreview,
             );
       const source = receipt.work.sources.find(
         (source) =>

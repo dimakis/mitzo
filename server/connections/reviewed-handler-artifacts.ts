@@ -22,8 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../telos-source-recovery.ts': '58a7ae14e5b7cf39ccaf8b6d0a1fe13e0cd43ad0241b78e05ec22262c0d00ab1',
-  '../telos-source-approval.ts': '075ac0d8ecb48fca179ed5c430a2f9b5f3b230ed7ffc478ad57711221b252c5d',
+  '../telos-source-recovery.ts': '91d1921366236f855fa2283fb35aa64641d1a2b589e5b2dcb7c24250d94dbb91',
+  '../telos-source-approval.ts': 'ff5c65a7e892eb13f07b93bcaae428130ed6403fe1ded4d3a4c9bfa04ccbb5d2',
   '../telos-source-approval-store.ts':
     'ffd3d8d4226f62ce44e15f25d48d8b251f83f7e2d771c89a50aa560621c43de5',
   '../session-permission-policy.ts':
@@ -33,7 +33,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/global.css':
     'b7d58a6d48a82775c95eacf3965050e6a2ad9dc775eef37914b405b93d0fddd8',
   '../../frontend/src/components/TelosSourceReview.tsx':
-    '2cb44592748829658b3494cec1bc7898b51f5d79c301788c79cc93995eac47f0',
+    '00f2a141753cc0562a2ae307aed21a5110c62b8660d3035b4d31122efc3ecc32',
   '../../frontend/src/components/PermissionBanner.tsx':
     '4706f371b3cdf9f80ebe40b673d4ce326b3c09a4bc88f30954f5dc4a614f03d7',
   '../telos-artifact-routes.ts': '1c08c382dd14fe90ada4d9fdea4224bf91b9b82143e15cd462f90132595089e8',
@@ -63,7 +63,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-source.ts':
     '4bd2c81ddc818bc488b43648bd579ec02dc4eed6b9c3b4fd7f39e8010137a500',
   '../telos-artifact-store.ts': '29ec3c3bc5d44f9cbb98beb6b3b6bfeb52121beebb7061dbd032229284656d6c',
-  '../telos-source-capture.ts': '5c4b236151e01deec617ec50bc0206b324f6ea4c448a6005e385b311da57d10a',
+  '../telos-source-capture.ts': '8f47e4d5b621aaad4aa1f59a655f9ea0fea11f1c219ae776b9eb6b24739db00b',
   '../telos-conversation-source.ts':
     'd9f72ac357ad81c1ca52b1f09ffbbeacfc74470c3c8f2ef0536a3d28a38a75cf',
   '../telos-work-record.ts': '7a1da4212ae06394702807b31421c371fac600904fa526937544587cbff56d93',
@@ -262,7 +262,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../request-web-access.ts': '9ba2dc2968d0fae9bc0c4c9abb9db642facad111c79552a8537751524ec41416',
   '../web-search-adapters.ts': '37048de3d44f2f3017aab3006c7e2abaf5c6b1c3dda1a624dac9ef9e9b8deb35',
   '../../packages/harness/src/index.ts':
-    '13dd6212c02f3458dff5ee162553445dec94d6b979b592c9c8a89c54c112f701',
+    '847a8c68636cc6cfdaa65b8903180aa179930063bb6828410ff6f66bad9bf1a3',
   '../../packages/harness/src/session-transport.ts':
     '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
   '../../frontend/src/components/SymposiumConversation.tsx':
@@ -405,7 +405,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/permission-handler.ts':
     'd51a8eb3e6a0bc09e9f6bce7f3225e047055328a5a361bad67cbc7b827969980',
   '../../packages/harness/src/permissions.ts':
-    '5e05ad8b1c79edcaa98ef4ee9346202a19aa698c490ab4b41fb068305264358e',
+    'dc74a2a510e3406e88b45da033717453c03f3cefb19ae37dd961f45b39fd89c0',
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
@@ -899,7 +899,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../logger.ts': '7716ffb5d69ddf4307d7c7b45aa4fcde937f1ddb2c5af71f27f9706c54caf6c2',
   '../request-performance.ts': '0e12542fbd0b53f61fbf96b6ef26bddb1bf77962e50d4cb3325d7c81def56cd9',
   '../runtime-performance.ts': '617d0732c9bde4619be7ae36a2513e275c0a897bd354acf9459b8bd3e61c0810',
-  '../telos-source-materials.ts': 'c9ba03795ba968fe4726ce09ccd366bc6f9c7966277986c2a28580780c922111',
-  '../../packages/protocol/src/markdown-paths.ts': 'a3291190909cbbc5ae31390cecbd25106dc2edaacb5836d21c9f438c09b6edca',
-  '../../frontend/src/lib/file-paths.ts': 'dc6a94c8792ddee43d1acb0e635021fa66f2626e28e627f785ac7fbe13d198e3',
+  '../telos-source-materials.ts':
+    'c9ba03795ba968fe4726ce09ccd366bc6f9c7966277986c2a28580780c922111',
+  '../../packages/protocol/src/markdown-paths.ts':
+    'a3291190909cbbc5ae31390cecbd25106dc2edaacb5836d21c9f438c09b6edca',
+  '../../frontend/src/lib/file-paths.ts':
+    'dc6a94c8792ddee43d1acb0e635021fa66f2626e28e627f785ac7fbe13d198e3',
 });

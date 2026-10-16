@@ -52,6 +52,193 @@ async function selected(
   };
 }
 describe('actual ordinary Telos source approval owners', () => {
+  it.each(['create', 'adopt'] as const)(
+    'resumes a prepared %s before canonical capture starts from its exact immutable preview',
+    async (kind) => {
+      const f = fixture();
+      const s = await selected(f, kind);
+      if (kind === 'create')
+        vi.spyOn(f.service.capture, 'createReviewed').mockRejectedValueOnce(
+          new Error('Interrupted before canonical owner preparation'),
+        );
+      else
+        vi.spyOn(f.service.capture, 'adopt').mockRejectedValueOnce(
+          new Error('Interrupted before canonical owner preparation'),
+        );
+      await expect(f.service.approve(s.permId, s.approved, f.actor)).rejects.toThrow(/uncertain/);
+      const db = new Database(f.dbPath, { readonly: true });
+      try {
+        expect(
+          db.prepare('SELECT COUNT(*) AS total FROM telos_work_source_approvals').get(),
+        ).toEqual({ total: 1 });
+        expect(
+          db.prepare('SELECT COUNT(*) AS total FROM telos_work_source_creations').get(),
+        ).toEqual({ total: 0 });
+        expect(db.prepare('SELECT COUNT(*) AS total FROM telos_work_sources').get()).toEqual({
+          total: 0,
+        });
+        expect(db.prepare('SELECT COUNT(*) AS total FROM telos_artifact_revisions').get()).toEqual({
+          total: 1,
+        });
+      } finally {
+        db.close();
+      }
+      expect(f.counts().canonicalCreates).toBe(0);
+      f.events.upsertSession({ sessionId: 'planning', summary: 'Renamed after durable consent' });
+      expect(f.hideOriginalSource()).toBe(true);
+      f.restartOwners();
+      const retained = await f.service.review(s.permId, 'planning', f.actor);
+      expect(retained.recovery?.preview).toEqual(s.preview.preview);
+      await expect(
+        f.service.approve(s.permId, s.approved, { kind: 'operator', id: 'another-operator' }),
+      ).rejects.toThrow(/another operator/);
+      const previewNew = vi.spyOn(f.service.capture, 'previewNew');
+      const preview = vi.spyOn(f.service.capture, 'preview');
+      const receipt = await f.service.approve(s.permId, s.approved, f.actor);
+      expect(previewNew).not.toHaveBeenCalled();
+      expect(preview).not.toHaveBeenCalled();
+      expect(f.receiptSource(receipt).packet).toEqual(s.preview.preview.packet);
+      expect(await f.service.approve(s.permId, s.approved, f.actor)).toEqual(receipt);
+      expect((await f.service.review(s.permId, 'planning', f.actor)).recovery).toMatchObject({
+        preview: s.preview.preview,
+        receipt,
+      });
+      expect(f.counts()).toMatchObject({
+        canonicalCreates: kind === 'create' ? 1 : 0,
+        allocations: 0,
+        sources: { total: 1 },
+      });
+    },
+  );
+
+  it('reviews and retains linked full-prefix material bytes at the exact original revision through approval and recovery', async () => {
+    const f = fixture();
+    const original = f.artifacts.read(f.material.id, f.material.revision);
+    const sequence = f.events.append('planning', 'user_message', {
+      messageId: 'linked-material',
+      text: `[Reviewed acoustic plan][approved]\n\n[approved]: ${f.material.url} "Approved original"`,
+    });
+    const permission = await f.request({ kind: 'create', marker: 'sdk' });
+    const permId = String(permission.permId);
+    const review = await f.service.review(permId, 'planning', f.actor);
+    expect(
+      review.messages.find((message) => message.messageId === 'linked-material'),
+    ).toMatchObject({
+      sequence,
+      blocks: [{ blockId: 'user-linked-material' }],
+    });
+    const input = {
+      sessionId: 'planning',
+      requestId: randomUUID(),
+      proposalSha256: review.proposalSha256,
+      selection: {
+        mode: 'conversation_so_far' as const,
+        boundary: { sequence, messageId: 'linked-material' },
+        messageIds: [],
+        artifacts: [],
+      },
+    };
+    const preview = await f.service.preview(permId, input, f.actor);
+    const pin = {
+      artifactId: f.material.id,
+      revision: f.material.revision,
+      sha256: f.material.sha256,
+      contentBase64: original.bytes.toString('base64'),
+    };
+    expect.soft(preview.preview.packet.context.artifacts).toMatchObject([pin]);
+    const later = f.advanceMaterial();
+    expect(later.revision).toBeGreaterThan(f.material.revision);
+    expect(later.sha256).not.toBe(f.material.sha256);
+    const approved = { ...input, previewSha256: preview.preview.sha256 };
+    const receipt = await f.service.approve(permId, approved, f.actor);
+    expect(await f.settled()).toMatchObject({ sourceSnapshotId: receipt.sourceSnapshotId });
+    const retained = f.receiptSource(receipt);
+    expect.soft(retained.packet.context.artifacts).toMatchObject([pin]);
+    expect(retained.packet).toEqual(preview.preview.packet);
+    expect(receipt.receipt.work.assignments).toEqual([]);
+    expect(f.counts()).toMatchObject({
+      canonicalCreates: 1,
+      allocations: 0,
+      sources: { total: 1 },
+    });
+    expect(f.hideOriginalSource()).toBe(true);
+    f.restartOwners();
+    const recovered = await f.service.review(permId, 'planning', f.actor);
+    expect(recovered.recovery?.preview).toEqual(preview.preview);
+    expect(recovered.recovery?.receipt).toEqual(receipt);
+    expect(await f.service.approve(permId, approved, f.actor)).toEqual(receipt);
+    expect(f.receiptSource(receipt).packet).toEqual(preview.preview.packet);
+    expect(f.counts()).toMatchObject({ canonicalCreates: 1, sources: { total: 1 } });
+  });
+
+  it('refuses mutable full-prefix material through the real permission service before preparing approval or mutating retained and canonical owners', async () => {
+    const f = fixture();
+    const sequence = f.events.append('planning', 'user_message', {
+      messageId: 'mutable-material',
+      text: `Saved /api/telos/artifacts/${f.material.id}.`,
+    });
+    const permission = await f.request({ kind: 'create', marker: 'native' });
+    const permId = String(permission.permId);
+    const review = await f.service.review(permId, 'planning', f.actor);
+    expect(review.messages.some((message) => message.messageId === 'mutable-material')).toBe(true);
+    const input = {
+      sessionId: 'planning',
+      requestId: randomUUID(),
+      proposalSha256: review.proposalSha256,
+      selection: {
+        mode: 'conversation_so_far' as const,
+        boundary: { sequence, messageId: 'mutable-material' },
+        messageIds: [],
+        artifacts: [],
+      },
+    };
+    const retainedCounts = () => {
+      const db = new Database(f.dbPath, { readonly: true });
+      try {
+        return Object.fromEntries(
+          [
+            'items',
+            'sources',
+            'links',
+            'telos_artifact_revisions',
+            'telos_work_sources',
+            'telos_work_links',
+            'telos_work_assignments',
+            'telos_work_attempts',
+            'telos_work_commands',
+            'telos_work_source_creations',
+            'telos_work_source_approvals',
+          ].map((table) => [table, db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get()]),
+        );
+      } finally {
+        db.close();
+      }
+    };
+    const before = retainedCounts();
+    let previewRefused = false;
+    let previewSha256 = '0'.repeat(64);
+    try {
+      previewSha256 = (await f.service.preview(permId, input, f.actor)).preview.sha256;
+    } catch {
+      previewRefused = true;
+    }
+    expect.soft(previewRefused).toBe(true);
+    let approvalRefused = false;
+    try {
+      await f.service.approve(permId, { ...input, previewSha256 }, f.actor);
+      await f.settled();
+    } catch {
+      approvalRefused = true;
+    }
+    expect.soft(approvalRefused).toBe(true);
+    expect.soft(retainedCounts()).toEqual(before);
+    expect.soft(f.counts()).toMatchObject({
+      canonicalCreates: 0,
+      allocations: 0,
+      sources: { total: 0 },
+    });
+  });
+
   it('preserves canonical created:false and full metadata after a lost canonical reply, restart and stable replay', async () => {
     const f = fixture(),
       s = await selected(f);

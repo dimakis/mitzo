@@ -39,6 +39,7 @@ export {
   getPendingRequestsBySession,
   getPendingTelosSourceReview,
   resolveReviewedTelosSourcePermission,
+  dismissReviewedTelosSourcePermission,
 } from './permissions.js';
 export type { PendingTelosSourceReview } from './permissions.js';
 

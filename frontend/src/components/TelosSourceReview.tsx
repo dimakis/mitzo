@@ -281,6 +281,8 @@ export function useTelosSourceReview({
     const authLost = () => {
       generation.current++;
       controller.abort();
+      abort.current?.abort();
+      loadingPage.current = false;
       setBlocked(true);
       setReview(null);
       setPreview(null);
@@ -296,6 +298,7 @@ export function useTelosSourceReview({
     return () => {
       alive.current = false;
       controller.abort();
+      abort.current?.abort();
       window.removeEventListener(AUTH_LOST_EVENT, authLost);
     };
   }, [identity, enabled, permId, sessionId, recoveryOnly, readAttempt, valid]);
@@ -309,6 +312,7 @@ export function useTelosSourceReview({
     if (disabled) return;
     generation.current++;
     abort.current?.abort();
+    loadingPage.current = false;
     setPreview(null);
     setPreviewInput(null);
     setError(null);
@@ -336,6 +340,8 @@ export function useTelosSourceReview({
       },
     };
     const version = ++generation.current;
+    abort.current?.abort();
+    loadingPage.current = false;
     const controller = new AbortController();
     abort.current = controller;
     setLoading(true);
@@ -364,11 +370,13 @@ export function useTelosSourceReview({
     if (!activeReview?.hasMore || !sessionId || disabled || loadingPage.current) return;
     loadingPage.current = true;
     const version = generation.current;
+    const controller = new AbortController();
+    abort.current = controller;
     try {
       const page = await api.getSourcePermission(
         permId,
         sessionId,
-        abort.current?.signal,
+        controller.signal,
         activeReview.cursor,
       );
       if (!valid(identity, version)) return;
@@ -391,7 +399,7 @@ export function useTelosSourceReview({
     } catch {
       if (valid(identity, version)) setError('More source messages are unavailable. Try again.');
     } finally {
-      loadingPage.current = false;
+      if (abort.current === controller) loadingPage.current = false;
     }
   }
 

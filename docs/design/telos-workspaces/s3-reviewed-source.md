@@ -105,14 +105,21 @@ only that operator's unconsumed prepared attempts for the actual conversation.
 The recovery card offers Retry same save and Dismiss. Recovery uses the original
 immutable packet and input; it grants no fresh selection or extended approval
 deadline. Dismiss hides the card while retaining uncertain canonical/outbox and
-receipt records. Internal receipt retrieval stops further recovery-card replay;
+receipt records. A prepared save can resume even if its first attempt stopped
+before canonical source capture began: it uses the original immutable approval
+packet while rechecking current source/material authority and exact pinned bytes,
+rather than recompiling later discussion. Adoption also retains the reviewed
+target revision. Dismiss settles the matching live provider request as a denial,
+including after its original deadline; it leaves a replacement request untouched
+and does not undo a retained save. Internal receipt retrieval stops further
+recovery-card replay;
 it is distinct from provider delivery, a model turn or outcome completion.
 
 The frontend now calls the pending-permission review, preview and approval APIs
 inside the normal chat permission card. Offline actual-route/provider fixtures
-cover this integration through temporary owners. Full acceptance still requires
-the completed browser recovery evidence, accepted integration/review and CI;
-this document does not claim live runtime or whole-product UX qualification.
+cover this integration through temporary owners. Accepted integration/review and
+CI remain separate requirements; this document does not claim live runtime or
+whole-product UX qualification.
 
 ## Sources, Outputs and Links
 
@@ -171,15 +178,30 @@ The scoped browser fixture mounts the actual `TodoDetailView` and
 `ResponsiveChatView` routes, including `ChatView`/`DesktopChatView`, the real
 client store and its unchanged REST transcript restoration. Source evidence comes
 from actual temporary event/artifact/work stores; HTTP responses and the inert
-protocol transport are synthetic and all browser traffic is intercepted. Six
-cases check 320px mobile WebKit/Chromium and 1280px desktop Chromium in light/dark
+protocol transport are synthetic and all browser traffic is intercepted. Twelve
+route cases plus two browser startup checks cover 320px mobile WebKit/Chromium and
+1280px desktop Chromium in light/dark
 appearance with alternate accents/font, exact source anchoring, ordinary bound
 account/model/thinking settings, Resources backlinks and composer draft retention
 through item/chat navigation. A later simulated streamed reply preserves the
-reader's source position. Screenshots are recorded per platform/theme. These six
-source-navigation cases are separate from the implemented ordinary approval
+reader's source position. Empty or whitespace-only first assistant blocks do not
+hide the visible source anchor. A failed lookup releases deferred ordinary
+restoration and stream following while preserving explicit scroll-away, later
+return-to-bottom and inert send behavior. Late responses and queued restore frames
+cannot override newer source ownership or reader intent. Screenshots are recorded
+per platform/theme. These source-navigation cases are separate from the implemented
+ordinary approval
 caller and its actual-owner approval/recovery fixture. Both provide scoped offline
 integration evidence; full S9 device/runtime qualification remains outstanding.
+On the combined tree, the separate approval/recovery matrix passes twelve route
+cases plus two browser startup checks using the real approval service, pending
+permission handler and temporary canonical creator. It preserves exact
+create/adopt consent, source and canonical response-loss boundaries, and protected
+recovery reads. Backend regressions separately cover recovery before the first
+canonical capture and authenticated live Dismiss; these are not additional browser
+or live runtime acceptance claims. Signal-aware frontend regressions verify that
+pagination after a message/material choice preserves that choice, keeps new page
+candidates unchecked, and cannot bypass preview or approval.
 No live backend, provider or model starts, and no deployment is claimed. Focused
 tests use one worker and a 1 GiB heap; broad frontend builds exceeded that local
 heap and remain a required CI gate.

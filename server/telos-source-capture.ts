@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
 import {
   TelosSourcePreviewRequestSchema,
@@ -13,6 +14,7 @@ import {
   type TelosSourcePreview,
   type TelosWorkCommandReceipt,
   type TelosSourcePacket,
+  type TelosOutcomeProposal,
 } from '@mitzo/protocol';
 import { compileCollaborationSourceContext } from './collaboration-context-compiler.js';
 import { createTelosConversationSource } from './telos-conversation-source.js';
@@ -145,12 +147,10 @@ export class TelosSourceCapture {
     return TelosSourcePreviewSchema.parse({ sha256: hash(JSON.stringify(packet)), packet });
   }
 
-  async previewNew(raw: unknown, actor: TelosWorkActor): Promise<TelosSourcePreview> {
-    operator(actor);
-    const input = TelosSourceNewPreviewRequestSchema.parse(raw);
-    if (/^life[-_ ]?ops$/i.test(input.outcome.profile))
+  private creationOutcome(proposal: TelosOutcomeProposal, sourceConversationId: string) {
+    if (/^life[-_ ]?ops$/i.test(proposal.profile))
       throw new TelosWorkError('invalid', 'This outcome requires private case storage');
-    const links = input.outcome.links ?? [];
+    const links = proposal.links ?? [];
     if (
       links.some((link) => !link.url.trim()) ||
       new Set(links.map((link) => link.url.trim())).size !== links.length
@@ -159,14 +159,61 @@ export class TelosSourceCapture {
         'invalid',
         'Outcome links must identify distinct non-empty references',
       );
-    const hints = TelosOutcomeContextHintsSchema.parse(input.outcome.contextHints ?? {});
-    const outcome = {
-      ...input.outcome,
+    const hints = TelosOutcomeContextHintsSchema.parse(proposal.contextHints ?? {});
+    return {
+      ...proposal,
       contextHints: {
         ...hints,
-        sessionIds: [...new Set([...hints.sessionIds, input.selection.sourceConversationId])],
+        sessionIds: [...new Set([...hints.sessionIds, sourceConversationId])],
       },
     };
+  }
+
+  /** A host callback re-reads the immutable approval owner; never request JSON.
+   * Canonical owners retain the original packet without consulting mutable
+   * transcript bytes, while current operator/material authority is rechecked.
+   */
+  private preparedPreview(
+    read: () => TelosSourcePreview,
+    actor: TelosWorkActor,
+    selection: CollaborationSnapshotSelection,
+    previewSha256: string,
+    itemId: string | null,
+  ) {
+    const preview = TelosSourcePreviewSchema.parse(read());
+    const packet = preview.packet;
+    if (
+      preview.sha256 !== previewSha256 ||
+      hash(JSON.stringify(packet)) !== previewSha256 ||
+      packet.actorId !== operator(actor) ||
+      packet.itemId !== itemId ||
+      !isDeepStrictEqual(packet.selection, selection) ||
+      packet.context.sourceConversationId !== selection.sourceConversationId ||
+      !isDeepStrictEqual(packet.context.boundary, selection.boundary) ||
+      packet.context.mode !== selection.mode ||
+      packet.brief.sha256 !== hash(packet.brief.text) ||
+      !this.options.authorizeSource(actor, selection.sourceConversationId)
+    )
+      conflict();
+    for (const pin of packet.context.artifacts) {
+      const saved = this.options.artifacts.read(pin.artifactId, pin.revision);
+      if (!this.options.authorizeArtifact(actor, saved.itemId))
+        throw new TelosWorkError('unauthorized', 'Retained material authorization changed');
+      if (
+        saved.sha256 !== pin.sha256 ||
+        hash(saved.bytes) !== pin.sha256 ||
+        (pin.contentBase64 !== undefined &&
+          !saved.bytes.equals(Buffer.from(pin.contentBase64, 'base64')))
+      )
+        conflict();
+    }
+    return preview;
+  }
+
+  async previewNew(raw: unknown, actor: TelosWorkActor): Promise<TelosSourcePreview> {
+    operator(actor);
+    const input = TelosSourceNewPreviewRequestSchema.parse(raw);
+    const outcome = this.creationOutcome(input.outcome, input.selection.sourceConversationId);
     const briefText = JSON.stringify(outcome);
     return this.compilePreview(input.selection, actor, {
       itemId: null,
@@ -180,16 +227,34 @@ export class TelosSourceCapture {
     raw: unknown,
     actor: TelosWorkActor,
     createOutcome: (body: TelosOutcomeCreation) => Promise<{ itemId: string }>,
+    readPreparedPreview?: () => TelosSourcePreview,
   ): Promise<TelosWorkCommandReceipt> {
     const actorId = operator(actor);
     const input = TelosSourceCreateRequestSchema.parse(raw);
     const inputHash = hash(JSON.stringify(input));
     let record = this.options.work.sourceCreation(input.requestId, inputHash, actor);
     if (!record) {
-      const preview = await this.previewNew(
-        { requestId: input.requestId, outcome: input.outcome, selection: input.selection },
-        actor,
-      );
+      const preview = readPreparedPreview
+        ? this.preparedPreview(
+            readPreparedPreview,
+            actor,
+            input.selection,
+            input.previewSha256,
+            null,
+          )
+        : await this.previewNew(
+            { requestId: input.requestId, outcome: input.outcome, selection: input.selection },
+            actor,
+          );
+      if (readPreparedPreview) {
+        const outcome = this.creationOutcome(input.outcome, input.selection.sourceConversationId);
+        if (
+          !isDeepStrictEqual(preview.packet.creation, { requestId: input.requestId, outcome }) ||
+          preview.packet.brief.text !== JSON.stringify(outcome) ||
+          preview.packet.workRevision !== hash(JSON.stringify(outcome))
+        )
+          conflict();
+      }
       if (preview.sha256 !== input.previewSha256) conflict();
       record = this.options.work.prepareSourceCreation(
         input.requestId,
@@ -243,7 +308,11 @@ export class TelosSourceCapture {
     return this.options.work.completeSourceCreation(input.requestId, inputHash, receipt, actor);
   }
 
-  async adopt(raw: unknown, actor: TelosWorkActor): Promise<TelosWorkCommandReceipt> {
+  async adopt(
+    raw: unknown,
+    actor: TelosWorkActor,
+    readPreparedPreview?: () => TelosSourcePreview,
+  ): Promise<TelosWorkCommandReceipt> {
     const actorId = operator(actor);
     const input = TelosSourceAdoptRequestSchema.parse(raw);
     const sessionId = 'source-capture:' + hash(actorId);
@@ -257,10 +326,23 @@ export class TelosSourceCapture {
       if (hash(bytes) !== input.previewSha256) conflict();
       packet = TelosSourcePacketSchema.parse(JSON.parse(bytes.toString('utf8')));
     } else {
-      const preview = await this.preview(
-        { itemId: input.itemId, selection: input.selection },
-        actor,
-      );
+      const preview = readPreparedPreview
+        ? this.preparedPreview(
+            readPreparedPreview,
+            actor,
+            input.selection,
+            input.previewSha256,
+            input.itemId,
+          )
+        : await this.preview({ itemId: input.itemId, selection: input.selection }, actor);
+      if (
+        readPreparedPreview &&
+        (preview.packet.creation !== undefined ||
+          !this.options.artifacts.userUploadAllowed(input.itemId) ||
+          !this.options.authorizeArtifact(actor, input.itemId) ||
+          this.options.work.read(input.itemId, actor).revision !== input.expectedRevision)
+      )
+        conflict();
       if (
         preview.sha256 !== input.previewSha256 ||
         preview.packet.workRevision !== input.expectedRevision

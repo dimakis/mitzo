@@ -84,6 +84,7 @@ const props = {
 beforeEach(() => {
   vi.clearAllMocks();
   window.dispatchEvent(new Event('mitzo:auth-lost'));
+  api.getSourcePermission.mockReset();
   api.getSourcePermission.mockResolvedValue(review);
   api.previewSourcePermission.mockImplementation(async (_id, input) => ({
     permId: review.permId,
@@ -418,6 +419,164 @@ describe('ordinary Telos source approval', () => {
     expect((candidate as HTMLInputElement).checked).toBe(false);
     expect(api.getSourcePermission.mock.calls[1][3]).toBe(8);
     expect(api.previewSourcePermission).not.toHaveBeenCalled();
+  });
+
+  it.each(['message', 'artifact'] as const)(
+    'loads another page with a live signal after selecting a %s, preserving explicit choices',
+    async (kind) => {
+      const next = {
+        ...review,
+        cursor: 20,
+        hasMore: false,
+        messages: [
+          {
+            ...review.messages[0],
+            messageId: 'next-page-message',
+            sequence: 20,
+            blocks: [
+              {
+                blockId: 'next-page-text',
+                content: 'New page, still unselected.',
+                sha256: 'f'.repeat(64),
+              },
+            ],
+          },
+        ],
+      };
+      api.getSourcePermission.mockImplementation(
+        async (_id, _session, signal: AbortSignal, cursor = 0) => {
+          signal.throwIfAborted();
+          return cursor === 0 ? { ...review, cursor: 8, hasMore: true } : next;
+        },
+      );
+      render(<PermissionBanner {...props} />);
+      const choice = await screen.findByRole('checkbox', {
+        name: kind === 'message' ? /The agreed studio brief/ : /Layout plan/,
+      });
+      fireEvent.click(choice);
+      expect((choice as HTMLInputElement).checked).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Load more source messages' }));
+      await waitFor(() => expect(api.getSourcePermission).toHaveBeenCalledTimes(2));
+      expect(api.getSourcePermission.mock.calls[1][2].aborted).toBe(false);
+      expect(api.getSourcePermission.mock.calls[1][2]).not.toBe(
+        api.getSourcePermission.mock.calls[0][2],
+      );
+      const candidate = await screen.findByRole('checkbox', { name: /New page, still unselected/ });
+      expect((candidate as HTMLInputElement).checked).toBe(false);
+      expect((choice as HTMLInputElement).checked).toBe(true);
+      expect(api.getSourcePermission.mock.calls[1][3]).toBe(8);
+      expect(screen.queryByText('More source messages are unavailable. Try again.')).toBeNull();
+      expect(api.previewSourcePermission).not.toHaveBeenCalled();
+      expect(api.approveSourcePermission).not.toHaveBeenCalled();
+      expect(props.onRespond).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['session', 'auth', 'unmount'] as const)(
+    'aborts a pending page on %s change and ignores its late response',
+    async (change) => {
+      let finish!: (value: unknown) => void;
+      let signal!: AbortSignal;
+      api.getSourcePermission
+        .mockResolvedValueOnce({ ...review, cursor: 8, hasMore: true })
+        .mockImplementationOnce((_id, _session, pageSignal: AbortSignal) => {
+          signal = pageSignal;
+          return new Promise((resolve) => {
+            finish = resolve;
+          });
+        });
+      const surface = render(<PermissionBanner {...props} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more source messages' }));
+      expect(signal.aborted).toBe(false);
+      if (change === 'session')
+        surface.rerender(
+          <PermissionBanner {...props} sessionId="another-chat" permId="another-permission" />,
+        );
+      else if (change === 'auth') act(() => window.dispatchEvent(new Event('mitzo:auth-lost')));
+      else surface.unmount();
+      expect(signal.aborted).toBe(true);
+      await act(async () =>
+        finish({
+          ...review,
+          cursor: 20,
+          hasMore: false,
+          messages: [
+            {
+              ...review.messages[0],
+              messageId: 'late-page',
+              blocks: [
+                { blockId: 'late', content: 'Late old-page source', sha256: 'f'.repeat(64) },
+              ],
+            },
+          ],
+        }),
+      );
+      expect(screen.queryByText('Late old-page source')).toBeNull();
+      expect(api.previewSourcePermission).not.toHaveBeenCalled();
+      expect(api.approveSourcePermission).not.toHaveBeenCalled();
+    },
+  );
+
+  it('cancels an old page on selection and keeps its cleanup from unlocking a newer page', async () => {
+    let finish!: (value: unknown) => void;
+    let oldSignal!: AbortSignal;
+    let nextSignal!: AbortSignal;
+    api.getSourcePermission
+      .mockResolvedValueOnce({ ...review, cursor: 8, hasMore: true })
+      .mockImplementationOnce((_id, _session, signal: AbortSignal) => {
+        oldSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true },
+          );
+        });
+      })
+      .mockImplementationOnce((_id, _session, signal: AbortSignal) => {
+        signal.throwIfAborted();
+        nextSignal = signal;
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      });
+    render(<PermissionBanner {...props} />);
+    const load = await screen.findByRole('button', { name: 'Load more source messages' });
+    fireEvent.click(load);
+    const choice = screen.getByRole('checkbox', { name: /The agreed studio brief/ });
+    fireEvent.click(choice);
+    expect(oldSignal.aborted).toBe(true);
+    fireEvent.click(load);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(api.getSourcePermission).toHaveBeenCalledTimes(3);
+    expect(nextSignal.aborted).toBe(false);
+    fireEvent.click(load);
+    expect(api.getSourcePermission).toHaveBeenCalledTimes(3);
+    await act(async () =>
+      finish({
+        ...review,
+        cursor: 20,
+        hasMore: false,
+        messages: [
+          {
+            ...review.messages[0],
+            messageId: 'new-page',
+            blocks: [
+              { blockId: 'new-page', content: 'Current source page', sha256: 'f'.repeat(64) },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(
+      ((await screen.findByRole('checkbox', { name: /Current source page/ })) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    expect((choice as HTMLInputElement).checked).toBe(true);
+    expect(api.previewSourcePermission).not.toHaveBeenCalled();
+    expect(api.approveSourcePermission).not.toHaveBeenCalled();
   });
 
   it('identifies actual source seat generations while keeping missing provenance explicit', async () => {

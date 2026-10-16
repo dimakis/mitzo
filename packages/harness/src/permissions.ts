@@ -225,6 +225,31 @@ export function resolveReviewedTelosSourcePermission(
   return resolvePending(proof.permId, 'once', undefined, proof.sessionId, undefined, receiptId);
 }
 
+/** Denial only: dismiss retained consent without orphaning the same live tool.
+ * Expiry and policy changes cannot grant authority here; they need not block denial.
+ */
+export function dismissReviewedTelosSourcePermission(proof: PendingTelosSourceReview): boolean {
+  const entry = pending.get(proof.permId);
+  if (
+    !entry ||
+    entry.sessionId !== proof.sessionId ||
+    entry.request?.reviewKind !== 'telos_source' ||
+    entry.review?.toolUseId !== proof.toolUseId ||
+    entry.toolName !== proof.toolName ||
+    !isDeepStrictEqual(entry.toolInput, proof.toolInput)
+  )
+    return false;
+  // This exact retained-save denial is independent of the old approval
+  // deadline. Generic expiry guidance must not invite a duplicate save.
+  pending.delete(proof.permId);
+  entry.resolver({
+    behavior: 'deny',
+    message: 'Reviewed save dismissed; retained save results remain recoverable',
+  });
+  notifyLifecycle({ type: 'resolved', permId: proof.permId, resolution: 'denied' });
+  return true;
+}
+
 export function removePending(permId: string) {
   if (pending.delete(permId)) notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
 }

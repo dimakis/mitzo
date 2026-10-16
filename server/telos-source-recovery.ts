@@ -1,3 +1,4 @@
+import { dismissReviewedTelosSourcePermission } from '@mitzo/harness';
 import type { PermissionRequest } from '@mitzo/protocol';
 import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
 
@@ -28,7 +29,10 @@ export function createTelosSourcePermissionRecovery(dbPath: () => string) {
     dismiss(permId: string, sessionId: string, actorId: string) {
       const store = new TelosSourceApprovalStore(dbPath());
       try {
-        return store.dismiss(permId, sessionId, 'operator:' + actorId);
+        const record = store.lookup(permId, sessionId, 'operator:' + actorId);
+        if (!record || !store.dismiss(permId, sessionId, 'operator:' + actorId)) return false;
+        dismissReviewedTelosSourcePermission(record.proof);
+        return true;
       } finally {
         store.close();
       }
