@@ -10,11 +10,24 @@ import {
   TelosWorkControlReceiptSchema,
 } from '@mitzo/protocol';
 import { createTelosWorkFixtures } from './fixtures/telos-work-fixtures.js';
+import {
+  reviewedHandlerSourceArtifacts,
+  reviewedHandlerSourceFingerprint,
+} from '../connections/reviewed-handler-artifacts.js';
 
 const root = resolve(import.meta.dirname, '../..');
 const contractDirectory = resolve(root, 'docs/design/telos-workspaces');
 
 describe('approved Telos work contract (S1; no runtime or UI qualification)', () => {
+  it('pins the exported wire contract in the existing reviewed runtime manifest', () => {
+    const artifacts: Record<string, string> = reviewedHandlerSourceArtifacts;
+    expect(artifacts['../../packages/protocol/src/telos-work.ts']).toBe(
+      reviewedHandlerSourceFingerprint(
+        readFileSync(resolve(root, 'packages/protocol/src/telos-work.ts'), 'utf8'),
+      ),
+    );
+  });
+
   it('keeps origin-only Home studio and its unstarted slice unassigned', () => {
     const fixtures = createTelosWorkFixtures();
     const { items, links, assignments, attempts } = fixtures.homeStudio;

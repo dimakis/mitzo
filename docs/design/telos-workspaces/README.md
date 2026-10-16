@@ -76,11 +76,18 @@ NODE_OPTIONS=--max-old-space-size=1024 npm test -- server/__tests__/telos-work-c
 
 Vitest reported `Cannot find module '../../packages/protocol/src/telos-work.js'`.
 That is the intended missing-contract failure: one failed suite, no collected
-tests. The same command passed after implementation (12 contract tests). It
+tests. The same command passed after implementation (initially 12 contract tests). It
 checks wire rejection and fixture invariants; it does not prove live persistence,
 ordinary-session allocation or application behavior.
 
-Local checks also passed: 64 existing runtime-binding, orchestration,
+CI then exposed the required reviewed runtime manifest update for the new protocol
+export. Its two existing artifact guards were reproduced red locally. An additional
+test first failed on the missing `telos-work.ts` fingerprint. The fix pins both the
+new wire contract and changed index, advancing the existing Connections runtime
+revision to `v1.0.170`. There are now 13 passing S1 contract tests; the guards remain
+enabled. No provider policy or runtime activation changes.
+
+Local checks also passed: 84 existing runtime-binding, orchestration,
 SessionService and collaboration regressions; all 107 shared design checks;
 protocol/harness/client builds; frontend type-check; focused server contract
 type-check; changed-file lint and formatting. The full server type-check exceeded
