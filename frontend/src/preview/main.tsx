@@ -79,6 +79,7 @@ window.dispatchEvent(new Event(AUTH_RESTORED_EVENT));
 createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={store}>
     <div
+      data-ui-preview-banner
       role="note"
       style={{
         position: 'fixed',
@@ -94,7 +95,7 @@ createRoot(document.getElementById('root')!).render(
         pointerEvents: 'none',
       }}
     >
-      UI preview · Simulated backend · No model calls · Changes reset on reload
+      UI preview · Simulated backend · No model calls
     </div>
     <MemoryRouter
       initialEntries={[

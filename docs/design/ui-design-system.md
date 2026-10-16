@@ -976,6 +976,54 @@ confirmation, failure preservation and replacement. Captures show
 [desktop dark](assets/sandbox-obsolete-desktop-dark.png) and
 [desktop light](assets/sandbox-obsolete-desktop-light.png).
 
+## Symposium participant presentation
+
+The shared `ConversationAgents` surface follows the approved fresh-agent mock:
+compact participant header, one Agents dialog, inline Reads future discussion /
+Replies by default, a separate read-only conversation preview, and fresh Add agent
+setup. `HomeDialog`, `useMotionPresence`, `UiIcon`, ordinary account/profile fields
+and shared color/type/spacing/radius/control-height tokens own its presentation.
+The dialog body scrolls independently of the heading/footer; narrow participant
+names truncate instead of increasing header height. Checkbox/radio geometry is
+explicitly bounded so the shared full-width input rule cannot push labels offscreen.
+
+Ordinary chat retains its actual `ChatInput`, voice, attachments, commands, resources,
+queue and lifecycle controls. `ComposerResponders` adds an explicit stable-ID @
+selection without replacing that input. The retained native adapter also renders
+`ChatInput`, but keeps text-only single-recipient approval and its original Stop /
+uncertainty ownership. It does not acquire ordinary dispatch or multi-recipient
+support through this presentation change. Existing native settings remain on request.
+
+Policy changes require an actual supplied owner. Fresh setup uses the ordinary
+catalog and retains editable intent; its review action stays disabled without
+trusted source/capacity/preparation composition. No preview content is represented
+as a frozen server review. Exact artifact selection, joining-brief confirmation,
+ordinary allocation/delivery and full shared-conversation composition remain later
+integration work. Opening setup and previews does not call a model.
+
+The all-intercept `symposium-approved-design` fixture renders the actual mobile /
+desktop chat screens with simulated data. It checks WebKit, mobile Chromium and
+desktop Chromium, 320/390/1280px, light/dark, Mint/Georgia and Teal/System,
+body overflow, reachable footers, separate recipient drafts and history previews.
+The fixture-only preview banner is hidden during captures so it cannot cover the
+actual header. Captures are UI evidence, not live admission or provider qualification.
+
+Inspected captures: [mobile conversation](assets/symposium-conversation-mobile-dark.png),
+[mobile Agents](assets/symposium-agents-mobile-dark.png), and
+[desktop fresh setup](assets/symposium-setup-desktop-light.png).
+
+Native excerpt sharing remains in Message actions, guarded by exact source identity /
+membership generation and explicit recipients. Agent Details retains reusable-profile
+drafting through its original owner. Opening either action does not deliver context
+or grant account access. Retained native conversations direct fresh-agent setup to a
+new ordinary chat; no existing history or provider thread is moved.
+
+The integrated retained transcript shows speaker and role first. Its native Message details disclosure preserves the exact historical account/model/thinking/artifact provenance on request; it never substitutes the agent's current settings for a past reply.
+
+Agents and Share excerpt use the established portalled-dialog motion pattern: `useMotionPresence` retains the dialog body for exit, while `HomeDialog.inactive` immediately removes the closing portal from interaction and accessibility. The Agents opener receives focus explicitly so WebKit can restore it after a pointer-opened dialog closes.
+
+Retained recipient selection is locked while its queue receipt is pending, keeping the submitting shared composer mounted. A confirmed receipt clears only the submitted draft; edits made meanwhile remain. Read-only agent previews include both authored replies and that agent's delivered prompts/excerpts with their original receipt states.
+
 ## Compact chat settings (16 October 2026)
 
 The approved compact popover supersedes the earlier full-width settings layout.
@@ -1028,3 +1076,5 @@ Inspected captures: [desktop popover](assets/compact-chat-desktop-dark.png),
 [desktop composer](assets/compact-chat-desktop-light.png),
 [short phone settings](assets/compact-chat-mobile-short.png) and
 [retained profile draft editor](assets/compact-chat-profile-drafts.png).
+
+The shared Symposium transcript always uses All independently of the legacy compact-seat selection. Expanding an anchor-only chat must retain every agent’s finished and streaming replies. Independent previews refresh after completed replies, delivery changes and a five-second fallback; closing cancels their read and removes their timer/listener. Refreshing retains the existing history while the next page is read.
