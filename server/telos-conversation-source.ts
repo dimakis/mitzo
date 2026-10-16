@@ -1,3 +1,4 @@
+import { telosMaterialDestinations } from './telos-source-materials.js';
 import { TelosWorkError } from './telos-work-store.js';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -104,14 +105,16 @@ export function createTelosConversationSource(options: {
           completed.push(CollaborationSnapshotMessageSchema.parse(message));
           const pins = new Map<string, Pin>();
           for (const block of message.blocks) {
-            for (const match of block.content.matchAll(
-              /\]\(\/api\/telos\/artifacts\/([a-f0-9]{32})(?:\?revision=([1-9]\d*))?\)/g,
-            )) {
-              if (!match[2]) {
+            for (const destination of telosMaterialDestinations(block.content)) {
+              const [path, query] = destination.split('?');
+              if (!query) {
                 if (selection.mode === 'conversation_so_far') refuse();
                 continue;
               }
-              const saved = options.artifacts.read(match[1], Number(match[2]));
+              const saved = options.artifacts.read(
+                path.slice(path.lastIndexOf('/') + 1),
+                Number(query.slice('revision='.length)),
+              );
               const pin = { artifactId: saved.id, revision: saved.revision, sha256: saved.sha256 };
               artifact(pin);
               pins.set(`${pin.artifactId}:${pin.revision}`, pin);

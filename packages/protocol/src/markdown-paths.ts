@@ -1,0 +1,341 @@
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+
+const markdownPathParser = unified().use(remarkParse);
+
+/** Internal scheme for file path links — intercepted by the custom renderer. */
+export const FILE_SCHEME = 'file-path://';
+
+/** Only durable Telos downloads are eligible for the authenticated sharing flow. */
+export function isTelosArtifactUrl(url: string): boolean {
+  return /^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url);
+}
+
+/** Read one saved revision, or review the latest before resolving an edit conflict. */
+export function telosDocumentUrl(path: string, latest = false): string {
+  if (!isTelosArtifactUrl(path)) throw new Error('Invalid Telos artifact URL');
+  const [base, query] = path.split('?');
+  return `${base}/document${!latest && query ? `?${query}` : ''}`;
+}
+
+/** Build an authenticated API URL scoped to the session that created an artifact. */
+export function artifactApiUrl(
+  endpoint: 'read' | 'download',
+  filePath: string,
+  sessionId?: string,
+): string {
+  const params = new URLSearchParams({ path: filePath });
+  if (sessionId) params.set('sessionId', sessionId);
+  return `/api/files/${endpoint}?${params.toString()}`;
+}
+
+/** Build the in-app file viewer URL without granting authority in the path itself. */
+export function artifactViewerUrl(filePath: string, from: string, sessionId?: string): string {
+  const params = new URLSearchParams({ path: filePath, from });
+  if (sessionId) params.set('sessionId', sessionId);
+  return `/files?${params.toString()}`;
+}
+
+/** A Markdown href that names a workspace file rather than a browser destination. */
+export function relativeArtifactPath(href: string): string | null {
+  if (href.startsWith('/') || href.startsWith('#') || href.startsWith('?')) return null;
+  if (/^[a-z][a-z\d+.-]*:/i.test(href)) return null;
+  try {
+    const path = decodeURIComponent(href.split(/[?#]/, 1)[0]);
+    const bareFile = !path.includes('/') && /^[^./][^/]*\.[a-z\d][a-z\d._-]*$/i.test(path);
+    return isFilePath(path) || bareFile ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Recognize explicit local Markdown destinations, leaving application URLs alone. */
+export function absoluteMarkdownArtifactPath(href: string): string | null {
+  const sandboxUri = /^sandbox:\/(?=\/|[^/])/i.test(href);
+  const source = sandboxUri ? href.replace(/^sandbox:/i, '') : href;
+  const explicitFileUri = /^file:\/\/(?:localhost)?(?=\/)/i.test(source);
+  const local = source.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
+  if ((!local.startsWith('/') && !local.startsWith('~/')) || local.startsWith('//')) return null;
+  try {
+    const path = decodeURIComponent(local.split(/[?#]/, 1)[0]).replace(/:\d+(?::\d+)?$/, '');
+    if (
+      !explicitFileUri &&
+      /^\/(?:api|files|chat|login|sessions|more|connections|focus|inbox|calendar|todos|tasks)(?:\/|$)/i.test(
+        path,
+      )
+    )
+      return null;
+    if (
+      path.startsWith('//') ||
+      path.includes('\\') ||
+      [...path].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+    )
+      return null;
+    return explicitFileUri || sandboxUri || /(?:^|\/)[^/]+\.[a-z\d][a-z\d._-]*$/i.test(path)
+      ? path
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Normalize parsed links (including reference definitions) before URL sanitization. */
+export function remarkLocalMarkdownLinks() {
+  return (tree: MarkdownNode) => {
+    const visit = (node: MarkdownNode) => {
+      if ((node.type === 'link' || node.type === 'definition') && node.url) {
+        const path = absoluteMarkdownArtifactPath(node.url);
+        if (path) node.url = `${FILE_SCHEME}${encodeURIComponent(path)}`;
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+
+/** Resolve a Markdown artifact's link against the directory containing the file. */
+export function linkedArtifactPath(href: string, containingFile: string): string | null {
+  const absolutePath = absoluteMarkdownArtifactPath(href);
+  if (absolutePath) return absolutePath;
+  const relative = relativeArtifactPath(href);
+  if (!relative) return null;
+  // Home shorthand is rooted on the artifact host, regardless of file type.
+  if (relative.startsWith('~/')) return relative;
+
+  const base = containingFile.slice(0, containingFile.lastIndexOf('/') + 1);
+  const joined = `${base}${relative}`;
+  const absolute = joined.startsWith('/');
+  const segments: string[] = [];
+  for (const segment of joined.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (segments.length && segments[segments.length - 1] !== '..') segments.pop();
+      else if (!absolute) segments.push('..');
+    } else {
+      segments.push(segment);
+    }
+  }
+  return `${absolute ? '/' : ''}${segments.join('/')}`;
+}
+
+/**
+ * Decode an internal file URL without allowing malformed URI data to escape
+ * into the React render path.
+ */
+export function decodeFilePathUrl(url: string): string | null {
+  if (!url.startsWith(FILE_SCHEME)) return null;
+
+  try {
+    return decodeURIComponent(url.slice(FILE_SCHEME.length));
+  } catch {
+    return null;
+  }
+}
+
+interface MarkdownNode {
+  type: string;
+  url?: string;
+  identifier?: string;
+  children?: MarkdownNode[];
+}
+
+/**
+ * Remark plugin that turns malformed internal file links into readable text.
+ * It runs before Markdown URL normalization and only visits parsed link nodes,
+ * so every supported link form is covered while code remains byte-for-byte.
+ */
+export function remarkNeutralizeMalformedFileLinks() {
+  return (tree: MarkdownNode) => {
+    const definitions = new Map<string, boolean>();
+
+    const collectDefinitions = (node: MarkdownNode) => {
+      if (node.type === 'definition' && node.identifier && !definitions.has(node.identifier)) {
+        definitions.set(
+          node.identifier,
+          Boolean(node.url?.startsWith(FILE_SCHEME) && decodeFilePathUrl(node.url) === null),
+        );
+      }
+      node.children?.forEach(collectDefinitions);
+    };
+
+    const visit = (node: MarkdownNode) => {
+      if (!node.children) return;
+
+      node.children = node.children.flatMap((child) => {
+        const malformedDirectLink =
+          child.type === 'link' &&
+          child.url?.startsWith(FILE_SCHEME) &&
+          decodeFilePathUrl(child.url) === null;
+        const malformedReference =
+          child.type === 'linkReference' &&
+          child.identifier !== undefined &&
+          definitions.get(child.identifier) === true;
+
+        if (malformedDirectLink || malformedReference) {
+          return child.children ?? [];
+        }
+
+        visit(child);
+        return [child];
+      });
+    };
+
+    collectDefinitions(tree);
+    visit(tree);
+  };
+}
+
+/** Detect whether a string looks like a file path (not a URL). */
+export function isFilePath(str: string): boolean {
+  // Reject URLs
+  if (/^https?:\/\//.test(str)) return false;
+
+  // Must start with /, ./, or ../  OR contain a / with a file extension
+  const isAbsolute = str.startsWith('/');
+  const isRelative = str.startsWith('./') || str.startsWith('../');
+  const hasDirSlash = str.includes('/');
+
+  if (!isAbsolute && !isRelative && !hasDirSlash) return false;
+
+  // Reject bare root
+  if (str === '/') return false;
+
+  // Must have either a file extension or multiple path segments
+  const hasExtension = /\.\w+$/.test(str);
+  const segments = str.split('/').filter(Boolean);
+  const hasDepth = segments.length >= 2;
+
+  return hasExtension || hasDepth;
+}
+
+export interface FilePathMatch {
+  path: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * Find file paths in a block of text.
+ * Matches absolute paths (/...) and relative paths (./... or ../...).
+ * Skips URLs (http:// or https://).
+ */
+export function detectFilePaths(text: string): FilePathMatch[] {
+  // Match paths: absolute (/...) or relative (./... or ../...)
+  // Path chars: word chars, hyphens, dots, @, slashes — no spaces (too greedy)
+  const pathPattern = /(?<!\w)(?:(?:~|\.\.?)?\/[\w./@-]+(?:\/[\w./@-]+)*)/g;
+
+  // Exclude entire URLs, including path/query segments that resemble home paths.
+  const urlRanges = [...text.matchAll(/https?:\/\/[^\s<>"`]+/gi)].map((match) => [
+    match.index,
+    match.index + match[0].length,
+  ]);
+  const matches: FilePathMatch[] = [];
+  let telosEnd = 0;
+
+  for (const match of text.matchAll(pathPattern)) {
+    const raw = match[0];
+    const start = match.index;
+
+    if (start < telosEnd || urlRanges.some(([from, to]) => start >= from && start < to)) continue;
+
+    // Strip trailing punctuation that's likely sentence-end
+    let cleaned = raw.replace(/[.,;:!?)]+$/, '');
+
+    // A bare Telos URL names a stored revision, not a workspace path. Consume
+    // the whole suffix so an invalid query can never become a latest-file link.
+    if (isTelosArtifactUrl(cleaned)) {
+      const suffix = text.slice(start + cleaned.length).match(/^[?#][^\s<>"`]+/)?.[0];
+      if (suffix) {
+        telosEnd = start + cleaned.length + suffix.length;
+        cleaned += suffix.replace(/[.,;:!)\]]+$/, '');
+        if (!isTelosArtifactUrl(cleaned)) continue;
+      }
+    }
+
+    if (isFilePath(cleaned)) {
+      matches.push({ path: cleaned, start, end: start + cleaned.length });
+    }
+  }
+
+  return matches;
+}
+
+/**
+ * Pre-process markdown content to wrap detected file paths in links.
+ * Already-linked paths (inside []() or backtick fences) are skipped.
+ */
+export function linkifyFilePaths(content: string): string {
+  // Process line by line to skip code blocks
+  const lines = content.split('\n');
+  // Parsed definitions are destinations, not bare prose. Rewriting their URLs
+  // would change the reference's href into bracketed workspace-path syntax.
+  const definitionLines = new Set<number>();
+  const collectDefinitions = (node: {
+    type: string;
+    position?: { start: { line: number }; end: { line: number } };
+    children?: (typeof node)[];
+  }) => {
+    if (node.type === 'definition' && node.position)
+      for (let line = node.position.start.line; line <= node.position.end.line; line++)
+        definitionLines.add(line);
+    node.children?.forEach(collectDefinitions);
+  };
+  collectDefinitions(markdownPathParser.parse(content));
+  let inCodeBlock = false;
+  const result: string[] = [];
+
+  for (const [lineIndex, line] of lines.entries()) {
+    if (definitionLines.has(lineIndex + 1)) {
+      result.push(line);
+      continue;
+    }
+    if (/^```/.test(line.trimStart())) {
+      inCodeBlock = !inCodeBlock;
+      result.push(line);
+      continue;
+    }
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
+    result.push(linkifyLine(line));
+  }
+
+  return result.join('\n');
+}
+
+function linkifyLine(line: string): string {
+  const matches = detectFilePaths(line);
+  if (matches.length === 0) return line;
+
+  // Build exclusion ranges for inline backticks and existing markdown links
+  const excludedRanges: Array<[number, number]> = [];
+
+  const backtickPattern = /`[^`]+`/g;
+  for (const bm of line.matchAll(backtickPattern)) {
+    excludedRanges.push([bm.index, bm.index + bm[0].length]);
+  }
+
+  const linkPattern = /\[[^\]]*\]\([^)]*\)/g;
+  for (const lm of line.matchAll(linkPattern)) {
+    excludedRanges.push([lm.index, lm.index + lm[0].length]);
+  }
+
+  let out = '';
+  let cursor = 0;
+
+  for (const m of matches) {
+    // Skip if inside backticks or existing markdown links
+    const inBackticks = excludedRanges.some(([s, e]) => m.start >= s && m.end <= e);
+    if (inBackticks) {
+      continue;
+    }
+
+    out += line.slice(cursor, m.start);
+    out += `[${m.path}](${FILE_SCHEME}${encodeURIComponent(m.path)})`;
+    cursor = m.end;
+  }
+
+  out += line.slice(cursor);
+  return out;
+}

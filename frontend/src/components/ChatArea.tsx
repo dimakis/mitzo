@@ -150,9 +150,13 @@ export function ChatArea({
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
   const source = useTelosSourceNavigation();
-  const sourceKey = source
-    ? JSON.stringify([source.conversationId, source.itemId, source.snapshotId])
-    : '';
+  // A failed lookup releases ordinary restore/follow behavior; a pending lookup
+  // still owns the position until its retained boundary is known.
+  const sourceKey =
+    source && source.status !== 'unavailable'
+      ? JSON.stringify([source.conversationId, source.itemId, source.snapshotId])
+      : '';
+  const prevSourceKey = useRef(sourceKey);
   const jumpedSource = useRef('');
   const sourceAnchor = (message: FinishedMessage) => {
     if (source?.status !== 'ready' || source.conversationId !== sessionId) return false;
@@ -233,12 +237,27 @@ export function ChatArea({
   // Scroll to bottom on session restore (messages jump from 0 to N)
   useEffect(() => {
     const wasEmpty = prevMessageCount.current === 0;
+    const releasedSource = !!prevSourceKey.current && !sourceKey;
     prevMessageCount.current = messages.length;
-    if (wasEmpty && messages.length > 0 && !sourceKey) {
+    prevSourceKey.current = sourceKey;
+    if (
+      messages.length > 0 &&
+      !sourceKey &&
+      (wasEmpty || (releasedSource && shouldFollowStreamRef.current))
+    ) {
       shouldFollowStreamRef.current = true;
-      requestAnimationFrame(() => {
-        if (!sourceKey) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+      let frame = requestAnimationFrame(() => {
+        if (!shouldFollowStreamRef.current) return;
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        // Restoring a deferred source can reveal the existing scroll controls.
+        // Settle their viewport change without overriding newer reader intent.
+        if (releasedSource)
+          frame = requestAnimationFrame(() => {
+            if (shouldFollowStreamRef.current)
+              scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+          });
       });
+      return () => cancelAnimationFrame(frame);
     }
   }, [messages, scrollRef, sourceKey]);
 
@@ -386,6 +405,9 @@ export function ChatArea({
       ]);
       // Filter non-visible text before assigning first/last-row controls so
       // speaker attribution and sharing stay attached to retained content.
+      const firstVisibleText = blocks.find(
+        (block) => block.blockType === 'text' && block.content?.trim(),
+      );
       const rows = blocks
         .filter((block) => block.blockType !== 'text' || block.content?.trim())
         .map((block, index): ActivityRow<ReactNode> => {
@@ -418,7 +440,7 @@ export function ChatArea({
                 sourceAnchor={
                   !streaming &&
                   turn.kind === 'finished' &&
-                  block === blocks.find((b) => b.blockType === 'text') &&
+                  block === firstVisibleText &&
                   sourceAnchor(turn.value)
                 }
                 content={block.content ?? ''}

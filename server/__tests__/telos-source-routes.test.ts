@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import express from 'express';
 import request from 'supertest';
+import { TelosArtifactStore } from '../telos-artifact-store.js';
 import { EventStore } from '../event-store.js';
 import { createTelosSourceRouter } from '../telos-source-routes.js';
 import { readFileSync } from 'node:fs';
@@ -129,6 +130,75 @@ function fixture() {
   return { app, events, selection, dbPath, post, createOutcome };
 }
 describe('authenticated Telos source capture API', () => {
+  it.each(['bare', 'titled', 'reference'])(
+    'refuses mutable %s materials before canonical or retained-source mutation',
+    async (form) => {
+      const f = fixture();
+      const materials = new TelosArtifactStore(f.dbPath());
+      const retained = materials.save({
+        itemId: 'item',
+        filename: 'mock.html',
+        title: 'Mock',
+        sessionId: 'origin',
+        bytes: Buffer.from('retained bytes'),
+      });
+      materials.close();
+      const url = '/api/telos/artifacts/' + retained.id;
+      const text =
+        form === 'bare'
+          ? `Saved ${url}.`
+          : form === 'titled'
+            ? `[Mock](${url} "Mock")`
+            : `[Mock][saved]
+
+[saved]: ${url}`;
+      const sequence = f.events.append('origin', 'user_message', { messageId: 'mutable', text });
+      const input = {
+        requestId: randomUUID(),
+        outcome: {
+          summary: 'Reviewed',
+          intent: 'Result',
+          rationale: 'Why',
+          acceptanceCriteria: ['Done'],
+          milestones: ['One'],
+          profile: 'manual',
+        },
+        selection: {
+          ...f.selection,
+          mode: 'conversation_so_far',
+          messageIds: [],
+          boundary: { sequence, messageId: 'mutable' },
+        },
+      };
+      const preview = await f.post('outcome/preview', input);
+      expect.soft(preview.status).toBe(503);
+      const result = await f.post('outcome/create', {
+        ...input,
+        previewSha256: preview.body.sha256 ?? '0'.repeat(64),
+      });
+      expect.soft(result.status).toBe(503);
+      expect.soft(f.createOutcome).not.toHaveBeenCalled();
+      const db = new Database(f.dbPath());
+      try {
+        expect.soft(db.prepare('SELECT id FROM items').all()).toEqual([{ id: 'item' }]);
+        expect
+          .soft(db.prepare('SELECT COUNT(*) AS n FROM telos_artifact_revisions').get())
+          .toEqual({ n: 1 });
+        for (const table of [
+          'telos_work_sources',
+          'telos_work_links',
+          'telos_work_assignments',
+          'telos_work_attempts',
+          'telos_work_source_creations',
+        ])
+          expect
+            .soft(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table)
+            .toEqual({ n: 0 });
+      } finally {
+        db.close();
+      }
+    },
+  );
   it.each(['thinking', 'tool_use'])(
     'refuses private %s block-ID reuse before preview/creation and retains no private source',
     async (blockType) => {

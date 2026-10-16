@@ -321,6 +321,137 @@ describe('Telos adapter for the existing authorized context compiler', () => {
     f.revoke();
     await expect(f.source.authorizeArtifact(pin)).rejects.toThrow();
   });
+  const materialForms = {
+    bare: (url: string) => `Saved ${url}.`,
+    titled: (url: string) => `[Approved mock](${url} "Reviewed mock")`,
+    reference: (url: string) => `[Approved mock][review]
+
+[review]: ${url} "Reviewed mock"`,
+    imagePlain: (url: string) => `![Approved mock](${url})`,
+    image: (url: string) => `![Approved mock](${url} "Reviewed mock")`,
+    imageReference: (url: string) => `![Approved mock][review]\n\n[review]: ${url}`,
+    encoded: (url: string) => `[Approved mock](file-path://${encodeURIComponent(url)})`,
+  };
+  it.each(Object.entries(materialForms))(
+    'retains exact revisioned %s material references in the full-prefix witness',
+    async (_name, format) => {
+      const f = fixture();
+      const save = (bytes: string) =>
+        f.artifacts.save({
+          itemId: 'item',
+          filename: 'reviewed.html',
+          title: 'Mock',
+          bytes: Buffer.from(bytes),
+          sessionId: 'origin',
+        });
+      const first = save('approved original bytes');
+      save('later bytes must not replace the selected material');
+      const sequence = f.append('user_message', { messageId: 'linked', text: format(first.url) });
+      const opened = await f.source.openConversation({
+        ...f.selection,
+        mode: 'conversation_so_far',
+        messageIds: [],
+        boundary: { sequence, messageId: 'linked' },
+      });
+      const pin = { artifactId: first.id, revision: first.revision, sha256: first.sha256 };
+      expect((await opened.readPrefixWitness()).artifactPins).toEqual([pin]);
+      expect((await opened.readPage(0, 50)).artifacts).toEqual([pin]);
+      expect((await f.source.readArtifact(pin)).bytes).toEqual(
+        Buffer.from('approved original bytes'),
+      );
+      f.revoke();
+      await expect(opened.assertCurrent()).rejects.toThrow();
+    },
+  );
+  it.each(Object.entries(materialForms))(
+    'refuses mutable %s material references in the full-prefix witness',
+    async (_name, format) => {
+      const f = fixture();
+      const sequence = f.append('user_message', {
+        messageId: 'mutable',
+        text: format('/api/telos/artifacts/' + 'a'.repeat(32)),
+      });
+      await expect(
+        f.source.openConversation({
+          ...f.selection,
+          mode: 'conversation_so_far',
+          messageIds: [],
+          boundary: { sequence, messageId: 'mutable' },
+        }),
+      ).rejects.toThrow();
+    },
+  );
+  it.each([
+    (url: string) => `\`${url}\``,
+    (url: string) => `\`\`\`
+${url}
+\`\`\``,
+    (url: string) => `[${url}](https://example.com "${url}")`,
+    (url: string) => `\\[Example](${url})`,
+    (url: string) => `\\[Example *emphasis*](${url})`,
+    (url: string) => `<a href="${url}">literal HTML</a>`,
+    (url: string) => `Nothing references this definition.
+
+[unused]: ${url}`,
+  ])(
+    'does not invent retained materials from code, labels, titles or unused definitions (%#)',
+    async (format) => {
+      const f = fixture();
+      const sequence = f.append('user_message', {
+        messageId: 'literal',
+        text: format('/api/telos/artifacts/' + 'a'.repeat(32)),
+      });
+      const opened = await f.source.openConversation({
+        ...f.selection,
+        mode: 'conversation_so_far',
+        messageIds: [],
+        boundary: { sequence, messageId: 'literal' },
+      });
+      expect((await opened.readPrefixWitness()).artifactPins).toEqual([]);
+    },
+  );
+
+  it('uses only the first referenced definition and refuses authority for a private material origin', async () => {
+    const f = fixture();
+    const first = f.artifacts.save({
+      itemId: 'item',
+      filename: 'first.html',
+      title: 'First',
+      bytes: Buffer.from('first bytes'),
+      sessionId: 'origin',
+    });
+    const second = f.artifacts.save({
+      itemId: 'item',
+      filename: 'second.html',
+      title: 'Second',
+      bytes: Buffer.from('second bytes'),
+      sessionId: 'missing-private-origin',
+    });
+    const sequence = f.append('user_message', {
+      messageId: 'definitions',
+      text: `[Mock][review]\n\n[review]: ${first.url}\n[review]: ${second.url}`,
+    });
+    const selection = {
+      ...f.selection,
+      mode: 'conversation_so_far' as const,
+      messageIds: [],
+      boundary: { sequence, messageId: 'definitions' },
+    };
+    const opened = await f.source.openConversation(selection);
+    expect((await opened.readPrefixWitness()).artifactPins).toEqual([
+      { artifactId: first.id, revision: first.revision, sha256: first.sha256 },
+    ]);
+    const hidden = f.append('user_message', {
+      messageId: 'private-material',
+      text: `[Private](${second.url} "Private")`,
+    });
+    await expect(
+      f.source.openConversation({
+        ...selection,
+        boundary: { sequence: hidden, messageId: 'private-material' },
+      }),
+    ).rejects.toThrow();
+  });
   it('enumerates exact public artifact links in the complete-prefix witness and refuses a mutable latest link', async () => {
     const f = fixture();
     const artifact = f.artifacts.save({

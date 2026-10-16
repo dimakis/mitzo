@@ -19,15 +19,25 @@ import '../../frontend/src/styles/motion.css';
 
 /** Inert protocol transport only. The real store switchSession, transcript read,
  * responsive routes, metadata hydration, settings and composer remain unchanged.
- * Refuse any command that could submit a turn or allocate/change a conversation. */
+ * Record one explicit fixture send without starting a provider or backend turn;
+ * refuse any other command that could allocate/change a conversation. */
+declare global {
+  interface Window {
+    fixtureSends: Record<string, unknown>[];
+  }
+}
+window.fixtureSends = [];
 const store = createMitzoStore({
   transport: { fetch: (url, init) => fetch(url, init) },
   wsConfig: {
     buildUrl: () => '',
     createWebSocket: () => {
+      let replyNumber = 0;
       const laterReply = (event: Event) => {
         const finish = event.type === 'fixture-finish-reply';
-        const reply = { sessionId: 'planning', messageId: 'later-reply' };
+        const continuation = event.type === 'fixture-continue-reply';
+        if (!finish && !continuation) replyNumber++;
+        const reply = { sessionId: 'planning', messageId: 'later-reply-' + replyNumber };
         const block = { ...reply, blockId: 'later-text', blockType: 'text' };
         const events = finish
           ? [
@@ -35,12 +45,14 @@ const store = createMitzoStore({
               { type: 'message_end', ...reply },
               { type: 'session_state_changed', sessionId: 'planning', state: 'idle' },
             ]
-          : [
-              { type: 'session_state_changed', sessionId: 'planning', state: 'running' },
-              { type: 'message_start', ...reply },
-              { type: 'block_start', ...block },
-              { type: 'block_delta', ...block, delta: 'Later reply from the offline transport.' },
-            ];
+          : continuation
+            ? [{ type: 'block_delta', ...block, delta: (event as CustomEvent<string>).detail }]
+            : [
+                { type: 'session_state_changed', sessionId: 'planning', state: 'running' },
+                { type: 'message_start', ...reply },
+                { type: 'block_start', ...block },
+                { type: 'block_delta', ...block, delta: 'Later reply from the offline transport.' },
+              ];
         for (const message of events) socket.onmessage?.({ data: JSON.stringify(message) });
       };
       const socket: WebSocketLike = {
@@ -50,7 +62,18 @@ const store = createMitzoStore({
         onclose: null,
         onerror: null,
         send: (raw) => {
-          const message = JSON.parse(raw) as { type: string; sessionId?: string };
+          const message = JSON.parse(raw) as Record<string, unknown> & {
+            type: string;
+            sessionId?: string;
+          };
+          if (
+            message.type === 'send' &&
+            message.sessionId === 'planning' &&
+            message.prompt === 'Continue the ordinary chat.'
+          ) {
+            window.fixtureSends.push(message);
+            return;
+          }
           if (!['hello', 'ping', 'switch_session', 'session_event_applied'].includes(message.type))
             throw Error('Unexpected fixture command: ' + message.type);
           if (message.type === 'switch_session')
@@ -67,10 +90,12 @@ const store = createMitzoStore({
         close: () => {
           window.removeEventListener('fixture-stream-reply', laterReply);
           window.removeEventListener('fixture-finish-reply', laterReply);
+          window.removeEventListener('fixture-continue-reply', laterReply);
         },
       };
       window.addEventListener('fixture-stream-reply', laterReply);
       window.addEventListener('fixture-finish-reply', laterReply);
+      window.addEventListener('fixture-continue-reply', laterReply);
       queueMicrotask(() => {
         socket.onopen?.({});
         socket.onmessage?.({
