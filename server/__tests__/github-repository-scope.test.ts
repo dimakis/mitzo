@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer, request as httpRequest } from 'node:http';
+import { once } from 'node:events';
 import express from 'express';
 import request from 'supertest';
 import { ConnectionStore, RevisionConflictError } from '../connections-store.js';
@@ -12,13 +14,10 @@ vi.mock('../auth.js', () => ({
   verifyPassphrase: (value: string) => value === 'correct',
   isAuthSessionCurrent: () => true,
 }));
-const cleanups: Array<() => void> = [];
-afterEach(() =>
-  cleanups
-    .splice(0)
-    .reverse()
-    .forEach((close) => close()),
-);
+const cleanups: Array<() => void | Promise<void>> = [];
+afterEach(async () => {
+  for (const close of cleanups.splice(0).reverse()) await close();
+});
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'github-repository-scope-'));
   const store = new ConnectionStore(join(root, 'connections.db'));
@@ -337,5 +336,83 @@ describe('GitHub repository scope', () => {
           .send({ ...authorized, repository: 'dimakis/another' })
       ).status,
     ).toBe(409);
+  });
+
+  it('does not add repository consent when the client disconnects after sending the complete JSON body', async () => {
+    const { store, connection, gateway, service } = fixture();
+    let lookupStarted!: () => void;
+    let releaseLookup!: () => void;
+    let responseClosed!: () => void;
+    const lookup = new Promise<void>((resolve) => {
+      lookupStarted = resolve;
+    });
+    const closed = new Promise<void>((resolve) => {
+      responseClosed = resolve;
+    });
+    gateway.get.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseLookup = () =>
+            resolve({
+              id: 'original-provider',
+              name: connection.gatewayProviderName,
+              type: 'github',
+              workspace: 'default',
+              credentialKeys: ['GITHUB_TOKEN'],
+            });
+          lookupStarted();
+        }),
+    );
+    const mutation = vi.spyOn(service, 'addGithubRepository');
+    const app = express();
+    app.use((req, res, next) => {
+      res.locals.authSession = { id: 'cancelled-scope-session', expiresAt: Date.now() + 60000 };
+      if (req.path.endsWith('/github-repositories')) res.once('close', responseClosed);
+      next();
+    });
+    app.use(
+      '/api/connections',
+      createConnectionsRouter({
+        store,
+        service,
+        eligibleAccounts: () => ['personal', 'work'],
+        gateway: 'openshell',
+        workspace: 'default',
+        legacyProviders: async () => [],
+      }),
+    );
+    const server = createServer(app).listen(0, '127.0.0.1');
+    cleanups.push(
+      () =>
+        new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        }),
+    );
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Missing fixture address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const reauth = await request(server)
+      .post('/api/connections/reauthorize')
+      .send({ passphrase: 'correct' });
+    expect(reauth.status).toBe(200);
+    const body = JSON.stringify({
+      revision: connection.revision,
+      repository: 'dimakis/mitzo',
+      csrf: reauth.body.csrf,
+    });
+    const caller = httpRequest(`${base}/api/connections/${connection.id}/github-repositories`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+    });
+    caller.on('error', () => undefined);
+    caller.end(body);
+    await lookup;
+    caller.destroy();
+    await closed;
+    releaseLookup();
+    await expect(mutation.mock.results[0].value).rejects.toThrow();
+    expect(store.get(connection.id)).toEqual(connection);
+    expect(store.audit(connection.id)).toHaveLength(2);
   });
 });

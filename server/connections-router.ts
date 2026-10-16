@@ -675,7 +675,11 @@ export function createConnectionsRouter(options: {
         return res.status(403).json({ error: 'Recent reauthorization required' });
       const controller = new AbortController();
       const abort = () => controller.abort();
+      const responseClosed = () => {
+        if (!res.writableEnded) abort();
+      };
       req.once('aborted', abort);
+      res.once('close', responseClosed);
       const timeout = setTimeout(abort, Math.min(30000, expiresAt - Date.now()));
       try {
         const updated = await options.service.addGithubRepository(
@@ -697,6 +701,7 @@ export function createConnectionsRouter(options: {
       } finally {
         clearTimeout(timeout);
         req.removeListener('aborted', abort);
+        res.removeListener('close', responseClosed);
       }
     },
   );

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.165';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.166';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -488,7 +488,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
-  '../connections-router.ts': '8b427f4e80ab153ba6bb3b20d5e55fc864bbdaa5cf55a49b94cbd2639a50c512',
+  '../connections-router.ts': 'afb2657c850dd4b3a64cd2d295ca8682204ddcdff0dba90ce6fa610c15596e93',
   '../connections-service.ts': 'ed916c318cf9cb36e9a2d3e37d8068413ef91d9f37a3cfdb3cf56569588f9183',
   // Repository acquisition and source claims share the ordinary runtime admission review.
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
