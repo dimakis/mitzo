@@ -1,14 +1,9 @@
-import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, useParams, useSearchParams } from 'react-router-dom';
-import type { FinishedMessage } from '../../frontend/src/types/chat';
-import { TelosItemSources } from '../../frontend/src/components/TelosItemSources';
-import { TelosSourceWorkLink } from '../../frontend/src/components/TelosSourceWorkLink';
-import { TelosSourceNavigationProvider } from '../../frontend/src/hooks/TelosSourceNavigation';
-import { WorkspaceControls } from '../../frontend/src/components/WorkspaceControls';
-import { ChatArea } from '../../frontend/src/components/ChatArea';
-import { ChatInput } from '../../frontend/src/components/ChatInput';
-import { WorkOutputs } from '../../frontend/src/components/WorkOutputs';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { createMitzoStore, type WebSocketLike } from '@mitzo/client';
+import { MitzoStoreProvider } from '@mitzo/client/hooks';
+import { ResponsiveChatView } from '../../frontend/src/components/ResponsiveChatView';
+import { TodoDetailView } from '../../frontend/src/pages/TodoDetailView';
 import { DesktopShell } from '../../frontend/src/components/DesktopShell';
 import { MobileShell } from '../../frontend/src/components/MobileShell';
 import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
@@ -18,80 +13,89 @@ import '../../frontend/src/styles/desktop.css';
 import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/workspace-chat.css';
 import '../../frontend/src/styles/workspace-work.css';
+import '../../frontend/src/styles/mobile-workspace.css';
 import '../../frontend/src/styles/session-library.css';
-function OriginalChat() {
-  const { sessionId } = useParams<{ sessionId: string }>();
-  const [search] = useSearchParams();
-  const [messages, setMessages] = useState<FinishedMessage[]>([]);
-  useEffect(() => {
-    const c = new AbortController();
-    void fetch('/fixture-messages', { signal: c.signal })
-      .then((r) => r.json())
-      .then((m) => {
-        if (!c.signal.aborted) setMessages(m);
+import '../../frontend/src/styles/motion.css';
+
+/** Inert protocol transport only. The real store switchSession, transcript read,
+ * responsive routes, metadata hydration, settings and composer remain unchanged.
+ * Refuse any command that could submit a turn or allocate/change a conversation. */
+const store = createMitzoStore({
+  transport: { fetch: (url, init) => fetch(url, init) },
+  wsConfig: {
+    buildUrl: () => '',
+    createWebSocket: () => {
+      const laterReply = (event: Event) => {
+        const finish = event.type === 'fixture-finish-reply';
+        const reply = { sessionId: 'planning', messageId: 'later-reply' };
+        const block = { ...reply, blockId: 'later-text', blockType: 'text' };
+        const events = finish
+          ? [
+              { type: 'block_end', ...block },
+              { type: 'message_end', ...reply },
+              { type: 'session_state_changed', sessionId: 'planning', state: 'idle' },
+            ]
+          : [
+              { type: 'session_state_changed', sessionId: 'planning', state: 'running' },
+              { type: 'message_start', ...reply },
+              { type: 'block_start', ...block },
+              { type: 'block_delta', ...block, delta: 'Later reply from the offline transport.' },
+            ];
+        for (const message of events) socket.onmessage?.({ data: JSON.stringify(message) });
+      };
+      const socket: WebSocketLike = {
+        readyState: 1,
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+        send: (raw) => {
+          const message = JSON.parse(raw) as { type: string; sessionId?: string };
+          if (!['hello', 'ping', 'switch_session', 'session_event_applied'].includes(message.type))
+            throw Error('Unexpected fixture command: ' + message.type);
+          if (message.type === 'switch_session')
+            queueMicrotask(() =>
+              socket.onmessage?.({
+                data: JSON.stringify({
+                  type: 'mode_changed',
+                  mode: 'ask',
+                  sessionId: message.sessionId,
+                }),
+              }),
+            );
+        },
+        close: () => {
+          window.removeEventListener('fixture-stream-reply', laterReply);
+          window.removeEventListener('fixture-finish-reply', laterReply);
+        },
+      };
+      window.addEventListener('fixture-stream-reply', laterReply);
+      window.addEventListener('fixture-finish-reply', laterReply);
+      queueMicrotask(() => {
+        socket.onopen?.({});
+        socket.onmessage?.({
+          data: JSON.stringify({ type: 'welcome', connectionId: 'offline-telos-source' }),
+        });
       });
-    return () => c.abort();
-  }, []);
-  return (
-    <TelosSourceNavigationProvider
-      sessionId={sessionId!}
-      request={{
-        conversationId: sessionId!,
-        itemId: search.get('telosItem')!,
-        snapshotId: search.get('telosSource')!,
-      }}
-    >
-      <div className="chat-page workspace-chat">
-        <WorkspaceControls
-          title="Studio planning"
-          agent="Planning advisor"
-          status="Ready"
-          summary={{ profile: 'Offline fixture account', model: 'Luna fixture', thinking: 'High' }}
-          settings={<p>Ordinary settings retained</p>}
-        >
-          <span />
-        </WorkspaceControls>
-        <TelosSourceWorkLink />
-        <ChatArea
-          sessionId={sessionId}
-          messages={messages}
-          current={null}
-          running={false}
-          permission={null}
-          onPermissionRespond={() => {}}
-        />
-        <ChatInput
-          onSend={() => false}
-          onStop={() => {}}
-          running={false}
-          sessionId={sessionId}
-          messages={messages}
-        />
-      </div>
-    </TelosSourceNavigationProvider>
-  );
-}
-function Fixture() {
+      return socket;
+    },
+  },
+});
+
+function ItemRoute() {
   const desktop = useIsDesktop();
-  const pages = (
-    <Routes>
-      <Route path="/chat/:sessionId" element={<OriginalChat />} />
-      <Route
-        path="*"
-        element={
-          <div className="workspace-work">
-            <h1>Home studio</h1>
-            <TelosItemSources itemId="studio" legacySources={[]} onOpenExternal={() => {}} />
-            <WorkOutputs itemId="studio" />
-          </div>
-        }
-      />
-    </Routes>
-  );
-  return <MobileShell>{desktop ? <DesktopShell center={pages} /> : pages}</MobileShell>;
+  return desktop ? <DesktopShell center={<TodoDetailView />} /> : <TodoDetailView />;
 }
+
 createRoot(document.getElementById('root')!).render(
-  <BrowserRouter>
-    <Fixture />
-  </BrowserRouter>,
+  <MitzoStoreProvider value={store}>
+    <BrowserRouter>
+      <MobileShell>
+        <Routes>
+          <Route path="/chat/:sessionId" element={<ResponsiveChatView />} />
+          <Route path="/todos/:id" element={<ItemRoute />} />
+        </Routes>
+      </MobileShell>
+    </BrowserRouter>
+  </MitzoStoreProvider>,
 );

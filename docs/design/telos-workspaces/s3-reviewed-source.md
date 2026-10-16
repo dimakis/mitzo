@@ -104,11 +104,18 @@ Attachment refusal tests cover both selected and full-prefix messages and verify
 that rejection creates no item, packet, relationship, assignment or allocation.
 Legacy DTO round trips and retained artifact revision checks remain in #977.
 
-The scoped browser fixture uses the real changed frontend components and actual
-temporary event/artifact/work stores. All browser traffic is intercepted. It
-checks 320px mobile WebKit/Chromium and 1280px desktop Chromium in light/dark
-appearance with alternate accents/font, source scroll position, Resources
-backlinks, composer draft retention and return to the item. Screenshots are
-recorded per platform/theme. These are synthetic offline fixtures, not a runtime
-or deployment claim. Unit tests use one worker and a 1 GiB heap; broad frontend
-builds exceeded that local heap and remain a required CI gate.
+The scoped browser fixture mounts the actual `TodoDetailView` and
+`ResponsiveChatView` routes, including `ChatView`/`DesktopChatView`, the real
+client store and its unchanged REST transcript restoration. Source evidence comes
+from actual temporary event/artifact/work stores; HTTP responses and the inert
+protocol transport are synthetic and all browser traffic is intercepted. Six
+cases check 320px mobile WebKit/Chromium and 1280px desktop Chromium in light/dark
+appearance with alternate accents/font, exact source anchoring, ordinary bound
+account/model/thinking settings, Resources backlinks and composer draft retention
+through item/chat navigation. A later simulated streamed reply preserves the
+reader's source position. Screenshots are recorded per platform/theme. This is
+offline route integration evidence; reviewed capture still needs its frontend
+caller, and full S9 device/runtime qualification remains outstanding. No backend,
+provider or model starts, and no deployment is claimed. Focused tests use one
+worker and a 1 GiB heap; broad frontend builds exceeded that local heap and remain
+a required CI gate.
