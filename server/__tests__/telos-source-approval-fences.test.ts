@@ -8,7 +8,7 @@ import {
   removePending,
   resolvePending,
 } from '@mitzo/harness';
-import { createTelosSourceApprovalData } from '../../tests/fixtures/telos-source-approval-data.js';
+import { createTelosSourceApprovalData } from './fixtures/telos-source-approval-data.js';
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {

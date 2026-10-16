@@ -4,7 +4,7 @@ import { resolvePending, SessionRegistry, buildPermissionHandler } from '@mitzo/
 import { TelosSourceApprovalStore } from '../telos-source-approval-store.js';
 import Database from 'better-sqlite3';
 import { formatTelosSourceResult } from '../telos-tool.js';
-import { createTelosSourceApprovalData } from '../../tests/fixtures/telos-source-approval-data.js';
+import { createTelosSourceApprovalData } from './fixtures/telos-source-approval-data.js';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {

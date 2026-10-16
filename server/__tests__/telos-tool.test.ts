@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { TelosSourcePermissionReceipt, TelosSourcePermissionOperation } from '@mitzo/protocol';
 import {
   executeTelosCreateOutcome,
   telosCreateOutcomeDefinition,
@@ -40,7 +41,7 @@ const sourceReceipt = {
       attempts: [],
     },
   },
-};
+} satisfies TelosSourcePermissionReceipt & { operation: TelosSourcePermissionOperation };
 
 afterEach(() => vi.unstubAllGlobals());
 

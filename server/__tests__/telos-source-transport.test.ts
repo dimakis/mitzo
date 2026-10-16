@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { buildPermissionHandler } from '@mitzo/harness';
 import { buildSessionPermissionHooks } from '../session-permission-policy.js';
 import { createTelosSourceRouter } from '../telos-source-routes.js';
-import { createTelosSourceApprovalData } from '../../tests/fixtures/telos-source-approval-data.js';
+import { createTelosSourceApprovalData } from './fixtures/telos-source-approval-data.js';
 
 const registrations = vi.hoisted(
   () =>
@@ -87,7 +87,7 @@ it.each(['create', 'adopt'] as const)(
     } finally {
       process.argv = previous;
     }
-    const post = (route: string, body: unknown) =>
+    const post = (route: string, body: object) =>
       request(app).post(route).set('x-operator', f.actor.id).send(body);
     const name = kind === 'create' ? 'TelosCreateOutcome' : 'TelosAdoptSource';
     const proposal =

@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { createTelosSourceApprovalData } from '../../tests/fixtures/telos-source-approval-data.js';
+import { createTelosSourceApprovalData } from './fixtures/telos-source-approval-data.js';
 import { createTelosSourcePermissionRecovery } from '../telos-source-recovery.js';
 import {
   configureTelosSourcePermissionRecovery,
