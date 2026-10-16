@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.178';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.180';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,9 +26,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/tool-library.css': '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
   '../mcp-config.ts': '6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b',
   '../configured-tool-runtime.ts': '60b98526368eebc431ffe848bc51f88d98ac1dff1a4b5fda7938055677651133',
-  '../configured-tool-admission.ts': '0275d3084ca7fe116c54b3ce6e345cd51047870bd7318a4d706352da34f8a8a1',
+  '../configured-tool-admission.ts': '913b2e07553f9f7b8430e595f5e55dbb97a750b6ef7a92659c628cef7b7ed545',
   '../configured-tool-catalog.ts':
-    'fe271014b231cbb25e7cf2abbb24afc411fb51fe3c80026ccb011d0c1d1d9b72',
+    'b4344c667cdd4cd804d7f272587ea93ab8b5d991f97d52bc45ce5e4217fd640d',
   '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent conversation metadata and offline client projection; execution remains disabled.
@@ -294,7 +294,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
     'f9237e6f3bd200722044be249bedd48ff5ccbdabf68f92e4775901092493d8e6',
-  '../codex-mcp-tools.ts': '825d579e60d0b98014ad456b39dd7c8e61f101d0ce96894ff4f5a3745e955b55',
+  '../codex-mcp-tools.ts': '08d8697f5efc21b406033857dac8aceaeb732bc33e70f74378c16f53f132cb63',
   '../codex-runtime-diagnostics.ts':
     '80730e66ff8aa543acfb4ce035c7cf2fbe936172498d3b8ed0d868143bee4513',
   'capabilities/approval.ts': '25c074b3091e67b0c3faba822e8e2c00ff32a34416fe0b37cb4f202d040d0320',

@@ -18,6 +18,8 @@ interface Connection {
 export interface McpToolsOptions {
   assertRuntimeCurrent?: () => void;
   cwd: string;
+  /** Private receipt-owned launch directory for an admitted source. */
+  cwdForSource?: (server: string) => string;
   env: Record<string, string>;
   signal: AbortSignal;
   connect?: (config: McpServerConfig, options: McpToolsOptions) => Promise<Connection>;
@@ -88,7 +90,10 @@ export async function connectCodexMcpTools(
       if (config.execution === 'sandbox') continue;
       options.signal.throwIfAborted();
       options.assertRuntimeCurrent?.();
-      const peer = await (options.connect ?? connect)(config, options);
+      const peer = await (options.connect ?? connect)(config, {
+        ...options,
+        cwd: options.cwdForSource?.(server) ?? options.cwd,
+      });
       peers.push(peer);
       if (closed) {
         await peer.close();
