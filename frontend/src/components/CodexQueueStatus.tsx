@@ -90,7 +90,9 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     let pending = false;
     let reading = false;
     let readRequested = false;
-    let readVersion = 0;
+    let detailsVersion = 0;
+    let detailsController: AbortController | undefined;
+    let queuedCount = 0;
     let lastRead = 0;
     setQueue(null);
     setCommands([]);
@@ -109,28 +111,38 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     setCollapsed(sessionId ? isHidden(sessionId) : false);
     if (!sessionId) return;
 
+    const invalidateDetails = () => {
+      ++detailsVersion;
+      detailsController?.abort();
+      detailsController = undefined;
+    };
     // Details must never hold up the metadata-only count or its next refresh.
-    const readCommands = async (version: number) => {
+    const readCommands = async () => {
+      if (detailsController) return;
+      const controller = new AbortController();
+      detailsController = controller;
+      const version = detailsVersion;
       try {
         const response = await apiFetch(
           `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue`,
-          { signal: AbortSignal.timeout(15000) },
+          { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) },
         );
         if (!response.ok) return;
         const parsed = QueuedCommands.safeParse(await response.json());
-        if (!disposed && version === readVersion && parsed.success) {
+        if (!disposed && version === detailsVersion && parsed.success) {
           setCommands(parsed.data.queued);
           setHasMore(parsed.data.hasMore ?? false);
         }
       } catch {
         // The compact status stays useful while the drawer details refresh.
+      } finally {
+        if (detailsController === controller) detailsController = undefined;
       }
     };
 
     const read = async () => {
       if (disposed || reading) return;
       reading = true;
-      const version = ++readVersion;
       lastRead = Date.now();
       try {
         const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
@@ -142,6 +154,11 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         // before displaying it, rather than flashing an obsolete count.
         if (disposed || readRequested) return;
         const parsed = Queue.safeParse(data.codexQueue);
+        const count = parsed.success ? parsed.data.queued : 0;
+        if (count !== queuedCount) {
+          queuedCount = count;
+          invalidateDetails();
+        }
         isCodex = parsed.success;
         pending =
           parsed.success &&
@@ -159,7 +176,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
           if (parsed.success && parsed.data.connected && reattachRequested.current === sessionId)
             setNotice('Provider restarted. The failed turn is ready for review.');
         }
-        if (parsed.success && parsed.data.queued > 0) void readCommands(version);
+        if (parsed.success && parsed.data.queued > 0) void readCommands();
       } catch {
         if (!disposed && isCodex)
           setError('Queue status unavailable. Retry to check saved messages.');
@@ -173,6 +190,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     };
 
     refresh.current = () => {
+      invalidateDetails();
       if (reading) readRequested = true;
       return read();
     };
@@ -191,6 +209,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     window.addEventListener('focus', focus);
     return () => {
       disposed = true;
+      invalidateDetails();
       clearInterval(timer);
       window.removeEventListener('focus', focus);
     };

@@ -118,6 +118,31 @@ it('does not let an earlier chat metadata response replace the current chat stat
   expect(apiFetch).toHaveBeenCalledTimes(2);
 });
 
+it('shares a slow preview request across unchanged fallback metadata polls', async () => {
+  vi.useFakeTimers();
+  let finishDetails!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta')
+      ? meta({ ...idleQueue, queued: 1 })
+      : new Promise<Response>((resolve) => {
+          finishDetails = resolve;
+        }),
+  );
+  render(<CodexQueueStatus sessionId="shared-details" />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(6000);
+  });
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/codex-queue')),
+  ).toHaveLength(1);
+  await act(async () => {
+    finishDetails(commands([{ id: 'saved', preview: 'Synthetic preview' }]));
+  });
+  expect(screen.getByText('Synthetic preview')).toBeTruthy();
+});
+
 const capacity = (overrides: Record<string, unknown> = {}) => ({
   paused: true,
   connected: true,
