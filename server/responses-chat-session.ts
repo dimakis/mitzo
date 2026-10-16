@@ -385,10 +385,10 @@ export async function openResponsesChat(options: Options) {
             const result = await mcp.execute(
               block.name,
               input,
-              async (name, input, signal) => {
+              async (name, input, signal, grant) => {
                 const decision = await buildPermissionHandler(owner.clientId, options.registry, {
                   onDemandCreate: options.onDemandCreate,
-                })(name, input, { signal, toolUseID: randomUUID(), forcePrompt });
+                })(name, input, { ...grant, signal, toolUseID: randomUUID(), forcePrompt });
                 if (options.commandAuthority)
                   await options.commandAuthority.assertEffect(publishingTurnId);
                 return decision;

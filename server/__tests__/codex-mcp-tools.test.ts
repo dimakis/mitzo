@@ -5,7 +5,12 @@ import { NativeHooks } from '../native-hooks.js';
 import * as commands from '../protected-sdk-command.js';
 import { expect, it, vi } from 'vitest';
 import { connectCodexMcpTools } from '../codex-mcp-tools.js';
-import { SessionRegistry, buildPermissionHandler, resolvePending } from '@mitzo/harness';
+import {
+  SessionRegistry,
+  buildPermissionHandler,
+  resolvePending,
+  setSkillPolicy,
+} from '@mitzo/harness';
 
 it('refuses stale MCP startup before any peer launch', async () => {
   const connect = vi.fn();
@@ -381,7 +386,14 @@ it('keeps permissions source-scoped when opted-in labels collide after delimiter
     '11111111-1111-4111-8111-111111111111',
     '22222222-2222-4222-8222-222222222222',
   ];
-  const permission = vi.fn(async (_name: string) => ({ behavior: 'allow' as const }));
+  const permission = vi.fn(
+    async (
+      _name: string,
+      _input: Record<string, unknown>,
+      _signal: AbortSignal,
+      _grant?: { sessionGrantKey: string },
+    ) => ({ behavior: 'allow' as const }),
+  );
   const callTool = vi.fn(async () => ({ content: [] }));
   const signal = new AbortController().signal;
   const tools = await connectCodexMcpTools(
@@ -410,6 +422,10 @@ it('keeps permissions source-scoped when opted-in labels collide after delimiter
   try {
     for (const tool of tools.definitions) await tools.execute(tool.name, {}, permission, signal);
     expect(permission.mock.calls.map(([name]) => name)).toEqual([
+      'mcp__work__docs__search',
+      'mcp__work__docs__search',
+    ]);
+    expect(permission.mock.calls.map((call) => call[3]?.sessionGrantKey)).toEqual([
       `configured-mcp:${JSON.stringify([sourceIds[0], 'search'])}`,
       `configured-mcp:${JSON.stringify([sourceIds[1], 'docs__search'])}`,
     ]);
@@ -418,9 +434,14 @@ it('keeps permissions source-scoped when opted-in labels collide after delimiter
   }
 });
 
-it.each([0, 1])(
-  'isolates opted-in grants from UUID-named legacy sources, approving source %s first',
-  async (first) => {
+it.each([
+  { first: 0, label: 'uuid' },
+  { first: 1, label: 'uuid' },
+  { first: 0, label: 'delimiter' },
+  { first: 1, label: 'delimiter' },
+])(
+  'isolates opted-in grants from $label legacy sources, approving source $first first',
+  async ({ first, label }) => {
     const sourceId = '11111111-1111-4111-8111-111111111111';
     const registry = new SessionRegistry();
     const requests: Record<string, unknown>[] = [];
@@ -441,21 +462,33 @@ it.each([0, 1])(
     const tools = await connectCodexMcpTools(
       {
         docs: { command: 'configured', librarySourceId: sourceId },
-        [sourceId]: { command: 'legacy' },
+        [label === 'uuid' ? sourceId : 'docs__search']: { command: 'legacy' },
       },
       {
         cwd: '/fixture',
         env: {},
         signal: abort.signal,
         connect: async (config) => ({
-          listTools: async () => ({ tools: [{ name: 'search', inputSchema: { type: 'object' } }] }),
+          listTools: async () => ({
+            tools: [
+              {
+                name: config.command === 'legacy' && label === 'delimiter' ? 'other' : 'search',
+                inputSchema: { type: 'object' },
+              },
+            ],
+          }),
           callTool: calls[config.command === 'configured' ? 0 : 1],
           close: async () => {},
         }),
       },
     );
-    const permission = (name: string, input: Record<string, unknown>, signal: AbortSignal) =>
-      buildPermissionHandler('mixed', registry)(name, input, { signal, toolUseID: name });
+    const permission = (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      grant?: { sessionGrantKey: string },
+    ) =>
+      buildPermissionHandler('mixed', registry)(name, input, { ...grant, signal, toolUseID: name });
     let second: Promise<unknown> | undefined;
     try {
       const initial = tools.execute(tools.definitions[first].name, {}, permission, abort.signal);
@@ -485,6 +518,90 @@ it.each([0, 1])(
     }
   },
 );
+
+it('preserves an existing skill allowlist after source opt-in and rechecks pending and retained approvals', async () => {
+  const sourceId = '11111111-1111-4111-8111-111111111111';
+  const grantKey = `configured-mcp:${JSON.stringify([sourceId, 'search'])}`;
+  const registry = new SessionRegistry();
+  const requests: Record<string, unknown>[] = [];
+  const abort = new AbortController();
+  registry.register('skill', {
+    sessionId: 'skill-conversation',
+    transport: {
+      send: (event) => {
+        if (event.type === 'permission_request') requests.push(event);
+      },
+      isOpen: () => true,
+    },
+    abortController: abort,
+    mode: 'agent',
+    sessionAllowList: new Set(),
+  });
+  const callTool = vi.fn(async () => ({ content: [] }));
+  const tools = await connectCodexMcpTools(
+    { docs: { command: 'never-started', librarySourceId: sourceId } },
+    {
+      cwd: '/fixture',
+      env: {},
+      signal: abort.signal,
+      connect: async () => ({
+        listTools: async () => ({ tools: [{ name: 'search', inputSchema: { type: 'object' } }] }),
+        callTool,
+        close: async () => {},
+      }),
+    },
+  );
+  const permission = (
+    name: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+    grant?: { sessionGrantKey: string },
+  ) =>
+    buildPermissionHandler('skill', registry)(name, input, { ...grant, signal, toolUseID: name });
+  let pending: Promise<unknown> | undefined;
+  try {
+    setSkillPolicy(registry, 'skill', ['mcp__docs__search']);
+    const wire = tools.definitions[0].name;
+    pending = tools.execute(wire, {}, permission, abort.signal);
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0].toolName).toBe('mcp__docs__search');
+    setSkillPolicy(registry, 'skill', []);
+    expect(
+      resolvePending(requests[0].permId as string, 'always', undefined, 'skill-conversation'),
+    ).toBe(true);
+    expect(await pending).toMatchObject({
+      isError: true,
+      content: 'Tool not allowed by active skill policy',
+    });
+    expect(callTool).not.toHaveBeenCalled();
+    expect(registry.get('skill')!.sessionAllowList.has(grantKey)).toBe(false);
+
+    setSkillPolicy(registry, 'skill', ['mcp__docs__search']);
+    pending = tools.execute(wire, {}, permission, abort.signal);
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(
+      resolvePending(requests[1].permId as string, 'always', undefined, 'skill-conversation'),
+    ).toBe(true);
+    expect(await pending).toMatchObject({ isError: false });
+    expect(registry.get('skill')!.sessionAllowList.has(grantKey)).toBe(true);
+    expect(registry.get('skill')!.sessionAllowList.has('mcp__docs__')).toBe(false);
+    expect(await tools.execute(wire, {}, permission, abort.signal)).toMatchObject({
+      isError: false,
+    });
+    expect(requests).toHaveLength(2);
+    expect(callTool).toHaveBeenCalledTimes(2);
+    setSkillPolicy(registry, 'skill', []);
+    expect(await tools.execute(wire, {}, permission, abort.signal)).toMatchObject({
+      isError: true,
+    });
+    expect(callTool).toHaveBeenCalledTimes(2);
+  } finally {
+    abort.abort();
+    await pending?.catch(() => {});
+    await tools.close();
+    registry.dispose();
+  }
+});
 
 it.each([
   { matcher: '^mcp__docs__search$', deny: true },
@@ -553,9 +670,10 @@ it.each([
       } else {
         expect(result.isError).toBe(false);
         expect(permission).toHaveBeenCalledWith(
-          'configured-mcp:["11111111-1111-4111-8111-111111111111","search"]',
+          'mcp__docs__search',
           { query: 'validated' },
           signal,
+          { sessionGrantKey: 'configured-mcp:["11111111-1111-4111-8111-111111111111","search"]' },
         );
         expect(callTool).toHaveBeenCalledWith(
           { name: 'search', arguments: { query: 'validated' } },

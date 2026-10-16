@@ -47,13 +47,23 @@ it('keeps delimiter collisions distinct and permissions source-scoped despite un
     );
     try {
       expect(new Set(admitted.definitions.map((entry) => entry.name)).size).toBe(2);
-      const permission = vi.fn(async (name: string) => {
-        void name;
-        return { behavior: 'allow' as const };
-      });
+      const permission = vi.fn(
+        async (
+          _name: string,
+          _input: Record<string, unknown>,
+          _signal: AbortSignal,
+          _grant?: { sessionGrantKey: string },
+        ) => {
+          return { behavior: 'allow' as const };
+        },
+      );
       for (const tool of admitted.definitions)
         await admitted.execute(tool.name, {}, permission, f.abort.signal);
       expect(permission.mock.calls.map((call) => call[0])).toEqual([
+        'mcp__a__b__c',
+        'mcp__a__b__c',
+      ]);
+      expect(permission.mock.calls.map((call) => call[3]?.sessionGrantKey)).toEqual([
         `configured-mcp:${JSON.stringify(['11111111-1111-4111-8111-111111111111', 'c'])}`,
         `configured-mcp:${JSON.stringify(['22222222-2222-4222-8222-222222222222', 'b__c'])}`,
       ]);

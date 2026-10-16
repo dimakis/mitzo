@@ -18,6 +18,17 @@ export function storedEventToClientMessage(
     startedSeq: payloadStartedSeq,
     ...payload
   } = event.payload;
+  if ((event.type ?? payloadType) === 'ordinary_reply_source') {
+    // The driver mapping stays private in EventStore. Keep its envelope so
+    // reconnect acknowledgements and successor predecessors retain this cursor.
+    const sessionId = event.sessionId ?? _payloadSessionId;
+    return {
+      type: 'ordinary_reply_source',
+      ...(typeof sessionId === 'string' ? { sessionId } : {}),
+      seq: event.seq,
+      ...(event.prevSessionSeq !== undefined ? { prevSessionSeq: event.prevSessionSeq } : {}),
+    };
+  }
   const provenance = event.symposiumProvenance
     ? SymposiumProvenanceSchema.parse(event.symposiumProvenance)
     : undefined;
