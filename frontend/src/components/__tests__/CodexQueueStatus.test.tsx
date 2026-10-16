@@ -6,9 +6,10 @@ import { apiFetch } from '../../lib/api-fetch';
 import { CodexQueueStatus } from '../CodexQueueStatus';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+const queueSignal = vi.hoisted(() => ({ revision: 0 }));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) =>
-    select({ getTransportConnectionId: () => 'owned-sse' }),
+    select({ getTransportConnectionId: () => 'owned-sse', queueRevision: queueSignal.revision }),
 }));
 
 const meta = (queue: Record<string, unknown>) =>
@@ -21,6 +22,100 @@ afterEach(() => {
   vi.resetAllMocks();
   vi.useRealTimers();
   sessionStorage.clear();
+  queueSignal.revision = 0;
+});
+
+const idleQueue = { paused: false, connected: true, queued: 0, interrupted: 0 };
+
+it('shows and clears waiting work on queue notifications without advancing the polling clock', async () => {
+  vi.useFakeTimers();
+  let queued = 0;
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta') ? meta({ ...idleQueue, queued }) : commands([]),
+  );
+  const view = render(<CodexQueueStatus sessionId="live" />);
+  await act(async () => {});
+  expect(screen.queryByRole('status')).toBeNull();
+
+  queued = 1;
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="live" />);
+  await act(async () => {});
+  expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+
+  queued = 0;
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="live" />);
+  await act(async () => {});
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('refreshes again when queue notifications arrive during a metadata read', async () => {
+  let finish!: (response: Response) => void;
+  vi.mocked(apiFetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockResolvedValue(meta({ ...idleQueue, queued: 0 }));
+  const view = render(<CodexQueueStatus sessionId="in-flight" />);
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="in-flight" />);
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="in-flight" />);
+  await act(async () => {
+    finish(meta({ ...idleQueue, queued: 1 }));
+  });
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(apiFetch).mock.calls.every(([path]) => String(path).endsWith('/meta'))).toBe(
+    true,
+  );
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('updates the count while queue preview details are stalled and ignores late details', async () => {
+  let finishDetails!: (response: Response) => void;
+  let queued = 1;
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta')
+      ? meta({ ...idleQueue, queued })
+      : new Promise<Response>((resolve) => {
+          finishDetails = resolve;
+        }),
+  );
+  const view = render(<CodexQueueStatus sessionId="slow-details" />);
+  await act(async () => {});
+  expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+  queued = 0;
+  queueSignal.revision++;
+  view.rerender(<CodexQueueStatus sessionId="slow-details" />);
+  await act(async () => {});
+  expect(screen.queryByRole('status')).toBeNull();
+  await act(async () => {
+    finishDetails(commands([{ id: 'old', preview: 'Synthetic preview' }]));
+  });
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('does not let an earlier chat metadata response replace the current chat status', async () => {
+  let finishOld!: (response: Response) => void;
+  vi.mocked(apiFetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finishOld = resolve;
+        }),
+    )
+    .mockResolvedValue(meta(idleQueue));
+  const view = render(<CodexQueueStatus sessionId="old" />);
+  view.rerender(<CodexQueueStatus sessionId="new" />);
+  await act(async () => {
+    finishOld(meta({ ...idleQueue, queued: 1 }));
+  });
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
 });
 
 const capacity = (overrides: Record<string, unknown> = {}) => ({
