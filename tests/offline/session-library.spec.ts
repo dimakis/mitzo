@@ -285,7 +285,10 @@ for (const theme of ['dark', 'light'])
       await expect(page.getByRole('button', { name: 'Opened conversation' })).toBeVisible();
       await page.getByRole('button', { name: 'Opened conversation' }).click();
     }
-    await page.goto('/');
+    await page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('link', { name: 'Today', exact: true })
+      .click();
     await expect(page.getByRole('meter', { name: 'Context used' }).first()).toHaveAttribute(
       'aria-valuenow',
       '24',
