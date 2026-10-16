@@ -75,10 +75,11 @@ it('keeps delimiter collisions distinct and permissions source-scoped despite un
     f.catalog.close();
   }
 });
-it.each(['revocation', 'cancellation'] as const)(
+it.each(['revocation', 'cancellation', 'environment'] as const)(
   'blocks %s during awaited approval before peer effects',
   async (reason) => {
     const f = fixture();
+    const previousPath = process.env.PATH;
     try {
       const entry = (await f.catalog.refresh(f.options))[0];
       const admitted = await admitConfiguredTools(
@@ -104,6 +105,7 @@ it.each(['revocation', 'cancellation'] as const)(
         await vi.waitFor(() => expect(permission).toHaveBeenCalledOnce());
         // Revoke the selected source rather than the similarly named other source.
         if (reason === 'revocation') f.sources['a__b'].command = 'revoked';
+        else if (reason === 'environment') process.env.PATH = '/changed-inherited-path';
         else f.abort.abort();
         release();
         await expect(pending).rejects.toThrow();
@@ -112,6 +114,8 @@ it.each(['revocation', 'cancellation'] as const)(
         await admitted.close();
       }
     } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
       f.catalog.close();
     }
   },
