@@ -50,6 +50,12 @@ a failed/cancelled refresh retains the last saved catalog and reports failure.
 Current configuration is rechecked before atomic publication and execution.
 Untrusted descriptions, schemas and annotations never authorize a tool.
 
+The launch environment snapshots the SDK's safe inherited defaults, the trusted
+base environment and source overrides. Absent inherited names remain unset, so
+the SDK cannot add later ambient values. Receipts fingerprint the effective
+environment and recheck current inheritance before publication and execution.
+Environment binding is retained only as a digest.
+
 Published profiles and admitted sessions are immutable. Additions appear in the
 library only; removal, schema/config changes, disablement and replacement refuse
 old references. No active-session tool refresh is enrolled: new session required.

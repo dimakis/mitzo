@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AgentToolReferencesSchema } from '../../packages/protocol/src/agent-tools.js';
 import { ConfiguredToolCatalog } from '../configured-tool-catalog.js';
+import { DEFAULT_INHERITED_ENV_VARS } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const left = '11111111-1111-4111-8111-111111111111';
 const right = '22222222-2222-4222-8222-222222222222';
@@ -240,6 +241,73 @@ it('retains the private source launch directory and rejects ambient launch-envir
     );
     expect(JSON.stringify(catalog.list())).not.toContain('/fixture');
   } finally {
+    catalog.close();
+  }
+});
+it.each(['PATH', DEFAULT_INHERITED_ENV_VARS.includes('HOME') ? 'HOME' : 'USERPROFILE'])(
+  'refuses inherited %s drift even when the supplied environment is unchanged',
+  async (key) => {
+    const f = fixture();
+    const catalog = new ConfiguredToolCatalog(f.path);
+    const previous = process.env[key];
+    try {
+      process.env[key] = '/ambient-original';
+      const ref = catalog.reference((await catalog.refresh(f.options))[0]);
+      process.env[key] = '/ambient-replacement';
+      expect(() => catalog.resolve(ref, f.options)).toThrow(/configuration|environment/);
+    } finally {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
+      catalog.close();
+    }
+  },
+);
+it.each(['caller', 'source'])(
+  'retains a receipt when %s PATH explicitly overrides the changed ambient PATH',
+  async (origin) => {
+    const f = fixture();
+    const catalog = new ConfiguredToolCatalog(f.path);
+    const previous = process.env.PATH;
+    const options = { ...f.options, env: origin === 'caller' ? { PATH: '/explicit' } : {} };
+    if (origin === 'source') Object.assign(f.sources.left, { env: { PATH: '/explicit' } });
+    try {
+      process.env.PATH = '/ambient-original';
+      const ref = catalog.reference((await catalog.refresh(options))[0]);
+      process.env.PATH = '/ambient-replacement';
+      expect(catalog.resolve(ref, options).sourceId).toBe(left);
+    } finally {
+      if (previous === undefined) delete process.env.PATH;
+      else process.env.PATH = previous;
+      catalog.close();
+    }
+  },
+);
+it('rejects inherited environment drift during discovery before publishing and awaits cleanup', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  const previous = process.env.PATH;
+  const close = vi.fn(async () => {});
+  try {
+    process.env.PATH = '/ambient-original';
+    const saved = await catalog.refresh(f.options);
+    await expect(
+      catalog.refresh({
+        ...f.options,
+        connect: async () => ({
+          listTools: async () => {
+            process.env.PATH = '/ambient-replacement';
+            return { tools: [{ name: 'unbound', inputSchema: { type: 'object' } }] };
+          },
+          callTool: vi.fn(),
+          close,
+        }),
+      }),
+    ).rejects.toThrow('MCP initialization failed');
+    expect(catalog.list()).toEqual(saved);
+    expect(close).toHaveBeenCalledOnce();
+  } finally {
+    if (previous === undefined) delete process.env.PATH;
+    else process.env.PATH = previous;
     catalog.close();
   }
 });
