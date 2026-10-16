@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.170';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.177';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,11 +22,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/ToolLibraryCatalog.tsx': 'a42dfbd4ae455252eb7e16b0e85df1247e448f570204ac7355ea63da4110f270',
+  '../../frontend/src/styles/tool-library.css': '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
   '../mcp-config.ts': '6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b',
   '../configured-tool-runtime.ts': '60b98526368eebc431ffe848bc51f88d98ac1dff1a4b5fda7938055677651133',
   '../configured-tool-admission.ts': '0275d3084ca7fe116c54b3ce6e345cd51047870bd7318a4d706352da34f8a8a1',
   '../configured-tool-catalog.ts':
-    '360938576f0a78538bfdd2a97a8314252d0ed5afe6588e71272dcee271023d77',
+    'fe271014b231cbb25e7cf2abbb24afc411fb51fe3c80026ccb011d0c1d1d9b72',
   '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent conversation metadata and offline client projection; execution remains disabled.
@@ -406,7 +408,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    'b4362409cf8ed854c7576248e9ca99c6f5cbce971c87bad9fe909a592e46bb8a',
+    'cde2e44336a37719543d4eef6088f1ef5774fab2884bb1af21575e54b290f58e',
   '../../frontend/src/styles/agent-library.css':
     '2c5810ac26ec0e50a97f700f027d20d0c1cb662dd9a70d0dffa30b913dfde5d1',
 

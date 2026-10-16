@@ -21,7 +21,9 @@ Discovered references additionally require an opaque revision UUID and a positiv
 integer version. Neither wire aliases nor descriptions identify a contract.
 
 The private catalog binds each revision to the exact discovered definition and
-the effective configured launch contract (configuration, workspace and environment).
+the trusted configured launch contract (command, arguments, environment overrides
+and execution location). Runtime workspace and narrow ambient environment remain
+bound by the existing session authority, independently of the portable source.
 Versions advance after changes, including remove/re-add. Old revisions are retained,
 never overwritten. Local executable bytes and a remote implementation are not
 attested by schema fingerprints: the configured operator remains responsible for
