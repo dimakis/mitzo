@@ -197,7 +197,7 @@ it('binds trusted source configuration independently of each authorized runtime 
       catalog.resolve(ref, {
         ...f.options,
         cwd: '/another-authorized-worktree',
-        env: { LANG: 'en_IE.UTF-8' },
+        env: f.options.env,
       }).tool,
     ).toBe('search');
     f.sources.left.command = 'replaced';
@@ -223,6 +223,22 @@ it('bounds configured source count before starting any peer', async () => {
       /too many|limit/i,
     );
     expect(f.connect).not.toHaveBeenCalled();
+  } finally {
+    catalog.close();
+  }
+});
+it('retains the private source launch directory and rejects ambient launch-environment drift', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  try {
+    const ref = catalog.reference((await catalog.refresh(f.options))[0]);
+    expect(catalog.resolve(ref, { ...f.options, cwd: '/task-worktree' }).launchCwd).toBe(
+      '/fixture',
+    );
+    expect(() => catalog.resolve(ref, { ...f.options, env: { PATH: '/replacement-bin' } })).toThrow(
+      /configuration|environment/,
+    );
+    expect(JSON.stringify(catalog.list())).not.toContain('/fixture');
   } finally {
     catalog.close();
   }
