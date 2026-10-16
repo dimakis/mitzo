@@ -2995,6 +2995,18 @@ export async function startOwnedLocalCodexCommand(
   };
   try {
     const commandId = input.commandId;
+    const preparationOperationId = input.preparationOperationId;
+    const requestedResume = input.resume;
+    const resume = requestedResume === true;
+    if (
+      (preparationOperationId !== undefined &&
+        (typeof preparationOperationId !== 'string' ||
+          preparationOperationId.length > 200 ||
+          !/^\S+$/.test(preparationOperationId))) ||
+      (requestedResume !== undefined && typeof requestedResume !== 'boolean') ||
+      (resume && preparationOperationId !== undefined)
+    )
+      throw unavailable();
     const operatorConnectionId = input.operatorConnectionId;
     const signal = input.signal;
     signal.throwIfAborted();
@@ -3010,7 +3022,9 @@ export async function startOwnedLocalCodexCommand(
       if (
         liveOwner.location !== 'local' ||
         liveOwner.authSessionId !== ownerAuthSessionId ||
-        liveOwner.initialCommandId !== commandId
+        liveOwner.initialCommandId !== commandId ||
+        liveOwner.initialPreparationOperationId !== preparationOperationId ||
+        (liveOwner.initialResume ?? false) !== resume
       )
         throw unavailable();
       return { ...(await liveOwner.retryInitial(command)), sessionId };
@@ -3074,12 +3088,11 @@ export async function startOwnedLocalCodexCommand(
         });
       },
     });
-    if (input.resume && input.preparationOperationId) throw unavailable();
     const admitFirst = (command: unknown) =>
-      input.preparationOperationId
-        ? driver!.admitPreparedFirst(input.preparationOperationId, command)
+      preparationOperationId !== undefined
+        ? driver!.admitPreparedFirst(preparationOperationId, command)
         : driver!.admit(command);
-    const result = input.resume ? await driver.admitResume(command) : await admitFirst(command);
+    const result = resume ? await driver.admitResume(command) : await admitFirst(command);
     if (!result.dispatched) {
       if (prepared) throw unavailable();
       release();
@@ -3094,11 +3107,15 @@ export async function startOwnedLocalCodexCommand(
       authSessionId: ownerAuthSessionId,
       identity: retainedDriver,
       initialCommandId: commandId,
+      initialPreparationOperationId: preparationOperationId,
+      initialResume: resume,
       admit: (command, signal) => retainedDriver.admitContinuation(command, signal),
       retryInitial: (command) =>
-        input.preparationOperationId
-          ? retainedDriver.admitPreparedFirst(input.preparationOperationId, command)
-          : retainedDriver.admit(command),
+        preparationOperationId !== undefined
+          ? retainedDriver.admitPreparedFirst(preparationOperationId, command)
+          : resume
+            ? retainedDriver.admitResume(command)
+            : retainedDriver.admit(command),
       close: release,
     };
     const ownedQuery = prepared;
