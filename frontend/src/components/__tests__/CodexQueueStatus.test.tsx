@@ -27,6 +27,62 @@ afterEach(() => {
 
 const idleQueue = { paused: false, connected: true, queued: 0, interrupted: 0 };
 
+it.each(['failed', 'stalled'])(
+  'clears invalidated populated previews when the next details read is %s',
+  async (outcome) => {
+    let queued = 2;
+    let firstDetails = true;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).endsWith('/meta')) return meta({ ...idleQueue, queued });
+      if (firstDetails) {
+        firstDetails = false;
+        return commands([
+          { id: 'started', preview: 'Synthetic first preview' },
+          { id: 'waiting', preview: 'Synthetic second preview' },
+        ]);
+      }
+      return outcome === 'failed'
+        ? ({ ok: false, status: 503 } as Response)
+        : new Promise<Response>(() => {});
+    });
+    const view = render(<CodexQueueStatus sessionId="invalidated-details" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+    expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(2);
+    queued = 1;
+    queueSignal.revision++;
+    view.rerender(<CodexQueueStatus sessionId="invalidated-details" />);
+    await act(async () => {});
+    expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+    expect(screen.queryByText('Synthetic first preview')).toBeNull();
+    expect(screen.queryByText('Synthetic second preview')).toBeNull();
+    expect(screen.queryAllByRole('button', { name: 'Cancel' })).toHaveLength(0);
+  },
+);
+
+it('clears populated previews when an unchanged fallback details read fails', async () => {
+  vi.useFakeTimers();
+  let firstDetails = true;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/meta')) return meta({ ...idleQueue, queued: 1 });
+    if (firstDetails) {
+      firstDetails = false;
+      return commands([{ id: 'waiting', preview: 'Synthetic preview' }]);
+    }
+    return { ok: false, status: 503 } as Response;
+  });
+  render(<CodexQueueStatus sessionId="failed-fallback-details" />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.queryByText('Synthetic preview')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+});
+
 it('shows and clears waiting work on queue notifications without advancing the polling clock', async () => {
   vi.useFakeTimers();
   let queued = 0;

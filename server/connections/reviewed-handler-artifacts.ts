@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.187';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.188';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -742,7 +742,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '09b59817a6877cb6d28ecd7b3a83169780a5ce39a420c720561cd4106c045f64',
   // Ordinary Codex continuation, persistent login revocation and physical custody.
   '../../frontend/src/components/CodexQueueStatus.tsx':
-    '054106a589027a79199930c5972e7784a23993656dcbe3c3fcd65ba76ae9a48f',
+    'bbdff6ea039f14089f4c75419527873b0494a30a2c22613c99504b670e6af87d',
   '../ordinary-repository-preparation.ts':
     '92449a4b17e879447c81aa2e853537a4d3780edae04c730365bf2820af337490',
   '../ordinary-repository-preparation-authority.ts':

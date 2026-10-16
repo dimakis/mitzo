@@ -111,10 +111,16 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     setCollapsed(sessionId ? isHidden(sessionId) : false);
     if (!sessionId) return;
 
+    const clearDetails = () => {
+      if (disposed) return;
+      setCommands([]);
+      setHasMore(false);
+    };
     const invalidateDetails = () => {
       ++detailsVersion;
       detailsController?.abort();
       detailsController = undefined;
+      clearDetails();
     };
     // Details must never hold up the metadata-only count or its next refresh.
     const readCommands = async () => {
@@ -127,14 +133,16 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
           `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue`,
           { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) },
         );
-        if (!response.ok) return;
+        if (!response.ok) throw new Error('Queue details unavailable');
         const parsed = QueuedCommands.safeParse(await response.json());
-        if (!disposed && version === detailsVersion && parsed.success) {
+        if (!parsed.success) throw new Error('Invalid queue details');
+        if (!disposed && version === detailsVersion) {
           setCommands(parsed.data.queued);
           setHasMore(parsed.data.hasMore ?? false);
         }
       } catch {
         // The compact status stays useful while the drawer details refresh.
+        if (version === detailsVersion) clearDetails();
       } finally {
         if (detailsController === controller) detailsController = undefined;
       }
@@ -168,10 +176,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
             !!parsed.data.capacityRecovery);
         if (!disposed) {
           setQueue(parsed.success ? parsed.data : null);
-          if (!parsed.success || parsed.data.queued === 0) {
-            setCommands([]);
-            setHasMore(false);
-          }
+          if (!parsed.success || parsed.data.queued === 0) clearDetails();
           setError('');
           if (parsed.success && parsed.data.connected && reattachRequested.current === sessionId)
             setNotice('Provider restarted. The failed turn is ready for review.');

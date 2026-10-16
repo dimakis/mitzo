@@ -24,6 +24,7 @@ for (const theme of ['dark', 'light']) {
   }, info) => {
     let queued = 0;
     let failed = false;
+    let details: 'stalled' | 'loaded' | 'failed' = 'stalled';
     let metadataReads = 0;
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -38,7 +39,19 @@ for (const theme of ['dark', 'light']) {
         });
       }
       // Keep details pending to prove they cannot block the compact status.
-      if (path.endsWith('/codex-queue')) return;
+      if (path.endsWith('/codex-queue')) {
+        if (details === 'stalled') return;
+        return route.fulfill({
+          status: details === 'failed' ? 503 : 200,
+          json: {
+            queued: [
+              { id: 'first', preview: 'Synthetic first preview' },
+              { id: 'second', preview: 'Synthetic second preview' },
+            ],
+            cancelledIds: [],
+          },
+        });
+      }
       if (path.startsWith('/api/')) return route.fulfill({ json: [] });
       const asset = files.find((file) =>
         path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
@@ -86,6 +99,17 @@ for (const theme of ['dark', 'light']) {
     await page.keyboard.press('Enter');
     await expect(page.getByRole('status')).toContainText('2 messages are waiting');
     await expect(page.getByRole('button', { name: 'Hide status' })).toBeFocused();
+
+    details = 'loaded';
+    await emit.click();
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(2);
+    details = 'failed';
+    queued = 1;
+    await emit.click();
+    await expect(page.getByRole('status')).toContainText('1 message is waiting', { timeout: 1000 });
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+    await expect(page.getByText('Synthetic first preview')).toHaveCount(0);
+    await expect(page.getByText('Synthetic second preview')).toHaveCount(0);
 
     failed = true;
     await emit.click();
