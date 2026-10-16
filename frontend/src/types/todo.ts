@@ -63,7 +63,7 @@ export interface TodoOutcomeDraft {
 
 /** Metadata for a preserved file revision; saving is separate from review or delivery. */
 export interface TodoOutput {
-  sourceKind?: 'user_upload' | 'session_artifact' | 'external_codex_report';
+  sourceKind?: 'user_upload' | 'session_artifact' | 'external_codex_report' | 'source_capture';
   id: string;
   itemId: string;
   filename: string;

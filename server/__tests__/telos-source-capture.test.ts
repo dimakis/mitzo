@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -8,6 +8,8 @@ import { EventStore } from '../event-store.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { TelosSourceCapture } from '../telos-source-capture.js';
+import { TaskStore } from '../task-store.js';
+import { captureMitzoTelosCore } from '../backup/mitzo-telos.js';
 import {
   reviewedHandlerSourceArtifacts,
   reviewedHandlerSourceFingerprint,
@@ -23,7 +25,7 @@ afterEach(() => {
 });
 const actor = { kind: 'operator' as const, id: 'authenticated-user' };
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'telos-capture-'));
+  const root = mkdtempSync(join(realpathSync(tmpdir()), 'telos-capture-'));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const dbPath = join(root, 'telos.db');
   const db = new Database(dbPath);
@@ -92,6 +94,7 @@ function fixture() {
       profile: string;
       milestones: string[];
       contextHints?: Record<string, unknown>;
+      links?: { type: string; url: string; title: string; description?: string }[];
     }) => {
       const prior = db
         .prepare('SELECT id FROM items WHERE idempotency_key=?')
@@ -118,6 +121,19 @@ function fixture() {
         JSON.stringify(storedHints),
         body.idempotencyKey,
       );
+      body.links?.forEach((link, i) =>
+        db
+          .prepare('INSERT INTO links VALUES(?,?,?,?,?,?,?)')
+          .run(
+            id + '-link-' + i,
+            id,
+            link.type,
+            link.url.trim(),
+            link.title,
+            link.description ?? '',
+            'created',
+          ),
+      );
       body.milestones.forEach((title, i) =>
         db
           .prepare(
@@ -129,6 +145,7 @@ function fixture() {
     },
   );
   return {
+    root,
     db,
     dbPath,
     events,
@@ -146,6 +163,152 @@ function fixture() {
 }
 
 describe('reviewed Telos source capture through existing owners', () => {
+  it('round trips reviewed canonical links and rejects duplicate references before creating anything', async () => {
+    const f = fixture();
+    const link = {
+      type: 'design_doc',
+      url: 'https://example.test/plan',
+      title: 'Approved plan',
+      description: 'Exact context',
+    };
+    const proposal = {
+      requestId: 'links-roundtrip',
+      outcome: {
+        summary: 'Studio',
+        intent: 'Record',
+        rationale: 'Music',
+        acceptanceCriteria: ['Ready'],
+        profile: 'personal',
+        milestones: ['Plan'],
+        links: [link],
+      },
+      selection: f.selection,
+    };
+    await expect(
+      f.capture.previewNew(
+        { ...proposal, outcome: { ...proposal.outcome, links: [link, link] } },
+        actor,
+      ),
+    ).rejects.toThrow(/distinct/);
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    const preview = await f.capture.previewNew(proposal, actor);
+    const receipt = await f.capture.createReviewed(
+      { ...proposal, previewSha256: preview.sha256 },
+      actor,
+      f.createOutcome,
+    );
+    expect(f.work.readRecord(receipt.work.itemId, actor).links).toEqual([
+      { ...link, addedAt: 'created' },
+    ]);
+    expect(
+      f.capture.read(receipt.work.itemId, receipt.work.sources[0].snapshotId, actor).packet.creation
+        ?.outcome.links,
+    ).toEqual([link]);
+  });
+
+  it('retains canonical links and refuses a creator that loses a reviewed link', async () => {
+    const f = fixture();
+    const outcome = {
+      summary: 'Studio',
+      intent: 'Record',
+      rationale: 'Music',
+      acceptanceCriteria: ['Ready'],
+      profile: 'personal',
+      milestones: ['Plan'],
+      links: [
+        {
+          type: 'design_doc',
+          url: 'https://example.test/plan',
+          title: 'Approved plan',
+          description: 'Pinned context',
+        },
+      ],
+    };
+    const proposal = { requestId: 'linked-plan', outcome, selection: f.selection };
+    const preview = await f.capture.previewNew(proposal, actor);
+    const dropLinks = async (body: Parameters<typeof f.createOutcome>[0]) => {
+      const result = await f.createOutcome(body);
+      f.db.prepare('DELETE FROM links WHERE item_id=?').run(result.itemId);
+      return result;
+    };
+    await expect(
+      f.capture.createReviewed({ ...proposal, previewSha256: preview.sha256 }, actor, dropLinks),
+    ).rejects.toThrow(/reviewed/);
+    expect(f.work.read('created-1', actor).sources).toEqual([]);
+  });
+
+  it('retains the actual boundary attribution even when the reviewed excerpt selects an earlier message', async () => {
+    const f = fixture();
+    const preview = await f.capture.preview(
+      { itemId: 'item', selection: { ...f.selection, messageIds: ['request'] } },
+      actor,
+    );
+    expect(preview.packet.context.messages.map((m) => m.messageId)).toEqual(['request']);
+    expect(preview.packet.attributions.approved).toEqual({
+      seatId: null,
+      provenance: null,
+      createdAt: expect.any(Number),
+    });
+  });
+
+  it('restores source-only creation bytes, original boundary and completed recovery receipt through the existing backup owner', async () => {
+    const f = fixture();
+    const proposal = {
+      requestId: 'backup-create',
+      outcome: {
+        summary: 'Studio',
+        intent: 'Record',
+        rationale: 'Music',
+        acceptanceCriteria: ['Ready'],
+        profile: 'personal',
+        milestones: ['Acoustics'],
+      },
+      selection: f.selection,
+    };
+    const preview = await f.capture.previewNew(proposal, actor);
+    const input = { ...proposal, previewSha256: preview.sha256 };
+    const receipt = await f.capture.createReviewed(input, actor, f.createOutcome);
+    const original = f.capture.read(receipt.work.itemId, receipt.work.sources[0].snapshotId, actor);
+    const tasks = new TaskStore(join(f.root, 'tasks.db'));
+    try {
+      const destination = join(f.root, 'backup');
+      await captureMitzoTelosCore({
+        owners: { events: f.events, telos: f.artifacts, tasks },
+        destination,
+      });
+      const events = new EventStore(join(destination, 'mitzo-events', 'store.db'));
+      const artifacts = new TelosArtifactStore(join(destination, 'telos', 'store.db'));
+      const work = new TelosWorkStore(join(destination, 'telos', 'store.db'), {
+        ordinaryConversation: (id) => !!events.getSession(id),
+      });
+      try {
+        const capture = new TelosSourceCapture({
+          events,
+          artifacts,
+          work,
+          authorizeSource: () => true,
+          authorizeArtifact: () => true,
+        });
+        expect(
+          capture.read(receipt.work.itemId, receipt.work.sources[0].snapshotId, actor),
+        ).toEqual(original);
+        const mustNotCreate = vi.fn(async () => {
+          throw Error('must recover');
+        });
+        expect(await capture.createReviewed(input, actor, mustNotCreate)).toEqual(receipt);
+        expect(mustNotCreate).not.toHaveBeenCalled();
+        expect(work.read(receipt.work.itemId, actor)).toEqual(receipt.work);
+        expect(events.getSession('origin')).toEqual(f.events.getSession('origin'));
+      } finally {
+        work.close();
+        artifacts.close();
+        events.close();
+      }
+    } finally {
+      tasks.close();
+    }
+  });
+
   it('reviews a new outcome before creation and saves one source-only outcome through the canonical creator', async () => {
     const f = fixture();
     const outcome = {

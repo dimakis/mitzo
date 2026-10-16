@@ -21,6 +21,7 @@ export function createTelosSourceRouter(options: {
   events: EventStore;
   operatorAuth: RequestHandler;
   ordinaryConversation(id: string): boolean;
+  sourceConversation?(id: string): boolean;
   createOutcome?(input: TelosOutcomeCreation): Promise<{ itemId: string }>;
 }) {
   const router = Router();
@@ -46,7 +47,10 @@ export function createTelosSourceRouter(options: {
     let work: TelosWorkStore | undefined, artifacts: TelosArtifactStore | undefined;
     try {
       const path = options.dbPath();
-      work = new TelosWorkStore(path, { ordinaryConversation: options.ordinaryConversation });
+      work = new TelosWorkStore(path, {
+        ordinaryConversation: options.ordinaryConversation,
+        sourceConversation: options.sourceConversation,
+      });
       artifacts = new TelosArtifactStore(path);
       const capture = new TelosSourceCapture({
         events: options.events,

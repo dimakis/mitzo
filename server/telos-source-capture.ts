@@ -122,10 +122,14 @@ export class TelosSourceCapture {
       brief: { sha256: hash(target.briefText), text: target.briefText },
       context,
       attributions: Object.fromEntries(
-        context.messages.map((message) => [
-          message.messageId,
-          opened!.attributions[message.messageId],
-        ]),
+        [
+          ...new Set([
+            ...context.messages.map((message) => message.messageId),
+            selection.boundary.messageId,
+          ]),
+        ]
+          .filter((messageId): messageId is string => messageId !== null)
+          .map((messageId) => [messageId, opened!.attributions[messageId]]),
       ),
       sourceTitle: original?.summary ?? null,
       sourceCreatedAt:
@@ -144,6 +148,15 @@ export class TelosSourceCapture {
     const input = TelosSourceNewPreviewRequestSchema.parse(raw);
     if (/^life[-_ ]?ops$/i.test(input.outcome.profile))
       throw new TelosWorkError('invalid', 'This outcome requires private case storage');
+    const links = input.outcome.links ?? [];
+    if (
+      links.some((link) => !link.url.trim()) ||
+      new Set(links.map((link) => link.url.trim())).size !== links.length
+    )
+      throw new TelosWorkError(
+        'invalid',
+        'Outcome links must identify distinct non-empty references',
+      );
     const hints = TelosOutcomeContextHintsSchema.parse(input.outcome.contextHints ?? {});
     const outcome = {
       ...input.outcome,

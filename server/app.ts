@@ -1,3 +1,5 @@
+import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
+import { TelosWorkStore } from './telos-work-store.js';
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import { sessionListMetadata } from './session-list-metadata.js';
@@ -97,7 +99,10 @@ import { createTelosItemRouter } from './telos-item-routes.js';
 import { createTelosWorkRouter } from './telos-work-routes.js';
 import { createTelosSourceRouter } from './telos-source-routes.js';
 import { createCanonicalTelosOutcome } from './telos-outcome-owner.js';
-import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
+import {
+  isAvailableTelosWorkConversation,
+  isAvailableTelosSourceConversation,
+} from './telos-work-conversation.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -1941,6 +1946,7 @@ app.use(
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
   }),
 );
 
@@ -1958,6 +1964,7 @@ app.use(
     events: eventStore,
     operatorAuth: operatorAuthMiddleware,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
     createOutcome: (input) =>
       createCanonicalTelosOutcome(
         {
@@ -2012,48 +2019,39 @@ app.use(
   }),
 );
 
-app.post('/api/internal/telos/outcomes', async (req, res) => {
-  if (!verifyInternalToken(req)) {
-    res.status(401).json({ ok: false, error: 'Internal token required' });
-    return;
-  }
-  const body = TodoOutcomeCreateBody.omit({ idempotencyKey: true }).safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
-    return;
-  }
-  const clientId = req.headers['x-client-id'] as string | undefined;
-  const sessionId =
-    (clientId && registry.get(clientId)?.sessionId) || clientId || 'unknown-session';
-  const canonical = JSON.stringify(body.data);
-  const idempotencyKey = `${sessionId}:${createHash('sha256').update(canonical).digest('hex')}`;
-  const contextHints = body.data.contextHints ?? {};
-  const payload = {
-    ...body.data,
-    idempotencyKey,
-    contextHints: {
-      ...contextHints,
-      sessionIds: [...new Set([...(contextHints.sessionIds ?? []), sessionId])],
+app.post(
+  '/api/internal/telos/outcomes',
+  createTelosOutcomeHandler({
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    availableSource: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+    createOutcome: (input) =>
+      createCanonicalTelosOutcome(
+        {
+          script: TODO_SCRIPT,
+          timeoutMs: TODO_TIMEOUT_MS,
+          maxBufferBytes: TODO_MAX_BUFFER_BYTES,
+          execute: (command, args, options) =>
+            execFileAsync(command, args, {
+              ...options,
+              env: { ...process.env, TELOS_DB_PATH: telosDatabasePath() },
+            }),
+        },
+        input,
+      ),
+    recordOrigin: (input, actor) => {
+      const work = new TelosWorkStore(telosDatabasePath(), {
+        ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+        sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+      });
+      try {
+        work.recordCreatedOrigin(input, actor);
+      } finally {
+        work.close();
+      }
     },
-  };
-  const script = join(BASE_REPO, 'command_center', 'todo_api.py');
-  if (!existsSync(script)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-  try {
-    const { stdout } = await execFileAsync(
-      'python3',
-      [script, '--create-outcome-json', JSON.stringify(payload)],
-      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
-    );
-    const result = JSON.parse(stdout);
-    res.status(result.ok ? 200 : 400).json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ ok: false, error: message });
-  }
-});
+  }),
+);
 
 // --- Loop orchestrator API ---
 

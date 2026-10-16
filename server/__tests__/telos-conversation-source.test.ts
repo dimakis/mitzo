@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { randomUUID, createHash } from 'node:crypto';
+import { SymposiumConfigSchema } from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
 import { createTelosConversationSource } from '../telos-conversation-source.js';
@@ -82,6 +83,85 @@ function fixture() {
 }
 
 describe('Telos adapter for the existing authorized context compiler', () => {
+  it('retains immutable native seat attribution through the actual event owner', async () => {
+    const f = fixture();
+    const seats = ['builder', 'reviewer'].map((id, i) => ({
+      id,
+      name: id,
+      role: i === 0 ? 'primary' : 'reviewer',
+      model: 'offline-fixture',
+      systemPrompt: 'Plan.',
+      color: '#8040cc',
+      accountBinding: {
+        accountId: id,
+        accountLabel: id,
+        provider: 'openai-codex',
+        model: 'offline-fixture',
+        profileRevision: 'account-r1',
+      },
+      profileBinding: { profileId: id, profileRevision: 'profile-r1' },
+      contextGrant: {
+        grantId: 'context-' + id,
+        revision: 1,
+        classification: 'work',
+        sourceRefs: [],
+      },
+      authorityGrant: {
+        grantId: 'authority-' + id,
+        revision: 1,
+        filesystem: 'read',
+        tools: 'read',
+        network: 'restricted',
+      },
+      isolationRequest: { trustDomainId: 'shared', revision: 1, placement: 'reuse-compatible' },
+    }));
+    const config = SymposiumConfigSchema.parse({
+      version: 1,
+      revision: 1,
+      state: 'active',
+      seats,
+      turnRules: { mode: 'directed', maxTurns: 4 },
+      interceptMode: 'manual',
+    });
+    f.events.upsertSession({ sessionId: 'origin', accountBinding: config.seats[0].accountBinding });
+    f.events.setSymposiumConfig('origin', config);
+    const provenance = {
+      version: 2,
+      seatId: 'builder',
+      seatLabel: 'builder',
+      seatRole: 'primary',
+      membershipGeneration: 1,
+      capturedAt: 1,
+      configRevision: 1,
+      accountProfileRevision: 'account-r1',
+      seatProfileRevision: 'profile-r1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'shared',
+      isolationDomainRevision: 1,
+      accountBinding: seats[0].accountBinding,
+      profileBinding: seats[0].profileBinding,
+      reasoningEffort: null,
+      contextGrant: { grantId: 'context-builder', revision: 1 },
+      authorityGrant: { grantId: 'authority-builder', revision: 1 },
+    };
+    const append = (type: string, payload: Record<string, unknown>) =>
+      f.events.appendSymposium('origin', type, { messageId: 'native', ...payload }, provenance);
+    append('message_start', {});
+    append('block_start', { blockId: 'plan', blockType: 'text' });
+    append('block_delta', { blockId: 'plan', delta: 'Native public plan.' });
+    const sequence = append('message_end', {});
+    const opened = await f.source.openConversation({
+      ...f.selection,
+      messageIds: ['native'],
+      boundary: { sequence, messageId: 'native' },
+    });
+    expect((await opened.readSelected(['native']))[0].blocks[0].content).toBe(
+      'Native public plan.',
+    );
+    expect(opened.attributions.native).toMatchObject({ seatId: 'builder', provenance });
+  });
+
   it('pins the source capability implementation in the reviewed runtime manifest', () => {
     const manifest: Record<string, string> = reviewedHandlerSourceArtifacts;
     expect(manifest['../telos-conversation-source.ts']).toBe(

@@ -67,7 +67,10 @@ export class TelosWorkStore {
   private db: Database.Database;
   constructor(
     path: string,
-    private readonly policy: { ordinaryConversation(id: string): boolean },
+    private readonly policy: {
+      ordinaryConversation(id: string): boolean;
+      sourceConversation?(id: string): boolean;
+    },
   ) {
     this.db = new Database(path, { fileMustExist: true });
     this.db.pragma('busy_timeout = 5000');
@@ -112,12 +115,17 @@ export class TelosWorkStore {
   private json<T>(sql: string, ...args: unknown[]): T[] {
     return (this.db.prepare(sql).all(...args) as JsonRow[]).map((row) => JSON.parse(row.data) as T);
   }
+  private availableConversation(role: TelosWorkSessionLink['role'], id: string): boolean {
+    return role === 'origin' && this.policy.sourceConversation
+      ? this.policy.sourceConversation(id)
+      : this.policy.ordinaryConversation(id);
+  }
   private currentAvailability(link: TelosWorkSessionLink): TelosWorkSessionLink {
     return {
       ...link,
       availability:
         link.conversation.namespace === 'mitzo'
-          ? this.policy.ordinaryConversation(link.conversation.conversationId)
+          ? this.availableConversation(link.role, link.conversation.conversationId)
             ? 'available'
             : 'unavailable'
           : link.availability,
@@ -258,21 +266,35 @@ export class TelosWorkStore {
         const children = childRows.map((child) => child.summary);
         if (
           JSON.stringify([
+            actual.parentId,
             actual.summary,
             actual.intent,
             actual.rationale,
             actual.acceptanceCriteria,
             actual.profile,
             actual.contextHints,
+            actual.links.map(({ type, url, title, description }) => ({
+              type,
+              url,
+              title,
+              description,
+            })),
             children,
           ]) !==
           JSON.stringify([
+            null,
             proposal.summary,
             proposal.intent,
             proposal.rationale,
             proposal.acceptanceCriteria,
             proposal.profile,
             TelosOutcomeContextHintsSchema.parse(proposal.contextHints ?? {}),
+            (proposal.links ?? []).map(({ type, url, title, description }) => ({
+              type,
+              url: url.trim(),
+              title,
+              description: description ?? '',
+            })),
             proposal.milestones,
           ])
         )
@@ -397,6 +419,45 @@ export class TelosWorkStore {
       })
       .immediate();
   }
+  /** Narrow host port for the existing approved creation tool. A conversation
+   * cannot attach arbitrary work: canonical creation identity and stored source
+   * hint must both match its actual Mitzo ID. Missing historical selections stay
+   * unknown; this is not a reviewed source packet or operator read grant. */
+  recordCreatedOrigin(
+    input: { itemId: string; idempotencyKey: string },
+    actor: TelosWorkActor,
+  ): void {
+    if (
+      actor.kind !== 'conversation' ||
+      !actor.id.trim() ||
+      !this.availableConversation('origin', actor.id) ||
+      !input.idempotencyKey.startsWith(actor.id + ':')
+    )
+      throw new TelosWorkError('unauthorized', 'Registered source conversation required');
+    this.db
+      .transaction(() => {
+        const row = this.item(input.itemId);
+        if (row.idempotency_key !== input.idempotencyKey)
+          conflict('Canonical creation identity differs');
+        const hints = JSON.parse(String(row.context_hints ?? '{}')) as { session_ids?: unknown };
+        if (!Array.isArray(hints.session_ids) || !hints.session_ids.includes(actor.id))
+          conflict('Canonical source identity differs');
+        const kind = this.db
+          .prepare('SELECT kind FROM telos_work_kinds WHERE item_id=?')
+          .get(input.itemId) as { kind: string } | undefined;
+        if (kind && kind.kind !== 'outcome') conflict('Created outcome kind differs');
+        this.db
+          .prepare("INSERT OR IGNORE INTO telos_work_kinds(item_id,kind) VALUES(?,'outcome')")
+          .run(input.itemId);
+        this.addLink(
+          input.itemId,
+          'origin',
+          { namespace: 'mitzo', conversationId: actor.id },
+          'conversation:' + actor.id,
+        );
+      })
+      .immediate();
+  }
   private addLink(
     itemId: string,
     role: TelosWorkSessionLink['role'],
@@ -427,7 +488,7 @@ export class TelosWorkStore {
       linkedBy: actorId,
       availability:
         conversation.namespace === 'mitzo'
-          ? this.policy.ordinaryConversation(conversation.conversationId)
+          ? this.availableConversation(role, conversation.conversationId)
             ? 'available'
             : 'unavailable'
           : 'unknown',

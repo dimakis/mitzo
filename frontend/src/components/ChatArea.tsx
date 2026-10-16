@@ -1,3 +1,4 @@
+import { useTelosSourceNavigation } from '../hooks/useTelosSourceNavigation';
 import { SeatLabel } from './SeatLabel';
 import { UiIcon } from './UiIcon';
 import { CompactionMarker } from './CompactionMarker';
@@ -148,6 +149,41 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  const source = useTelosSourceNavigation();
+  const sourceKey = source
+    ? JSON.stringify([source.conversationId, source.itemId, source.snapshotId])
+    : '';
+  const jumpedSource = useRef('');
+  const sourceAnchor = (message: FinishedMessage) => {
+    if (source?.status !== 'ready' || source.conversationId !== sessionId) return false;
+    const id = source.packet!.context.boundary.messageId;
+    if (!id) return false;
+    const attribution = source.packet!.attributions[id];
+    return (
+      message.messageId === id &&
+      !!attribution &&
+      (attribution.provenance === null
+        ? !message.symposiumProvenance
+        : message.symposiumProvenance?.seatId === attribution.provenance.seatId &&
+          message.symposiumProvenance?.membershipGeneration ===
+            attribution.provenance.membershipGeneration &&
+          message.symposiumProvenance?.configRevision === attribution.provenance.configRevision)
+    );
+  };
+  useEffect(() => {
+    if (!sourceKey) {
+      jumpedSource.current = '';
+      return;
+    }
+    if (source?.status !== 'ready' || jumpedSource.current === sourceKey) return;
+    const anchor = scrollRef.current?.querySelector<HTMLElement>(
+      '[data-telos-source-anchor="true"]',
+    );
+    if (!anchor) return;
+    shouldFollowStreamRef.current = false;
+    anchor.scrollIntoView({ block: 'start' });
+    jumpedSource.current = sourceKey;
+  }, [sourceKey, source, messages, scrollRef]);
   // Keep the reader's intent independently of the DOM height. By the time an
   // effect runs for a streamed chunk, the new content is already in the DOM,
   // so measuring then can incorrectly decide that a reader who scrolled up is
@@ -198,21 +234,21 @@ export function ChatArea({
   useEffect(() => {
     const wasEmpty = prevMessageCount.current === 0;
     prevMessageCount.current = messages.length;
-    if (wasEmpty && messages.length > 0) {
+    if (wasEmpty && messages.length > 0 && !sourceKey) {
       shouldFollowStreamRef.current = true;
       requestAnimationFrame(() => {
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        if (!sourceKey) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
       });
     }
-  }, [messages, scrollRef]);
+  }, [messages, scrollRef, sourceKey]);
 
   // Auto-scroll during streaming only while the reader has chosen to follow it.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && shouldFollowStreamRef.current) {
+    if (el && (!sourceKey || jumpedSource.current === sourceKey) && shouldFollowStreamRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, current, currentByMessage, scrollRef]);
+  }, [messages, current, currentByMessage, scrollRef, sourceKey]);
 
   const progressFor = useCallback(
     (messageId: string, provenance: SymposiumProvenance | undefined, toolId?: string) =>
@@ -309,6 +345,7 @@ export function ChatArea({
               value: (
                 <UserBubble
                   key={turnKey(msg.messageId, msg.symposiumProvenance)}
+                  sourceAnchor={sourceAnchor(msg)}
                   text={textBlock?.content}
                   images={msg.images}
                   contextBlocks={msg.contextBlocks}
@@ -378,6 +415,12 @@ export function ChatArea({
           } else {
             content = (
               <TextBubble
+                sourceAnchor={
+                  !streaming &&
+                  turn.kind === 'finished' &&
+                  block === blocks.find((b) => b.blockType === 'text') &&
+                  sourceAnchor(turn.value)
+                }
                 content={block.content ?? ''}
                 streaming={streaming}
                 timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}

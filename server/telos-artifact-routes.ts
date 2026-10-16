@@ -80,10 +80,22 @@ export function createTelosArtifactRouter(options: {
           });
           res.json({ ok: true, artifact });
         } else if (operation === 'find') {
-          res.json({ ok: true, artifacts: store.list(TelosFindArtifactsInput.parse(parsed.data)) });
+          res.json({
+            ok: true,
+            artifacts: store.list({
+              ...TelosFindArtifactsInput.parse(parsed.data),
+              excludeSourceCaptures: true,
+            }),
+          });
         } else {
           const input = TelosReadArtifactInput.parse(parsed.data);
           const { bytes, ...artifact } = store.read(input.id, input.revision);
+          if (artifact.sourceKind === 'source_capture') {
+            res
+              .status(403)
+              .json({ ok: false, error: 'Reviewed source requires scoped host authority' });
+            return;
+          }
           const text = bytes.toString('utf8');
           const encoding = Buffer.from(text, 'utf8').equals(bytes) ? 'utf8' : 'base64';
           res.json({
@@ -183,7 +195,10 @@ export function createTelosArtifactRouter(options: {
     try {
       store = new TelosArtifactStore(options.dbPath());
       res.setHeader('Cache-Control', 'private, no-store');
-      res.json({ artifacts: store.list(input.data), limit: 100 });
+      res.json({
+        artifacts: store.list({ ...input.data, excludeSourceCaptures: true }),
+        limit: 100,
+      });
     } catch {
       res.status(503).json({ error: 'Saved outputs unavailable' });
     } finally {
@@ -191,7 +206,7 @@ export function createTelosArtifactRouter(options: {
     }
   });
   // Mounted after Mitzo's cookie/internal-token authentication. Always download, never execute HTML.
-  router.get('/api/telos/artifacts/:id', (req, res) => {
+  router.get('/api/telos/artifacts/:id', async (req, res) => {
     const input = TelosReadArtifactInput.safeParse({
       id: req.params.id,
       ...(req.query.revision !== undefined ? { revision: Number(req.query.revision) } : {}),
@@ -204,6 +219,20 @@ export function createTelosArtifactRouter(options: {
     try {
       store = new TelosArtifactStore(options.dbPath());
       const artifact = store.read(input.data.id, input.data.revision);
+      if (artifact.sourceKind === 'source_capture') {
+        let authorized = false;
+        if (options.operatorAuth)
+          await options.operatorAuth(req, res, (error) => {
+            if (error) throw error;
+            authorized =
+              typeof res.locals.authSession?.id === 'string' && !!res.locals.authSession.id.trim();
+          });
+        if (!authorized) {
+          if (!res.headersSent)
+            res.status(403).json({ error: 'Interactive operator authentication is required' });
+          return;
+        }
+      }
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader(
         'Content-Disposition',
