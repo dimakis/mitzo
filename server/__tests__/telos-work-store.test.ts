@@ -80,6 +80,53 @@ function fixture() {
 }
 
 describe('durable Telos work relationships (offline, existing SQLite owners)', () => {
+  it('adopts the origin backlink atomically with source references without assigning or allocating a collaborator', () => {
+    const f = fixture();
+    const before = f.events.getSession('lead');
+    const source = createTelosWorkFixtures().homeStudio.snapshots[0];
+    const snapshot = {
+      ...source,
+      itemId: 'slice',
+      snapshotId: 'adopt-source',
+      source: conversation('lead'),
+    };
+    const input = {
+      operation: 'source',
+      itemId: 'slice',
+      requestId: 'adopt-once',
+      expectedRevision: f.store.read('slice', operator).revision,
+      snapshot,
+    };
+    const receipt = f.store.execute(input, operator);
+    expect(receipt.work).toMatchObject({
+      sources: [snapshot],
+      links: [{ role: 'origin', conversation: conversation('lead'), attemptId: null }],
+      assignments: [],
+      attempts: [],
+    });
+    expect(f.store.forConversation(conversation('lead'), operator)).toMatchObject([
+      { itemId: 'slice', role: 'origin' },
+    ]);
+    expect(f.store.execute(input, operator)).toEqual(receipt);
+    expect(f.open().execute(input, operator)).toEqual(receipt);
+    f.command('other', {
+      operation: 'source',
+      snapshot: { ...snapshot, itemId: 'other', snapshotId: 'shared-source' },
+    });
+    expect(f.store.forConversation(conversation('lead'), operator)).toHaveLength(2);
+    const other = f.store.read('other', operator);
+    expect(() =>
+      f.command('other', {
+        operation: 'source',
+        snapshot: { ...snapshot, itemId: 'other', source: external },
+      }),
+    ).toThrow(/immutable/);
+    expect(f.store.read('other', operator)).toEqual(other);
+    expect(f.store.forConversation(external, operator)).toEqual([]);
+    expect(f.db.prepare('SELECT * FROM telos_work_allocation_outbox').all()).toEqual([]);
+    expect(f.events.getSession('lead')).toEqual(before);
+  });
+
   it('keeps multiple chats and ordinary bindings independent from current assignment and external origins', () => {
     const f = fixture();
     const before = ['worker-a', 'worker-b', 'reviewer'].map((id) => f.events.getSession(id));
@@ -214,6 +261,7 @@ describe('durable Telos work relationships (offline, existing SQLite owners)', (
     ).toThrow(/immutable/i);
     expect(f.store.read('slice', operator).sources).toEqual([snapshot]);
     expect(f.store.read('other', operator).sources).toEqual([legacy]);
+    expect(f.store.read('other', operator).links).toEqual([]);
   });
 
   it('rejects unauthorized roles, non-conversations and implicit assignment without partial mutation', () => {
@@ -277,6 +325,11 @@ describe('durable Telos work relationships (offline, existing SQLite owners)', (
     ]);
     expect(f.store.read('slice', operator).links).toMatchObject([
       { conversation: conversation('worker-a'), availability: 'unavailable' },
+      {
+        role: 'origin',
+        conversation: createTelosWorkFixtures().homeStudio.snapshots[0].source,
+        availability: 'unknown',
+      },
     ]);
     expect(f.store.read('outcome', operator).links).toMatchObject([
       { conversation: conversation('lead'), availability: 'unavailable' },
@@ -402,6 +455,11 @@ describe('durable Telos work relationships (offline, existing SQLite owners)', (
       { attemptId: 'attempt-1', state: 'chat_ready', workerConversationId: 'worker-a' },
     ]);
     expect(f.store.read('slice', operator).links).toMatchObject([
+      {
+        role: 'origin',
+        conversation: createTelosWorkFixtures().homeStudio.snapshots[0].source,
+        availability: 'unknown',
+      },
       { role: 'worker', conversation: conversation('worker-a'), attemptId: 'attempt-1' },
     ]);
     expect(f.store.read('slice', operator).assignments).toEqual([]);

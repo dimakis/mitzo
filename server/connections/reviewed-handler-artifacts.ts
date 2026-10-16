@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.249';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.253';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../telos-work-record.ts': '7a1da4212ae06394702807b31421c371fac600904fa526937544587cbff56d93',
   '../../packages/protocol/src/stored-event-wire.ts':
     '703771f13d7003cf5dfb8d817162bb1daf12f87ca5648b5207a87a206e35222e',
   '../codex-session-events.ts': 'b9fb887675ae4baaa5ed8dd4206810642b97fc800551ad6922b9749b56481d01',
@@ -52,14 +53,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../packages/client/src/telos-work-api.ts':
-    'e16b59f86bc1f0c6044b7333c9efeafecd8198ec09ebda0a748c2cbf19fd18ce',
+    'e24cda48880b2364d36e9de27c1d473933843653883a1c94473deccc5d9e0259',
   '../../packages/protocol/src/telos-work-api.ts':
     '60655a07a4e2af570cb1d918f57970a2ea667f77d1d126fe37583ec8206df5a7',
   '../telos-work-conversation.ts':
     '66e562495602881b314abf7877bfc68d1bc7055524ec03ac815dd6f3c384321d',
-  '../telos-work-routes.ts': '8ba7c1d783af4f9fdbce2616c179cf41e3797900f97a8d8b0e7800034fc80825',
+  '../telos-work-routes.ts': 'dffb91f42e1bc07b44974d9bbc20ca29e4d0b3c2f42fbf783c26cc0f234fcfd3',
   '../telos-work-schema.ts': '15f4071e9d4263a62ab50407466ff69fc8b993f421ed7ddfe4b8e5cafcf610d9',
-  '../telos-work-store.ts': '6a5dcca97977f0f16d6907967b6d882f638510c284db7876bbc3f24e5766d897',
+  '../telos-work-store.ts': '2a1560e63a6e0885f8164f57255fbaf4637deb97db0ac8454cfb802166714ac6',
   '../../frontend/src/components/ComposerResponders.css':
     '29b0c05f64bc8555d35a759c7054a950cc70f57a7b49510262ae3b3b1e51f97a',
   '../../frontend/src/components/ComposerResponders.tsx':
