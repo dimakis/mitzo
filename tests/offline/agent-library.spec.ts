@@ -383,6 +383,11 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
       await page.getByRole('button', { name: 'Tool library', exact: true }).click();
       await page.getByRole('searchbox', { name: 'Search tool library', exact: true }).fill('Read');
+      await page
+        .getByRole('article')
+        .filter({ has: page.getByRole('heading', { name: 'Read', exact: true }) })
+        .locator('.tool-library-details > summary')
+        .click();
       await page.getByText('Profiles using this tool', { exact: true }).click();
       await expect(page.getByRole('region', { name: 'Tool library', exact: true })).toContainText(
         'Robert',
