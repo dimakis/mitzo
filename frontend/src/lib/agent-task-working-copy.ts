@@ -33,13 +33,19 @@ const schema = z.object({
 });
 export type AgentTaskWorkingCopy = z.infer<typeof schema>;
 const KEY = 'mitzo-agent-task-working-copy';
+export const AGENT_TASK_SAVED = 'mitzo:agent-task-saved';
+export interface AgentTaskSavedEvent {
+  record: AgentTaskRecord;
+  stored: boolean;
+}
 let memory: AgentTaskWorkingCopy | null = null;
 const retained = new Map<string, AgentTaskWorkingCopy>();
+const pendingCopies = new Set<string>();
 let pendingStorage = false;
 const taskKey = (id: string) => `${KEY}:${id}`;
 export function loadAgentTaskWorkingCopy(taskId?: string): AgentTaskWorkingCopy | null {
   const fallback = () => (taskId ? (retained.get(taskId) ?? null) : memory);
-  if (pendingStorage) return fallback();
+  if (taskId ? pendingCopies.has(taskId) : pendingStorage) return fallback();
   try {
     const parsed = schema.safeParse(
       JSON.parse(sessionStorage.getItem(taskId ? taskKey(taskId) : KEY) ?? 'null'),
@@ -49,28 +55,70 @@ export function loadAgentTaskWorkingCopy(taskId?: string): AgentTaskWorkingCopy 
     return fallback();
   }
 }
-export function saveAgentTaskWorkingCopy(copy: AgentTaskWorkingCopy | null): boolean {
-  const previous = loadAgentTaskWorkingCopy();
-  memory = copy;
-  if (copy) retained.set(copy.taskId, copy);
-  else if (previous?.dirty) retained.delete(previous.taskId);
+function retainCopy(copy: AgentTaskWorkingCopy, active: boolean): boolean {
+  retained.set(copy.taskId, copy);
+  if (active) memory = copy;
   try {
-    if (copy) {
-      const serialized = JSON.stringify(copy);
-      sessionStorage.setItem(taskKey(copy.taskId), serialized);
-      sessionStorage.setItem(KEY, serialized);
-    } else {
-      // Closing a clean editor keeps incomplete device-only choices for that task.
-      // Confirmed discard removes its unsaved working copy as well.
-      if (previous?.dirty) sessionStorage.removeItem(taskKey(previous.taskId));
-      sessionStorage.removeItem(KEY);
-    }
+    const serialized = JSON.stringify(copy);
+    sessionStorage.setItem(taskKey(copy.taskId), serialized);
+    if (active) sessionStorage.setItem(KEY, serialized);
+    pendingCopies.delete(copy.taskId);
+    if (active) pendingStorage = false;
+    return true;
+  } catch {
+    pendingCopies.add(copy.taskId);
+    if (active) pendingStorage = true;
+    return false;
+  }
+}
+export function saveAgentTaskWorkingCopy(copy: AgentTaskWorkingCopy | null): boolean {
+  if (copy) return retainCopy(copy, true);
+  const previous = loadAgentTaskWorkingCopy();
+  memory = null;
+  if (previous?.dirty) {
+    retained.delete(previous.taskId);
+    pendingCopies.delete(previous.taskId);
+  }
+  try {
+    if (previous?.dirty) sessionStorage.removeItem(taskKey(previous.taskId));
+    sessionStorage.removeItem(KEY);
     pendingStorage = false;
     return true;
   } catch {
     pendingStorage = true;
     return false;
   }
+}
+/** A receipt advances its original fence without replacing later input or selecting another editor. */
+export function acknowledgeAgentTaskSave(
+  request: AgentTaskWorkingCopy,
+  record: AgentTaskRecord,
+): void {
+  if (
+    record.taskId !== request.taskId ||
+    record.revision !== request.expectedRevision + 1 ||
+    record.deleted
+  )
+    throw Error('Task save receipt is invalid. Your input is retained.');
+  const active = loadAgentTaskWorkingCopy();
+  const current =
+    active?.taskId === request.taskId ? active : loadAgentTaskWorkingCopy(request.taskId);
+  let stored = true;
+  if (current?.expectedRevision === request.expectedRevision) {
+    stored = retainCopy(
+      {
+        ...current,
+        expectedRevision: record.revision,
+        idempotencyKey: crypto.randomUUID(),
+        dirty: current.idempotencyKey === request.idempotencyKey ? false : current.dirty,
+      },
+      active?.taskId === request.taskId,
+    );
+  }
+  if (typeof window !== 'undefined')
+    window.dispatchEvent(
+      new CustomEvent<AgentTaskSavedEvent>(AGENT_TASK_SAVED, { detail: { record, stored } }),
+    );
 }
 export function createAgentTaskWorkingCopy(profile: AgentLibraryVersion): AgentTaskWorkingCopy {
   return {

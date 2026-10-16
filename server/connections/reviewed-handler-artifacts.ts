@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.161';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.162';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -36,11 +36,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentTaskList.tsx':
     'dddafd483aad19d3e6267a69b318640f592b645c6236627a1372074756386366',
   '../../frontend/src/components/AgentTaskSettings.tsx':
-    '6876476bb9efa78d5d12b2312b7b4934a5d7a852996831617b87ab50d72d2ee9',
+    '966ebe0f6e775b5124467e628f6bb2f7ee62536ed1f0e9e95abdd3fe213fea46',
   '../../frontend/src/hooks/useAgentTasks.ts':
-    'd9e3f990b57e28d30739193342df37e24d6666549ea7c1debcfa184f6484f084',
+    '5045f3dc5af780de870a7af687dbfc736cdc924f90de1ff9689e6618c47b7ca0',
   '../../frontend/src/lib/agent-task-working-copy.ts':
-    '6e6e88beccabb688ae86b9e0d4b6276fc7261aa2a8bfb2573ea37d92208465a3',
+    '6839267a3a64555cd4eb3fa2d38353d13cf4ea6c1b194fa711169928409aa058',
   // Assigned task persistence and authenticated owner dispatch; no execution activation.
   '../agent-task-store.ts': 'f1b47b3ee410e5a5727255b5939cd60ab22713858e1b05cd54c2611611143f84',
   '../agent-task-service.ts': '226f42689d54ad511770c22cc62cfdfcad65673e7f5d2850793a043c73f69dc7',
@@ -174,9 +174,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/ChatRuntimeDraftProvider.tsx':
     'fcebbeefa5ff14bd074515519a0c4e1d6774ecd7177921ca2264328239cc9720',
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
-    '4c009cd0b30ef5c507c47310a535c5f94be85f553d6224eac04db37383db73d7',
+    '32660ff240dd5f62c2a8ab976941553a84b7f3809ed3455ffe4e64ccfcd2613d',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    '5067ed33ccd0b5c15d32bcb12df53f076a99b9456ae887d40875eb6679c8a26e',
+    '28ece5f7a69035e5bde15896f01fd4419e58a48bd676c0b9157b1db6a4aa1f6c',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '63427b971465eab55442c1f38cf99e9cf546cb0853ec552a45fc1191758150ae',
   '../../frontend/src/lib/launch-draft-delivery.ts':

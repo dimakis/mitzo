@@ -19,7 +19,11 @@ export function AgentTaskSettings(props: {
   retainedExecution?: AgentTaskDefinition['execution'];
 }) {
   const inventory = useRef<ExplicitLocalInventory | null>(null);
-  const update = (intent: ChatRuntimeSelection) => {
+  const update = (intent: ChatRuntimeSelection, origin?: 'hydrate') => {
+    if (origin === 'hydrate') {
+      props.onChange(intent);
+      return;
+    }
     const route = selectedRuntimeRoute(intent, inventory.current);
     const retained = props.retainedExecution;
     const sameRetainedRoute =

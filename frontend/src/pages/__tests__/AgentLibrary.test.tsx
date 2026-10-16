@@ -702,6 +702,29 @@ it('does not replace newer task recovery input when a save completes after navig
       'Newer input after returning',
     ),
   );
+  expect(
+    JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!).expectedRevision,
+  ).toBe(1);
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    const body = JSON.parse(init!.body as string);
+    return response({
+      taskId: posted!.taskId,
+      revision: 2,
+      definition: body.definition,
+      configuration: { state: 'draft' },
+      deleted: false,
+      createdAt: '2026-10-15T00:00:00.000Z',
+      updatedAt: '2026-10-15T00:00:00.000Z',
+    });
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
+  await screen.findByText('Task saved. Execution is not available yet.');
+  const put = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'PUT');
+  expect(put).toBeTruthy();
+  expect(JSON.parse(put![1]!.body as string)).toMatchObject({
+    expectedRevision: 1,
+    definition: { objective: 'Newer input after returning' },
+  });
 });
 
 it('keeps the saved task receipt when an older list request completes afterward', async () => {
@@ -873,4 +896,43 @@ it('preserves task input through the accepted Tool library view and retains the 
   fireEvent.click(screen.getByRole('tab', { name: 'Tools' }));
   expect(screen.getByRole('button', { name: 'Choose specific tools' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Use as reviewer' })).toBeNull();
+});
+
+it('notifies a remounted editor when its pending save is acknowledged without newer edits', async () => {
+  const first = setup();
+  await screen.findByDisplayValue('Bob');
+  fireEvent.click(screen.getByRole('button', { name: 'Assign task' }));
+  fireEvent.change(await screen.findByLabelText('Task name'), {
+    target: { value: 'Pending save' },
+  });
+  let finish!: (value: Response) => void;
+  let posted: Record<string, unknown>;
+  vi.mocked(apiFetch).mockImplementation((_path, init) => {
+    posted = JSON.parse(init!.body as string);
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
+  first.unmount();
+  setup();
+  await screen.findByLabelText('Task name');
+  await act(async () =>
+    finish(
+      response({
+        taskId: posted!.taskId,
+        revision: 1,
+        definition: posted!.definition,
+        configuration: { state: 'draft' },
+        deleted: false,
+        createdAt: '2026-10-15T00:00:00.000Z',
+        updatedAt: '2026-10-15T00:00:00.000Z',
+      }),
+    ),
+  );
+  await screen.findByText('Task saved. Execution is not available yet.');
+  expect(screen.getByText('Saved task · revision 1')).toBeTruthy();
+  expect(
+    JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!).expectedRevision,
+  ).toBe(1);
 });

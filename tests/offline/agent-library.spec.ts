@@ -32,6 +32,8 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   let adviceError = false;
   let adviceCalls = 0;
   let taskSaveError = true;
+  let holdTaskSave = false;
+  let releaseTaskSave: (() => void) | undefined;
   const tasks: import('@mitzo/protocol').AgentTaskRecord[] = [];
   const taskWrites: unknown[] = [];
   const account = { accountId: 'task-account', provider: 'openai', profileRevision: 'r1' };
@@ -105,7 +107,19 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         updatedAt: new Date().toISOString(),
       };
       tasks.push(saved);
+      if (holdTaskSave)
+        await new Promise<void>((resolve) => {
+          releaseTaskSave = resolve;
+        });
       return route.fulfill({ json: saved });
+    }
+    if (url.pathname.startsWith('/api/agent-tasks/') && route.request().method() === 'PUT') {
+      const body = route.request().postDataJSON();
+      taskWrites.push(body);
+      expect(body.expectedRevision).toBe(1);
+      expect(body.definition.workspace.workspaceId).toBe('workspace-after-return');
+      tasks[0] = { ...tasks[0], revision: 2, definition: body.definition };
+      return route.fulfill({ json: tasks[0] });
     }
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname === '/api/agent-library/tools')
@@ -346,9 +360,21 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     'Review the queue without losing this input',
   );
   taskSaveError = false;
+  holdTaskSave = true;
+  await page.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect.poll(() => !!releaseTaskSave).toBe(true);
+  await page.getByRole('link', { name: isMobile ? 'More' : 'Today', exact: true }).click();
+  await page.goBack();
+  await expect(page.getByLabel('Task name', { exact: true })).toHaveValue('Retained task');
+  await page.getByLabel('Workspace reference').fill('workspace-after-return');
+  releaseTaskSave!();
+  await expect(
+    page.getByText('Earlier task changes saved. Newer input is retained.'),
+  ).toBeVisible();
+  await expect(page.getByLabel('Workspace reference')).toHaveValue('workspace-after-return');
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await expect(page.getByText('Task saved. Execution is not available yet.')).toBeVisible();
-  expect(taskWrites).toHaveLength(2);
+  expect(taskWrites).toHaveLength(3);
   expect(taskWrites[1]).toEqual(taskWrites[0]);
   expect(tasks[0].definition).toMatchObject({
     profile: { profileId: 'bob', revision: 3, contentHash: 'a'.repeat(64) },
@@ -501,7 +527,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       '/tasks',
     );
   }
-  tasks[0] = { ...tasks[0], revision: 2 };
+  tasks[0] = { ...tasks[0], revision: tasks[0].revision + 1 };
   if (isMobile) await page.setViewportSize({ width: 320, height: 844 });
   for (const theme of ['light', 'dark']) {
     for (const [accent, font] of [

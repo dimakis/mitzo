@@ -261,3 +261,55 @@ it('restores and reviews a saved target without marking task input dirty or chan
     idempotencyKey: seed.idempotencyKey,
   });
 });
+
+it.each([
+  { revision: 1, dirty: false },
+  { revision: 0, dirty: true },
+])(
+  'automatic target hydration preserves revision $revision, dirty state and retry identity',
+  async ({ revision, dirty }) => {
+    vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => inventory } as Response);
+    const seed = {
+      ...createAgentTaskWorkingCopy({
+        profileId: 'bob',
+        revision: 3,
+        contentHash: 'a'.repeat(64),
+        definition: {
+          name: 'Bob',
+          role: 'agent',
+          instructions: 'Review',
+          expectedOutput: 'Brief',
+          acceptanceCriteria: ['Evidence'],
+          modelPolicyRole: 'agent',
+        },
+      }),
+      expectedRevision: revision,
+      dirty,
+    };
+    function Editor() {
+      const [copy, update] = useState<AgentTaskWorkingCopy>(seed);
+      return (
+        <>
+          <AgentTaskEditor copy={copy} update={update} versions={[]} busy={false} save={() => {}} />
+          <output aria-label="Copy">{JSON.stringify(copy)}</output>
+        </>
+      );
+    }
+    render(
+      <MemoryRouter>
+        <Editor />
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(
+        JSON.parse(screen.getByLabelText('Copy').textContent!).runtime.execution.targetId,
+      ).toBe('shell'),
+    );
+    expect(JSON.parse(screen.getByLabelText('Copy').textContent!)).toMatchObject({
+      expectedRevision: revision,
+      dirty,
+      idempotencyKey: seed.idempotencyKey,
+      execution: null,
+    });
+  },
+);

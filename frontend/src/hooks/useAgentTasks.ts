@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { AgentTaskRecordSchema, SaveAgentTaskSchema, type AgentTaskRecord } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import {
+  AGENT_TASK_SAVED,
+  acknowledgeAgentTaskSave,
+  type AgentTaskSavedEvent,
   loadAgentTaskWorkingCopy,
   saveAgentTaskWorkingCopy,
   type AgentTaskWorkingCopy,
@@ -20,6 +23,13 @@ export function useAgentTasks() {
   const inFlight = useRef(false);
   const listGeneration = useRef(0);
   const update = useCallback((next: AgentTaskWorkingCopy | null) => {
+    const retained = next && loadAgentTaskWorkingCopy(next.taskId);
+    if (next && retained && retained.expectedRevision > next.expectedRevision)
+      next = {
+        ...next,
+        expectedRevision: retained.expectedRevision,
+        idempotencyKey: crypto.randomUUID(),
+      };
     setStorageError(
       saveAgentTaskWorkingCopy(next)
         ? ''
@@ -46,44 +56,74 @@ export function useAgentTasks() {
   }, []);
   useEffect(() => {
     live.current = true;
+    const receive = (event: Event) => {
+      const { record, stored } = (event as CustomEvent<AgentTaskSavedEvent>).detail;
+      const current = loadAgentTaskWorkingCopy();
+      setCopy(current);
+      listGeneration.current++;
+      setLoading(false);
+      setTasks((rows) => {
+        const known = rows?.find((task) => task.taskId === record.taskId);
+        return known && known.revision > record.revision
+          ? rows
+          : [record, ...(rows ?? []).filter((task) => task.taskId !== record.taskId)];
+      });
+      if (current?.taskId === record.taskId) {
+        setError('');
+        setStorageError(
+          stored ? '' : 'Could not save task input on this device. Keep this page open and retry.',
+        );
+        setNotice(
+          current.dirty
+            ? 'Earlier task changes saved. Newer input is retained.'
+            : 'Task saved. Execution is not available yet.',
+        );
+      }
+    };
+    window.addEventListener(AGENT_TASK_SAVED, receive);
+    // Catch an acknowledgement delivered between the render and subscription.
+    setCopy(loadAgentTaskWorkingCopy());
     void refresh();
     return () => {
       live.current = false;
+      window.removeEventListener(AGENT_TASK_SAVED, receive);
     };
   }, [refresh]);
   const save = async () => {
     if (!copy || inFlight.current) return;
+    const current = loadAgentTaskWorkingCopy();
+    const savingCopy = current?.taskId === copy.taskId ? current : copy;
     setError('');
     setNotice('');
     let request;
     try {
       request = SaveAgentTaskSchema.parse({
-        taskId: copy.taskId,
-        expectedRevision: copy.expectedRevision,
-        idempotencyKey: copy.idempotencyKey,
+        taskId: savingCopy.taskId,
+        expectedRevision: savingCopy.expectedRevision,
+        idempotencyKey: savingCopy.idempotencyKey,
         definition: {
-          name: copy.name,
-          objective: copy.objective,
-          profile: copy.profile,
-          execution: copy.execution,
-          workspace: copy.workspaceId.trim()
+          name: savingCopy.name,
+          objective: savingCopy.objective,
+          profile: savingCopy.profile,
+          execution: savingCopy.execution,
+          workspace: savingCopy.workspaceId.trim()
             ? {
-                workspaceId: copy.workspaceId,
-                sourceRefs: copy.sourceRefs
+                workspaceId: savingCopy.workspaceId,
+                sourceRefs: savingCopy.sourceRefs
                   .split('\n')
                   .map((s) => s.trim())
                   .filter(Boolean),
               }
             : null,
           schedule:
-            copy.schedule === 'manual'
+            savingCopy.schedule === 'manual'
               ? null
               : {
-                  cron: copy.schedule === 'weekday' ? '0 7 * * 1-5' : copy.cron,
-                  timezone: copy.timezone,
+                  cron: savingCopy.schedule === 'weekday' ? '0 7 * * 1-5' : savingCopy.cron,
+                  timezone: savingCopy.timezone,
                   state: 'paused',
                 },
-          notificationPolicy: copy.notificationPolicy,
+          notificationPolicy: savingCopy.notificationPolicy,
           outputPolicy: 'session',
         },
       });
@@ -98,41 +138,23 @@ export function useAgentTasks() {
     try {
       const { taskId, ...replacement } = request;
       const response = await apiFetch(
-        copy.expectedRevision === 0
+        savingCopy.expectedRevision === 0
           ? '/api/agent-tasks'
           : `/api/agent-tasks/${encodeURIComponent(taskId)}`,
         {
-          method: copy.expectedRevision === 0 ? 'POST' : 'PUT',
+          method: savingCopy.expectedRevision === 0 ? 'POST' : 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(copy.expectedRevision === 0 ? request : replacement),
+          body: JSON.stringify(savingCopy.expectedRevision === 0 ? request : replacement),
         },
       );
       const body = await response.json();
       if (!response.ok) throw Error(body.error || 'Task save failed');
       const saved = AgentTaskRecordSchema.parse(body);
-      // Commit the receipt to device recovery even if navigation unmounted the page.
-      const next = {
-        ...copy,
-        expectedRevision: saved.revision,
-        idempotencyKey: crypto.randomUUID(),
-        dirty: false,
-      };
-      const currentCopy = loadAgentTaskWorkingCopy();
-      if (currentCopy?.taskId !== copy.taskId || currentCopy.idempotencyKey !== copy.idempotencyKey)
-        return;
-      saveAgentTaskWorkingCopy(next);
-      if (!live.current) return;
-      update(next);
-      listGeneration.current++;
-      setLoading(false);
-      setTasks((current) => {
-        const known = current?.find((task) => task.taskId === saved.taskId);
-        if (known && known.revision > saved.revision) return current;
-        return [saved, ...(current ?? []).filter((task) => task.taskId !== saved.taskId)];
-      });
-      setNotice('Task saved. Execution is not available yet.');
+      acknowledgeAgentTaskSave(savingCopy, saved);
     } catch (cause) {
-      if (live.current) setError(cause instanceof Error ? cause.message : 'Task save failed');
+      const latest = loadAgentTaskWorkingCopy(savingCopy.taskId);
+      if (live.current && (!latest || latest.expectedRevision <= savingCopy.expectedRevision))
+        setError(cause instanceof Error ? cause.message : 'Task save failed');
     } finally {
       inFlight.current = false;
       if (live.current) setBusy(false);
