@@ -365,7 +365,7 @@ test('motion: closing menus hold their final frame without flashing or moving ch
 }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
-    const finishes: { opacity: string; height: number }[] = [];
+    const finishes: { kind: string; opacity: string; height: number }[] = [];
     Object.assign(window, { exitFrames: finishes });
     const original = HTMLElement.prototype.animate;
     HTMLElement.prototype.animate = function (frames, options) {
@@ -376,6 +376,7 @@ test('motion: closing menus hold their final frame without flashing or moving ch
         void animation.finished
           .then(() =>
             finishes.push({
+              kind: animation.id,
               opacity: getComputedStyle(this).opacity,
               height: this.getBoundingClientRect().height,
             }),
@@ -453,16 +454,16 @@ test('motion: closing menus hold their final frame without flashing or moving ch
     () =>
       (
         window as Window & {
-          exitFrames: { opacity: string; height: number }[];
+          exitFrames: { kind: string; opacity: string; height: number }[];
         }
       ).exitFrames,
   );
   expect(frames).toHaveLength(4);
   expect(frames.every((frame) => Number(frame.opacity) === 0)).toBe(true);
-  // Disclosure endpoints must stay collapsed until the hidden attribute commits.
-  expect(frames.filter((_, index) => index % 2 === 1).every((frame) => frame.height < 3)).toBe(
-    true,
-  );
+  // Both the composer menu and compact settings are popovers: they retain
+  // their full geometry while the transparent exit frame awaits React's hide.
+  expect(frames.every((frame) => frame.kind === 'mitzo:popover')).toBe(true);
+  expect(frames.every((frame) => frame.height > 0)).toBe(true);
 });
 
 test('composer: commands use a quiet icon with discoverable labels', async ({ page }, testInfo) => {
@@ -2630,7 +2631,7 @@ test('failed briefing registration survives a completed turn and reload without 
   await page.reload();
   await expect(retry).toBeVisible();
   await retained();
-  await page.getByText('More options', { exact: true }).click();
+  await page.getByText('More settings', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
   const alert = page.getByRole('alert').filter({ has: retry });
   const geometry = await alert.evaluate((element) => {
@@ -3027,7 +3028,7 @@ test('profile draft cards appear in conversation and save without opening Worksp
           'data-motion-active',
           'true',
         );
-        await page.getByText('More options', { exact: true }).click();
+        await page.getByText('More settings', { exact: true }).click();
         await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
         if (next === 'empty')
           await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
@@ -4146,7 +4147,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   });
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: /Workspace controls/ }).click();
-  await page.getByText('More options', { exact: true }).click();
+  await page.getByText('More settings', { exact: true }).click();
   const action = page.getByRole('button', { name: 'Symposium collaboration', exact: true });
   const originalOverflow = await page.evaluate(() => document.body.style.overflow);
   await expect(action).toBeVisible();

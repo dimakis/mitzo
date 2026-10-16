@@ -16,6 +16,8 @@ type ConsentState = z.infer<typeof Consent>;
 class WebAccessLoadError extends Error {}
 
 const CONSENT_ATTACH_RETRY_DELAYS_MS = [0, 500, 1500] as const;
+// Bound the complete read, including response bodies and provider metadata.
+const CONSENT_LOAD_DEADLINE_MS = 10_000;
 
 export function WebSearchConsent({
   sessionId,
@@ -35,6 +37,7 @@ export function WebSearchConsent({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const [loading, setLoading] = useState(false);
   const previousTurn = useRef({ sessionId, running });
   const pendingTurnRetry = useRef(false);
   const loadPending = useRef(false);
@@ -52,65 +55,83 @@ export function WebSearchConsent({
     if (!sessionId || !connected || !connectionId) return;
     const controller = new AbortController();
     loadPending.current = true;
-    void (async () => {
-      try {
-        let transientFailure: Error | null = null;
-        // The session switch can reach the UI before the Codex runtime is ready.
-        for (const delay of CONSENT_ATTACH_RETRY_DELAYS_MS) {
-          if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
-          if (cancelled) return;
-          let response: Response;
-          try {
-            response = await apiFetch(
-              `/api/chat/web-search-consent/${encodeURIComponent(sessionId)}`,
-              { signal: controller.signal, headers: { 'X-Connection-ID': connectionId } },
-            );
-          } catch {
-            transientFailure = new WebAccessLoadError(
-              'Cannot reach the server to load web access. Retry when connected.',
-            );
+    setLoading(true);
+    const readConsent = async (): Promise<{
+      consent: ConsentState | null;
+      unavailable: boolean;
+    }> => {
+      let transientFailure: Error | null = null;
+      // The session switch can reach the UI before the Codex runtime is ready.
+      for (const delay of CONSENT_ATTACH_RETRY_DELAYS_MS) {
+        if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        if (controller.signal.aborted) throw controller.signal.reason;
+        let response: Response;
+        try {
+          response = await apiFetch(
+            `/api/chat/web-search-consent/${encodeURIComponent(sessionId)}`,
+            { signal: controller.signal, headers: { 'X-Connection-ID': connectionId } },
+          );
+        } catch {
+          if (controller.signal.aborted) throw controller.signal.reason;
+          transientFailure = new WebAccessLoadError(
+            'Cannot reach the server to load web access. Retry when connected.',
+          );
+          continue;
+        }
+        transientFailure = null;
+        if (response.status === 404) continue;
+        if (!response.ok) {
+          const failure = new WebAccessLoadError(
+            `Web access setting request was rejected (HTTP ${response.status}).`,
+          );
+          if (response.status >= 500) {
+            transientFailure = failure;
             continue;
           }
-          transientFailure = null;
-          if (response.status === 404) continue;
-          if (!response.ok) {
-            const failure = new WebAccessLoadError(
-              `Web access setting request was rejected (HTTP ${response.status}).`,
-            );
-            if (response.status >= 500) {
-              transientFailure = failure;
-              continue;
-            }
-            throw failure;
-          }
-          let value: ConsentState;
-          try {
-            value = Consent.parse(await response.json());
-          } catch {
-            throw new WebAccessLoadError('The server returned an invalid web access setting.');
-          }
-          if (!cancelled) {
-            pendingTurnRetry.current = false;
-            setConsent(value);
-            setError('');
-          }
-          return;
+          throw failure;
         }
-        if (transientFailure) throw transientFailure;
-        // A 404 can mean either another provider or a Codex runtime still starting.
-        const metaResponse = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
-          signal: controller.signal,
-        });
-        if (!metaResponse.ok)
-          throw new WebAccessLoadError(
-            `Could not check this chat's web access support (HTTP ${metaResponse.status}).`,
-          );
-        const isCodex = z
-          .object({ codexQueue: z.object({}).passthrough() })
-          .safeParse(await metaResponse.json()).success;
+        try {
+          return { consent: Consent.parse(await response.json()), unavailable: false };
+        } catch {
+          throw new WebAccessLoadError('The server returned an invalid web access setting.');
+        }
+      }
+      if (transientFailure) throw transientFailure;
+      if (controller.signal.aborted) throw controller.signal.reason;
+      // A 404 can mean either another provider or a Codex runtime still starting.
+      const metaResponse = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
+        signal: controller.signal,
+      });
+      if (!metaResponse.ok)
+        throw new WebAccessLoadError(
+          `Could not check this chat's web access support (HTTP ${metaResponse.status}).`,
+        );
+      const isCodex = z
+        .object({ codexQueue: z.object({}).passthrough() })
+        .safeParse(await metaResponse.json()).success;
+      return { consent: null, unavailable: isCodex };
+    };
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      deadlineTimer = setTimeout(() => {
+        const failure = new WebAccessLoadError('Web access check timed out. Check again to retry.');
+        controller.abort(failure);
+        reject(failure);
+      }, CONSENT_LOAD_DEADLINE_MS);
+    });
+    void (async () => {
+      try {
+        // Race the full read as well as aborting transport: even a stalled body
+        // or a late response that ignores abort cannot retain loading or apply state.
+        const value = await Promise.race([readConsent(), deadline]);
         if (!cancelled) {
-          setConsent(null);
-          if (isCodex) setError('Web search setting is still starting.');
+          if (value.consent) pendingTurnRetry.current = false;
+          setConsent(value.consent);
+          setError(
+            value.unavailable
+              ? 'Web access controls are unavailable for this chat. You can keep chatting.'
+              : '',
+          );
         }
       } catch (cause) {
         if (!cancelled)
@@ -120,11 +141,16 @@ export function WebSearchConsent({
               : 'Cannot reach the server to load web access. Retry when connected.',
           );
       } finally {
-        if (!cancelled) loadPending.current = false;
+        clearTimeout(deadlineTimer);
+        if (!cancelled) {
+          loadPending.current = false;
+          setLoading(false);
+        }
       }
     })();
     return () => {
       cancelled = true;
+      clearTimeout(deadlineTimer);
       loadPending.current = false;
       controller.abort();
     };
@@ -195,18 +221,26 @@ export function WebSearchConsent({
         </button>
       )}
       {error && (
-        <span role="alert">
-          {error}{' '}
+        <div role={error.startsWith('Web access controls are unavailable') ? 'status' : 'alert'}>
+          <p>{error}</p>
           <button
+            disabled={loading || !connected || !connectionId}
             type="button"
             onClick={() => {
-              setError('');
+              setLoading(true);
               setReload((value) => value + 1);
             }}
           >
-            Refresh setting
+            {loading ? 'Checking…' : 'Check again'}
           </button>
-        </span>
+          <details className="web-search-consent-details">
+            <summary>Details</summary>
+            <p>
+              The server could not load this chat’s web-access controls. No permission has been
+              changed.
+            </p>
+          </details>
+        </div>
       )}
       {consent && open && (
         <div className="web-search-consent-panel">

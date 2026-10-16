@@ -200,3 +200,12 @@ export function chatDraftUrl(draft: ChatDraft): string {
   params.set('draft', draft.id);
   return `/chat?${params}`;
 }
+
+/** Copy only unsent text; the new chat chooses its own account and runtime. */
+export function newChatPathWithDraft(text: string): string {
+  if (!text.trim()) return '/chat';
+  const draft = createChatDraft();
+  draft.text = text;
+  if (!saveChatDraft(draft)) throw new Error('Could not save the new chat draft. Retry.');
+  return `/chat?draft=${encodeURIComponent(draft.id)}`;
+}
