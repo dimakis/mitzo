@@ -63,13 +63,15 @@ tuples determine discovery wires as well as portable identity, so labels contain
 delimiters cannot collide. Cancellation retains and awaits one shared peer shutdown
 promise; the refresh and retained owner cannot settle ahead of real peer cleanup.
 
-Configured-source permission names use a distinct `configured-mcp:` namespace with
+Configured-source approval grant keys use a distinct `configured-mcp:` namespace with
 a JSON source/tool tuple. Session grants are exact-tool grants. Legacy `mcp__`
 server-wide grants keep their existing scope and cannot authorize an opted-in
 source, even when the legacy server label equals a source UUID. Neither namespace
 grants source access or bypasses mode, skill, workspace or current-runtime checks.
 
-Permission grant keys remain separate from hook/display identities. Opting a source
-into discovery preserves its existing `mcp__<server>__<tool>` project-hook matcher,
-including denial and input-validation hooks, while approval lookup uses the isolated
-source/tool grant namespace.
+Permission grant keys remain separate from policy, hook and display identities.
+Opting a source into discovery preserves its existing `mcp__<server>__<tool>` skill
+allowlist and project-hook matcher, including denial and input-validation hooks.
+Both chat adapters pass the isolated source/tool identity as the server-owned
+`sessionGrantKey` to the common permission handler. Skill policy still applies
+before retained grants and after awaited approval.

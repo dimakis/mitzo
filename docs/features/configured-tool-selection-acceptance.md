@@ -52,7 +52,10 @@ local heap limit; focused actual-page renders do not substitute for those checks
 The initial combined focused run passed 298 checks in 26 files. After accepted-main
 integration and the initial review corrections, the combined run passed 306 checks in 27 files.
 After the design/compiler hold was released and the source-environment review fixes
-were integrated, the final combined run passed 327 checks in 31 files. The combined
+were integrated, the combined run passed 327 checks in 31 files. Later review
+qualification covers canonical skill allowlists on both enrolled API providers,
+isolated configured/legacy grants in both approval orders, and policy revocation
+during pending and retained approvals. The combined
 actual-page tool and session-library matrix passed 26 checks (24 page cases and two
 startup checks), including the
 existing Phase 1 journeys, configured-source unavailability, cancellation and focus
