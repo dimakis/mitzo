@@ -1,3 +1,4 @@
+import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import type { SymposiumProfileDefinition } from '@mitzo/protocol';
 import { agentToolCatalog } from './agent-tool-catalog.js';
 
@@ -53,4 +54,57 @@ export function filterAgentTools<T extends { name: string }>(session: object, to
 export function assertAgentToolSelected(session: object, name: string): void {
   if (!agentToolAllowed(session, name))
     throw Error(`Tool is not selected by this session's published agent profile: ${name}`);
+}
+
+/** Connection metadata is eligibility evidence only. Executors still recheck grants at effects. */
+export function assertAgentToolAvailability(
+  definition: SymposiumProfileDefinition | undefined,
+  sessionId: string,
+): void {
+  if (definition?.tools === undefined) return;
+  const names = new Set(definition.tools.map((tool) => tool.id));
+  const operations = [
+    'ConnectionRequest',
+    'ConnectionWebSocket',
+    'HomeAssistantDashboard',
+    'RequestConnectionAccess',
+  ];
+  const selected = operations.filter((name) => names.has(`mitzo:${name}`));
+  const service = getCredentialConnectionsRuntime();
+  if (selected.length) {
+    const active =
+      service?.catalog(sessionId).filter((connection) => connection.status === 'active') ?? [];
+    if (!active.length)
+      throw Error(
+        `Selected tool ${selected[0]} requires an active connection. Configure it in Connections before starting this chat.`,
+      );
+    if (
+      names.has('mitzo:ConnectionWebSocket') &&
+      !active.some((connection) => connection.websocket)
+    )
+      throw Error('Selected WebSocket tool requires WebSocket access configured in Connections');
+    if (
+      names.has('mitzo:HomeAssistantDashboard') &&
+      !active.some((connection) =>
+        ['read', 'read-write'].includes(connection.homeAssistantDashboards ?? 'disabled'),
+      )
+    )
+      throw Error(
+        'Selected dashboard tool requires Home Assistant dashboard access configured in Connections',
+      );
+    if (
+      selected.some((name) => name !== 'RequestConnectionAccess') &&
+      !names.has('mitzo:RequestConnectionAccess')
+    )
+      throw Error(
+        'Select RequestConnectionAccess alongside connection operations so their existing approval flow can run',
+      );
+  }
+  if (
+    !service &&
+    ['PrepareConnectionSetup', 'GetConnectionSetup'].some((name) => names.has(`mitzo:${name}`))
+  )
+    throw Error(
+      'Selected connection setup tool requires the existing secure connection runtime to be configured',
+    );
 }

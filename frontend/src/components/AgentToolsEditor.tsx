@@ -19,11 +19,14 @@ export function AgentToolsEditor({
   const selected = value ?? [];
   return (
     <fieldset className="agent-library-fields" disabled={disabled}>
-      <p>
-        Tools are supported in new local OpenAI Responses and Gemini/Vertex API chats. Native Codex,
-        OpenShell, Claude SDK and reviewer seats do not yet support explicit selections. Existing
-        chats keep their original selection.
-      </p>
+      <p>Choose tools for new local OpenAI Responses and Gemini/Vertex API chats.</p>
+      <details>
+        <summary>Runtime compatibility</summary>
+        <p>
+          Native Codex, OpenShell, Claude SDK and reviewer seats do not yet support explicit
+          selections. Existing chats keep their original selection.
+        </p>
+      </details>
       {value === undefined ? (
         <>
           <p>

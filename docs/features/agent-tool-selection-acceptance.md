@@ -1,0 +1,122 @@
+# Agent tool selection: Phase 1 acceptance
+
+Telos parent `a27aa207cce82024`, Phase 1 `88761f514b081ca1`.
+Implementation started from accepted `97935dbda839c5ffabec41d1d3d4ecdb1559a2fa`.
+This record distinguishes offline implementation evidence from live qualification.
+Phase 1 remains active until its remaining gates pass.
+
+## Review slices
+
+1. [Catalog and schema PR 948](https://github.com/dimakis/mitzo/pull/948):
+   authoritative static registrations, versioned portable references, legacy/empty
+   semantics, persistence and canonical filtering primitives.
+2. [Editor and library PR 949](https://github.com/dimakis/mitzo/pull/949):
+   advisor above the editor, Tools tab, searchable existing-tool picker, removal,
+   compatibility/connection reasons, usage references and intercepted browser fixtures.
+3. [Runtime PR 951](https://github.com/dimakis/mitzo/pull/951): local API model
+   exposure and invocation ceiling, private admitted catalog snapshot, unsupported
+   native-route refusals and runtime-selection reasons.
+4. [Acceptance/documentation PR 955](https://github.com/dimakis/mitzo/pull/955):
+   published-profile cold-restart regression,
+   explicit empty behavior, missing connection checks, README and this record.
+
+The slices are reviewed and accepted in dependency order. Source acceptance does
+not qualify or activate a live runtime. Each changed reviewed source closure
+advances its runtime contract, so existing independently enrolled targets must
+follow their normal reviewed update process; source publication alone does not
+enroll or qualify a runtime.
+
+## Offline evidence
+
+| Gate                              | Evidence                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Test first                        | Published subset regression failed for the missing selection module before implementation; schema/catalog, editor/API, runtime and availability regressions also recorded red before implementation.                                                                                                                                                     |
+| Draft/save/publish/import/history | `agent-library.test.ts` restarts the draft store, publishes exact references, imports a versioned artifact and reads the original immutable revision after a later empty selection. Existing conflicts, retries and owner separation remain covered.                                                                                                     |
+| Portable schema                   | `packages/protocol/__tests__/agent-tools.test.ts` rejects credential/grant fields, wire aliases, duplicate IDs, invalid versions and oversized selections; missing fields serialize exactly as legacy definitions.                                                                                                                                       |
+| Exposure plus execution           | `responses-chat-session.test.ts` checks exact selected definitions plus AskUserQuestion on mocked OpenAI and Vertex runners; direct calls, connection tools, publishing wrappers, capability names and forged MCP names are rejected before execution. Selected guide execution uses the actual host handler.                                            |
+| Immutable admitted snapshots      | `agent-tool-snapshot.test.ts` reopens private SQLite storage and refuses changed definitions, account and profile hash or a missing resume snapshot.                                                                                                                                                                                                     |
+| Full published lifecycle          | The API session regression publishes two tools, pins the profile in durable conversation metadata, opens the runner, publishes a new empty revision, closes/reopens library/event/private stores and cold resumes the original set. A fresh conversation gets only AskUserQuestion.                                                                      |
+| Authority                         | Existing connection and runtime tests retain approval, cancellation, account/session ownership and revocation checks. A selected guide is denied after a skill-policy change. Missing active connections/configuration refuse selected admission before the model runs.                                                                                  |
+| Unsupported routes                | Route projection, native entry and Symposium grant/allocation tests refuse explicit selections; no filtered application-only catalog is advertised as native enforcement.                                                                                                                                                                                |
+| UI                                | Component tests cover legacy/empty selection, search, portable additions, removal and required tools. Intercepted Agent Library fixtures cover recovery, publication, exports, usage, keyboard focus/Escape, 320px mobile and desktop, light/dark, Lavender/System and Teal/Georgia. CI retains agent-tools and tool-library screenshots for inspection. |
+
+Focused runs passed: catalog/lifecycle/credential/schema (28 tests),
+editor/advisor/recovery/design (118 tests), library API/IPC (17 tests),
+runtime/catalog/snapshot/selection/grants (90 tests), native session API (10 tests),
+existing chat dispatch (19 tests), and the extended API/availability acceptance
+regressions (40 tests). These overlap; they are not a unique aggregate test count.
+One local broad server typecheck exhausted the required 1 GiB heap, so no success
+is claimed for that command. Workspace package and frontend typechecks passed;
+current-head broad checks and rendered evidence remain CI gates.
+
+## Review follow-up
+
+Blocking review `CEN-596B055D0694` identified that a schema-only slice could
+accept explicit tools while an existing startup path ignored them. Ten startup
+regressions first failed for empty and subset selections; catalog/schema now
+refuses them on unenrolled routes before API/Codex startup, owned admission or
+native Symposium allocation/grant activation. The runtime slice enrolls the
+shared local API runner explicitly. Its published empty/subset regressions cover
+both OpenAI and Vertex cold resume and reject optional tools, aliases and wrappers.
+
+After propagating those fixes into this acceptance slice, all 91 focused
+runtime/catalog/snapshot/source-pin/editor/reviewer tests and all eight actual-page
+offline browser checks passed. This preserves the two-tool guide lifecycle test,
+missing-connection checks and immutable admitted definitions. These are offline
+results; Phase 1 remains active with the remaining gates below.
+
+A prior full-app CI run passed 513 browser checks but failed two mobile cases
+because a loading-status assertion matched both independent catalogs. The UI
+slice now scopes that assertion to the Agent Library status; the ambiguity was
+reproduced and the corrected locator passed Chromium and WebKit offline. A local
+full-app bundle attempt exceeded the required 1 GiB heap, so the complete fixture
+rerun remains a current-head CI gate.
+
+The next review round keeps creation actions in Agent library and waits for the
+profile catalog before reporting Tool library usage. Loading and failed catalog
+requests now show explicit status or Retry profiles rather than an empty usage
+claim. After reconciling accepted main and those fixes, 212 focused runtime,
+source-pin, UI and design tests passed. The selection browser matrix passed eight
+checks and the separate usage/loading/retry matrix passed eight checks, each
+including two browser startup checks. Mobile error and desktop loading captures
+were inspected. Current-head CI and exact-head review must run again after this
+parent reconciliation; live qualification remains unperformed and Phase 1 active.
+
+## Operational limits and remaining gates
+
+On 2026-10-15 the required canonical staging check refused:
+`Canonical custodian check/drain refused or uncertain.` The host resource check
+also refused admission (`host-memory-pressure`; pressure level 2, about 11.1 GiB
+swap). No lock, registry, owner, credentials or service was modified. No second
+backend, custodian or background preview was created. No production interaction
+or deployment occurred.
+
+As of 15 October 2026, the user has stood down canonical staging and its
+pipeline. The earlier check above is historical evidence, not a request to
+investigate, reactivate or recover it. No further staging check, queue submission,
+deployment, restart, recovery or recreation is authorized by this feature work.
+Retained custody, operation and diagnostic records must be preserved.
+
+Live model qualification has not run. Any future live test requires a separately
+selected and explicitly authorized target, a supported Luna model, and an exact
+model/charged-account declaration before the call. Do not borrow production
+credentials or use production as an automatic fallback. Production deployment
+requires a separate explicit user action. Current work uses offline tests,
+review and CI.
+
+The focused actual-page browser matrix passed all six desktop/mobile theme cases
+plus two browser startup checks. Captures were inspected at 320px in mobile WebKit
+and at 1280px in desktop Chromium; they use dark Lavender/System and light
+Teal/Georgia. These renders isolate the actual page from the application shell;
+the full-app intercepted fixture remains a separate CI check. See
+[mobile selection](../design/assets/agent-tools-mobile-dark.png),
+[desktop selection](../design/assets/agent-tools-desktop-light.png),
+[mobile library](../design/assets/tool-library-mobile-light.png) and
+[desktop library](../design/assets/tool-library-desktop-dark.png).
+
+Remaining gates are current-head green broad CI/full-app browser checks, required
+exact-head review and accepted source. Live qualification remains a separate gap
+requiring a newly selected and authorized target. Native Codex, Claude SDK, OpenShell, native reviewer/search routes
+and configured MCP selection remain explicitly unsupported in this cut. Existing
+legacy profiles keep their original behavior on those routes. Arbitrary executable
+tools, server installation, API builders and Tool Builder remain later phases.

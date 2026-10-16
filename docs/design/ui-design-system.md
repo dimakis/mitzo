@@ -805,6 +805,17 @@ access. Offline Agent Library fixtures cover selection recovery, publication,
 exports, usage references and the picker at 320px and desktop across light/dark
 themes with Lavender/System and Teal/Georgia.
 
+Focused actual-page tool selection checks passed on mobile WebKit/Chromium at
+320px and desktop Chromium at 1280px, dark/light with Lavender/System and
+Teal/Georgia. The fixture verifies keyboard Escape/focus return, 44px touch
+actions, search, removal, recovery, publication/export, usage references and
+catalog error/retry. Inspected captures show [mobile selection](assets/agent-tools-mobile-dark.png),
+[desktop selection](assets/agent-tools-desktop-light.png),
+[mobile tool browsing](assets/tool-library-mobile-light.png) and
+[desktop tool browsing](assets/tool-library-desktop-dark.png). These isolate the
+actual page from the shell, use a fixture checked against the real registrations,
+and start no backend or model. Full-app fixtures remain a separate CI gate.
+
 The Tool library keeps profile creation actions in the Agent library view. Profile
 usage remains unavailable while its catalog loads or fails; the shared status and
 error patterns show loading or an explicit Retry profiles action before usage
