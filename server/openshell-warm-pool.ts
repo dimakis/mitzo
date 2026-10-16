@@ -271,7 +271,11 @@ export class OpenShellWarmPool {
       if (!old.response) throw Error('Sandbox operation outcome unknown; refresh before retrying');
       return JSON.parse(old.response) as WarmPoolSnapshot;
     }
-    if (!this.adapter.available) throw Error(this.adapter.reason ?? 'Warm sandboxes unavailable');
+    if (
+      !this.adapter.available &&
+      !(r.action === 'settings' && !r.settings.enabled && this.snapshot().spares.length === 0)
+    )
+      throw Error(this.adapter.reason ?? 'Warm sandboxes unavailable');
     const s = this.reserve(r.revision);
     this.db
       .prepare('INSERT INTO warm_pool_requests(id,fingerprint) VALUES (?,?)')

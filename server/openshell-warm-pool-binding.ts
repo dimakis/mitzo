@@ -65,6 +65,7 @@ export async function claimWarmPoolForCommand(
 ) {
   if (
     !pool ||
+    !pool.adapter.available ||
     config.cliContract ||
     config.artifactDriverConfig ||
     config.sandboxNameOverride ||

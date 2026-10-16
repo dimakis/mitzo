@@ -45,7 +45,7 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
           (label === 'Chats' &&
             (pathname === '/chat' || pathname.startsWith('/chat/') || chatTerminal)) ||
           (label === 'Connections' && pathname === '/connections') ||
-          (label === 'More' && pathname === '/mockups') ||
+          (label === 'More' && ['/mockups', '/sandboxes'].includes(pathname)) ||
           (!desktop &&
             label === 'More' &&
             !chatTerminal &&

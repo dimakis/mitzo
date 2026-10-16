@@ -39,9 +39,10 @@ export function createWarmPoolAdapter(
   config: OpenShellRuntimeConfig,
   runner?: Run,
   prepareSeed = preparePublishedOpenShellSeed,
+  hostSignal?: AbortSignal,
 ): WarmPoolAdapter {
   const scope = warmPoolScope(config);
-  const run: Run =
+  const execute: Run =
     runner ??
     ((args, signal) =>
       new Promise((resolve, reject) =>
@@ -58,6 +59,8 @@ export function createWarmPoolAdapter(
           (e, stdout) => (e ? reject(e) : resolve(stdout)),
         ),
       ));
+  const run: Run = (args, signal) =>
+    execute(args, hostSignal ? AbortSignal.any([hostSignal, signal]) : signal);
   const base = [
     'sandbox',
     ...(config.gatewayEndpoint
