@@ -731,42 +731,18 @@ describe('misc', () => {
 // ─── session_takeover ────────────────────────────────────────────────────────
 
 describe('session_takeover', () => {
-  it('clears running and pending approvals and produces ERROR', () => {
-    const cb = makeCallbacks();
-    const r = parseServerMessage(
-      { type: 'session_takeover', sessionId: 'sess-1' },
-      makeState({ currentSessionId: 'sess-1' }),
-      cb,
-      POOL_KEY,
-    );
-    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
-    expect(r.messagesActions).toContainEqual({ type: 'CLEAR_PERMISSIONS' });
-    expect(r.messagesActions).toContainEqual(
-      expect.objectContaining({ type: 'ERROR', error: expect.stringContaining('another device') }),
-    );
-  });
-
-  it('honors a sequenced live takeover from an older server', () => {
-    const r = parseServerMessage(
-      { type: 'session_takeover', sessionId: 'sess-1', seq: 42 },
-      makeState({ currentSessionId: 'sess-1' }),
-      makeCallbacks(),
-      POOL_KEY,
-    );
-    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
-    expect(r.messagesActions).toContainEqual({ type: 'CLEAR_PERMISSIONS' });
-  });
-
-  it('ignores a takeover notice replayed from durable session history', () => {
-    const r = parseServerMessage(
-      { type: 'session_takeover', sessionId: 'sess-1', seq: 42, replayed: true },
-      makeState({ currentSessionId: 'sess-1' }),
-      makeCallbacks(),
-      POOL_KEY,
-    );
-
-    expect(r.messagesActions).toEqual([]);
-  });
+  it.each([{}, { seq: 42 }, { seq: 42, replayed: true }])(
+    'keeps shared conversation state intact for a legacy handoff notice %j',
+    (extra) => {
+      const r = parseServerMessage(
+        { type: 'session_takeover', sessionId: 'sess-1', ...extra },
+        makeState({ currentSessionId: 'sess-1' }),
+        makeCallbacks(),
+        POOL_KEY,
+      );
+      expect(r.messagesActions).toEqual([]);
+    },
+  );
 });
 
 // ─── reconnected callback ────────────────────────────────────────────────────

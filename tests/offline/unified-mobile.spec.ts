@@ -3482,7 +3482,7 @@ for (const appearance of [
 }
 
 for (const reducedMotion of ['no-preference', 'reduce'] as const) {
-  test(`chat activity live replies preserve grouping and keyboard focus with ${reducedMotion} motion`, async ({
+  test(`chat activity live replies and device handoffs preserve grouping and keyboard focus with ${reducedMotion} motion`, async ({
     page,
   }, testInfo) => {
     const sessionId = 'offline-activity-focus';
@@ -3549,6 +3549,13 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
     await expect.poll(() => Boolean(live.send)).toBe(true);
     live.send!({ type: 'message_start', messageId: 'reply' });
     live.send!({ type: 'block_start', messageId: 'reply', blockId: 'answer', blockType: 'text' });
+    live.send!({ type: 'session_state_changed', state: 'running' });
+    await expect(page.getByRole('button', { name: 'Stop generation', exact: true })).toBeVisible();
+    live.send!({ type: 'session_takeover' });
+    await expect(
+      page.getByText('Session resumed on another device.', { exact: false }),
+    ).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Stop generation', exact: true })).toBeVisible();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(read).toBeFocused();
     live.send!({

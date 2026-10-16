@@ -897,3 +897,23 @@ checks, the design guard, frontend type checking and focused lint pass. The full
 build exceeded the required 1 GiB local heap; full app build acceptance remains
 with CI. Shell-owned masthead/safe-area behavior is unchanged; these focused
 captures isolate the actual page without the shell. No deployment is performed.
+
+## Device continuity
+
+Phone and web remain subscribed to the same conversation when a new message
+moves runtime control between them. Handoffs keep pending approvals, streaming
+content and the local composer draft. Legacy `session_takeover` notices produce
+no transcript card or local idle transition. Reconnect restores delivery without
+displacing a connected driver; exact command retries cannot displace a live newer
+driver. A disconnected driver can still be recovered.
+
+The isolated offline `device-continuity.spec.ts` fixture uses the actual protocol
+parser, message reducer, ChatArea, permission card and ChatInput. All six checks
+pass on 320px WebKit/Chromium phones and 1280px desktop Chromium in light/dark
+with Teal/Georgia. It verifies live and replayed notices, retained approvals,
+continued streaming, composer content and keyboard focus. Inspected captures show
+[phone continuity](assets/device-continuity-mobile-dark.png) and
+[desktop continuity](assets/device-continuity-desktop-light.png). These focused
+renders omit the shell. The full-app activity fixture also covers a legacy
+handoff during a reply; broad app builds and browser acceptance remain in CI
+under the host's 1 GiB local heap limit. No backend or model is used.
