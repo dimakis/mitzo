@@ -359,3 +359,4 @@ export * from './telos-work.js';
 
 export * from './telos-work-api.js';
 export * from './telos-source.js';
+export * from './telos-outcome.js';

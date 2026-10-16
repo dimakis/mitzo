@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.193';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.194';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/telos-outcome.ts':
+    '2e02bc7096e531552c3eeec437f4e777d5b9a14089c3d6a9eb00b5d7942bf758',
   '../telos-source-routes.ts': '3d0da82d5b21f2a40f3a65865b8335ba5b24bc23eeb4c9eac455cfc13b02ac7c',
   '../../packages/protocol/src/telos-source.ts':
     '322c0e8deca79276d54e09896d89a775b4e9238618198628242c8bc9cf5a3c9a',
@@ -50,7 +52,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '29b0c05f64bc8555d35a759c7054a950cc70f57a7b49510262ae3b3b1e51f97a',
   '../../frontend/src/components/RetainedConversationComposer.tsx':
     '6be25f820dbf6770f063664ce19429fcfc986547cd8ef397f996a4294b8317d7',
-  '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
+  '../api-schemas.ts': '3da308057740950c819f0338f7f00cc6ad69b923d067ee6098a41fc6c5b3f80c',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent review compilation and metadata; execution remains disabled.
   '../collaboration-context-compiler.ts':
@@ -642,7 +644,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '14c336610475738863936b59fb51411c466a8f26291d390161006d851c60dcd8',
+    '7660cb69423bc782715d1dca85abf43f44c3d3202006a0f92214baa637ab095c',
   // Approved Telos workspace wire contracts only; no work/session runtime activation.
   '../../packages/protocol/src/telos-work.ts':
     'e3c01517b0fd4009f7e4b79a05a1d88935cc95aa3c70f4811298487868ffb7ae',
