@@ -48,3 +48,38 @@ it('launches an admitted source in its discovery directory rather than the chat 
     catalog.close();
   }
 });
+it('refuses changed output schemas before exposure even when the library has not refreshed', async () => {
+  const catalog = new ConfiguredToolCatalog(':memory:');
+  let outputSchema = { type: 'object' };
+  const close = vi.fn(async () => {});
+  const options = {
+    cwd: '/source',
+    env: {},
+    signal: new AbortController().signal,
+    readSources: () => ({
+      docs: { command: 'fake', librarySourceId: '11111111-1111-4111-8111-111111111111' },
+    }),
+    assertRuntimeCurrent: vi.fn(),
+    connect: async () => ({
+      listTools: async () => ({
+        tools: [{ name: 'search', inputSchema: { type: 'object' }, outputSchema }],
+      }),
+      callTool: vi.fn(),
+      close,
+    }),
+  };
+  try {
+    const ref = catalog.reference((await catalog.refresh(options))[0]);
+    outputSchema = { type: 'string' };
+    await expect(
+      (async () => {
+        const tools = await admitConfiguredTools(catalog, [ref], options);
+        await tools.close();
+        return tools;
+      })(),
+    ).rejects.toThrow(/definition changed/);
+    expect(close).toHaveBeenCalledTimes(2);
+  } finally {
+    catalog.close();
+  }
+});

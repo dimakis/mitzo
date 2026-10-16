@@ -39,6 +39,7 @@ export async function admitConfiguredTools(
       const descriptionPrefix = `mcp__${source}__${receipt.tool}: `;
       if (
         !tool ||
+        !isDeepStrictEqual(tool.descriptor, receipt.descriptor) ||
         !isDeepStrictEqual(
           {
             ...tool.definition,

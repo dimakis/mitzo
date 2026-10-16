@@ -243,3 +243,36 @@ it('retains the private source launch directory and rejects ambient launch-envir
     catalog.close();
   }
 });
+it('versions the full discovered descriptor including output schema and annotation changes', async () => {
+  const f = fixture();
+  const catalog = new ConfiguredToolCatalog(f.path);
+  let outputSchema = { type: 'object' };
+  const options = {
+    ...f.options,
+    connect: async () => ({
+      listTools: async () => ({
+        tools: [
+          {
+            name: 'search',
+            inputSchema: { type: 'object' },
+            outputSchema,
+            annotations: { readOnlyHint: true },
+          },
+        ],
+      }),
+      callTool: f.call,
+      close: f.close,
+    }),
+  };
+  try {
+    const original = (await catalog.refresh(options))[0];
+    outputSchema = { type: 'string' };
+    const changed = (await catalog.refresh(options))[0];
+    expect(changed.version).toBeGreaterThan(original.version);
+    expect(() => catalog.resolve(catalog.reference(original), options)).toThrow(
+      /changed|unavailable/,
+    );
+  } finally {
+    catalog.close();
+  }
+});
