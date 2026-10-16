@@ -742,7 +742,7 @@ function prependConfiguredVenvPaths(env: Record<string, string>): void {
 }
 
 /** Keep native provider environments narrow while preserving configured project runtimes. */
-function nativeExecutionEnv(): Record<string, string> {
+export function nativeExecutionEnv(): Record<string, string> {
   const env = restrictedChildEnv();
   prependConfiguredVenvPaths(env);
   return env;
@@ -2330,6 +2330,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         eventStore,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
+        configuredSourceEnv: nativeExecutionEnv(),
         agentContext,
         prepareAgentContext,
         onAgentContextAccepted: agentContext ? acceptAgentContext : undefined,
@@ -6330,6 +6331,7 @@ export async function startOwnedLocalResponsesCommand(
         eventStore,
         systemPrompt: selected.payload.systemPrompt,
         env,
+        configuredSourceEnv: nativeExecutionEnv(),
         mcpServers: loadMcpServers(),
         publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
           .filter(Boolean)
