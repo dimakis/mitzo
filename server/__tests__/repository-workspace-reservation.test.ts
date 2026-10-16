@@ -72,7 +72,7 @@ function deferred() {
   });
   return { promise, release };
 }
-async function fixture(ordinary = false) {
+async function fixture(ordinary: boolean | 'openshell' = false) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-workspace-reservation-')));
   roots.push(root);
   const source = join(root, 'source');
@@ -171,7 +171,7 @@ async function fixture(ordinary = false) {
       signal,
       ordinary
         ? {
-            runOn: 'local',
+            runOn: ordinary === 'openshell' ? 'openshell' : 'local',
             runtime: {
               account: {
                 accountId: binding.accountId,
@@ -1074,3 +1074,83 @@ it('silently prepares one ordinary workspace/session allocation and recovers exa
     events.close();
   }
 });
+
+it.each([
+  ['missing workdir', { sandboxWorkdir: undefined }],
+  ['relative workdir', { sandboxWorkdir: 'relative/workdir' }],
+  ['relative task root', { taskRoot: 'relative/tasks' }],
+  ['noncanonical task root', { taskRoot: '/task/../tasks' }],
+] as const)(
+  'rejects malformed silent OpenShell %s before claiming and accepts corrected input',
+  async (_name, invalid) => {
+    const { EventStore } = await import('../event-store.js');
+    const f = await fixture('openshell');
+    const events = new EventStore(join(f.root, 'events.db'));
+    const ledger = new Database(join(f.privateRoot, 'workspaces.db'), { readonly: true });
+    const before = f.service.get(f.input.id);
+    const definition = {
+      name: 'Agent',
+      descriptor: 'Fixture',
+      role: 'agent' as const,
+      instructions: 'Offline',
+      expectedOutput: 'Evidence',
+      acceptanceCriteria: ['Evidence'],
+      modelPolicyRole: 'agent' as const,
+    };
+    const selection = {
+      version: 1 as const,
+      agent: { profileId: 'agent', revision: 1 },
+      context: { source: 'none' as const, revision: null },
+      permission: { mode: 'agent' as const, revision: 0 },
+      model: binding.model,
+      thinking: null,
+    };
+    const input = {
+      allocationOperationId: 'allocation',
+      id: f.input.id,
+      binding,
+      taskRoot: f.taskRoot,
+      sandboxWorkdir: '/sandbox/workspaces/task',
+      settings: {
+        binding: {
+          ...ordinaryBinding(),
+          execution: { ...ordinaryBinding().execution, location: 'openshell' as const },
+        },
+        selection,
+        repositoryWorkspaceId: f.input.id,
+      },
+      agentProfile: {
+        profileId: 'agent',
+        revision: 1,
+        definition,
+        contentHash: requireDigest(definition),
+      },
+      signal: f.input.signal,
+    };
+    try {
+      await expect(
+        f.service.prepareOrdinarySession({ ...input, ...invalid }, events),
+      ).rejects.toThrow();
+      expect(
+        ledger.prepare('SELECT count(*) AS count FROM ordinary_preparation_allocations').get(),
+      ).toEqual({ count: 0 });
+      expect(f.service.get(input.id)).toEqual(before);
+      expect(events.getOrdinarySessionPreparation(input.allocationOperationId)).toBeUndefined();
+      const prepared = await f.service.prepareOrdinarySession(input, events);
+      expect(prepared.receipt).toMatchObject({
+        allocationOperationId: 'allocation',
+        workspaceId: input.id,
+        firstCommandId: null,
+      });
+      expect(
+        ledger.prepare('SELECT count(*) AS count FROM ordinary_preparation_allocations').get(),
+      ).toEqual({ count: 1 });
+      expect(await f.service.prepareOrdinarySession(input, events)).toEqual(prepared);
+      expect(events.getOrdinaryInitialCommandId(prepared.receipt.sessionId)).toBeUndefined();
+      expect(copy.calls).not.toHaveBeenCalled();
+    } finally {
+      ledger.close();
+      events.close();
+    }
+  },
+);

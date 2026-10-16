@@ -306,6 +306,12 @@ export class RepositoryWorkspaces {
     const selected = structuredClone({ ...input, signal: undefined });
     reservationReference.parse(selected.allocationOperationId);
     const settings = OrdinarySilentPreparationSelectionSchema.parse(selected.settings);
+    // Reject malformed route inputs before the allocation becomes durably owned.
+    if (
+      settings.binding.execution.location === 'openshell' &&
+      (!selected.sandboxWorkdir || !isAbsolute(selected.sandboxWorkdir))
+    )
+      throw Error('Original ordinary sandbox workdir required');
     const profile = AgentLibraryVersionSchema.parse(selected.agentProfile);
     if (
       !isDeepStrictEqual(
@@ -350,6 +356,8 @@ export class RepositoryWorkspaces {
       runtimeBinding: settings.binding,
       commandFingerprint: preparationFingerprint,
     };
+    // Reuse the reservation owner's pure ID/account/path checks before claiming.
+    this.snapshotHostInput(reservation);
     const signal = input.signal;
     signal.throwIfAborted();
     const assertSilent = async (current: RepositoryWorkspace) => {
@@ -388,10 +396,8 @@ export class RepositoryWorkspaces {
       const descriptor = await this.reserveHostTask({ ...reservation, signal });
       cwd = descriptor.directory;
     } else {
-      if (!selected.sandboxWorkdir || !isAbsolute(selected.sandboxWorkdir))
-        throw Error('Original ordinary sandbox workdir required');
       await this.reserveOrdinarySandboxTask({ ...reservation, signal });
-      cwd = selected.sandboxWorkdir;
+      cwd = selected.sandboxWorkdir!;
     }
     const current = this.getHostRecord(selected.id);
     await this.authorizeHostRecord(current, selected.binding, signal);
