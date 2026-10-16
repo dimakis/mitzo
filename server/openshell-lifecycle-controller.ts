@@ -127,6 +127,7 @@ function managerFor(record: OpenShellLifecycleRecord) {
   return new OpenShellRuntimeManager({
     ...config,
     sandboxNameOverride: record.sandboxName,
+    connectionAccountId: record.identity.accountId,
     account: route(record.identity),
   });
 }

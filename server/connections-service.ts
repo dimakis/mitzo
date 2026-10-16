@@ -1,3 +1,4 @@
+import { warmPoolConnectionAccount } from './openshell-warm-pool-binding.js';
 import {
   ConnectionStore,
   ConnectionAssignmentConflictError,
@@ -459,7 +460,9 @@ export class ConnectionsService {
     for (const name of await this.gateway.attachments(c.gatewayProviderName, signal)) {
       if (removedAccounts) {
         const info = await this.gateway.sandbox(name, signal);
-        const account = info?.labels?.['mitzo.connection_account'];
+        const account = info?.labels?.['mitzo.warm_pool']
+          ? await warmPoolConnectionAccount(info, c.gateway, c.workspace, signal)
+          : info?.labels?.['mitzo.connection_account'];
         if (account && !removedAccounts.includes(account)) continue;
       }
       await this.gateway.stopSandbox(name, signal);

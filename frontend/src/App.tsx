@@ -1,3 +1,4 @@
+import { SandboxesView } from './pages/SandboxesView';
 import { TerminalView } from './pages/TerminalView';
 import { SettingsView } from './pages/SettingsView';
 import { DraftsView } from './pages/DraftsView';
@@ -184,6 +185,16 @@ export function App() {
                     <ProtectedRoute>
                       <PageRoute>
                         <SessionList />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/sandboxes"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <SandboxesView />
                       </PageRoute>
                     </ProtectedRoute>
                   }
