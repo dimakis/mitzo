@@ -365,7 +365,7 @@ test('motion: closing menus hold their final frame without flashing or moving ch
 }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
-    const finishes: { opacity: string; height: number }[] = [];
+    const finishes: { kind: string; opacity: string; height: number }[] = [];
     Object.assign(window, { exitFrames: finishes });
     const original = HTMLElement.prototype.animate;
     HTMLElement.prototype.animate = function (frames, options) {
@@ -376,6 +376,7 @@ test('motion: closing menus hold their final frame without flashing or moving ch
         void animation.finished
           .then(() =>
             finishes.push({
+              kind: animation.id,
               opacity: getComputedStyle(this).opacity,
               height: this.getBoundingClientRect().height,
             }),
@@ -453,16 +454,16 @@ test('motion: closing menus hold their final frame without flashing or moving ch
     () =>
       (
         window as Window & {
-          exitFrames: { opacity: string; height: number }[];
+          exitFrames: { kind: string; opacity: string; height: number }[];
         }
       ).exitFrames,
   );
   expect(frames).toHaveLength(4);
   expect(frames.every((frame) => Number(frame.opacity) === 0)).toBe(true);
-  // Disclosure endpoints must stay collapsed until the hidden attribute commits.
-  expect(frames.filter((_, index) => index % 2 === 1).every((frame) => frame.height < 3)).toBe(
-    true,
-  );
+  // Both the composer menu and compact settings are popovers: they retain
+  // their full geometry while the transparent exit frame awaits React's hide.
+  expect(frames.every((frame) => frame.kind === 'mitzo:popover')).toBe(true);
+  expect(frames.every((frame) => frame.height > 0)).toBe(true);
 });
 
 test('composer: commands use a quiet icon with discoverable labels', async ({ page }, testInfo) => {

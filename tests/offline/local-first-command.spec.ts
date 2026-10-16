@@ -468,19 +468,20 @@ test('Local first command: restored Local remains visible and blocked with gate 
 
 async function assertWorkspaceHeadingFits(page: Page) {
   const toggle = page.getByRole('button', { name: /^Workspace controls/ });
-  const [heading, status, arrow, access] = await Promise.all([
+  const [context, settings, icon, access] = await Promise.all([
+    page.locator('.workspace-controls-context').boundingBox(),
     toggle.boundingBox(),
-    toggle.locator('.conversation-state').boundingBox(),
-    toggle.locator(':scope > svg:last-child').boundingBox(),
+    toggle.locator('[data-icon="settings"]').boundingBox(),
     page.getByRole('button', { name: 'Access', exact: true }).boundingBox(),
   ]);
-  expect(heading).not.toBeNull();
-  expect(status).not.toBeNull();
-  expect(arrow).not.toBeNull();
+  expect(context).not.toBeNull();
+  expect(settings).not.toBeNull();
+  expect(icon).not.toBeNull();
   expect(access).not.toBeNull();
-  expect(status!.x + status!.width).toBeLessThanOrEqual(heading!.x + heading!.width + 1);
-  expect(arrow!.x + arrow!.width).toBeLessThanOrEqual(heading!.x + heading!.width + 1);
-  expect(heading!.x + heading!.width).toBeLessThanOrEqual(access!.x);
+  expect(context!.x + context!.width).toBeLessThanOrEqual(settings!.x + 1);
+  expect(icon!.x + icon!.width).toBeLessThanOrEqual(settings!.x + settings!.width + 1);
+  expect(settings!.x + settings!.width).toBeLessThanOrEqual(access!.x);
+  expect(access!.x + access!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 }
 
 test('Local first command: metadata failure stays blocked and Retry restores the bound controls', async ({
@@ -499,12 +500,10 @@ test('Local first command: metadata failure stays blocked and Retry restores the
     await page.setViewportSize({ width: 320, height: 740 });
   await page.goto(`/chat/${sessionId}`);
   const workspace = page.getByRole('button', { name: /^Workspace controls/ });
-  await expect(workspace.locator('.conversation-state')).toHaveText(
-    'Loading conversation settings',
-  );
+  await expect(workspace).toHaveAccessibleDescription('Loading conversation settings');
   await assertWorkspaceHeadingFits(page);
   releaseInitialMetadata();
-  await expect(workspace.locator('.conversation-state')).toHaveText('Needs review');
+  await expect(workspace).toHaveAccessibleDescription('Needs review');
   await openAgentSettings(page);
   await expect(
     page.getByRole('alert').filter({ hasText: 'Conversation settings are unavailable' }),
@@ -516,7 +515,7 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   await expect(page.getByRole('button', { name: 'Add agent', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reusable profile drafts' })).toHaveCount(0);
   await page.getByText('More settings', { exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Open review findings' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Open review findings' })).toHaveCount(0);
   for (const mode of ['Ask', 'Agent', 'Auto']) {
     const control = page.getByRole('button', { name: mode, exact: true });
     if (await control.count()) await expect(control).toBeDisabled();
@@ -529,7 +528,7 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   await page.getByRole('button', { name: 'Retry conversation settings' }).press('Enter');
   await openAgentSettings(page);
   await assertBoundRunOn(page, 'local', true);
-  await expect(workspace.locator('.conversation-state')).toHaveText('First command');
+  await expect(workspace).toHaveAccessibleDescription('First command');
   await assertWorkspaceHeadingFits(page);
   await expect(
     page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
@@ -788,8 +787,8 @@ test('OpenShell conversation: default route starts and continues without legacy 
   // The draft composer is replaced when session metadata binds the conversation.
   // Open settings on that bound composer, rather than the outgoing draft.
   await expect(
-    page.getByRole('button', { name: /^Workspace controls/ }).locator('.conversation-state'),
-  ).toHaveText('Conversation');
+    page.getByRole('button', { name: /^Workspace controls/ }),
+  ).toHaveAccessibleDescription('Conversation');
   await openAgentSettings(page);
   await assertBoundRunOn(page, 'openshell');
   await expect.poll(() => fixture.requests.length).toBe(1);
@@ -816,7 +815,7 @@ test('OpenShell conversation: default route starts and continues without legacy 
   await expect(page).toHaveURL(/\/chat\?draft=/);
   await expect.poll(() => fixture.attachments.at(-1)).toBe(null);
   const newWorkspace = page.getByRole('button', { name: /^Workspace controls/ });
-  await expect(newWorkspace.locator('.conversation-state')).toHaveText('First command');
+  await expect(newWorkspace).toHaveAccessibleDescription('First command');
   await expect(newWorkspace).toHaveAttribute('aria-expanded', 'false');
   await openAgentSettings(page);
   await expect(page.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
