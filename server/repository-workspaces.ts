@@ -3,6 +3,7 @@ import type { EventStore } from './event-store.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
 import {
   AgentLibraryVersionSchema,
+  OrdinaryOpenShellCommandAdmissionSchema,
   type AgentLibraryVersion,
   type CollaborationSettings,
 } from '@mitzo/protocol';
@@ -306,12 +307,11 @@ export class RepositoryWorkspaces {
     const selected = structuredClone({ ...input, signal: undefined });
     reservationReference.parse(selected.allocationOperationId);
     const settings = OrdinarySilentPreparationSelectionSchema.parse(selected.settings);
-    // Reject malformed route inputs before the allocation becomes durably owned.
-    if (
-      settings.binding.execution.location === 'openshell' &&
-      (!selected.sandboxWorkdir || !isAbsolute(selected.sandboxWorkdir))
-    )
-      throw Error('Original ordinary sandbox workdir required');
+    // Use the ordinary dispatch owner's exact workdir contract before claiming.
+    if (settings.binding.execution.location === 'openshell')
+      OrdinaryOpenShellCommandAdmissionSchema.shape.workspace.shape.cwd.parse(
+        selected.sandboxWorkdir,
+      );
     const profile = AgentLibraryVersionSchema.parse(selected.agentProfile);
     if (
       !isDeepStrictEqual(
