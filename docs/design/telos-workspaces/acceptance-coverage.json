@@ -1,0 +1,458 @@
+[
+  {
+    "id": "UX01",
+    "slices": ["S7"],
+    "owner": "a4d34a98b4d20bbc",
+    "testFile": "frontend/src/pages/__tests__/TodoView.test.tsx",
+    "testCase": "All outcomes, pins, discovered categories and contextual search",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX02",
+    "slices": ["S2", "S7"],
+    "owner": "b5cd51ac8a56007f",
+    "testFile": "server/__tests__/telos-work-store.test.ts",
+    "testCase": "Explicit recursive kinds, parent ownership, cycle and stale-write refusal",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX03",
+    "slices": ["S7", "S8"],
+    "owner": "a4d34a98b4d20bbc",
+    "testFile": "frontend/src/pages/__tests__/TodoDetailView.test.tsx",
+    "testCase": "One back chevron restores category, search, item and chat-list navigation state",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX04",
+    "slices": ["S3", "S7"],
+    "owner": "4f55b423d0731750",
+    "testFile": "frontend/src/pages/__tests__/TodoDetailView.test.tsx",
+    "testCase": "Original outcome, rationale, criteria, task hint, context and dates",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX05",
+    "slices": ["S4", "S8"],
+    "owner": "2f58567a6c487079",
+    "testFile": "frontend/src/components/__tests__/ChatExecutionPicker.test.tsx",
+    "testCase": "Ordinary agent, account, model, thinking, Run on and derived Runs with",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX06",
+    "slices": ["S3", "S4"],
+    "owner": "b5cd51ac8a56007f",
+    "testFile": "server/__tests__/telos-work-tools.test.ts",
+    "testCase": "Source-only Home studio does not acquire a lead from its origin or session hints",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX07",
+    "slices": ["S2", "S3"],
+    "owner": "4f55b423d0731750",
+    "testFile": "server/__tests__/telos-work-source.test.ts",
+    "testCase": "Bidirectional original-exchange navigation and immutable adopted context",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX08",
+    "slices": ["S4", "S8"],
+    "owner": "c0851ba23fcc5d04",
+    "testFile": "frontend/src/components/__tests__/TelosAdvisor.test.tsx",
+    "testCase": "Full ordinary Refine/Add child advisor, exact context and retained discussion",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX09",
+    "slices": ["S4", "S5"],
+    "owner": "86255ad3cd29fcf1",
+    "testFile": "server/__tests__/telos-work-tools.test.ts",
+    "testCase": "Lead mandate and host scope deny implicit child execution",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX10",
+    "slices": ["S5"],
+    "owner": "2d80ca5c140bac5f",
+    "testFile": "server/__tests__/telos-work-delegation.test.ts",
+    "testCase": "Start exact first slice once, return worker link and remain in lead chat",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX11",
+    "slices": ["S2", "S4", "S5"],
+    "owner": "86255ad3cd29fcf1",
+    "testFile": "server/__tests__/telos-work-delegation.test.ts",
+    "testCase": "Worker pins reviewed brief, parent criteria, source revisions and lead return path",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX12",
+    "slices": ["S8"],
+    "owner": "a4d34a98b4d20bbc",
+    "testFile": "frontend/src/components/__tests__/TelosChatList.test.tsx",
+    "testCase": "Initial multiple-chat list has no selection; regular chat and Back restore list",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX13",
+    "slices": ["S4", "S8"],
+    "owner": "a4d34a98b4d20bbc",
+    "testFile": "frontend/src/components/__tests__/TelosChatList.test.tsx",
+    "testCase": "Single non-origin direct entry, source-only setup and unique linked-chat count",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX14",
+    "slices": ["S2", "S4", "S8"],
+    "owner": "b5cd51ac8a56007f",
+    "testFile": "server/__tests__/telos-work-store.test.ts",
+    "testCase": "New chat differs from assignment replacement; previous chats survive",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX15",
+    "slices": ["S2", "S4", "S8"],
+    "owner": "2f58567a6c487079",
+    "testFile": "frontend/src/components/__tests__/TelosChatList.test.tsx",
+    "testCase": "Independent drafts/settings/history survive navigation and restart; review does not reassign",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX16",
+    "slices": ["S8"],
+    "owner": "a4d34a98b4d20bbc",
+    "testFile": "frontend/src/components/__tests__/TelosChatList.test.tsx",
+    "testCase": "Compact ordinary header plus slim item/chats/tree row; closed tree restores full transcript",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX17",
+    "slices": ["S6"],
+    "owner": "86255ad3cd29fcf1",
+    "testFile": "server/__tests__/telos-work-coordination.test.ts",
+    "testCase": "Coordinator routes scoped holds through leads with requested/acknowledged/applied/released evidence",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX18",
+    "slices": ["S6"],
+    "owner": "86255ad3cd29fcf1",
+    "testFile": "server/__tests__/telos-work-coordination.test.ts",
+    "testCase": "Unrelated Job outcome continues; publication release requires current-main revalidation",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX19",
+    "slices": ["S3", "S7"],
+    "owner": "4f55b423d0731750",
+    "testFile": "server/__tests__/telos-work-source.test.ts",
+    "testCase": "Retained material bytes/hash/revisions and real dates; outputs, sources and links remain distinct",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX20",
+    "slices": ["S2", "S3"],
+    "owner": "b5cd51ac8a56007f",
+    "testFile": "server/__tests__/telos-work-migration.test.ts",
+    "testCase": "Repeatable lossless legacy transfer and backup restore; unknown provenance remains unknown",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX21",
+    "slices": ["S2", "S5"],
+    "owner": "2d80ca5c140bac5f",
+    "testFile": "server/__tests__/telos-work-delegation.test.ts",
+    "testCase": "Duplicate command, timeout, crash after allocation and explicit retry retain original attempt",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX22",
+    "slices": ["S4", "S8"],
+    "owner": "c44884c370d26704",
+    "testFile": "tests/browser/telos-workspaces.spec.ts",
+    "testCase": "Shared ordinary renderer retains Resources/context/Access/voice/skills/attachments/queue/stop/interrupt/reconnect",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX23",
+    "slices": ["S1", "S9"],
+    "owner": "4f55b423d0731750",
+    "testFile": "tests/browser/telos-workspaces.spec.ts",
+    "testCase": "Retrieve frozen artifact by ID/revision/hash and compare approved appearance and transitions",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  },
+  {
+    "id": "UX24",
+    "slices": ["S7", "S8", "S9"],
+    "owner": "a4d34a98b4d20bbc",
+    "testFile": "tests/browser/telos-workspaces.spec.ts",
+    "testCase": "Desktop and mobile at 320px and approved widths; keyboard/touch and full-width chat",
+    "status": "planned",
+    "desktopEvidence": null,
+    "mobileEvidence": null,
+    "runtimeEvidence": null,
+    "retainedEvidence": null,
+    "pr": null,
+    "commit": null,
+    "reference": {
+      "id": "9d0559132154b92d0bbb427a982a0002",
+      "revision": 1,
+      "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+    }
+  }
+]
