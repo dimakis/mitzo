@@ -106,3 +106,5 @@ remain outstanding. No model calls, staging operations or deployment occurred.
 ## Review fixes
 
 Centaur CEN-93D148A5595A and CEN-3DB3CAFDAFC9 are covered by failing-then-passing tests using the actual `EventStore.hideSession` deletion path and a later conversation-policy change. The shared production predicate excludes hidden chats from new work, assignment and lead eligibility while preserving their history. Item and backlink projections both compute current availability; no stored historical attribution is rewritten. Accepted main #967 is integrated, with its UI changes and manifest hashes preserved.
+
+Accepted main integrations preserve #971 compact settings, #972 Agents design, #979 recoverable tool errors and #964 bounded context compiler. Their source bindings remain intact alongside the S2 bindings; this slice adds no rendered UI or execution enrollment. Final source is based on accepted compiler merge `9fc335d788a4517d17362531e17c17abc51e8987`.
