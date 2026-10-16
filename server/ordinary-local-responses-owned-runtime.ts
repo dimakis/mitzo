@@ -1,3 +1,4 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile as readResponsesAgentProfile } from './ordinary-codex-agent-profile.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
 import { GoogleAuth } from 'google-auth-library';
@@ -690,6 +691,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       request.selection.permission.revision !== 0
     )
       throw unavailable();
+    assertAgentToolRoute(profile.definition, 'local-api');
     const frozenPayload = { ...payload, systemPrompt: buildAgentProfilePrompt(profile.definition) };
     const admittedRequest = { ...request, payload: frozenPayload };
     const selected = new OrdinaryLocalCodexSelectionOwner({

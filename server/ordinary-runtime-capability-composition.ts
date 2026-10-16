@@ -26,7 +26,8 @@ interface Source {
         | 'provider_incompatible'
         | 'sandbox_context_preset_unconfigured'
         | 'native_pack_context_unavailable'
-        | 'native_context_unavailable';
+        | 'native_context_unavailable'
+        | 'tool_selection_unavailable';
     }[];
   }[];
 }

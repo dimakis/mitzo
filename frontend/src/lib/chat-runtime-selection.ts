@@ -145,6 +145,8 @@ export function evaluateChatRuntimeSelection(
             sameProfile(rejection.agent, selection.agentProfile),
           );
           const reasons: Record<string, string> = {
+            tool_selection_unavailable:
+              'This agent’s tool selection requires a local OpenAI Responses or Gemini/Vertex API chat. Choose a supported route or another profile.',
             provider_incompatible:
               'This agent excludes the selected account provider. Choose another agent or account explicitly.',
             sandbox_context_preset_unconfigured:

@@ -45,7 +45,9 @@ export function ordinaryCodexAgentProfileRouteProjection(
   provider: string,
   location: 'local' | 'openshell',
   presets?: SandboxAgentPresets,
-  policy: { contextRecipes: 'supported' | 'none' } = { contextRecipes: 'supported' },
+  policy: { contextRecipes: 'supported' | 'none'; toolSelection?: boolean } = {
+    contextRecipes: 'supported',
+  },
 ) {
   const agentProfiles: AgentProfileSelection[] = [];
   const agentProfileRejections: {
@@ -54,7 +56,8 @@ export function ordinaryCodexAgentProfileRouteProjection(
       | 'provider_incompatible'
       | 'sandbox_context_preset_unconfigured'
       | 'native_pack_context_unavailable'
-      | 'native_context_unavailable';
+      | 'native_context_unavailable'
+      | 'tool_selection_unavailable';
   }[] = [];
   for (const profile of profiles) {
     const agent = {
@@ -64,18 +67,22 @@ export function ordinaryCodexAgentProfileRouteProjection(
     };
     const recipe = profile.definition.contextRecipe;
     const reason =
-      profile.definition.recipe &&
-      !profile.definition.recipe.compatibleProviders.some((candidate) => candidate === provider)
-        ? 'provider_incompatible'
-        : recipe && policy.contextRecipes === 'none'
-          ? 'native_context_unavailable'
-          : recipe?.source === 'packs'
-            ? 'native_pack_context_unavailable'
-            : recipe?.source === 'contexgin' &&
-                location === 'openshell' &&
-                !presets?.[recipe.agentName]
-              ? 'sandbox_context_preset_unconfigured'
-              : undefined;
+      profile.definition.tools !== undefined && (!policy.toolSelection || location !== 'local')
+        ? 'tool_selection_unavailable'
+        : profile.definition.recipe &&
+            !profile.definition.recipe.compatibleProviders.some(
+              (candidate) => candidate === provider,
+            )
+          ? 'provider_incompatible'
+          : recipe && policy.contextRecipes === 'none'
+            ? 'native_context_unavailable'
+            : recipe?.source === 'packs'
+              ? 'native_pack_context_unavailable'
+              : recipe?.source === 'contexgin' &&
+                  location === 'openshell' &&
+                  !presets?.[recipe.agentName]
+                ? 'sandbox_context_preset_unconfigured'
+                : undefined;
     if (reason) agentProfileRejections.push({ agent, reason });
     else agentProfiles.push(agent);
   }
