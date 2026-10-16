@@ -314,7 +314,9 @@ test('Approved composer retains a long trusted agent name without horizontal ove
   await composer.fill(draft);
   const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   await expect(page.locator('.workspace-controls-context > span')).toContainText(name);
-  await expect(trigger).toHaveAccessibleName(new RegExp(`^Workspace controls, ${name}(?:,|$)`));
+  await expect(trigger).toHaveAccessibleName(
+    new RegExp(`^Workspace controls, Settings, ${name}(?:,|$)`),
+  );
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 740 });
     const geometry = await trigger.evaluate((element) => {
@@ -422,7 +424,7 @@ for (const appearance of ['light', 'dark'] as const) {
       'Repository helper',
     );
     await expect(trigger).toHaveAccessibleName(
-      /Workspace controls, Repository helper, API billing, Shell model, high/,
+      /Workspace controls, Settings, Repository helper, API billing, Shell model, high/,
     );
     await expect(page.locator('.chat-input .agent-settings-picker')).toHaveCount(0);
     await openAgentSettings(page);
