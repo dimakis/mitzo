@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import express from 'express';
 import request from 'supertest';
@@ -129,6 +129,86 @@ function fixture() {
   return { app, events, selection, dbPath, post, createOutcome };
 }
 describe('authenticated Telos source capture API', () => {
+  it('refuses attached saved source snapshots before retaining or creating work', async () => {
+    const f = fixture();
+    const content = 'The exact saved briefing content.';
+    const sequence = f.events.append('origin', 'user_message', {
+      messageId: 'saved-briefing',
+      text: 'Discuss this saved briefing.',
+      sourceSnapshots: [
+        {
+          kind: 'briefing',
+          date: '2026-10-16',
+          revision: createHash('sha256').update(content).digest('hex'),
+          content,
+        },
+      ],
+    });
+    const selection = {
+      ...f.selection,
+      boundary: { sequence, messageId: 'saved-briefing' },
+      messageIds: ['saved-briefing'],
+    };
+    const outcome = {
+      summary: 'Reviewed outcome',
+      intent: 'Deliver it',
+      rationale: 'Why',
+      acceptanceCriteria: ['Evidence'],
+      profile: 'manual',
+      milestones: ['Slice one'],
+    };
+    for (const mode of ['selected', 'conversation_so_far']) {
+      const selected = {
+        ...selection,
+        mode,
+        messageIds: mode === 'selected' ? selection.messageIds : [],
+      };
+      const requests = [
+        ['preview', { itemId: 'item', selection: selected }],
+        [
+          'adopt',
+          {
+            itemId: 'item',
+            selection: selected,
+            requestId: 'adopt-source',
+            expectedRevision: '0'.repeat(64),
+            previewSha256: '0'.repeat(64),
+          },
+        ],
+        ['outcome/preview', { requestId: 'new-source', outcome, selection: selected }],
+        [
+          'outcome/create',
+          { requestId: 'new-source', outcome, selection: selected, previewSha256: '0'.repeat(64) },
+        ],
+      ] as const;
+      for (const [action, input] of requests) {
+        const response = await f.post(action, input);
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('invalid');
+        expect(response.body.error).toMatch(/source snapshots.*retained materials/);
+      }
+    }
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    expect(f.events.listSessions()).toHaveLength(1);
+    const db = new Database(f.dbPath());
+    try {
+      expect(db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+      for (const table of [
+        'telos_artifact_revisions',
+        'telos_work_sources',
+        'telos_work_links',
+        'telos_work_assignments',
+        'telos_work_attempts',
+        'telos_work_allocation_outbox',
+        'telos_work_source_creations',
+        'telos_work_commands',
+      ])
+        expect(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table).toEqual({ n: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
   it('reports unsupported inline images as an actionable selection error without creating work', async () => {
     const f = fixture();
     const sequence = f.events.append('origin', 'user_message', {

@@ -83,6 +83,32 @@ function fixture() {
 }
 
 describe('Telos adapter for the existing authorized context compiler', () => {
+  it('refuses captured saved source snapshots while allowing unrelated text at the same boundary', async () => {
+    const f = fixture();
+    const content = 'The exact saved morning briefing.';
+    const sequence = f.append('user_message', {
+      messageId: 'saved-briefing',
+      text: 'Discuss this saved briefing.',
+      sourceSnapshots: [
+        {
+          kind: 'briefing',
+          date: '2026-10-16',
+          revision: createHash('sha256').update(content).digest('hex'),
+          content,
+        },
+      ],
+    });
+    const selection = { ...f.selection, boundary: { sequence, messageId: 'saved-briefing' } };
+    await expect(
+      f.source.openConversation({ ...selection, mode: 'conversation_so_far', messageIds: [] }),
+    ).rejects.toThrow(/source snapshots.*retained materials/);
+    await expect(
+      f.source.openConversation({ ...selection, messageIds: ['saved-briefing'] }),
+    ).rejects.toThrow(/source snapshots.*retained materials/);
+    const narrow = await f.source.openConversation({ ...selection, messageIds: ['answer'] });
+    expect((await narrow.readSelected(['answer'])).map((m) => m.messageId)).toEqual(['answer']);
+  });
+
   it('refuses inline images in captured content rather than claiming a complete text-only exchange', async () => {
     const f = fixture();
     const sequence = f.append('user_message', {

@@ -141,6 +141,16 @@ export function createTelosConversationSource(options: {
                   'invalid',
                   'Select text messages and save inline images as retained materials before capturing.',
                 );
+              if (
+                (selection.mode === 'conversation_so_far' || wanted.has(id)) &&
+                event.payload.sourceSnapshots !== undefined &&
+                (!Array.isArray(event.payload.sourceSnapshots) ||
+                  event.payload.sourceSnapshots.length > 0)
+              )
+                throw new TelosWorkError(
+                  'invalid',
+                  'Select text messages and save attached source snapshots as retained materials before capturing.',
+                );
               if (typeof event.payload.text !== 'string') refuse();
               textBytes += Buffer.byteLength(event.payload.text);
               if (textBytes > MAX_BYTES) refuse();

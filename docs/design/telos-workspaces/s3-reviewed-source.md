@@ -21,9 +21,12 @@ native seat/account attribution. Thinking, tool/private extensions and unfinishe
 replies are excluded. Hidden/imported conversations and ambiguous message IDs
 are refused. Full-prefix capture uses the compiler's complete bounded witness;
 selected artifacts resolve exact retained revisions and verified bytes. Inline
-image attachments cannot silently disappear from a full/text source selection:
-the caller must select textual messages and retain image materials explicitly. Mutable
-unversioned material links cannot stand in for a full-prefix capture witness.
+images and attached saved source snapshots (including a briefing's exact bytes,
+date and revision) cannot silently disappear from a full/text source selection.
+Capture refuses a selected message containing these attachments with advice to
+retain them as materials. An unrelated textual selection remains available even
+when its later boundary message carries attachments. Mutable unversioned material
+links cannot stand in for a full-prefix capture witness.
 
 Preview writes no item, assignment, session allocation or model turn. Adoption
 retains a versioned source packet through `TelosArtifactStore`, then commits its
@@ -43,6 +46,14 @@ is refused. Uncertain saves stay uncertain; saving never dispatches execution.
 The original legacy create tool also uses its real registered chat ID, refusing
 stale client bindings. It records a proven origin while leaving any unrecorded
 reviewed selection unknown. Internal tokens confer no operator source authority.
+
+These reviewed preview/create/adopt routes and typed client methods are an API
+foundation. The production frontend does not yet call `previewSource`,
+`previewOutcomeSource`, `createOutcomeFromSource` or `adoptSource`; the existing
+creation flows retain their current owners. The frontend integration below reads
+and opens already retained sources. API tests prove reviewed capture through real
+temporary stores, but they do not establish an approved end-user capture flow.
+That frontend caller and its ordinary-chat journey remain outstanding S3 work.
 
 ## Sources, Outputs and Links
 
@@ -72,7 +83,8 @@ one compact contextual row, on mobile and desktop. The original conversation's
 Resources also lists every recorded item association, including shared origins.
 The existing transcript, composer draft, settings and Resources stay intact.
 Known legacy origins can open their real chat while explicitly preserving an
-unknown reviewed exchange. Unavailable origins never start replacement chats.
+unknown reviewed exchange, including when an unknown source snapshot names the
+same conversation. Unavailable origins never start replacement chats.
 
 S7/S8 still own the complete frozen workspace/tree, category pins, child advisor,
 lead controls, many-chat entry chooser and the complete slim item/chats/work row.
@@ -88,6 +100,8 @@ full-prefix pagination, exact material revisions, native attribution, shared
 origins, stale previews, immutable brief/content retention, cross-owner failures,
 canonical link loss, retry/restart, backup restore and zero execution allocation.
 New creation refuses duplicate canonical references before review/creation.
+Attachment refusal tests cover both selected and full-prefix messages and verify
+that rejection creates no item, packet, relationship, assignment or allocation.
 Legacy DTO round trips and retained artifact revision checks remain in #977.
 
 The scoped browser fixture uses the real changed frontend components and actual

@@ -115,3 +115,98 @@ it('opens a known legacy origin while keeping the unrecorded reviewed exchange u
   await screen.findByText('/chat/planning');
   expect(screen.getByText('Reviewed exchange unknown')).toBeTruthy();
 });
+
+it('keeps a known legacy origin openable beside its unknown reviewed selection', async () => {
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue({
+    sources: [{ ...source, selection: { kind: 'unknown' } }],
+    links: [
+      {
+        role: 'origin',
+        conversation: source.source,
+        availability: 'available',
+      },
+    ],
+  } as never);
+  render(
+    <MemoryRouter>
+      <TelosItemSources itemId="studio" legacySources={[]} onOpenExternal={() => {}} />
+      <Path />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Open original chat' }));
+  await screen.findByText('/chat/planning');
+  expect(screen.getAllByText('Reviewed exchange unknown').length).toBeGreaterThan(0);
+  expect(screen.getByText(/Source date unknown/)).toBeTruthy();
+});
+
+it('shows one opener when the reviewed snapshot already opens its origin', async () => {
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue({
+    sources: [source],
+    links: [
+      {
+        role: 'origin',
+        conversation: source.source,
+        availability: 'available',
+      },
+    ],
+  } as never);
+  render(
+    <MemoryRouter>
+      <TelosItemSources itemId="studio" legacySources={[]} onOpenExternal={() => {}} />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'Open original chat' });
+  expect(screen.getAllByRole('button', { name: 'Open original chat' })).toHaveLength(1);
+  expect(screen.queryByText('Reviewed exchange unknown')).toBeNull();
+});
+
+it('retains the external origin opener without treating it as a Mitzo conversation', async () => {
+  const external = vi.fn();
+  const conversation = {
+    namespace: 'external_codex',
+    conversationId: 'external-planning',
+    url: 'codex://threads/external-planning',
+  };
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue({
+    sources: [{ ...source, source: conversation, selection: { kind: 'unknown' } }],
+    links: [{ role: 'origin', conversation, availability: 'unknown' }],
+  } as never);
+  const readSource = vi.spyOn(TelosWorkApiClient.prototype, 'readSource');
+  render(
+    <MemoryRouter initialEntries={['/todos/studio']}>
+      <TelosItemSources itemId="studio" legacySources={[]} onOpenExternal={external} />
+      <Path />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Open original chat' }));
+  expect(external).toHaveBeenCalledWith(conversation.url);
+  expect(readSource).not.toHaveBeenCalled();
+  expect(screen.getByText('/todos/studio')).toBeTruthy();
+});
+
+it('keeps an unavailable legacy origin visible and disabled beside its unknown selection', async () => {
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue({
+    sources: [{ ...source, selection: { kind: 'unknown' } }],
+    links: [
+      {
+        role: 'origin',
+        conversation: source.source,
+        availability: 'unavailable',
+      },
+    ],
+  } as never);
+  const readSource = vi.spyOn(TelosWorkApiClient.prototype, 'readSource');
+  render(
+    <MemoryRouter initialEntries={['/todos/studio']}>
+      <TelosItemSources itemId="studio" legacySources={[]} onOpenExternal={() => {}} />
+      <Path />
+    </MemoryRouter>,
+  );
+  const opener = (await screen.findByRole('button', {
+    name: 'Open original chat',
+  })) as HTMLButtonElement;
+  expect(opener.disabled).toBe(true);
+  fireEvent.click(opener);
+  expect(readSource).not.toHaveBeenCalled();
+  expect(screen.getByText('/todos/studio')).toBeTruthy();
+});

@@ -48,7 +48,11 @@ export function TelosItemSources({
                   link.role === 'origin' &&
                   !work.sources.some(
                     (source) =>
-                      source.source?.namespace === link.conversation.namespace &&
+                      // Only the reviewed Mitzo snapshot supplies its own opener.
+                      // Unknown selections and external sources still need their origin link.
+                      source.selection.kind === 'selected' &&
+                      source.source?.namespace === 'mitzo' &&
+                      source.source.namespace === link.conversation.namespace &&
                       source.source?.conversationId === link.conversation.conversationId,
                   ),
               ),
