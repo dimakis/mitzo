@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.186';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.187';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -38,11 +38,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be25f820dbf6770f063664ce19429fcfc986547cd8ef397f996a4294b8317d7',
   '../api-schemas.ts': '5e93d3aec104c124adc9c3d1d96abd45d44a78aaee904b9037c743dbb5bf725e',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
-  // Fresh-agent conversation metadata and offline client projection; execution remains disabled.
+  // Fresh-agent review compilation and metadata; execution remains disabled.
+  '../collaboration-context-compiler.ts':
+    '2cf0cd4b7c12c3615a09f85d007372819e2f5b239d656f5899180307f323619c',
   '../../packages/protocol/src/collaboration-conversation.ts':
-    '8bdd5ec37c5f2bfa59f79f401bb4955dde9dba64fe6acdc963b5bb0f76745653',
+    '9c79ecfa5ed7f46b0eb8fb72b91b282683782caccaa2099de70ed8a7df9071f7',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    '4e5beee2384230e40b662bb84b5aec2f0e8f437b2a51b99231ef33e0d564537b',
+    'c38666a633b201f82e945203615fa2262912a10555b665d538af25eeb48049d0',
   '../../packages/client/src/collaboration-api.ts':
     '05ef5f932a9bd36ff9cddf70971449e25c1376fc539150ff0a523446733e6cbb',
   '../../packages/client/src/collaboration-projection.ts':
