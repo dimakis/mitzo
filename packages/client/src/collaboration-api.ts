@@ -13,6 +13,10 @@ import {
   CollaborationMessageSchema,
   CollaborationSnapshotReferenceSchema,
   CollaborationSnapshotSelectionSchema,
+  CollaborationApplicationReviewInputSchema,
+  CollaborationApplicationReviewRequestSchema,
+  CollaborationApplicationReviewResultSchema,
+  type CollaborationApplicationReviewInput,
   type CollaborationSnapshotSelection,
   type CollaborationPolicyUpdate,
   type CollaborationMessageInput,
@@ -94,6 +98,27 @@ export class CollaborationApiClient {
       method: 'POST',
       body: CollaborationSnapshotSelectionSchema.parse(input),
     });
+  }
+  /** Observational review only; a successful response need not establish capacity. */
+  review(
+    id: string,
+    clientId: string,
+    input: CollaborationApplicationReviewInput,
+    signal?: AbortSignal,
+  ) {
+    const body = CollaborationApplicationReviewRequestSchema.parse({
+      ...CollaborationApplicationReviewInputSchema.parse(input),
+      clientId,
+    });
+    return this.request(
+      this.path(id, 'reviews'),
+      CollaborationApplicationReviewResultSchema,
+      signal,
+      {
+        method: 'POST',
+        body,
+      },
+    );
   }
   join(id: string, joinId: string, signal?: AbortSignal) {
     CollaborationJoinSchema.shape.joinId.parse(joinId);

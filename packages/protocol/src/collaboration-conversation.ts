@@ -118,6 +118,9 @@ export const CollaborationApplicationReviewInputSchema = z.strictObject({
 export type CollaborationApplicationReviewInput = z.infer<
   typeof CollaborationApplicationReviewInputSchema
 >;
+/** Transport correlation only; the server checks its existing live login binding. */
+export const CollaborationApplicationReviewRequestSchema =
+  CollaborationApplicationReviewInputSchema.extend({ clientId: id });
 export const CollaborationMessageInputSchema = z.strictObject({
   ...request,
   expectedPolicySequence: sequence,
