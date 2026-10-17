@@ -1,3 +1,4 @@
+export * from './markdown-paths.js';
 export * from './agent-tasks.js';
 // @mitzo/protocol — shared types, schemas, and utilities for the Mitzo v2 protocol.
 export type {
@@ -356,3 +357,9 @@ export {
   type SessionCollaboration,
 } from './session-collaboration.js';
 export * from './telos-work.js';
+
+export * from './telos-work-api.js';
+
+export * from './ordinary-prepared-session.js';
+export * from './telos-source.js';
+export * from './telos-outcome.js';

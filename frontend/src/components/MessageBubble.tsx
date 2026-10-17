@@ -39,6 +39,7 @@ export interface ReadAloudProps {
 }
 
 interface UserBubbleProps {
+  sourceAnchor?: boolean;
   text?: string;
   images?: string[];
   contextBlocks?: string[];
@@ -49,6 +50,7 @@ interface UserBubbleProps {
 }
 
 export function UserBubble({
+  sourceAnchor,
   text,
   images,
   contextBlocks,
@@ -62,7 +64,10 @@ export function UserBubble({
   const injections = contextInjections ?? (context ? context.injections : undefined);
   const time = formatTime(timestamp);
   return (
-    <div className="msg-bubble-group msg-bubble-group--user">
+    <div
+      className="msg-bubble-group msg-bubble-group--user"
+      data-telos-source-anchor={sourceAnchor || undefined}
+    >
       <ContextInjectionDisclosure names={contextBlocks ?? []} injections={injections} />
       <div
         className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
@@ -101,6 +106,7 @@ export function UserBubble({
 }
 
 interface TextBubbleProps {
+  sourceAnchor?: boolean;
   content: string;
   streaming?: boolean;
   timestamp?: number;
@@ -109,6 +115,7 @@ interface TextBubbleProps {
 }
 
 export function TextBubble({
+  sourceAnchor,
   content,
   streaming = false,
   timestamp,
@@ -284,6 +291,7 @@ export function TextBubble({
 
   return (
     <div
+      data-telos-source-anchor={sourceAnchor || undefined}
       className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}${showCollapsed ? ' msg-bubble--collapsed' : ''}`}
     >
       <div className="msg-bubble-markdown" ref={contentRef}>

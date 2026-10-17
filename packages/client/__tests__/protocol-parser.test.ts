@@ -383,6 +383,32 @@ describe('v2 content events', () => {
 // ─── Permission events ───────────────────────────────────────────────────────
 
 describe('permission events', () => {
+  it('forwards only the explicit host reviewed-source marker', () => {
+    for (const marker of ['telos_source', 'other', undefined]) {
+      const result = parseServerMessage(
+        {
+          type: 'permission_request',
+          permId: 'source-review',
+          sessionId: 'chat',
+          toolName: 'TelosCreateOutcome',
+          toolInput: '{}',
+          reviewKind: marker,
+          recoveryOnly: marker === 'telos_source' ? true : 'true',
+        },
+        makeState(),
+        makeCallbacks(),
+        POOL_KEY,
+      );
+      const action = result.messagesActions[0];
+      expect(action).toMatchObject({ type: 'PERMISSION_REQUEST', payload: { sessionId: 'chat' } });
+      expect('payload' in action && (action.payload as { reviewKind?: string }).reviewKind).toBe(
+        marker === 'telos_source' ? marker : undefined,
+      );
+      expect(
+        'payload' in action && (action.payload as { recoveryOnly?: boolean }).recoveryOnly,
+      ).toBe(marker === 'telos_source' ? true : undefined);
+    }
+  });
   it('permission_request dispatches PERMISSION_REQUEST', () => {
     const r = parseServerMessage(
       {

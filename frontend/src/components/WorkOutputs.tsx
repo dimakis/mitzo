@@ -30,7 +30,14 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
         return response.json() as Promise<{ artifacts: TodoOutput[]; limit: number }>;
       })
       .then((data) => {
-        if (!controller.signal.aborted) setResult({ itemId, ...data });
+        if (!controller.signal.aborted)
+          setResult({
+            itemId,
+            ...data,
+            artifacts: data.artifacts.filter(
+              (artifact) => artifact.sourceKind !== 'source_capture',
+            ),
+          });
       })
       .catch(() => {
         if (!controller.signal.aborted) {
@@ -106,6 +113,7 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
                   <span className="todo-detail-output-meta">
                     Revision {output.revision} · {output.size.toLocaleString()} bytes
                     {output.sourceKind === 'user_upload' && ' · Uploaded by user'}
+                    {output.sourceKind === 'user_edit' && ' · Edited by user'}
                     {output.sourceKind === 'external_codex_report' && ' · External Codex report'}
                   </span>
                 </div>

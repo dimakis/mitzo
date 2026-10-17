@@ -61,6 +61,7 @@ export function createCustodianProxy(
         const csrf = req.header('x-csrf-token') ?? '';
         if (
           [
+            'library.apiVerify',
             'source.import',
             'source.sealRecover',
             'director.authorizeRecovery',

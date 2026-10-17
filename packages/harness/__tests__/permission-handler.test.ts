@@ -10,6 +10,7 @@ import {
 import { setSkillPolicy } from '../src/skill-policy.js';
 import { applyTierOverrides } from '../src/tool-tiers.js';
 import type { SessionTransport } from '../src/session-transport.js';
+import type { TelosOutcomeProposal } from '@mitzo/protocol';
 
 function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
@@ -159,8 +160,7 @@ describe('buildPermissionHandler', () => {
       },
     );
 
-    expect(result.behavior).toBe('deny');
-    expect(result.message).toBe('Session not found');
+    expect(result).toMatchObject({ behavior: 'deny', message: 'Session not found' });
   });
 
   it('denies tools blocked by skill policy', async () => {
@@ -184,8 +184,10 @@ describe('buildPermissionHandler', () => {
       },
     );
 
-    expect(result.behavior).toBe('deny');
-    expect(result.message).toBe('Tool not allowed by active skill policy');
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      message: 'Tool not allowed by active skill policy',
+    });
   });
 
   it('uses session allow list for permanent allows', async () => {
@@ -430,15 +432,10 @@ describe('buildPermissionHandler', () => {
   });
 
   it.each([
-    ['TelosCreateOutcome', 'TelosSaveArtifact'],
-    ['TelosSaveArtifact', 'mcp__telos__TelosCreateOutcome'],
-    ['mcp__telos__TelosSaveArtifact', 'TelosCreateOutcome'],
-    ['TelosCreateOutcome', 'TelosUpdateItem'],
     ['TelosSaveArtifact', 'TelosUpdateItem'],
     ['TelosUpdateItem', 'TelosSaveArtifact'],
     ['mcp__telos__TelosUpdateItem', 'TelosUpdateItem'],
-    ['TelosUpdateItem', 'mcp__telos__TelosCreateOutcome'],
-    ['TelosCreateOutcome', 'TelosGetItem'],
+    ['TelosSaveArtifact', 'TelosGetItem'],
   ])('shares the advertised Telos session scope between %s and %s', async (initial, next) => {
     const transport = fakeTransport();
     const allowList = new Set<string>();
@@ -481,6 +478,65 @@ describe('buildPermissionHandler', () => {
       abort.abort();
     }
   });
+
+  it.each(
+    [
+      'TelosCreateOutcome',
+      'mcp__telos__TelosCreateOutcome',
+      'TelosAdoptSource',
+      'mcp__telos__TelosAdoptSource',
+    ].flatMap((toolName) => (['agent', 'auto'] as const).map((mode) => ({ toolName, mode }))),
+  )(
+    'requires fresh source review for $toolName in $mode despite prior Telos grants',
+    async ({ toolName, mode }) => {
+      const transport = fakeTransport();
+      const allowList = new Set(['mcp__telos__', toolName]);
+      const abort = new AbortController();
+      registry.register('client-1', {
+        transport,
+        abortController: abort,
+        mode,
+        sessionId: 'planning',
+        sessionAllowList: allowList,
+      });
+      const handler = buildPermissionHandler('client-1', registry);
+      const input = toolName.endsWith('TelosCreateOutcome')
+        ? ({
+            summary: 'Retain the reviewed planning outcome',
+            intent: 'The original exchange remains available with the outcome.',
+            rationale: 'Exact source consent must precede each new capture.',
+            acceptanceCriteria: ['The reviewed exchange is retained without a worker turn'],
+            milestones: ['Save the operator-approved source'],
+            profile: 'work',
+          } satisfies TelosOutcomeProposal)
+        : { itemId: 'item' };
+      try {
+        for (let invocation = 0; invocation < 2; invocation++) {
+          const result = handler(toolName, input, {
+            signal: abort.signal,
+            toolUseID: `review-${invocation}`,
+            allowSessionGrant: true,
+          });
+          await Promise.resolve();
+          const cards = transport.sent.filter((event) => event.type === 'permission_request');
+          expect(cards).toHaveLength(invocation + 1);
+          const card = cards.at(-1)!;
+          expect(card).toMatchObject({ reviewKind: 'telos_source', approvalScope: 'request' });
+          const permId = card.permId as string;
+          expect(resolvePending(permId, 'always')).toBe(false);
+          expect(resolvePending(permId, 'once')).toBe(false);
+          expect(getPendingRequestsBySession('planning')).toEqual([
+            expect.objectContaining({ permId }),
+          ]);
+          expect(resolvePending(permId, 'deny')).toBe(true);
+          expect(await result).toMatchObject({ behavior: 'deny' });
+          expect(allowList).toEqual(new Set(['mcp__telos__', toolName]));
+        }
+      } finally {
+        abort.abort();
+      }
+    },
+  );
 
   it.each(['GitCommit', 'Bash', 'mcp__gws__gmail_write'])(
     'honors the user session choice for a forced %s approval',
@@ -855,8 +911,7 @@ describe('buildPermissionHandler', () => {
       },
     );
 
-    expect(result.behavior).toBe('deny');
-    expect(result.message).toBe('Aborted');
+    expect(result).toMatchObject({ behavior: 'deny', message: 'Aborted' });
   });
   it.each([
     'Write',

@@ -31,6 +31,8 @@ export function HomeDialog({
   open = true,
   ariaLabel,
   closeLabel = 'Close',
+  onBack,
+  backLabel = 'Back',
 }: {
   title: string;
   onClose: () => void;
@@ -41,6 +43,8 @@ export function HomeDialog({
   open?: boolean;
   ariaLabel?: string;
   closeLabel?: string;
+  onBack?(): void;
+  backLabel?: string;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocus = useRef(document.activeElement);
@@ -86,7 +90,17 @@ export function HomeDialog({
       }}
     >
       <div className="home-dialog-content">
-        <header>
+        <header className={onBack ? 'home-dialog-header--back' : undefined}>
+          {onBack && (
+            <button
+              type="button"
+              className="home-secondary"
+              aria-label={backLabel}
+              onClick={onBack}
+            >
+              <UiIcon name="back" size={16} />
+            </button>
+          )}
           <h2>{title}</h2>
           <button
             type="button"

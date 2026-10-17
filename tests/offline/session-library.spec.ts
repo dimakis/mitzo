@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { waitForNewFixtureReads } from '../support/fixture-reads';
+const sessionListReads = ['/api/todos', '/api/sessions', '/api/config', '/api/version'];
 const sessions = Array.from({ length: 12 }, (_, index) => ({
   id: `session-${index}`,
   summary:
@@ -283,9 +285,14 @@ for (const theme of ['dark', 'light'])
         await row.dblclick();
       }
       await expect(page.getByRole('button', { name: 'Opened conversation' })).toBeVisible();
-      await page.getByRole('button', { name: 'Opened conversation' }).click();
+      await waitForNewFixtureReads(page, sessionListReads, () =>
+        page.getByRole('button', { name: 'Opened conversation' }).click(),
+      );
     }
-    await page.goto('/');
+    await page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('link', { name: 'Today', exact: true })
+      .click();
     await expect(page.getByRole('meter', { name: 'Context used' }).first()).toHaveAttribute(
       'aria-valuenow',
       '24',
@@ -305,3 +312,132 @@ for (const theme of ['dark', 'light'])
     expect(errors).toEqual([]);
     expect(mutations).toEqual([]);
   });
+
+test('session library: returning waits for newly started reads before a hard reload', async ({
+  page,
+  isMobile,
+}) => {
+  const errors: string[] = [],
+    mutations: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    class OfflineEventSource extends EventTarget {
+      readyState = 2;
+      close() {}
+    }
+    window.EventSource = OfflineEventSource as unknown as typeof EventSource;
+  });
+  const files = (await bundle).outputFiles!;
+  const held = new Map<string, () => void>();
+  let holdReads = false;
+  await page.route('**/*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (route.request().method() !== 'GET') {
+      mutations.push(url.pathname);
+      return route.abort();
+    }
+    if (holdReads && sessionListReads.includes(url.pathname))
+      await new Promise<void>((release) => {
+        held.set(`${url.search ? 'earlier' : 'return'}:${url.pathname}`, release);
+      });
+    const data: Record<string, unknown> = {
+      '/api/sessions': { sessions, hasMore: false },
+      '/api/config': { quickActions: [] },
+      '/api/version': { updateAvailable: false },
+      '/api/todos': {
+        profiles: [],
+        items: [{ id: 'work-one', summary: 'Linked quarterly review', children: [] }],
+      },
+      '/api/briefings/latest': null,
+      '/api/home/quote': null,
+      '/api/service-health': { services: [] },
+      '/api/home/preferences': {
+        revision: 1,
+        names: { briefing: 'Minion', terminal: 'Minion' },
+        showDailyQuote: false,
+        pins: [],
+      },
+    };
+    if (url.pathname in data) return route.fulfill({ json: data[url.pathname] });
+    if (url.pathname.startsWith('/api/')) return route.fulfill({ json: [] });
+    if (url.pathname.endsWith('.png') || url.pathname.endsWith('.svg'))
+      return route.fulfill({
+        body: await readFile(resolve('frontend/public', url.pathname.slice(1))),
+        contentType: url.pathname.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
+      });
+    const file = files.find((file) =>
+      url.pathname.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+    );
+    if (file)
+      return route.fulfill({
+        body: file.text,
+        contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+      });
+    return route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>',
+    });
+  });
+  const initialRequests = Promise.all(
+    sessionListReads.map((path) =>
+      page.waitForRequest((request) => new URL(request.url()).pathname === path),
+    ),
+  );
+  await page.goto('/sessions');
+  for (const request of await initialRequests) {
+    const response = await request.response();
+    expect(response).not.toBeNull();
+    expect(await response!.finished()).toBeNull();
+  }
+  await expect(page.getByRole('link', { name: 'Linked quarterly review' })).toBeVisible();
+  const row = page.getByRole(isMobile ? 'link' : 'button', {
+    name: `${isMobile ? 'Open' : 'Preview'} Conversation 2`,
+  });
+  if (isMobile) await row.tap();
+  else await row.dblclick();
+  const returnButton = page.getByRole('button', { name: 'Opened conversation' });
+  await expect(returnButton).toBeVisible();
+  holdReads = true;
+  // Earlier requests have the same paths. Finishing those responses must not
+  // satisfy the witnesses for the reads caused by the actual return click.
+  const earlierRequests = Promise.all(
+    sessionListReads.map((path) =>
+      page.waitForRequest((request) => new URL(request.url()).pathname === path),
+    ),
+  );
+  await page.evaluate((paths) => {
+    void Promise.all(paths.map((path) => fetch(`${path}?barrier=earlier`)));
+  }, sessionListReads);
+  const earlier = await earlierRequests;
+  await expect.poll(() => held.size).toBe(4);
+  let clicked = false,
+    returned = false;
+  const returning = waitForNewFixtureReads(page, sessionListReads, async () => {
+    await returnButton.click();
+    clicked = true;
+  }).then(() => {
+    returned = true;
+  });
+  try {
+    await expect.poll(() => held.size).toBe(8);
+    await expect.poll(() => clicked).toBe(true);
+    for (const path of sessionListReads) held.get(`earlier:${path}`)!();
+    for (const request of earlier) {
+      const response = await request.response();
+      expect(response).not.toBeNull();
+      expect(await response!.finished()).toBeNull();
+    }
+    expect(returned).toBe(false);
+  } finally {
+    holdReads = false;
+    for (const release of held.values()) release();
+    await returning;
+  }
+  expect(returned).toBe(true);
+  // Keep the real cross-document reload and the same strict error checks.
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+  expect(mutations).toEqual([]);
+});

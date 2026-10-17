@@ -13,10 +13,12 @@ import {
   CollaborationPolicySchema,
   CollaborationSettingsSchema,
   CollaborationMessageInputSchema,
+  CollaborationReplyInputSchema,
   CollaborationMessageSchema,
   CollaborationDeliverySchema,
   CollaborationDeliveryReceiptInputSchema,
   CollaborationSnapshotDraftSchema,
+  CollaborationSnapshotSelectionSchema,
   CollaborationSnapshotSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
@@ -30,6 +32,7 @@ import {
   type CollaborationDelivery,
   type CollaborationJoin,
   type CollaborationEvent,
+  type CollaborationMessageSource,
 } from './collaboration-conversation.js';
 
 /** Stable key ordering makes exact semantic retries independent of JSON object key order. */
@@ -57,6 +60,15 @@ interface Owners {
   ): { sessionId: string; settings: CollaborationSettings } | undefined;
 }
 type Row = { body: string };
+const ReviewCompilationInput = z.strictObject({
+  operatorId: z.string().min(1).max(200),
+  selection: CollaborationSnapshotSelectionSchema,
+  settings: z.array(CollaborationSettingsSchema).min(1).max(16),
+});
+const ReviewCompilation = ReviewCompilationInput.extend({
+  snapshotRequestId: z.uuid(),
+  snapshotId: z.uuid().nullable(),
+});
 /** Slice-2 metadata only. Existing EventStore connection/backup owner; no dispatcher or scheduler.
  * saveSnapshot/acceptMessage/recordDelivery/recordAllocation are trusted host ports, not HTTP writes.
  */
@@ -76,6 +88,8 @@ export class CollaborationConversationStore {
       CREATE TABLE IF NOT EXISTS collaboration_requests (
         collaboration_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
         result TEXT NOT NULL, PRIMARY KEY(collaboration_id,request_id));
+      CREATE INDEX IF NOT EXISTS idx_collaboration_message_heads
+        ON collaboration_records(collaboration_id,record_id,revision DESC) WHERE kind='message';
     `);
   }
   private group(id: string) {
@@ -408,6 +422,22 @@ export class CollaborationConversationStore {
           (['failed', 'unavailable', 'uncertain'].includes(input.status) && !input.reason)
         )
           throw new ContractError('invalid_transition');
+        if (
+          delivery.purpose === 'reply' &&
+          input.commandId &&
+          this.db
+            .prepare(
+              `SELECT 1 FROM collaboration_records r, json_each(r.body,'$.deliveries') d
+           WHERE r.kind='message' AND NOT EXISTS (
+             SELECT 1 FROM collaboration_records newer WHERE newer.collaboration_id=r.collaboration_id
+             AND newer.kind=r.kind AND newer.record_id=r.record_id AND newer.revision>r.revision)
+           AND json_extract(d.value,'$.commandId')=?
+           AND json_extract(d.value,'$.purpose')='reply'
+           AND json_extract(d.value,'$.deliveryId')<>? LIMIT 1`,
+            )
+            .get(input.commandId, deliveryId)
+        )
+          throw new ContractError('reply_conflict');
         const next = CollaborationDeliverySchema.parse({
           ...delivery,
           status: input.status,
@@ -424,9 +454,150 @@ export class CollaborationConversationStore {
       },
     );
   }
-  /** Trusted source compiler only: source authorization, completeness and token estimates belong to that owner.
-   * No public route accepts these bytes. Hashes are recomputed before the review object is saved.
+  /** Host-only attributed projection. The trusted source port must verify the exact ordinary
+   * command/message mapping and finalized visible blocks. Attribution never dispatches or fans out.
    */
+  recordReply(
+    group: string,
+    raw: unknown,
+    readSource: (
+      source: CollaborationMessageSource,
+    ) => { text: string; settings: CollaborationSettings } | undefined,
+  ) {
+    const input = CollaborationReplyInputSchema.parse(raw);
+    return this.mutation(
+      group,
+      input.requestId,
+      { kind: 'reply', input },
+      CollaborationMessageSchema,
+      () => {
+        // A driver may replay the same finalized message with a fresh callback receipt.
+        // Its entire source identity and delivery must still match the original projection.
+        const key = sha([input.source.conversationId, input.source.messageId]);
+        const previous = this.current(group, 'reply-source', key, CollaborationMessageSchema);
+        if (previous) {
+          if (
+            sha(previous.source) !== sha(input.source) ||
+            previous.replyToDeliveryId !== input.deliveryId
+          )
+            throw new ContractError('reply_conflict');
+          const origin = this.current(
+            group,
+            'message',
+            input.messageId,
+            CollaborationMessageSchema,
+          );
+          if (!origin?.deliveries.some((delivery) => delivery.deliveryId === input.deliveryId))
+            throw new ContractError('reply_conflict');
+          return previous;
+        }
+        const message = this.current(group, 'message', input.messageId, CollaborationMessageSchema);
+        const delivery = message?.deliveries.find((row) => row.deliveryId === input.deliveryId);
+        if (
+          !message ||
+          !delivery ||
+          delivery.purpose !== 'reply' ||
+          !['queued', 'uncertain', 'delivered'].includes(delivery.status) ||
+          delivery.sessionId !== input.source.conversationId ||
+          delivery.commandId !== input.source.commandId ||
+          !message.responders.includes(delivery.sessionId)
+        )
+          throw new ContractError('reply_conflict');
+        this.requireRecipients(this.group(group), [delivery.sessionId]);
+        const verified = readSource(structuredClone(input.source));
+        if (!verified) throw new ContractError('reply_unavailable');
+        if (sha(verified.settings) !== sha(message.settings[delivery.sessionId]))
+          throw new ContractError('reply_conflict');
+        const reply = CollaborationMessageSchema.parse({
+          version: 1,
+          messageId: randomUUID(),
+          projectionId: randomUUID(),
+          sequence: this.cursor(group) + 1,
+          author: { sessionId: delivery.sessionId },
+          text: verified.text,
+          source: input.source,
+          replyToDeliveryId: delivery.deliveryId,
+          membershipRevision: message.membershipRevision,
+          policySequence: message.policySequence,
+          policyRevisions: message.policyRevisions,
+          responders: [],
+          readers: [],
+          settings: {},
+          deliveries: [],
+          snapshot: null,
+        });
+        this.put(group, 'message', reply.messageId, reply);
+        this.put(group, 'reply-source', key, reply);
+        this.event(group, { kind: 'message', message: reply });
+        return reply;
+      },
+    );
+  }
+  /** Persist exact host review intent before asynchronous compilation. */
+  reserveReviewCompilation(group: string, raw: unknown) {
+    const input = ReviewCompilationInput.parse(raw);
+    const reservation = this.mutation(
+      group,
+      input.selection.requestId,
+      { kind: 'review-compilation', input },
+      ReviewCompilation,
+      () => {
+        const membership = this.membership(group, input.selection.expectedMembershipRevision);
+        if (!membership.participantSessionIds.includes(input.selection.sourceConversationId))
+          throw new ContractError('unknown_recipient');
+        const record = ReviewCompilation.parse({
+          ...input,
+          snapshotRequestId: randomUUID(),
+          snapshotId: null,
+        });
+        this.put(group, 'review-compilation', input.selection.requestId, record);
+        return record;
+      },
+    );
+    // The immutable request receipt predates compilation. Read its latest result,
+    // so exact retries recover before source/capacity owners are invoked again.
+    return (
+      this.current(group, 'review-compilation', input.selection.requestId, ReviewCompilation) ??
+      reservation
+    );
+  }
+  completeReviewCompilation(group: string, requestId: string, raw: unknown) {
+    z.uuid().parse(requestId);
+    return this.db
+      .transaction(() => {
+        this.group(group);
+        const record = this.current(group, 'review-compilation', requestId, ReviewCompilation);
+        if (!record) throw new ContractError('not_found');
+        if (record.snapshotId) {
+          const completed = this.getSnapshot(group, record.snapshotId);
+          if (!completed) throw new ContractError('snapshot_changed');
+          return completed;
+        }
+        this.membership(group, record.selection.expectedMembershipRevision);
+        const draft = CollaborationSnapshotDraftSchema.parse(raw);
+        const { selection } = record;
+        if (
+          draft.requestId !== requestId ||
+          draft.sourceConversationId !== selection.sourceConversationId ||
+          sha(draft.boundary) !== sha(selection.boundary) ||
+          draft.mode !== selection.mode ||
+          draft.purpose !== selection.purpose ||
+          draft.joiningBrief !== selection.joiningBrief
+        )
+          throw new ContractError('snapshot_changed');
+        const snapshot = this.saveSnapshot(group, {
+          ...draft,
+          requestId: record.snapshotRequestId,
+        });
+        this.put(group, 'review-compilation', requestId, {
+          ...record,
+          snapshotId: snapshot.snapshotId,
+        });
+        return snapshot;
+      })
+      .immediate();
+  }
+  /** Trusted source compiler only. No public route accepts these bytes. */
   saveSnapshot(group: string, raw: unknown) {
     const draft = structuredClone(raw) as z.infer<typeof CollaborationSnapshotDraftSchema>;
     if (Array.isArray(draft?.messages))
@@ -669,6 +840,12 @@ export class CollaborationConversationStore {
         hasMore: rows.length > 50,
       };
     })();
+  }
+  /** Exact host delivery lookup, independent of the bounded recent-message view. */
+  getMessage(group: string, messageId: string) {
+    this.group(group);
+    z.uuid().parse(messageId);
+    return this.current(group, 'message', messageId, CollaborationMessageSchema);
   }
   view(group: string) {
     return this.db.transaction(() => {

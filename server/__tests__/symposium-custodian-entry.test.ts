@@ -20,8 +20,10 @@ const effects = vi.hoisted(() => ({
   dependencies: Object.freeze({ facts: 'synthetic-entry-test-only' }),
   bootstrap: vi.fn(),
   install: vi.fn(),
+  configureCredentials: vi.fn(),
 }));
 vi.mock('../app.js', () => ({
+  configureCredentialConnectionsRuntime: effects.configureCredentials,
   getSymposiumBootstrapDependencies: () => effects.dependencies,
   installSymposiumProductionHost: effects.install,
   pauseSymposiumController: vi.fn(),
@@ -88,6 +90,7 @@ it.each([
 ])(
   'passes constructor hooks and optional trusted diagnostic %j before any child spawn',
   async ({ admissionBuildSelection, observeNativeTurnInput }) => {
+    effects.configureCredentials.mockClear();
     effects.bootstrap.mockClear();
     effects.install.mockClear();
     vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '');
@@ -132,6 +135,10 @@ it.each([
         ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
       },
       undefined,
+    );
+    expect(effects.configureCredentials).toHaveBeenCalledExactlyOnceWith();
+    expect(effects.configureCredentials.mock.invocationCallOrder[0]).toBeLessThan(
+      effects.bootstrap.mock.invocationCallOrder[0],
     );
     expect(effects.install).toHaveBeenCalledExactlyOnceWith(effects.host);
     expect(effects.fork).not.toHaveBeenCalled();

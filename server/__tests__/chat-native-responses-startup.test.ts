@@ -149,6 +149,8 @@ it.each([
       }),
     );
     const chat = await import('../chat.js');
+    const responses = await import('../responses-chat-session.js');
+    const openChat = vi.spyOn(responses, 'openResponsesChat');
     const { NativeResponsesRunner } = await import('../native-responses-runner.js');
     const prepare = vi.spyOn(NativeResponsesRunner.prototype, 'prepare');
     const runnerErrors: unknown[] = [];
@@ -289,6 +291,12 @@ it.each([
       );
       expect(state.history.at(-2)).toEqual({ role: 'user', content: expectedContent });
       expect(JSON.stringify(state)).not.toContain('offline-fixture-key');
+      expect(openChat).toHaveBeenCalled();
+      for (const [options] of openChat.mock.calls) {
+        expect(options.configuredSourceEnv).toBeDefined();
+        expect(options.configuredSourceEnv).toEqual(chat.nativeExecutionEnv());
+        expect(options.env.MITZO_SESSION_ID).toBeDefined();
+      }
     } finally {
       chat.stopChat('real-startup-client');
       await running;

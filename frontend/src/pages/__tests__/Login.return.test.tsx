@@ -3,14 +3,17 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { Login } from '../Login';
+import { saveTokenToWatch } from '../../lib/watch-auth';
 import { apiFetch, restoreCookieAuthentication, AUTH_RESTORED_EVENT } from '../../lib/api-fetch';
-import { biometricLogin, isBiometricAvailable } from '../../lib/biometric';
+import { biometricLogin, isBiometricAvailable, saveBiometricPassphrase } from '../../lib/biometric';
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
   restoreCookieAuthentication: vi.fn(),
   AUTH_RESTORED_EVENT: 'auth-restored',
   isCrossTabAuthEvent: () => true,
   getApiBaseUrl: () => '',
+  getStoredAuthToken: () => 'test-token',
+  isLogoutPending: () => false,
   loginSucceeded: vi.fn(),
   markAuthLost: vi.fn(),
 }));
@@ -19,6 +22,7 @@ vi.mock('../../lib/biometric', () => ({
   isBiometricAvailable: vi.fn(),
   getBiometricLabel: async () => 'Face ID',
   saveCredentials: vi.fn(),
+  saveBiometricPassphrase: vi.fn(),
 }));
 vi.mock('../../lib/watch-auth', () => ({ saveTokenToWatch: vi.fn() }));
 vi.mock('../../lib/haptics', () => ({ notifySuccess: vi.fn() }));
@@ -91,4 +95,48 @@ it.each([
   setup(target);
   fireEvent.click(screen.getByRole('button', { name: 'Login' }));
   await screen.findByText('/');
+});
+
+it('stores a protected passphrase only when Face ID is explicitly enabled', async () => {
+  vi.mocked(isBiometricAvailable).mockResolvedValue(true);
+  vi.mocked(biometricLogin).mockResolvedValue(null);
+  vi.mocked(saveBiometricPassphrase).mockResolvedValue(true);
+  setup();
+  const enable = await screen.findByRole('checkbox', { name: /Enable Face ID on this device/ });
+  expect((enable as HTMLInputElement).checked).toBe(false);
+  fireEvent.change(screen.getByPlaceholderText('Passphrase'), { target: { value: 'secret' } });
+  fireEvent.click(enable);
+  fireEvent.click(screen.getByRole('button', { name: 'Login' }));
+  await screen.findByText(destination);
+  expect(saveBiometricPassphrase).toHaveBeenCalledWith('secret');
+});
+it('does not remember the master passphrase without opt-in', async () => {
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Login' }));
+  await screen.findByText(destination);
+  expect(saveBiometricPassphrase).not.toHaveBeenCalled();
+});
+it('explains an expired legacy unlock and offers explicit Face ID enrollment', async () => {
+  vi.mocked(isBiometricAvailable).mockResolvedValue(true);
+  vi.mocked(biometricLogin).mockResolvedValue(null);
+  setup();
+  await screen.findByText(/Sign in with your passphrase and enable Face ID/);
+});
+it('reports protected credential enrollment failure', async () => {
+  vi.mocked(isBiometricAvailable).mockResolvedValue(true);
+  vi.mocked(biometricLogin).mockResolvedValue(null);
+  vi.mocked(saveBiometricPassphrase).mockResolvedValue(false);
+  setup();
+  fireEvent.click(await screen.findByRole('checkbox', { name: /Enable Face ID on this device/ }));
+  fireEvent.change(screen.getByPlaceholderText('Passphrase'), { target: { value: 'secret' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Login' }));
+  await screen.findByText(/Unable to enable Face ID/);
+  expect(screen.queryByText(destination)).toBeNull();
+});
+
+it('returns after password login without waiting for the optional Watch bridge', async () => {
+  vi.mocked(saveTokenToWatch).mockReturnValue(new Promise(() => {}));
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Login' }));
+  await screen.findByText(destination);
 });

@@ -814,12 +814,12 @@ test.beforeEach(async ({ page }) => {
 const routes = ['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access', '/knowledge'];
 const todayDetailRoutes = ['/briefings/2026-10-10', '/quotes/2026-10-10'];
 
-test('every mobile collection keeps one wordmark, one palette and reachable navigation', async ({
-  page,
-  isMobile,
-}, testInfo) => {
-  test.skip(!isMobile, 'Mobile shell');
-  for (const width of [320, 390, 440]) {
+for (const width of [320, 390, 440]) {
+  test(`every mobile collection keeps one wordmark, one palette and reachable navigation (${width}px)`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    test.skip(!isMobile, 'Mobile shell');
     await page.setViewportSize({ width, height: 844 });
     let reference: unknown;
     for (const route of [...routes, ...todayDetailRoutes]) {
@@ -853,8 +853,8 @@ test('every mobile collection keeps one wordmark, one palette and reachable navi
         });
       }
     }
-  }
-});
+  });
+}
 
 test('one token change updates the accent and font on every main page', async ({
   page,
@@ -1372,7 +1372,12 @@ test('accent-filled controls retain their paired foreground on hover and in user
   const stylesheets = [...html.matchAll(/href="([^"\s]+\.css)"/g)];
   const css = (
     await Promise.all(
-      stylesheets.map((match) => readFile(resolve('frontend/dist', match[1].slice(1)), 'utf8')),
+      [
+        ...stylesheets.map((match) => resolve('frontend/dist', match[1].slice(1))),
+        // This component brings its CSS with its lazy route. The static
+        // markup fixture must load that stylesheet alongside its markup.
+        resolve('frontend/src/components/CodexQueueStatus.css'),
+      ].map((path) => readFile(path, 'utf8')),
     )
   ).join('\n');
   expect(css).toContain('.mode-pill--active');

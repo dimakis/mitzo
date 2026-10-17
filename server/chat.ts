@@ -39,7 +39,7 @@ import {
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
-import { publicProviderFailureMessage } from './provider-failure.js';
+import { recordAcceptedReplaySession, replayError } from './public-replay-error.js';
 import {
   getRepositoryWorkspaces,
   readRepositoryWorkspaceForConversation,
@@ -744,7 +744,7 @@ function prependConfiguredVenvPaths(env: Record<string, string>): void {
 }
 
 /** Keep native provider environments narrow while preserving configured project runtimes. */
-function nativeExecutionEnv(): Record<string, string> {
+export function nativeExecutionEnv(): Record<string, string> {
   const env = restrictedChildEnv();
   prependConfiguredVenvPaths(env);
   return env;
@@ -2332,6 +2332,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         eventStore,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
+        configuredSourceEnv: nativeExecutionEnv(),
         agentContext,
         prepareAgentContext,
         onAgentContextAccepted: agentContext ? acceptAgentContext : undefined,
@@ -2971,6 +2972,8 @@ export async function startOwnedLocalCodexCommand(
     signal: AbortSignal;
     /** Server-selected cold continuation, never legacy history adoption. */
     resume?: boolean;
+    /** Trusted silent allocation receipt; explicit first command only. */
+    preparationOperationId?: string;
   },
 ): Promise<{ dispatched: boolean; sessionId: string }> {
   const unavailable = () => new Error('Owned local Codex chat unavailable');
@@ -2995,6 +2998,18 @@ export async function startOwnedLocalCodexCommand(
   };
   try {
     const commandId = input.commandId;
+    const preparationOperationId = input.preparationOperationId;
+    const requestedResume = input.resume;
+    const resume = requestedResume === true;
+    if (
+      (preparationOperationId !== undefined &&
+        (typeof preparationOperationId !== 'string' ||
+          preparationOperationId.length > 200 ||
+          !/^\S+$/.test(preparationOperationId))) ||
+      (requestedResume !== undefined && typeof requestedResume !== 'boolean') ||
+      (resume && preparationOperationId !== undefined)
+    )
+      throw unavailable();
     const operatorConnectionId = input.operatorConnectionId;
     const signal = input.signal;
     signal.throwIfAborted();
@@ -3010,7 +3025,9 @@ export async function startOwnedLocalCodexCommand(
       if (
         liveOwner.location !== 'local' ||
         liveOwner.authSessionId !== ownerAuthSessionId ||
-        liveOwner.initialCommandId !== commandId
+        liveOwner.initialCommandId !== commandId ||
+        liveOwner.initialPreparationOperationId !== preparationOperationId ||
+        (liveOwner.initialResume ?? false) !== resume
       )
         throw unavailable();
       return { ...(await liveOwner.retryInitial(command)), sessionId };
@@ -3074,7 +3091,11 @@ export async function startOwnedLocalCodexCommand(
         });
       },
     });
-    const result = input.resume ? await driver.admitResume(command) : await driver.admit(command);
+    const admitFirst = (command: unknown) =>
+      preparationOperationId !== undefined
+        ? driver!.admitPreparedFirst(preparationOperationId, command)
+        : driver!.admit(command);
+    const result = resume ? await driver.admitResume(command) : await admitFirst(command);
     if (!result.dispatched) {
       if (prepared) throw unavailable();
       release();
@@ -3089,8 +3110,15 @@ export async function startOwnedLocalCodexCommand(
       authSessionId: ownerAuthSessionId,
       identity: retainedDriver,
       initialCommandId: commandId,
+      initialPreparationOperationId: preparationOperationId,
+      initialResume: resume,
       admit: (command, signal) => retainedDriver.admitContinuation(command, signal),
-      retryInitial: (command) => retainedDriver.admit(command),
+      retryInitial: (command) =>
+        preparationOperationId !== undefined
+          ? retainedDriver.admitPreparedFirst(preparationOperationId, command)
+          : resume
+            ? retainedDriver.admitResume(command)
+            : retainedDriver.admit(command),
       close: release,
     };
     const ownedQuery = prepared;
@@ -5191,42 +5219,6 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
   };
 }
 
-/** Only an earlier durable user echo can authorize unclassified runtime feedback. */
-function recordAcceptedReplaySession(
-  event: import('./event-store.js').StoredEvent,
-  accepted: Set<string>,
-) {
-  const p = event.payload;
-  if (
-    event.type === 'user_message' &&
-    typeof p.messageId === 'string' &&
-    p.messageId.trim() &&
-    typeof p.text === 'string' &&
-    typeof event.sessionId === 'string' &&
-    event.sessionId.trim() &&
-    (p.sessionId === undefined || p.sessionId === event.sessionId)
-  )
-    accepted.add(event.sessionId);
-}
-
-function replayError(event: import('./event-store.js').StoredEvent, accepted: Set<string>) {
-  const p = event.payload;
-  if (p.providerFailure) {
-    return { prefix: 'provider-error', message: publicProviderFailureMessage(p.providerFailure) };
-  }
-  if (
-    p.v !== 2 ||
-    p.type !== 'error' ||
-    p.sessionId !== event.sessionId ||
-    !accepted.has(event.sessionId) ||
-    p.clientMsgId !== undefined ||
-    typeof p.error !== 'string' ||
-    !p.error.trim()
-  )
-    return null;
-  return { prefix: 'runtime-error', message: p.error };
-}
-
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
 function replaySingleEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
@@ -6332,6 +6324,7 @@ export async function startOwnedLocalResponsesCommand(
         eventStore,
         systemPrompt: selected.payload.systemPrompt,
         env,
+        configuredSourceEnv: nativeExecutionEnv(),
         mcpServers: loadMcpServers(),
         publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
           .filter(Boolean)

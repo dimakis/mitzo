@@ -1,3 +1,8 @@
+import { getApiToolCatalog } from './api-tool-runtime.js';
+import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
+import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
+import { loadMcpServers } from './mcp-config.js';
+
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import { sessionListMetadata } from './session-list-metadata.js';
@@ -9,7 +14,11 @@ import {
 } from './ordinary-local-vertex-queue.js';
 import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
 import { getNativeResponsesStore } from './responses-chat-session.js';
-import { continueOwnedLocalResponsesQueue, canResumeOwnedLocalResponsesDriver } from './chat.js';
+import {
+  continueOwnedLocalResponsesQueue,
+  canResumeOwnedLocalResponsesDriver,
+  nativeExecutionEnv,
+} from './chat.js';
 import {
   readOwnedNativeContinuationConstraint,
   readOwnedResponsesQueue,
@@ -74,6 +83,8 @@ import { bindConnectionSetupApplication } from './credential-setup-application.j
 import { getResponsesRuntime } from './responses-chat-session.js';
 import {
   getCredentialConnectionsRuntime,
+  keychainConnectionConfig,
+  createCredentialConnectionsRuntime,
   setCredentialConnectionsRuntime as setActiveCredentialConnectionsRuntime,
 } from './credential-connections-runtime.js';
 import type { CredentialConnections } from './credential-connections.js';
@@ -94,6 +105,13 @@ import {
 import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { createTelosItemRouter } from './telos-item-routes.js';
+import { createTelosWorkRouter } from './telos-work-routes.js';
+import { createTelosSourceRouter } from './telos-source-routes.js';
+import { createCanonicalTelosOutcome } from './telos-outcome-owner.js';
+import {
+  isAvailableTelosWorkConversation,
+  isAvailableTelosSourceConversation,
+} from './telos-work-conversation.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -277,7 +295,7 @@ import {
 import { DEFAULT_AGENT_NAME } from './constants.js';
 import { createGitInfoDiscovery, createGitInfoHandler } from './git-discovery.js';
 import { isValidInternalToken } from './internal-token.js';
-import { createConnectionsRouter } from './connections-router.js';
+import { createConnectionsRouter, recentAppReauthorizationHandlers } from './connections-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
 import {
   personalInventorySource,
@@ -294,7 +312,12 @@ import {
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { requestPerformance } from './request-performance.js';
 import { authenticationRoute } from './auth-route-boundary.js';
-import { resolvePending, getPendingRequestsBySession } from './permissions.js';
+import {
+  resolvePending,
+  getPendingRequestsBySession,
+  configureTelosSourcePermissionRecovery,
+} from './permissions.js';
+import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { createLogger } from './logger.js';
 import {
@@ -558,6 +581,31 @@ export function setCredentialConnectionsRuntime(service: CredentialConnections |
     ? createCredentialConnectionsRouter(service, credentialSetupApplication)
     : null;
 }
+/** Both ordinary startup and the retained owner install the same private runtime.
+ * The supervised app child receives no Keychain configuration or metadata store. */
+export function configureCredentialConnectionsRuntime() {
+  setCredentialConnectionsRuntime(null);
+  let runtime: ReturnType<typeof createCredentialConnectionsRuntime> | undefined;
+  try {
+    const config = keychainConnectionConfig(process.env);
+    if (!config) return null;
+    runtime = createCredentialConnectionsRuntime(config);
+    setCredentialConnectionsRuntime(runtime.service);
+    return runtime;
+  } catch {
+    setCredentialConnectionsRuntime(null);
+    runtime?.store.close();
+    log.error('Apple Keychain connections disabled: invalid signed helper configuration');
+    return null;
+  }
+}
+// Reauthorization belongs to the authenticated browser process, even when the
+// connection owner is retained elsewhere. It creates no connection runtime.
+app.post(
+  '/api/credential-connections/reauthorize',
+  operatorAuthMiddleware,
+  ...recentAppReauthorizationHandlers(),
+);
 app.use('/api/credential-connections', operatorAuthMiddleware, (req, res, next) => {
   if (!res.locals.authSession)
     return res.status(401).json({ error: 'Browser authentication required' });
@@ -584,6 +632,7 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
 // Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
 app.post('/api/internal/telos/artifacts/save', authMiddleware, telosArtifactSaveJson);
+app.put('/api/telos/artifacts/:id/document', operatorAuthMiddleware, telosArtifactSaveJson);
 app.post(
   '/api/telos/items/:itemId/artifacts/upload',
   operatorAuthMiddleware,
@@ -1075,6 +1124,16 @@ app.use(
   '/api/agent-library',
   operatorAuthMiddleware,
   createAgentLibraryRouter(getAgentLibrary(), {
+    apiTools: () => {
+      const service = getCredentialConnectionsRuntime();
+      return service ? { catalog: getApiToolCatalog(), service } : undefined;
+    },
+    configuredTools: () => ({
+      catalog: getConfiguredToolCatalog(),
+      cwd: BASE_REPO,
+      env: nativeExecutionEnv(),
+      readSources: loadMcpServers,
+    }),
     adviser: new AgentLibraryAdviser(createTerminalAdviserSession),
     workspaceRoot: BASE_REPO,
     contextPacks: async (signal) => {
@@ -1931,12 +1990,50 @@ app.use(
 );
 
 app.use(
+  createTelosWorkRouter({
+    dbPath: telosDatabasePath,
+    operatorAuth: operatorAuthMiddleware,
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+  }),
+);
+
+app.use(
   createTelosItemRouter({
     dbPath: telosDatabasePath,
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
   }),
 );
+
+app.use(
+  createTelosSourceRouter({
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    dbPath: telosDatabasePath,
+    events: eventStore,
+    operatorAuth: operatorAuthMiddleware,
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+    createOutcome: (input) =>
+      createCanonicalTelosOutcome(
+        {
+          script: TODO_SCRIPT,
+          timeoutMs: TODO_TIMEOUT_MS,
+          maxBufferBytes: TODO_MAX_BUFFER_BYTES,
+          execute: (command, args, options) =>
+            execFileAsync(command, args, {
+              ...options,
+              env: { ...process.env, TELOS_DB_PATH: telosDatabasePath() },
+            }),
+        },
+        input,
+      ),
+  }),
+);
+configureTelosSourcePermissionRecovery(createTelosSourcePermissionRecovery(telosDatabasePath));
 
 app.use(
   createTelosArtifactRouter({
@@ -1975,48 +2072,14 @@ app.use(
   }),
 );
 
-app.post('/api/internal/telos/outcomes', async (req, res) => {
-  if (!verifyInternalToken(req)) {
-    res.status(401).json({ ok: false, error: 'Internal token required' });
-    return;
-  }
-  const body = TodoOutcomeCreateBody.omit({ idempotencyKey: true }).safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
-    return;
-  }
-  const clientId = req.headers['x-client-id'] as string | undefined;
-  const sessionId =
-    (clientId && registry.get(clientId)?.sessionId) || clientId || 'unknown-session';
-  const canonical = JSON.stringify(body.data);
-  const idempotencyKey = `${sessionId}:${createHash('sha256').update(canonical).digest('hex')}`;
-  const contextHints = body.data.contextHints ?? {};
-  const payload = {
-    ...body.data,
-    idempotencyKey,
-    contextHints: {
-      ...contextHints,
-      sessionIds: [...new Set([...(contextHints.sessionIds ?? []), sessionId])],
-    },
-  };
-  const script = join(BASE_REPO, 'command_center', 'todo_api.py');
-  if (!existsSync(script)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-  try {
-    const { stdout } = await execFileAsync(
-      'python3',
-      [script, '--create-outcome-json', JSON.stringify(payload)],
-      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
-    );
-    const result = JSON.parse(stdout);
-    res.status(result.ok ? 200 : 400).json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ ok: false, error: message });
-  }
-});
+app.post(
+  '/api/internal/telos/outcomes',
+  createTelosOutcomeHandler({
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    availableSource: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+  }),
+);
 
 // --- Loop orchestrator API ---
 
@@ -4158,7 +4221,7 @@ const legacyExecFileAsync = promisify(execFile);
 async function execFileAsync(
   command: string,
   args: string[],
-  options: { timeout: number; maxBuffer?: number },
+  options: { timeout: number; maxBuffer?: number; env?: NodeJS.ProcessEnv; encoding?: 'utf8' },
 ) {
   // Mutable workspace entrypoints run with the same authority fence as hooks.
   // An unavailable enrolled fence must never fall back to controller execution.
@@ -4167,7 +4230,7 @@ async function execFileAsync(
     return protectedRunner(command, args, {
       ...options,
       cwd: process.cwd(),
-      env: process.env,
+      env: options.env ?? process.env,
     });
   return legacyExecFileAsync(command, args, options);
 }

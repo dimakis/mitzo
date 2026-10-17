@@ -15,6 +15,12 @@ The Connections inventory is the starting point: quiet surfaces, clear type, gro
 
 Stable agent identity colors use `--seat-color-*` in the same file. Persisted provider configuration is data, not a style declaration: the configuration adapter resolves the default identity color to the literal required by its existing API. Native status bars and browser theme metadata read the current background token rather than carrying their own copies.
 
+Route loading keeps shared Home controls and dialogs in the application entry stylesheet. Component styles load with their route; their control heights must use `--control-height` independently of global CSS ordering. Static markup browser fixtures include the styles owned by the components they represent. Offline regression captures show [shared Updates controls](assets/startup-shared-controls-mobile-light.png) and [profile controls loaded with the chat route](assets/startup-profile-controls-mobile-dark.png).
+
+If a route download fails, the existing error boundary explains the connection failure. Its Try Again control reloads the current document to clear rejected module promises; ordinary rendering errors retain the existing component reset. The offline route-recovery test blocks the Login chunk, restores connectivity and verifies sign-in after retry on all three browser projects.
+
+Dynamic route JavaScript uses direct imports rather than Vite modulepreload links: WebKit can retain a failed modulepreload across reloads. Initial HTML preloads and route CSS loading remain enabled, and the likely landing route still starts alongside authentication. Recovery acceptance must use the production Vite bundle because an esbuild fixture does not reproduce this preload behavior.
+
 ## Appearance preferences
 
 Settings exposes eight curated accents and seven locally available UI font stacks. Preset values live in the same token file, including the light/dark accent shades. The preference hook stores validated preset IDs in local storage and applies root data attributes immediately; startup restores them before React renders. The UI says these choices are saved on the current device. Code remains monospace, and Reset appearance restores System theme, Lavender accent and System font. Browser tests verify every accent pair meets 4.5:1 contrast for filled controls and that selections survive route changes and reloads.
@@ -85,6 +91,31 @@ File-header actions use quiet secondary controls and a restrained accent for Edi
 or Save. Discard remains a visibly labelled destructive action; Done remains
 neutral. Save, loading, error and conflict states retain the existing behavior.
 Colors, fonts, spacing, focus, radii and motion come from the shared token source.
+
+## Saved document revisions
+
+Saved Telos Markdown and HTML documents reuse the Files header, `DocumentEditor`,
+draft status and conflict controls. Edit opens the existing editor; **Save new
+revision** appends a revision and opens its pinned URL. Previous links retain their
+original bytes. The revision status explains saving, and output provenance labels
+human changes as Edited by user. Unsupported formats stay read-only. Existing
+semantic tokens, focus, large-text wrapping, mobile touch targets, theme/font
+preferences and shared toolbar motion remain effective; no new styling is added.
+
+The all-intercept `telos-document-editing` fixture renders the actual page at
+320px mobile WebKit/Chromium and 1280px desktop Chromium in dark Mint/System and
+light Teal/Georgia. It checks keyboard focus, larger text, failure/reload recovery,
+both conflict choices, new-revision navigation and sharing the saved bytes. Six
+scenarios and two browser startup checks pass, alongside 155 focused unit/route
+regressions, 107 design checks, frontend type checking and focused lint. The full
+`test:ui` build exceeded the required local 1 GiB heap; full application build and
+suite acceptance remain CI checks. The fixture isolates Files from the shell and
+uses no backend, credentials or model. No staging or production activation occurs.
+
+Inspected captures: [mobile dark editing](assets/telos-document-mobile-dark.png),
+[mobile light editing](assets/telos-document-mobile-light.png),
+[desktop light editing](assets/telos-document-desktop-light.png) and
+[saved desktop revision](assets/telos-document-saved-desktop.png).
 
 ## Interactive HTML previews
 
@@ -481,6 +512,32 @@ Cancel and direct answers to the full iPhone form.
 Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromium,
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
+
+Reviewed Telos mutations use the same ordinary `PermissionBanner` on desktop and
+mobile, selected only by the host's `reviewKind` marker. Request details contains
+whole completed public messages and retained material revisions, with no initial
+selection. The exact compiled source text, boundary, brief and version pins remain
+inspectable before Once saves that packet. Changing a selection invalidates its
+preview. This request offers Once and Deny; a session allowance cannot approve
+unseen future source selections. Other tools retain their existing scope/actions.
+The source controls reuse shared fieldsets, semantic tokens, normal disclosure
+and the card's independently scrolling body with reachable 44px decisions. Late
+reads are fenced to the request/session/login. An uncertain save locks its exact
+request for recovery, even when the pending card resolves before its HTTP reply.
+Only the host can replay a prepared save as a recovery card. It restores its
+original packet after an authenticated read and offers Retry same save and
+Dismiss. Recovery continues that reviewed attempt; Dismiss neither undoes an
+uncertain item save nor discards its retained evidence. A fresh approval still
+uses its original deadline, explicit selection, Once and Deny. Source context and
+the proposed brief stay hidden until authentication is rechecked and clear on
+authentication loss. Retained source text wraps beside bounded native checkboxes;
+labels and decisions keep the shared touch target while the card body scrolls.
+Save to Telos leads with one structured brief in the existing Outcome, Why this
+matters, Done when and Milestones language. Source text, actual author/date and
+material title/revision/source lead the review; raw proposals, IDs, hashes and
+native generation/configuration proof stay under a closed Source details
+disclosure. Missing native provenance does not create unknown seat/configuration
+rows. Ordinary tools keep their original heading, raw request and scope controls.
 
 ## Artefact sharing links
 
@@ -937,6 +994,25 @@ build exceeded the required 1 GiB local heap; full app build acceptance remains
 with CI. Shell-owned masthead/safe-area behavior is unchanged; these focused
 captures isolate the actual page without the shell. No deployment is performed.
 
+Configured stdio discovery extends this same card collection and editor. The
+explicit Refresh configured servers action uses existing compact actions, status,
+error/retry and cancel controls; reading the page starts no server. Source names
+distinguish duplicate tool names in cards and accessible Add controls. Details
+show unavailable-source reasons and new-session guidance. Discovery never changes
+an editor's selected receipt or a published revision.
+
+The intercepted `configured-tool-selection.spec.ts` actual-page matrix covers
+refresh failure/retry/loading, duplicate sources, category filtering, keyboard
+Escape/focus, publication and portable revision export in mobile WebKit/Chromium
+at 320px and desktop Chromium at 1280px, both themes, Lavender/System and
+Teal/Georgia. Six page checks plus two startup checks pass with one worker.
+Inspected captures: [mobile dark](assets/configured-tools-mobile-dark.png),
+[mobile light](assets/configured-tools-mobile-light.png),
+[desktop dark](assets/configured-tools-desktop-dark.png),
+[desktop light](assets/configured-tools-desktop-light.png). These isolated actual
+page renders omit shell-owned navigation; full-app checks remain a separate CI
+gate. No new CSS, palette, motion or layout scale is introduced.
+
 Verified obsolete warm spares retain Replace, confirmed Remove and Recheck in the
 existing Sandboxes `HomeDialog`, including paused and manual pools. The server's
 fresh retirement capability is independent of recipe compatibility; unknown or
@@ -1053,6 +1129,165 @@ Inspected captures: [desktop popover](assets/compact-chat-desktop-dark.png),
 [retained profile draft editor](assets/compact-chat-profile-drafts.png).
 
 The shared Symposium transcript always uses All independently of the legacy compact-seat selection. Expanding an anchor-only chat must retain every agent’s finished and streaming replies. Independent previews refresh after completed replies, delivery changes and a five-second fallback; closing cancels their read and removes their timer/listener. Refreshing retains the existing history while the next page is read.
+
+## Retained Telos source navigation
+
+`TelosItemSources` keeps originating exchanges in Sources and preserves unknown
+legacy selection, author and dates explicitly. The existing output list excludes
+`source_capture` packets. Opening a reviewed source resolves its retained proof
+and navigates to the full ordinary chat at its recorded exchange; it creates no
+session and changes no account, model or assignment. `TelosSourceWorkLink` reuses
+`SessionWorkLink` in one compact contextual row with shared gutter, control-height,
+spacing and text tokens. It adds no second back action or settings surface.
+Generic conversation associations remain available in Resources through
+`ConversationWorkLinks`, including every item sharing one original discussion.
+S8 composes this same association into the complete approved item/chats/work row.
+Source navigation fences late responses on chat/item changes and leaves the
+ordinary transcript, composer, Resources, settings and history intact. Offline
+source browser fixtures cover narrow mobile and desktop, light/dark appearance,
+alternate accent/font, source anchoring and the return link.
+
+## Frozen Symposium joining review (16 October 2026)
+
+The owner-driven Before joining surface follows the approved
+`symposium-fresh-agent-review.html` flow and `06-fresh-agent-context-review.png`:
+back/title/close, fresh-session separation, context mode and counts, an attributed
+included-context disclosure with exact saved artifact versions and filenames,
+the editable joining brief and its original explanation, the flat Agents policy
+row, and left-aligned Back / Join conversation. Brief edits request a new frozen
+review in the same screen; no extra review step or manual freeze control is added.
+
+`HomeDialog` supplies an optional shared back affordance. Existing callers retain
+their header layout. The review uses `UiIcon`, shared semantic colors, fonts,
+spacing/type/radius/control-height tokens and existing dialog focus/motion owners.
+The 32.5rem maximum width reproduces the approved 520px structural dialog geometry;
+the content height subtracts its two 1px borders to prevent an outer scrollbar.
+The body scrolls independently while the heading/footer remain reachable.
+Review-only typography, button and field rules preserve the other accepted dialogs.
+
+The application must explicitly supply the authenticated source/capacity/ordinary
+preparation owner. No production owner is installed by this presentation slice;
+ordinary setup therefore retains its explicit unavailable review state. Display
+metadata must identify every exact artifact pin before confirmation. Confirmation
+uses the exact server-returned snapshot, settings and request identity; uncertain
+review/confirmation retries retain their original complete request. Back / Review
+resumes the edited frozen brief when setup is unchanged; closing and reopening
+also retains failed initial review attempts and their Check again action. Only an
+explicit setup change creates a new review intent. Pending joins
+recheck their original receipt. Only an authoritative linked receipt closes the
+review and permits a new fresh setup. Full application restart discovery remains
+with the future ordinary owner; this UI introduces no receipt/session store.
+
+Focused offline hook/component/HomeDialog/design checks pass (144 tests), with
+focused ESLint and source-alias TypeScript checks. Runtime manifest/source-closure
+checks also pass (164 tests including the focused UI checks). Correlation IDs and
+review hashing use the shared browser-crypto helper on supported remote HTTP
+without secure-context UUID/SubtleCrypto APIs. The intercepted browser fixture
+uses synthetic callbacks and no backend, credentials or model. An independent
+reviewer compared the final code and five actual component captures against the
+approved HTML and screenshot: [desktop dark](assets/symposium-joining-desktop-dark.png),
+[desktop light](assets/symposium-joining-desktop-light.png),
+[320px mobile top](assets/symposium-joining-mobile-dark.png),
+[320px mobile scrolled](assets/symposium-joining-mobile-dark-bottom.png), and
+[390px mobile light](assets/symposium-joining-mobile-light.png).
+Desktop/mobile checks cover light/dark, Mint/Georgia and Teal/System, exact context
+content, long brief scrolling, pinned/reachable controls and retained edits.
+The full browser acceptance run is recorded separately with the PR checks.
+These captures qualify this bounded presentation, not application admission,
+saved-file artifact access, all-account/runtime operation or native iOS behavior.
+
+## Native biometric enrollment
+
+Native login offers an unchecked **Enable Face ID on this device** option (or the
+device's biometric label). Its description states that the passphrase is saved in
+secure device storage and protected by the enrolled biometrics. Failed legacy
+unlocks explain how to enroll after signing in. Enrollment failures remain visible
+and let the user continue with passphrase login by unchecking the option. This
+uses the existing login form and buttons, shared semantic color/type/spacing
+scales, and a checkbox label with the shared minimum control height. No new
+palette, font, motion or dialog pattern is introduced.
+
+The all-intercept `login-biometric` fixture renders the actual login component
+with a synthetic native bridge, at 320/390px mobile WebKit/Chromium and 1280px
+desktop Chromium. Dark Mint/Georgia and light Teal/System checks cover unchecked
+consent, keyboard toggle, wrapping, horizontal overflow, visible actions, minimum
+label height and protected storage arguments after login. Inspected captures:
+[mobile dark](assets/face-id-enrollment-mobile-dark.png) and
+[desktop light](assets/face-id-enrollment-desktop-light.png).
+These offline checks use synthetic credentials and no backend or model calls;
+real iOS Keychain/Face ID prompts still require separately authorized device testing.
+
+## Cold launch and offline quote handoff
+
+`StartupScreen` is the single full-screen brand surface while `ProtectedRoute`
+validates the existing session. The underlying application root is inert only
+while this surface is visible; authentication success or login redirection restores
+normal interaction immediately. The decorative animation does not grant access,
+retain a ready page, or change existing timeout/retry/logout rules.
+
+`LiquidLogo` samples the existing wordmark into bounded round droplets. One fall,
+a shallow spread, and a gathering rebound resolve into the original wordmark.
+Sampling, theme color and geometry happen once; animation frames perform no
+layout reads. Device pixel ratio is capped at two, and resize, backgrounding,
+unmount and Reduce Motion stop the animation. The shared motion helper contracts
+the wordmark into the quote mark and flies that mark to the actual Today quote
+link if it appears within a bounded window. Input never waits for either flight.
+
+The sixteen approved absurd phrases are selected once and retained through retry.
+After the introductory motion, a locally available attributed literary quote
+appears. Published daily selections and the quote visibility preference are cached
+by API origin. After Today loads, optional, cancellable reads prepare the next
+seven server-selected dates. A bundled approved quote covers first launch or a
+cache miss without claiming to be that day's server selection. No workspace data
+or credentials enter this cache. Real connection failures retain an explicit
+message and Retry below the quote.
+
+The new decorative liquid/quote/handoff timings live in `tokens.css`. All colors,
+fonts, spacing and text sizes use the existing semantic tokens; the logo's 256:94
+geometry and bounded 32rem reading width are structural. The entrance phrase keeps
+its position when the quote appears. The standalone launch surface owns viewport
+coverage; it adds no second visible collection masthead or navigation.
+
+Offline actual-component browser checks cover 320px mobile WebKit/Chromium and
+1280px desktop Chromium, dark Mint/Georgia and light Teal/System, fast success,
+slow success, retry, missing cache, expiry/login redirection, Reduce Motion,
+larger text, scrolling, keyboard Retry, 44px touch controls and uninterrupted
+input during the home handoff. These fixtures intercept all requests and use no
+backend, credentials or model. Inspected captures:
+[mobile logo](assets/startup-logo-mobile-dark.png),
+[mobile quote](assets/startup-quote-mobile-dark.png), and
+[desktop quote](assets/startup-quote-desktop-light.png).
+
+Focused unit/design checks, workspace package builds and frontend type checking
+pass. `npm run test:ui` reached the production Vite build and exhausted the required
+1 GiB local heap; the full build/application browser suite remains CI validation.
+This verifies frontend behavior, not a measured iPhone cold-start speedup. Physical
+Face ID/Keychain and device startup timings remain separately authorized device
+checks. Staging and production are untouched.
+
+## Reviewed API tool configuration
+
+Tool library retains its compact cards, filters and profile usage. Configure API
+tool opens an inline `MotionPresence` disclosure with the existing labelled
+fields, quiet actions and status/error patterns. The first template reads one
+Home Assistant entity. Connection selection reuses existing managed connections;
+there are no endpoint, method, code, header or credential editors. Implementation,
+input/output mapping and documentation are available on request. Published cards
+retain their reviewed template, source path and fingerprint in Details.
+
+Save draft, Verify API read and Publish tool remain separate actions. Verification
+explains its API read and reuses the existing app reauthorization. Failed saves
+and verification retain input. Editing invalidates local proof; Escape/Done
+returns focus and closing preserves the mounted draft. Cancel aborts verification through the retained-owner IPC boundary; owner drain waits for the actual request cleanup. Request cancellation and its deadline use AbortController with listener/timer cleanup so supported older WebKit does not require newer static AbortSignal helpers.
+Colors, fonts, spacing, focus, control height and motion use shared styles; no
+new CSS or palette is introduced.
+
+The all-intercept actual-page fixture covers 320px mobile WebKit/Chromium and
+1280px desktop Chromium in dark Lavender/System and light Teal/Georgia, keyboard
+focus, retained edits, failure/retry, publication, 44px actions and scrolling.
+These checks use fake responses without backend, credentials or models. Full-app
+build/browser acceptance remains a separate CI gate. The application shell and
+advisor/editor placement are unchanged.
 
 ## Device continuity
 

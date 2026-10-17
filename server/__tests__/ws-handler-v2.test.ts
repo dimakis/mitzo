@@ -290,6 +290,43 @@ describe('handleHello', () => {
 // ─── handleReconnect ─────────────────────────────────────────────────────────
 
 describe('handleReconnect', () => {
+  it('replays private provenance as an envelope and preserves its successor chain', () => {
+    const eventStore = mockEventStore();
+    eventStore.getEventsAfter.mockReturnValue([
+      {
+        seq: 7,
+        sessionId: 'sess-1',
+        type: 'ordinary_reply_source',
+        payload: {
+          version: 1,
+          commandId: 'command',
+          messageId: 'message',
+          providerThreadId: 'private-thread',
+          providerTurnId: 'private-turn',
+          futurePrivateValue: 'private-future',
+        },
+      },
+      { seq: 9, sessionId: 'sess-1', type: 'message_end', payload: { messageId: 'message' } },
+    ]);
+    eventStore.getSessionPredecessorSeq.mockImplementation((_sessionId, seq) =>
+      seq === 7 ? 3 : 7,
+    );
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 3 }] },
+      ctx,
+    );
+    expect(transport.sent.filter((event) => typeof event.seq === 'number')).toEqual([
+      { type: 'ordinary_reply_source', sessionId: 'sess-1', seq: 7, prevSessionSeq: 3 },
+      { type: 'message_end', sessionId: 'sess-1', seq: 9, prevSessionSeq: 7, messageId: 'message' },
+    ]);
+  });
+
   it('offers a snapshot without replaying a large negotiated backlog', () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', state: 'ACTIVE' });

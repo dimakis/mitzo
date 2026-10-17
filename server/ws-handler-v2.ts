@@ -71,7 +71,12 @@ type SetModeMsg = z.infer<typeof V2SetModeMessage>;
 import { randomUUID } from 'crypto';
 import { withSpan, withSpanAsync } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
-import { resolvePending, getPendingSessionId, getPendingRequestsBySession } from './permissions.js';
+import {
+  resolvePending,
+  getPendingSessionId,
+  getPendingRequestsBySession,
+  dismissTelosSourcePermissionRecovery,
+} from './permissions.js';
 import {
   startChat,
   sendToChat,
@@ -221,7 +226,10 @@ function sendBootContext(connectionId: string, sessionId: string, ctx: V2Handler
   const conn = ctx.connRegistry.get(connectionId);
   if (!conn) return;
 
-  for (const request of getPendingRequestsBySession(sessionId)) {
+  for (const request of getPendingRequestsBySession(
+    sessionId,
+    liveTransportAuthSessionId(connectionId),
+  )) {
     try {
       conn.transport.send({ type: 'permission_request', ...request });
     } catch (err) {
@@ -435,7 +443,10 @@ export function handleReconnect(
                 }
               : {}),
             providerAttempts: reconnectState.providerAttempts,
-            pendingPermissions: getPendingRequestsBySession(entry.sessionId),
+            pendingPermissions: getPendingRequestsBySession(
+              entry.sessionId,
+              liveTransportAuthSessionId(connectionId),
+            ),
           });
         }
 
@@ -622,7 +633,10 @@ export async function handleSwitchSession(
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'session_switched',
         sessionId: msg.sessionId,
-        pendingPermissions: getPendingRequestsBySession(msg.sessionId),
+        pendingPermissions: getPendingRequestsBySession(
+          msg.sessionId,
+          liveTransportAuthSessionId(connectionId),
+        ),
         mode: ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session.mode ?? sessionMeta.mode,
         cwd: sessionMeta.cwd,
         branch: sessionMeta.branch,
@@ -1531,7 +1545,14 @@ function sendPermissionResponseRejected(
       sessionId,
       permId,
       error: PERMISSION_RESPONSE_REJECTED_MESSAGE,
-      ...(sessionId ? { pendingPermissions: getPendingRequestsBySession(sessionId) } : {}),
+      ...(sessionId
+        ? {
+            pendingPermissions: getPendingRequestsBySession(
+              sessionId,
+              liveTransportAuthSessionId(connectionId),
+            ),
+          }
+        : {}),
     });
   } catch (error) {
     log.warn('permission response error delivery failed', {
@@ -1573,6 +1594,38 @@ export function handlePermissionResponseV2(
         return false;
       }
       const pendingSessionId = getPendingSessionId(msg.permId);
+      const recoveryActor = liveTransportAuthSessionId(connectionId);
+      const recovery =
+        msg.sessionId &&
+        recoveryActor &&
+        getPendingRequestsBySession(msg.sessionId, recoveryActor).some(
+          (request) => request.permId === msg.permId && request.recoveryOnly === true,
+        );
+      if (recovery) {
+        const connection = ctx.connRegistry.get(connectionId);
+        if (
+          !msg.sessionId ||
+          !recoveryActor ||
+          connection?.transport.isOpen() !== true ||
+          !connection.watchedSessions.has(msg.sessionId) ||
+          msg.decision !== 'deny' ||
+          !dismissTelosSourcePermissionRecovery(msg.permId, msg.sessionId, recoveryActor)
+        ) {
+          sendPermissionResponseRejected(
+            connection?.transport,
+            connectionId,
+            msg.permId,
+            msg.sessionId,
+          );
+          return false;
+        }
+        ctx.connRegistry.broadcast(msg.sessionId, {
+          type: 'permission_resolved',
+          permId: msg.permId,
+          sessionId: msg.sessionId,
+        });
+        return true;
+      }
       const ownedSessionId = pendingSessionId ?? msg.sessionId;
       if (ownedSessionId && !allowOwnedLocalControl(connectionId, ownedSessionId, ctx))
         return false;

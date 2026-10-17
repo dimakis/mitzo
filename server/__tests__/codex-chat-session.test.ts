@@ -629,6 +629,54 @@ it('cleans each resource once across explicit close, runtime close and abort', a
   expect(mocks.mcpClose).toHaveBeenCalledTimes(1);
 });
 
+it('binds Telos source review to the actual native provider turn and call identity', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const session = options(new AbortController()).session;
+  const registry = {
+    findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
+  const chat = await openCodexChat({
+    ...options(session.abortController),
+    conversationId: 'conversation',
+    registry,
+  });
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied fixture' });
+  const execute = mocks.conversationOptions!.executeTool as (
+    name: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+    context: { turnId: string; callId: string },
+  ) => Promise<unknown>;
+  await execute(
+    'TelosCreateOutcome',
+    {
+      summary: 'Outcome',
+      intent: 'Result',
+      rationale: 'Why',
+      acceptanceCriteria: ['Evidence'],
+      milestones: ['One'],
+      profile: 'manual',
+    },
+    new AbortController().signal,
+    { turnId: 'actual-turn', callId: 'actual-call' },
+  );
+  expect(mocks.permissionHandler).toHaveBeenCalledWith(
+    'TelosCreateOutcome',
+    expect.anything(),
+    expect.objectContaining({
+      toolUseID:
+        'native:' +
+        createHash('sha256')
+          .update(JSON.stringify(['actual-turn', 'actual-call']))
+          .digest('hex'),
+      allowSessionGrant: false,
+    }),
+  );
+  chat.close();
+});
+
 it('does not advertise unavailable host tools to an OpenShell runtime', async () => {
   vi.clearAllMocks();
   vi.stubEnv('PORT', '3100');
@@ -665,6 +713,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'SymposiumProposeProfile' }),
     expect.objectContaining({ name: 'SymposiumReadProfiles' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
+    expect.objectContaining({ name: 'TelosAdoptSource' }),
     expect.objectContaining({ name: 'TelosGetItem' }),
     expect.objectContaining({ name: 'TelosUpdateItem' }),
     expect.objectContaining({ name: 'TelosSaveArtifact' }),
@@ -689,13 +738,36 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     milestones: ['Expose the trusted host tool'],
     profile: 'manual',
   };
-  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
+  mocks.permissionHandler.mockResolvedValueOnce({
+    behavior: 'allow',
+    updatedInput: { ...input, __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001' },
+  });
   const fetch = vi.fn().mockResolvedValue(
     new Response(
       JSON.stringify({
-        ok: true,
-        created: true,
-        item: { id: 'telos-live', summary: input.summary },
+        canonicalCreation: {
+          ok: true,
+          created: true,
+          item: { id: 'telos-live', summary: input.summary },
+        },
+        permId: 'permission',
+        sessionId: 'conversation',
+        sourceSnapshotId: 'snapshot',
+        operation: { kind: 'create', outcome: input },
+        receipt: {
+          commandId: 'command',
+          actorId: 'operator:user',
+          work: {
+            itemId: 'telos-live',
+            kind: 'outcome',
+            parentId: null,
+            revision: 'a'.repeat(64),
+            links: [],
+            assignments: [],
+            sources: [],
+            attempts: [],
+          },
+        },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     ),
@@ -705,35 +777,51 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     name: string,
     input: Record<string, unknown>,
     signal: AbortSignal,
+    context?: { turnId: string; callId: string },
   ) => Promise<{ content: string; isError: boolean }>;
 
   await expect(
-    executeTool('TelosCreateOutcome', input, new AbortController().signal),
+    executeTool('TelosCreateOutcome', input, new AbortController().signal, {
+      turnId: 'actual-turn',
+      callId: 'actual-call',
+    }),
   ).resolves.toEqual({
     content: JSON.stringify({
       created: true,
+      canonicalCreation: {
+        ok: true,
+        created: true,
+        item: { id: 'telos-live', summary: input.summary },
+      },
       id: 'telos-live',
       title: input.summary,
       path: '/todos/telos-live',
+      sourceSnapshotId: 'snapshot',
     }),
     isError: false,
   });
   expect(mocks.permissionHandler).toHaveBeenCalledWith(
     'TelosCreateOutcome',
     input,
-    expect.objectContaining({ forcePrompt: true, allowSessionGrant: true }),
+    expect.objectContaining({ forcePrompt: true, allowSessionGrant: false }),
   );
   expect(fetch).toHaveBeenCalledWith(
-    'http://localhost:3100/api/internal/telos/outcomes',
+    'http://localhost:3100/api/internal/telos/source/execute',
     expect.objectContaining({
       headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
     }),
   );
   mocks.useTls = true;
-  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
-  await executeTool('TelosCreateOutcome', input, new AbortController().signal);
+  mocks.permissionHandler.mockResolvedValueOnce({
+    behavior: 'allow',
+    updatedInput: { ...input, __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001' },
+  });
+  await executeTool('TelosCreateOutcome', input, new AbortController().signal, {
+    turnId: 'actual-turn',
+    callId: 'actual-call',
+  });
   expect(fetch).toHaveBeenLastCalledWith(
-    'http://localhost:3101/api/internal/telos/outcomes',
+    'http://localhost:3101/api/internal/telos/source/execute',
     expect.objectContaining({
       headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
     }),
@@ -921,6 +1009,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({ name: 'SymposiumReadProfiles' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
+      expect.objectContaining({ name: 'TelosAdoptSource' }),
       expect.objectContaining({ name: 'TelosGetItem' }),
       expect.objectContaining({ name: 'TelosUpdateItem' }),
       expect.objectContaining({ name: 'TelosSaveArtifact' }),
@@ -3032,6 +3121,16 @@ it('uses the already verified owned client locally regardless of global OpenShel
       reasoningEffort: null,
     });
     (config.onProviderDispatch as (id: string) => void)('owned-command');
+    const source = {
+      commandId: 'owned-command',
+      messageId: 'visible-owned-reply',
+      providerThreadId: 'private-owned-thread',
+      providerTurnId: 'private-owned-turn',
+    };
+    (config.onProviderMessageSource as (source: unknown) => void)(source);
+    expect(
+      f.eventStore.getOrdinaryReplySourceEvents('owned-session', 'visible-owned-reply'),
+    ).toEqual([{ version: 1, ...source }]);
     expect(() => (config.onProviderDispatch as (id: string) => void)('owned-command')).toThrow(
       'Owned local Codex chat unavailable',
     );

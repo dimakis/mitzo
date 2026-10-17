@@ -216,6 +216,10 @@ export interface UserQuestion {
 export type QuestionAnswers = Record<string, string[]>;
 
 export interface PermissionRequest {
+  /** Host-required source review; generic tool/session allowance is insufficient. */
+  reviewKind?: 'telos_source';
+  /** Continue only a previously approved immutable save; never new consent. */
+  recoveryOnly?: true;
   permId: string;
   sessionId?: string;
   expiresAt?: number;

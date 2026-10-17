@@ -1,0 +1,654 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import Database from 'better-sqlite3';
+import express from 'express';
+import request from 'supertest';
+import { TelosArtifactStore } from '../telos-artifact-store.js';
+import { EventStore } from '../event-store.js';
+import { createTelosSourceRouter } from '../telos-source-routes.js';
+import { nativeSourceWriter } from './fixtures/telos-native-source.js';
+import { readFileSync } from 'node:fs';
+import {
+  reviewedHandlerSourceArtifacts,
+  reviewedHandlerSourceFingerprint,
+} from '../connections/reviewed-handler-artifacts.js';
+
+const cleanups: (() => void)[] = [];
+afterEach(() =>
+  cleanups
+    .splice(0)
+    .reverse()
+    .forEach((close) => close()),
+);
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), 'telos-source-api-'));
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, 'telos.db');
+  const db = new Database(path);
+  db.exec(`CREATE TABLE items(id TEXT PRIMARY KEY,parent_id TEXT,summary TEXT,intent TEXT,rationale TEXT,acceptance_criteria TEXT,profile TEXT,status TEXT,starred INTEGER,context_hints TEXT,created_at TEXT,updated_at TEXT);
+    INSERT INTO items VALUES('item',NULL,'Outcome','Result','Why','["Evidence"]','manual','active',0,'{}',NULL,'original');
+    CREATE TABLE sources(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,url TEXT,title TEXT,raw_snippet TEXT,timestamp TEXT);
+    CREATE TABLE links(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,url TEXT,title TEXT,description TEXT,created_at TEXT);`);
+  db.close();
+  const creationDb = new Database(path);
+  creationDb.exec(
+    'ALTER TABLE items ADD COLUMN idempotency_key TEXT; CREATE UNIQUE INDEX creation_identity ON items(idempotency_key)',
+  );
+  creationDb.close();
+  const createOutcome = vi.fn(
+    async (body: {
+      idempotencyKey: string;
+      summary: string;
+      intent: string;
+      rationale: string;
+      acceptanceCriteria: string[];
+      profile: string;
+      milestones: string[];
+      contextHints?: Record<string, unknown>;
+    }) => {
+      const db = new Database(path);
+      try {
+        const existing = db
+          .prepare('SELECT id FROM items WHERE idempotency_key=?')
+          .get(body.idempotencyKey) as { id: string } | undefined;
+        if (existing) return { itemId: existing.id };
+        const hints = body.contextHints ?? {};
+        db.prepare(
+          "INSERT INTO items VALUES('created',NULL,?,?,?,?,?,'active',1,?,NULL,'created',?)",
+        ).run(
+          body.summary,
+          body.intent,
+          body.rationale,
+          JSON.stringify(body.acceptanceCriteria),
+          body.profile,
+          JSON.stringify({
+            ...hints,
+            doc_ids: hints.docIds ?? [],
+            jira_keys: hints.jiraKeys ?? [],
+            task_hint: hints.taskHint ?? '',
+            session_ids: hints.sessionIds ?? [],
+          }),
+          body.idempotencyKey,
+        );
+        body.milestones.forEach((title, i) =>
+          db
+            .prepare(
+              "INSERT INTO items VALUES(?,'created',?,'','','[]',?,'active',0,'{}',NULL,'created',NULL)",
+            )
+            .run('created-slice-' + i, title, body.profile),
+        );
+        return { itemId: 'created' };
+      } finally {
+        db.close();
+      }
+    },
+  );
+  const events = new EventStore(join(root, 'events.db'));
+  cleanups.push(() => events.close());
+  events.upsertSession({ sessionId: 'origin', conversationSource: 'mitzo' });
+  const sequence = events.append('origin', 'user_message', {
+    messageId: 'message',
+    text: 'The actual agreed exchange.',
+  });
+  const selection = {
+    requestId: randomUUID(),
+    expectedMembershipRevision: 0,
+    sourceConversationId: 'origin',
+    mode: 'selected',
+    boundary: { sequence, messageId: 'message' },
+    messageIds: ['message'],
+    artifacts: [],
+    purpose: 'Save source',
+    joiningBrief: '',
+  };
+  const dbPath = vi.fn(() => path);
+  const app = express();
+  app.use(express.json());
+  app.use(
+    createTelosSourceRouter({
+      dbPath,
+      events,
+      createOutcome,
+      ordinaryConversation: (id) => id === 'origin',
+      operatorAuth: (req, res, next) => {
+        if (req.headers['x-operator'] !== 'authenticated') {
+          res.status(403).json({ code: 'unauthorized' });
+          return;
+        }
+        res.locals.authSession = { id: 'host-verified-user', expiresAt: Date.now() + 60_000 };
+        next();
+      },
+    }),
+  );
+  const post = (action: string, body: object) =>
+    request(app)
+      .post('/api/telos/work/source/' + action)
+      .set('x-operator', 'authenticated')
+      .send(body);
+  return { app, events, selection, dbPath, post, createOutcome };
+}
+describe('authenticated Telos source capture API', () => {
+  it.each(
+    [
+      'native-reversed',
+      'native-user',
+      'blank',
+      'whitespace',
+      'blank-activity',
+      'invalid-boundary',
+    ].flatMap((kind) =>
+      (['selected', 'conversation_so_far'] as const).map((mode) => ({ kind, mode })),
+    ),
+  )(
+    'qualifies $kind final source boundaries in $mode mode before any mutation',
+    async ({ kind, mode }) => {
+      const f = fixture();
+      let sequence: number;
+      let messageIds: string[];
+      let messageId: string;
+      if (kind.startsWith('native') || kind === 'invalid-boundary') {
+        const writer = nativeSourceWriter(f.events);
+        writer.start(0, 'first', 'First visible reply');
+        messageId = 'first';
+        if (kind === 'native-reversed') {
+          writer.start(1, 'second', 'Second visible reply');
+          writer.end(1, 'second');
+          messageIds = ['second', 'first'];
+        } else if (kind === 'native-user') {
+          f.events.append('origin', 'user_message', {
+            messageId: 'later-user',
+            text: 'Later operator message',
+          });
+          messageIds = ['later-user', 'first'];
+        } else messageIds = ['first'];
+        sequence =
+          kind === 'invalid-boundary'
+            ? f.events.getSessionEvents('origin').at(-1)!.seq
+            : writer.end(0, 'first');
+      } else {
+        messageId = 'blank';
+        messageIds = ['blank'];
+        f.events.append('origin', 'message_start', { messageId });
+        if (kind === 'blank-activity') {
+          f.events.append('origin', 'block_start', {
+            messageId,
+            blockId: 'tool',
+            blockType: 'tool_use',
+          });
+          f.events.append('origin', 'tool_result', {
+            messageId,
+            blockId: 'tool',
+            content: 'Private activity',
+          });
+          f.events.append('origin', 'block_end', {
+            messageId,
+            blockId: 'tool',
+            blockType: 'tool_use',
+          });
+        }
+        f.events.append('origin', 'block_start', { messageId, blockId: 'text', blockType: 'text' });
+        f.events.append('origin', 'block_delta', {
+          messageId,
+          blockId: 'text',
+          delta: kind === 'blank' ? '' : ' \n\t',
+        });
+        f.events.append('origin', 'block_end', { messageId, blockId: 'text', blockType: 'text' });
+        sequence = f.events.append('origin', 'message_end', { messageId });
+      }
+      const input = {
+        requestId: randomUUID(),
+        outcome: {
+          summary: 'Reviewed outcome',
+          intent: 'Result',
+          rationale: 'Why',
+          acceptanceCriteria: ['Evidence'],
+          milestones: ['One'],
+          profile: 'manual',
+        },
+        selection: {
+          ...f.selection,
+          mode,
+          messageIds: mode === 'selected' ? messageIds : [],
+          boundary: { sequence, messageId },
+        },
+      };
+      const status = kind === 'invalid-boundary' ? 503 : 400;
+      const preview = await f.post('outcome/preview', input);
+      expect.soft(preview.status).toBe(status);
+      const result = await f.post('outcome/create', {
+        ...input,
+        previewSha256: preview.body.sha256 ?? '0'.repeat(64),
+      });
+      expect.soft(result.status).toBe(status);
+      expect.soft(f.createOutcome).not.toHaveBeenCalled();
+      const db = new Database(f.dbPath());
+      try {
+        expect.soft(db.prepare('SELECT id FROM items').all()).toEqual([{ id: 'item' }]);
+        for (const table of [
+          'sources',
+          'links',
+          'telos_artifact_revisions',
+          'telos_work_sources',
+          'telos_work_links',
+          'telos_work_assignments',
+          'telos_work_attempts',
+          'telos_work_source_creations',
+        ])
+          expect
+            .soft(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table)
+            .toEqual({ n: 0 });
+      } finally {
+        db.close();
+      }
+    },
+  );
+  it.each(['bare', 'titled', 'reference'])(
+    'refuses mutable %s materials before canonical or retained-source mutation',
+    async (form) => {
+      const f = fixture();
+      const materials = new TelosArtifactStore(f.dbPath());
+      const retained = materials.save({
+        itemId: 'item',
+        filename: 'mock.html',
+        title: 'Mock',
+        sessionId: 'origin',
+        bytes: Buffer.from('retained bytes'),
+      });
+      materials.close();
+      const url = '/api/telos/artifacts/' + retained.id;
+      const text =
+        form === 'bare'
+          ? `Saved ${url}.`
+          : form === 'titled'
+            ? `[Mock](${url} "Mock")`
+            : `[Mock][saved]
+
+[saved]: ${url}`;
+      const sequence = f.events.append('origin', 'user_message', { messageId: 'mutable', text });
+      const input = {
+        requestId: randomUUID(),
+        outcome: {
+          summary: 'Reviewed',
+          intent: 'Result',
+          rationale: 'Why',
+          acceptanceCriteria: ['Done'],
+          milestones: ['One'],
+          profile: 'manual',
+        },
+        selection: {
+          ...f.selection,
+          mode: 'conversation_so_far',
+          messageIds: [],
+          boundary: { sequence, messageId: 'mutable' },
+        },
+      };
+      const preview = await f.post('outcome/preview', input);
+      expect.soft(preview.status).toBe(503);
+      const result = await f.post('outcome/create', {
+        ...input,
+        previewSha256: preview.body.sha256 ?? '0'.repeat(64),
+      });
+      expect.soft(result.status).toBe(503);
+      expect.soft(f.createOutcome).not.toHaveBeenCalled();
+      const db = new Database(f.dbPath());
+      try {
+        expect.soft(db.prepare('SELECT id FROM items').all()).toEqual([{ id: 'item' }]);
+        expect
+          .soft(db.prepare('SELECT COUNT(*) AS n FROM telos_artifact_revisions').get())
+          .toEqual({ n: 1 });
+        for (const table of [
+          'telos_work_sources',
+          'telos_work_links',
+          'telos_work_assignments',
+          'telos_work_attempts',
+          'telos_work_source_creations',
+        ])
+          expect
+            .soft(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table)
+            .toEqual({ n: 0 });
+      } finally {
+        db.close();
+      }
+    },
+  );
+  it.each(['thinking', 'tool_use'])(
+    'refuses private %s block-ID reuse before preview/creation and retains no private source',
+    async (blockType) => {
+      const f = fixture();
+      for (const [type, fields] of [
+        ['message_start', {}],
+        ['block_start', { blockId: 'reused', blockType: 'text' }],
+        ['block_delta', { blockId: 'reused', delta: 'Public text' }],
+        ['block_start', { blockId: 'reused', blockType }],
+        ['block_delta', { blockId: 'reused', delta: 'PRIVATE REUSED DELTA' }],
+        ['block_end', { blockId: 'reused', blockType }],
+      ] as const)
+        f.events.append('origin', type, { messageId: 'mixed', ...fields });
+      const sequence = f.events.append('origin', 'message_end', { messageId: 'mixed' });
+      const input = {
+        requestId: randomUUID(),
+        outcome: {
+          summary: 'Reviewed outcome',
+          intent: 'Result',
+          rationale: 'Why',
+          acceptanceCriteria: ['Evidence'],
+          milestones: ['One'],
+          profile: 'manual',
+        },
+        selection: {
+          ...f.selection,
+          boundary: { sequence, messageId: 'mixed' },
+          messageIds: ['mixed'],
+        },
+      };
+      const preview = await f.post('outcome/preview', input);
+      expect.soft(preview.status).toBe(503);
+      expect.soft(JSON.stringify(preview.body)).not.toContain('PRIVATE REUSED DELTA');
+      const saved = await f.post('outcome/create', {
+        ...input,
+        previewSha256: preview.body.sha256 ?? '0'.repeat(64),
+      });
+      expect.soft(saved.status).toBe(503);
+      expect.soft(f.createOutcome).not.toHaveBeenCalled();
+      const db = new Database(f.dbPath());
+      try {
+        expect.soft(db.prepare('SELECT id FROM items').all()).toEqual([{ id: 'item' }]);
+        for (const table of [
+          'telos_artifact_revisions',
+          'telos_work_sources',
+          'telos_work_links',
+          'telos_work_assignments',
+          'telos_work_attempts',
+          'telos_work_source_creations',
+        ])
+          expect
+            .soft(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table)
+            .toEqual({ n: 0 });
+      } finally {
+        db.close();
+      }
+    },
+  );
+  it('refuses newly unverified attribution after preview before canonical creation or retained-source mutation', async () => {
+    const f = fixture();
+    const input = {
+      requestId: randomUUID(),
+      outcome: {
+        summary: 'Reviewed outcome',
+        intent: 'Result',
+        rationale: 'Why',
+        acceptanceCriteria: ['Evidence'],
+        milestones: ['One'],
+        profile: 'manual',
+      },
+      selection: f.selection,
+    };
+    const preview = await f.post('outcome/preview', input);
+    expect(preview.status).toBe(200);
+    const events = new Database(join(dirname(f.dbPath()), 'events.db'));
+    try {
+      events
+        .prepare(
+          "UPDATE events SET payload=json_set(payload,'$.seatId',NULL) WHERE session_id='origin' AND type='user_message'",
+        )
+        .run();
+    } finally {
+      events.close();
+    }
+    const response = await f.post('outcome/create', {
+      ...input,
+      previewSha256: preview.body.sha256,
+    });
+    expect(response.status).toBe(503);
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    const db = new Database(f.dbPath());
+    try {
+      expect(db.prepare('SELECT id FROM items').all()).toEqual([{ id: 'item' }]);
+      for (const table of [
+        'telos_artifact_revisions',
+        'telos_work_sources',
+        'telos_work_links',
+        'telos_work_assignments',
+        'telos_work_attempts',
+        'telos_work_source_creations',
+      ])
+        expect(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table).toEqual({ n: 0 });
+      expect(f.events.listSessions()).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+  it('refuses attached saved source snapshots before retaining or creating work', async () => {
+    const f = fixture();
+    const content = 'The exact saved briefing content.';
+    const sequence = f.events.append('origin', 'user_message', {
+      messageId: 'saved-briefing',
+      text: 'Discuss this saved briefing.',
+      sourceSnapshots: [
+        {
+          kind: 'briefing',
+          date: '2026-10-16',
+          revision: createHash('sha256').update(content).digest('hex'),
+          content,
+        },
+      ],
+    });
+    const selection = {
+      ...f.selection,
+      boundary: { sequence, messageId: 'saved-briefing' },
+      messageIds: ['saved-briefing'],
+    };
+    const outcome = {
+      summary: 'Reviewed outcome',
+      intent: 'Deliver it',
+      rationale: 'Why',
+      acceptanceCriteria: ['Evidence'],
+      profile: 'manual',
+      milestones: ['Slice one'],
+    };
+    for (const mode of ['selected', 'conversation_so_far']) {
+      const selected = {
+        ...selection,
+        mode,
+        messageIds: mode === 'selected' ? selection.messageIds : [],
+      };
+      const requests = [
+        ['preview', { itemId: 'item', selection: selected }],
+        [
+          'adopt',
+          {
+            itemId: 'item',
+            selection: selected,
+            requestId: 'adopt-source',
+            expectedRevision: '0'.repeat(64),
+            previewSha256: '0'.repeat(64),
+          },
+        ],
+        ['outcome/preview', { requestId: 'new-source', outcome, selection: selected }],
+        [
+          'outcome/create',
+          { requestId: 'new-source', outcome, selection: selected, previewSha256: '0'.repeat(64) },
+        ],
+      ] as const;
+      for (const [action, input] of requests) {
+        const response = await f.post(action, input);
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('invalid');
+        expect(response.body.error).toMatch(/source snapshots.*retained materials/);
+      }
+    }
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    expect(f.events.listSessions()).toHaveLength(1);
+    const db = new Database(f.dbPath());
+    try {
+      expect(db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+      for (const table of [
+        'telos_artifact_revisions',
+        'telos_work_sources',
+        'telos_work_links',
+        'telos_work_assignments',
+        'telos_work_attempts',
+        'telos_work_allocation_outbox',
+        'telos_work_source_creations',
+        'telos_work_commands',
+      ])
+        expect(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table).toEqual({ n: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('reports unsupported inline images as an actionable selection error without creating work', async () => {
+    const f = fixture();
+    const sequence = f.events.append('origin', 'user_message', {
+      messageId: 'mock',
+      text: 'Use this mock',
+      images: ['data:image/png;base64,fixture'],
+    });
+    const response = await f.post('preview', {
+      itemId: 'item',
+      selection: {
+        ...f.selection,
+        mode: 'conversation_so_far',
+        messageIds: [],
+        boundary: { sequence, messageId: 'mock' },
+      },
+    });
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('invalid');
+    expect(response.body.error).toMatch(/images.*retained materials/);
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    expect(f.events.listSessions()).toHaveLength(1);
+  });
+
+  it('creates one reviewed outcome through the canonical owner and returns its source-only work receipt', async () => {
+    const f = fixture();
+    const proposal = {
+      requestId: 'save-from-chat',
+      selection: f.selection,
+      outcome: {
+        summary: 'Saved from discussion',
+        intent: 'Deliver it',
+        rationale: 'Why',
+        acceptanceCriteria: ['Approved'],
+        profile: 'manual',
+        milestones: ['Slice one'],
+      },
+    };
+    const preview = await f.post('outcome/preview', proposal);
+    expect(preview.status).toBe(200);
+    expect(f.createOutcome).not.toHaveBeenCalled();
+    const input = { ...proposal, previewSha256: preview.body.sha256 };
+    const response = await f.post('outcome/create', input);
+    expect(response.status).toBe(200);
+    expect(response.body.work).toMatchObject({
+      itemId: 'created',
+      kind: 'outcome',
+      assignments: [],
+      attempts: [],
+      links: [{ role: 'origin' }],
+    });
+    expect((await f.post('outcome/create', input)).body).toEqual(response.body);
+    expect(f.createOutcome).toHaveBeenCalledTimes(1);
+    expect(f.events.listSessions()).toHaveLength(1);
+  });
+  it('pins the route, application registration and client API implementation', () => {
+    const manifest: Record<string, string> = reviewedHandlerSourceArtifacts;
+    for (const file of [
+      '../telos-source-routes.ts',
+      '../telos-outcome-owner.ts',
+      '../app.ts',
+      '../../packages/client/src/telos-work-api.ts',
+    ])
+      expect(manifest[file], file).toBe(
+        reviewedHandlerSourceFingerprint(
+          readFileSync(new URL(file, new URL('../connections/', import.meta.url)), 'utf8'),
+        ),
+      );
+  });
+  it('requires interactive authority before canonical reads; internal credentials and caller actors are insufficient', async () => {
+    const f = fixture();
+    const url = '/api/telos/work/source/preview';
+    expect(
+      (await request(f.app).post(url).send({ itemId: 'item', selection: f.selection })).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(f.app)
+          .post(url)
+          .set('x-internal-token', 'host')
+          .send({ itemId: 'item', selection: f.selection })
+      ).status,
+    ).toBe(403);
+    expect(f.dbPath).not.toHaveBeenCalled();
+    expect(
+      (
+        await request(f.app)
+          .post(url)
+          .set('x-operator', 'authenticated')
+          .set('origin', 'https://untrusted.invalid')
+          .send({ itemId: 'item', selection: f.selection })
+      ).status,
+    ).toBe(403);
+    expect(f.dbPath).not.toHaveBeenCalled();
+    expect(
+      (await f.post('preview', { itemId: 'item', selection: f.selection, actor: 'fake' })).status,
+    ).toBe(400);
+    expect(f.dbPath).not.toHaveBeenCalled();
+  });
+  it('previews, explicitly adopts and reads the exact retained boundary with no hidden execution', async () => {
+    const f = fixture();
+    const preview = await f.post('preview', { itemId: 'item', selection: f.selection });
+    expect(preview.status).toBe(200);
+    expect(preview.headers['cache-control']).toBe('private, no-store');
+    expect(preview.body.packet.actorId).toBe('operator:host-verified-user');
+    const input = {
+      itemId: 'item',
+      requestId: 'adopt',
+      expectedRevision: preview.body.packet.workRevision,
+      previewSha256: preview.body.sha256,
+      selection: f.selection,
+    };
+    const adopted = await f.post('adopt', input);
+    expect(adopted.status).toBe(200);
+    expect((await f.post('adopt', input)).body).toEqual(adopted.body);
+    expect(adopted.body.work).toMatchObject({
+      assignments: [],
+      attempts: [],
+      links: [{ role: 'origin' }],
+    });
+    const snapshotId = adopted.body.work.sources[0].snapshotId;
+    const read = await request(f.app)
+      .get('/api/telos/work/items/item/sources/' + snapshotId)
+      .set('x-operator', 'authenticated');
+    expect(read.status).toBe(200);
+    expect(read.body.packet).toEqual(preview.body.packet);
+    expect(read.body.sourceHref).toContain('/chat/origin?telosItem=item&telosSource=');
+    expect(
+      (await request(f.app).get('/api/telos/work/items/item/sources/' + snapshotId)).status,
+    ).toBe(403);
+    expect(f.events.listSessions()).toHaveLength(1);
+  });
+  it('returns conflicts and safe owner failures without accepting caller-supplied source bytes', async () => {
+    const f = fixture();
+    const preview = await f.post('preview', { itemId: 'item', selection: f.selection });
+    const body = {
+      itemId: 'item',
+      requestId: 'adopt',
+      expectedRevision: preview.body.packet.workRevision,
+      previewSha256: '0'.repeat(64),
+      selection: f.selection,
+    };
+    expect((await f.post('adopt', body)).status).toBe(409);
+    expect((await f.post('adopt', { ...body, packet: preview.body.packet })).status).toBe(400);
+    f.dbPath.mockImplementation(() => {
+      throw Error('/private/credentials/source.db');
+    });
+    const failure = await f.post('preview', { itemId: 'item', selection: f.selection });
+    expect(failure.status).toBe(503);
+    expect(failure.text).not.toContain('/private/');
+  });
+});

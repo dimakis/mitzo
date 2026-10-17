@@ -163,7 +163,7 @@ builder is included.
 | Local/native Codex                      | Explicit refusal; dynamic-tool filtering cannot restrict provider-native tools          |
 | OpenShell / brokered Codex              | Explicit refusal; native sandbox and host-wrapper enrollment remains separate           |
 | Native Symposium seats / search threads | Explicit refusal at profile/seat admission                                              |
-| Configured stdio MCP tools              | Legacy behavior retained; source-scoped selectable discovery belongs to the next phase  |
+| Configured stdio MCP tools              | Supported on enrolled local API routes with verified source-bound discovery receipts    |
 
 The inventory is derived from exported native, connection, repository, profile,
 web, publishing and Telos registrations. Telos tools remain visible with their
@@ -182,8 +182,9 @@ validation still apply at execution, including after human approval.
 New supported sessions expose only the selected optional definitions plus the
 required interaction tool. Dispatch checks that exact admitted name set before
 hooks or execution. Unknown aliases, provider MCP wire names, publishing wrappers
-and capability-wrapper names cannot widen it. Explicit selections do not start
-configured MCP servers or run project command hooks. **Bash** remains a general
+and capability-wrapper names cannot widen it. Explicit selections start only their
+selected configured MCP sources after receipt verification; they do not run project
+command hooks. **Bash** remains a general
 workspace command tool; selecting it permits commands within its existing OS
 sandbox. Tool selection restricts invocation identities, not the semantic content
 of every allowed program or request. Use the existing workspace/connection policy
@@ -197,5 +198,89 @@ changes require a new tool version. Existing chats cannot adopt edits or refresh
 native catalogs. Start a new chat after publishing a new selection.
 
 Offline evidence and remaining live qualification are tracked in
-[the Phase 1 acceptance record](agent-tool-selection-acceptance.md). Source tests
+[the Phase 1 acceptance record](agent-tool-selection-acceptance.md) and
+[Phase 2 acceptance](configured-tool-selection-acceptance.md). Source tests
 and intercepted browser fixtures do not establish live provider execution.
+
+## Discovering configured stdio tools
+
+Refresh configured servers in Tool library explicitly discovers the already
+configured and authorized host stdio sources that opt in with a unique
+`librarySourceId` UUID in the existing MCP configuration. Add that field to the
+existing source entry; this feature installs no server and accepts no command,
+URL, credential or launch directory from the picker. Sandbox-only and remote
+transports remain outside this connector. Legacy sources without a library ID
+retain their existing runtime behavior and are not discovered for selection.
+
+Refresh may start configured processes. It requires interactive operator
+authorization and the retained owner's current custody. Loading the page reads
+saved receipts only. Refresh is cancellable, bounded to 64 sources, 100 pages per
+source, 1,000 tools and 1 MiB of discovery data, and has a two-minute request limit.
+Failed or superseded refreshes preserve the saved catalog. A cancellation near
+publication may need another refresh to confirm the saved result. Source failures
+are reported without returning private process diagnostics.
+
+Duplicate names appear separately under their source labels. Add selects the
+exact version and opaque discovery receipt; changing labels cannot rebind an ID.
+Description, schemas and annotation hints are untrusted data. Every discovered
+tool retains the existing permission boundary; hints never allow a call or a
+credential. The full descriptor and trusted launch inputs are bound privately.
+The source process starts in its pinned discovery directory even when the chat
+uses a different authorized task workspace. Changed configuration or launch
+environment requires discovery and deliberate selection again. These receipts do
+not attest to executable bytes or a remote implementation behind the same contract.
+When replacing an implementation under unchanged launch inputs, the operator must
+assign a new source UUID rather than treating the old receipt as an attestation.
+
+New discoveries never rewrite the editor's references, published profiles or
+admitted sessions. Additions become available for new selections. Changed or
+removed selected tools refuse effects and cold resume; they cannot replace an
+old contract by sharing its name. Existing approvals, source configuration,
+account/session ownership, revocation and cancellation are rechecked at calls,
+including after awaited approval. No active-session catalog refresh is enrolled;
+start a new chat after publishing a changed selection.
+
+Portable exports contain source/tool identity, version and an opaque revision,
+with no command, path, environment, credential or grant. Importing on an
+installation without the exact private receipt remains inspectable but unresolved,
+even if a configured source has the same name, UUID or schema. Configure and
+discover its authorized source, then deliberately replace the unavailable
+selection and publish a new revision. There is no automatic cross-installation
+receipt migration. Native Codex, Claude SDK, OpenShell and native reviewer/search
+routes still refuse explicit profile selections.
+
+## Configuring reviewed API tools
+
+In Tool library, choose **Configure API tool**. The initial template reads one Home
+Assistant entity state through an existing managed Home Assistant connection.
+Choose that connection, name the tool and enter an entity such as
+`sensor.office_temperature`. **Save draft** validates the configuration without a
+request. **Authorize verification** uses existing app reauthorization, then
+**Verify API read** makes one GET and validates the bounded response. **Publish
+tool** is available only after the saved draft verifies successfully. Verification
+failure, cancellation or further edits require another successful verification.
+These are product operations; offline development fixtures do not qualify a live
+connection.
+
+The implementation disclosure shows the fixed operation and source. Published
+cards retain the template and source fingerprint. Endpoint, method, input schema,
+output mapping and code are owned by the reviewed template; they are not editable
+request-proxy fields. Authentication stays in Connections. Verification's temporary
+grant is removed, and each chat still requires its own connection approval.
+
+Select the published API tool and **RequestConnectionAccess** in an agent draft,
+publish the profile, then start a new local API chat. Explicit tools work on local
+OpenAI Responses and Gemini/Vertex routes. The invocation takes no arguments and
+returns only the configured entity's ID, state and last-change timestamp. Existing
+native/SDK route refusals and the new-session requirement remain in force.
+
+Configuration, connection authority or reviewed source-closure drift makes old
+publications unavailable. Re-save and verify the draft, publish a new tool version,
+and deliberately select it in a new profile/session. Existing sessions and cold
+resumes never adopt a replacement definition. Portable exports retain only the
+opaque tool ID/version/revision; private configuration, grants and credentials do
+not travel. Imported references on another installation remain unresolved.
+
+See [Phase 3 acceptance](api-tool-templates-acceptance.md). Source acceptance does
+not close Phase 1 or Phase 2 live qualification; canonical staging remains stood
+down and production deployment requires a separate explicit request.

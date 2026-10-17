@@ -21,9 +21,13 @@ function enqueueWatchMutation(operation: () => Promise<void>): Promise<void> {
   return next;
 }
 
-export async function saveTokenToWatch(token: string): Promise<void> {
+export async function saveTokenToWatch(
+  token: string,
+  isCurrent: () => boolean = () => true,
+): Promise<void> {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return;
   await enqueueWatchMutation(async () => {
+    if (!isCurrent()) return;
     try {
       await bridge().saveToken({ token });
     } catch {

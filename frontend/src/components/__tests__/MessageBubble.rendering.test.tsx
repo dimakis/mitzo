@@ -34,6 +34,33 @@ function renderBubble(content: string, streaming = false): string {
 }
 
 describe('TextBubble file link rendering', () => {
+  it.each(['', '?revision=2'])(
+    'preserves the exact retained destination through completed reference preprocessing (%s)',
+    (suffix) => {
+      function Location() {
+        const value = useLocation();
+        return <output data-testid="reference-target">{value.pathname + value.search}</output>;
+      }
+      try {
+        const url = '/api/telos/artifacts/' + 'd'.repeat(32) + suffix;
+        render(
+          <MemoryRouter>
+            <TextBubble content={`[Approved mock][review]\n\n[review]: ${url} "Reviewed mock"`} />
+            <Location />
+          </MemoryRouter>,
+        );
+        fireEvent.click(screen.getByRole('link', { name: 'Approved mock' }));
+        const target = new URL(
+          screen.getByTestId('reference-target').textContent!,
+          'https://mitzo.test',
+        );
+        expect(target.pathname).toBe('/files');
+        expect(target.searchParams.get('path')).toBe(url);
+      } finally {
+        cleanup();
+      }
+    },
+  );
   it('opens a Telos filename in Mitzo with its exact revision and keeps actions separate', () => {
     function Location() {
       const location = useLocation();
