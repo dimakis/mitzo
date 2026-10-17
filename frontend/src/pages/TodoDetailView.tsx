@@ -35,7 +35,9 @@ export function TodoDetailView() {
   } = useTodoData(undefined, id);
   const setPendingSession = useStageChatLaunch();
   const location = useLocation();
-  const stateItem = (location.state as { item?: TodoItem } | null)?.item;
+  const navigationItem = (location.state as { item?: TodoItem } | null)?.item;
+  const [stateItem, setStateItem] = useState(navigationItem);
+  useEffect(() => setStateItem(navigationItem), [navigationItem]);
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [ordinaryRoleItem, setOrdinaryRoleItem] = useState<string | null>(null);
@@ -64,6 +66,14 @@ export function TodoDetailView() {
 
   // Capture narrowed item for use in nested functions (TS doesn't narrow across closures)
   const currentItem: TodoItem = item;
+  async function handlePriority(priority: number) {
+    await updatePriority(currentItem.id, priority);
+    // The navigation snapshot can still be displayed after a failed list read.
+    // Retain acknowledged edits there until canonical list data is available.
+    setStateItem((previous) =>
+      previous?.id === currentItem.id ? { ...previous, priority } : previous,
+    );
+  }
   const hints = currentItem.contextHints;
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
   const hasContext =
@@ -158,7 +168,7 @@ export function TodoDetailView() {
           <TodoPrioritySelect
             key={item.id}
             priority={todoPriority(item)}
-            onChange={(priority) => updatePriority(item.id, priority)}
+            onChange={handlePriority}
           />
           <HomePinButton pin={{ kind: 'telos', id: item.id, title: recordTitle(item.summary) }} />
           {ordinaryRoleItem !== item.id && (

@@ -50,6 +50,9 @@ revalidate the persisted value.
 An item missing from a retained snapshot stays on its detail route until the
 mounted read completes. A newly saved advisor child can therefore open while
 the previous list is cached; a failed read retains the existing Retry state.
+When a detail still uses its navigation snapshot, confirmed priority saves also
+update that retained snapshot. Rejected saves leave it unchanged, and canonical
+list data takes precedence whenever it becomes available.
 
 The added database column participates in the existing item revision snapshots.
 Ordinary role/delegation owners retain their existing revision conflict checks;

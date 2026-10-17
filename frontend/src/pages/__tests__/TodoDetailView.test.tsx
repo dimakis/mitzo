@@ -567,6 +567,54 @@ describe('TodoDetailView', () => {
     fetchSpy.mockRestore();
   });
 
+  it.each(['missing', 'failed'])(
+    'retains confirmed priority in the navigation fallback after a %s canonical read',
+    async (outcome) => {
+      let canonical = false;
+      const navigationItem = { ...fullItem, priority: 5 };
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        if (url === '/api/todos/abc123/action') {
+          const { priority } = JSON.parse(init!.body as string);
+          return Response.json({ ok: priority === 7 }, { status: priority === 7 ? 200 : 503 });
+        }
+        if (url === '/api/todos?profile=centaur')
+          return Response.json({ profiles: ['centaur'], items: [navigationItem] });
+        if (url === '/api/todos') {
+          if (!canonical && outcome === 'failed') return new Response('{}', { status: 503 });
+          return Response.json({
+            profiles: ['centaur'],
+            items: canonical ? [{ ...fullItem, priority: 3 }] : [],
+          });
+        }
+        return Response.json({ artifacts: [], limit: 100 });
+      });
+      const filteredList = renderHook(() => useTodoData('centaur'));
+      await waitFor(() => expect(filteredList.result.current.loading).toBe(false));
+      mockLocation.mockReturnValue({ state: { item: navigationItem } });
+      render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      const select = screen.getByRole('combobox', { name: 'Priority' }) as HTMLSelectElement;
+      fireEvent.change(select, { target: { value: '7' } });
+      await waitFor(() => expect(select.value).toBe('7'));
+      expect(filteredList.result.current.items[0].priority).toBe(7);
+      expect(navigationItem.priority).toBe(5);
+      fireEvent.change(select, { target: { value: '9' } });
+      expect(
+        await screen.findByText('Couldn’t confirm this priority. Refresh to check its status.'),
+      ).toBeTruthy();
+      expect(select.value).toBe('7');
+      canonical = true;
+      const currentRead = renderHook(() => useTodoData());
+      await waitFor(() => expect(select.value).toBe('3'));
+      currentRead.unmount();
+      filteredList.unmount();
+      fetchSpy.mockRestore();
+    },
+  );
+
   it('navigates to /todos when fetch fallback finds no matching item', async () => {
     mockLocation.mockReturnValue({ state: null });
     mockParams.mockReturnValue({ id: 'nonexistent' });

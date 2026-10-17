@@ -65,7 +65,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/todo.ts':
     '0bb70da730deb4cd25d7bb12181f593e795ef5b36d0d6f3915b6895ffe7a68ff',
   '../../frontend/src/pages/TodoDetailView.tsx':
-    'd166de33ea2f7e62e2cd46cfe6104cbc552173cee0c81d49957e530a04daa35a',
+    'd8e3e50bb3dc3547d0cb8ff3d18575e2d5d646558233c1587013a914dd561ea6',
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
