@@ -62,7 +62,7 @@ it.each(['create', 'adopt'] as const)(
             res.status(403).end();
             return;
           }
-          res.locals.authSession = { id: f.actor.id };
+          res.locals.authSession = { id: f.actor.id, expiresAt: Date.now() + 60_000 };
           next();
         },
         ordinaryConversation: (id) => id === 'planning',

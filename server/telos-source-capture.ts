@@ -52,13 +52,20 @@ export class TelosSourceCapture {
       events: EventStore;
       artifacts: TelosArtifactStore;
       work: TelosWorkStore;
+      /** Trusted host authority only; never deserialized from a source request. */
+      assertAuthorized?(): void;
       authorizeSource(actor: TelosWorkActor, conversationId: string): boolean;
       authorizeArtifact(actor: TelosWorkActor, itemId: string): boolean;
     },
   ) {}
 
+  private operator(actor: TelosWorkActor) {
+    this.options.assertAuthorized?.();
+    return operator(actor);
+  }
+
   async preview(raw: unknown, actor: TelosWorkActor): Promise<TelosSourcePreview> {
-    operator(actor);
+    this.operator(actor);
     const input = TelosSourcePreviewRequestSchema.parse(raw);
     const target = this.options.work.readSourceTarget(input.itemId, actor);
     if (!this.options.artifacts.userUploadAllowed(input.itemId))
@@ -78,6 +85,7 @@ export class TelosSourceCapture {
       workRevision: target.work.revision,
       briefText,
     });
+    this.operator(actor);
     if (this.options.work.read(input.itemId, actor).revision !== target.work.revision) conflict();
     return preview;
   }
@@ -92,7 +100,7 @@ export class TelosSourceCapture {
       creation?: TelosSourcePacket['creation'];
     },
   ): Promise<TelosSourcePreview> {
-    const actorId = operator(actor);
+    const actorId = this.operator(actor);
     const source = createTelosConversationSource({
       events: this.options.events,
       artifacts: this.options.artifacts,
@@ -112,6 +120,7 @@ export class TelosSourceCapture {
         },
       },
     );
+    this.operator(actor);
     if (!context.messages.length)
       throw new TelosWorkError('invalid', 'Select at least one completed public message');
     if (!opened) conflict();
@@ -186,7 +195,7 @@ export class TelosSourceCapture {
     if (
       preview.sha256 !== previewSha256 ||
       hash(JSON.stringify(packet)) !== previewSha256 ||
-      packet.actorId !== operator(actor) ||
+      packet.actorId !== this.operator(actor) ||
       packet.itemId !== itemId ||
       !isDeepStrictEqual(packet.selection, selection) ||
       packet.context.sourceConversationId !== selection.sourceConversationId ||
@@ -215,7 +224,7 @@ export class TelosSourceCapture {
   }
 
   async previewNew(raw: unknown, actor: TelosWorkActor): Promise<TelosSourcePreview> {
-    operator(actor);
+    this.operator(actor);
     const input = TelosSourceNewPreviewRequestSchema.parse(raw);
     const outcome = this.creationOutcome(input.outcome, input.selection.sourceConversationId);
     const briefText = JSON.stringify(outcome);
@@ -233,7 +242,7 @@ export class TelosSourceCapture {
     createOutcome: (body: TelosOutcomeCreation) => Promise<{ itemId: string }>,
     readPreparedPreview?: () => TelosSourcePreview,
   ): Promise<TelosWorkCommandReceipt> {
-    const actorId = operator(actor);
+    const actorId = this.operator(actor);
     const input = TelosSourceCreateRequestSchema.parse(raw);
     const inputHash = hash(JSON.stringify(input));
     let record = this.options.work.sourceCreation(input.requestId, inputHash, actor);
@@ -287,6 +296,9 @@ export class TelosSourceCapture {
         actor,
       );
     }
+    // Retaining a returned canonical identity above is recovery bookkeeping.
+    // No new source artifact or backlink may follow expired/revoked authority.
+    this.operator(actor);
     if (!record.itemId || !record.itemRevision) conflict();
     const sessionId = 'source-capture:' + hash(actorId),
       requestId = requestKey('create-artifact', actorId, input.requestId);
@@ -325,7 +337,7 @@ export class TelosSourceCapture {
     actor: TelosWorkActor,
     readPreparedPreview?: () => TelosSourcePreview,
   ): Promise<TelosWorkCommandReceipt> {
-    const actorId = operator(actor);
+    const actorId = this.operator(actor);
     const input = TelosSourceAdoptRequestSchema.parse(raw);
     const sessionId = 'source-capture:' + hash(actorId);
     const requestId = requestKey('adopt-artifact', actorId, input.requestId);
@@ -410,7 +422,7 @@ export class TelosSourceCapture {
     actor: TelosWorkActor,
     assertBeforeApply: () => void,
   ) {
-    const actorId = operator(actor),
+    const actorId = this.operator(actor),
       requestId = requestKey(input.scope + '-command', actorId, input.requestId);
     return this.options.work.execute(
       {
@@ -454,7 +466,7 @@ export class TelosSourceCapture {
    * A general source link or an arbitrary artifact is never treated as this proof.
    */
   read(itemId: string, snapshotId: string, actor: TelosWorkActor) {
-    operator(actor);
+    this.operator(actor);
     const snapshot = this.options.work
       .read(itemId, actor)
       .sources.find((source) => source.snapshotId === snapshotId);

@@ -138,6 +138,33 @@ complete. Exact saved work-command receipts are returned before the host's
 new-apply authority callback, so a completed source/link can recover its original
 receipt even if final creation bookkeeping was interrupted. Completed receipts
 remain recoverable without new source effects if access subsequently changes.
+The protected route also retains the host's authenticated session identity and
+deadline, renewing its current expiry/revocation checks across awaited reads,
+review compilation, consent and unfinished canonical/artifact/link effects.
+If authorization expires or is revoked while canonical creation is in flight,
+its committed canonical receipt and item identity stay retained, but no new
+source artifact or backlink is written afterward. Completed receipts still
+require the authenticated original actor. Tests restore the same session's
+clock/revocation state to recover the exact packet/result without another
+canonical call; this is fixture-only restoration, not a production login renewal
+claim. A fresh login has a different identity and cannot rebind that prepared
+request. These host callbacks are never caller-supplied JSON capabilities.
+
+Material discovery has its own bounded metadata continuation, independent of
+message pagination and the compiler's 100 selected material limit. Each page
+returns at most 100 accessible exact revisions, ordered by creation timestamp,
+artifact identity and revision; denied prefixes cannot hide later accessible
+rows, and a denied-only remainder terminates. Reads use metadata-only indexed
+queries, preserving old revisions rather than substituting latest or loading
+content/history into the page. More than 100 retained revisions therefore cannot
+block text-only review. The existing material list and Load more button preserve
+chosen exact pins and leave new rows unchecked. Message and material requests
+have separate abort ownership; neither replaces the other's accumulated rows,
+changes a displayed preview without a new selection, nor escapes the current
+session, invocation, proposal or authentication fences. The cursor is only a
+seek boundary. Recovery remains the original immutable packet with terminal
+candidate pagination and never discovers later materials.
+
 For a recovery conflict while current source access is unavailable, the existing Retry same save remains
 available after access returns; it resubmits the same immutable request without
 a reload, fresh preview or new save intent. A normal live approval card has the

@@ -22,6 +22,30 @@ documents, tools and provider framing still need an exact measurement contract
 bound to the actual dispatched input. Model ceilings, byte estimates, host-frame
 hashes and post-response usage cannot establish this proof.
 
+The ordinary OpenShell source pin is Codex `0.160.0` (`rust-v0.160.0`, commit
+`a956835d020762cb2b570053af06f643a11c0ecc`). Inspection of that source confirms
+that history token counting uses `approx_token_count`; model metadata provides
+ceilings without an authoritative tokenizer/framing contract, and the native
+Responses request has no enforced output-reservation field. Its HTTP and WebSocket
+paths also transform requests after prompt construction. A preview at the prompt
+builder alone would therefore miss changes before serialization. This is source
+evidence, not inspection or qualification of any installed runtime.
+
+Closing this boundary requires immutable native request preparation through the
+actual final transport transformations, authoritative selected-model measurement
+including provider framing and an enforced output budget, and consumption of that
+same prepared request at dispatch. Missing authority must remain unverified.
+Adding a host adapter or freezing native JSON alone cannot make capacity ready.
+
+OpenAI documents an authoritative
+[Responses input-token counter](https://developers.openai.com/api/docs/guides/token-counting)
+for the same request payload, including structural framing, tools and images.
+That provides a potential measurement path for compatible API accounts; it does
+not establish support on a ChatGPT-backed native route. The pinned native runtime
+still needs to expose and consume the exact immutable request and enforce its
+output budget. No provider endpoint or account was exercised for this source
+investigation, and no configured runtime is qualified by the documentation.
+
 `OrdinaryCollaborationReview` composes the existing source/compiler with durable
 EventStore review requests. It persists the exact operator, source pins, brief and
 ordinary settings before asynchronous reads. Exact completed retries recover the
@@ -36,6 +60,16 @@ The first explicitly requested command uses a separate prepared-session admissio
 transition in the existing Local/OpenShell Codex owners. Ordinary new-session and
 continuation guards retain their original behavior. Recipe-bearing profiles and
 queue-creating API/SDK preparation remain unavailable for this silent path.
+
+`OrdinaryCollaborationJoining` composes that preparation owner with the existing
+durable join transitions. Confirmation reauthorizes the exact review before
+creating a join; preparation and membership linking have renewed authority
+checks. Recovery uses the original allocation receipt even when preparation
+committed before the join recorded its allocation. Membership conflicts retain
+that session. The optional authenticated router port exposes confirmation and
+explicit recovery, while ordinary GET retrieval remains read-only. The production
+app does not install this port without real source/settings/capacity authority;
+snapshot compilation and message dispatch remain unavailable on the public router.
 
 `OrdinaryCollaborationDelivery` claims exact retained discussion receipts only for
 an explicitly admitted ordinary command. Pending reader context stays pending
