@@ -1,3 +1,4 @@
+import type { SandboxOwnershipEvidence } from './sandbox-ownership-review.js';
 import {
   OpenShellCodexCustodySchema,
   type OpenShellCodexCustody,
@@ -661,6 +662,52 @@ export class CodexConversationStore {
     return row.artifact_runtime === null
       ? null
       : ArtifactRuntimeSchema.parse(JSON.parse(row.artifact_runtime));
+  }
+  /** Includes archived owners; returns provenance only, with no route secrets or adoption authority. */
+  listSandboxOwnership(): SandboxOwnershipEvidence[] {
+    const rows = this.db
+      .prepare(
+        `SELECT c.id,c.binding,c.owner_kind,c.artifact_runtime,m.data AS migration,m.binding AS migration_binding
+      FROM codex_conversations c LEFT JOIN codex_runtime_migrations m ON m.conversation_id=c.id
+      WHERE c.artifact_runtime IS NOT NULL OR m.data IS NOT NULL`,
+      )
+      .all() as Array<{
+      id: string;
+      binding: string;
+      owner_kind: string | null;
+      artifact_runtime: string | null;
+      migration: string | null;
+      migration_binding: string | null;
+    }>;
+    return rows.flatMap((row) => {
+      const binding = z
+        .tuple([z.string(), z.string(), z.string(), z.string()])
+        .parse(JSON.parse(row.binding));
+      const result: SandboxOwnershipEvidence[] = [];
+      const add = (raw: unknown, relation: string) => {
+        const { runtime } = ArtifactRuntimeSchema.parse(raw);
+        result.push({
+          conversationId: row.id,
+          physicalId: runtime.sandboxId,
+          sandboxName: runtime.sandboxName,
+          workspace: runtime.workspace,
+          gateway: runtime.gateway,
+          gatewayEndpoint: runtime.gatewayEndpoint ?? null,
+          accountId: binding[0],
+          ownerKind: row.owner_kind,
+          relation,
+        });
+      };
+      if (row.artifact_runtime) add(JSON.parse(row.artifact_runtime), 'runtime');
+      if (row.migration) {
+        if (row.migration_binding !== row.binding)
+          throw new Error('Runtime migration account binding changed');
+        const migration = JSON.parse(row.migration) as RuntimeMigration;
+        add(migration.source, 'migration_source');
+        if (migration.candidate) add(migration.candidate, 'migration_candidate');
+      }
+      return result;
+    });
   }
   setArtifactRuntime(id: string, binding: AccountBinding, value: ArtifactRuntime): void {
     this.db.transaction(() => {
