@@ -1,5 +1,7 @@
 import {
   SessionCollaborationIdSchema,
+  SessionCollaborationSchema,
+  CollaborationBeginSchema,
   CollaborationPolicyUpdateSchema,
   CollaborationPolicySchema,
   CollaborationViewSchema,
@@ -23,6 +25,7 @@ import {
   type CollaborationJoinInput,
   type CollaborationJoinReconcileInput,
 } from '@mitzo/protocol';
+import type { z } from 'zod';
 import type { ApiFetch } from './api-client.js';
 
 export class CollaborationApiError extends Error {
@@ -69,6 +72,22 @@ export class CollaborationApiClient {
   }
   view(id: string, signal?: AbortSignal) {
     return this.request(this.path(id, 'conversation'), CollaborationViewSchema, signal);
+  }
+  /** Relationship preparation only; this does not allocate an agent or start a turn. */
+  begin(id: string, input: z.infer<typeof CollaborationBeginSchema>, signal?: AbortSignal) {
+    const group = SessionCollaborationIdSchema.parse(id);
+    const body = CollaborationBeginSchema.parse(input);
+    return this.request(
+      this.path(group, 'begin'),
+      SessionCollaborationSchema.refine(
+        (receipt) =>
+          receipt.collaborationId === group &&
+          receipt.participantSessionIds.includes(body.sessionId),
+        'Collaboration preparation identity changed',
+      ),
+      signal,
+      { method: 'POST', body },
+    );
   }
   events(id: string, after: number, signal?: AbortSignal) {
     const cursor = CollaborationCursorSchema.parse({ after });

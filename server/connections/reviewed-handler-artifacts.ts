@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.287-symposium-integration.5';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.287-symposium-integration.6';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -186,7 +186,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-conversation-store.ts':
     '543e8ace99082b3432db99eb5961036a10c58f5d6601f15f89c830757819d485',
   '../../packages/client/src/collaboration-api.ts':
-    '9efd94ce76be20e7035828e9575ff2b97d027a7fe0e1dd31e1a27f939ea7ff64',
+    'b563eaea9ab20badd02a7bb479fd4040650f78c3bedf847473e99b80bae7a9ee',
   '../../packages/client/src/collaboration-projection.ts':
     'c1c4ba9954434950444389c70be7c1f31460e5fcddc4d99d6edfd74fd113890e',
   '../../packages/client/src/index.ts':
@@ -248,7 +248,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1b56cfe7f6958a042ee1fa0858df1c4a638f90690180a9087f5ef4b0e38a1d5f',
   // Durable references between existing ordinary sessions, without execution authority.
   '../session-collaboration-router.ts':
-    '08b99f1d0153a713553fa5e0174d93313b8ec02dfd3833b33d4755e11e5b16bc',
+    '32e8788aa3c8c932d4f2641bec8889e7c6dd742e51cde56c6fc7cf9a79eef7ab',
   '../../packages/protocol/src/session-collaboration.ts':
     'e8e47f2b79832f0288063745acbed93c7c5f8f4db71f5c8a71705b1b02a59198',
   '../../packages/protocol/src/session-collaboration-store.ts':

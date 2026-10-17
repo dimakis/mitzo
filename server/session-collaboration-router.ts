@@ -12,6 +12,7 @@ import {
   CollaborationJoinSchema,
   CollaborationApplicationReviewRequestSchema,
   CollaborationApplicationReviewResultSchema,
+  CollaborationBeginSchema,
   COLLABORATION_EXECUTION_DISABLED,
 } from '@mitzo/protocol';
 import { z } from 'zod';
@@ -58,6 +59,19 @@ export function createSessionCollaborationRouter({
     res.set('Cache-Control', 'private, no-store');
     if (!recentAuthorizationSession(res)) return;
     next();
+  });
+  /** First Add agent retains relationship identity only. The existing owner
+   * arbitrates exact retries and one source enrollment without creating a chat. */
+  router.post('/:id/begin', requireSameOriginJson, (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const input = CollaborationBeginSchema.safeParse(req.body);
+    if (!id.success || !input.success)
+      return res.status(400).json({ error: 'Invalid collaboration preparation' });
+    try {
+      return res.json(store.collaborationConversation.begin(id.data, input.data));
+    } catch (error) {
+      return failure(res, error);
+    }
   });
   router.get('/:id/conversation', (req, res) => {
     const id = SessionCollaborationIdSchema.safeParse(req.params.id);
