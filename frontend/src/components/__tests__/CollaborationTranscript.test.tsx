@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { createCollaborationProjection, applyCollaborationEvents } from '@mitzo/client';
 import { CollaborationTranscript } from '../CollaborationTranscript';
@@ -11,7 +11,10 @@ import {
   uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 const names = { architect: 'Architect', reviewer: 'Reviewer', reader: 'Reader' };
 it('keeps the successful reply visible beside uncertain and pending independent recipients', () => {
   const projection = createCollaborationProjection(sharedConversationView());
@@ -97,4 +100,26 @@ it('projects replayed recipient failures without deleting another recipient repl
   expect(screen.getByText('Prompt failed')).toBeTruthy();
   expect(screen.getByText('Definite refusal')).toBeTruthy();
   expect(screen.getByText(sharedReply.text)).toBeTruthy();
+});
+
+it('opens the existing Markdown preview through its author session API scope', async () => {
+  const fetch = vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ path: 'plan.md', content: 'Retained source preview' }), {
+      status: 200,
+    }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const view = sharedConversationView();
+  view.messages[1].text = '[Plan](plan.md)';
+  render(
+    <MemoryRouter>
+      <CollaborationTranscript projection={createCollaborationProjection(view)} names={names} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /MD.*plan.md/ }));
+  await waitFor(() => expect(fetch).toHaveBeenCalled());
+  const url = new URL(fetch.mock.calls[0][0], 'http://offline.test');
+  expect(url.pathname).toBe('/api/files/read');
+  expect(url.searchParams.get('sessionId')).toBe('architect');
+  expect(await screen.findByText('Retained source preview')).toBeTruthy();
 });
