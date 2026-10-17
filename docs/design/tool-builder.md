@@ -1,6 +1,11 @@
 # Tool Builder contract
 
-Phase 4 adds a reusable Tool Builder profile that works through the regular
+This is the Phase 4 contract, delivered in dependency order. The first slice
+provides deterministic draft preparation; the reusable profile, authorized
+development adapter, operator review and registry bridge require later slices.
+No Phase 4 source acceptance or live qualification is claimed by this document.
+
+The Tool Builder profile works through the regular
 chat composer and profile system. It interviews the user, searches the installed
 catalog first, and recommends reuse, an installed reviewed API template, or a
 custom implementation draft.
@@ -9,7 +14,7 @@ custom implementation draft.
 
 The catalog and template readers are read-only. A draft is private review data;
 it is not an implementation registration. A custom draft contains a name,
-description, input schema, examples, permission behavior, compatible runtime
+description, input and output schemas, examples, permission behavior, compatible runtime
 routes, relative source files, and test evidence. Files are written only through
 the development workspace authority supplied to that builder session. The
 workspace adapter rejects paths outside its root and does not accept absolute
@@ -18,20 +23,24 @@ paths, parent traversal, or symlink escapes.
 The test runner accepts named repository test profiles and runs them through the
 existing bounded sandbox executor. The builder cannot provide a shell command,
 network destination, environment, credential, or sandbox policy. Test output is
-bounded and the evidence is tied to a digest of the exact source-file set and
-test profile. Editing any file invalidates prior test evidence. A failed,
+bounded. A source digest covers the complete workspace file set, which must
+match the requested files before and after tests. A separate contract digest
+covers schemas, examples, permissions, compatibility and the test profile as
+well as source. Returned drafts are independent snapshots. Changing any part
+of a contract invalidates prior evidence. Failed or cancelled preparation
+discards its workspace; a cleanup failure is reported. A failed,
 cancelled, or incomplete run cannot be submitted as tested.
 
 ## Review and immutable publication
 
 Draft edits create a new version. Feedback is attached to the submitted version;
 revisions never mutate an accepted version. Submission freezes the version,
-source digest, test evidence, schema, examples, permissions, and compatibility.
+source and contract digests, test evidence, schemas, examples, permissions, and compatibility.
 Only an independent accepted review can authorize publication. The submitting
 builder cannot approve its own change.
 
 Publication binds a tool identity and version to the exact reviewed source
-digest and to a statically installed executor registration. The runtime never
+and contract digests and to a statically installed executor registration. The runtime never
 imports, evaluates, or executes source from a draft, review bundle, API-tool
 configuration, or workspace. Custom implementations become selectable only
 when their accepted code is installed in the application registry and the
