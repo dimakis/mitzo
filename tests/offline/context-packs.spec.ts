@@ -260,7 +260,9 @@ test('curates context packs with accepted pins, explicit publication and respons
   );
   mode = 'loading';
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('status')).toContainText('Loading context packs');
+  await expect(
+    page.getByRole('region', { name: 'Context packs', exact: true }).getByRole('status'),
+  ).toContainText('Loading context packs');
   await expect.poll(() => typeof release).toBe('function');
   mode = 'content';
   release!();

@@ -1,34 +1,38 @@
-import { SandboxesView } from './pages/SandboxesView';
-import { TerminalView } from './pages/TerminalView';
-import { SettingsView } from './pages/SettingsView';
-import { DraftsView } from './pages/DraftsView';
-import { UpdatesView } from './pages/UpdatesView';
-import { BackupsView } from './pages/BackupsView';
+import { Suspense, type ReactNode } from 'react';
+import {
+  SandboxesView,
+  TerminalView,
+  SettingsView,
+  DraftsView,
+  UpdatesView,
+  BackupsView,
+  NotificationsView,
+  SymposiumSavedReviewRecordPage,
+  Login,
+  Today,
+  QuoteView,
+  BriefingView,
+  MockupsView,
+  MoreView,
+  ConnectionSetupView,
+  ConnectionsRoute,
+  ConnectionsAccessView,
+  SessionList,
+  ResponsiveChatView,
+  KnowledgeLibrary,
+  AgentLibrary,
+  FileViewer,
+  UnifiedInboxView,
+  InboxRedirect,
+  CalendarView,
+  TodoWorkspace,
+  TaskBoard,
+} from './route-pages';
 import { NotificationProvider } from './components/NotificationProvider';
-import { NotificationsView } from './pages/NotificationsView';
-import { SymposiumSavedReviewRecordPage } from './components/SymposiumSavedReviewRecordPage';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { Login } from './pages/Login';
-import { Today } from './pages/Today';
-import { QuoteView } from './pages/QuoteView';
-import { BriefingView } from './pages/BriefingView';
-import { MockupsView } from './pages/MockupsView';
-import { MoreView } from './pages/MoreView';
-import { ConnectionSetupView } from './pages/ConnectionSetupView';
-import { ConnectionsRoute } from './pages/ConnectionsRoute';
-import { ConnectionsAccessView } from './pages/ConnectionsAccessView';
 import { AttentionFeed } from './components/AttentionFeed';
 import { WorkspacePageHeading } from './components/WorkspacePageHeading';
-import { SessionList } from './pages/SessionList';
-import { ResponsiveChatView } from './components/ResponsiveChatView';
-import { KnowledgeLibrary } from './pages/KnowledgeLibrary';
-import { AgentLibrary } from './pages/AgentLibrary';
-import { FileViewer } from './pages/FileViewer';
-import { UnifiedInboxView, InboxRedirect } from './pages/UnifiedInboxView';
-import { CalendarView } from './pages/CalendarView';
-import { TodoWorkspace } from './pages/TodoWorkspace';
-import { TaskBoard } from './pages/TaskBoard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MobileShell } from './components/MobileShell';
 import { DesktopShell } from './components/DesktopShell';
@@ -79,6 +83,20 @@ function dismissKeyboard(e: React.MouseEvent | React.TouchEvent) {
   (document.activeElement as HTMLElement)?.blur?.();
 }
 
+function SuspenseRoutes({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="auth-status" role="status">
+          Opening Mitzo…
+        </div>
+      }
+    >
+      <Routes>{children}</Routes>
+    </Suspense>
+  );
+}
+
 export function App() {
   return (
     <ErrorBoundary>
@@ -86,7 +104,7 @@ export function App() {
         <BrowserRouter>
           <NotificationProvider>
             <MobileShell>
-              <Routes>
+              <SuspenseRoutes>
                 <Route
                   path="/sessions/drafts"
                   element={
@@ -377,7 +395,7 @@ export function App() {
                     </ProtectedRoute>
                   }
                 />
-              </Routes>
+              </SuspenseRoutes>
             </MobileShell>
           </NotificationProvider>
         </BrowserRouter>

@@ -44,6 +44,9 @@ export interface ManagedSession {
     authSessionId: string;
     identity: object;
     initialCommandId: string;
+    /** Frozen server entry identity; absent resume is the ordinary first-command path. */
+    initialPreparationOperationId?: string;
+    initialResume?: boolean;
     admit(command: unknown, preparationSignal?: AbortSignal): Promise<{ dispatched: boolean }>;
     retryInitial(command: unknown): Promise<{ dispatched: boolean }>;
     close(): void;

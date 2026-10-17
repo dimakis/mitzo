@@ -669,3 +669,46 @@ it('bounds the initial message view and refuses oversized UTF-8 context without 
   ).toThrow('capacity_refused');
   expect(store.collaborationConversation.view(group).cursor).toBe(before);
 });
+
+it('links a fresh ordinary participant from a durable silent receipt without a fabricated allocation command', () => {
+  const snapshot = store.collaborationConversation.saveSnapshot(group, {
+    ...snapshotDraft(),
+    messages: [],
+    artifacts: [],
+  });
+  const pending = store.collaborationConversation.prepareJoin(group, {
+    requestId: randomUUID(),
+    expectedMembershipRevision: 1,
+    name: 'Silent reviewer',
+    settings,
+    snapshot: { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 },
+  });
+  store.prepareOrdinarySession(
+    {
+      sessionId: 'fresh-silent',
+      repositoryWorkspaceId: 'workspace',
+      cwd: '/fresh-task',
+      accountBinding: { ...binding.account, accountLabel: 'Fixture', model: selection.model },
+      selectedModel: selection.model,
+      reasoningEffort: selection.thinking,
+      mode: selection.permission.mode,
+    },
+    {
+      allocationOperationId: pending.allocationOperationId,
+      preparationFingerprint: 'a'.repeat(64),
+      settings,
+    },
+  );
+  const allocated = store.collaborationConversation.recordAllocation(group, pending.joinId, {
+    operationId: pending.allocationOperationId,
+    sessionId: 'fresh-silent',
+    settings,
+  });
+  expect(allocated.state).toBe('allocated');
+  const linked = store.collaborationConversation.linkJoin(group, pending.joinId, 1);
+  expect(linked.state).toBe('linked');
+  expect(store.getSessionCollaboration(group)?.participantSessionIds).toContain('fresh-silent');
+  expect(store.getSendCommand(pending.allocationOperationId)).toBeUndefined();
+  expect(store.getOrdinaryInitialCommandId('fresh-silent')).toBeUndefined();
+  expect(store.getEventsAfter('fresh-silent', 0)).toEqual([]);
+});

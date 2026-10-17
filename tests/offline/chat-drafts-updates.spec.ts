@@ -287,9 +287,9 @@ for (const theme of ['light', 'dark']) {
         'mitzo-accent': 'mint',
         'mitzo-font': 'georgia',
       });
-      await page.addInitScript((recovery) => {
+      await page.addInitScript(() => {
         const original = window.fetch.bind(window);
-        let failures = recovery === 'automatic' ? 2 : Infinity;
+        let failures = Infinity;
         Object.assign(window, {
           recoverOfflineAuthentication: () => {
             failures = 0;
@@ -302,7 +302,7 @@ for (const theme of ['light', 'dark']) {
             return Promise.reject(new TypeError('Load failed'));
           return original(input, init);
         };
-      }, recovery);
+      });
       await page.clock.install();
       await page.goto('/sessions');
       await expect(page.getByRole('alert')).toBeVisible();
@@ -310,6 +310,15 @@ for (const theme of ['light', 'dark']) {
         await page.clock.fastForward(delay);
         if (recovery === 'foreground' || delay === 1_000)
           await expect(page.getByRole('alert')).toBeVisible();
+        if (recovery === 'automatic' && delay === 1_000) {
+          // Entry-point preloading can fail before the route mounts. Keep the
+          // outage explicit, then prove the next scheduled retry recovers.
+          await page.evaluate(() =>
+            (
+              window as unknown as { recoverOfflineAuthentication: () => void }
+            ).recoverOfflineAuthentication(),
+          );
+        }
       }
       if (recovery === 'foreground') {
         await page.evaluate(() => {
@@ -366,7 +375,7 @@ for (const theme of ['light', 'dark']) {
       expect(fixture.errors).toEqual([]);
     });
   }
-  test(`authentication recovery: stalled startup stays recoverable across tabs (${theme})`, async ({
+  test(`authentication recovery: stalled startup stays recoverable and unlocks navigation (${theme})`, async ({
     page,
     isMobile,
   }, testInfo) => {
@@ -395,14 +404,11 @@ for (const theme of ['light', 'dark']) {
     });
     await page.clock.install();
     await page.goto('/sessions');
-    await expect(page.getByText('Checking authentication…')).toBeVisible();
-    if (isMobile) {
-      await page.getByRole('link', { name: 'Today', exact: true }).click();
-      await page.getByRole('link', { name: 'Chats', exact: true }).click();
-    }
+    await expect(page.getByText('Connecting to Mitzo…')).toBeVisible();
+    await expect(page.locator('#root')).toHaveAttribute('inert', '');
     await page.clock.fastForward(5_000);
     await expect(page.getByRole('alert')).toContainText('Mitzo could not be reached');
-    await expect(page.getByText('Checking authentication…')).toHaveCount(0);
+    await expect(page.getByText('Connecting to Mitzo…')).toHaveCount(0);
     const retry = page.getByRole('button', { name: 'Retry', exact: true });
     await expect(retry).toBeVisible();
     await page.screenshot({
@@ -419,6 +425,12 @@ for (const theme of ['light', 'dark']) {
     );
     await retry.click();
     await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+    await expect(page.locator('#root')).not.toHaveAttribute('inert', '');
+    if (isMobile) {
+      await page.getByRole('link', { name: 'Today', exact: true }).click();
+      await page.getByRole('link', { name: 'Chats', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+    }
     await expect(page.getByRole('link', { name: /Drafts/ })).toHaveCount(0);
     await layout(page);
     expect(fixture.mutations).toEqual([]);

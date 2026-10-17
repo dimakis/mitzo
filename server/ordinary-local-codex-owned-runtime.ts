@@ -137,10 +137,18 @@ export class OrdinaryLocalCodexOwnedRuntime {
   async admit(raw: unknown): Promise<{ dispatched: boolean }> {
     return this.admitCommand(raw, false);
   }
+  async admitPreparedFirst(operationId: string, raw: unknown): Promise<{ dispatched: boolean }> {
+    if (!operationId) throw unavailable();
+    return this.admitCommand(raw, false, operationId);
+  }
   async admitResume(raw: unknown): Promise<{ dispatched: boolean }> {
     return this.admitCommand(raw, true);
   }
-  private async admitCommand(raw: unknown, resume: boolean): Promise<{ dispatched: boolean }> {
+  private async admitCommand(
+    raw: unknown,
+    resume: boolean,
+    preparationOperationId?: string,
+  ): Promise<{ dispatched: boolean }> {
     let bootstrap: FrozenHostCodexBootstrapAuthority | undefined;
     const retainedLease = this.#lease;
     try {
@@ -243,6 +251,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
         signal: this.#signal,
         commandId: this.owners.commandId,
         continuation: resume,
+        preparationOperationId,
       });
       const bridge = new OwnedCodexLifecycleBridge(() => bootstrap?.currentLease());
       bootstrap = new FrozenHostCodexBootstrapAuthority({
@@ -305,7 +314,11 @@ export class OrdinaryLocalCodexOwnedRuntime {
       let claimedWorkspace: RepositoryWorkspace | undefined;
       let preparedContext: AgentContextSnapshot | undefined;
       const result = await (
-        resume ? coordinator.admitResume.bind(coordinator) : coordinator.admit.bind(coordinator)
+        preparationOperationId
+          ? coordinator.admitPreparedFirst.bind(coordinator, preparationOperationId)
+          : resume
+            ? coordinator.admitResume.bind(coordinator)
+            : coordinator.admit.bind(coordinator)
       )(
         {
           sessionId: this.#reservation.conversationId,

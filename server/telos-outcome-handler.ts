@@ -1,18 +1,11 @@
-import { createHash } from 'node:crypto';
 import type { Request, RequestHandler } from 'express';
-import { TelosOutcomeProposalSchema, type TelosOutcomeCreation } from '@mitzo/protocol';
-import { TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
-import type { CanonicalTelosOutcomeResult } from './telos-outcome-owner.js';
 
-/** Legacy tool transport: host binding proves the origin, never a client/provider
- * ID or caller actor. A legacy approval has no reviewed message selection; this
- * path records only the known origin and cannot read source packets or dispatch. */
+/** Retired creation transport. Internal tokens and generic tool grants do not
+ * authorize a new source capture. Historical origin records remain retained. */
 export function createTelosOutcomeHandler(options: {
   verifyInternal(req: Request): boolean;
   sessionId(clientId: string): string | undefined;
   availableSource(id: string): boolean;
-  createOutcome(input: TelosOutcomeCreation): Promise<CanonicalTelosOutcomeResult>;
-  recordOrigin(input: { itemId: string; idempotencyKey: string }, actor: TelosWorkActor): void;
 }): RequestHandler {
   return async (req, res) => {
     if (!options.verifyInternal(req)) {
@@ -24,38 +17,10 @@ export function createTelosOutcomeHandler(options: {
       res.status(409).json({ ok: false, error: 'Active Mitzo source conversation required' });
       return;
     }
-    const parsed = TelosOutcomeProposalSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ ok: false, error: 'Invalid outcome input' });
-      return;
-    }
-    const idempotencyKey =
-      sessionId + ':' + createHash('sha256').update(JSON.stringify(parsed.data)).digest('hex');
-    const hints = parsed.data.contextHints;
-    try {
-      const created = await options.createOutcome({
-        ...parsed.data,
-        idempotencyKey,
-        contextHints: {
-          ...hints,
-          sessionIds: [...new Set([...(hints?.sessionIds ?? []), sessionId])],
-        },
-      });
-      options.recordOrigin(
-        { itemId: created.itemId, idempotencyKey },
-        { kind: 'conversation', id: sessionId },
-      );
-      res.json(created.receipt);
-    } catch (error) {
-      if (error instanceof TelosWorkError && error.code === 'invalid') {
-        res.status(400).json({ ok: false, error: error.message });
-        return;
-      }
-      res.status(503).json({
-        ok: false,
-        error:
-          'Outcome save uncertain. Retry the same approved request to recover its original item.',
-      });
-    }
+    res.status(403).json({
+      ok: false,
+      error:
+        'Reviewed original source approval is required. Use the current Telos tool and its source review card.',
+    });
   };
 }

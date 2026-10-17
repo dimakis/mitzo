@@ -279,6 +279,17 @@ export class TelosArtifactStore {
     const row = this.row(id, revision);
     return { ...metadata(row), bytes: row.bytes };
   }
+  /** Exact retained material revisions from this source; no latest-version substitution. */
+  sourceMaterials(sessionId: string) {
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM telos_artifact_revisions WHERE session_id=? ORDER BY created_at,id,revision LIMIT 101',
+      )
+      .all(sessionId) as ArtifactRow[];
+    if (rows.length > 100)
+      throw new Error('Narrow the retained material selection before reviewing');
+    return rows.filter((row) => this.userUploadAllowed(row.item_id)).map(metadata);
+  }
   document(id: string, revision?: number) {
     const artifact = this.read(id, revision);
     const ext = extname(artifact.filename).toLowerCase();
