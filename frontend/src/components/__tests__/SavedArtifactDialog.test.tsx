@@ -11,6 +11,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { SavedArtifactDialog } from '../SavedArtifactDialog';
+import type { TodoOutput } from '../../types/todo';
 import { apiFetch } from '../../lib/api-fetch';
 import { installDialogStub } from './dialog-stub';
 import { shareFile } from '../../lib/share-file';
@@ -128,7 +129,7 @@ it('refreshes the newest history page on reopen without changing the selected ol
   });
   const close = vi.fn();
   function Controlled({ open }: { open: boolean }) {
-    const [artifact, setArtifact] = useState(version(2));
+    const [artifact, setArtifact] = useState<TodoOutput>(version(2));
     return (
       <SavedArtifactDialog
         artifact={artifact}

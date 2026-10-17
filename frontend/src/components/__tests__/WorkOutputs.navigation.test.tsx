@@ -100,7 +100,7 @@ it('reloads pinned r3 after r4 appears and reaches Files with a pinned return ro
   await screen.findByRole('heading', { name: 'Retained studio plan r3' });
   expect(screen.queryByRole('heading', { name: 'Retained studio plan r4' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'File options' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Open', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Open$/ }));
   await waitFor(() =>
     expect(screen.getByLabelText('Current route').textContent).toContain('/files?'),
   );
@@ -112,7 +112,7 @@ it('closing the dialog removes only its owned URL fields and restores the Work r
   view();
   fireEvent.click(await screen.findByRole('link', { name: 'Studio plan' }));
   await screen.findByRole('heading', { name: 'Retained studio plan r3' });
-  fireEvent.click(screen.getByRole('button', { name: 'Done', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Done$/ }));
   await waitFor(() =>
     expect(screen.getByLabelText('Current route').textContent).toBe('/todos/studio?filter=mine'),
   );
