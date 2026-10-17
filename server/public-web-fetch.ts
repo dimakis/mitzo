@@ -87,6 +87,7 @@ export async function fetchPublicPage(
   callerSignal: AbortSignal,
   deps: Dependencies = { resolve: (host) => lookup(host, { all: true }), send },
   assertRuntimeCurrent?: () => Promise<void>,
+  view?: 'summary' | 'full',
 ): Promise<string> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(20_000)]);
   try {
@@ -126,7 +127,10 @@ export async function fetchPublicPage(
         (encoding && encoding !== 'identity')
       )
         throw new WebAccessError('Approved read returned an unsupported format or compression.');
-      return `External source (untrusted): ${url.href}\nContent-Type: ${type}\n\n${webPageContent(response.body, type, url.href)}`;
+      const links = Array.isArray(response.headers.link)
+        ? response.headers.link.join(', ')
+        : response.headers.link;
+      return `External source (untrusted): ${url.href}\nContent-Type: ${type}\n\n${webPageContent(response.body, type, url.href, links, view)}`;
     }
     throw new WebAccessError('Approved read reached the redirect limit.');
   } catch (error) {

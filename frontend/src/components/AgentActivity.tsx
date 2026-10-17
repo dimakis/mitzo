@@ -5,6 +5,38 @@ import { ToolSetupCards } from './ToolSetupCards';
 import { getToolStatus } from '../lib/tool-status';
 import type { ChatBlock } from '../lib/groupMessages';
 import type { ActivityRow } from '../lib/groupActivityRows';
+import { webAccessSummary } from '../lib/web-access-outcome';
+
+function activityPreview(block: ChatBlock): string {
+  if (block.blockType === 'redacted_thinking') return 'Reasoning redacted';
+  if (block.blockType !== 'tool_use') {
+    // A short heading conveys progress without repeating the whole reasoning summary.
+    return (
+      block.content
+        ?.trim()
+        .split(/\r?\n/, 1)[0]
+        .replace(/^#{1,6}\s+/, '')
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+        .replace(/[*_`]/g, '')
+        .slice(0, 160) || 'Thinking…'
+    );
+  }
+  if (
+    ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(block.toolName ?? '')
+  ) {
+    const summary = webAccessSummary(block.toolInput ?? '');
+    return `${summary.name} · ${summary.target}`;
+  }
+  if (block.toolName === 'Bash')
+    return getToolStatus(block).done ? 'Command completed' : 'Running command';
+  const name =
+    block.toolName === 'WebSearch'
+      ? 'Web search'
+      : block.toolName === 'WebFetch'
+        ? 'Website read'
+        : (block.toolName ?? 'Tool call');
+  return [name, block.toolInput].filter(Boolean).join(' · ');
+}
 
 export function AgentActivity({
   rows,
@@ -27,7 +59,10 @@ export function AgentActivity({
       detailsFocused.current = false;
     }
   }, [expanded]);
-  const latest = [...rows].reverse().find((row) => row.block)!;
+  const reversed = [...rows].reverse();
+  const latest =
+    reversed.find((row) => row.block?.blockType === 'tool_use') ??
+    reversed.find((row) => row.block)!;
   const block = latest.block!;
   const tools = rows.flatMap((row) => (row.block?.blockType === 'tool_use' ? [row.block] : []));
   const delegated: NonNullable<ChatBlock['subagent']>[] = [];
@@ -57,16 +92,11 @@ export function AgentActivity({
         (('done' in row.block && !row.block.done) ||
           (row.block.blockType === 'tool_use' && !getToolStatus(row.block).done)),
     );
-  const label = 'Agents at work';
+  const label = delegated.length ? 'Agents at work' : 'Activity';
   const delegateSummary = delegated.length
     ? `${delegated.length} delegated${delegatedRunning ? ` · ${delegatedRunning} running` : ''}`
     : '';
-  const preview =
-    block.blockType === 'tool_use'
-      ? [block.toolName ?? 'Tool call', block.toolInput].filter(Boolean).join(' · ')
-      : block.blockType === 'redacted_thinking'
-        ? 'Reasoning redacted'
-        : block.content?.trim().replace(/\s+/g, ' ') || 'Thinking…';
+  const preview = activityPreview(block);
   return (
     <div className="agent-activity">
       {rows[0].attribution}

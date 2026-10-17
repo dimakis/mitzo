@@ -651,3 +651,39 @@ it('keeps compaction in progress until the native item completes', () => {
   });
   expect(events.at(-1)).toMatchObject({ compact_result: 'success' });
 });
+
+it.each([
+  [
+    { type: 'search', queries: ['first query', 'second query'] },
+    'WebSearch',
+    { search_term: 'first query; second query' },
+  ],
+  [
+    { type: 'openPage', url: 'https://example.com/docs' },
+    'WebFetch',
+    { url: 'https://example.com/docs' },
+  ],
+  [
+    { type: 'findInPage', url: 'https://example.com/docs', pattern: 'policy' },
+    'WebFetch',
+    { url: 'https://example.com/docs', pattern: 'policy' },
+  ],
+])('shows native search action %j with its actual target', (action, name, input) => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  mapper.notification('item/started', {
+    threadId: 'provider',
+    item: { type: 'webSearch', id: 'native', action },
+  });
+  mapper.notification('item/completed', {
+    threadId: 'provider',
+    item: { type: 'webSearch', id: 'native', action },
+  });
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'assistant',
+      message: { content: [expect.objectContaining({ type: 'tool_use', name, input })] },
+    }),
+  );
+  expect(events.filter((event) => event.type === 'user')).toHaveLength(1);
+});

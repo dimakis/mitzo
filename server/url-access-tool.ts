@@ -55,6 +55,7 @@ interface Dependencies {
     target: ApprovedUrlTarget,
     signal: AbortSignal,
     assertRuntimeCurrent?: () => Promise<void>,
+    view?: 'summary' | 'full',
   ): Promise<string>;
   now(): number;
 }
@@ -63,8 +64,8 @@ export function createUrlAccessTool(
   registry: SessionRegistry,
   deps: Dependencies = {
     resolve: resolveApprovedUrl,
-    fetch: (value, target, signal, assertCurrent) =>
-      fetchApprovedUrl(value, target, signal, undefined, assertCurrent),
+    fetch: (value, target, signal, assertCurrent, view) =>
+      fetchApprovedUrl(value, target, signal, undefined, assertCurrent, view),
     now: Date.now,
   },
   assertRuntimeCurrent?: () => Promise<void>,
@@ -232,6 +233,7 @@ export function createUrlAccessTool(
     async fetch(
       value: string,
       signal: AbortSignal,
+      view?: 'summary' | 'full',
     ): Promise<{ content: string; isError: boolean } | undefined> {
       const current = owner();
       if (!current) return undefined;
@@ -289,6 +291,7 @@ export function createUrlAccessTool(
               activeGrant.target,
               signal,
               assertRuntimeCurrent,
+              view,
             );
             await assertRuntimeCurrent?.();
             signal.throwIfAborted();
