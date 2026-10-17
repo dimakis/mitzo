@@ -1,9 +1,12 @@
 # Exact forwarding and artifact coverage
 
-Workstream B, 17 October 2026. Baseline: freshly fetched accepted main
-`189289da78d971497deaa9cc4ca29365ba9c6e56`. This is selected-content source work;
-application integration, approved rendered UX, native share, live qualification
-and deployment are separate facts. Staging remains stood down.
+Workstream B, 17 October 2026. Initial accepted main
+`189289da78d971497deaa9cc4ca29365ba9c6e56`; subsequently integrated accepted
+`fea33e215b0d1bcf29604aa13e793329588a2980` (#1006). Draft PR
+[#1020](https://github.com/dimakis/mitzo/pull/1020) now includes exact-content
+preparation and the assigned saved-artifact product surfaces. Source implementation,
+application integration, approved full UX, physical native share, live qualification
+and deployment remain separate facts. Staging remains stood down.
 
 ## Existing ownership and coverage
 
@@ -14,7 +17,7 @@ only scoped progress/evidence is appended, with their states preserved.
 | Existing child                        | Relevant coverage and remaining boundary                                                                                                                                                                                  |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cbc784ecd482c3f9` audit              | Preserve accepted Access audit and delivery receipts (latest retained revisions 6/7). Record actual source capabilities here.                                                                                             |
-| `17d4e63c70a52daa` UX walkthroughs    | Message actions, version choice, keyboard/mobile and conflict walkthroughs remain pending actual UI/owner integration.                                                                                                    |
+| `17d4e63c70a52daa` UX walkthroughs    | Saved-version dialog, version choice, reload/Files return, keyboard/mobile and recorded native export are exercised offline. Participant forwarding and physical native walkthroughs remain pending.                      |
 | `fc31a120c313d9e1` Access             | Existing Access/resource classification remains owned; links, Git references and source-dependent references are not retained bytes or access grants.                                                                     |
 | `36cba91c81bfe559` inline references  | `SessionOutputReferenceStore` binds finalized message/block/end-sequence/hash; v1 remains transcript-dependent. B adds exact authorized selection/handoff.                                                                |
 | `fceaee601360f594` associations       | Existing explicit revisioned Work associations are reused. Forwarding/retention never creates an outcome, infers membership or grants work authority.                                                                     |
@@ -95,13 +98,11 @@ schema/data, and the real Telos artifact initializer applies supported migration
 No minimal hand-built replacement schema is used for that fixture.
 
 Red/green logs and exact commands are retained under `implementation-evidence` in
-the task checkout. No existing source/compiler/protocol or router is changed by this dormant host
-contract. The two artifact-store read methods are explicitly assigned by core; the
-runtime source manifest records their reviewed source closure. Installing it in the application
-requires core's reviewed composition and source-closure update. UI, native export,
-standalone migration and end-to-end delivery remain explicitly pending. No UI has
-changed, so rendered/keyboard/mobile comparisons are inapplicable to this source
-slice; they remain required when its owned product surfaces are installed.
+the task checkout. Core assigned the metadata history endpoint and artifact UI,
+plus response-custody hardening in the existing artifact router. The existing app
+already mounts this router; B changed no shared app/protocol/migration or provider
+owner. See [the product handoff](symposium-artifact-product-handoff.md) for final
+source evidence and the precise outstanding delivery dependency.
 
 Focused commands (one worker, 1 GiB Node heap):
 
@@ -116,3 +117,33 @@ passed 12/12, then 13/13 with physical source-database removal. The five-file
 regression set is reported as one overlapping set, never a sum of those runs.
 Broad application builds/tests and trusted full-PR review remain CI/integration
 gates. No models, account services, credentials, staging or production were used.
+
+## Product implementation follow-up
+
+`revisionPage` is metadata-only, exact-ID keyset pagination (maximum 50 rows).
+The operator-authenticated versions endpoint excludes private source packets and
+current ineligible items. Preview/download hydrate the exact bounded revision,
+verify metadata and bytes, and renew current item eligibility immediately before
+responding. Existing scoped interactive source-packet reads remain separate.
+
+The output title is one route link opening `SavedArtifactDialog`, with exact
+artifact/revision/hash in the existing Work URL. It survives reload and later
+saved edits. The dialog uses the existing document preview policy, safe Markdown,
+sandboxed HTML and literal code/text; unsupported formats state that no preview is
+available. File options → Open reaches the existing full Files editor at the exact
+selected revision, with a pinned return route. Existing explicit document references
+still use their Files bridge. Work provenance and unknown-author fields are retained.
+There is no inferred outcome, Work association or standalone-retention migration.
+
+For retained-artifact-only selections, `sourceConversationId` and `boundary` may both
+be null when messages are empty and every selected artifact is independently retained.
+No source capability is opened; original saved provenance is preserved. Transcript
+messages and references still require a real source and boundary. Target/artifact
+authority and final local custody fences apply equally to both forms.
+
+Core's durable forwarding prepare/confirm/read API and original-actor receipt contract
+remain unavailable. B therefore exposes no enabled recipient send action or invented
+sharing status. Prepared bytes, persisted forwarding receipts, dispatched context and
+visible recipient acknowledgment are distinct stages. Ordinary recipient admission,
+unsupported media refusal, queueing and uncertainty remain with core. Native export
+is distinct from agent delivery. Full approved Symposium UX is not yet accepted.

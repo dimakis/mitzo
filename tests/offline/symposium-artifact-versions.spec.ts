@@ -148,6 +148,17 @@ for (const theme of ['dark', 'light'] as const)
         const box = await control.boundingBox();
         expect(box!.height).toBeGreaterThanOrEqual(44);
       }
+      const bounds = await dialog.boundingBox();
+      expect(bounds!.y).toBeGreaterThanOrEqual(0);
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(901);
+      const footer = await page.getByRole('button', { name: 'Done', exact: true }).boundingBox();
+      expect(footer!.y).toBeGreaterThanOrEqual(0);
+      expect(footer!.y + footer!.height).toBeLessThanOrEqual(901);
+      expect(await dialog.getByRole('link', { name: 'Open Work item' }).getAttribute('href')).toBe(
+        '/todos/' + fixture.itemId,
+      );
+      await dialog.getByText(older.sha256, { exact: true }).scrollIntoViewIfNeeded();
+      await expect(dialog.getByText(older.sha256, { exact: true })).toBeInViewport();
       const path = testInfo.outputPath(`artifact-${theme}.png`);
       await page.screenshot({ path });
       if (testInfo.project.name === (theme === 'dark' ? 'mobile-webkit' : 'desktop-chromium')) {

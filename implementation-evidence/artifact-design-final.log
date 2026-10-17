@@ -1,0 +1,13 @@
+
+> mitzo@1.0.0 test:design
+> vitest run frontend/src/styles/__tests__
+
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+
+ Test Files  6 passed (6)
+      Tests  108 passed | 1 skipped (109)
+   Start at  23:52:44
+   Duration  1.07s (transform 76ms, setup 0ms, import 477ms, tests 816ms, environment 339ms)
+

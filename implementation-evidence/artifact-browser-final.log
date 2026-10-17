@@ -1,0 +1,23 @@
+
+Running 8 tests using 1 worker
+
+(node:18606) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [browser-startup-0] › tests/support/browser-startup.setup.ts:5:1 › browser startup (830ms)
+(node:18717) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (195ms)
+(node:18744) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  3 [mobile-webkit] › tests/offline/symposium-artifact-versions.spec.ts:25:3 › saved artifact: exact older preview/export and current refusal (dark) (2.0s)
+  ✓  4 [mobile-webkit] › tests/offline/symposium-artifact-versions.spec.ts:25:3 › saved artifact: exact older preview/export and current refusal (light) (1.8s)
+(node:18924) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  5 [mobile-chromium] › tests/offline/symposium-artifact-versions.spec.ts:25:3 › saved artifact: exact older preview/export and current refusal (dark) (2.5s)
+  ✓  6 [mobile-chromium] › tests/offline/symposium-artifact-versions.spec.ts:25:3 › saved artifact: exact older preview/export and current refusal (light) (3.0s)
+(node:19263) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  7 [desktop-chromium] › tests/offline/symposium-artifact-versions.spec.ts:25:3 › saved artifact: exact older preview/export and current refusal (dark) (2.4s)
+  ✓  8 [desktop-chromium] › tests/offline/symposium-artifact-versions.spec.ts:25:3 › saved artifact: exact older preview/export and current refusal (light) (2.3s)
+
+  8 passed (18.6s)
