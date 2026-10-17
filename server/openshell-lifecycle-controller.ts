@@ -38,6 +38,8 @@ interface ProtectionSources {
   onOutcome?: (action: 'stopped' | 'deleted') => void;
 }
 
+let inventoryConfig: OpenShellRuntimeConfig | undefined;
+
 let configured:
   | {
       config: OpenShellRuntimeConfig;
@@ -95,6 +97,20 @@ function managerForProvider(provider: string) {
   return new OpenShellRuntimeManager({
     ...configured.config,
     account: { kind: 'api', provider, model: 'lifecycle-telemetry' },
+  });
+}
+
+/** Complete read-only workspace inventory, including historical and unassigned
+ * sandboxes. This grants no management authority to untracked resources. */
+export async function readOpenShellSandboxInventory(signal: AbortSignal) {
+  if (!inventoryConfig) throw new Error('OpenShell inventory is unavailable');
+  const manager = new OpenShellRuntimeManager({
+    ...inventoryConfig,
+    account: { kind: 'api', provider: 'inventory', model: 'lifecycle-telemetry' },
+  });
+  return (await manager.inventory(signal, true)).map((sandbox) => {
+    if (!sandbox.id) throw new Error('Gateway sandbox identity is unavailable');
+    return { id: sandbox.id, name: sandbox.name, phase: sandbox.phase };
   });
 }
 
@@ -200,6 +216,7 @@ export function initializeOpenShellLifecycle(
 ) {
   // The OpenShell runtime guard must precede all lifecycle policy parsing so a
   // disabled deployment ignores stale lifecycle-only configuration entirely.
+  inventoryConfig = config;
   if (!config) return undefined;
   if (!openShellLifecycleEnabled(process.env)) return undefined;
   const policy = openShellLifecyclePolicy(process.env);

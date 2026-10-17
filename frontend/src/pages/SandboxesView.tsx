@@ -142,7 +142,10 @@ export function SandboxesView() {
       if (mounted.current) setBusy(false);
     }
   };
-  const reviewCleanup = async (item: SandboxConversation) => {
+  const reviewCleanup = async (
+    item: SandboxConversation,
+    intent: 'policy' | 'delete' = 'policy',
+  ) => {
     const generation = ++cleanupEpoch.current;
     setConversation(item);
     setPreview(null);
@@ -151,7 +154,10 @@ export function SandboxesView() {
     if (!item.canReviewCleanup) return;
     try {
       const next = await readApiJson<SandboxCleanupPreview>(
-        '/api/openshell/lifecycle/' + encodeURIComponent(item.conversationId) + '/preview',
+        '/api/openshell/lifecycle/' +
+          encodeURIComponent(item.conversationId) +
+          '/preview' +
+          (intent === 'delete' ? '?intent=delete' : ''),
       );
       if (mounted.current && cleanupEpoch.current === generation) setPreview(next);
     } catch (e) {
@@ -223,6 +229,51 @@ export function SandboxesView() {
       )}
       {message && <p role="status">{message}</p>}
       {!data && !error && <p role="status">Loading sandboxes…</p>}
+      {data && (
+        <section aria-label="Gateway sandbox inventory">
+          {data.physicalInventory?.available ? (
+            <>
+              <h2 className="sandbox-group-title">
+                {data.physicalInventory.total} sandboxes on this gateway
+              </h2>
+              <p>
+                {Object.entries(data.physicalInventory.counts ?? {})
+                  .map(([state, count]) => `${count} ${state}`)
+                  .join(' · ')}
+              </p>
+              <details>
+                <summary className="sandbox-disclosure">
+                  Needs ownership review (
+                  {data.physicalInventory.items?.filter((x) => x.management === 'needs_review')
+                    .length ?? 0}
+                  )
+                </summary>
+                <p className="workspace-muted">
+                  These sandboxes are outside the managed lifecycle. Review ownership and recovery
+                  before cleanup. Their age does not authorize deletion.
+                </p>
+                <div className="access-row-group">
+                  {data.physicalInventory.items
+                    ?.filter((x) => x.management === 'needs_review')
+                    .map((item) => (
+                      <div className="access-row" key={item.id}>
+                        <div className="access-row-copy">
+                          <h3>{item.name}</h3>
+                          <p>{item.state} · Ownership needs review</p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </details>
+            </>
+          ) : (
+            <p role="status">
+              {data.physicalInventory?.error ||
+                'Physical sandbox count is unavailable. The lists below show recorded resources only.'}
+            </p>
+          )}
+        </section>
+      )}
       {data && draft && (
         <>
           <section className="sandbox-pool" aria-label="Faster new chats">
@@ -632,6 +683,67 @@ export function SandboxesView() {
           >
             Open chat
           </Link>
+          {conversation.canReviewCleanup && preview?.action !== 'stop_and_delete' && (
+            <button
+              className="home-secondary"
+              disabled={busy}
+              onClick={() => void reviewCleanup(conversation, 'delete')}
+            >
+              Delete sandbox…
+            </button>
+          )}
+          {preview?.retention && (
+            <>
+              <p className="workspace-muted">
+                Automatic deletion is {preview.retention.enabled ? 'enabled' : 'off'}. The{' '}
+                {preview.retention.days}-day period starts after a verified stop.
+                {preview.retention.deleteAfter
+                  ? ` Retention threshold: ${new Date(preview.retention.deleteAfter).toLocaleString()}.`
+                  : ''}{' '}
+                Explicit deletion can release the sandbox sooner. Saved history and recovery
+                checkpoints are retained.
+              </p>
+              <label className="sandbox-check">
+                <input
+                  type="checkbox"
+                  disabled={busy}
+                  checked={preview.retention.enabled}
+                  onChange={async (event) => {
+                    if (inFlight.current) return;
+                    const enabled = event.target.checked;
+                    inFlight.current = true;
+                    setBusy(true);
+                    try {
+                      const response = await apiFetch(
+                        '/api/openshell/lifecycle/' +
+                          encodeURIComponent(conversation.conversationId) +
+                          '/retention-consent',
+                        {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ enabled }),
+                        },
+                      );
+                      if (!response.ok)
+                        throw Error('Could not change automatic deletion. Review again.');
+                      await reviewCleanup(conversation);
+                    } catch (e) {
+                      setError(
+                        e instanceof Error ? e.message : 'Could not change automatic deletion.',
+                      );
+                    } finally {
+                      inFlight.current = false;
+                      setBusy(false);
+                    }
+                  }}
+                />
+                <span>
+                  Automatically delete this stopped sandbox after {preview.retention.days} days; if
+                  already eligible, delete on the next cleanup check.
+                </span>
+              </label>
+            </>
+          )}
           {!conversation.canReviewCleanup ? (
             <p className="workspace-muted">
               Cleanup controls are unavailable for this conversation. Open its chat to review active
@@ -654,7 +766,7 @@ export function SandboxesView() {
               <p>
                 {preview.action === 'stop'
                   ? 'Checkpoint and stop this sandbox. Its workspace is preserved.'
-                  : 'Delete this stopped sandbox after its checkpoint and retention checks.'}
+                  : 'Delete this sandbox without the retention wait. A verified recovery checkpoint and saved chat history are retained.'}
               </p>
               <label className="sandbox-check">
                 <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
@@ -665,7 +777,7 @@ export function SandboxesView() {
                 disabled={!ack || busy}
                 onClick={() => void confirmCleanup()}
               >
-                {preview.action === 'stop' ? 'Checkpoint and stop' : 'Delete retained sandbox'}
+                {preview.action === 'stop' ? 'Checkpoint and stop' : 'Delete sandbox'}
               </button>
             </>
           )}
