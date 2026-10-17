@@ -5,13 +5,15 @@ import {
 import { SourceSnapshotsSchema } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
-import { resolveChatAgentProfile } from './agent-library-binding.js';
 import {
   assertOrdinaryCodexContextIdentity,
   assertOrdinaryCodexSnapshotCustody,
 } from './ordinary-codex-agent-context.js';
 import type { AgentContextSnapshot } from '@mitzo/protocol';
-import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
+import {
+  readOrdinaryCodexAgentProfile,
+  resolveOrdinaryCodexAgentProfile,
+} from './ordinary-codex-agent-profile.js';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import type { AgentLibraryStore } from './agent-library-store.js';
@@ -226,16 +228,17 @@ export class OrdinaryLocalCodexOwnedRuntime {
         );
         if (!receipt || !['uncertain', 'consumed'].includes(receipt.state)) throw unavailable();
       }
-      const agentProfile = await resolveChatAgentProfile({
+      const agentProfile = await resolveOrdinaryCodexAgentProfile({
         requested: request.selection.agent,
         stored: resume
           ? this.owners.eventStore.getSession(this.#reservation.conversationId)?.agentProfile
           : undefined,
         resume,
         provider: binding.provider,
+        execution: { location: 'local' },
         lookup: async (selected) => readOrdinaryCodexAgentProfile(this.owners.library, selected),
       });
-      assertAgentToolRoute(agentProfile?.definition, 'codex');
+      assertAgentToolRoute(agentProfile?.definition, 'codex-owned-local');
       this.assertCurrent();
       if (!agentProfile || request.selection.permission.revision !== 0) throw unavailable();
       const retainedContext = resume

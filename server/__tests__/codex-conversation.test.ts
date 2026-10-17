@@ -522,6 +522,7 @@ async function setup(
   shouldContinueAfterToolResult?: CodexConversationOptions['shouldContinueAfterToolResult'],
   canClaimCommand?: CodexConversationOptions['canClaimCommand'],
   transportClosure?: CodexConversationOptions['transportClosure'],
+  hostPolicy?: { disableWebSearch: boolean; workspaceId?: string },
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -597,6 +598,7 @@ async function setup(
       email: 'test@example.com',
       planType: 'test',
       model: 'test-model',
+      workspaceId: hostPolicy?.workspaceId,
     },
     store,
     getMode: () => 'agent',
@@ -619,6 +621,7 @@ async function setup(
     deferToolSurfaceReplacement,
     enableCapacityRecovery,
     runtimeConfig,
+    disableWebSearch: hostPolicy?.disableWebSearch,
     onThreadChanged,
     onProviderDispatch,
     onProviderComplete,
@@ -5387,5 +5390,68 @@ it.each(['guarded', 'disabled'] as const)(
     } finally {
       vi.useRealTimers();
     }
+  },
+);
+
+it('retains the full host policy with excluded search on actual start and resume packets', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[22] = {
+    mcp_servers: { inherited: { command: 'untrusted' } },
+    features: {
+      shell_tool: true,
+      unified_exec: true,
+      apps: true,
+      plugins: true,
+      hooks: true,
+      multi_agent: true,
+    },
+    model_reasoning_summary: 'concise',
+  };
+  args[30] = { disableWebSearch: true, workspaceId: 'selected-workspace' };
+  const first = await setup(...args);
+  Object.assign(first.conversationOptions, { disableWebSearch: false });
+  first.c.close();
+  args[0] = first.store;
+  const resumed = await setup(...args);
+  for (const [fixture, method] of [
+    [first, 'thread/start'],
+    [resumed, 'thread/resume'],
+  ] as const) {
+    expect(fixture.requests.find((entry) => entry.method === method)?.params.config).toMatchObject({
+      web_search: 'disabled',
+      'agents.enabled': false,
+      'mcp_servers.inherited.enabled': false,
+      'features.shell_tool': false,
+      'features.unified_exec': false,
+      'features.apps': false,
+      'features.plugins': false,
+      'features.hooks': false,
+      'features.multi_agent': false,
+      'features.code_mode_host': true,
+      forced_chatgpt_workspace_id: 'selected-workspace',
+      model_reasoning_summary: 'concise',
+    });
+    await expect(
+      fixture.c.searchWeb('unselected search', new AbortController().signal),
+    ).rejects.toThrow('Search is unavailable');
+  }
+});
+
+it.each([
+  [
+    { model_providers: { openai: { base_url: 'https://custom.invalid' } } },
+    'Custom OpenAI routing',
+  ],
+  [{ mcp_servers: { 'invalid.name': {} } }, 'Unsupported inherited Codex MCP server name'],
+])(
+  'still inspects and refuses invalid inherited host configuration when search is excluded: %j',
+  async (inherited, message) => {
+    const requests: string[] = [];
+    const args: Parameters<typeof setup> = [];
+    args[22] = inherited;
+    args[24] = (method) => requests.push(method);
+    args[30] = { disableWebSearch: true };
+    await expect(setup(...args)).rejects.toThrow(message);
+    expect(requests).toEqual(['account/read', 'config/read']);
   },
 );
