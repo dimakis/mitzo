@@ -1,3 +1,5 @@
+import { Link, useLocation } from 'react-router-dom';
+import { artifactViewerUrl } from '../lib/file-paths';
 import { UiIcon } from './UiIcon';
 import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
@@ -8,6 +10,7 @@ import type { TodoOutput } from '../types/todo';
 
 /** Browse durable output bytes even after the producing agent and sandbox are gone. */
 export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: string }) {
+  const location = useLocation();
   const [result, setResult] = useState<{
     itemId: string;
     artifacts: TodoOutput[];
@@ -108,7 +111,15 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
                   <UiIcon name="file" size={16} />
                 </span>
                 <div className="output-row-copy">
-                  <strong>{output.title}</strong>
+                  <Link
+                    className="output-open"
+                    to={artifactViewerUrl(
+                      `/api/telos/artifacts/${output.id}?revision=${output.revision}`,
+                      location.pathname + location.search,
+                    )}
+                  >
+                    <strong>{output.title}</strong>
+                  </Link>
                   <span className="todo-detail-output-filename">{output.filename}</span>
                   <span className="todo-detail-output-meta">
                     Revision {output.revision} · {output.size.toLocaleString()} bytes

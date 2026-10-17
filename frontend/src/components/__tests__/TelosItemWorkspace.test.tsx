@@ -66,7 +66,7 @@ it('separates materials, source references and external links with unknown dates
   expect(screen.getByRole('link', { name: /External reference/ }).getAttribute('href')).toBe(
     'https://example.com',
   );
-  expect(screen.getByRole('button', { name: /Pinned brief/ })).toBeTruthy();
+  expect(screen.getByRole('link', { name: /Pinned brief/ })).toBeTruthy();
 });
 it('does not turn legacy session hints into assignments and preserves selected tab on reload', () => {
   const record = records[0];

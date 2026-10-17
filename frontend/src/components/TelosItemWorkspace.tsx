@@ -6,7 +6,8 @@ import { telosKindLabel } from '../lib/telos-kind-label';
 import { TelosItemRoleEntries } from './TelosItemRoleEntries';
 import { TelosItemSources } from './TelosItemSources';
 import { WorkOutputs } from './WorkOutputs';
-import { shareTelosArtifact } from '../lib/share-file';
+import { Link } from 'react-router-dom';
+import { artifactViewerUrl } from '../lib/file-paths';
 import './TelosWorkspace.css';
 
 type Tab = 'Overview' | 'Chat' | 'Work' | 'Materials';
@@ -83,17 +84,13 @@ export function TelosItemWorkspace({
         <section className="todo-detail-contract">
           <h2>Saved document references</h2>
           {artifactLinks.map((link) => (
-            <button
+            <Link
               className="todo-detail-source-row"
               key={link.url}
-              onClick={() => {
-                void shareTelosArtifact(link.url).catch((err: unknown) =>
-                  setError(err instanceof Error ? err.message : 'Document unavailable.'),
-                );
-              }}
+              to={artifactViewerUrl(link.url, `/todos/${encodeURIComponent(record.itemId)}`)}
             >
               {link.title} · {link.description} · Added {date(link.addedAt)}
-            </button>
+            </Link>
           ))}
         </section>
       )}

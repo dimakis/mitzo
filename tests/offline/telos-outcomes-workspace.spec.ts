@@ -83,6 +83,7 @@ for (const theme of ['dark', 'light'])
     const files = (await bundle).outputFiles;
     const unexpected: string[] = [];
     const errors: string[] = [];
+    const documentReads: number[] = [];
     let failRecords = false;
     let collectionMode: 'ready' | 'empty' | 'error' = 'ready';
     page.on('pageerror', (e) => {
@@ -106,7 +107,7 @@ for (const theme of ['dark', 'light'])
           body: asset.text,
           contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
         });
-      if (url.pathname.startsWith('/todos'))
+      if (url.pathname.startsWith('/todos') || url.pathname === '/files')
         return route.fulfill({
           contentType: 'text/html',
           body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
@@ -159,6 +160,23 @@ for (const theme of ['dark', 'light'])
             ],
           },
         });
+      if (url.pathname === '/api/telos/artifacts/' + 'a'.repeat(32) + '/document') {
+        const revision = Number(url.searchParams.get('revision') || 4);
+        documentReads.push(revision);
+        return route.fulfill({
+          json: {
+            path: '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=' + revision,
+            name: 'studio-plan.md',
+            ext: '.md',
+            content:
+              revision === 3
+                ? '# Retained studio plan r3\n\nSelected original document.'
+                : '# Latest studio plan r4',
+            revision,
+            editable: false,
+          },
+        });
+      }
       if (url.pathname === '/api/home/preferences')
         return route.fulfill({
           json: { revision: 0, names: { briefing: 'Minion', terminal: 'Minion' }, pins: [] },
@@ -256,6 +274,17 @@ for (const theme of ['dark', 'light'])
     await page.getByText('Provenance', { exact: true }).click();
     await expect(page.getByText('b'.repeat(64))).toBeVisible();
     expect((await page.locator('.output-row-copy').boundingBox())!.width).toBeGreaterThan(160);
+    await page.getByRole('link', { name: 'Saved studio plan', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Latest studio plan r4' })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
+    expect(documentReads.every((revision) => revision === 3)).toBe(true);
+    await page.screenshot({
+      path: info.outputPath('retained-document-' + theme + '.png'),
+      fullPage: true,
+    });
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
     await page.reload();
     await expect(page.getByRole('button', { name: 'Materials', exact: true })).toHaveAttribute(
       'aria-pressed',
@@ -311,6 +340,15 @@ for (const theme of ['dark', 'light'])
     await expect(
       page.getByRole('button', { name: 'Plan the recording setup', exact: true }),
     ).toBeVisible();
+    records[0] = { ...records[0], kind: null };
+    await page.goto('/todos/fixture-studio');
+    await expect(page.getByText('Unclassified · active', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Work', exact: true }).click();
+    await page.getByRole('button', { name: 'Plan the recording setup', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Work', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page.getByText('Unclassified · active', { exact: true })).toBeVisible();
+    expect(records[0].kind).toBeNull();
     expect(unexpected).toEqual([]);
     expect(errors).toEqual([]);
   });

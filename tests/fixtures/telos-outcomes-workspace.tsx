@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+import { FileViewer } from '../../frontend/src/pages/FileViewer';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { createMitzoStore, type WebSocketLike } from '@mitzo/client';
@@ -61,9 +63,9 @@ const store = createMitzoStore({
     },
   },
 });
-function Page() {
+function Page({ children = <TodoWorkspace /> }: { children?: ReactNode }) {
   const desktop = useIsDesktop();
-  return desktop ? <DesktopShell center={<TodoWorkspace />} /> : <TodoWorkspace />;
+  return desktop ? <DesktopShell center={children} /> : children;
 }
 createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={store}>
@@ -71,6 +73,14 @@ createRoot(document.getElementById('root')!).render(
       <MobileShell>
         <Routes>
           <Route path="/todos/:id?" element={<Page />} />
+          <Route
+            path="/files"
+            element={
+              <Page>
+                <FileViewer />
+              </Page>
+            }
+          />
         </Routes>
       </MobileShell>
     </BrowserRouter>

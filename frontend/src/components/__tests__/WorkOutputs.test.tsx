@@ -1,9 +1,24 @@
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactElement } from 'react';
 import type { TodoOutput } from '../../types/todo';
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as rtlRender,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { Capacitor } from '@capacitor/core';
 import { WorkOutputs } from '../WorkOutputs';
+const render = (ui: ReactElement) =>
+  rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <MemoryRouter initialEntries={['/todos/studio']}>{children}</MemoryRouter>
+    ),
+  });
 import { apiFetch } from '../../lib/api-fetch';
 import { downloadFile, shareTelosArtifact } from '../../lib/share-file';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));

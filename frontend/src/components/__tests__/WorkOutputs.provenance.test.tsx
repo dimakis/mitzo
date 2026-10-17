@@ -1,7 +1,15 @@
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactElement } from 'react';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 import { WorkOutputs } from '../WorkOutputs';
+const render = (ui: ReactElement) =>
+  rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <MemoryRouter initialEntries={['/todos/studio']}>{children}</MemoryRouter>
+    ),
+  });
 vi.mock('../UserOutputUpload', () => ({ UserOutputUpload: () => null }));
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(
@@ -38,4 +46,16 @@ it('exposes exact saved revision, hash, recorded time and source without inventi
   expect(screen.getByText('2026-10-16T10:00:00Z')).toBeTruthy();
   expect(screen.getByText('external-codex:source')).toBeTruthy();
   expect(screen.getByText('Author not recorded')).toBeTruthy();
+});
+
+it('opens the selected retained revision in the existing viewer, separately from sharing', async () => {
+  render(<WorkOutputs itemId="studio" />);
+  const open = await screen.findByRole('link', { name: 'Studio plan' });
+  const href = new URL(open.getAttribute('href')!, 'https://offline.test');
+  expect(href.pathname).toBe('/files');
+  expect(href.searchParams.get('path')).toBe(
+    '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=3',
+  );
+  expect(screen.getByRole('button', { name: 'Share Studio plan' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Download Studio plan' })).toBeTruthy();
 });
