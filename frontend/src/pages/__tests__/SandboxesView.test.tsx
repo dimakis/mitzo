@@ -54,6 +54,58 @@ function mount() {
     </MemoryRouter>,
   );
 }
+it('shows physical counts and historical sandboxes independently of the conversation ledger', async () => {
+  vi.mocked(readApiJson).mockResolvedValue({
+    ...snapshot,
+    physicalInventory: {
+      available: true,
+      total: 122,
+      counts: { Ready: 42, Stopped: 74, Error: 6 },
+      items: [
+        { id: 'old', name: 'historical-sandbox', state: 'Stopped', management: 'needs_review' },
+      ],
+    },
+  });
+  mount();
+  await screen.findByText('122 sandboxes on this gateway');
+  expect(screen.getByText(/42 Ready.*74 Stopped.*6 Error/)).toBeTruthy();
+  expect(screen.getByText('historical-sandbox')).toBeTruthy();
+});
+it('makes immediate deletion a separately reviewed action and exposes retention consent', async () => {
+  const item = {
+    conversationId: 'c',
+    sandboxName: 'sandbox-c',
+    state: 'retained',
+    title: 'My chat',
+    account: 'Work',
+    canReviewCleanup: true,
+  };
+  vi.mocked(readApiJson).mockImplementation(async (path) =>
+    path === '/api/sandboxes'
+      ? { ...snapshot, conversations: [item] }
+      : {
+          token: path.includes('intent=delete') ? 'delete-review' : 'stop-review',
+          action: path.includes('intent=delete') ? 'stop_and_delete' : 'stop',
+          blockers: [],
+          retention: { enabled: false, days: 7, deleteAfter: null },
+        },
+  );
+  vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 200 }));
+  mount();
+  await screen.findByText('My chat');
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete sandbox…' }));
+  await screen.findByText(/without the retention wait/);
+  expect(apiFetch).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByLabelText('I reviewed this lifecycle action and its effect on sandbox files.'),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Delete sandbox' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string)).toEqual({
+    token: 'delete-review',
+  });
+});
 it('reads inventory without mutation and exposes editable settings with truthful disk availability', async () => {
   vi.mocked(readApiJson).mockResolvedValue(snapshot);
   mount();

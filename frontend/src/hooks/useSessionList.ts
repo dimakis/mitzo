@@ -1,6 +1,7 @@
 import { removeConversationPins, renameConversationPin } from './useConversationPins';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '../types/chat';
+import type { SessionRemovalOptions } from '../types/sandboxes';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
@@ -45,7 +46,7 @@ export interface UseSessionListReturn {
   hasMore: boolean;
   updateAvailable: boolean;
   checking: boolean;
-  dismissSession: (id: string) => Promise<boolean>;
+  dismissSession: (id: string, options?: SessionRemovalOptions) => Promise<boolean>;
   clearAll: () => Promise<boolean>;
   handleRename: (id: string, title: string) => Promise<boolean>;
   checkForUpdates: () => Promise<void>;
@@ -175,8 +176,15 @@ export function useSessionList(): UseSessionListReturn {
       .finally(() => setLoadingMore(false));
   }, [loadingMore, hasMore]);
 
-  const dismissSession = useCallback((id: string) => {
-    return apiFetch(`/api/sessions/${id}`, { method: 'DELETE' })
+  const dismissSession = useCallback((id: string, options: SessionRemovalOptions = {}) => {
+    return apiFetch(
+      `/api/sessions/${encodeURIComponent(id)}${options.archive ? '?archive=1' : ''}`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options.cleanupToken ? { cleanupToken: options.cleanupToken } : {}),
+      },
+    )
       .then((response) => {
         if (response.ok) {
           removeConversationPins(id);

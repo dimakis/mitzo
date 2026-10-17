@@ -68,8 +68,9 @@ export interface LifecyclePreview {
   token: string;
   expiresAt: number;
   record: OpenShellLifecycleRecord;
-  action: 'stop' | 'delete' | 'none';
+  action: 'stop' | 'stop_and_delete' | 'delete' | 'none';
   blockers: LifecycleBlocker[];
+  retention: { enabled: boolean; deleteAfter: number | null; days: number };
 }
 
 function blockersFor(
@@ -109,7 +110,8 @@ export class OpenShellLifecycleService {
       conversationId: string;
       generation: number;
       sandboxId: string;
-      action: 'stop' | 'delete';
+      action: Exclude<LifecyclePreview['action'], 'none'>;
+      intent: 'policy' | 'delete';
       expiresAt: number;
       used: boolean;
     }
@@ -123,6 +125,7 @@ export class OpenShellLifecycleService {
     return this.store.list().map((record) => ({
       conversationId: record.conversationId,
       sandboxName: record.sandboxName,
+      physicalId: record.physicalSandboxId,
       state: record.phase,
       account: record.accountProvider,
     }));
@@ -172,7 +175,11 @@ export class OpenShellLifecycleService {
     const protection = await this.adapters.protect(record, signal);
     return { sandbox, blockers: blockersFor(record, sandbox, protection) };
   }
-  async preview(conversationId: string, signal: AbortSignal): Promise<LifecyclePreview> {
+  async preview(
+    conversationId: string,
+    signal: AbortSignal,
+    intent: 'policy' | 'delete' = 'policy',
+  ): Promise<LifecyclePreview> {
     this.prunePreviews();
     const record = this.store.get(conversationId);
     if (!record) throw new Error('OpenShell lifecycle record not found');
@@ -181,8 +188,13 @@ export class OpenShellLifecycleService {
       !this.policy.enabled || blockers.length
         ? 'none'
         : record.phase === 'retained' && sandbox?.phase === 'Ready'
-          ? 'stop'
-          : this.consented(record) && this.policy.retentionEligible(record, this.now())
+          ? intent === 'delete'
+            ? 'stop_and_delete'
+            : 'stop'
+          : record.phase === 'stopped' &&
+              sandbox?.phase === 'Stopped' &&
+              (intent === 'delete' ||
+                (this.consented(record) && this.policy.retentionEligible(record, this.now())))
             ? 'delete'
             : 'none';
     const token = randomUUID();
@@ -193,19 +205,35 @@ export class OpenShellLifecycleService {
         generation: record.generation,
         sandboxId: sandbox.id,
         action,
+        intent,
         expiresAt,
         used: false,
       });
-    return { token, expiresAt, record, action, blockers };
+    return {
+      token,
+      expiresAt,
+      record,
+      action,
+      blockers,
+      retention: {
+        enabled: this.consented(record),
+        deleteAfter: record.stoppedAt === null ? null : record.stoppedAt + this.policy.retentionMs,
+        days: this.policy.retentionMs / 86_400_000,
+      },
+    };
   }
-  async confirm(token: string, signal: AbortSignal) {
+  async confirm(token: string, signal: AbortSignal, expectedConversationId?: string) {
     const preview = this.previews.get(token);
     if (!preview) throw new Error('OpenShell lifecycle preview is expired or already used');
+    if (expectedConversationId !== undefined && preview.conversationId !== expectedConversationId)
+      throw new Error('OpenShell lifecycle preview belongs to another conversation');
+    if (expectedConversationId !== undefined && preview.intent !== 'delete')
+      throw new Error('Explicit sandbox deletion review is required');
     return sharedOpenShellLifecycleCoordinator.mutate(preview.conversationId, () =>
       this.confirmLocked(token, signal),
     );
   }
-  private async confirmLocked(token: string, signal: AbortSignal) {
+  private async confirmLocked(token: string, signal: AbortSignal): Promise<'stopped' | 'deleted'> {
     const preview = this.previews.get(token);
     if (!preview || preview.used || preview.expiresAt < this.now())
       throw new Error('OpenShell lifecycle preview is expired or already used');
@@ -213,12 +241,13 @@ export class OpenShellLifecycleService {
     const record = this.store.get(preview.conversationId);
     if (!record || record.generation !== preview.generation)
       throw new Error('OpenShell lifecycle preview is stale');
-    if (preview.action === 'delete' && !this.consented(record))
+    const explicitDeletion = preview.intent === 'delete';
+    if (preview.action === 'delete' && !explicitDeletion && !this.consented(record))
       throw new Error('OpenShell lifecycle consent is required');
     const { sandbox, blockers } = await this.state(record, signal);
     if (!sandbox || sandbox.id !== preview.sandboxId || blockers.length)
       throw new Error('OpenShell lifecycle preservation check failed');
-    if (preview.action === 'stop') {
+    if (preview.action === 'stop' || preview.action === 'stop_and_delete') {
       if (sandbox.phase !== 'Ready') throw new Error('OpenShell lifecycle preview is stale');
       const checkpointing = this.store.transition(
         record.conversationId,
@@ -288,6 +317,13 @@ export class OpenShellLifecycleService {
           } as const;
           this.store.upsert(stoppedRecord);
           this.adapters.onOutcome?.(stoppedRecord, 'stopped');
+          if (preview.action === 'stop_and_delete') {
+            const deletion = await this.preview(record.conversationId, signal, 'delete');
+            if (deletion.action !== 'delete')
+              throw new Error('Sandbox stopped; deletion is blocked. Refresh to review.');
+            // Keep the same mutation fence across capture, stop and deletion.
+            return await this.confirmLocked(deletion.token, signal);
+          }
           return 'stopped';
         } catch (error) {
           this.markFailed(stopping, error);
@@ -300,9 +336,9 @@ export class OpenShellLifecycleService {
     }
     if (
       sandbox.phase !== 'Stopped' ||
-      !this.policy.retentionEligible(record, this.now()) ||
+      (!explicitDeletion && !this.policy.retentionEligible(record, this.now())) ||
       !record.checkpoint ||
-      !this.consented(record)
+      (!explicitDeletion && !this.consented(record))
     )
       throw new Error('OpenShell lifecycle preview is stale');
     let checkpointVerified: boolean;
@@ -327,7 +363,7 @@ export class OpenShellLifecycleService {
       !beforeDelete.sandbox ||
       beforeDelete.sandbox.id !== preview.sandboxId ||
       beforeDelete.blockers.length ||
-      !this.consented(record)
+      (!explicitDeletion && !this.consented(record))
     )
       throw new Error('OpenShell lifecycle preservation check failed');
     const deleting = this.store.transition(record.conversationId, record.generation, 'deleting');
@@ -341,7 +377,7 @@ export class OpenShellLifecycleService {
         return (
           current?.phase === 'deleting' &&
           current.generation === deleting.generation &&
-          this.consented(current) &&
+          (explicitDeletion || this.consented(current)) &&
           sharedOpenShellLifecycleCoordinator.activityGeneration(record.conversationId) ===
             activityGeneration
         );
@@ -369,12 +405,23 @@ export class OpenShellLifecycleService {
       // Retention consent authorizes destructive deletion only. Checkpointing
       // and stopping an idle retained sandbox remain safe without it.
       if (record.phase === 'stopped' && !this.consented(record)) continue;
-      if (
-        record.phase === 'retained' &&
-        (!record.idleSince || this.now() < record.idleSince + this.policy.idleMs)
-      )
-        continue;
       try {
+        if (record.phase === 'retained') {
+          // Close callbacks are not guaranteed across process loss. Observe a
+          // fresh, protected idle interval instead of backdating from activity.
+          const { blockers } = await this.state(record, signal);
+          if (blockers.length || record.idleSince === null) {
+            await sharedOpenShellLifecycleCoordinator.admit(record.conversationId, async () => {
+              const current = this.store.get(record.conversationId);
+              if (current?.generation !== record.generation) return;
+              const idleSince = blockers.length ? null : this.now();
+              if (current.idleSince !== idleSince)
+                this.store.upsert({ ...current, idleSince, generation: current.generation + 1 });
+            });
+            continue;
+          }
+          if (this.now() < record.idleSince + this.policy.idleMs) continue;
+        }
         const preview = await this.preview(record.conversationId, signal);
         previews.push(preview);
         if (preview.action !== 'none') await this.confirm(preview.token, signal);

@@ -117,6 +117,96 @@ it('allows a manual stop without granting retention consent', async () => {
   expect(preview.action).toBe('stop');
   await expect(service.confirm(preview.token, AbortSignal.timeout(100))).resolves.toBe('stopped');
 });
+
+it.each(['retained', 'stopped'] as const)(
+  'explicitly deletes a %s sandbox without waiting for retention or granting future consent',
+  async (phase) => {
+    const { service, adapters, store } = setup(phase);
+    adapters.consent = () => false;
+    adapters.now = () => 101;
+    const preview = await service.preview('c', AbortSignal.timeout(100), 'delete');
+    expect(preview.action).toBe(phase === 'retained' ? 'stop_and_delete' : 'delete');
+    await expect(service.confirm(preview.token, AbortSignal.timeout(100), 'c')).resolves.toBe(
+      'deleted',
+    );
+    expect(adapters.delete).toHaveBeenCalledOnce();
+    expect(adapters.stop).toHaveBeenCalledTimes(phase === 'retained' ? 1 : 0);
+    expect(store.get('c')).toMatchObject({ phase: 'deleted', checkpoint: expect.any(Object) });
+    expect(store.get('c')?.retentionConsent).toBe(false);
+  },
+);
+
+it('binds deletion confirmation to the selected conversation', async () => {
+  const { service, adapters } = setup('stopped');
+  const preview = await service.preview('c', AbortSignal.timeout(100), 'delete');
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100), 'other')).rejects.toThrow(
+    'conversation',
+  );
+  expect(adapters.delete).not.toHaveBeenCalled();
+});
+
+it('does not accept a stop-only review as authorization to delete a conversation', async () => {
+  const { service, adapters } = setup('retained');
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100), 'c')).rejects.toThrow(
+    'deletion',
+  );
+  expect(adapters.stop).not.toHaveBeenCalled();
+});
+
+it('refuses explicit deletion when a checkpoint fails or protected work appears after stopping', async () => {
+  const { service, adapters } = setup('retained');
+  adapters.stop.mockImplementationOnce(async () => {
+    adapters.inspect.mockResolvedValue({ id: 'p', phase: 'Stopped', resourceVersion: 'stopped-v' });
+    adapters.protect.mockResolvedValue({ blockers: ['queued_work'] } as never);
+  });
+  const preview = await service.preview('c', AbortSignal.timeout(100), 'delete');
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow();
+  expect(adapters.delete).not.toHaveBeenCalled();
+});
+
+it('exposes the retention deadline and consent independently of an immediate deletion preview', async () => {
+  const { service } = setup('stopped');
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  expect(preview.retention).toEqual({ enabled: true, deleteAfter: 100 + 7 * DAY, days: 7 });
+});
+
+it('starts a fresh idle observation after restart when a retained row has no idle timestamp', async () => {
+  const { service, store, adapters } = setup('retained');
+  const record = store.get('c')!;
+  store.upsert({ ...record, idleSince: null, generation: record.generation + 1 });
+  let now = 100 + 30 * DAY;
+  adapters.now = () => now;
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(store.get('c')?.idleSince).toBe(now);
+  expect(adapters.stop).not.toHaveBeenCalled();
+  now += 30 * 60_000 - 1;
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(adapters.stop).not.toHaveBeenCalled();
+  now++;
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(adapters.stop).toHaveBeenCalledOnce();
+});
+
+it('does not infer idleness from old activity while authoritative work is protected', async () => {
+  const { service, store, adapters } = setup('retained');
+  const record = store.get('c')!;
+  store.upsert({ ...record, idleSince: null, generation: record.generation + 1 });
+  adapters.protect.mockResolvedValue({ blockers: ['active_session'] } as never);
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(store.get('c')?.idleSince).toBeNull();
+  expect(adapters.stop).not.toHaveBeenCalled();
+});
+
+it('restarts the idle grace period after protected work interrupts an observation', async () => {
+  const { service, store, adapters } = setup('retained');
+  adapters.protect.mockResolvedValueOnce({ blockers: ['queued_work'] } as never);
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(store.get('c')?.idleSince).toBeNull();
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(store.get('c')?.idleSince).toBe(adapters.now());
+  expect(adapters.stop).not.toHaveBeenCalled();
+});
 it('rechecks consent before a manual deletion', async () => {
   const { service, adapters } = setup();
   const preview = await service.preview('c', AbortSignal.timeout(100));
