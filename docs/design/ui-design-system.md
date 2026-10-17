@@ -1278,7 +1278,7 @@ retain their reviewed template, source path and fingerprint in Details.
 Save draft, Verify API read and Publish tool remain separate actions. Verification
 explains its API read and reuses the existing app reauthorization. Failed saves
 and verification retain input. Editing invalidates local proof; Escape/Done
-returns focus and closing preserves the mounted draft. Cancel aborts verification.
+returns focus and closing preserves the mounted draft. Cancel aborts verification through the retained-owner IPC boundary; owner drain waits for the actual request cleanup. Request cancellation and its deadline use AbortController with listener/timer cleanup so supported older WebKit does not require newer static AbortSignal helpers.
 Colors, fonts, spacing, focus, control height and motion use shared styles; no
 new CSS or palette is introduced.
 

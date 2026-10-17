@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.275-api-tools.3';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.275-api-tools.4';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-tool-router.ts': '2b95fa7fa918be7ea1b59e04293d7fbbd80e55ef719d1b0a90e65ffb2e0b3eef',
   '../../frontend/src/components/ApiToolEditor.tsx':
-    '41474f869c7877422eddddd530d3c8a237424d937adef8f25f317ccc51ebbc66',
+    'e6aac080d46dd546dba357f89977a333b4edb23ad1d518b19544b0c3909fe070',
   '../api-tool-runtime.ts': 'b81ed9f222e6b6aea47425b4fa33511c26235e02e5c548221522bd2cae43ed6c',
   '../api-tool-execution.ts': '0c0fb1097dcec7e9fa8682aa3e19754f524350b70c64e962196f59cdc0d9357b',
   '../api-tool-template.ts': '5057d248c596caf080bca26a4a1c27a8905aaca7ae404ec825febaf2d069ecbc',
@@ -518,7 +518,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
   // Retained-owner inference cancellation preserves actual handler cleanup and drain.
   '../symposium-custodian-ipc.ts':
-    '11a37641aaf37d5b22b19ecea82910c16e026194261bdabef541bacbc530b674',
+    '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
     '5ef9405e845e24f9d19af0820deac42d3404dbd5fb86d4f09f814e45226edd6b',
   '../symposium-custodian-controller.ts':

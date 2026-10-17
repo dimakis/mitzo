@@ -35,23 +35,34 @@ async function request<T>(
   signal?: AbortSignal,
   csrf?: string,
 ): Promise<T> {
-  const response = await apiFetch('/api/agent-library/api-tools' + path, {
-    method: body === undefined ? 'GET' : 'POST',
-    cache: 'no-store',
-    signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(30000)]),
-    ...(body === undefined
-      ? {}
-      : {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(csrf ? { 'x-csrf-token': csrf } : {}),
-          },
-          body: JSON.stringify(body),
-        }),
-  });
-  const data = await response.json();
-  if (!response.ok) throw Error(data.error ?? 'API tool request failed');
-  return data;
+  // Supported WebKit releases may lack AbortSignal.any and AbortSignal.timeout.
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timer = setTimeout(abort, 30000);
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  try {
+    const response = await apiFetch('/api/agent-library/api-tools' + path, {
+      method: body === undefined ? 'GET' : 'POST',
+      cache: 'no-store',
+      signal: controller.signal,
+      ...(body === undefined
+        ? {}
+        : {
+            headers: {
+              'Content-Type': 'application/json',
+              ...(csrf ? { 'x-csrf-token': csrf } : {}),
+            },
+            body: JSON.stringify(body),
+          }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error ?? 'API tool request failed');
+    return data;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
 }
 const blank = (): Draft => ({
   id: createBrowserId(),

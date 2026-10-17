@@ -129,6 +129,13 @@ for (const theme of ['dark', 'light'])
         body: `<html data-theme="${theme}" data-accent="${theme === 'dark' ? 'lavender' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
       });
     });
+    await page.addInitScript(() => {
+      Object.defineProperty(AbortSignal, 'any', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+    });
     await page.goto('/');
     await page.getByRole('button', { name: 'Tool library', exact: true }).click();
     const open = page.getByRole('button', { name: 'Configure API tool', exact: true });
