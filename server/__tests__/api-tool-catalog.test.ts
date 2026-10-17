@@ -217,3 +217,12 @@ it.each(['failed-newer-verification', 'cancellation'])(
     expect(f.service.sessions(f.connection.id)).toEqual([]);
   },
 );
+
+it('rejects noncanonical tool IDs before creating an unselectable publication', async () => {
+  const f = await fixture();
+  expect(() =>
+    f.catalog.save({ ...f.input, id: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA' }, f.service),
+  ).toThrow();
+  expect(f.catalog.drafts()).toEqual([]);
+  expect(f.send).not.toHaveBeenCalled();
+});

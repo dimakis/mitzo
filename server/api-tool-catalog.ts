@@ -16,7 +16,7 @@ import {
 } from './api-tool-template.js';
 
 export const saveApiToolSchema = z.strictObject({
-  id: z.uuid(),
+  id: z.uuid().regex(/^[0-9a-f-]+$/),
   expectedVersion: z.number().int().nonnegative(),
   configuration: apiToolConfigurationSchema,
 });
