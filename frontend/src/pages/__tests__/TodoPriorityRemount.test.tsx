@@ -121,7 +121,7 @@ it.each(['missing', 'failed'])(
     await waitFor(() => expect(filtered.result.current.loading).toBe(false));
     const view = render(app());
     const select = () =>
-      screen.getByRole('combobox', { name: 'Priority', exact: true }) as HTMLSelectElement;
+      screen.getByRole('combobox', { name: 'Priority' }) as HTMLSelectElement;
     fireEvent.change(select(), { target: { value: '7' } });
     await waitFor(() => expect(select().value).toBe('7'));
     expect(filtered.result.current.items[0].priority).toBe(7);
@@ -173,7 +173,7 @@ it.each(['missing', 'failed'])(
     });
     const view = render(app());
     const select = () =>
-      screen.getByRole('combobox', { name: 'Priority', exact: true }) as HTMLSelectElement;
+      screen.getByRole('combobox', { name: 'Priority' }) as HTMLSelectElement;
     fireEvent.change(select(), { target: { value: '7' } });
     await waitFor(() => expect(finish).toBeTypeOf('function'));
     viewport.desktop = true;
