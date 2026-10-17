@@ -32,6 +32,7 @@ vi.mock('@capgo/capacitor-native-biometric', () => ({
 vi.mock('../watch-auth', () => ({ saveTokenToWatch: vi.fn().mockResolvedValue(undefined) }));
 
 import { Capacitor } from '@capacitor/core';
+import { saveTokenToWatch } from '../watch-auth';
 import { NativeBiometric } from '@capgo/capacitor-native-biometric';
 import {
   isBiometricAvailable,
@@ -47,6 +48,7 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(saveTokenToWatch).mockResolvedValue(undefined);
   localStorage.clear();
   vi.mocked(NativeBiometric.getSecureData).mockRejectedValue({ code: '21' });
 });
@@ -178,6 +180,37 @@ describe('deleteCredentials', () => {
 });
 
 describe('biometricLogin', () => {
+  it('bounds a stalled fresh-session response body within the authentication deadline', async () => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeBiometric.getSecureData).mockResolvedValue({ value: 'secret' });
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => new Promise(() => {}),
+    } as Response);
+    const pending = biometricLogin();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await Promise.race([pending, Promise.resolve('still pending')])).toBeNull();
+    expect(vi.mocked(fetch).mock.calls[0][1]?.signal?.aborted).toBe(true);
+    expect(NativeBiometric.deleteData).not.toHaveBeenCalled();
+  });
+
+  it.each(['hung', 'rejected'])('completes login when optional Watch sync is %s', async (state) => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeBiometric.getSecureData).mockResolvedValue({ value: 'secret' });
+    vi.mocked(saveTokenToWatch).mockImplementation(() =>
+      state === 'hung' ? new Promise(() => {}) : Promise.reject(new Error('Watch unavailable')),
+    );
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'fresh-jwt' }),
+    } as Response);
+    const pending = biometricLogin();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(await Promise.race([pending, Promise.resolve('still pending')])).toBe('fresh-jwt');
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-jwt');
+  });
+
   it('obtains a fresh ordinary session from the protected passphrase after JWT expiry', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     localStorage.setItem('mitzo_auth_token', 'expired-jwt');
@@ -193,6 +226,7 @@ describe('biometricLogin', () => {
       'https://mitzo.test/api/auth/login',
       expect.objectContaining({
         method: 'POST',
+        credentials: 'omit',
         body: JSON.stringify({ passphrase: 'my-passphrase' }),
       }),
     );

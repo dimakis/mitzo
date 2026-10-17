@@ -4,6 +4,8 @@ import {
   apiFetch,
   AUTH_RESTORED_EVENT,
   getApiBaseUrl,
+  getStoredAuthToken,
+  isLogoutPending,
   isCrossTabAuthEvent,
   loginSucceeded,
   markAuthLost,
@@ -92,7 +94,13 @@ export function Login() {
             return;
           }
           await saveCredentials(data.token);
-          await saveTokenToWatch(data.token);
+          const restoredToken = data.token;
+          void Promise.resolve(
+            saveTokenToWatch(
+              restoredToken,
+              () => !isLogoutPending() && getStoredAuthToken() === restoredToken,
+            ),
+          ).catch(() => undefined);
         } else loginSucceeded();
         navigate(returnTo, { replace: true });
       } else {

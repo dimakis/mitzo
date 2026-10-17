@@ -194,8 +194,16 @@ async function performBiometricLogin(apiBaseUrl: string): Promise<string | null>
                 body: JSON.stringify({ passphrase }),
               }
             : { headers: { Authorization: `Bearer ${token}` } }),
-          credentials: 'include',
+          // Native login consumes the bearer only. Omitting cookies prevents a
+          // late response from replacing a newer browser authentication cookie.
+          credentials: passphrase ? 'omit' : 'include',
           signal: controller.signal,
+        }).then(async (response) => {
+          if (passphrase && response.ok) {
+            const data = (await response.json()) as { token?: unknown };
+            token = typeof data.token === 'string' && data.token ? data.token : undefined;
+          }
+          return response;
         }),
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(() => {
@@ -221,17 +229,16 @@ async function performBiometricLogin(apiBaseUrl: string): Promise<string | null>
       return null;
     }
 
-    if (passphrase) {
-      const data = (await res.json()) as { token?: unknown };
-      if (typeof data.token !== 'string' || !data.token || !authContextIsCurrent()) return null;
-      token = data.token;
-    }
     if (!token) return null;
 
-    // Also save to native shared Keychain for Apple Watch
-    await saveTokenToWatch(token);
-    if (!authContextIsCurrent()) return null;
     loginSucceeded(token);
+    // Optional Watch sync must not hold native login open. The queue rechecks
+    // current authority before writing, so a newer login/logout can supersede it.
+    const restoredToken = token;
+    void saveTokenToWatch(
+      restoredToken,
+      () => !isLogoutPending() && getStoredAuthToken() === restoredToken,
+    ).catch(() => undefined);
     return token;
   } catch {
     return null;

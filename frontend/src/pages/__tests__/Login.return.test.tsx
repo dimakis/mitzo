@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { Login } from '../Login';
+import { saveTokenToWatch } from '../../lib/watch-auth';
 import { apiFetch, restoreCookieAuthentication, AUTH_RESTORED_EVENT } from '../../lib/api-fetch';
 import { biometricLogin, isBiometricAvailable, saveBiometricPassphrase } from '../../lib/biometric';
 vi.mock('../../lib/api-fetch', () => ({
@@ -11,6 +12,8 @@ vi.mock('../../lib/api-fetch', () => ({
   AUTH_RESTORED_EVENT: 'auth-restored',
   isCrossTabAuthEvent: () => true,
   getApiBaseUrl: () => '',
+  getStoredAuthToken: () => 'test-token',
+  isLogoutPending: () => false,
   loginSucceeded: vi.fn(),
   markAuthLost: vi.fn(),
 }));
@@ -129,4 +132,11 @@ it('reports protected credential enrollment failure', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Login' }));
   await screen.findByText(/Unable to enable Face ID/);
   expect(screen.queryByText(destination)).toBeNull();
+});
+
+it('returns after password login without waiting for the optional Watch bridge', async () => {
+  vi.mocked(saveTokenToWatch).mockReturnValue(new Promise(() => {}));
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Login' }));
+  await screen.findByText(destination);
 });
