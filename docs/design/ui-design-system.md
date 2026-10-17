@@ -24,6 +24,18 @@ synthetic fixture inventory and no backend, credentials or model calls. Full-app
 build/type/layout acceptance remains CI validation when the local 1 GiB heap is
 insufficient. See [sandbox lifecycle](sandbox-lifecycle.md) for operation semantics.
 
+The sandbox ownership review and selected-cleanup dialogs reuse HomeDialog,
+access-row-group, sandbox-check, sandbox-actions and existing semantic danger
+controls. They add no palette, font or private motion. Ownership review links
+saved chats and explains blockers; it exposes no adopt/delete action. Batch
+selection appears only for exact currently inventoried managed resources. Every
+selected item must pass review; an uncertain result stops the remaining batch,
+retains the result list and refreshes inventory. Cancelling requires no mutation.
+The all-intercept sandbox-cleanup-review fixture covers 320px WebKit/Chromium
+phones and 1280px desktop Chromium, light/dark Teal/Georgia and Mint/System,
+wrapping, keyboard focus, 44px confirmation controls, blocked resources and
+refreshed physical counts. These fixtures use no backend, credentials or models. Inspected captures: [mobile batch review](assets/sandbox-batch-review-mobile-dark.png) and [desktop ownership review](assets/sandbox-ownership-review-desktop-light.png).
+
 The Connections inventory is the starting point: quiet surfaces, clear type, grouped rows, restrained lavender actions, and detail views that expose context when requested.
 
 ## One theme source
