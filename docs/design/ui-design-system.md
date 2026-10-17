@@ -1447,3 +1447,23 @@ later requests to both devices, and cover joining/unwatching subscribers, closed
 or failing sockets and expiry/cancellation. The browser continuity fixture also
 verifies resolved/expired cards disappear while the draft, focus and live reply
 remain intact. No approval scope or decision authority is added by subscription.
+
+## Telos numeric priority
+
+The approved additive priority amendment uses `TodoPrioritySelect` in the current
+item header and a compact `P<n>` badge in each recursive item card. The native
+select inherits the shared font, semantic colors, control height and focus rule.
+Pending saves disable the field; failures announce uncertainty beside the field
+and preserve the last confirmed value. Existing grouping, sorting and navigation
+remain unchanged. This is not the later S7/S8 workspace implementation.
+
+The intercepted `telos-priority.spec.ts` fixture covers the actual current pages
+on 320px WebKit/Chromium and desktop Chromium in dark Mint/System and light
+Teal/Georgia with larger text, keyboard focus, save/reject/reload and matching
+badges after navigation. See [the amendment](../features/telos-priority-scale.md)
+for API/persistence ownership and its relationship to the frozen r1 design.
+
+Inspected implementation captures: [phone header](assets/telos-priority-mobile-dark.png),
+[phone badge](assets/telos-priority-tree-mobile-dark.png) and
+[desktop with larger text](assets/telos-priority-desktop-light.png). These preserve
+synthetic fixture evidence rather than replacing the approved reference.

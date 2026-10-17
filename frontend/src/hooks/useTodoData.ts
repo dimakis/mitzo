@@ -20,6 +20,7 @@ export interface UseTodoDataResult {
   snooze: (id: string, days?: number) => Promise<void>;
   done: (id: string) => Promise<void>;
   star: (id: string) => Promise<void>;
+  setPriority: (id: string, priority: number) => Promise<void>;
   create: (summary: string, profile: string, parentId?: string) => Promise<void>;
   createOutcome: (draft: TodoOutcomeDraft) => Promise<TodoItem | undefined>;
   refresh: () => void;
@@ -46,6 +47,15 @@ export function toggleStarInTree(items: TodoItem[], id: string): TodoItem[] {
       return { ...item, children: toggleStarInTree(item.children, id) };
     }
     return item;
+  });
+}
+
+function setPriorityInTree(items: TodoItem[], id: string, priority: number): TodoItem[] {
+  return items.map((item) => {
+    if (item.id === id) return { ...item, priority };
+    return item.children.length > 0
+      ? { ...item, children: setPriorityInTree(item.children, id, priority) }
+      : item;
   });
 }
 
@@ -190,6 +200,26 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     }
   }, []);
 
+  const setPriority = useCallback(async (id: string, priority: number) => {
+    if (!Number.isInteger(priority) || priority < 1 || priority > 10)
+      throw new Error('Priority must be from 1 to 10');
+    const response = await apiFetch(`/api/todos/${encodeURIComponent(id)}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'priority', priority }),
+    });
+    if (!response.ok || (await response.json()).ok !== true)
+      throw new Error('Priority change was not confirmed');
+
+    // Invalidate reads admitted before the write, then publish the confirmed value
+    // to every cached profile. No optimistic rollback can overwrite a newer edit.
+    invalidateTodoReads();
+    todoCache.update((data) => ({ ...data, items: setPriorityInTree(data.items, id, priority) }));
+    setData((data) =>
+      data ? { ...data, items: setPriorityInTree(data.items, id, priority) } : data,
+    );
+  }, []);
+
   const create = useCallback(
     async (summary: string, profileName: string, parentId?: string) => {
       const body: Record<string, string> = { summary, profile: profileName };
@@ -239,6 +269,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     snooze,
     done,
     star,
+    setPriority,
     create,
     createOutcome,
     refresh,

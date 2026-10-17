@@ -93,6 +93,7 @@ const fullItem: TodoItem = {
 
 beforeEach(() => {
   cleanup();
+  window.dispatchEvent(new Event('mitzo:auth-lost'));
   vi.clearAllMocks();
   mockLocation.mockReturnValue({ state: { item: fullItem } });
   mockParams.mockReturnValue({ id: 'abc123' });
@@ -535,10 +536,11 @@ describe('TodoDetailView', () => {
     mockLocation.mockReturnValue({ state: null });
     mockParams.mockReturnValue({ id: 'abc123' });
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ profiles: ['centaur'], items: [fullItem] }),
-    } as Response);
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(
+        async () => new Response(JSON.stringify({ profiles: ['centaur'], items: [fullItem] })),
+      );
 
     render(
       <MemoryRouter>
@@ -551,7 +553,7 @@ describe('TodoDetailView', () => {
     });
     expect(fetchSpy).toHaveBeenCalledWith(
       '/api/todos',
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.objectContaining({ credentials: 'include' }),
     );
     fetchSpy.mockRestore();
   });
@@ -560,10 +562,9 @@ describe('TodoDetailView', () => {
     mockLocation.mockReturnValue({ state: null });
     mockParams.mockReturnValue({ id: 'nonexistent' });
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ profiles: [], items: [] }),
-    } as Response);
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(JSON.stringify({ profiles: [], items: [] })));
 
     render(
       <MemoryRouter>

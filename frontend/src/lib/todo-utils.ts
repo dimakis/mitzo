@@ -123,3 +123,8 @@ export function buildTodoContext(item: TodoItem): string {
 
   return lines.join('\n');
 }
+
+/** Preserve the legacy distinction while either side of a rolling upgrade is old. */
+export function todoPriority(item: Pick<TodoItem, 'priority' | 'starred'>): number {
+  return item.priority ?? (item.starred ? 10 : 5);
+}

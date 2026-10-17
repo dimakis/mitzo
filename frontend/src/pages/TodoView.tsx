@@ -261,7 +261,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const location = useLocation();
   const restoredProfile = (location.state as { activeProfile?: string } | null)?.activeProfile;
   const [activeProfile, setActiveProfile] = useState<string | undefined>(restoredProfile);
-  const { loading, error, items, profiles, ack, done, star, create, createOutcome, refresh } =
+  const { loading, error, items, profiles, ack, done, create, createOutcome, refresh } =
     useTodoData(activeProfile);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [query, setQuery] = useState('');
@@ -480,7 +480,6 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
                       selectedId={selectedId}
                       onAck={ack}
                       onDone={done}
-                      onStar={star}
                       onTap={handleTap}
                       onAddChild={handleAddChild}
                       onStartSession={handleStartSession}
