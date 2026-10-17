@@ -51,7 +51,10 @@ export function SavedArtifactDialog({
   const version = versions.find((row) => row.revision === selected)!;
   const url = savedArtifactUrl(version);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setPageBefore(undefined);
+      return;
+    }
     const controller = new AbortController();
     setHistory((previous) => ({ ...previous, loaded: false, error: null }));
     readSavedArtifactVersions(artifact, controller.signal, pageBefore)
@@ -110,7 +113,7 @@ export function SavedArtifactDialog({
         inert={!open}
         aria-hidden={!open || undefined}
       >
-        <p className="saved-artifact-kind">Saved document · Saved under Work</p>
+        <p className="saved-artifact-kind">Saved artifact · Saved under Work</p>
         <label className="saved-artifact-version">
           <span>Version</span>
           <select

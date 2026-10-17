@@ -21,7 +21,7 @@ vi.mock('../../lib/share-file', () => ({
   downloadFile: vi.fn().mockResolvedValue(true),
 }));
 function render(element: ReactElement) {
-  return renderComponent(<MemoryRouter>{element}</MemoryRouter>);
+  return renderComponent(element, { wrapper: MemoryRouter });
 }
 const id = 'a'.repeat(32);
 const version = (revision: number) => ({
@@ -114,4 +114,33 @@ it('ignores a late old-version preview and keeps unavailable reads explicit', as
   await screen.findByRole('heading', { name: 'Version 1' });
   await act(async () => resolveOld(response(doc(2))));
   expect(screen.queryByRole('heading', { name: 'Version 2' })).toBeNull();
+});
+
+it('refreshes the newest history page on reopen without changing the selected older revision', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).includes('/versions'))
+      return String(url).includes('beforeRevision=2')
+        ? response({ artifacts: [version(1)], cursor: null, hasMore: false })
+        : response({ artifacts: [version(2)], cursor: 2, hasMore: true });
+    return response(
+      doc(Number(new URL(String(url), 'http://fixture').searchParams.get('revision'))),
+    );
+  });
+  const artifact = version(2);
+  const close = vi.fn();
+  const view = render(<SavedArtifactDialog artifact={artifact} onClose={close} open />);
+  await screen.findByRole('button', { name: 'Earlier versions' });
+  fireEvent.click(screen.getByRole('button', { name: 'Earlier versions' }));
+  await screen.findByRole('option', { name: /Saved version 1/ });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Version' }), { target: { value: '1' } });
+  await screen.findByRole('heading', { name: 'Version 1' });
+  view.rerender(<SavedArtifactDialog artifact={artifact} onClose={close} open={false} />);
+  view.rerender(<SavedArtifactDialog artifact={artifact} onClose={close} open />);
+  await waitFor(() => {
+    const historyCalls = vi
+      .mocked(apiFetch)
+      .mock.calls.filter(([url]) => String(url).includes('/versions'));
+    expect(historyCalls.at(-1)?.[0]).toBe(`/api/telos/artifacts/${id}/versions`);
+  });
+  expect((screen.getByRole('combobox', { name: 'Version' }) as HTMLSelectElement).value).toBe('1');
 });
