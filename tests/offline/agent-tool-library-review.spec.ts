@@ -170,6 +170,8 @@ for (const theme of ['dark', 'light'])
     await page.screenshot({
       path: info.outputPath(`tool-library-large-text-${theme}.png`),
       fullPage: true,
+      // Keep the complete enlarged catalog below WebKit's physical bitmap limit.
+      scale: 'css',
     });
     await search.fill('mitzo:Write');
     await page.getByRole('button', { name: 'Agent library', exact: true }).click();
