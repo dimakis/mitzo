@@ -1,3 +1,6 @@
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
+import { SourceSnapshotsSchema } from '@mitzo/protocol';
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
   assertOrdinaryCodexSnapshotCustody,
   ordinaryCodexSnapshotCustody,
@@ -19,6 +22,7 @@ const Images = z
   .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
   .max(16);
 const Payload = z.strictObject({
+  sourceSnapshots: SourceSnapshotsSchema.optional(),
   text: z.string().min(1).max(1_000_000),
   systemPrompt: z.string().max(1_000_000),
   intent: z.string().max(1_000_000).optional(),
@@ -130,7 +134,8 @@ export class OwnedLocalCodexChatAdmission {
         child.assertReceipt();
         if (
           child.#payload.systemPrompt !== admission.#payload.systemPrompt ||
-          queued.prompt !== child.#payload.text ||
+          queued.prompt !==
+            assembleSourceSnapshots(child.#payload.text, child.#payload.sourceSnapshots) ||
           (queued.intent ?? queued.prompt) !== (child.#payload.intent ?? child.#payload.text) ||
           !isDeepStrictEqual(queued.images ?? [], child.#payload.images ?? []) ||
           queued.model !== child.#expected.selection.model ||
@@ -153,6 +158,7 @@ export class OwnedLocalCodexChatAdmission {
     }
   }
   private assertReceipt(initial = false): void {
+    resolveTelosWorkRoleContext(this.owner.eventStore, this.owner.sessionId, this.#binding);
     const receipt = this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId);
     const send = this.owner.eventStore.getSendCommand(this.owner.commandId);
     const session = this.owner.eventStore.getSession(this.owner.sessionId);
@@ -273,7 +279,8 @@ export class OwnedLocalCodexChatAdmission {
         options.session.mode !== expected.selection.permission.mode ||
         (options.model ?? options.binding.model) !== expected.selection.model ||
         (options.reasoningEffort ?? null) !== expected.selection.thinking ||
-        options.prompt !== this.#payload.text ||
+        options.prompt !==
+          assembleSourceSnapshots(this.#payload.text, this.#payload.sourceSnapshots) ||
         options.systemPrompt !== this.#payload.systemPrompt ||
         (options.intent ?? options.prompt) !== (this.#payload.intent ?? this.#payload.text) ||
         !isDeepStrictEqual(options.images ?? [], this.#payload.images ?? []) ||
@@ -348,7 +355,7 @@ export class OwnedLocalCodexChatAdmission {
     if (
       this.#enqueued ||
       input.id !== this.owner.commandId ||
-      input.prompt !== this.#payload.text ||
+      input.prompt !== assembleSourceSnapshots(this.#payload.text, this.#payload.sourceSnapshots) ||
       (input.intent ?? input.prompt) !== (this.#payload.intent ?? this.#payload.text) ||
       !isDeepStrictEqual(input.images ?? [], this.#payload.images ?? []) ||
       (input.model ?? this.#expected.selection.model) !== this.#expected.selection.model ||

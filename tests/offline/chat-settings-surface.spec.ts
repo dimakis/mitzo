@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import ledger from '../../docs/design/approved/ledger.json' with { type: 'json' };
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -7,7 +8,13 @@ import { readFile } from 'node:fs/promises';
 const output = build({
   entryPoints: [resolve('tests/fixtures/chat-settings-surface.tsx')],
   bundle: true,
-  external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
+  external: [
+    '/mitzo-wordmark.png',
+    '/openshell-mark.svg',
+    '/github-mark.svg',
+    '/openai-mark.svg',
+    '/claude-mark.svg',
+  ],
   write: false,
   outfile: '/tmp/mitzo-chat-settings.js',
   jsx: 'automatic',
@@ -29,6 +36,21 @@ for (const appearance of ['dark', 'light'] as const) {
     const files = (await output).outputFiles!;
     await page.route('**/*', (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (path === '/api/accounts')
+        return route.fulfill({
+          json: ['Personal ChatGPT', 'Work'].map((id) => ({
+            id,
+            label: id,
+            models: [
+              {
+                id: 'gpt-luna-fixture',
+                label: 'GPT Luna fixture',
+                reasoningEfforts: ['High', 'Medium', 'Low'],
+              },
+              { id: 'claude-fixture', label: 'Claude fixture', reasoningEfforts: ['High', 'Low'] },
+            ],
+          })),
+        });
       const file = files.find((file) => path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'));
       if (file)
         return route.fulfill({
@@ -38,7 +60,9 @@ for (const appearance of ['dark', 'light'] as const) {
       if (
         path === '/mitzo-wordmark.png' ||
         path === '/mitzo-icon.png' ||
-        path === '/openshell-mark.svg'
+        path === '/openshell-mark.svg' ||
+        path === '/openai-mark.svg' ||
+        path === '/claude-mark.svg'
       )
         return readFile(resolve('frontend/public', path.slice(1))).then((body) =>
           route.fulfill({
@@ -49,10 +73,20 @@ for (const appearance of ['dark', 'light'] as const) {
       if (path !== '/') return route.abort();
       return route.fulfill({
         contentType: 'text/html',
-        body: `<!doctype html><html data-theme="${appearance}" data-accent="mint" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body{margin:0;height:100%;overflow:hidden}.workspace-tabs{position:fixed;bottom:0;inset-inline:0;min-height:64px;display:flex;align-items:center;justify-content:center}.workspace-controls-heading>button{min-height:44px;padding:8px}.chat-messages{justify-content:center}.agent-settings-panel--embedded label{display:flex;flex-direction:column}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
+        body: `<!doctype html><html data-theme="${appearance}" data-accent="${appearance === 'dark' ? 'mint' : 'teal'}" data-font="${appearance === 'dark' ? 'georgia' : 'system'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body{margin:0;height:100%;overflow:hidden}.workspace-tabs{position:fixed;bottom:0;inset-inline:0;min-height:64px;display:flex;align-items:center;justify-content:center}.workspace-controls-heading>button{min-height:44px;padding:8px}.chat-messages{justify-content:center}.agent-settings-panel--embedded label{display:flex;flex-direction:column}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
       });
     });
     const mobile = testInfo.project.name.startsWith('mobile');
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'mitzo-default-account-model',
+        JSON.stringify({
+          accountId: 'Personal ChatGPT',
+          model: 'gpt-luna-fixture',
+          reasoningEffort: 'High',
+        }),
+      );
+    });
     await page.setViewportSize({ width: mobile ? 390 : 1280, height: mobile ? 844 : 900 });
     await page.goto('/');
     const trigger = page.getByRole('button', { name: /^Workspace controls/ });
@@ -72,20 +106,72 @@ for (const appearance of ['dark', 'light'] as const) {
     await expect(page.getByRole('button', { name: 'Open session tray' })).toHaveText('');
     await trigger.click();
     await expect(panel).toBeVisible();
-    await expect(panel.getByRole('combobox')).toHaveCount(4);
-    for (const control of await panel.getByRole('combobox').all())
+    await expect(panel.getByRole('combobox')).toHaveCount(0);
+    const row = (key: string) => panel.locator(`[data-quick-setting="${key}"]`);
+    const back = () => panel.getByRole('button', { name: 'Back to chat settings' }).click();
+    await expect(row('execution').locator('.openshell-brand')).toBeVisible();
+    await expect(row('model').locator('.model-brand--openai')).toBeVisible();
+    const keys = await panel
+      .locator('[data-quick-setting]:visible')
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-quick-setting')));
+    const approved = ledger.surfaces.find((surface) => surface.id === 'chat-settings')!;
+    expect(keys).toEqual(
+      approved.revisions.find((revision) => revision.id === approved.activeRevision)!.mainRows,
+    );
+    const visual = await panel.evaluate((element) => {
+      const rows = Array.from(element.querySelectorAll<HTMLElement>('[data-quick-setting]')).filter(
+        (row) => !row.hidden,
+      );
+      const heading = element.querySelector<HTMLElement>('.agent-settings-header strong')!;
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--color-text)';
+      element.append(probe);
+      const neutralHeading = getComputedStyle(heading).color === getComputedStyle(probe).color;
+      probe.remove();
+      return {
+        neutralHeading,
+        rows: rows.map((row) => ({
+          radius: getComputedStyle(row).borderRadius,
+          background: getComputedStyle(row).backgroundColor,
+          height: row.getBoundingClientRect().height,
+        })),
+      };
+    });
+    expect(visual.neutralHeading).toBe(true);
+    for (const row of visual.rows) {
+      expect(row.radius).toBe('0px');
+      expect(row.background).toBe('rgba(0, 0, 0, 0)');
+      expect(row.height).toBeGreaterThanOrEqual(44);
+    }
+    for (const control of await panel.locator('[data-quick-setting]:visible').all())
       expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await expect(page.getByRole('button', { name: 'Collaborate' })).toBeHidden();
-    const model = panel.getByRole('combobox', { name: 'Thinking level' });
-    await model.selectOption('Low');
-    await page.getByText('More settings', { exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Collaborate' })).toBeVisible();
-    await panel.getByRole('combobox', { name: 'Account', exact: true }).selectOption('Work');
+    await page.screenshot({ path: testInfo.outputPath(`quick-chat-settings-${appearance}.png`) });
+    await row('defaults').click();
+    await panel.getByRole('button', { name: 'Make default for new chats' }).click();
+    await expect(panel.getByRole('button', { name: 'Clear new-chat default' })).toBeVisible();
+    await back();
+    await row('model').click();
+    await expect(
+      panel.locator('[data-setting-value="claude-fixture"] .model-brand--claude'),
+    ).toBeVisible();
+    await panel.getByRole('button', { name: 'Refresh models' }).click();
+    await back();
+    await row('account').click();
+    await panel.locator('[data-setting-value="Work"]').click();
+    await back();
+    await row('thinking').click();
+    await panel.locator('[data-setting-value="Low"]').click();
+    await back();
+    await expect(row('thinking')).toHaveAccessibleName('Thinking, Low');
+    await row('execution').click();
     await panel.getByRole('button', { name: 'Local Mac', exact: true }).click();
     await expect(panel.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
+    await back();
+    await row('more').click();
+    await expect(page.getByRole('button', { name: 'Collaborate' })).toBeVisible();
     if (!mobile) expect((await panel.boundingBox())!.width).toBeLessThanOrEqual(384);
     expect(await panel.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(
       'rgba(0, 0, 0, 0)',
@@ -107,8 +193,15 @@ for (const appearance of ['dark', 'light'] as const) {
     await page.getByRole('button', { name: 'Access', exact: true }).click();
     await expect(panel).toBeHidden();
     await trigger.click();
-    await expect(model).toHaveValue('Low');
-    await model.focus();
+    await expect(row('thinking')).toHaveAccessibleName('Thinking, Low');
+    await expect(row('account')).toBeInViewport();
+    expect(await panel.locator('.workspace-controls-content').evaluate((el) => el.scrollTop)).toBe(
+      0,
+    );
+    await row('thinking').click();
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeVisible();
+    await expect(row('thinking')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(panel).toBeHidden();
     await expect(trigger).toBeFocused();
@@ -139,12 +232,16 @@ for (const appearance of ['dark', 'light'] as const) {
       await expect(page.getByRole('navigation')).toBeVisible();
     }
     await page.setViewportSize({ width: mobile ? 320 : 1280, height: mobile ? 500 : 300 });
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '20px';
+    });
     await input.evaluate((element) => {
       element.style.height = '210px';
     });
     await trigger.click();
     await expect(panel).toBeVisible();
     await expect(input).toBeInViewport();
+    await row('execution').click();
     const local = panel.getByRole('button', { name: 'Local Mac', exact: true });
     await local.scrollIntoViewIfNeeded();
     const localBox = (await local.boundingBox())!;
@@ -154,7 +251,7 @@ for (const appearance of ['dark', 'light'] as const) {
     expect(localBox.y + localBox.height).toBeLessThanOrEqual(footerBox.y + 1);
     await local.click();
     await expect(panel.getByRole('button', { name: 'Close agent settings' })).toBeInViewport();
-    await expect(panel.getByText('Chat settings', { exact: true })).toBeInViewport();
+    await expect(panel.locator('.agent-settings-header strong')).toHaveText('Run on');
     expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(page.viewportSize()!.height);
     if (!mobile) {
       const center = (await page.locator('.desktop-center').boundingBox())!;
@@ -232,8 +329,8 @@ test('profile drafts: real dialog keeps edits and explains the empty state', asy
   const trigger = page.getByRole('button', { name: /^Workspace controls/ });
   async function openDrafts() {
     if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
-    const more = page.locator('.workspace-controls-options');
-    if ((await more.getAttribute('open')) === null) await more.locator('summary').click();
+    if (await page.locator('[data-quick-setting=more]:visible').count())
+      await page.locator('[data-quick-setting=more]').click();
     await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
   }
   await openDrafts();

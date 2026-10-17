@@ -360,7 +360,7 @@ it('keeps Account, Model, Agent and Run on directly available in compact setting
   );
   const runtime = screen.getByRole('group', { name: 'Run on' });
   expect(runtime.closest('details')).toBeNull();
-  expect(container.querySelector('.chat-settings-group')).toBeNull();
+  expect(container.querySelectorAll('.chat-settings-group')).toHaveLength(2);
   const controls = screen.getAllByRole('combobox');
   expect(controls.map((control) => control.getAttribute('aria-label'))).toEqual([
     'Account',

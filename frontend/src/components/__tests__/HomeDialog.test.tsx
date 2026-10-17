@@ -164,3 +164,22 @@ it('can retain editable content while closed without keeping the modal or scroll
   expect(screen.getByRole('textbox', { name: 'Setup guidance' })).toBe(field);
   expect((field as HTMLInputElement).value).toBe('Edited guidance');
 });
+
+it('restores focus beyond a concealed settings editor when its summary is concealed too', () => {
+  const outer = document.createElement('div');
+  outer.innerHTML =
+    '<button aria-controls="outer-settings">Settings</button><div id="outer-settings"><button aria-controls="field-editor">More options</button><div id="field-editor"><button>Review findings</button></div></div>';
+  document.body.append(outer);
+  const buttons = outer.querySelectorAll('button');
+  buttons[2].focus();
+  const view = render(
+    <HomeDialog title="Review" onClose={() => {}}>
+      Details
+    </HomeDialog>,
+  );
+  outer.querySelector('#outer-settings')!.setAttribute('inert', '');
+  outer.querySelector('#field-editor')!.setAttribute('hidden', '');
+  view.unmount();
+  expect(document.activeElement).toBe(buttons[0]);
+  outer.remove();
+});

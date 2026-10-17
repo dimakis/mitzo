@@ -76,8 +76,15 @@ function metadata(row: ArtifactRow): TelosArtifactMetadata {
 /** Content and item links commit together in the canonical Telos database, outside sandboxes. */
 export class TelosArtifactStore {
   private db: Database.Database;
-  constructor(path: string) {
-    this.db = new Database(path, { fileMustExist: true });
+  private readonly ownsConnection: boolean;
+  /** Internal host composition only. The work owner retains transaction/close
+   * authority for a borrowed connection; save/read retain their existing checks. */
+  static borrowConnection(database: Database.Database): TelosArtifactStore {
+    return new TelosArtifactStore('', database);
+  }
+  constructor(path: string, borrowedDatabase?: Database.Database) {
+    this.ownsConnection = borrowedDatabase === undefined;
+    this.db = borrowedDatabase ?? new Database(path, { fileMustExist: true });
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     try {
@@ -100,7 +107,7 @@ export class TelosArtifactStore {
         CREATE INDEX IF NOT EXISTS telos_artifacts_item ON telos_artifact_revisions(item_id);
         CREATE INDEX IF NOT EXISTS telos_artifacts_source_page ON telos_artifact_revisions(session_id,created_at,id,revision);`);
     } catch (error) {
-      this.db.close();
+      if (this.ownsConnection) this.db.close();
       throw error;
     }
   }
@@ -113,7 +120,7 @@ export class TelosArtifactStore {
   }
 
   close() {
-    this.db.close();
+    if (this.ownsConnection) this.db.close();
   }
   /** Match the submitted request, not mutable workspace bytes, before reading a path. */
   /** Shared task outputs are not a private LifeOps evidence vault. */

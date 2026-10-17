@@ -180,6 +180,7 @@ export function prepareLocalFirstCommand(
     mode: 'ask' | 'agent' | 'auto';
     text: string;
     images?: { data: string; mediaType: string }[];
+    sourceSnapshots?: import('@mitzo/protocol').SourceSnapshot[];
     retainedAgentProfile?: AgentLibraryVersion;
     retainedAgentContext?: AgentContextSnapshot;
     nativeConstraint?: NativeContinuationConstraint;
@@ -280,7 +281,11 @@ export function prepareLocalFirstCommand(
       context,
       permission: { mode: input.mode, revision: 0 },
     },
-    payload: { text: input.text, ...(input.images?.length ? { images: input.images } : {}) },
+    payload: {
+      text: input.text,
+      ...(input.sourceSnapshots?.length ? { sourceSnapshots: input.sourceSnapshots } : {}),
+      ...(input.images?.length ? { images: input.images } : {}),
+    },
   });
   if (parsed.success) return { request: parsed.data, reason: undefined };
   const reason = parsed.error.issues.some((issue) => issue.message === 'Command exceeds bound')

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
 import { existsSync, writeFileSync } from 'node:fs';
 
@@ -49,6 +50,20 @@ const fixture = (options?: {
   silentPreparation?: boolean;
   builtinPreparation?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
+
+it('rejects altered reviewed Library source bytes before native startup effects', async () => {
+  const f = await fixture();
+  const request = {
+    ...f.request,
+    payload: {
+      ...f.request.payload,
+      sourceSnapshots: [{ ...agentLibrarySource, content: agentLibrarySource.content + ' ' }],
+    },
+  };
+  await expect(f.create().admit(request)).rejects.toThrow();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(f.rpc.request).not.toHaveBeenCalled();
+});
 
 it('adopts the exact builtin namespace through the ordinary Local owner', async () => {
   const f = await fixture();
@@ -1264,4 +1279,108 @@ it('prepares and starts two independent ordinary sessions sharing one account an
   ).resolves.toEqual({ dispatched: false });
   expect(first.dispatch).toHaveBeenCalledOnce();
   expect(second.dispatch).toHaveBeenCalledOnce();
+});
+
+import { createHash } from 'node:crypto';
+import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
+it('delivers retained Telos mandate and reviewed context in the actual silent-prepared Local packet', async () => {
+  const f = await fixture({ silentPreparation: true });
+  const sessionId = f.reservation.conversationId;
+  const binding = f.events.getSession(sessionId)!.accountBinding!;
+  const text = 'Host-reviewed lead item';
+  retainTelosWorkRoleContext(f.events, sessionId, binding, {
+    version: 1,
+    itemId: 'item',
+    role: 'lead',
+    brief: { revision: 'reviewed', text, sha256: createHash('sha256').update(text).digest('hex') },
+    parentCriteria: [],
+    overallGoal: { itemId: 'item', revision: 'reviewed', text: 'Reviewed goal' },
+    sources: [],
+    artifacts: [],
+  });
+  await f.create().admitPreparedFirst(f.preparation!.receipt.allocationOperationId, f.request);
+  expect(f.dispatch.mock.calls[0][0].payload.systemPrompt).toContain(
+    'Child execution requires a separate worker conversation',
+  );
+  expect(f.dispatch.mock.calls[0][0].payload.systemPrompt).toContain(text);
+});
+it('denies malformed retained Telos context before the silent-prepared Local packet dispatch', async () => {
+  const f = await fixture({ silentPreparation: true });
+  f.events.append(f.reservation.conversationId, 'telos_work_role_context', {
+    version: 1,
+    selection: { role: 'lead' },
+  });
+  await expect(
+    f.create().admitPreparedFirst(f.preparation!.receipt.allocationOperationId, f.request),
+  ).rejects.toThrow();
+  expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('preserves Telos role guidance when an ordinary Local continuation selects another supported model', async () => {
+  const f = await fixture({ silentPreparation: true });
+  f.configuration[0].models.push({
+    id: 'future-model',
+    label: 'Future',
+    reasoningEfforts: ['low'],
+  });
+  f.writeProfiles();
+  f.request.capabilityRevision = new OrdinaryLocalCodexCapabilityCatalog(
+    loadAccountProfiles(),
+    new OrdinaryLocalCodexHostRuntime(f.dependencies.env).target(),
+    'ordinary',
+  ).inventory().capabilityRevision;
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method) =>
+    method === 'model/list'
+      ? {
+          data: ['fixture-model', 'future-model'].map((model) => ({
+            model,
+            displayName: model,
+            supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+          })),
+          nextCursor: null,
+        }
+      : rpc(method),
+  );
+  const sessionId = f.reservation.conversationId;
+  const binding = f.events.getSession(sessionId)!.accountBinding!;
+  const text = 'Reviewed context survives inference choice';
+  retainTelosWorkRoleContext(f.events, sessionId, binding, {
+    version: 1,
+    itemId: 'item',
+    role: 'lead',
+    brief: { revision: 'reviewed', text, sha256: createHash('sha256').update(text).digest('hex') },
+    parentCriteria: [],
+    overallGoal: { itemId: 'item', revision: 'reviewed', text: 'Goal' },
+    sources: [],
+    artifacts: [],
+  });
+  const continuation = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
+    value.admission.assertBeforeEnqueue({
+      id: value.commandId,
+      prompt: value.payload.text,
+      model: value.expected.selection.model,
+      reasoningEffort: value.expected.selection.thinking,
+    });
+  });
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    dispatchContinuation: continuation,
+  });
+  cleanups.push(() => driver.close());
+  await driver.admitPreparedFirst(f.preparation!.receipt.allocationOperationId, f.request);
+  const next = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    selection: { ...f.request.selection, model: 'future-model' },
+    payload: { text: 'Continue using supported model' },
+  };
+  await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: true });
+  expect(continuation).toHaveBeenCalledOnce();
+  const packet = continuation.mock.calls[0][0];
+  expect(packet.payload.systemPrompt).toBe(f.dispatch.mock.calls[0][0].payload.systemPrompt);
+  expect(packet.payload.systemPrompt).toContain(text);
+  expect(packet.expected.selection.model).toBe('future-model');
+  expect(packet.workspace.id).toBe(f.dispatch.mock.calls[0][0].workspace.id);
+  expect(packet.lease.binding).toEqual(binding);
+  expect(f.events.getSession(sessionId)?.accountBinding).toEqual(binding);
 });

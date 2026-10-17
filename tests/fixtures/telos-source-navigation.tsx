@@ -117,6 +117,7 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <MobileShell>
         <Routes>
+          <Route path="/chat" element={<ResponsiveChatView />} />
           <Route path="/chat/:sessionId" element={<ResponsiveChatView />} />
           <Route path="/todos/:id" element={<ItemRoute />} />
         </Routes>

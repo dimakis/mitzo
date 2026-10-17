@@ -101,6 +101,7 @@ vi.mock('../chat.js', async () => {
       append: vi.fn(),
       getLatestEvent: vi.fn().mockReturnValue(null),
       getEventsAfter: vi.fn().mockReturnValue([]),
+      getSessionEvents: vi.fn().mockReturnValue([]),
       getEventsOfType: vi.fn().mockReturnValue([]),
       getLatestWorktreePath: vi.fn().mockReturnValue(null),
       searchSessions: vi.fn().mockReturnValue([
@@ -749,6 +750,21 @@ describe('session routes', () => {
     expect(overviewBroadcast).toHaveBeenCalledOnce();
   });
 
+  it('keeps Symposium deletion under its own custody and offers archive instead', async () => {
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'symposium',
+      sessionType: 'symposium',
+      cwd: '/host/workspace',
+    } as ReturnType<typeof eventStore.getSession>);
+    const res = await request(app).delete('/api/sessions/symposium').set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+    expect(hideSession).not.toHaveBeenCalled();
+    await request(app)
+      .delete('/api/sessions/symposium?archive=1')
+      .set('Cookie', authCookie)
+      .expect(200);
+  });
+
   it('DELETE /api/sessions — hides all sessions', async () => {
     const res = await request(app).delete('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
@@ -848,6 +864,20 @@ describe('session routes', () => {
       totalCostUsd: 0.05,
       numTurns: 3,
     });
+  });
+
+  it('GET /api/sessions/:id/meta — role context read unavailable returns an explicit refusal', async () => {
+    const { eventStore } = await import('../chat.js');
+    vi.mocked(eventStore.getSessionEvents).mockImplementationOnce(() => {
+      throw new Error('Private retained context read failed');
+    });
+    const res = await request(app)
+      .get('/api/sessions/s1/meta')
+      .set('Cookie', authCookie)
+      .timeout({ response: 1000, deadline: 2000 });
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'Work conversation context unavailable' });
+    expect(JSON.stringify(res.body)).not.toContain('Private');
   });
 
   it('GET /api/sessions/:id/meta — unknown session returns 404', async () => {

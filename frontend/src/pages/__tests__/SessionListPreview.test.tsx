@@ -157,7 +157,7 @@ describe.each(['recent', 'search'] as const)('%s conversations', (source) => {
     expect(mocks.rename).toHaveBeenCalledWith(sessionId, 'New title');
     expect(screen.queryByRole('dialog')).toBeNull();
   });
-  it('copies the correct session ID with feedback and uses the existing delete action', async () => {
+  it('copies the correct session ID and reviews removal before an explicit archive', async () => {
     const row = mount();
     await hold(row);
     const preview = screen.getByRole('dialog');
@@ -167,7 +167,11 @@ describe.each(['recent', 'search'] as const)('%s conversations', (source) => {
     expect(mocks.copy).toHaveBeenCalledWith(sessionId);
     expect(within(preview).getByText('Session ID copied')).toBeTruthy();
     fireEvent.click(within(preview).getByRole('button', { name: 'Delete conversation' }));
-    expect(mocks.dismiss).toHaveBeenCalledExactlyOnceWith(sessionId);
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Delete chat?' })).toBeTruthy();
+    mocks.dismiss.mockResolvedValueOnce(true);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Archive chat' })));
+    expect(mocks.dismiss).toHaveBeenCalledExactlyOnceWith(sessionId, { archive: true });
     expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('does not leave a pending hold after unmounting', async () => {

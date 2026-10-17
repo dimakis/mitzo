@@ -206,3 +206,46 @@ it('consumes the accepted revision after navigation unmounts the composer', () =
   act(() => receipt?.('accepted'));
   expect(getChatDraft(draft.id)).toBeNull();
 });
+
+import * as draftOwner from '../../lib/chat-drafts';
+it('restores the exact silently bound saved draft through the ordinary composer owner after reload', () => {
+  const bind = Reflect.get(draftOwner, 'bindChatDraftToSession') as
+    ((draftId: string, sessionId: string) => string) | undefined;
+  const read = Reflect.get(draftOwner, 'getSessionChatDraft') as
+    ((sessionId: string) => ReturnType<typeof getChatDraft>) | undefined;
+  expect(bind).toBeDefined();
+  expect(read).toBeDefined();
+  const draft = {
+    ...createChatDraft(),
+    text: 'Typed before binding',
+    images: [
+      { data: 'ZmFrZQ==', preview: 'data:image/png;base64,ZmFrZQ==', mediaType: 'image/png' },
+    ],
+    contextBlocks: ['Selected resource'],
+  };
+  saveChatDraft(draft);
+  const before = render(
+    <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
+  );
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Latest unsent setup text' },
+  });
+  expect(bind?.(draft.id, 'bound-chat')).toBe('bound');
+  before.unmount();
+  const selected = read?.('bound-chat');
+  expect(selected?.settings).toEqual(draft.settings);
+  render(
+    <ChatInput
+      onSend={() => false}
+      onStop={() => {}}
+      running={false}
+      sessionId="bound-chat"
+      savedChatDraft={selected ?? undefined}
+    />,
+  );
+  expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
+    'Latest unsent setup text',
+  );
+  expect(screen.getByAltText('Attachment 1').getAttribute('src')).toBe(draft.images[0].preview);
+  expect(getChatDraft(draft.id)?.contextBlocks).toEqual(['Selected resource']);
+});

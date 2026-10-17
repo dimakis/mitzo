@@ -798,3 +798,55 @@ it('reopens retained and deleted lifecycle runtimes after same-account model sel
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it.each(['', '0'])(
+  'inventories physical sandboxes with lifecycle disabled (%s)',
+  async (enabled) => {
+    vi.resetModules();
+    const { initializeOpenShellLifecycle, readOpenShellSandboxInventory } =
+      await import('../openshell-lifecycle-controller.js');
+    const { OpenShellRuntimeManager: InventoryManager } = await import('../openshell-runtime.js');
+    vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', enabled);
+    const inventory = vi
+      .spyOn(InventoryManager.prototype, 'inventory')
+      .mockResolvedValue([{ id: 'physical', name: 'legacy', phase: 'Stopped' }]);
+    try {
+      const config = {
+        cli: '/nonexistent/offline-inventory-cli',
+        image: 'runtime',
+        policy: '/unavailable/policy.yaml',
+        seed: '/seed',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        workspace: 'default',
+        gateway: 'openshell',
+        gatewayInsecure: false,
+        createDetached: true,
+        sandboxIdLength: 13,
+        workdir: '/custom/workspace',
+        webSearch: 'disabled' as const,
+      };
+      expect(
+        initializeOpenShellLifecycle(
+          config,
+          {} as Parameters<typeof initializeOpenShellLifecycle>[1],
+        ),
+      ).toBeUndefined();
+      const signal = AbortSignal.timeout(1000);
+      expect(await readOpenShellSandboxInventory(signal)).toEqual([
+        { id: 'physical', name: 'legacy', phase: 'Stopped' },
+      ]);
+      expect(inventory).toHaveBeenCalledWith(signal, true);
+      initializeOpenShellLifecycle(
+        undefined,
+        {} as Parameters<typeof initializeOpenShellLifecycle>[1],
+      );
+      await expect(readOpenShellSandboxInventory(signal)).rejects.toThrow(
+        'inventory is unavailable',
+      );
+    } finally {
+      inventory.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  },
+);

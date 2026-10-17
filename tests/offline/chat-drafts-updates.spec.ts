@@ -1,3 +1,4 @@
+import { settingRow, chooseSetting, openChatSetting } from '../support/chat-settings';
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
@@ -655,25 +656,19 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(message);
   await agentSettings(page);
-  await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
-    account.id,
-  );
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-    'luna-alternate',
-  );
-  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
-    'high',
-  );
+  await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', account.id);
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'luna-alternate');
+  await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-value', 'high');
   const workspace = page.getByRole('button', { name: /^Workspace controls/ });
   if ((await workspace.getAttribute('aria-expanded')) !== 'true') await workspace.click();
-  await page.getByText('More settings', { exact: true }).click();
+  await openChatSetting(page, 'more');
   await expect(page.getByRole('button', { name: 'Ask', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
   await expect(page.getByAltText('Attachment 1')).toBeVisible();
   await input.fill('Fix the morning briefing with this saved context');
-  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
+  await chooseSetting(page, 'Thinking level', 'low');
   await expect
     .poll(async () =>
       page.evaluate(() =>
@@ -698,9 +693,7 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
     .click();
   await expect(input).toHaveValue('Fix the morning briefing with this saved context');
   await agentSettings(page);
-  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
-    'low',
-  );
+  await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-value', 'low');
   await expect(page.getByAltText('Attachment 1')).toBeVisible();
   await layout(page);
   expect(fixture.mutations).toEqual([]);
@@ -807,6 +800,7 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
   // Let the new chat's account-bound catalog finish before leaving. Safari
   // reports an intercepted request aborted during navigation as a page error.
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(
     page.getByText('Assign a GitHub connection with repository access to this AI account in'),
   ).toBeVisible();
@@ -959,6 +953,7 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('A text-only draft');
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(
     page.getByText('Assign a GitHub connection with repository access to this AI account in'),
   ).toBeVisible();
@@ -1055,6 +1050,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await page.getByRole('link', { name: /Untitled draft/ }).click();
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -1067,6 +1063,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
     .toBe(preparationId);
   await page.reload();
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -1438,9 +1435,9 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
   await seed(page, { 'mitzo-chat-draft:meeting-launch': JSON.stringify(draft) });
   await page.goto('/chat?draft=meeting-launch');
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
-  await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption(account.id);
-  await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('luna-alternate');
-  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await chooseSetting(page, 'Account', account.id);
+  await chooseSetting(page, 'Model', 'luna-alternate');
+  await chooseSetting(page, 'Thinking level', 'high');
   await expect
     .poll(() =>
       page.evaluate(
@@ -1452,12 +1449,8 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
   await page.reload();
   const controls = page.getByRole('button', { name: /^Workspace controls/ });
   if ((await controls.getAttribute('aria-expanded')) === 'false') await controls.click();
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-    'luna-alternate',
-  );
-  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
-    'high',
-  );
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'luna-alternate');
+  await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-value', 'high');
   await expect(page.getByRole('button', { name: 'Send launch prompt', exact: true })).toBeEnabled();
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);

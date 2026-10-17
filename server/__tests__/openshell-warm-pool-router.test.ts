@@ -12,7 +12,7 @@ afterEach(() => {
   pool?.close();
   if (root) rmSync(root, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(physicalInventory?: (signal: AbortSignal) => Promise<unknown>) {
   root = mkdtempSync(join(tmpdir(), 'pool-router-'));
   const prepare = vi.fn();
   pool = new OpenShellWarmPool(join(root, 'pool.db'), {
@@ -36,6 +36,7 @@ function fixture() {
         next();
       },
       conversations: () => [],
+      physicalInventory,
     }),
   );
   return { app, prepare };
@@ -46,6 +47,27 @@ it('requires operator authorization even for inventory and never provisions on G
   const r = await request(f.app).get('/api/sandboxes').set('operator', 'yes').expect(200);
   expect(r.body.settings.enabled).toBe(false);
   expect(f.prepare).not.toHaveBeenCalled();
+});
+it('reports the physical gateway count separately from pool and conversation ledgers', async () => {
+  const physicalInventory = vi.fn(async () => ({
+    available: true,
+    total: 122,
+    counts: { Ready: 42, Stopped: 74, Error: 6 },
+    items: [],
+  }));
+  const f = fixture(physicalInventory);
+  const r = await request(f.app).get('/api/sandboxes').set('operator', 'yes').expect(200);
+  expect(r.body.physicalInventory.total).toBe(122);
+  expect(f.prepare).not.toHaveBeenCalled();
+});
+it('reports unknown physical count on gateway failure while retaining recorded inventory', async () => {
+  const f = fixture(async () => {
+    throw Error('offline');
+  });
+  const r = await request(f.app).get('/api/sandboxes').set('operator', 'yes').expect(200);
+  expect(r.body.physicalInventory.available).toBe(false);
+  expect(r.body.physicalInventory.total).toBeUndefined();
+  expect(r.body.settings).toBeDefined();
 });
 it('validates saves, persists configuration and rejects stale writes', async () => {
   const f = fixture(),

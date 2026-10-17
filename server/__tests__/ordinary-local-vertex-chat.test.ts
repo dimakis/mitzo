@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, expect, it, vi } from 'vitest';
+import { agentLibrarySource } from './fixtures/agent-library-source.js';
 const services = vi.hoisted(() => ({
   authId: '',
   workspace: undefined as unknown,
@@ -66,6 +67,7 @@ afterEach(async () => {
 it('routes first, queued future and cold commands through the actual SDK owner with terminal-only effort options and original thread', async () => {
   const { ownedVertexRuntimeFixture } = await import('./fixtures/owned-local-vertex-runtime.js');
   const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true });
+  Object.assign(f.request.payload, { sourceSnapshots: [agentLibrarySource] });
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   services.workspace = f.workspace;
   services.library = f.library;
@@ -79,6 +81,7 @@ it('routes first, queued future and cold commands through the actual SDK owner w
   let releaseFirst: (() => void) | undefined;
   let first = true;
   const history: string[] = [];
+  const providerInputs: string[] = [];
   services.query.mockImplementation((request) => {
     services.requests.push(request);
     const id = request.options.resume ?? request.options.sessionId;
@@ -92,6 +95,12 @@ it('routes first, queued future and cold commands through the actual SDK owner w
           if (closed.value) break;
           const inputUuid = `input-${message.mitzoMessageId}`;
           history.push(message.mitzoMessageId);
+          const content = message.message.content;
+          providerInputs.push(
+            typeof content === 'string'
+              ? content
+              : content.map((block: { text?: string }) => block.text ?? '').join(''),
+          );
           yield {
             type: 'user',
             uuid: inputUuid,
@@ -194,6 +203,15 @@ it('routes first, queued future and cold commands through the actual SDK owner w
   expect(deadline).toBeTypeOf('function');
   if (typeof deadline === 'function') deadline();
   await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
+  expect(providerInputs[0]).toContain(agentLibrarySource.content);
+  expect(providerInputs[0].split(agentLibrarySource.content)).toHaveLength(2);
+  const publicUser = chat.eventStore
+    .getSessionEvents(f.reservation.conversationId)
+    .find((event) => event.type === 'user_message');
+  expect(publicUser?.payload).toMatchObject({
+    text: f.request.payload.text,
+    sourceSnapshots: [agentLibrarySource],
+  });
   const { OrdinaryLocalCodexSelectionOwner } =
     await import('../ordinary-local-codex-selection-owner.js');
   const assertSelection = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;

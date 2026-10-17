@@ -9,6 +9,7 @@ import { SessionSearchBar } from './SessionSearchBar';
 import { ActiveSessionsList } from './ActiveSessionsList';
 import { ConversationPins } from './ConversationPins';
 import { SessionContextMenu, type SessionMenuState } from './SessionContextMenu';
+import { SessionRemovalDialog } from './SessionRemovalDialog';
 import { SessionRenameDialog } from './SessionRenameDialog';
 import { SessionDetailsDialog } from './SessionDetailsDialog';
 import { SessionWorkLink } from './SessionWorkLink';
@@ -96,6 +97,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
   const [menu, setMenu] = useState<SessionMenuState | null>(null);
   const [renaming, setRenaming] = useState<Session | null>(null);
   const [details, setDetails] = useState<Session | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const showActions = useCallback<Actions>(
     (session, trigger, point) => setMenu({ session, trigger, point }),
@@ -217,7 +219,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
           closeMenu();
         }}
         onDelete={() => {
-          if (menu) dismissSession(menu.session.id);
+          if (menu) setRemoving(menu.session.id);
           closeMenu();
         }}
         onDetails={() => {
@@ -233,6 +235,13 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
         />
       )}
       {details && <SessionDetailsDialog session={details} onClose={() => setDetails(null)} />}
+      {removing && (
+        <SessionRemovalDialog
+          sessionId={removing}
+          onClose={() => setRemoving(null)}
+          onRemove={(options) => dismissSession(removing, options)}
+        />
+      )}
     </div>
   );
 }

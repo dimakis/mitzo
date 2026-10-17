@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
+import type { CollaborationSettings } from '@mitzo/protocol';
 import {
   compileCollaborationContext,
   compileCollaborationSourceContext,
@@ -528,3 +529,255 @@ it.each(['hash', 'size', 'encoding'])(
     expect(store.collaborationConversation.events(group, 0).events).toEqual([]);
   },
 );
+
+const nativeReviewGroup = randomUUID();
+function compileWithReview(
+  input: ReturnType<typeof selection>,
+  selected: unknown,
+  sources: AuthorizedCollaborationContext,
+  capacity?: CollaborationCapacityAdapter,
+  retain?: NonNullable<Parameters<typeof compileCollaborationContext>[4]>['retainNativeWitnesses'],
+) {
+  return compileCollaborationContext(input, selected, sources, capacity, {
+    reviewIdentity: {
+      collaborationId: nativeReviewGroup,
+      operatorId: 'operator',
+      requestId: input.requestId,
+    },
+    retainNativeWitnesses: retain,
+  });
+}
+function nativeAdapter(overrides: Record<string, unknown> = {}): CollaborationCapacityAdapter {
+  return {
+    measure: vi.fn(async ({ settings, contextSha256 }) => ({
+      kind: 'nativePreparedRequest' as const,
+      scope: 'reviewContext' as const,
+      settings,
+      contextSha256,
+      inputTokens: 3096,
+      maxOutputTokens: 1000,
+      contextWindowTokens: 4096,
+      nativeWitness: {
+        preparationId: 'private-preparation',
+        requestIdentity: 'a'.repeat(64),
+        witnessId: 'private-witness',
+      },
+      ...overrides,
+    })),
+  };
+}
+
+it('projects an exact whole-request total at equality without inventing additive buckets', async () => {
+  const retain = vi.fn();
+  const draft = await compileWithReview(
+    selection('selected'),
+    [settings],
+    source,
+    nativeAdapter(),
+    retain,
+  );
+  expect(draft.capacity).toMatchObject({
+    status: 'ready',
+    assessments: [
+      {
+        kind: 'nativePreparedRequest',
+        scope: 'reviewContext',
+        settings,
+        inputTokens: 3096,
+        maxOutputTokens: 1000,
+        contextWindowTokens: 4096,
+        measurementId: expect.any(String),
+      },
+    ],
+  });
+  expect(JSON.stringify(draft)).not.toMatch(
+    /private-preparation|private-witness|nativeOperationId|collaboration-review:|estimatedTokens|components/,
+  );
+  expect(retain).toHaveBeenCalledOnce();
+  expect(retain.mock.calls[0][0][0]).toMatchObject({
+    assessment: draft.capacity.status === 'ready' && draft.capacity.assessments[0],
+    contextSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    nativeWitness: { preparationId: 'private-preparation', witnessId: 'private-witness' },
+  });
+});
+
+it('refuses the next exact input token while retaining no native authority', async () => {
+  const retain = vi.fn();
+  const draft = await compileWithReview(
+    selection('selected'),
+    [settings],
+    source,
+    nativeAdapter({ inputTokens: 3097 }),
+    retain,
+  );
+  expect(draft.capacity.status).toBe('needs_reviewed_summary');
+  expect(retain).not.toHaveBeenCalled();
+});
+
+it.each([
+  { inputTokens: -1 },
+  { inputTokens: 0.5 },
+  { inputTokens: Number.MAX_SAFE_INTEGER + 1 },
+  {
+    inputTokens: Number.MAX_SAFE_INTEGER,
+    maxOutputTokens: 1,
+    contextWindowTokens: Number.MAX_SAFE_INTEGER,
+  },
+  { maxOutputTokens: 0 },
+  { contextWindowTokens: 0 },
+  { scope: 'command' },
+  { nativeWitness: { preparationId: '', requestIdentity: 'a'.repeat(64), witnessId: 'private' } },
+  { nativeWitness: { preparationId: 'private', requestIdentity: 'invalid', witnessId: 'private' } },
+  {
+    nativeWitness: {
+      preparationId: 'private',
+      requestIdentity: 'a'.repeat(64),
+      witnessId: 'bad id',
+    },
+  },
+])('refuses invalid native measurement %j before retaining authority', async (overrides) => {
+  const retain = vi.fn();
+  await expect(
+    compileWithReview(selection('selected'), [settings], source, nativeAdapter(overrides), retain),
+  ).rejects.toThrow();
+  expect(retain).not.toHaveBeenCalled();
+});
+
+it.each(['model', 'account', 'settings', 'context'] as const)(
+  'binds native measurement to exact %s',
+  async (field) => {
+    const measured: CollaborationSettings = structuredClone(settings);
+    if (field === 'model')
+      measured.selection.model = 'different' as typeof measured.selection.model;
+    if (field === 'account')
+      measured.binding.account.accountId = 'different' as typeof measured.binding.account.accountId;
+    if (field === 'settings')
+      measured.repositoryWorkspaceId = 'different' as typeof measured.repositoryWorkspaceId;
+    const retain = vi.fn();
+    await expect(
+      compileWithReview(
+        selection('selected'),
+        [settings],
+        source,
+        nativeAdapter(
+          field === 'context' ? { contextSha256: 'b'.repeat(64) } : { settings: measured },
+        ),
+        retain,
+      ),
+    ).rejects.toThrow();
+    expect(retain).not.toHaveBeenCalled();
+  },
+);
+
+it('does not retain native witness when final source authorization fails', async () => {
+  const opened = await source.openConversation(selection());
+  vi.mocked(source.openConversation).mockResolvedValue(opened);
+  vi.mocked(opened.assertCurrent).mockRejectedValue(Error('authority changed'));
+  const retain = vi.fn();
+  await expect(
+    compileWithReview(selection('selected'), [settings], source, nativeAdapter(), retain),
+  ).rejects.toThrow('authority changed');
+  expect(retain).not.toHaveBeenCalled();
+});
+
+it.each(['unverified', 'refused'] as const)(
+  'retains unavailable %s without a partial ready assessment',
+  async (status) => {
+    const other: CollaborationSettings = structuredClone(settings);
+    other.selection.model = 'another' as typeof other.selection.model;
+    const native = nativeAdapter();
+    const mixed: CollaborationCapacityAdapter = {
+      measure: async (input) =>
+        input.settings.selection.model === settings.selection.model
+          ? native.measure(input)
+          : {
+              kind: 'unavailable',
+              status,
+              reason: 'Selected native route is unavailable.',
+              settings: input.settings,
+              contextSha256: input.contextSha256,
+            },
+    };
+    const retain = vi.fn();
+    const draft = await compileWithReview(
+      selection('selected'),
+      [settings, other],
+      source,
+      mixed,
+      retain,
+    );
+    expect(draft.capacity).toEqual({ status, reason: 'Selected native route is unavailable.' });
+    expect(retain).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['settings', 'context'] as const)(
+  'validates unavailable result %s binding',
+  async (field) => {
+    const retain = vi.fn();
+    const unavailable: CollaborationCapacityAdapter = {
+      measure: async (input) => ({
+        kind: 'unavailable',
+        status: 'refused',
+        reason: 'Selected native route is unavailable.',
+        settings:
+          field === 'settings'
+            ? { ...input.settings, repositoryWorkspaceId: 'changed' }
+            : input.settings,
+        contextSha256: field === 'context' ? 'b'.repeat(64) : input.contextSha256,
+      }),
+    };
+    await expect(
+      compileWithReview(selection('selected'), [settings], source, unavailable, retain),
+    ).rejects.toThrow();
+    expect(retain).not.toHaveBeenCalled();
+  },
+);
+
+it('preserves the exact public 512 KiB limit independently of private native witness bytes', async () => {
+  messages = [message(1)];
+  messages[0].blocks = [
+    { blockId: 'first', content: 'x'.repeat(490_000), sha256: hash('x'.repeat(490_000)) },
+    { blockId: 'second', content: '', sha256: hash('') },
+  ];
+  const input = { ...selection('selected'), messageIds: ['m1'] };
+  const baseline = await compileWithReview(input, [settings], source, nativeAdapter());
+  const padding = 512 * 1024 - Buffer.byteLength(JSON.stringify(baseline));
+  messages[0].blocks[1].content = 'x'.repeat(padding);
+  messages[0].blocks[1].sha256 = hash(messages[0].blocks[1].content);
+  const retain = vi.fn();
+  const exact = await compileWithReview(input, [settings], source, nativeAdapter(), retain);
+  expect(Buffer.byteLength(JSON.stringify(exact))).toBe(512 * 1024);
+  expect(retain).toHaveBeenCalledOnce();
+  messages[0].blocks[1].content += 'x';
+  messages[0].blocks[1].sha256 = hash(messages[0].blocks[1].content);
+  await expect(compileWithReview(input, [settings], source, nativeAdapter())).rejects.toThrow(
+    'capacity_refused',
+  );
+});
+
+it('keeps direct native measurement unverified without the original retained review identity', async () => {
+  const capacity = nativeAdapter();
+  const draft = await compileCollaborationContext(
+    selection('selected'),
+    [settings],
+    source,
+    capacity,
+  );
+  expect(draft.capacity.status).toBe('unverified');
+  expect(vi.mocked(capacity.measure).mock.calls[0][0].nativeOperationId).toBeUndefined();
+});
+
+it('rejects a trusted review identity from a different original request before source reads', async () => {
+  const input = selection('selected');
+  await expect(
+    compileCollaborationContext(input, [settings], source, nativeAdapter(), {
+      reviewIdentity: {
+        collaborationId: nativeReviewGroup,
+        operatorId: 'operator',
+        requestId: randomUUID(),
+      },
+    }),
+  ).rejects.toThrow('snapshot_changed');
+  expect(source.openConversation).not.toHaveBeenCalled();
+});

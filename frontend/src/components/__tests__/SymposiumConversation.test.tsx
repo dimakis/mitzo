@@ -2639,3 +2639,164 @@ it('keeps pending settings available without enabling an unconfirmed ordinary co
     true,
   );
 });
+
+it('reviews platform profile proposals in a confirmed ordinary runtime chat while runtime controls remain read-only', async () => {
+  const proposal = {
+    proposalId: 'builder-proposal',
+    suggestedProfileId: 'reviewed-agent',
+    state: 'pending',
+    definition: {
+      name: 'Reviewed Agent',
+      role: 'agent',
+      instructions: 'Review exact context',
+      expectedOutput: 'Report',
+      acceptanceCriteria: ['Cite evidence'],
+      modelPolicyRole: 'agent',
+    },
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).includes('/profile-proposals') && !init?.method) return json([proposal]);
+    if (String(url) === '/api/symposium/profiles') return json([]);
+    if (String(url).endsWith('/builder-proposal/save') && init?.method === 'POST')
+      return json({ profileId: 'reviewed-agent', revision: 1 });
+    return json({ sessionId: 'session', config: null, seats: [] });
+  });
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryComposer={<button>Ordinary send</button>}
+      readOnly
+      ordinaryConfirmed
+      ordinaryProfileProposalReview
+    />,
+  );
+  await screen.findByDisplayValue('Reviewed Agent');
+  expect(screen.queryByRole('button', { name: 'Share excerpt' })).toBeNull();
+  expect(screen.queryByTestId('access-request-session')).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Draft reusable profile from this seat' }),
+  ).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  const save = screen.getByRole('button', { name: 'Save reusable profile' });
+  await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(save);
+  await screen.findByText('Saved Reviewed Agent to your Agent Library.');
+  const writes = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST');
+  expect(writes).toHaveLength(1);
+  expect(writes[0][0]).toContain('/builder-proposal/save');
+  expect(JSON.parse(writes[0][1]!.body as string)).toMatchObject({
+    sessionId: 'session',
+    profileId: 'reviewed-agent',
+    expectedRevision: 0,
+  });
+});
+it.each(['unconfirmed', 'excluded', 'other-session', 'special', 'unqualified'] as const)(
+  'keeps runtime profile review unavailable for %s metadata',
+  async (state) => {
+    vi.mocked(apiFetch).mockImplementation(async () =>
+      json({
+        sessionId: state === 'other-session' ? 'other' : 'session',
+        config: state === 'special' ? status.config : null,
+        seats: [],
+      }),
+    );
+    render(
+      <SymposiumConversation
+        sessionId="session"
+        chat={chat}
+        ordinaryComposer={null}
+        readOnly
+        ordinaryConfirmed={state !== 'unconfirmed'}
+        ordinaryExcluded={state === 'excluded'}
+        ordinaryProfileProposalReview={state !== 'unqualified'}
+      />,
+    );
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/profile-proposals')),
+    ).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Save reusable profile' })).toBeNull();
+  },
+);
+
+it('retains ordinary proposal edits and save receipts across failed status polls while disabling platform writes', async () => {
+  vi.useFakeTimers();
+  let statusFails = false;
+  const proposal = {
+    proposalId: 'retained-builder',
+    suggestedProfileId: 'reviewed-agent',
+    state: 'pending',
+    definition: {
+      name: 'Reviewed Agent',
+      role: 'agent',
+      instructions: 'Original proposal',
+      expectedOutput: 'Report',
+      acceptanceCriteria: ['Cite evidence'],
+      modelPolicyRole: 'agent',
+    },
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/status') && statusFails) throw Error('Status read unavailable');
+    if (String(url).includes('/profile-proposals') && !init?.method) return json([proposal]);
+    if (String(url) === '/api/symposium/profiles') return json([]);
+    if (String(url).endsWith('/retained-builder/save') && init?.method === 'POST')
+      return json({ profileId: 'reviewed-agent', revision: 1 });
+    return json({ sessionId: 'session', config: null, seats: [] });
+  });
+  const props = {
+    sessionId: 'session',
+    chat,
+    ordinaryComposer: null,
+    readOnly: true,
+    ordinaryConfirmed: true,
+    ordinaryProfileProposalReview: true,
+  };
+  const view = render(<SymposiumConversation {...props} />);
+  await act(async () => {});
+  const instructions = screen.getByRole('textbox', { name: 'Instructions' });
+  fireEvent.change(instructions, { target: { value: 'My unsaved reviewed instructions' } });
+  statusFails = true;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(8000);
+  });
+  expect(screen.getByRole('textbox', { name: 'Instructions' })).toBe(instructions);
+  expect(instructions).toHaveProperty('value', 'My unsaved reviewed instructions');
+  expect(screen.getByRole('button', { name: 'Save reusable profile' })).toHaveProperty(
+    'disabled',
+    true,
+  );
+  expect(screen.getByRole('button', { name: 'Discard draft' })).toHaveProperty('disabled', true);
+  view.rerender(
+    <SymposiumConversation
+      {...props}
+      ordinaryConfirmed={false}
+      ordinaryProfileProposalReview={false}
+    />,
+  );
+  expect(screen.getByRole('textbox', { name: 'Instructions' })).toBe(instructions);
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  statusFails = false;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(8000);
+  });
+  view.rerender(<SymposiumConversation {...props} />);
+  expect(screen.getByRole('textbox', { name: 'Instructions' })).toBe(instructions);
+  const save = screen.getByRole('button', { name: 'Save reusable profile' });
+  expect(save).toHaveProperty('disabled', false);
+  await act(async () => {
+    fireEvent.click(save);
+  });
+  expect(screen.getByText('Saved Reviewed Agent to your Agent Library.')).toBeTruthy();
+  statusFails = true;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(8000);
+  });
+  expect(screen.getByText('Saved Reviewed Agent to your Agent Library.')).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    1,
+  );
+});

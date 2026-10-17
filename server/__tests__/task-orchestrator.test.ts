@@ -50,6 +50,36 @@ afterEach(() => {
 });
 
 describe('TaskOrchestrator', () => {
+  it('rejects a role-scoped execution target before changing the workflow or sending a child', () => {
+    const goal = store.create({ title: 'Outcome' });
+    const child = store.create({ title: 'Exact child', parentId: goal.id });
+    const assertTaskExecutionScope = vi.fn(() => {
+      throw new Error('The lead must use a separate worker conversation');
+    });
+    Object.assign(mockDeps, { assertTaskExecutionScope });
+
+    expect(() => orchestrator.start(goal.id)).toThrow('separate worker conversation');
+    expect(orchestrator.getStatus().state).toBe('idle');
+    expect(store.get(child.id)?.status).toBe('pending');
+    expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the exact child scope before giving a reuse chat its task context', () => {
+    const goal = store.create({ title: 'Outcome' });
+    const child = store.create({ title: 'Outside selected worker scope', parentId: goal.id });
+    const assertTaskExecutionScope = vi.fn((_clientId: string, taskId: string) => {
+      if (taskId !== goal.id) throw new Error('Exact task scope denied');
+    });
+    Object.assign(mockDeps, { assertTaskExecutionScope });
+
+    const status = orchestrator.start(goal.id);
+    expect(status.state).toBe('paused');
+    expect(store.get(child.id)?.status).toBe('pending');
+    expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
   it('starts in idle state', () => {
     const status = orchestrator.getStatus();
     expect(status.state).toBe('idle');

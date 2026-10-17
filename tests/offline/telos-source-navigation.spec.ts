@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openChatSetting, settingRow, settingsHome } from '../support/chat-settings';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -284,13 +285,23 @@ for (const { theme, sourceStatus } of sourceCases)
     await input.fill('Keep my draft');
     await page.getByRole('button', { name: /Workspace controls, Settings/ }).click();
     const settings = page.getByRole('region', { name: 'Agent settings', exact: true });
+    await expect(settingRow(settings, 'Account')).toContainText(account.label);
+    await openChatSetting(page, 'account');
     await expect(settings.locator('.chat-account-binding')).toHaveText(account.label);
-    await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-      'luna-fixture',
+    await openChatSetting(page, 'model');
+    await expect(settings.locator('[data-setting-value="luna-fixture"]')).toHaveAttribute(
+      'aria-pressed',
+      'true',
     );
-    await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
-      'high',
+    await settingsHome(page);
+    await expect(settingRow(settings, 'Model')).toHaveAttribute('data-value', 'luna-fixture');
+    await expect(settingRow(settings, 'Thinking')).toHaveAttribute('data-value', 'high');
+    await openChatSetting(page, 'thinking');
+    await expect(settings.locator('[data-setting-value="high"]')).toHaveAttribute(
+      'aria-pressed',
+      'true',
     );
+    await settingsHome(page);
     await page.screenshot({ path: info.outputPath(`telos-source-settings-${theme}.png`) });
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(input).toHaveValue('Keep my draft');
