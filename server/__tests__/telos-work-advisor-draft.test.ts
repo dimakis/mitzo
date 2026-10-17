@@ -8,6 +8,7 @@ import { reviewTelosWorkRoleContext } from '../telos-work-role-review.js';
 import { TelosSourceCapture } from '../telos-source-capture.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
 import type { TelosWorkAdvisorDraftPreviewRequest } from '@mitzo/protocol';
+import { createTelosWorkRoleHost } from '../telos-work-role-host.js';
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -287,4 +288,96 @@ it('refuses a hidden item type change during refinement in both source preview a
     ),
   ).toThrow('Refinement cannot change item type');
   expect(r.f.work.read('studio', r.f.actor)).toEqual(before);
+});
+
+async function savedChildWithParentMaterial() {
+  const r = fixture();
+  const material = r.f.material;
+  const pin = { artifactId: material.id, revision: material.revision, sha256: material.sha256 };
+  r.input.selection.artifacts = [pin];
+  const preview = await r.owner().preview(r.input, r.f.actor);
+  const receipt = await r.owner().save({ ...r.input, previewSha256: preview.sha256 }, r.f.actor);
+  const host = createTelosWorkRoleHost({
+    dbPath: () => r.f.dbPath,
+    events: r.f.events,
+    ordinaryConversation: (id) => id === 'planning',
+    workspaces: () => {
+      throw new Error('Context review must not prepare a workspace');
+    },
+    resolvePreparation: async () => {
+      throw new Error('Context review must not resolve a runtime');
+    },
+    authorizeSettings: async () => {},
+  });
+  const request = {
+    actor: r.f.actor,
+    signal: new AbortController().signal,
+    assertAuthorized: r.assertAuthorized,
+    raw: {
+      itemId: receipt.work.itemId,
+      role: 'advisor',
+      advisorPurpose: 'refine',
+      sourceSnapshotIds: receipt.work.sources.map((source) => source.snapshotId),
+      artifactRefs: receipt.work.sources.flatMap((source) => source.artifacts),
+    },
+  };
+  return { ...r, pin, receipt, host, request };
+}
+
+it('opens saved child advisor context with its exact reviewed parent material without inheriting arbitrary parent assets', async () => {
+  const r = await savedChildWithParentMaterial();
+  expect(r.f.artifacts.read(r.pin.artifactId, r.pin.revision).itemId).toBe('studio');
+  const reviewed = await r.host.context(r.request);
+  expect(reviewed.itemId).toBe(r.receipt.work.itemId);
+  expect(reviewed.sources).toEqual(r.receipt.work.sources);
+  expect(reviewed.artifacts).toContainEqual(r.pin);
+  expect(r.receipt.work.assignments).toEqual([]);
+  expect(r.receipt.work.attempts).toEqual([]);
+  expect(r.f.events.getOrdinaryInitialCommandId('planning')).toBeUndefined();
+});
+
+it.each(['parent', 'sibling'] as const)(
+  'refuses unpinned %s material when opening a saved child role context',
+  async (owner) => {
+    const r = await savedChildWithParentMaterial();
+    if (owner === 'sibling') {
+      const db = new Database(r.f.dbPath);
+      db.prepare(
+        "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories) SELECT 'sibling',NULL,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories FROM items WHERE id='studio'",
+      ).run();
+      db.close();
+    }
+    const other = r.f.artifacts.save({
+      itemId: owner === 'parent' ? 'studio' : 'sibling',
+      filename: 'not-reviewed.txt',
+      title: 'Not in the selected child source',
+      bytes: Buffer.from('Do not inherit these bytes'),
+      sessionId: 'planning',
+    });
+    const pin = { artifactId: other.id, revision: other.revision, sha256: other.sha256 };
+    await expect(
+      r.host.context({
+        ...r.request,
+        raw: { ...r.request.raw, artifactRefs: [...r.request.raw.artifactRefs, pin] },
+      }),
+    ).rejects.toThrow('unavailable');
+  },
+);
+
+it('refuses reviewed parent material after its owning item becomes private', async () => {
+  const r = await savedChildWithParentMaterial();
+  const db = new Database(r.f.dbPath);
+  db.prepare("UPDATE items SET profile='lifeops' WHERE id='studio'").run();
+  db.close();
+  await expect(r.host.context(r.request)).rejects.toThrow('unavailable');
+});
+
+it('does not grant retained parent material when its exact child source snapshot was not selected', async () => {
+  const r = await savedChildWithParentMaterial();
+  await expect(
+    r.host.context({
+      ...r.request,
+      raw: { ...r.request.raw, sourceSnapshotIds: [], artifactRefs: [r.pin] },
+    }),
+  ).rejects.toThrow('unavailable');
 });

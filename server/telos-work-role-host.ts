@@ -17,6 +17,7 @@ import {
 import { TelosWorkStore, TelosWorkError } from './telos-work-store.js';
 import { TelosArtifactStore } from './telos-artifact-store.js';
 import { reviewTelosWorkRoleContext } from './telos-work-role-review.js';
+import { TelosSourceCapture } from './telos-source-capture.js';
 
 type SetupDependencies = ConstructorParameters<typeof TelosWorkRoleSetup>[0];
 export interface TelosWorkRoleHostDependencies {
@@ -56,6 +57,26 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
       work.close();
     }
   }
+  function reviewedSourceReader(
+    request: TelosWorkRoleRequest,
+    work: TelosWorkStore,
+    artifacts: TelosArtifactStore,
+    itemId: string,
+  ) {
+    const capture = new TelosSourceCapture({
+      events: deps.events,
+      work,
+      artifacts,
+      assertAuthorized: () => {
+        request.signal.throwIfAborted();
+        request.assertAuthorized();
+      },
+      authorizeSource: (_actor, id) => (deps.sourceConversation ?? deps.ordinaryConversation)(id),
+      authorizeArtifact: (_actor, id) => artifacts.userUploadAllowed(id),
+    });
+    const actor = structuredClone(request.actor);
+    return (snapshotId: string) => capture.read(itemId, snapshotId, actor);
+  }
   return {
     context(request) {
       const actor = structuredClone(request.actor);
@@ -64,6 +85,7 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
         const selection = reviewTelosWorkRoleContext({
           work,
           artifacts,
+          readReviewedSource: reviewedSourceReader(request, work, artifacts, input.itemId),
           actor,
           itemId: input.itemId,
           role: input.role,
@@ -98,6 +120,7 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
           const current = reviewTelosWorkRoleContext({
             work,
             artifacts,
+            readReviewedSource: reviewedSourceReader(request, work, artifacts, input.itemId),
             actor,
             itemId: input.itemId,
             role: saved.receipt && input.role === 'worker' ? 'lead' : input.role,

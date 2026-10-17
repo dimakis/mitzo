@@ -190,6 +190,8 @@ export interface FinishedMessage {
   messageId: string;
   /** Durable user_message or message_start cursor, when known. */
   startedSeq?: number;
+  /** Exact durable completed message anchor; absent for interrupted or synthetic history. */
+  completedSeq?: number;
   symposiumProvenance?: SymposiumProvenance;
   role: 'user' | 'assistant';
   blocks: FinishedBlock[];

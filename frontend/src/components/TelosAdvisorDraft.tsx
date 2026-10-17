@@ -21,13 +21,25 @@ const Saved = z.strictObject({
   receipt: TelosWorkCommandReceiptSchema.nullable(),
 });
 const transcript = z.object({
-  messages: z.array(z.object({ messageId: z.string().min(1) })),
+  messages: z.array(
+    z.object({
+      messageId: z.string().min(1),
+      completedSeq: z.number().int().positive().optional(),
+    }),
+  ),
   current: z.unknown().nullable(),
   currents: z.array(z.unknown()).optional(),
   cursor: z.number().int().nonnegative(),
 });
 const key = (id: string) => `mitzo-telos-advisor-proposal:${encodeURIComponent(id)}`;
 type Proposal = z.infer<typeof TelosWorkAdvisorDraftProposalSchema>;
+type OpenProposal = {
+  conversationId: string;
+  value: Proposal;
+  expectedRevision: string;
+  parentId: string | null;
+  expectedParentRevision: string | null;
+};
 /** A reviewed proposal card inside the ordinary transcript; no execution port. */
 export function TelosAdvisorDraft({ conversationId }: { conversationId?: string }) {
   const navigate = useNavigate();
@@ -38,7 +50,7 @@ export function TelosAdvisorDraft({ conversationId }: { conversationId?: string 
     conversationId: string;
     value: TelosWorkRoleContextSelection;
   }>();
-  const [proposal, setProposal] = useState<{ conversationId: string; value: Proposal }>();
+  const [proposal, setProposal] = useState<OpenProposal>();
   const [pending, setPending] = useState(false),
     [error, setError] = useState('');
   const [saved, setSaved] = useState<z.infer<typeof Saved> | null>(null);
@@ -68,7 +80,13 @@ export function TelosAdvisorDraft({ conversationId }: { conversationId?: string 
           )
             throw Error('Proposal scope changed');
           setSaved(retained);
-          setProposal({ conversationId, value: retained.request.proposed });
+          setProposal({
+            conversationId,
+            value: retained.request.proposed,
+            expectedRevision: retained.request.expectedRevision,
+            parentId: retained.request.parentId,
+            expectedParentRevision: retained.request.expectedParentRevision,
+          });
         }
       })
       .catch(() => {
@@ -93,11 +111,27 @@ export function TelosAdvisorDraft({ conversationId }: { conversationId?: string 
     setPending(true);
     setError('');
     try {
+      // Fence the record read with the relationship revision: proposal fields
+      // and their expected revision must describe the same retained brief.
+      const before = await api.read(scope.itemId);
       const record = await api.readRecord(scope.itemId);
+      const after = await api.read(scope.itemId);
+      if (before.revision !== after.revision)
+        throw Error('The work item changed while opening the proposal. Try again.');
+      const parentId = operation === 'child' ? scope.itemId : before.parentId;
+      const expectedParentRevision =
+        operation === 'child'
+          ? before.revision
+          : parentId
+            ? (await api.read(parentId)).revision
+            : null;
       if (current.current !== conversationId) return;
       if (record.kind === null) throw Error('Item kind is unavailable.');
       setProposal({
         conversationId,
+        expectedRevision: before.revision,
+        parentId,
+        expectedParentRevision,
         value: {
           name: operation === 'refine' ? record.summary : '',
           desiredOutcome: operation === 'refine' ? record.intent : '',
@@ -112,43 +146,38 @@ export function TelosAdvisorDraft({ conversationId }: { conversationId?: string 
     }
   };
   const save = async () => {
-    if (pending || running || !fields) return;
+    if (pending || running || !fields || !proposal) return;
     setPending(true);
     setError('');
     try {
       let retained = saved;
       if (!retained) {
         const proposed = TelosWorkAdvisorDraftProposalSchema.parse(fields);
-        const [work, response] = await Promise.all([
-          api.read(scope.itemId),
-          apiFetch(`/api/sessions/${encodeURIComponent(conversationId)}/messages?transcript=1`),
-        ]);
+        const response = await apiFetch(
+          `/api/sessions/${encodeURIComponent(conversationId)}/messages?transcript=1`,
+        );
         if (!response.ok) throw Error('The planning discussion is unavailable.');
         const history = transcript.parse(await response.json());
         if (history.current || history.currents?.length || !history.messages.length)
           throw Error('Wait for a completed planning exchange before saving.');
-        const parentId = operation === 'child' ? scope.itemId : work.parentId;
-        const parentRevision =
-          operation === 'child'
-            ? work.revision
-            : parentId
-              ? (await api.read(parentId)).revision
-              : null;
+        const last = history.messages.at(-1)!;
+        if (last.completedSeq === undefined)
+          throw Error('The completed planning exchange boundary is unavailable.');
         const input = {
           requestId: createBrowserId(),
           operation,
           itemId: scope.itemId,
           advisorConversationId: conversationId,
-          expectedRevision: work.revision,
-          parentId,
-          expectedParentRevision: parentRevision,
+          expectedRevision: proposal.expectedRevision,
+          parentId: proposal.parentId,
+          expectedParentRevision: proposal.expectedParentRevision,
           proposed,
           selection: {
             requestId: createBrowserId(),
             expectedMembershipRevision: 0,
             sourceConversationId: conversationId,
             mode: 'conversation_so_far' as const,
-            boundary: { sequence: history.cursor, messageId: history.messages.at(-1)!.messageId },
+            boundary: { sequence: last.completedSeq, messageId: last.messageId },
             messageIds: [],
             artifacts: [],
             purpose: 'Save the reviewed advisor draft',
@@ -184,7 +213,8 @@ export function TelosAdvisorDraft({ conversationId }: { conversationId?: string 
     }
   };
   const change = (field: keyof Proposal, value: string) => {
-    if (fields && !saved) setProposal({ conversationId, value: { ...fields, [field]: value } });
+    if (fields && proposal && !saved)
+      setProposal({ ...proposal, value: { ...fields, [field]: value } });
   };
   return (
     <section

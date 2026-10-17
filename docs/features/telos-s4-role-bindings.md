@@ -31,7 +31,17 @@ inside the ordinary transcript. Save reviews the completed planning discussion t
 the accepted source compiler, then atomically retains its source, item fields/link and
 receipt. Refinement preserves item kind, criteria, rationale and secondary categories.
 Child save creates an explicitly typed source-only draft. Neither operation dispatches
-work. Interrupted save retries its retained request and source digest.
+work. Interrupted save retries its retained request and source digest. Proposal fields
+retain the starting item/parent revisions; a concurrent edit is refused without losing
+the proposal. Capture uses the last message's exact retained completion anchor, never
+the transcript high-water cursor. Interrupted or synthetic history has no such anchor;
+public-error prefix refusals remain enforced by the source compiler.
+
+A saved child's selected source may retain exact material revisions owned by its
+parent. Reuse requires proof from that child's verified source packet and current
+public-owner eligibility; this grants no other parent or sibling material access.
+Both ordinary pages require a successful rich-draft flush before setup and again
+after awaited setup, before draft binding or navigation.
 
 ## Qualified boundaries
 

@@ -18,6 +18,7 @@ export function TelosRoleSetup({
   draftId,
   onBound,
   onLocked,
+  beforeConfirm,
 }: {
   intent: TelosRoleRouteIntent;
   runtime: ReturnType<typeof useExplicitLocalChat>;
@@ -26,6 +27,7 @@ export function TelosRoleSetup({
   draftId: string;
   onBound(id: string): void;
   onLocked(value: boolean): void;
+  beforeConfirm(): boolean;
 }) {
   const validationId = useRef<string | null>(null);
   validationId.current ??= createBrowserId();
@@ -145,7 +147,8 @@ export function TelosRoleSetup({
         }
         onClick={() => {
           if (setup.boundConversationId) onBound(setup.boundConversationId);
-          else void (setup.uncertain || setup.error ? setup.retry() : setup.confirm());
+          else if (beforeConfirm())
+            void (setup.uncertain || setup.error ? setup.retry() : setup.confirm());
         }}
       >
         {label}

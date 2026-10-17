@@ -176,6 +176,14 @@ export function DesktopChatView() {
   const invalidRoleSetup = roleSetupRequested && !roleIntent;
   const [roleSetupLocked, setRoleSetupLocked] = useState(false);
   const [roleDraftError, setRoleDraftError] = useState<string | null>(null);
+  const flushRoleDraft = useCallback(() => {
+    if (repositoryDraftControl.current?.flush?.() !== true) {
+      setRoleDraftError('Could not preserve this draft. Keep this chat open and retry.');
+      return false;
+    }
+    setRoleDraftError(null);
+    return true;
+  }, []);
   const controlsBlocked =
     roleSetupLocked ||
     (localBound && !localRuntime.continuation) ||
@@ -1400,15 +1408,11 @@ export function DesktopChatView() {
                     mode={mode}
                     draftId={newChatDraft.draft.id}
                     onLocked={setRoleSetupLocked}
+                    beforeConfirm={flushRoleDraft}
                     onBound={(id) => {
+                      if (!flushRoleDraft()) return;
                       if (getSessionChatDraft(id)) {
                         navigate(`/chat/${encodeURIComponent(id)}`);
-                        return;
-                      }
-                      if (repositoryDraftControl.current?.flush?.() === false) {
-                        setRoleDraftError(
-                          'Could not preserve this draft. Keep this chat open and retry.',
-                        );
                         return;
                       }
                       const result = bindChatDraftToSession(newChatDraft.draft.id, id);
@@ -1516,7 +1520,9 @@ export function DesktopChatView() {
                   onStop={handleStop}
                   onInterrupt={localBound ? undefined : handleInterrupt}
                   running={repositoryHandoff.present ? false : messages.running}
-                  draftControl={repositoryHandoff.present ? repositoryDraftControl : undefined}
+                  draftControl={
+                    repositoryHandoff.present || roleIntent ? repositoryDraftControl : undefined
+                  }
                   draftStorageKey={
                     repositoryHandoff.present
                       ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')

@@ -56,6 +56,7 @@ it('derives exact ordinary settings and offers one silent binding action without
         draftId="draft"
         onBound={vi.fn()}
         onLocked={vi.fn()}
+        beforeConfirm={() => true}
       />
     </MemoryRouter>,
   );
@@ -93,6 +94,7 @@ it('reopens a confirmed retained role chat without a fresh setup or model send',
         draftId="draft"
         onBound={onBound}
         onLocked={vi.fn()}
+        beforeConfirm={() => true}
       />
     </MemoryRouter>,
   );

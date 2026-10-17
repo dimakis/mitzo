@@ -37,7 +37,10 @@ for (const journey of ['lead', 'refine', 'child'] as const)
       page,
     }, info) => {
       const files = (await compiled).outputFiles;
-      const data = await telosSourceBrowserData({ assistantBoundary: true });
+      const data = await telosSourceBrowserData({
+        assistantBoundary: true,
+        terminalBookkeeping: true,
+      });
       let work: TelosWorkView = { ...data.work, kind: 'outcome' };
       const inventory = localInventoryFixture();
       const actionLabel = journey === 'lead' ? 'Assign lead & open chat' : 'Start chat';

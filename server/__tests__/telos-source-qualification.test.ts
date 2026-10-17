@@ -595,3 +595,54 @@ it.each(['thinking', 'tool_use'])(
       ).rejects.toThrow();
   },
 );
+
+it('exposes the completed ordinary message boundary for advisor capture after terminal bookkeeping', async () => {
+  const f = fixture();
+  f.append('user_message', { messageId: 'request', text: 'Please refine the reviewed item.' });
+  const boundary = f.assistant('proposal');
+  f.append('session_end', {});
+  f.append('telos_work_role_context', { version: 1 });
+  const history = f.replay();
+  const last = history.messages.at(-1)!;
+  expect(last).toMatchObject({ messageId: 'proposal', completedSeq: boundary });
+  const selected = f.selection(
+    (last as typeof last & { completedSeq: number }).completedSeq,
+    last.messageId,
+    'conversation_so_far',
+  );
+  await expect(f.source.openConversation(selected)).resolves.toMatchObject({
+    boundary: selected.boundary,
+  });
+});
+
+it('does not advertise a completion anchor for an interrupted assistant restored by session_end', async () => {
+  const f = fixture();
+  f.append('user_message', { messageId: 'request', text: 'Refine the item.' });
+  f.append('message_start', { messageId: 'interrupted' });
+  f.append('block_start', { messageId: 'interrupted', blockId: 'text', blockType: 'text' });
+  f.append('block_delta', { messageId: 'interrupted', blockId: 'text', delta: 'Partial answer' });
+  const terminal = f.append('session_end', {});
+  const last = f.replay().messages.at(-1)!;
+  expect(last.messageId).toBe('interrupted');
+  expect(last.completedSeq).toBeUndefined();
+  await expect(
+    f.source.openConversation(f.selection(terminal, last.messageId, 'conversation_so_far')),
+  ).rejects.toThrow('Source selection is unavailable or changed');
+});
+
+it('retains the public error anchor while preserving complete-prefix refusal', async () => {
+  const f = fixture();
+  f.append('user_message', { messageId: 'request', text: 'Refine the item.' });
+  f.assistant('answer');
+  const failure = f.append('error', {
+    providerFailure: { category: 'transport', message: 'PRIVATE_DIAGNOSTIC' },
+  });
+  f.append('session_end', {});
+  const last = f.replay().messages.at(-1)!;
+  expect(last).toMatchObject({ messageId: `provider-error-${failure}`, completedSeq: failure });
+  await expect(
+    f.source.openConversation(f.selection(failure, last.messageId, 'conversation_so_far')),
+  ).rejects.toThrow(
+    'This conversation prefix contains public error feedback that cannot be retained',
+  );
+});

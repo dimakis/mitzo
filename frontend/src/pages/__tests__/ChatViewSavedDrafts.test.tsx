@@ -140,6 +140,7 @@ vi.mock('../../lib/api-fetch', () => ({
 }));
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   localStorage.clear();
   sessionStorage.clear();
 });
@@ -519,5 +520,128 @@ for (const Page of [ChatView, DesktopChatView]) {
       expect(localStorage.getItem('mitzo-draft-bound-chat')).toBe('Next ordinary message'),
     );
     expect(getChatDraft(draft.id)).toBeNull();
+  });
+}
+
+const roleDraftFence = vi.hoisted(() => ({ setup: vi.fn() }));
+vi.mock('../../hooks/useTelosRoleSetup', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../hooks/useTelosRoleSetup')>();
+  return {
+    ...actual,
+    useTelosRoleSetup: (
+      options: import('../../hooks/useTelosRoleSetup').TelosRoleSetupOptions,
+    ) => ({
+      context: null,
+      pending: null,
+      error: null,
+      uncertain: false,
+      locked: false,
+      canConfirm: true,
+      boundConversationId: null,
+      replacing: false,
+      review: async () => {},
+      confirm: async () => {
+        await roleDraftFence.setup();
+        options.onBound?.('confirmed-role-chat');
+      },
+      retry: async () => {
+        await roleDraftFence.setup();
+        options.onBound?.('confirmed-role-chat');
+      },
+    }),
+  };
+});
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} refuses silent role setup when the latest rich draft cannot be saved even though binding records fit`, async () => {
+    roleDraftFence.setup.mockClear();
+    const draft = {
+      ...createChatDraft(),
+      text: 'Previously saved setup text',
+      images: [
+        { data: 'ZmFrZQ==', preview: 'data:image/png;base64,ZmFrZQ==', mediaType: 'image/png' },
+      ],
+      contextBlocks: ['Retained selected resource'],
+    };
+    draft.settings.retainRuntimeIntent = true;
+    draft.settings.search = 'telosRoleItem=item&telosRole=lead&telosRoleMode=assign';
+    saveChatDraft(draft);
+    const write = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (key === `mitzo-chat-draft:${draft.id}`)
+        throw new DOMException('Rich draft exceeds quota', 'QuotaExceededError');
+      write.call(this, key, value);
+    });
+    mount(Page, `/chat?draft=${draft.id}&${draft.settings.search}`);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Latest unsaved setup text' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Assign lead & open chat' }));
+    await waitFor(() => expect(roleDraftFence.setup).not.toHaveBeenCalled());
+    const retainedLocation = new URL(
+      screen.getByTestId('location').textContent!,
+      'http://example.test',
+    );
+    expect(retainedLocation.pathname).toBe('/chat');
+    expect(retainedLocation.searchParams.get('draft')).toBe(draft.id);
+    expect(retainedLocation.searchParams.get('telosRoleItem')).toBe('item');
+    expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
+      'Latest unsaved setup text',
+    );
+    expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+    expect(getChatDraft(draft.id)?.text).toBe('Previously saved setup text');
+    expect(getSessionChatDraft('confirmed-role-chat')).toBeNull();
+  });
+}
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} rechecks the latest rich draft after awaited role setup before binding or navigation`, async () => {
+    roleDraftFence.setup.mockClear();
+    let finish!: () => void;
+    roleDraftFence.setup.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const draft = {
+      ...createChatDraft(),
+      text: 'Persisted before setup',
+      contextBlocks: ['Retained context'],
+    };
+    draft.settings.retainRuntimeIntent = true;
+    draft.settings.search = 'telosRoleItem=item&telosRole=lead&telosRoleMode=assign';
+    saveChatDraft(draft);
+    mount(Page, `/chat?draft=${draft.id}&${draft.settings.search}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Assign lead & open chat' }));
+    expect(roleDraftFence.setup).toHaveBeenCalledOnce();
+    const write = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (key === `mitzo-chat-draft:${draft.id}`)
+        throw new DOMException('Rich draft exceeds quota', 'QuotaExceededError');
+      write.call(this, key, value);
+    });
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Latest edit during setup' },
+    });
+    await act(async () => finish());
+    const retainedLocation = new URL(
+      screen.getByTestId('location').textContent!,
+      'http://example.test',
+    );
+    expect(retainedLocation.pathname).toBe('/chat');
+    expect(retainedLocation.searchParams.get('draft')).toBe(draft.id);
+    expect(retainedLocation.searchParams.get('telosRoleItem')).toBe('item');
+    expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
+      'Latest edit during setup',
+    );
+    expect(getChatDraft(draft.id)?.text).toBe('Persisted before setup');
+    expect(getSessionChatDraft('confirmed-role-chat')).toBeNull();
   });
 }

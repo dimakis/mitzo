@@ -13,8 +13,9 @@ afterEach(() => {
   vi.restoreAllMocks();
   localStorage.clear();
 });
-it('saves a refinement from a full ordinary advisor discussion through reviewed source preview without dispatching work', async () => {
+function fixture() {
   const revision = 'a'.repeat(64);
+  let currentRevision = revision;
   vi.spyOn(transport, 'apiFetch').mockImplementation(
     async (url) =>
       new Response(
@@ -35,20 +36,31 @@ it('saves a refinement from a full ordinary advisor discussion through reviewed 
                 },
               }
             : {
-                messages: [{ messageId: 'agreed', role: 'user', blocks: [] }],
+                messages: [
+                  {
+                    messageId: 'agreed',
+                    role: 'assistant',
+                    startedSeq: 3,
+                    completedSeq: 9,
+                    blocks: [],
+                  },
+                ],
                 current: null,
                 currents: [],
-                cursor: 9,
+                cursor: 12,
               },
         ),
         { status: 200 },
       ),
   );
-  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue({
-    itemId: 'item',
-    revision,
-    parentId: null,
-  } as never);
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockImplementation(
+    async () =>
+      ({
+        itemId: 'item',
+        revision: currentRevision,
+        parentId: null,
+      }) as never,
+  );
   vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockResolvedValue({
     itemId: 'item',
     summary: 'Home studio',
@@ -56,7 +68,10 @@ it('saves a refinement from a full ordinary advisor discussion through reviewed 
     kind: 'outcome',
     categories: ['Personal projects'],
   } as never);
-  const preview = vi.fn(async (_input: unknown) => ({ sha256: 'c'.repeat(64), packet: {} }));
+  const preview = vi.fn(async (input: { expectedRevision: string }) => {
+    if (input.expectedRevision !== currentRevision) throw Error('Work item revision changed');
+    return { sha256: 'c'.repeat(64), packet: {} };
+  });
   const save = vi.fn(async (_input: unknown) => ({
     work: { itemId: 'item', revision: 'd'.repeat(64) },
   }));
@@ -69,6 +84,17 @@ it('saves a refinement from a full ordinary advisor discussion through reviewed 
       <TelosAdvisorDraft conversationId="advisor" />
     </MemoryRouter>,
   );
+  return {
+    revision,
+    preview,
+    save,
+    changeRevision: () => {
+      currentRevision = 'e'.repeat(64);
+    },
+  };
+}
+it('saves a refinement using its completed message boundary despite trailing terminal bookkeeping', async () => {
+  const { revision, preview, save } = fixture();
   fireEvent.click(await screen.findByRole('button', { name: 'Propose refinement' }));
   fireEvent.change(await screen.findByLabelText('Desired outcome'), {
     target: { value: 'Record the reviewed first session' },
@@ -95,4 +121,66 @@ it('saves a refinement from a full ordinary advisor discussion through reviewed 
     previewSha256: 'c'.repeat(64),
   });
   expect(transport.apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it('preserves a proposal and rejects a concurrent item edit instead of overwriting it using a fresh revision', async () => {
+  const { changeRevision, save } = fixture();
+  fireEvent.click(await screen.findByRole('button', { name: 'Propose refinement' }));
+  fireEvent.change(await screen.findByLabelText('Desired outcome'), {
+    target: { value: 'My retained proposal' },
+  });
+  changeRevision();
+  fireEvent.click(screen.getByRole('button', { name: 'Save refinement' }));
+  await screen.findByRole('alert');
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Desired outcome')).toHaveProperty('value', 'My retained proposal');
+});
+
+it('retries an uncertain save with its original request and pins after a later item edit', async () => {
+  const { changeRevision, preview, save } = fixture();
+  save.mockRejectedValueOnce(Error('Response lost'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Propose refinement' }));
+  await screen.findByLabelText('Desired outcome');
+  fireEvent.click(screen.getByRole('button', { name: 'Save refinement' }));
+  await screen.findByRole('alert');
+  const original = structuredClone(save.mock.calls[0][0]);
+  changeRevision();
+  fireEvent.click(screen.getByRole('button', { name: 'Save refinement' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  expect(save.mock.calls[1][0]).toEqual(original);
+  expect(preview).toHaveBeenCalledOnce();
+});
+it('refuses a transcript without a retained completion anchor instead of falling back to its cursor', async () => {
+  const { preview, save } = fixture();
+  const original = vi.mocked(transport.apiFetch).getMockImplementation()!;
+  vi.mocked(transport.apiFetch).mockImplementation(async (...args) => {
+    const response = await original(...args);
+    if (String(args[0]).endsWith('/meta')) return response;
+    const history = await response.json();
+    delete history.messages[0].completedSeq;
+    return new Response(JSON.stringify(history), { status: 200 });
+  });
+  fireEvent.click(await screen.findByRole('button', { name: 'Propose refinement' }));
+  await screen.findByLabelText('Desired outcome');
+  fireEvent.click(screen.getByRole('button', { name: 'Save refinement' }));
+  expect(await screen.findByRole('alert')).toHaveProperty(
+    'textContent',
+    'The completed planning exchange boundary is unavailable.',
+  );
+  expect(preview).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});
+it('refuses a record that changes across the proposal opening boundary', async () => {
+  const { changeRevision, preview, save } = fixture();
+  const original = vi.mocked(TelosWorkApiClient.prototype.readRecord).getMockImplementation()!;
+  vi.mocked(TelosWorkApiClient.prototype.readRecord).mockImplementation(async (...args) => {
+    const record = await original(...args);
+    changeRevision();
+    return record;
+  });
+  fireEvent.click(await screen.findByRole('button', { name: 'Propose refinement' }));
+  await screen.findByRole('alert');
+  expect(screen.queryByLabelText('Desired outcome')).toBeNull();
+  expect(preview).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
 });
