@@ -52,6 +52,197 @@ async function selected(
   };
 }
 describe('actual ordinary Telos source approval owners', () => {
+  it.each(
+    ['empty', 'whitespace', 'blank-activity', 'tool-only'].flatMap((shape) =>
+      (
+        [
+          { kind: 'create', marker: 'sdk' },
+          { kind: 'adopt', marker: 'native' },
+        ] as const
+      ).map((operation) => ({ shape, ...operation })),
+    ),
+  )(
+    'keeps valid $kind/$marker candidates around an ineligible $shape boundary',
+    async ({ shape, kind, marker }) => {
+      const f = fixture();
+      const append = (type: string, fields: Record<string, unknown> = {}) =>
+        f.events.append('planning', type, { messageId: 'blank-candidate', ...fields });
+      append('message_start');
+      if (shape === 'blank-activity' || shape === 'tool-only') {
+        append('block_start', { blockId: 'private', blockType: 'tool_use' });
+        append('tool_result', { blockId: 'private', content: 'PRIVATE CANDIDATE ACTIVITY' });
+        append('block_end', { blockId: 'private', blockType: 'tool_use' });
+      }
+      if (shape !== 'tool-only') {
+        append('block_start', { blockId: 'blank-public', blockType: 'text' });
+        append('block_delta', { blockId: 'blank-public', delta: shape === 'empty' ? '' : ' \n\t' });
+        append('block_end', { blockId: 'blank-public', blockType: 'text' });
+      }
+      const blankSequence = append('message_end');
+      const laterSequence = f.events.append('planning', 'user_message', {
+        messageId: 'after-blank',
+        text: 'Visible discussion after the blank candidate.',
+      });
+      const permission = await f.request({ kind, marker });
+      const permId = String(permission.permId);
+      const review = await f.service.review(permId, 'planning', f.actor);
+      const blank = review.messages.find((message) => message.messageId === 'blank-candidate');
+      if (shape === 'tool-only') expect(blank).toBeUndefined();
+      else expect(blank?.unavailableReason).toMatch(/visible public text.*boundary/);
+      expect(JSON.stringify(review)).not.toContain('PRIVATE CANDIDATE ACTIVITY');
+      const earlier = review.messages.find((message) => message.messageId === 'approved')!;
+      const later = review.messages.find((message) => message.messageId === 'after-blank')!;
+      expect(earlier.blocks[0].blockId).toBe('user-approved');
+      expect(later).toMatchObject({ sequence: laterSequence, unavailableReason: null });
+      expect(later.blocks[0].blockId).toBe('user-after-blank');
+      const input = (sequence: number, messageId: string) => ({
+        sessionId: 'planning',
+        requestId: randomUUID(),
+        proposalSha256: review.proposalSha256,
+        selection: {
+          mode: 'selected' as const,
+          boundary: { sequence, messageId },
+          messageIds: [messageId],
+          artifacts: [],
+        },
+      });
+      const counts = () => {
+        const db = new Database(f.dbPath, { readonly: true });
+        try {
+          return Object.fromEntries(
+            [
+              'items',
+              'sources',
+              'links',
+              'telos_artifact_revisions',
+              'telos_work_sources',
+              'telos_work_links',
+              'telos_work_assignments',
+              'telos_work_attempts',
+              'telos_work_commands',
+              'telos_work_source_creations',
+              'telos_work_source_approvals',
+            ].map((table) => [table, db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get()]),
+          );
+        } finally {
+          db.close();
+        }
+      };
+      const before = counts();
+      for (const message of [earlier, later]) {
+        const preview = await f.service.preview(
+          permId,
+          input(message.sequence, message.messageId),
+          f.actor,
+        );
+        expect(
+          preview.preview.packet.context.messages.map((selected) => selected.messageId),
+        ).toEqual([message.messageId]);
+        expect(preview.preview.packet.context.messages[0].blocks).toEqual(message.blocks);
+      }
+      const invalid = input(blankSequence, 'blank-candidate');
+      await expect(f.service.preview(permId, invalid, f.actor)).rejects.toThrow(
+        /visible public text.*boundary/,
+      );
+      await expect(
+        f.service.approve(permId, { ...invalid, previewSha256: '0'.repeat(64) }, f.actor),
+      ).rejects.toThrow(/visible public text.*boundary/);
+      expect(counts()).toEqual(before);
+      expect(f.counts()).toMatchObject({
+        canonicalCreates: 0,
+        allocations: 0,
+        sources: { total: 0 },
+      });
+    },
+  );
+
+  it.each(['payload-provenance', 'private-id-reuse'] as const)(
+    'keeps candidate inspection fail-closed for %s',
+    async (invalid) => {
+      const f = fixture();
+      const append = (type: string, fields: Record<string, unknown> = {}) =>
+        f.events.append('planning', type, { messageId: 'unqualified-candidate', ...fields });
+      append('message_start');
+      append('block_start', { blockId: 'public', blockType: 'text' });
+      append('block_delta', {
+        blockId: 'public',
+        delta: 'Public candidate',
+        ...(invalid === 'payload-provenance' ? { seatId: null } : {}),
+      });
+      if (invalid === 'private-id-reuse') {
+        append('block_start', { blockId: 'public', blockType: 'thinking' });
+        append('block_delta', { blockId: 'public', delta: 'PRIVATE REUSED CANDIDATE' });
+      }
+      append('block_end', {
+        blockId: 'public',
+        blockType: invalid === 'private-id-reuse' ? 'thinking' : 'text',
+      });
+      append('message_end');
+      f.events.append('planning', 'user_message', {
+        messageId: 'after-invalid',
+        text: 'Later public message',
+      });
+      const permission = await f.request({ kind: 'create', marker: 'native' });
+      const before = f.counts();
+      await expect(
+        f.service.review(String(permission.permId), 'planning', f.actor),
+      ).rejects.toThrow();
+      expect(f.counts()).toEqual(before);
+      const db = new Database(f.dbPath, { readonly: true });
+      try {
+        expect(
+          db.prepare('SELECT COUNT(*) AS total FROM telos_work_source_approvals').get(),
+        ).toEqual({ total: 0 });
+        expect(
+          db.prepare('SELECT COUNT(*) AS total FROM telos_work_source_creations').get(),
+        ).toEqual({ total: 0 });
+      } finally {
+        db.close();
+      }
+    },
+  );
+
+  it('keeps a later visible public block eligible without stripping its earlier blank block', async () => {
+    const f = fixture();
+    const append = (type: string, fields: Record<string, unknown> = {}) =>
+      f.events.append('planning', type, { messageId: 'mixed-public', ...fields });
+    append('message_start');
+    for (const [blockId, delta] of [
+      ['blank', ' \n'],
+      ['visible', 'Later visible public text'],
+    ]) {
+      append('block_start', { blockId, blockType: 'text' });
+      append('block_delta', { blockId, delta });
+      append('block_end', { blockId, blockType: 'text' });
+    }
+    const sequence = append('message_end');
+    const permission = await f.request({ kind: 'create', marker: 'sdk' });
+    const permId = String(permission.permId);
+    const review = await f.service.review(permId, 'planning', f.actor);
+    const candidate = review.messages.find((message) => message.messageId === 'mixed-public')!;
+    expect(candidate.unavailableReason).toBeNull();
+    const preview = await f.service.preview(
+      permId,
+      {
+        sessionId: 'planning',
+        requestId: randomUUID(),
+        proposalSha256: review.proposalSha256,
+        selection: {
+          mode: 'selected',
+          boundary: { sequence, messageId: 'mixed-public' },
+          messageIds: ['mixed-public'],
+          artifacts: [],
+        },
+      },
+      f.actor,
+    );
+    expect(preview.preview.packet.context.messages[0].blocks).toEqual(candidate.blocks);
+    expect(candidate.blocks.map((block) => block.content)).toEqual([
+      ' \n',
+      'Later visible public text',
+    ]);
+  });
+
   it.each(['create', 'adopt'] as const)(
     'resumes a prepared %s before canonical capture starts from its exact immutable preview',
     async (kind) => {

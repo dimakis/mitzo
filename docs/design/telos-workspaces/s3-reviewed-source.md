@@ -47,6 +47,18 @@ seat/message/generation. A schema-valid snapshot change within a turn is refused
 before selected-message filtering. Block IDs remain unique across public text,
 thinking and tool blocks, so reuse cannot relabel private deltas as public text.
 
+Normal chat displays native replies at their message start, while the shared
+capture compiler uses durable completion cursors. If concurrent native replies,
+or a native reply and an intervening operator message, finish in a different
+order from that display, selected and full-prefix capture explicitly refuse to
+retain them together.
+Select one completed message or a range whose display and completion order agree;
+capture does not silently reorder or omit the exchange. Single-message selections
+and native replies whose orders agree preserve their exact IDs and provenance.
+A final assistant boundary must contain nonblank public text. Blank or private
+activity cannot supply that source anchor; earlier valid boundaries and later
+visible text remain available, and existing retained packets are not rewritten.
+
 The two existing chat replay paths differ for legacy unfinished blocks: modern
 reconnect may display their text at `message_end`, while historical REST can omit
 them. The accepted bounded-source contract requires closed public text blocks, so
@@ -81,6 +93,10 @@ material revisions. Selecting a message selects all its actual public text
 blocks; no source is preselected. The authenticated preview binds the complete
 proposal, actual conversation/boundary, selected content and hashes. The existing
 Once action submits that exact digest through the protected approval route.
+Candidate inspection marks blank public-text boundaries unavailable while
+preserving valid earlier and later choices. Private-only turns without public
+blocks remain omitted. Actual preview and approval still refuse such boundaries;
+provenance, block closure and private-block identity failures remain fail-closed.
 `TelosAdoptSource` applies the same review to one explicitly requested existing
 item, without changing progress, assigning a collaborator or starting a turn.
 
@@ -152,6 +168,15 @@ Known legacy origins can open their real chat while explicitly preserving an
 unknown reviewed exchange, including when an unknown source snapshot names the
 same conversation. Unavailable origins never start replacement chats.
 
+For an existing retained packet whose exact restored, completed assistant boundary
+has no nonblank public text, source navigation has no public-text anchor and
+releases normal bottom navigation, sending and streamed-reply following. The
+retained context and backlink remain ready. This
+includes empty or whitespace text with tool/activity blocks; activity rendering
+and the retained packet remain intact. Loading or not-yet-restored boundaries keep
+waiting, and a later visible public text block in the same message still anchors
+normally.
+
 S7/S8 still own the complete frozen workspace/tree, category pins, child advisor,
 lead controls, many-chat entry chooser and the complete slim item/chats/work row.
 This increment supplies their source navigation and preserves the normal renderer;
@@ -178,9 +203,11 @@ The scoped browser fixture mounts the actual `TodoDetailView` and
 `ResponsiveChatView` routes, including `ChatView`/`DesktopChatView`, the real
 client store and its unchanged REST transcript restoration. Source evidence comes
 from actual temporary event/artifact/work stores; HTTP responses and the inert
-protocol transport are synthetic and all browser traffic is intercepted. Twelve
-route cases plus two browser startup checks cover 320px mobile WebKit/Chromium and
-1280px desktop Chromium in light/dark
+protocol transport are synthetic and all browser traffic is intercepted. The
+expanded source-navigation matrix passes 18 actual-route cases plus two startup
+cases (20 total). Earlier 12-route results remain attributed to their recorded
+tested heads. The route cases cover 320px mobile WebKit/Chromium and 1280px desktop
+Chromium in light/dark
 appearance with alternate accents/font, exact source anchoring, ordinary bound
 account/model/thinking settings, Resources backlinks and composer draft retention
 through item/chat navigation. A later simulated streamed reply preserves the
@@ -189,12 +216,14 @@ hide the visible source anchor. A failed lookup releases deferred ordinary
 restoration and stream following while preserving explicit scroll-away, later
 return-to-bottom and inert send behavior. Late responses and queued restore frames
 cannot override newer source ownership or reader intent. Screenshots are recorded
-per platform/theme. These source-navigation cases are separate from the implemented
-ordinary approval
+per platform/theme. Six added historical blank-packet cases verify the release of
+source scroll ownership and restored ordinary navigation, send and stream following
+without changing retained bytes. These source-navigation cases are separate from
+the implemented ordinary approval
 caller and its actual-owner approval/recovery fixture. Both provide scoped offline
 integration evidence; full S9 device/runtime qualification remains outstanding.
-On the combined tree, the separate approval/recovery matrix passes twelve route
-cases plus two browser startup checks using the real approval service, pending
+Recorded runs of the separate approval/recovery matrix pass twelve route cases
+plus two browser startup checks using the real approval service, pending
 permission handler and temporary canonical creator. It preserves exact
 create/adopt consent, source and canonical response-loss boundaries, and protected
 recovery reads. Backend regressions separately cover recovery before the first

@@ -77,6 +77,7 @@ export function createTelosConversationSource(options: {
           string,
           {
             messageId: string;
+            startedSequence: number;
             blockIds: Set<string>;
             blocks: Map<string, { content: string; closed: boolean }>;
           }
@@ -90,6 +91,7 @@ export function createTelosConversationSource(options: {
         let firstOrdinaryMessage: number | undefined;
         let initialPromptSequence: number | undefined;
         const seen = new Set<string>();
+        const displayedStarts = new Map<string, number>();
         const references = new Map<number, Pin[]>();
         const unavailable: Record<string, string> = {};
         let after = 0,
@@ -100,9 +102,10 @@ export function createTelosConversationSource(options: {
           selection.mode === 'conversation_so_far' ||
           wanted.has(String(event.payload.messageId)) ||
           event.payload.messageId === selection.boundary.messageId;
-        const add = (event: StoredEvent, message: Message) => {
+        const add = (event: StoredEvent, message: Message, startedSequence = event.seq) => {
           if (seen.has(message.messageId)) refuse();
           seen.add(message.messageId);
+          displayedStarts.set(message.messageId, startedSequence);
           completed.push(CollaborationSnapshotMessageSchema.parse(message));
           const pins = new Map<string, Pin>();
           for (const block of message.blocks) {
@@ -279,7 +282,12 @@ export function createTelosConversationSource(options: {
               });
             } else if (event.type === 'message_start') {
               if (active.has(key) || seen.has(id)) refuse();
-              active.set(key, { messageId: id, blockIds: new Set(), blocks: new Map() });
+              active.set(key, {
+                messageId: id,
+                startedSequence: event.seq,
+                blockIds: new Set(),
+                blocks: new Map(),
+              });
             } else {
               const message = active.get(key);
               if (!message) continue;
@@ -318,20 +326,48 @@ export function createTelosConversationSource(options: {
                   if (!block.closed) refuse();
                   return { blockId, content: block.content, sha256: sha(block.content) };
                 });
+                if (
+                  event.seq === boundary &&
+                  id === selection.boundary.messageId &&
+                  !blocks.some((block) => block.content.trim())
+                ) {
+                  const reason =
+                    'Select a completed message with visible public text as the source boundary.';
+                  if (inspection) unavailable[id] = reason;
+                  else throw new TelosWorkError('invalid', reason);
+                }
                 if (blocks.length)
-                  add(event, {
-                    conversationId: sessionId,
-                    messageId: id,
-                    sequence: event.seq,
-                    author: { sessionId },
-                    source: null,
-                    blocks,
-                  });
+                  add(
+                    event,
+                    {
+                      conversationId: sessionId,
+                      messageId: id,
+                      sequence: event.seq,
+                      author: { sessionId },
+                      source: null,
+                      blocks,
+                    },
+                    message.startedSequence,
+                  );
                 active.delete(key);
               }
             }
           }
           if (finished) break;
+        }
+        // Normal replay displays native replies at message_start. The shared
+        // compiler retains terminal cursors, so refuse an inverted selected set
+        // rather than silently reorder it or invent another sequence contract.
+        let previousStart = -1;
+        for (const message of completed) {
+          if (selection.mode === 'selected' && !wanted.has(message.messageId)) continue;
+          const start = displayedStarts.get(message.messageId)!;
+          if (start < previousStart)
+            throw new TelosWorkError(
+              'invalid',
+              'Selected messages finish in a different display order. Select one completed message or a range whose display and completion order agree.',
+            );
+          previousStart = start;
         }
         if (
           !found ||

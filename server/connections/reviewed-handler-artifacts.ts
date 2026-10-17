@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.261';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.264';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -65,7 +65,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-artifact-store.ts': '29ec3c3bc5d44f9cbb98beb6b3b6bfeb52121beebb7061dbd032229284656d6c',
   '../telos-source-capture.ts': '8f47e4d5b621aaad4aa1f59a655f9ea0fea11f1c219ae776b9eb6b24739db00b',
   '../telos-conversation-source.ts':
-    'd9f72ac357ad81c1ca52b1f09ffbbeacfc74470c3c8f2ef0536a3d28a38a75cf',
+    '19b39bbae402adda2a2bde9f74518aed0e655348628a158752b2b02b1ac31df8',
   '../telos-work-record.ts': '7a1da4212ae06394702807b31421c371fac600904fa526937544587cbff56d93',
   '../../packages/protocol/src/stored-event-wire.ts':
     '703771f13d7003cf5dfb8d817162bb1daf12f87ca5648b5207a87a206e35222e',
@@ -234,7 +234,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TokenBar.tsx':
     '25c80275d287086e2e893a12634435470b38358cc17969d4905e1b4bddcdf354',
   '../../frontend/src/components/ChatArea.tsx':
-    '85a5be0d71d4f758b99f2df089f680ca18a9b35a62a48a5c86914740078e9c8a',
+    '86ac0c34a290c4c047818625e4c7ef76727303191825b8d81874dfa17ff7c195',
   '../../frontend/src/components/SlashPicker.tsx':
     'f4df78552197d0add98192e11e6d1014f9067c9686837132d954989c4a31bac3',
   '../../frontend/src/hooks/useCompactionHistory.ts':
