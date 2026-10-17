@@ -105,10 +105,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-warm-pool-runtime.ts':
     'f3090664b76b721494f9ef061f89732866d9696ce3c5f6172662c832a88533d4',
   '../openshell-warm-pool.ts': '9af589d6c38ce39d122a9f5d55b5e7c34a977ca6a040918dd7d6fe6321958f5d',
-  '../../frontend/src/components/ToolLibraryCatalog.tsx':
-    'a42dfbd4ae455252eb7e16b0e85df1247e448f570204ac7355ea63da4110f270',
-  '../../frontend/src/styles/tool-library.css':
-    '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
   '../mcp-config.ts': '6b7edecfee8c64bdd230338dc88f5ddd99e901098673d65bdb8e22ab6978171b',
   '../configured-tool-runtime.ts':
     '60b98526368eebc431ffe848bc51f88d98ac1dff1a4b5fda7938055677651133',
@@ -130,7 +126,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/index.ts':
     '529e2c6f580c5a2f110d742a95addcb98d9f84a9bea05e9e896c2c5f0777a491',
   '../../frontend/src/components/AgentToolsEditor.tsx':
-    '4a88ed2e2908ab949a4afda4561e2495bc25a138d484813d312244ef4094d656',
+    '4fbf0e9bd1cd4a5f48526e11a5b03949b687bcfb07e0be505fb4e71c94a319fe',
   '../agent-tool-catalog.ts': '2ab34d5743bd24ddeb75e786c58860aa88a1af7a2fdde77ee7d0c8d4d619f934',
   '../agent-tool-selection.ts': 'd6a0c360a72b1a2fde41327aff64186e14dbed7c209095cee2d2d88df5403b56',
   '../../packages/protocol/src/agent-tools.ts':
@@ -448,7 +444,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'f2e67fdea5bbbe17e65a99f8057d812bb6f22c24f8649cd752a6adb003aa3ad1',
+  '../app.ts': '9046f5436b18766e9237f5fbedecdf966de079deae34db15807ecd28c7dd7e12',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -480,7 +476,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e',
   // Retained-owner inference cancellation preserves actual handler cleanup and drain.
   '../symposium-custodian-ipc.ts':
-    '1bb9c006d3d893c0ab70ff512c8cbefb55c2ccdea7256161b93044416ea00536',
+    '11a37641aaf37d5b22b19ecea82910c16e026194261bdabef541bacbc530b674',
   '../symposium-custodian-authority.ts':
     '5ef9405e845e24f9d19af0820deac42d3404dbd5fb86d4f09f814e45226edd6b',
   '../symposium-custodian-controller.ts':
@@ -495,7 +491,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    'cde2e44336a37719543d4eef6088f1ef5774fab2884bb1af21575e54b290f58e',
+    '1b6dbc6330ede54a3e663805efa74226467c806406420a22adb18f9219c656cf',
+  // Read-only tool catalog cards and their shared visual presentation.
+  '../../frontend/src/components/ToolLibraryCatalog.tsx':
+    '9109209f65551e4d3dbf28389fa8e1bd9f5462aa369a6678b527b7ff59d12132',
+  '../../frontend/src/styles/tool-library.css':
+    '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
   '../../frontend/src/styles/agent-library.css':
     '2c5810ac26ec0e50a97f700f027d20d0c1cb662dd9a70d0dffa30b913dfde5d1',
 
@@ -506,14 +507,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-library-transport.ts':
     '1ddf221a25d11c991b669007ef900140056c321f8bb67d12218940a7dd4c4ec2',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
-  '../agent-library-router.ts': '09788a2df86f8bda237bcce03306639b526e37a4bfbdbd20d5de1d069d66ae6f',
+  '../agent-library-router.ts': '4d8695cc278b674ee1856eab5dcb809faf9021f7c5213593d1ea12d232deef7d',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',
   '../agent-library-prompt.ts': '3be39c6cd2fb12c744c5f53e45b8c8b306398146edfcb2af479d4fa1c9159c28',
   '../symposium-profile-portability.ts':
     'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
-    '1a07f1725f1c29a3478f78f9f582d69cabbd35b17c08dc3badfb2f6cb9fb2876',
+    '2da41e2421063f0dde46dbb29f3f2e20137f0ff3d540ed17a08eca026cf2e431',
   '../symposium-custodian-proxy.ts':
     'beb0d632c863e1486911e1c4b096ab65be34ad09faee7587ef21dc83d00ac6b9',
   '../../packages/protocol/src/agent-library.ts':
