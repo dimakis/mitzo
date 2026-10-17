@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AccountBinding, CollaborationSettings } from '@mitzo/protocol';
+import { AccountBindingSchema } from '@mitzo/protocol';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import type { OrdinaryRepositoryRuntimeSelection } from '../ordinary-repository-preparation.js';
 import { EventStore } from '../event-store.js';
@@ -32,13 +33,13 @@ async function fixture(silent = false, runOn: 'local' | 'openshell' = 'local') {
   await writeFile(join(source, 'task.txt'), 'pinned');
   git(source, 'add', '.');
   git(source, 'commit', '-qm', 'base');
-  const binding: AccountBinding = {
+  const binding = AccountBindingSchema.parse({
     accountId: 'offline',
     accountLabel: 'Offline',
     provider: 'openai-codex',
     profileRevision: 'r1',
     model: 'offline-fixture',
-  };
+  });
   const runtime = {
     version: 2 as const,
     account: { accountId: binding.accountId, provider: binding.provider, profileRevision: 'r1' },
@@ -66,7 +67,7 @@ async function fixture(silent = false, runOn: 'local' | 'openshell' = 'local') {
       _signal: AbortSignal,
     ) => ({
       version: 1 as const,
-      originalBinding: structuredClone(selected),
+      originalBinding: AccountBindingSchema.parse(selected),
       runtimeBinding: structuredClone(runtime),
       credentialDigest: 'a'.repeat(64),
     }),

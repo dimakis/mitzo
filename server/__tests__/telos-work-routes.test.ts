@@ -8,15 +8,19 @@ import { join } from 'node:path';
 import { createTelosWorkRouter } from '../telos-work-routes.js';
 import { revokeAuthSession } from '../auth.js';
 import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:http';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { createTelosWorkFixtures } from './fixtures/telos-work-fixtures.js';
 import { TelosWorkError } from '../telos-work-store.js';
 
 const roots: string[] = [];
-afterEach(() => {
+const servers: Server[] = [];
+afterEach(async () => {
   vi.useRealTimers();
+  for (const server of servers.splice(0)) await closeTestServer(server);
   roots.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true }));
 });
-function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>[0]> = {}) {
+async function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>[0]> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'telos-work-routes-'));
   roots.push(root);
   const path = join(root, 'telos.db');
@@ -49,11 +53,13 @@ function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>[0]> =
       ...overrides,
     }),
   );
+  const server = await listenOnLoopback(app);
+  servers.push(server);
   const read = () =>
-    request(app).get('/api/telos/work/items/item').set('x-operator', 'authenticated');
+    request(server).get('/api/telos/work/items/item').set('x-operator', 'authenticated');
   const command = (input: object) =>
-    request(app).post('/api/telos/work/commands').set('x-operator', 'authenticated').send(input);
-  return { app, read, command, dbPath };
+    request(server).post('/api/telos/work/commands').set('x-operator', 'authenticated').send(input);
+  return { app: server, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
   const receipt = {
@@ -118,7 +124,7 @@ describe('authorized Telos work API', () => {
       expect(input.authorization.id).toBe('verified-operator');
       return receipt;
     });
-    const f = setup({ delegateSlice });
+    const f = await setup({ delegateSlice });
     const body = fullInput();
     const result = await request(f.app)
       .post('/api/telos/work/delegation/start')
@@ -149,7 +155,7 @@ describe('authorized Telos work API', () => {
   });
   it('rejects selector-only operator input and raw legacy attempt commands', async () => {
     const delegateSlice = vi.fn(async () => receipt);
-    const f = setup({ delegateSlice });
+    const f = await setup({ delegateSlice });
     expect(
       (
         await request(f.app)
@@ -180,7 +186,7 @@ describe('authorized Telos work API', () => {
       revokeAuthSession(auth);
       return receipt;
     });
-    const f = setup({
+    const f = await setup({
       delegateSlice,
       operatorAuth: (_req, res, next) => {
         res.locals.authSession = auth;
@@ -190,7 +196,7 @@ describe('authorized Telos work API', () => {
     expect(
       (await request(f.app).post('/api/telos/work/delegation/start').send(fullInput())).status,
     ).toBe(403);
-    const broken = setup({
+    const broken = await setup({
       delegateSlice: async () => {
         throw new TelosWorkError('conflict', '/private/credential/token');
       },
@@ -201,7 +207,9 @@ describe('authorized Telos work API', () => {
       .send(fullInput());
     expect(result.status).toBe(409);
     expect(result.text).not.toContain('/private');
-    const invalid = setup({ delegateSlice: async () => ({ private: '/private/credentials' }) });
+    const invalid = await setup({
+      delegateSlice: async () => ({ private: '/private/credentials' }),
+    });
     const output = await request(invalid.app)
       .post('/api/telos/work/delegation/start')
       .set('x-operator', 'authenticated')
@@ -209,7 +217,12 @@ describe('authorized Telos work API', () => {
     expect(output.status).toBe(503);
     expect(output.text).not.toContain('/private');
   });
-  const internal = (app: express.Express, body: unknown, client = 'valid-client', token = 'host') =>
+  const internal = (
+    app: Server,
+    body: Record<string, unknown>,
+    client = 'valid-client',
+    token = 'host',
+  ) =>
     request(app)
       .post('/api/internal/telos/work/delegate')
       .set('x-internal-token', token)
@@ -223,7 +236,7 @@ describe('authorized Telos work API', () => {
       expect(input.raw).toEqual(selectors);
       return receipt;
     });
-    const f = setup({ delegateSlice });
+    const f = await setup({ delegateSlice });
     const result = await internal(f.app, {
       clientId: 'valid-client',
       sessionId: 'chat',
@@ -236,7 +249,7 @@ describe('authorized Telos work API', () => {
   });
   it('rejects internal token, header, session, ordinary availability and extra authority claims before hosting', async () => {
     const delegateSlice = vi.fn(async () => receipt);
-    const f = setup({ delegateSlice });
+    const f = await setup({ delegateSlice });
     const body = { clientId: 'valid-client', sessionId: 'chat', input: selectors };
     expect((await internal(f.app, body, 'valid-client', 'wrong')).status).toBe(401);
     expect((await internal(f.app, { ...body, clientId: 'other-client' })).status).toBe(403);
@@ -246,7 +259,7 @@ describe('authorized Telos work API', () => {
       (await internal(f.app, { ...body, input: { ...selectors, settings: fullInput().settings } }))
         .status,
     ).toBe(400);
-    const hidden = setup({ delegateSlice, ordinaryConversation: () => false });
+    const hidden = await setup({ delegateSlice, ordinaryConversation: () => false });
     expect((await internal(hidden.app, body)).status).toBe(403);
     expect(delegateSlice).not.toHaveBeenCalled();
   });
@@ -259,7 +272,7 @@ describe('authorized Telos work API', () => {
         current = false;
         return receipt;
       });
-      const f = setup({
+      const f = await setup({
         delegateSlice,
         sessionId: () => (kind === 'session' && !current ? 'another' : 'chat'),
         ordinaryConversation: () => kind !== 'ordinary' || current,
@@ -281,7 +294,7 @@ describe('authorized Telos work API', () => {
     const ready = new Promise<AbortSignal>((resolve) => {
       started = resolve;
     });
-    const f = setup({
+    const f = await setup({
       delegateSlice: async (input) => {
         started(input.signal);
         await new Promise<void>((_resolve, reject) =>
@@ -310,7 +323,7 @@ describe('authorized Telos work API', () => {
     const ready = new Promise<AbortSignal>((resolve) => {
       started = resolve;
     });
-    const f = setup({
+    const f = await setup({
       delegateSlice: async (input) => {
         started(input.signal);
         await new Promise<void>((resolve) =>
@@ -338,7 +351,7 @@ describe('authorized Telos work API', () => {
       },
       async () => ({ private: '/private/credentials' }),
     ]) {
-      const f = setup({ delegateSlice });
+      const f = await setup({ delegateSlice });
       const result = await internal(f.app, {
         clientId: 'valid-client',
         sessionId: 'chat',
@@ -357,7 +370,7 @@ describe('authorized Telos work API', () => {
       revokeAuthSession(auth);
       return { receipt: 'committed' };
     });
-    const f = setup({
+    const f = await setup({
       advisorSave,
       operatorAuth: (_req, res, next) => {
         res.locals.authSession = auth;
@@ -370,7 +383,7 @@ describe('authorized Telos work API', () => {
     expect(result.status).toBe(403);
     expect(advisorSave).toHaveBeenCalledOnce();
     expect(result.headers['cache-control']).toBe('private, no-store');
-    const unavailable = setup();
+    const unavailable = await setup();
     expect(
       (
         await request(unavailable.app)
@@ -398,7 +411,7 @@ describe('authorized Telos work API', () => {
         return { receipt: 'saved' };
       },
     );
-    const f = setup({ roleSetup });
+    const f = await setup({ roleSetup });
     const result = await request(f.app)
       .post('/api/telos/work/roles/setup')
       .set('x-operator', 'authenticated')
@@ -416,7 +429,7 @@ describe('authorized Telos work API', () => {
       revokeAuthSession(auth);
       return { receipt: 'committed-and-retained' };
     });
-    const f = setup({
+    const f = await setup({
       roleSetup,
       operatorAuth: (_req, res, next) => {
         res.locals.authSession = auth;
@@ -433,7 +446,7 @@ describe('authorized Telos work API', () => {
   });
 
   it('keeps atomic role setup behind its context-authorizing host entry', async () => {
-    const f = setup();
+    const f = await setup();
     const before = await f.read();
     const result = await f.command({
       operation: 'setup_role',
@@ -449,7 +462,7 @@ describe('authorized Telos work API', () => {
   });
 
   it('reports role setup as unavailable without a configured ordinary host and denies internal-token substitution', async () => {
-    const f = setup();
+    const f = await setup();
     const path = '/api/telos/work/roles/setup';
     expect((await request(f.app).post(path).set('x-internal-token', 'host').send({})).status).toBe(
       403,
@@ -459,7 +472,7 @@ describe('authorized Telos work API', () => {
     ).toBe(503);
   });
   it('requires interactive operator authority before opening canonical data; internal headers cannot substitute', async () => {
-    const f = setup();
+    const f = await setup();
     expect((await request(f.app).get('/api/telos/work/items/item')).status).toBe(403);
     expect(
       (await request(f.app).get('/api/telos/work/items/item').set('x-internal-token', 'host'))
@@ -468,7 +481,7 @@ describe('authorized Telos work API', () => {
     expect(f.dbPath).not.toHaveBeenCalled();
   });
   it('protects the complete record read before opening canonical data and returns only the selected item', async () => {
-    const f = setup();
+    const f = await setup();
     const path = '/api/telos/work/items/item/record';
     expect((await request(f.app).get(path)).status).toBe(403);
     expect((await request(f.app).get(path).set('x-internal-token', 'host')).status).toBe(403);
@@ -504,7 +517,7 @@ describe('authorized Telos work API', () => {
     expect(invalid.text).not.toContain('private invalid data');
   });
   it('reads, links and replays using host identity while rejecting caller-selected actors and stale writes', async () => {
-    const f = setup();
+    const f = await setup();
     const before = await f.read();
     expect(before.status).toBe(200);
     const input = {
@@ -531,7 +544,8 @@ describe('authorized Telos work API', () => {
     expect(links.body).toMatchObject([{ itemId: 'item', role: 'worker' }]);
   });
   it('gives internal chats explicit linked-item reads without granting work mutations', async () => {
-    const f = setup();
+    const f = await setup();
+    expect(f.app.address()).toMatchObject({ address: '127.0.0.1', family: 'IPv4' });
     const internal = (client: string, token = 'host') =>
       request(f.app)
         .post('/api/internal/telos/work/read')
@@ -550,7 +564,12 @@ describe('authorized Telos work API', () => {
       conversation: { namespace: 'mitzo', conversationId: 'chat' },
     });
     expect((await internal('valid-client')).status).toBe(200);
-    expect((await internal('other-client')).status).toBe(403);
+    const denied = await internal('other-client');
+    expect(
+      denied.status,
+      JSON.stringify({ headers: denied.headers, body: denied.body, text: denied.text }),
+    ).toBe(403);
+    expect(denied.body).toMatchObject({ code: 'unauthorized' });
     expect(
       (
         await request(f.app)
@@ -561,7 +580,7 @@ describe('authorized Telos work API', () => {
     ).toBe(404);
   });
   it('keeps invalid operations atomic and returns safe errors for missing or unavailable owners', async () => {
-    const f = setup();
+    const f = await setup();
     const before = await f.read();
     expect(
       (

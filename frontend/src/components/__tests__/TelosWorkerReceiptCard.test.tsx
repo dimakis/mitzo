@@ -40,7 +40,7 @@ const receipt = {
     target: 'Independent workspace',
   },
 };
-const block = (result = receipt): FinishedBlock => ({
+const block = (result: unknown = receipt): FinishedBlock => ({
   blockId: 'receipt',
   blockType: 'tool_use',
   content: '',
@@ -92,7 +92,7 @@ it('keeps historical receipts useful without inventing display metadata', () => 
   const historical = { ...receipt, workerDisplay: undefined };
   render(
     <MemoryRouter>
-      <ToolPill block={block(historical as typeof receipt)} sessionId="lead" />
+      <ToolPill block={block(historical)} sessionId="lead" />
     </MemoryRouter>,
   );
   expect(screen.getByRole('link', { name: /Worker conversation/ })).toBeTruthy();

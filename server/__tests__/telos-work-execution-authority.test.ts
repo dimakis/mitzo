@@ -93,6 +93,7 @@ it('requires retained worker context and matching durable task and work owners w
     'executionTaskId',
   ] as const) {
     const prior = f.attempt[key];
+    if (prior === null) throw new Error('Fixture requires a fully bound attempt');
     f.attempt[key] = 'wrong';
     expect(() => assertTelosWorkExecutionAuthority(f.owners, 'worker', account, 'task')).toThrow();
     f.attempt[key] = prior;
