@@ -1,5 +1,6 @@
 ---
-description: Triage PR review comments, investigate each finding, and fix properly
+name: review-response
+description: Investigate and triage PR review findings. Use land-pr when the task includes fixing CI, review convergence or merging.
 allowed-tools:
   - Read
   - Glob
@@ -7,29 +8,8 @@ allowed-tools:
   - Bash
 ---
 
-Triage all review comments on $ARGUMENTS.
+Fetch active review threads for `$ARGUMENTS` (PR URL, number, or current branch's PR). Read each finding and the referenced code; distinguish blocking bugs from explicitly non-blocking follow-ups and invalid or resolved findings.
 
-If `$ARGUMENTS` is a PR number, fetch review comments with `gh pr view {number} --json reviews,comments` and `gh api repos/:owner/:repo/pulls/{number}/comments` (`:owner/:repo` is resolved automatically by `gh`). If no number is given, detect the current branch's open PR with `gh pr view --json number,url`.
+Present a compact table of finding, evidence, severity and proposed action. Do not dismiss a finding merely because it is unlikely, or invent work to satisfy invalid feedback. Batch related fixes by root cause and preserve the intended scope.
 
-For **every** finding:
-
-1. **Investigate** — read the referenced code, search for related patterns, understand the full context. Do not dismiss findings without evidence.
-2. **Classify** severity:
-   - **Critical** — bugs, data loss, security issues, correctness failures
-   - **Valid** — real improvements to maintainability, robustness, or clarity
-   - **Cosmetic** — style-only changes with no functional impact
-3. **Decide** — the default is to **fix**. Only reject a finding if investigation proves it is factually wrong (not just unlikely). "It can't happen today" is not a reason to skip — if the code allows it structurally, fix it. Boy Scout rule: leave the code better than you found it.
-
-Present all findings in a compact table before making changes:
-
-| #   | File | Finding | Severity | Action | Reason |
-| --- | ---- | ------- | -------- | ------ | ------ |
-
-After presenting, wait for approval. Then fix everything marked for action.
-
-**Principles:**
-
-- Every valid finding gets fixed. No deferring to "future PRs" or "out of scope."
-- If a finding reveals a deeper issue than what the reviewer described, fix the deeper issue.
-- If multiple findings point to the same root cause, fix the root cause once rather than patching each symptom.
-- If a reviewer suggests an approach and a better one exists, use the better one — but acknowledge the reviewer's insight.
+This skill is read-only triage. If the user has requested fixes or landing, continue through the available `land-pr` skill (normally `../land-pr/SKILL.md`) using the authorization already given. Otherwise report the proposed fixes. Do not run a second review/merge loop or infer merge permission from a triage request.
