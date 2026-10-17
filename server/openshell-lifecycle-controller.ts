@@ -110,7 +110,14 @@ export async function readOpenShellSandboxInventory(signal: AbortSignal) {
   });
   return (await manager.inventory(signal, true)).map((sandbox) => {
     if (!sandbox.id) throw new Error('Gateway sandbox identity is unavailable');
-    return { id: sandbox.id, name: sandbox.name, phase: sandbox.phase };
+    return {
+      id: sandbox.id,
+      name: sandbox.name,
+      phase: sandbox.phase,
+      workspace: inventoryConfig!.workspace,
+      gateway: inventoryConfig!.gateway,
+      gatewayEndpoint: inventoryConfig!.gatewayEndpoint ?? null,
+    };
   });
 }
 
