@@ -62,6 +62,98 @@ async function setupInput(f: Awaited<ReturnType<typeof fixture>>) {
   };
 }
 
+function classifySelectedItem(
+  f: Awaited<ReturnType<typeof fixture>>,
+  kind: 'coordinator' | 'outcome' | 'work_item',
+) {
+  const work = new TelosWorkStore(f.path, { ordinaryConversation: () => true });
+  try {
+    const actor = f.request({}).actor;
+    work.execute(
+      {
+        operation: 'classify',
+        itemId: 'item',
+        requestId: `kind-${kind}`,
+        expectedRevision: work.read('item', actor).revision,
+        kind,
+      },
+      actor,
+    );
+  } finally {
+    work.close();
+  }
+}
+
+it('rejects leaf child advisor context while preserving leaf refinement', async () => {
+  const f = await fixture();
+  classifySelectedItem(f, 'work_item');
+  const review = {
+    itemId: 'item',
+    role: 'advisor',
+    advisorPurpose: 'refine',
+    sourceSnapshotIds: [],
+    artifactRefs: [],
+  };
+  const contextSelection = await f.host().context(f.request(review));
+  expect(contextSelection.advisorPurpose).toBe('refine');
+  const childReview = f.host().context(f.request({ ...review, advisorPurpose: 'child' }));
+  await expect(childReview).rejects.toThrow('Child advisor requires a coordinator or outcome');
+  expect(f.workspaces).not.toHaveBeenCalled();
+});
+
+it('rejects forged leaf child advisor setup before ordinary preparation', async () => {
+  const f = await fixture();
+  classifySelectedItem(f, 'work_item');
+  const contextSelection = await f.host().context(
+    f.request({
+      itemId: 'item',
+      role: 'advisor',
+      advisorPurpose: 'refine',
+      sourceSnapshotIds: [],
+      artifactRefs: [],
+    }),
+  );
+  await expect(
+    f.host().setup(
+      f.request({
+        itemId: 'item',
+        requestId: 'forged-leaf-child',
+        expectedRevision: contextSelection.brief.revision,
+        role: 'advisor',
+        expectedAssignmentRevision: null,
+        settings: f.ordinary.input.settings,
+        contextSelection: { ...contextSelection, advisorPurpose: 'child' },
+      }),
+    ),
+  ).rejects.toThrow('Child advisor requires a coordinator or outcome');
+  expect(f.ordinary.resolvePreparation).not.toHaveBeenCalled();
+  expect(f.authorizeSettings).not.toHaveBeenCalled();
+  expect(f.workspaces).not.toHaveBeenCalled();
+  expect(f.ordinary.store.listSessions()).toHaveLength(1);
+});
+
+it.each(['coordinator', 'outcome'] as const)(
+  'preserves child and refine advisor context for explicit %s items',
+  async (kind) => {
+    const f = await fixture();
+    classifySelectedItem(f, kind);
+    for (const advisorPurpose of ['child', 'refine'] as const) {
+      await expect(
+        f.host().context(
+          f.request({
+            itemId: 'item',
+            role: 'advisor',
+            advisorPurpose,
+            sourceSnapshotIds: [],
+            artifactRefs: [],
+          }),
+        ),
+      ).resolves.toMatchObject({ role: 'advisor', advisorPurpose });
+    }
+    expect(f.workspaces).not.toHaveBeenCalled();
+  },
+);
+
 it('builds an exact canonical role context from actual selected work and ancestors without allocating a session', async () => {
   const f = await fixture();
   const selection = await f
@@ -255,6 +347,7 @@ it('explicitly prepares an independent reviewer chat while preserving the curren
 
 it('retains explicit advisor purpose in the bound chat across a plain conversation reopen', async () => {
   const f = await fixture();
+  classifySelectedItem(f, 'outcome');
   const contextSelection = await f.host().context(
     f.request({
       itemId: 'item',
@@ -283,4 +376,11 @@ it('retains explicit advisor purpose in the bound chat across a plain conversati
     resolveTelosWorkRoleContext(f.ordinary.store, advisorId, session.accountBinding ?? undefined),
   ).toMatchObject({ itemId: 'item', role: 'advisor', advisorPurpose: 'child' });
   expect(f.ordinary.store.getOrdinaryInitialCommandId(advisorId)).toBeUndefined();
+  classifySelectedItem(f, 'work_item');
+  f.ordinary.resolvePreparation.mockClear();
+  f.workspaces.mockClear();
+  expect(await f.host().setup(f.request(input))).toEqual(receipt);
+  expect(f.ordinary.resolvePreparation).not.toHaveBeenCalled();
+  expect(f.workspaces).not.toHaveBeenCalled();
+  expect(f.ordinary.store.listSessions()).toHaveLength(2);
 });

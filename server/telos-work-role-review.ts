@@ -26,6 +26,13 @@ export function reviewTelosWorkRoleContext(
 ): TelosWorkRoleContextSelection {
   const { work, actor, itemId, role } = input;
   const target = work.readSourceTarget(itemId, actor);
+  if (
+    role === 'advisor' &&
+    input.advisorPurpose === 'child' &&
+    target.work.kind !== 'coordinator' &&
+    target.work.kind !== 'outcome'
+  )
+    throw new Error('Child advisor requires a coordinator or outcome');
   if (/^life[-_ ]?ops$/i.test(target.record.profile))
     throw new Error('Selected role context unavailable');
   const ancestors: Array<ReturnType<TelosWorkStore['readSourceTarget']>> = [];

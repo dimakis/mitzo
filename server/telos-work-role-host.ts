@@ -124,7 +124,10 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
             actor,
             itemId: input.itemId,
             role: saved.receipt && input.role === 'worker' ? 'lead' : input.role,
-            advisorPurpose: selection.advisorPurpose,
+            // A committed replay requalifies retained material/privacy; it does
+            // not request a new child advisor under the item's current kind.
+            // The original immutable purpose and receipt remain unchanged.
+            advisorPurpose: saved.receipt ? undefined : selection.advisorPurpose,
             selectedSourceSnapshotIds: selection.sources.map((source) => source.snapshotId),
             selectedArtifactRefs: selection.artifacts,
           });

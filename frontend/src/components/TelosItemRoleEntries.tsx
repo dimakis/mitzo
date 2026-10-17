@@ -133,12 +133,14 @@ export function TelosItemRoleEntries({
         >
           Refine item
         </button>
-        <button
-          className="todo-detail-chat-btn"
-          onClick={() => configure('advisor', 'additional', 'child')}
-        >
-          Add child with advisor
-        </button>
+        {work.kind === 'outcome' && (
+          <button
+            className="todo-detail-chat-btn"
+            onClick={() => configure('advisor', 'additional', 'child')}
+          >
+            Add child with advisor
+          </button>
+        )}
       </div>
       {assignment && !available && (
         <p role="status">Assigned conversation unavailable. Its history remains linked.</p>

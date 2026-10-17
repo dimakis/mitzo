@@ -30,7 +30,11 @@ Refine item and Add child open full ordinary advisor chats. The proposal card re
 inside the ordinary transcript. Save reviews the completed planning discussion through
 the accepted source compiler, then atomically retains its source, item fields/link and
 receipt. Refinement preserves item kind, criteria, rationale and secondary categories.
-Child save creates an explicitly typed source-only draft. Neither operation dispatches
+Child save creates an explicitly typed source-only draft. Leaf work items expose
+Refine item; Add child belongs to explicit parent kinds. The host rejects a new child
+advisor for a work item before ordinary preparation. Exact committed role receipts
+remain recoverable after later kind changes, without rewriting their original purpose.
+Neither operation dispatches
 work. Interrupted save retries its retained request and source digest. Proposal fields
 retain the starting item/parent revisions; a concurrent edit is refused without losing
 the proposal. Capture uses the last message's exact retained completion anchor, never

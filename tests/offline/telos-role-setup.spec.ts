@@ -31,7 +31,7 @@ const compiled = build({
 });
 const preparationId = '11111111-1111-4111-8111-111111111111';
 const boundId = '22222222-2222-4222-8222-222222222222';
-for (const journey of ['lead', 'refine', 'child'] as const)
+for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
   for (const theme of ['dark', 'light'] as const)
     test(`ordinary ${journey} setup preserves the source and retained chat controls (${theme})`, async ({
       page,
@@ -41,7 +41,11 @@ for (const journey of ['lead', 'refine', 'child'] as const)
         assistantBoundary: true,
         terminalBookkeeping: true,
       });
-      let work: TelosWorkView = { ...data.work, kind: 'outcome' };
+      const refining = journey === 'refine' || journey === 'leaf';
+      let work: TelosWorkView = {
+        ...data.work,
+        kind: journey === 'leaf' ? 'work_item' : 'outcome',
+      };
       const inventory = localInventoryFixture();
       const actionLabel = journey === 'lead' ? 'Assign lead & open chat' : 'Start chat';
       let savedWork: TelosWorkView | null = null;
@@ -51,6 +55,7 @@ for (const journey of ['lead', 'refine', 'child'] as const)
         ...createTelosWorkFixtures().homeStudio.items[0],
         itemId: 'studio',
         summary: 'Home studio',
+        kind: journey === 'leaf' ? 'work_item' : 'outcome',
         intent: 'Record clearly',
       };
       const calls: unknown[] = [],
@@ -187,6 +192,10 @@ for (const journey of ['lead', 'refine', 'child'] as const)
           );
           advisorSaves.push(input);
           expect(input.previewSha256).toBe(advisorPreview!.sha256);
+          if (journey === 'leaf') {
+            expect(input.operation).toBe('refine');
+            expect(input.proposed.type).toBe('work_item');
+          }
           const itemId = journey === 'child' ? 'advisor-child' : 'studio';
           const snapshot = {
             ...data.work.sources[0],
@@ -429,12 +438,18 @@ for (const journey of ['lead', 'refine', 'child'] as const)
       });
       await page.goto('/todos/studio');
       await expect(page.getByRole('button', { name: 'Open original chat' })).toBeVisible();
+      if (journey === 'leaf') {
+        await expect(page.getByRole('button', { name: 'Choose worker' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Refine item' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Add child with advisor' })).toHaveCount(0);
+        await page.screenshot({ path: info.outputPath(`leaf-item-${theme}.png`) });
+      }
       await page
         .getByRole('button', {
           name:
             journey === 'lead'
               ? 'Choose lead collaborator'
-              : journey === 'refine'
+              : refining
                 ? 'Refine item'
                 : 'Add child with advisor',
         })
@@ -505,7 +520,7 @@ for (const journey of ['lead', 'refine', 'child'] as const)
       if (journey !== 'lead') {
         await page
           .getByRole('button', {
-            name: journey === 'refine' ? 'Propose refinement' : 'Suggest a draft',
+            name: refining ? 'Propose refinement' : 'Suggest a draft',
           })
           .click();
         await page
@@ -523,7 +538,7 @@ for (const journey of ['lead', 'refine', 'child'] as const)
         await expect(page.getByLabel('Name', { exact: true })).toBeInViewport();
         await page.screenshot({ path: info.outputPath(`advisor-${journey}-${theme}.png`) });
         const save = page.getByRole('button', {
-          name: journey === 'refine' ? 'Save refinement' : 'Save child draft',
+          name: refining ? 'Save refinement' : 'Save child draft',
         });
         await save.scrollIntoViewIfNeeded();
         await expect(save).toBeInViewport();

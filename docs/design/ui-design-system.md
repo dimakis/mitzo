@@ -1341,7 +1341,12 @@ Inspected S4 captures: [mobile ordinary settings](assets/telos-role-settings-mob
 [mobile proposal fields](assets/telos-advisor-fields-mobile-dark.png),
 [mobile child Save](assets/telos-advisor-save-mobile-light.png), and
 [desktop refinement Save](assets/telos-advisor-save-desktop-light.png).
-The final run passed 18 route scenarios plus two browser startup dependencies;
+Leaf work items retain Choose worker and Refine item; Add child is reserved for
+explicit parent kinds. This follows the frozen leaf Overview/Work distinction,
+using canonical kinds rather than inferring kind from a child count. Fresh captures:
+[320px dark leaf](assets/telos-leaf-mobile-dark.png) and
+[desktop light leaf](assets/telos-leaf-desktop-light.png).
+The expanded run passed 24 route scenarios plus two browser startup dependencies;
 the startup checks are not additional role journeys.
 
 ## Device continuity
