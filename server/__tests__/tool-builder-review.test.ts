@@ -386,6 +386,58 @@ it('prevents an older qualification from publishing after a newer attempt fails'
   }
 });
 
+it('finishes cancellation even when an installed qualifier does not settle its promise', async () => {
+  const f = fixture();
+  const controller = new AbortController();
+  try {
+    f.store.save('user', 'builder-session', 'call', f.draft, 0);
+    f.store.submit('user', 'builder-session', id, 1, f.draft.contractDigest);
+    f.store.review(
+      'user',
+      id,
+      1,
+      { decision: 'accepted', feedback: '', contractDigest: f.draft.contractDigest },
+      'operator',
+    );
+    f.qualify.mockImplementationOnce(() => new Promise<void>(() => {}));
+    const completion = f.store
+      .publish('user', id, 1, f.draft.contractDigest, {
+        signal: controller.signal,
+        assertCurrent() {},
+      })
+      .catch((error) => error);
+    controller.abort();
+    const result = await Promise.race([
+      completion,
+      new Promise((resolve) => setTimeout(() => resolve('still pending'), 30)),
+    ]);
+    expect(result).toBeInstanceOf(Error);
+    expect(f.store.listTools('user')).toEqual([]);
+  } finally {
+    f.store.close();
+  }
+});
+
+it('treats a rejected qualifier without an error value as a failed test', async () => {
+  const f = fixture();
+  try {
+    f.store.save('user', 'builder-session', 'call', f.draft, 0);
+    f.store.submit('user', 'builder-session', id, 1, f.draft.contractDigest);
+    f.store.review(
+      'user',
+      id,
+      1,
+      { decision: 'accepted', feedback: '', contractDigest: f.draft.contractDigest },
+      'operator',
+    );
+    f.qualify.mockRejectedValueOnce(undefined);
+    await expect(f.store.publish('user', id, 1, f.draft.contractDigest)).rejects.toBeUndefined();
+    expect(f.store.listTools('user')).toEqual([]);
+  } finally {
+    f.store.close();
+  }
+});
+
 it('blocks publication when source changes during independent qualification', async () => {
   const f = fixture();
   try {

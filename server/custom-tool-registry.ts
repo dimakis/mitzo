@@ -39,6 +39,34 @@ export interface CustomToolBinding {
   definition: { name: string; description: string; input_schema: Record<string, unknown> };
 }
 const hash = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
+function withSignal<T>(start: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (result: { ok: true; value: T } | { ok: false; error: unknown }) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', abort);
+      if (!result.ok) reject(result.error);
+      else resolve(result.value);
+    };
+    const abort = () =>
+      finish({ ok: false, error: signal.reason ?? Error('Custom qualification cancelled') });
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    try {
+      Promise.resolve(start()).then(
+        (value) => finish({ ok: true, value }),
+        (error) => finish({ ok: false, error }),
+      );
+    } catch (error) {
+      finish({ ok: false, error });
+    }
+  });
+}
 
 /** No loader, command, network client or credential context exists in this registry. */
 export class CustomToolRegistry {
@@ -130,12 +158,15 @@ export class CustomToolRegistry {
     const schema = validateToolBuilderExamples(draft);
     // The oracle and completion control live in this trusted process. Only
     // statically installed accepted code is invoked here; no draft is imported.
-    await installed.qualify(options.signal);
+    await withSignal(() => installed.qualify(options.signal), options.signal);
     check();
     for (const example of draft.examples) {
       const input = installed.input.parse(structuredClone(example.input));
       check();
-      const actual = await installed.execute(input, options.signal);
+      const actual = await withSignal(
+        () => installed.execute(input, options.signal),
+        options.signal,
+      );
       check();
       schema.output.validate(actual);
       installed.output.parse(actual);
