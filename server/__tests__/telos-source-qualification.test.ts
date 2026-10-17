@@ -9,6 +9,8 @@ import { EventStore } from '../event-store.js';
 import { replayEventsToMessages, replayEventsToTranscript } from '../chat.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
 import { createTelosConversationSource } from '../telos-conversation-source.js';
+import { compileCollaborationSourceContext } from '../collaboration-context-compiler.js';
+import { nativeSourceWriter } from './fixtures/telos-native-source.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() =>
@@ -34,10 +36,10 @@ function fixture(initialPrompt?: string) {
   const source = createTelosConversationSource({ events, artifacts, authorize: () => true });
   const append = (type: string, payload: Record<string, unknown>) =>
     events.append('origin', type, payload);
-  const assistant = (id: string, close = true) => {
+  const assistant = (id: string, close = true, text = 'Visible answer') => {
     append('message_start', { messageId: id });
     append('block_start', { messageId: id, blockId: id + '-text', blockType: 'text' });
-    append('block_delta', { messageId: id, blockId: id + '-text', delta: 'Visible answer' });
+    append('block_delta', { messageId: id, blockId: id + '-text', delta: text });
     if (close) append('block_end', { messageId: id, blockId: id + '-text', blockType: 'text' });
     return append('message_end', { messageId: id });
   };
@@ -223,6 +225,178 @@ const native = {
   isolationDomainId: 'shared',
   isolationDomainRevision: 1,
 };
+it.each(['selected', 'conversation_so_far'] as const)(
+  'refuses native source order that reverses the displayed exchange in %s mode',
+  async (mode) => {
+    const f = fixture();
+    const writer = nativeSourceWriter(f.events);
+    const firstStart = writer.start(0, 'first', 'First visible reply');
+    const secondStart = writer.start(1, 'second', 'Second visible reply');
+    writer.end(1, 'second');
+    const sequence = writer.end(0, 'first');
+    expect(f.replay().messages.map((message) => [message.messageId, message.startedSeq])).toEqual([
+      ['first', firstStart],
+      ['second', secondStart],
+    ]);
+    const selection = {
+      ...f.selection(sequence, 'first', mode),
+      messageIds: mode === 'selected' ? ['second', 'first'] : [],
+    };
+    await expect(compileCollaborationSourceContext(selection, f.source)).rejects.toThrow(
+      /display.*order/,
+    );
+  },
+);
+it.each(['selected', 'conversation_so_far'] as const)(
+  'refuses native/user completion order that reverses the displayed exchange in %s mode',
+  async (mode) => {
+    const f = fixture();
+    const writer = nativeSourceWriter(f.events);
+    writer.start(0, 'first', 'Reply already displayed');
+    f.append('user_message', { messageId: 'later-user', text: 'Later operator message' });
+    const sequence = writer.end(0, 'first');
+    expect(f.replay().messages.map((message) => message.messageId)).toEqual([
+      'first',
+      'later-user',
+    ]);
+    await expect(
+      compileCollaborationSourceContext(
+        {
+          ...f.selection(sequence, 'first', mode),
+          messageIds: mode === 'selected' ? ['later-user', 'first'] : [],
+        },
+        f.source,
+      ),
+    ).rejects.toThrow(/display.*order/);
+  },
+);
+it.each(['selected', 'conversation_so_far'] as const)(
+  'preserves native displayed order, terminal cursors and provenance in %s mode',
+  async (mode) => {
+    const f = fixture();
+    const writer = nativeSourceWriter(f.events);
+    writer.start(0, 'first', 'First visible reply');
+    writer.start(1, 'second', 'Second visible reply');
+    const firstEnd = writer.end(0, 'first');
+    const sequence = writer.end(1, 'second');
+    const selection = {
+      ...f.selection(sequence, 'second', mode),
+      messageIds: mode === 'selected' ? ['second', 'first'] : [],
+    };
+    const compiled = await compileCollaborationSourceContext(selection, f.source);
+    expect(compiled.messages.map((message) => [message.messageId, message.sequence])).toEqual([
+      ['first', firstEnd],
+      ['second', sequence],
+    ]);
+    expect(compiled.messages.map((message) => message.messageId)).toEqual(
+      f.replay().messages.map((message) => message.messageId),
+    );
+    const opened = await f.source.openConversation(selection);
+    expect(opened.attributions.first.provenance).toEqual(writer.provenance[0]);
+    expect(opened.attributions.second.provenance).toEqual(writer.provenance[1]);
+  },
+);
+it.each(['first', 'second'])(
+  'preserves a single explicit %s selection despite another native reply finishing first',
+  async (messageId) => {
+    const f = fixture();
+    const writer = nativeSourceWriter(f.events);
+    writer.start(0, 'first', 'First visible reply');
+    writer.start(1, 'second', 'Second visible reply');
+    writer.end(1, 'second');
+    const sequence = writer.end(0, 'first');
+    const compiled = await compileCollaborationSourceContext(
+      { ...f.selection(sequence, 'first'), messageIds: [messageId] },
+      f.source,
+    );
+    expect(compiled.messages.map((message) => message.messageId)).toEqual([messageId]);
+  },
+);
+it.each(
+  ['', ' \n\t'].flatMap((text) =>
+    (['selected', 'conversation_so_far'] as const).map((mode) => ({ text, mode })),
+  ),
+)('refuses a blank final assistant source boundary $text in $mode mode', async ({ text, mode }) => {
+  const f = fixture();
+  const earlier = f.append('user_message', { messageId: 'earlier', text: 'Earlier visible text' });
+  const sequence = f.assistant('blank', true, text);
+  await expect(
+    compileCollaborationSourceContext(f.selection(sequence, 'blank', mode), f.source),
+  ).rejects.toThrow(/visible public text.*boundary/);
+  await expect(
+    compileCollaborationSourceContext(
+      { ...f.selection(sequence, 'blank'), messageIds: ['earlier'] },
+      f.source,
+    ),
+  ).rejects.toThrow(/visible public text.*boundary/);
+  const selected = await compileCollaborationSourceContext(
+    f.selection(earlier, 'earlier'),
+    f.source,
+  );
+  expect(selected.messages[0].blocks[0].content).toBe('Earlier visible text');
+  const later = f.append('user_message', { messageId: 'later', text: 'Later visible text' });
+  expect(
+    (await compileCollaborationSourceContext(f.selection(later, 'later'), f.source)).messages[0]
+      .messageId,
+  ).toBe('later');
+  const prefix = await compileCollaborationSourceContext(
+    f.selection(later, 'later', 'conversation_so_far'),
+    f.source,
+  );
+  expect(prefix.messages.map((message) => message.messageId)).toEqual([
+    'earlier',
+    'blank',
+    'later',
+  ]);
+  expect(prefix.messages[1].blocks[0].content).toBe(text);
+});
+it('preserves blank blocks when a later public text block makes the boundary visible', async () => {
+  const f = fixture();
+  f.append('message_start', { messageId: 'mixed' });
+  for (const [blockId, text] of [
+    ['blank', ' \n'],
+    ['visible', 'Visible later text'],
+  ]) {
+    f.append('block_start', { messageId: 'mixed', blockId, blockType: 'text' });
+    f.append('block_delta', { messageId: 'mixed', blockId, delta: text });
+    f.append('block_end', { messageId: 'mixed', blockId, blockType: 'text' });
+  }
+  const sequence = f.append('message_end', { messageId: 'mixed' });
+  const compiled = await compileCollaborationSourceContext(
+    f.selection(sequence, 'mixed'),
+    f.source,
+  );
+  expect(compiled.messages[0].blocks.map((block) => block.content)).toEqual([
+    ' \n',
+    'Visible later text',
+  ]);
+});
+it.each(['selected', 'conversation_so_far'] as const)(
+  'refuses a blank public boundary even when private activity renders in %s mode',
+  async (mode) => {
+    const f = fixture();
+    f.append('message_start', { messageId: 'blank-activity' });
+    f.append('block_start', {
+      messageId: 'blank-activity',
+      blockId: 'tool',
+      blockType: 'tool_use',
+    });
+    f.append('tool_result', {
+      messageId: 'blank-activity',
+      blockId: 'tool',
+      content: 'Private activity',
+    });
+    f.append('block_end', { messageId: 'blank-activity', blockId: 'tool', blockType: 'tool_use' });
+    f.append('block_start', { messageId: 'blank-activity', blockId: 'blank', blockType: 'text' });
+    f.append('block_delta', { messageId: 'blank-activity', blockId: 'blank', delta: ' \n' });
+    f.append('block_end', { messageId: 'blank-activity', blockId: 'blank', blockType: 'text' });
+    const sequence = f.append('message_end', { messageId: 'blank-activity' });
+    expect(f.replay().messages[0].blocks.map((block) => block.blockType)).toContain('tool_use');
+    await expect(
+      compileCollaborationSourceContext(f.selection(sequence, 'blank-activity', mode), f.source),
+    ).rejects.toThrow(/visible public text.*boundary/);
+  },
+);
 it.each(
   ['block_start', 'block_delta', 'block_end', 'message_end'].flatMap((type) =>
     ['configRevision', 'accountProfileRevision', 'contextGrantRevision'].map((field) => ({

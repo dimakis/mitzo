@@ -1,14 +1,20 @@
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
+import { TelosSourcePacketSchema } from '@mitzo/protocol';
+import type { FinishedMessage } from '../../frontend/src/types/chat';
 import { EventStore } from '../../server/event-store';
 import { TelosArtifactStore } from '../../server/telos-artifact-store';
 import { TelosWorkStore } from '../../server/telos-work-store';
 import { TelosSourceCapture } from '../../server/telos-source-capture';
 
 /** Actual temporary source/artifact owners, synthetic public messages only. */
-export async function telosSourceBrowserData({ assistantBoundary = false } = {}) {
+export async function telosSourceBrowserData({
+  assistantBoundary = false,
+  historicalBlankActivity = false,
+} = {}) {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'telos-browser-'));
   const path = join(root, 'telos.db');
   const db = new Database(path);
@@ -25,7 +31,7 @@ export async function telosSourceBrowserData({ assistantBoundary = false } = {})
       conversationSource: 'mitzo',
       summary: 'Studio planning',
     });
-    const messages = Array.from({ length: 61 }, (_, i) => ({
+    const messages: FinishedMessage[] = Array.from({ length: 61 }, (_, i) => ({
       messageId: i === 30 ? 'approved' : 'message-' + i,
       role: i === 30 && assistantBoundary ? ('assistant' as const) : ('user' as const),
       blocks: [
@@ -39,23 +45,41 @@ export async function telosSourceBrowserData({ assistantBoundary = false } = {})
           blockId: 'text-' + i,
           blockType: 'text' as const,
           content:
-            i === 30
-              ? 'Use the approved acoustic plan.'
-              : 'Studio discussion ' +
-                i +
-                ': keep the microphone setup and room treatment in the agreed plan.',
+            i === 30 && historicalBlankActivity
+              ? ' \n\t'
+              : i === 30
+                ? 'Use the approved acoustic plan.'
+                : 'Studio discussion ' +
+                  i +
+                  ': keep the microphone setup and room treatment in the agreed plan.',
         },
       ],
     }));
+    if (historicalBlankActivity)
+      messages[30].blocks.push({
+        blockId: 'historical-tool',
+        blockType: 'tool_use',
+        content: '',
+        toolName: 'Read',
+        toolInput: '{}',
+      });
     let boundary = 0;
+    let precedingBoundary = 0;
     let cursor = 0;
     for (const message of messages) {
       if (message.role === 'assistant') {
         events.append('planning', 'message_start', { messageId: message.messageId });
         for (const block of message.blocks) {
           const identity = { messageId: message.messageId, blockId: block.blockId };
-          events.append('planning', 'block_start', { ...identity, blockType: 'text' });
-          events.append('planning', 'block_delta', { ...identity, delta: block.content });
+          events.append('planning', 'block_start', {
+            ...identity,
+            blockType: block.blockType,
+            ...(block.blockType === 'tool_use'
+              ? { toolName: block.toolName, toolInput: block.toolInput }
+              : {}),
+          });
+          if (block.blockType === 'text')
+            events.append('planning', 'block_delta', { ...identity, delta: block.content });
           events.append('planning', 'block_end', identity);
         }
         cursor = events.append('planning', 'message_end', { messageId: message.messageId });
@@ -66,6 +90,7 @@ export async function telosSourceBrowserData({ assistantBoundary = false } = {})
         });
       }
       if (message.messageId === 'approved') boundary = cursor;
+      if (message.messageId === 'message-29') precedingBoundary = cursor;
     }
     const capture = new TelosSourceCapture({
       events,
@@ -89,16 +114,102 @@ export async function telosSourceBrowserData({ assistantBoundary = false } = {})
         joiningBrief: '',
       },
     };
-    const preview = await capture.preview(input, actor);
-    const receipt = await capture.adopt(
-      {
-        ...input,
-        requestId: 'fixture-adopt',
-        expectedRevision: preview.packet.workRevision,
-        previewSha256: preview.sha256,
-      },
-      actor,
-    );
+    let receipt: Awaited<ReturnType<typeof capture.adopt>>;
+    if (historicalBlankActivity) {
+      // Explicit v1 pre-fix retained packet. Current capture must reject this
+      // boundary; seed its valid historical bytes/links through existing owners
+      // and inspect them with the real retained-source reader, never new capture.
+      const earlier = await capture.preview(
+        {
+          ...input,
+          selection: {
+            ...input.selection,
+            boundary: { sequence: precedingBoundary, messageId: 'message-29' },
+            messageIds: ['message-29'],
+          },
+        },
+        actor,
+      );
+      const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+      const packet = TelosSourcePacketSchema.parse({
+        ...earlier.packet,
+        selection: input.selection,
+        context: {
+          ...earlier.packet.context,
+          boundary: input.selection.boundary,
+          messages: [
+            {
+              conversationId: 'planning',
+              messageId: 'approved',
+              sequence: boundary,
+              author: { sessionId: 'planning' },
+              source: null,
+              blocks: messages[30].blocks
+                .filter((block) => block.blockType === 'text')
+                .map((block) => ({
+                  blockId: block.blockId,
+                  content: block.content,
+                  sha256: sha(block.content),
+                })),
+            },
+          ],
+        },
+        attributions: {
+          approved: {
+            seatId: null,
+            provenance: null,
+            createdAt: events.getEventsAfter('planning', boundary - 1, 1)[0].createdAt,
+          },
+        },
+      });
+      const bytes = JSON.stringify(packet);
+      const artifact = artifacts.save({
+        itemId: 'studio',
+        filename: `origin-${sha(bytes)}.json`,
+        title: 'Historical v1 original discussion with blank public text',
+        bytes: Buffer.from(bytes),
+        sessionId: 'source-capture:historical-fixture-v1',
+      });
+      receipt = work.execute(
+        {
+          operation: 'source',
+          itemId: 'studio',
+          requestId: 'historical-fixture-v1',
+          expectedRevision: packet.workRevision,
+          snapshot: {
+            version: 1,
+            snapshotId: 'historical-fixture-v1',
+            itemId: 'studio',
+            source: { namespace: 'mitzo', conversationId: 'planning' },
+            selection: {
+              kind: 'selected',
+              messageIds: ['approved'],
+              blockIds: packet.context.messages[0].blocks.map((block) => block.blockId),
+              throughSequence: boundary,
+            },
+            adoptedBrief: { revision: packet.brief.sha256, sha256: packet.brief.sha256 },
+            artifacts: [
+              { artifactId: artifact.id, revision: artifact.revision, sha256: artifact.sha256 },
+            ],
+            author: null,
+            sourceCreatedAt: packet.sourceCreatedAt,
+            adoptedAt: artifact.createdAt,
+          },
+        },
+        actor,
+      );
+    } else {
+      const preview = await capture.preview(input, actor);
+      receipt = await capture.adopt(
+        {
+          ...input,
+          requestId: 'fixture-adopt',
+          expectedRevision: preview.packet.workRevision,
+          previewSha256: preview.sha256,
+        },
+        actor,
+      );
+    }
     const source = capture.read('studio', receipt.work.sources[0].snapshotId, actor);
     const outputs = artifacts.list({ itemId: 'studio' });
     return { work: receipt.work, source, messages, outputs, cursor };

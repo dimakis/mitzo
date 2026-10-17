@@ -20,13 +20,19 @@ const compiled = build({
   },
 });
 const sourceCases = (['dark', 'light'] as const).flatMap((theme) =>
-  (['ready', 'unavailable'] as const).map((sourceStatus) => ({ theme, sourceStatus })),
+  (['ready', 'unavailable', 'historical-activity'] as const).map((sourceStatus) => ({
+    theme,
+    sourceStatus,
+  })),
 );
 for (const { theme, sourceStatus } of sourceCases)
-  test(`retained source ${sourceStatus === 'ready' ? 'anchors visible assistant text and returns to its item' : 'failure releases ordinary restore, send and stream following'} (${theme})`, async ({
+  test(`retained source ${sourceStatus === 'ready' ? 'anchors visible assistant text and returns to its item' : sourceStatus === 'unavailable' ? 'failure releases ordinary restore, send and stream following' : 'historical blank public text preserves activity and ordinary following'} (${theme})`, async ({
     page,
   }, info) => {
-    const data = await telosSourceBrowserData({ assistantBoundary: true });
+    const data = await telosSourceBrowserData({
+      assistantBoundary: true,
+      historicalBlankActivity: sourceStatus === 'historical-activity',
+    });
     const files = (await compiled).outputFiles;
     const errors: string[] = [];
     const transcripts: string[] = [];
@@ -82,7 +88,7 @@ for (const { theme, sourceStatus } of sourceCases)
       if (path === '/api/telos/work/items/studio') return route.fulfill({ json: data.work });
       if (path === '/api/telos/work/items/studio/sources/' + data.source.snapshot.snapshotId) {
         // The item opener first verifies the target; fail the later chat-owned read.
-        if (++sourceReads === 1 || sourceStatus === 'ready')
+        if (++sourceReads === 1 || sourceStatus !== 'unavailable')
           return route.fulfill({ json: data.source });
         await sourceFailureBarrier;
         return route.fulfill({ status: 503, json: { error: 'Retained source unavailable' } });
@@ -189,15 +195,29 @@ for (const { theme, sourceStatus } of sourceCases)
     await page.screenshot({ path: info.outputPath(`telos-item-sources-${theme}.png`) });
     await page.getByRole('button', { name: 'Open original chat' }).click();
     await expect(page).toHaveURL(new RegExp('/chat/planning\\?telosItem=studio&telosSource='));
-    if (sourceStatus === 'unavailable') {
-      await expect(page.getByText('Opening original exchange…', { exact: true })).toBeVisible();
+    if (sourceStatus !== 'ready') {
+      if (sourceStatus === 'unavailable')
+        await expect(page.getByText('Opening original exchange…', { exact: true })).toBeVisible();
       await expect(page.getByText('Studio discussion 60:', { exact: false })).toBeAttached();
       const scroll = page.locator('.chat-messages');
-      releaseSourceFailure();
-      await expect(page.getByText('Original exchange unavailable', { exact: true })).toBeVisible();
-      await expect(
-        page.getByText('Use the approved acoustic plan.', { exact: true }),
-      ).toBeAttached();
+      if (sourceStatus === 'unavailable') {
+        releaseSourceFailure();
+        await expect(
+          page.getByText('Original exchange unavailable', { exact: true }),
+        ).toBeVisible();
+        await expect(
+          page.getByText('Use the approved acoustic plan.', { exact: true }),
+        ).toBeAttached();
+      } else {
+        // This is a retained pre-fix packet, not a new capture admitted by the
+        // corrected guard. The real reader verifies its exact bytes and links.
+        expect(data.source.packet.version).toBe(1);
+        expect(
+          data.source.packet.context.messages[0].blocks.every((block) => !block.content.trim()),
+        ).toBe(true);
+        await expect(page.getByRole('link', { name: 'Home studio', exact: true })).toBeVisible();
+        await expect(page.getByRole('button', { name: /Agents at work.*Read/ })).toBeAttached();
+      }
       await expect(page.locator('[data-telos-source-anchor="true"]')).toHaveCount(0);
       const distanceFromBottom = () =>
         scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
@@ -240,9 +260,11 @@ for (const { theme, sourceStatus } of sourceCases)
         .poll(() => scroll.evaluate((el) => el.scrollHeight))
         .toBeGreaterThan(heightBefore);
       await expect.poll(distanceFromBottom).toBeLessThan(3);
+      if (sourceStatus === 'historical-activity')
+        await expect(page.getByRole('button', { name: /Agents at work.*Read/ })).toBeAttached();
       await expect(page).toHaveURL(new RegExp('/chat/planning\\?telosItem=studio&telosSource='));
       await page.screenshot({
-        path: info.outputPath(`telos-source-unavailable-following-${theme}.png`),
+        path: info.outputPath(`telos-source-${sourceStatus}-following-${theme}.png`),
       });
       expect(transcripts).toHaveLength(1);
       expect(unexpected).toEqual([]);

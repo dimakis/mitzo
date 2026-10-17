@@ -9,6 +9,7 @@ import request from 'supertest';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
 import { EventStore } from '../event-store.js';
 import { createTelosSourceRouter } from '../telos-source-routes.js';
+import { nativeSourceWriter } from './fixtures/telos-native-source.js';
 import { readFileSync } from 'node:fs';
 import {
   reviewedHandlerSourceArtifacts,
@@ -130,6 +131,120 @@ function fixture() {
   return { app, events, selection, dbPath, post, createOutcome };
 }
 describe('authenticated Telos source capture API', () => {
+  it.each(
+    [
+      'native-reversed',
+      'native-user',
+      'blank',
+      'whitespace',
+      'blank-activity',
+      'invalid-boundary',
+    ].flatMap((kind) =>
+      (['selected', 'conversation_so_far'] as const).map((mode) => ({ kind, mode })),
+    ),
+  )(
+    'qualifies $kind final source boundaries in $mode mode before any mutation',
+    async ({ kind, mode }) => {
+      const f = fixture();
+      let sequence: number;
+      let messageIds: string[];
+      let messageId: string;
+      if (kind.startsWith('native') || kind === 'invalid-boundary') {
+        const writer = nativeSourceWriter(f.events);
+        writer.start(0, 'first', 'First visible reply');
+        messageId = 'first';
+        if (kind === 'native-reversed') {
+          writer.start(1, 'second', 'Second visible reply');
+          writer.end(1, 'second');
+          messageIds = ['second', 'first'];
+        } else if (kind === 'native-user') {
+          f.events.append('origin', 'user_message', {
+            messageId: 'later-user',
+            text: 'Later operator message',
+          });
+          messageIds = ['later-user', 'first'];
+        } else messageIds = ['first'];
+        sequence =
+          kind === 'invalid-boundary'
+            ? f.events.getSessionEvents('origin').at(-1)!.seq
+            : writer.end(0, 'first');
+      } else {
+        messageId = 'blank';
+        messageIds = ['blank'];
+        f.events.append('origin', 'message_start', { messageId });
+        if (kind === 'blank-activity') {
+          f.events.append('origin', 'block_start', {
+            messageId,
+            blockId: 'tool',
+            blockType: 'tool_use',
+          });
+          f.events.append('origin', 'tool_result', {
+            messageId,
+            blockId: 'tool',
+            content: 'Private activity',
+          });
+          f.events.append('origin', 'block_end', {
+            messageId,
+            blockId: 'tool',
+            blockType: 'tool_use',
+          });
+        }
+        f.events.append('origin', 'block_start', { messageId, blockId: 'text', blockType: 'text' });
+        f.events.append('origin', 'block_delta', {
+          messageId,
+          blockId: 'text',
+          delta: kind === 'blank' ? '' : ' \n\t',
+        });
+        f.events.append('origin', 'block_end', { messageId, blockId: 'text', blockType: 'text' });
+        sequence = f.events.append('origin', 'message_end', { messageId });
+      }
+      const input = {
+        requestId: randomUUID(),
+        outcome: {
+          summary: 'Reviewed outcome',
+          intent: 'Result',
+          rationale: 'Why',
+          acceptanceCriteria: ['Evidence'],
+          milestones: ['One'],
+          profile: 'manual',
+        },
+        selection: {
+          ...f.selection,
+          mode,
+          messageIds: mode === 'selected' ? messageIds : [],
+          boundary: { sequence, messageId },
+        },
+      };
+      const status = kind === 'invalid-boundary' ? 503 : 400;
+      const preview = await f.post('outcome/preview', input);
+      expect.soft(preview.status).toBe(status);
+      const result = await f.post('outcome/create', {
+        ...input,
+        previewSha256: preview.body.sha256 ?? '0'.repeat(64),
+      });
+      expect.soft(result.status).toBe(status);
+      expect.soft(f.createOutcome).not.toHaveBeenCalled();
+      const db = new Database(f.dbPath());
+      try {
+        expect.soft(db.prepare('SELECT id FROM items').all()).toEqual([{ id: 'item' }]);
+        for (const table of [
+          'sources',
+          'links',
+          'telos_artifact_revisions',
+          'telos_work_sources',
+          'telos_work_links',
+          'telos_work_assignments',
+          'telos_work_attempts',
+          'telos_work_source_creations',
+        ])
+          expect
+            .soft(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get(), table)
+            .toEqual({ n: 0 });
+      } finally {
+        db.close();
+      }
+    },
+  );
   it.each(['bare', 'titled', 'reference'])(
     'refuses mutable %s materials before canonical or retained-source mutation',
     async (form) => {

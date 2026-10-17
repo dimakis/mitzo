@@ -47,6 +47,18 @@ seat/message/generation. A schema-valid snapshot change within a turn is refused
 before selected-message filtering. Block IDs remain unique across public text,
 thinking and tool blocks, so reuse cannot relabel private deltas as public text.
 
+Normal chat displays native replies at their message start, while the shared
+capture compiler uses durable completion cursors. If concurrent native replies,
+or a native reply and an intervening operator message, finish in a different
+order from that display, selected and full-prefix capture explicitly refuse to
+retain them together.
+Select one completed message or a range whose display and completion order agree;
+capture does not silently reorder or omit the exchange. Single-message selections
+and native replies whose orders agree preserve their exact IDs and provenance.
+A final assistant boundary must contain nonblank public text. Blank or private
+activity cannot supply that source anchor; earlier valid boundaries and later
+visible text remain available, and existing retained packets are not rewritten.
+
 The two existing chat replay paths differ for legacy unfinished blocks: modern
 reconnect may display their text at `message_end`, while historical REST can omit
 them. The accepted bounded-source contract requires closed public text blocks, so
@@ -112,6 +124,14 @@ Known legacy origins can open their real chat while explicitly preserving an
 unknown reviewed exchange, including when an unknown source snapshot names the
 same conversation. Unavailable origins never start replacement chats.
 
+For an existing retained packet whose exact restored, completed assistant boundary
+has no nonblank public text, source navigation reports the unavailable anchor and
+releases normal bottom navigation, sending and streamed-reply following. This
+includes empty or whitespace text with tool/activity blocks; activity rendering
+and the retained packet remain intact. Loading or not-yet-restored boundaries keep
+waiting, and a later visible public text block in the same message still anchors
+normally.
+
 S7/S8 still own the complete frozen workspace/tree, category pins, child advisor,
 lead controls, many-chat entry chooser and the complete slim item/chats/work row.
 This increment supplies their source navigation and preserves the normal renderer;
@@ -134,12 +154,18 @@ The scoped browser fixture mounts the actual `TodoDetailView` and
 `ResponsiveChatView` routes, including `ChatView`/`DesktopChatView`, the real
 client store and its unchanged REST transcript restoration. Source evidence comes
 from actual temporary event/artifact/work stores; HTTP responses and the inert
-protocol transport are synthetic and all browser traffic is intercepted. Six
-cases check 320px mobile WebKit/Chromium and 1280px desktop Chromium in light/dark
+protocol transport are synthetic and all browser traffic is intercepted. The
+expanded current matrix passes 18 actual-route cases plus two startup cases
+(20 total). Earlier 12-route results remain attributed to their recorded tested
+heads. The route cases check 320px mobile WebKit/Chromium and 1280px desktop
+Chromium in light/dark
 appearance with alternate accents/font, exact source anchoring, ordinary bound
 account/model/thinking settings, Resources backlinks and composer draft retention
 through item/chat navigation. A later simulated streamed reply preserves the
-reader's source position. Screenshots are recorded per platform/theme. This is
+reader's source position. Six added historical blank-packet cases verify the
+unavailable-anchor fallback and restored ordinary navigation, send and stream
+following without changing retained bytes. Screenshots are recorded per
+platform/theme. This is
 offline route integration evidence; reviewed capture still needs its frontend
 caller, and full S9 device/runtime qualification remains outstanding. No backend,
 provider or model starts, and no deployment is claimed. Focused tests use one

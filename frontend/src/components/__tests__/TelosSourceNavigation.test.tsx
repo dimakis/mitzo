@@ -110,6 +110,148 @@ it.each(['', ' \n\t'])(
   },
 );
 
+it.each(
+  [[], [''], [' \n\t']].flatMap((contents) =>
+    (['source-first', 'history-first'] as const).map((order) => ({ contents, order })),
+  ),
+)(
+  'releases a restored blank assistant boundary ($contents, $order)',
+  async ({ contents, order }) => {
+    let resolve!: (value: never) => void;
+    const read = vi
+      .spyOn(TelosWorkApiClient.prototype, 'readSource')
+      .mockImplementation(() => new Promise((finish) => (resolve = finish)));
+    const jump = vi.fn();
+    Element.prototype.scrollIntoView = jump;
+    Element.prototype.scrollTo = vi.fn();
+    const scrollRef = { current: null as HTMLDivElement | null };
+    const history: import('../../types/chat').FinishedMessage[] = messages.map((message) =>
+      message.messageId === 'approved'
+        ? {
+            ...message,
+            role: 'assistant' as const,
+            blocks: contents.map((content, index) => ({
+              blockId: `blank-${index}`,
+              blockType: 'text' as const,
+              content,
+            })),
+          }
+        : message,
+    );
+    const stream = (content: string): import('../../types/chat').StreamingMessage => ({
+      messageId: 'reply',
+      blocks: new Map([
+        ['reply-text', { blockId: 'reply-text', blockType: 'text', content, done: false }],
+      ]),
+      blockOrder: ['reply-text'],
+    });
+    const surface = render(<Surface scrollRef={scrollRef} history={[]} />);
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    const el = scrollRef.current!;
+    let height = 2_000;
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, get: () => height },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    if (order === 'history-first') {
+      surface.rerender(<Surface scrollRef={scrollRef} history={history} />);
+      expect(el.scrollTop).toBe(0);
+    }
+    await act(async () => resolve(view as never));
+    if (order === 'source-first') {
+      // A source response alone cannot establish whether its transcript row exists.
+      expect(el.scrollTop).toBe(0);
+      surface.rerender(<Surface scrollRef={scrollRef} history={history} />);
+    }
+    expect(el.scrollTop).toBe(height);
+    expect(jump).not.toHaveBeenCalled();
+    expect(surface.container.querySelector('[data-telos-source-anchor="true"]')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Home studio' })).toBeTruthy();
+
+    el.scrollTop = 300;
+    fireEvent.scroll(el);
+    height = 2_500;
+    surface.rerender(
+      <Surface scrollRef={scrollRef} history={history} current={stream('First later reply')} />,
+    );
+    expect(el.scrollTop).toBe(300);
+    el.scrollTop = height - el.clientHeight;
+    fireEvent.scroll(el);
+    height = 3_000;
+    surface.rerender(
+      <Surface scrollRef={scrollRef} history={history} current={stream('A longer later reply')} />,
+    );
+    expect(el.scrollTop).toBe(height);
+    expect(jump).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['tool-only', 'activity-only', 'later-visible-text'] as const)(
+  'preserves assistant activity and only owns a position with visible public text (%s)',
+  async (kind) => {
+    vi.spyOn(TelosWorkApiClient.prototype, 'readSource').mockResolvedValue(view as never);
+    const jump = vi.fn();
+    Element.prototype.scrollIntoView = jump;
+    Element.prototype.scrollTo = vi.fn();
+    const scrollRef = { current: null as HTMLDivElement | null };
+    const surface = render(<Surface scrollRef={scrollRef} history={[]} />);
+    await screen.findByRole('link', { name: 'Home studio' });
+    const el = scrollRef.current!;
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 2_000 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    const history: import('../../types/chat').FinishedMessage[] = [
+      {
+        messageId: 'approved',
+        role: 'assistant',
+        blocks: [
+          ...(kind === 'tool-only'
+            ? []
+            : [{ blockId: 'blank', blockType: 'text' as const, content: ' \n\t' }]),
+          {
+            blockId: 'tool',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'Read',
+            toolInput: '{}',
+          },
+          ...(kind === 'later-visible-text'
+            ? [{ blockId: 'visible', blockType: 'text' as const, content: 'Reviewed plan' }]
+            : []),
+        ],
+      },
+    ];
+    surface.rerender(<Surface scrollRef={scrollRef} history={history} />);
+    expect(screen.getByRole('button', { name: /Agents at work/ })).toBeTruthy();
+    if (kind === 'later-visible-text') {
+      expect(el.scrollTop).toBe(0);
+      await waitFor(() => expect(jump).toHaveBeenCalledTimes(1));
+      expect((jump.mock.contexts[0] as HTMLElement).textContent).toContain('Reviewed plan');
+    } else {
+      expect(el.scrollTop).toBe(2_000);
+      expect(jump).not.toHaveBeenCalled();
+      el.scrollTop = 300;
+      fireEvent.scroll(el);
+      surface.rerender(
+        <Surface
+          scrollRef={scrollRef}
+          history={[
+            ...history,
+            {
+              messageId: 'later',
+              role: 'assistant',
+              blocks: [{ blockId: 'later-text', blockType: 'text', content: 'Later reply' }],
+            },
+          ]}
+        />,
+      );
+      expect(el.scrollTop).toBe(300);
+      expect(screen.getByRole('button', { name: /Agents at work/ })).toBeTruthy();
+    }
+  },
+);
+
 it('releases a failed source lookup for restore and following after returning to the bottom', async () => {
   let reject!: (error: Error) => void;
   vi.spyOn(TelosWorkApiClient.prototype, 'readSource').mockImplementation(

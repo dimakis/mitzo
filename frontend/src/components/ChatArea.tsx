@@ -150,14 +150,6 @@ export function ChatArea({
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
   const source = useTelosSourceNavigation();
-  // A failed lookup releases ordinary restore/follow behavior; a pending lookup
-  // still owns the position until its retained boundary is known.
-  const sourceKey =
-    source && source.status !== 'unavailable'
-      ? JSON.stringify([source.conversationId, source.itemId, source.snapshotId])
-      : '';
-  const prevSourceKey = useRef(sourceKey);
-  const jumpedSource = useRef('');
   const sourceAnchor = (message: FinishedMessage) => {
     if (source?.status !== 'ready' || source.conversationId !== sessionId) return false;
     const id = source.packet!.context.boundary.messageId;
@@ -174,6 +166,19 @@ export function ChatArea({
           message.symposiumProvenance?.configRevision === attribution.provenance.configRevision)
     );
   };
+  const restoredBoundary = messages.find(sourceAnchor);
+  // Only visible public text can anchor a finished assistant. Historical blank
+  // or activity-only boundaries retain their normal rendering without owning
+  // ordinary scrolling. A pending or not-yet-restored boundary still owns it.
+  const unanchorableBoundary =
+    restoredBoundary?.role === 'assistant' &&
+    !restoredBoundary.blocks.some((block) => block.blockType === 'text' && block.content?.trim());
+  const sourceKey =
+    source && source.status !== 'unavailable' && !unanchorableBoundary
+      ? JSON.stringify([source.conversationId, source.itemId, source.snapshotId])
+      : '';
+  const prevSourceKey = useRef(sourceKey);
+  const jumpedSource = useRef('');
   useEffect(() => {
     if (!sourceKey) {
       jumpedSource.current = '';
