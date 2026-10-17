@@ -57,7 +57,7 @@ describe('ProtectedRoute authentication recovery', () => {
     first.unmount();
     mountRoute();
     expect(screen.getByText('Chats ready')).toBeTruthy();
-    expect(screen.queryByText('Checking authentication…')).toBeNull();
+    expect(screen.queryByText('Connecting to Mitzo…')).toBeNull();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
@@ -70,7 +70,7 @@ describe('ProtectedRoute authentication recovery', () => {
     });
     fetchMock.mockReturnValueOnce(new Promise(() => {}));
     mountRoute();
-    expect(screen.getByText('Checking authentication…')).toBeTruthy();
+    expect(screen.getByText('Connecting to Mitzo…')).toBeTruthy();
     expect(screen.queryByText('Chats ready')).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -217,13 +217,13 @@ describe('ProtectedRoute authentication recovery', () => {
   it('releases the native splash and lets Retry recover a stalled check without changing tabs', async () => {
     fetchMock.mockReturnValueOnce(new Promise(() => {}));
     mountRoute();
-    expect(screen.getByText('Checking authentication…')).toBeTruthy();
+    expect(screen.getByText('Connecting to Mitzo…')).toBeTruthy();
     expect(hideSplash).toHaveBeenCalled();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(screen.getByRole('alert').textContent).toContain('Mitzo could not be reached');
-    expect(screen.queryByText('Checking authentication…')).toBeNull();
+    expect(screen.queryByText('Connecting to Mitzo…')).toBeNull();
     expect(hideSplash).toHaveBeenCalled();
     expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-token');
     await act(async () => {

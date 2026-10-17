@@ -1,0 +1,118 @@
+/* Full-screen launch is the single brand surface until authentication completes.
+   Logo/canvas geometry follows the existing 256:94 wordmark, not a type scale. */
+.startup-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  overflow: auto;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+}
+.startup-liquid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: var(--color-accent);
+}
+.startup-liquid canvas {
+  width: 100%;
+  height: 100%;
+}
+.startup-wordmark {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  width: min(256px, 80vw);
+  aspect-ratio: 256 / 94;
+  background: currentColor;
+  mask: url('/mitzo-wordmark.png') center / contain no-repeat;
+  -webkit-mask: url('/mitzo-wordmark.png') center / contain no-repeat;
+}
+.startup-content {
+  position: relative;
+  width: min(100%, 32rem);
+  margin-inline: auto;
+  padding: 61dvh var(--page-gutter) var(--space-6);
+  text-align: center;
+}
+.startup-phrase {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  text-wrap: balance;
+}
+.startup-screen--quote .startup-liquid {
+  opacity: 0;
+  transition: opacity var(--motion-duration-standard) var(--motion-ease);
+}
+.startup-screen--quote .startup-content {
+  padding-top: max(var(--space-6), 20dvh);
+}
+.startup-quote {
+  margin: var(--space-6) 0;
+  animation: startup-reveal var(--motion-duration-standard) var(--motion-ease);
+}
+.startup-quote-mark {
+  display: block;
+  color: var(--color-accent);
+  font-size: calc(var(--text-xl) * 2);
+  line-height: 1;
+  width: fit-content;
+  margin: 0 auto var(--space-4);
+}
+.startup-quote > p {
+  font-size: var(--text-xl);
+  line-height: 1.5;
+  text-wrap: balance;
+  margin: 0 0 var(--space-5);
+}
+.startup-quote footer {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+.startup-quote cite {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+.startup-connection,
+.startup-recovery {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+  margin-top: var(--space-6);
+}
+.startup-recovery button {
+  min-height: var(--control-height);
+  margin-top: var(--space-3);
+}
+.startup-quote-flight {
+  position: fixed;
+  z-index: 1501;
+  color: var(--color-accent);
+  font-family: var(--font-ui);
+  font-size: calc(var(--text-xl) * 2);
+  line-height: 1;
+  pointer-events: none;
+  transform-origin: top left;
+}
+@keyframes startup-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-distance-sheet));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .startup-screen *,
+  .startup-quote-flight {
+    animation: none;
+    transition: none;
+  }
+}
