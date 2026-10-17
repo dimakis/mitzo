@@ -113,6 +113,26 @@ export async function compileCollaborationContext(
 ): Promise<Draft> {
   const input = CollaborationSnapshotSelectionSchema.parse(rawSelection);
   const parsedSettings = z.array(CollaborationSettingsSchema).min(1).max(16).parse(rawSettings);
+  return compileSource(input, parsedSettings, sources, adapter);
+}
+
+/** Retain an explicitly selected source before any recipient/lead exists. Shares
+ * the exact compiler, source checks and byte bounds; capacity stays unverified.
+ * This port cannot measure, allocate, prepare or admit an ordinary conversation.
+ */
+export async function compileCollaborationSourceContext(
+  rawSelection: unknown,
+  sources: AuthorizedCollaborationContext,
+): Promise<Draft> {
+  return compileSource(CollaborationSnapshotSelectionSchema.parse(rawSelection), [], sources);
+}
+
+async function compileSource(
+  input: CollaborationSnapshotSelection,
+  parsedSettings: CollaborationSettings[],
+  sources: AuthorizedCollaborationContext,
+  adapter?: CollaborationCapacityAdapter,
+): Promise<Draft> {
   // Assess identical selections once. Settings equality never combines session ownership.
   const settings = [
     ...new Map(parsedSettings.map((selected) => [JSON.stringify(selected), selected])).values(),

@@ -1,4 +1,4 @@
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import {
   SessionCollaborationIdSchema,
   SessionCollaborationUpdateSchema,
@@ -7,9 +7,14 @@ import {
   CollaborationContractError,
   CollaborationPolicyUpdateSchema,
   CollaborationCursorSchema,
+  CollaborationJoinInputSchema,
+  CollaborationJoinSchema,
   COLLABORATION_EXECUTION_DISABLED,
 } from '@mitzo/protocol';
 import { z } from 'zod';
+import { registerAuthSession, isAuthSessionCurrent } from './auth.js';
+import { custodianRequestSignal } from './symposium-custodian-authority.js';
+import type { OrdinaryCollaborationJoiningPort } from './collaboration-joining-owner.js';
 import type { EventStore } from './event-store.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
 
@@ -34,7 +39,13 @@ function failure(res: Response, error: unknown) {
     .json({ error: 'Collaboration links could not be checked. Refresh before retrying.' });
 }
 /** Mount behind operator auth. Linking shares no context, grants no access and dispatches no turn. */
-export function createSessionCollaborationRouter({ store }: { store: EventStore }) {
+export function createSessionCollaborationRouter({
+  store,
+  joining,
+}: {
+  store: EventStore;
+  joining?: OrdinaryCollaborationJoiningPort;
+}) {
   const router = Router();
   router.use((_req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
@@ -91,8 +102,70 @@ export function createSessionCollaborationRouter({ store }: { store: EventStore 
       }
     });
   }
-  // Contracts exist, but no public route may allocate, compile arbitrary source bytes or dispatch yet.
-  for (const operation of ['messages', 'joins', 'snapshots']) {
+  const unavailable = (res: Response) =>
+    res.status(503).json({
+      code: 'execution_unavailable',
+      error: COLLABORATION_EXECUTION_DISABLED.reason,
+      execution: COLLABORATION_EXECUTION_DISABLED,
+    });
+  const join = async (req: Request, res: Response, recovery: boolean) => {
+    const auth = recentAuthorizationSession(res);
+    if (!auth) return;
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: 'Invalid collaboration join' });
+    try {
+      if (!store.getSessionCollaboration(id.data))
+        throw new CollaborationContractError('not_found');
+    } catch (error) {
+      return failure(res, error);
+    }
+    if (!joining) return unavailable(res);
+    const input = recovery
+      ? z.strictObject({}).safeParse(req.body)
+      : CollaborationJoinInputSchema.safeParse(req.body);
+    const joinId = recovery ? z.uuid().safeParse(req.params.joinId) : undefined;
+    if (!input.success || (recovery && !joinId?.success))
+      return res.status(400).json({ error: 'Invalid collaboration join' });
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    const unregister = registerAuthSession(auth, cancel);
+    const ownerSignal = custodianRequestSignal(req);
+    ownerSignal?.addEventListener('abort', cancel, { once: true });
+    if (ownerSignal?.aborted || req.aborted) cancel();
+    const close = () => {
+      if (!res.writableEnded) cancel();
+    };
+    req.once('aborted', cancel);
+    res.once('close', close);
+    const timer = setTimeout(cancel, 120000);
+    try {
+      controller.signal.throwIfAborted();
+      const result =
+        recovery && joinId?.success
+          ? await joining.recover(auth.id, id.data, joinId.data, controller.signal)
+          : await joining.confirm(auth.id, id.data, input.data, controller.signal);
+      controller.signal.throwIfAborted();
+      if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
+      return res.json(CollaborationJoinSchema.parse(result));
+    } catch (error) {
+      if (res.destroyed) return;
+      if (!isAuthSessionCurrent(auth))
+        return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+      return failure(res, error);
+    } finally {
+      clearTimeout(timer);
+      unregister();
+      ownerSignal?.removeEventListener('abort', cancel);
+      req.off('aborted', cancel);
+      res.off('close', close);
+    }
+  };
+  router.post('/:id/joins', requireSameOriginJson, (req, res) => join(req, res, false));
+  router.post('/:id/joins/:joinId/recover', requireSameOriginJson, (req, res) =>
+    join(req, res, true),
+  );
+  // Source compilation and ordinary delivery still need their application owners.
+  for (const operation of ['messages', 'snapshots']) {
     router.post(`/:id/${operation}`, requireSameOriginJson, (req, res) => {
       const id = SessionCollaborationIdSchema.safeParse(req.params.id);
       if (!id.success) return res.status(400).json({ error: 'Invalid collaboration ID' });

@@ -14,6 +14,7 @@ import {
 } from './ordinary-local-codex-host-runtime.js';
 import {
   OrdinaryRepositoryPreparationSchema,
+  OrdinarySilentPreparationSelectionSchema,
   type OrdinaryRepositoryPreparation,
   type OrdinaryRepositoryRuntimeSelection,
 } from './ordinary-repository-preparation.js';
@@ -236,4 +237,23 @@ export async function assertOrdinaryRepositoryPreparation(
     current.credentialDigest !== saved.credentialDigest
   )
     throw unavailable();
+}
+
+/** Read-only requalification for silent allocation; API/SDK queue preparation and
+ * native recipes remain unavailable. The existing account/runtime custody owner
+ * is the authority, with model readiness rechecked before recording allocation. */
+export async function assertOrdinarySilentPreparationAuthority(
+  raw: OrdinaryRepositoryPreparation,
+  binding: AccountBinding,
+  settings: import('@mitzo/protocol').CollaborationSettings,
+  signal: AbortSignal,
+): Promise<void> {
+  const selection = OrdinarySilentPreparationSelectionSchema.parse(settings);
+  const proof = OrdinaryRepositoryPreparationSchema.parse(raw);
+  if (
+    !isDeepStrictEqual(proof.runtimeBinding, selection.binding) ||
+    binding.model !== selection.selection.model
+  )
+    throw unavailable();
+  await assertOrdinaryRepositoryPreparation(proof, binding, signal, true);
 }

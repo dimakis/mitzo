@@ -30,7 +30,14 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
         return response.json() as Promise<{ artifacts: TodoOutput[]; limit: number }>;
       })
       .then((data) => {
-        if (!controller.signal.aborted) setResult({ itemId, ...data });
+        if (!controller.signal.aborted)
+          setResult({
+            itemId,
+            ...data,
+            artifacts: data.artifacts.filter(
+              (artifact) => artifact.sourceKind !== 'source_capture',
+            ),
+          });
       })
       .catch(() => {
         if (!controller.signal.aborted) {

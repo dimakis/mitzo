@@ -1,6 +1,16 @@
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionRequest, QuestionAnswers } from '@mitzo/protocol';
 import type { ToolTier } from './tool-tiers.js';
+import { isDeepStrictEqual } from 'node:util';
+
+export interface PendingTelosSourceReview {
+  permId: string;
+  sessionId: string;
+  toolUseId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  expiresAt: number;
+}
 
 // A policy-aware resolver can return the final SDK result. Legacy callbacks may
 // return nothing (or incidental values), in which case the input is authoritative.
@@ -13,6 +23,7 @@ interface PendingEntry {
   tier?: ToolTier;
   sessionId?: string;
   request?: PermissionRequest;
+  review?: { toolUseId: string; canApprove?(): boolean };
 }
 
 const pending = new Map<string, PendingEntry>();
@@ -47,8 +58,17 @@ export function registerPending(
   tier?: ToolTier,
   sessionId?: string,
   request?: PermissionRequest,
+  review?: { toolUseId: string; canApprove?(): boolean },
 ) {
-  pending.set(permId, { resolver, toolName, toolInput, tier, sessionId, request });
+  pending.set(permId, {
+    resolver,
+    toolName,
+    toolInput: structuredClone(toolInput),
+    tier,
+    sessionId,
+    request,
+    review,
+  });
   if (request) notifyLifecycle({ type: 'requested', request });
 }
 
@@ -72,9 +92,13 @@ export function resolvePending(
   sessionId?: string,
   /** Internal policy denial; never supplied by a transport response. */
   denialReason?: string,
+  /** Host-only retained source receipt, never accepted by generic transports. */
+  reviewedReceiptId?: string,
 ): boolean {
   const entry = pending.get(permId);
   if (!entry || (sessionId && entry.sessionId && entry.sessionId !== sessionId)) return false;
+  if (entry.request?.reviewKind === 'telos_source' && decision !== 'deny' && !reviewedReceiptId)
+    return false;
 
   // Timer callbacks can be delayed while transports reconnect or the event loop
   // is busy. The advertised absolute deadline remains authoritative.
@@ -89,6 +113,7 @@ export function resolvePending(
   }
 
   let toolInput = entry.toolInput;
+  if (reviewedReceiptId) toolInput = { ...toolInput, __mitzoTelosApproval: reviewedReceiptId };
   // Questions never grant session-wide tool permission. Treat a legacy/malformed
   // "always" response as a one-shot answer instead of leaving it pending forever.
   const effectiveDecision = entry.request?.questions && decision === 'always' ? 'once' : decision;
@@ -161,6 +186,67 @@ export function resolvePending(
           ? 'denied'
           : 'allowed',
   });
+  return true;
+}
+
+/** Exact host invocation metadata. Request JSON and display text are not proof. */
+export function getPendingTelosSourceReview(
+  permId: string,
+  sessionId: string,
+): PendingTelosSourceReview | undefined {
+  const entry = pending.get(permId);
+  if (
+    !entry ||
+    entry.sessionId !== sessionId ||
+    entry.request?.reviewKind !== 'telos_source' ||
+    !entry.review?.toolUseId ||
+    !entry.request.expiresAt ||
+    entry.request.expiresAt <= Date.now() ||
+    entry.review.canApprove?.() === false
+  )
+    return;
+  return {
+    permId,
+    sessionId,
+    toolUseId: entry.review.toolUseId,
+    toolName: entry.toolName,
+    toolInput: structuredClone(entry.toolInput),
+    expiresAt: entry.request.expiresAt,
+  };
+}
+
+/** Called only after the source owner has durably retained the exact approval. */
+export function resolveReviewedTelosSourcePermission(
+  proof: PendingTelosSourceReview,
+  receiptId: string,
+): boolean {
+  const current = getPendingTelosSourceReview(proof.permId, proof.sessionId);
+  if (!current || !isDeepStrictEqual(current, proof)) return false;
+  return resolvePending(proof.permId, 'once', undefined, proof.sessionId, undefined, receiptId);
+}
+
+/** Denial only: dismiss retained consent without orphaning the same live tool.
+ * Expiry and policy changes cannot grant authority here; they need not block denial.
+ */
+export function dismissReviewedTelosSourcePermission(proof: PendingTelosSourceReview): boolean {
+  const entry = pending.get(proof.permId);
+  if (
+    !entry ||
+    entry.sessionId !== proof.sessionId ||
+    entry.request?.reviewKind !== 'telos_source' ||
+    entry.review?.toolUseId !== proof.toolUseId ||
+    entry.toolName !== proof.toolName ||
+    !isDeepStrictEqual(entry.toolInput, proof.toolInput)
+  )
+    return false;
+  // This exact retained-save denial is independent of the old approval
+  // deadline. Generic expiry guidance must not invite a duplicate save.
+  pending.delete(proof.permId);
+  entry.resolver({
+    behavior: 'deny',
+    message: 'Reviewed save dismissed; retained save results remain recoverable',
+  });
+  notifyLifecycle({ type: 'resolved', permId: proof.permId, resolution: 'denied' });
   return true;
 }
 

@@ -6,6 +6,25 @@ import {
 } from '../session-permission-policy.js';
 
 describe('provider-independent permission authority', () => {
+  it('refuses reviewed Telos capture when the SDK supplies no actual tool invocation identity', async () => {
+    const decide = vi.fn().mockResolvedValue({ behavior: 'allow', updatedInput: {} });
+    const hooks = buildSessionPermissionHooks(decide);
+    const result = await hooks.PreToolUse![0].hooks[0](
+      {
+        hook_event_name: 'PreToolUse',
+        session_id: 's',
+        transcript_path: '',
+        cwd: '',
+        tool_name: 'mcp__telos__TelosCreateOutcome',
+        tool_use_id: '',
+        tool_input: {},
+      },
+      undefined,
+      { signal: new AbortController().signal },
+    );
+    expect(result).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+    expect(decide).not.toHaveBeenCalled();
+  });
   const input = {
     hook_event_name: 'PreToolUse' as const,
     session_id: 's',

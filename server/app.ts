@@ -1,3 +1,4 @@
+import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
 import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
 import { loadMcpServers } from './mcp-config.js';
 
@@ -102,7 +103,12 @@ import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { createTelosItemRouter } from './telos-item-routes.js';
 import { createTelosWorkRouter } from './telos-work-routes.js';
-import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
+import { createTelosSourceRouter } from './telos-source-routes.js';
+import { createCanonicalTelosOutcome } from './telos-outcome-owner.js';
+import {
+  isAvailableTelosWorkConversation,
+  isAvailableTelosSourceConversation,
+} from './telos-work-conversation.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -303,7 +309,12 @@ import {
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { requestPerformance } from './request-performance.js';
 import { authenticationRoute } from './auth-route-boundary.js';
-import { resolvePending, getPendingRequestsBySession } from './permissions.js';
+import {
+  resolvePending,
+  getPendingRequestsBySession,
+  configureTelosSourcePermissionRecovery,
+} from './permissions.js';
+import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { createLogger } from './logger.js';
 import {
@@ -1953,6 +1964,7 @@ app.use(
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
   }),
 );
 
@@ -1963,6 +1975,33 @@ app.use(
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
   }),
 );
+
+app.use(
+  createTelosSourceRouter({
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    dbPath: telosDatabasePath,
+    events: eventStore,
+    operatorAuth: operatorAuthMiddleware,
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+    createOutcome: (input) =>
+      createCanonicalTelosOutcome(
+        {
+          script: TODO_SCRIPT,
+          timeoutMs: TODO_TIMEOUT_MS,
+          maxBufferBytes: TODO_MAX_BUFFER_BYTES,
+          execute: (command, args, options) =>
+            execFileAsync(command, args, {
+              ...options,
+              env: { ...process.env, TELOS_DB_PATH: telosDatabasePath() },
+            }),
+        },
+        input,
+      ),
+  }),
+);
+configureTelosSourcePermissionRecovery(createTelosSourcePermissionRecovery(telosDatabasePath));
 
 app.use(
   createTelosArtifactRouter({
@@ -2001,48 +2040,14 @@ app.use(
   }),
 );
 
-app.post('/api/internal/telos/outcomes', async (req, res) => {
-  if (!verifyInternalToken(req)) {
-    res.status(401).json({ ok: false, error: 'Internal token required' });
-    return;
-  }
-  const body = TodoOutcomeCreateBody.omit({ idempotencyKey: true }).safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
-    return;
-  }
-  const clientId = req.headers['x-client-id'] as string | undefined;
-  const sessionId =
-    (clientId && registry.get(clientId)?.sessionId) || clientId || 'unknown-session';
-  const canonical = JSON.stringify(body.data);
-  const idempotencyKey = `${sessionId}:${createHash('sha256').update(canonical).digest('hex')}`;
-  const contextHints = body.data.contextHints ?? {};
-  const payload = {
-    ...body.data,
-    idempotencyKey,
-    contextHints: {
-      ...contextHints,
-      sessionIds: [...new Set([...(contextHints.sessionIds ?? []), sessionId])],
-    },
-  };
-  const script = join(BASE_REPO, 'command_center', 'todo_api.py');
-  if (!existsSync(script)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-  try {
-    const { stdout } = await execFileAsync(
-      'python3',
-      [script, '--create-outcome-json', JSON.stringify(payload)],
-      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
-    );
-    const result = JSON.parse(stdout);
-    res.status(result.ok ? 200 : 400).json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ ok: false, error: message });
-  }
-});
+app.post(
+  '/api/internal/telos/outcomes',
+  createTelosOutcomeHandler({
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    availableSource: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+  }),
+);
 
 // --- Loop orchestrator API ---
 
@@ -4184,7 +4189,7 @@ const legacyExecFileAsync = promisify(execFile);
 async function execFileAsync(
   command: string,
   args: string[],
-  options: { timeout: number; maxBuffer?: number },
+  options: { timeout: number; maxBuffer?: number; env?: NodeJS.ProcessEnv; encoding?: 'utf8' },
 ) {
   // Mutable workspace entrypoints run with the same authority fence as hooks.
   // An unavailable enrolled fence must never fall back to controller execution.
@@ -4193,7 +4198,7 @@ async function execFileAsync(
     return protectedRunner(command, args, {
       ...options,
       cwd: process.cwd(),
-      env: process.env,
+      env: options.env ?? process.env,
     });
   return legacyExecFileAsync(command, args, options);
 }

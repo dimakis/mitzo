@@ -8,9 +8,14 @@ import {
 it('pins the conversation contracts, persistence, authenticated API and client projection in the runtime manifest', async () => {
   const artifacts: Record<string, string> = reviewedHandlerSourceArtifacts;
   for (const file of [
+    '../collaboration-joining-owner.ts',
     '../session-collaboration-router.ts',
     '../collaboration-context-compiler.ts',
     '../collaboration-ordinary-replies.ts',
+    '../collaboration-ordinary-delivery.ts',
+    '../collaboration-review-owner.ts',
+    '../codex-ordinary-packet.ts',
+    '../../packages/protocol/src/ordinary-prepared-session.ts',
     '../codex-conversation.ts',
     '../codex-chat-session.ts',
     '../codex-session-events.ts',
