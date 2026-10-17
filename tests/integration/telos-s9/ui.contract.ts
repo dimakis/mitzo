@@ -205,18 +205,41 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(button).toBeVisible();
     const colors = await button.evaluate((element) => {
       const computed = getComputedStyle(element);
-      const probe = document.createElement('span');
-      probe.style.color = 'var(--color-on-accent)';
-      element.append(probe);
-      const expected = getComputedStyle(probe).color;
-      probe.remove();
-      return { foreground: computed.color, background: computed.backgroundColor, expected };
+      // Compare the real shared component outside the Telos cascade, and
+      // measure readability. Shared tokens may legitimately vary by theme.
+      const reference = document.createElement('button');
+      reference.className = 'todo-detail-chat-btn';
+      document.body.append(reference);
+      const expected = getComputedStyle(reference).color;
+      reference.remove();
+      const luminance = (color: string) => {
+        const channels = color
+          .match(/[\d.]+/g)!
+          .slice(0, 3)
+          .map(Number)
+          .map((n) => {
+            const linear = n / 255;
+            return linear <= 0.04045 ? linear / 12.92 : ((linear + 0.055) / 1.055) ** 2.4;
+          });
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      const foreground = luminance(computed.color),
+        background = luminance(computed.backgroundColor);
+      const contrast =
+        (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+      return {
+        foreground: computed.color,
+        background: computed.backgroundColor,
+        expected,
+        contrast,
+      };
     });
     await test
       .info()
       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });
     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
-    expect(colors.foreground).toBe(colors.expected);
+    expect.soft(colors.foreground).toBe(colors.expected);
+    expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
     expect(host.unexpected).toEqual([]);
     expect(host.errors).toEqual([]);
   });

@@ -1,5 +1,7 @@
 # Telos S9 early offline acceptance evidence
 
+Contract correction: [shared-reference and measured contrast](contrast-validation.md).
+
 Latest accepted-base refresh: [final offline merge validation](merge-validation.md).
 
 Independent review extension: [consolidated diagnostics and owning slices](audit-followup.md).
