@@ -82,7 +82,6 @@ function ConversationAgentsBody({
   const { ref: dialogMotionRef, present } = useMotionPresence(open, 'fade');
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewAgent = agents.find((agent) => agent.id === previewId);
-  const [setup, setSetup] = useState(initial);
   const [profileReason, setProfileReason] = useState<string>();
   const joining = useConversationJoiningReview(joiningOwner, () => {
     setOpen(false);
@@ -90,6 +89,9 @@ function ConversationAgentsBody({
     setSetup(initial());
     setProfileReason(undefined);
   });
+  const [setup, setSetup] = useState(() =>
+    joining.setup ? structuredClone(joining.setup) : initial(),
+  );
   const names = agents.map((a) => a.name).join(', ');
   const nameValid =
     /^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(setup.name) &&
@@ -362,7 +364,7 @@ function ConversationAgentsBody({
                 <h3>Execution</h3>
                 <fieldset className="conversation-agent-run-on">
                   <legend>Run on</legend>
-                  {(['openshell', 'local'] as const).map((runOn) => (
+                  {(['local', 'openshell'] as const).map((runOn) => (
                     <label key={runOn}>
                       <input
                         type="radio"
@@ -544,8 +546,7 @@ function ConversationAgentsBody({
                     className="conversation-agents-primary"
                     onClick={() => {
                       if (joining.join?.state === 'linked') {
-                        joining.startNew();
-                        setView('add');
+                        setView(joining.startNew() ? 'add' : 'review');
                       } else
                         setView(joining.locked || joining.hasAttemptFor(setup) ? 'review' : 'add');
                     }}
@@ -555,8 +556,9 @@ function ConversationAgentsBody({
                 </>
               ) : (
                 <>
+                  {view === 'add' && <small>Fresh session · starts with a prompt.</small>}
                   <button type="button" onClick={() => setView('agents')}>
-                    Back to Agents
+                    {view === 'add' ? 'Cancel' : 'Back to Agents'}
                   </button>
                   {view === 'add' && (
                     <button

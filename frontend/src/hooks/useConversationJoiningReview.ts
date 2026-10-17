@@ -393,6 +393,7 @@ export function useConversationJoiningReview(
   };
   return {
     ...state,
+    requiresRecovery: restored.current && state.join !== null,
     canConfirm: ownerAvailable && ready(state),
     locked: state.submission !== null || storageBlocked.current,
     hasAttemptFor: (setup: ConversationAgentSetup) =>
