@@ -64,6 +64,24 @@ account confirmation, locked binding, repository receipt and preparation lifecyc
 assertions remain. All 29 tests in the two files pass. The real sheet and its
 protected navigation/layout checks continue to run without that isolation.
 
+## Landing review
+
+Centaur finding `CEN-2D129A1348C7` exposed saved runtime defaults that were written
+but not consumed by a fresh chat. New runtime intent now reads the preference as
+unconfirmed editable account/model/thinking intent. Existing runtime drafts, older
+draft selections and bound conversations take precedence; a preference alone does
+not enroll a server with runtime entry disabled. Account confirmation still owns
+public billing identity and route selection.
+
+The regression failed before the fix and passes through Save default → New chat →
+explicit confirmation → Clear default → New chat → reopen the original draft on all
+three browsers. Main's Agent Library integration `436326e1` is included without
+changing the approval, reference bytes or protected settings tests. Incoming Builder
+journeys navigate the approved editors while retaining their source, preparation,
+draft and dispatch assertions. The combined branch passes 119 focused checks and
+the final 17-check browser rerun; the earlier broader run passed its other 65 checks.
+Final-head CI and trusted Centaur review remain merge gates recorded on the PR.
+
 Main's existing protection requires up-to-date `ci`, `Connections browser regression`
 (the browser/offline aggregate), native checks and `Centaur final LGTM`, with admin
 enforcement. The ledger's integrity/history checks run in required CI; rendered

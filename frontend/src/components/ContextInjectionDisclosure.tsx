@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import type { ContextInjection } from '@mitzo/protocol';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
@@ -7,7 +7,11 @@ import { CopyButton } from './CopyButton';
 export function ContextInjectionDisclosure({
   names,
   injections,
+  label,
+  renderContent,
 }: {
+  label?: string;
+  renderContent?: (item: ContextInjection) => ReactNode;
   names: string[];
   injections?: ContextInjection[];
 }) {
@@ -26,7 +30,7 @@ export function ContextInjectionDisclosure({
       >
         <UiIcon name="layers" size={16} />
         <span className="msg-context-injection-label">
-          <span>{injections?.length ? 'Context injected' : 'Context selected'}</span>
+          <span>{label ?? (injections?.length ? 'Context injected' : 'Context selected')}</span>
           <span className="msg-context-injection-names">{actualNames.join(', ')}</span>
         </span>
         <UiIcon name={open ? 'up' : 'down'} size={16} />
@@ -41,9 +45,13 @@ export function ContextInjectionDisclosure({
                   <CopyButton text={item.content} label={`Copy injected ${item.name} context`} />
                 </div>
                 <div className="msg-context-injection-path">{item.source}</div>
-                <pre tabIndex={0} aria-label={`${item.name} injected content`}>
-                  {item.content}
-                </pre>
+                {renderContent ? (
+                  renderContent(item)
+                ) : (
+                  <pre tabIndex={0} aria-label={`${item.name} injected content`}>
+                    {item.content}
+                  </pre>
+                )}
               </section>
             ))
           ) : (

@@ -1,5 +1,6 @@
 import { resolveRuntimeTarget } from '../lib/chat-runtime-route';
 import { getDefaultAccountModel } from '../lib/account-preference';
+import type { AccountSelection } from '../types/account-selection';
 import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
@@ -34,6 +35,7 @@ export function useExplicitLocalChat(
   sessionId: string | null,
   enabled: boolean,
   search = '',
+  savedAccount?: AccountSelection | null,
 ) {
   const retained = useContext(ChatRuntimeDraftContext);
   const seed = useCallback(() => {
@@ -41,7 +43,11 @@ export function useExplicitLocalChat(
     // Saved runtime intent (including an empty account) and session metadata win.
     const preferred = ChatRuntimeSelectionSchema.safeParse({
       ...createChatRuntimeSelection(),
-      account: sessionId ? null : getDefaultAccountModel(),
+      account: sessionId
+        ? null
+        : savedAccount === undefined
+          ? getDefaultAccountModel()
+          : savedAccount,
     });
     const initial = saved ?? (preferred.success ? preferred.data : createChatRuntimeSelection());
     const params = new URLSearchParams(search);
@@ -50,7 +56,7 @@ export function useExplicitLocalChat(
     return requested
       ? retainChatRuntimeSelection(initial, initial.account, chatAgentProfileFromSearch(search))!
       : initial;
-  }, [saved, search, sessionId]);
+  }, [saved, savedAccount, search, sessionId]);
   const [choice, setChoice] = useState(() => ({ draftId, intent: seed() }));
   const intent = retained?.selection ?? (choice.draftId === draftId ? choice.intent : seed());
   const latestIntent = useRef(intent);
@@ -277,8 +283,13 @@ export function useExplicitLocalChat(
         : currentMeta.intent
       : intent;
   const selectedLocal = selectedIntent.execution.location === 'local';
+  // A preference alone must not enroll a server with runtime entry disabled.
+  // Explicit/shared edits and saved runtime intent still retain their own route.
   const retainedExplicitIntent =
-    selectedLocal || !!saved || !!selectedIntent.account || !!selectedIntent.execution.targetId;
+    selectedLocal ||
+    !!saved ||
+    !!selectedIntent.execution.targetId ||
+    (!!selectedIntent.account && (!!selectedIntent.accountReference || !!retained?.selection));
   const visible =
     bound ||
     metadataUnavailable ||
