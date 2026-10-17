@@ -8,6 +8,9 @@ import type { ToolDraftRecord } from '../../lib/tool-builder-api';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.resetAllMocks();
 });
 const id = '11111111-1111-4111-8111-111111111111';
@@ -122,6 +125,35 @@ it('retains review input after failure and sends independent feedback without pu
   expect(vi.mocked(apiFetch).mock.calls.some(([path]) => String(path).endsWith('/publish'))).toBe(
     false,
   );
+});
+it('keeps review bundle bytes available while the browser starts an attached download', async () => {
+  setup();
+  await screen.findByRole('heading', { name: 'Text length · v1' });
+  const create = vi.fn(() => 'blob:review-bundle');
+  const revoke = vi.fn();
+  vi.stubGlobal(
+    'URL',
+    class extends URL {
+      static createObjectURL = create;
+      static revokeObjectURL = revoke;
+    },
+  );
+  const links: HTMLAnchorElement[] = [];
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    expect(this.isConnected).toBe(true);
+    links.push(this);
+  });
+  vi.useFakeTimers();
+  fireEvent.click(screen.getByRole('button', { name: 'Download review bundle' }));
+  expect(links).toHaveLength(1);
+  expect(links[0].download).toBe(`tool-draft-${id}-v1.json`);
+  expect(links[0].isConnected).toBe(false);
+  expect(create).toHaveBeenCalledOnce();
+  expect(revoke).not.toHaveBeenCalled();
+  vi.runOnlyPendingTimers();
+  expect(revoke).toHaveBeenCalledWith('blob:review-bundle');
 });
 it.each(['unpublished', 'rejected', 'cancelled'] as const)(
   'does not accept or publish a %s version',

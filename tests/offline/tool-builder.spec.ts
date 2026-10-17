@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { deployedSecurityHeaders } from '../support/response-security';
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/tool-builder.tsx')],
@@ -198,7 +199,15 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(page.getByRole('button', { name: 'Previous source page' })).toBeEnabled();
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download review bundle' }).click();
-    expect((await download).suggestedFilename()).toBe(`tool-draft-${id}-v2.json`);
+    const savedBundle = await download;
+    expect(savedBundle.suggestedFilename()).toBe(`tool-draft-${id}-v2.json`);
+    const savedPath = await savedBundle.path();
+    expect(savedPath).not.toBeNull();
+    expect(JSON.parse(await readFile(savedPath!, 'utf8'))).toMatchObject({
+      format: 'mitzo-tool-draft-review-v1',
+      status: 'submitted',
+      draft: { id, version: 2, tests: { passed: true, complete: true } },
+    });
     await page.getByRole('button', { name: 'Accept review' }).click();
     await expect(
       page.getByText(

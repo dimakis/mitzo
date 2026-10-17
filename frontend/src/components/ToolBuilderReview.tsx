@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { AgentToolCatalogEntry } from '@mitzo/protocol';
 import { MotionPresence } from './MotionPresence';
+import { saveBrowserFile } from '../lib/share-file';
 import {
   toolBuilderRequest as request,
   type ToolDraftRecord,
@@ -167,16 +168,15 @@ export function ToolBuilderReview({
   };
   function download() {
     if (!record) return;
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify({ format: 'mitzo-tool-draft-review-v1', ...record }, null, 2)], {
-        type: 'application/json',
-      }),
+    saveBrowserFile(
+      new File(
+        [JSON.stringify({ format: 'mitzo-tool-draft-review-v1', ...record }, null, 2)],
+        `tool-draft-${record.draft.id}-v${record.draft.version}.json`,
+        {
+          type: 'application/json',
+        },
+      ),
     );
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `tool-draft-${record.draft.id}-v${record.draft.version}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
   }
   return (
     <section aria-label="Tool drafts">
