@@ -11,7 +11,10 @@ export function LiquidLogo() {
     if (reduced) return;
     const layer = canvas.current;
     const context = layer?.getContext('2d');
-    if (!layer || !context) { setFormed(true); return; }
+    if (!layer || !context) {
+      setFormed(true);
+      return;
+    }
     let frame = 0,
       cancelled = false;
     const logo = new Image();

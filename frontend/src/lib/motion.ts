@@ -97,3 +97,28 @@ export function animateQuoteHandoff(source: HTMLElement, target: HTMLElement, or
     clone.remove();
   };
 }
+
+/** Collapse the formed wordmark into the quotation mark already laid out by the page. */
+export function animateLogoToQuote(source: HTMLElement, target: HTMLElement) {
+  if (!source.animate || window.matchMedia?.(REDUCED_MOTION_QUERY).matches) return null;
+  const duration = motionDuration('handoff');
+  if (!duration) return null;
+  const from = source.getBoundingClientRect(),
+    to = target.getBoundingClientRect();
+  const dx = to.left + to.width / 2 - from.left - from.width / 2;
+  const dy = to.top + to.height / 2 - from.top - from.height / 2;
+  const animation = source.animate(
+    [
+      { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
+      {
+        transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(${to.width / Math.max(1, from.width)})`,
+        opacity: 0,
+      },
+    ],
+    {
+      duration,
+      easing: getComputedStyle(document.documentElement).getPropertyValue('--motion-ease').trim(),
+    },
+  );
+  return () => animation.cancel();
+}

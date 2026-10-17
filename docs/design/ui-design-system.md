@@ -1148,3 +1148,51 @@ label height and protected storage arguments after login. Inspected captures:
 [desktop light](assets/face-id-enrollment-desktop-light.png).
 These offline checks use synthetic credentials and no backend or model calls;
 real iOS Keychain/Face ID prompts still require separately authorized device testing.
+
+## Cold launch and offline quote handoff
+
+`StartupScreen` is the single full-screen brand surface while `ProtectedRoute`
+validates the existing session. The underlying application root is inert only
+while this surface is visible; authentication success or login redirection restores
+normal interaction immediately. The decorative animation does not grant access,
+retain a ready page, or change existing timeout/retry/logout rules.
+
+`LiquidLogo` samples the existing wordmark into bounded round droplets. One fall,
+a shallow spread, and a gathering rebound resolve into the original wordmark.
+Sampling, theme color and geometry happen once; animation frames perform no
+layout reads. Device pixel ratio is capped at two, and resize, backgrounding,
+unmount and Reduce Motion stop the animation. The shared motion helper contracts
+the wordmark into the quote mark and flies that mark to the actual Today quote
+link if it appears within a bounded window. Input never waits for either flight.
+
+The sixteen approved absurd phrases are selected once and retained through retry.
+After the introductory motion, a locally available attributed literary quote
+appears. Published daily selections and the quote visibility preference are cached
+by API origin. After Today loads, optional, cancellable reads prepare the next
+seven server-selected dates. A bundled approved quote covers first launch or a
+cache miss without claiming to be that day's server selection. No workspace data
+or credentials enter this cache. Real connection failures retain an explicit
+message and Retry below the quote.
+
+The new decorative liquid/quote/handoff timings live in `tokens.css`. All colors,
+fonts, spacing and text sizes use the existing semantic tokens; the logo's 256:94
+geometry and bounded 32rem reading width are structural. The entrance phrase keeps
+its position when the quote appears. The standalone launch surface owns viewport
+coverage; it adds no second visible collection masthead or navigation.
+
+Offline actual-component browser checks cover 320px mobile WebKit/Chromium and
+1280px desktop Chromium, dark Mint/Georgia and light Teal/System, fast success,
+slow success, retry, missing cache, expiry/login redirection, Reduce Motion,
+larger text, scrolling, keyboard Retry, 44px touch controls and uninterrupted
+input during the home handoff. These fixtures intercept all requests and use no
+backend, credentials or model. Inspected captures:
+[mobile logo](assets/startup-logo-mobile-dark.png),
+[mobile quote](assets/startup-quote-mobile-dark.png), and
+[desktop quote](assets/startup-quote-desktop-light.png).
+
+Focused unit/design checks, workspace package builds and frontend type checking
+pass. `npm run test:ui` reached the production Vite build and exhausted the required
+1 GiB local heap; the full build/application browser suite remains CI validation.
+This verifies frontend behavior, not a measured iPhone cold-start speedup. Physical
+Face ID/Keychain and device startup timings remain separately authorized device
+checks. Staging and production are untouched.

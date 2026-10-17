@@ -395,14 +395,14 @@ for (const theme of ['light', 'dark']) {
     });
     await page.clock.install();
     await page.goto('/sessions');
-    await expect(page.getByText('Checking authentication…')).toBeVisible();
+    await expect(page.getByText('Connecting to Mitzo…')).toBeVisible();
     if (isMobile) {
       await page.getByRole('link', { name: 'Today', exact: true }).click();
       await page.getByRole('link', { name: 'Chats', exact: true }).click();
     }
     await page.clock.fastForward(5_000);
     await expect(page.getByRole('alert')).toContainText('Mitzo could not be reached');
-    await expect(page.getByText('Checking authentication…')).toHaveCount(0);
+    await expect(page.getByText('Connecting to Mitzo…')).toHaveCount(0);
     const retry = page.getByRole('button', { name: 'Retry', exact: true });
     await expect(retry).toBeVisible();
     await page.screenshot({

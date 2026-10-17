@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { readLaunchQuote } from '../lib/launch-quote';
 import { chooseStartupPhrase } from '../lib/startup-phrases';
-import { animateQuoteHandoff, motionDuration } from '../lib/motion';
+import { animateLogoToQuote, animateQuoteHandoff, motionDuration } from '../lib/motion';
 import { LiquidLogo } from './LiquidLogo';
 import '../styles/startup.css';
 
@@ -13,8 +13,19 @@ export function StartupScreen({ state, onRetry }: { state: StartupState; onRetry
   const [quote] = useState(() => readLaunchQuote());
   const [visible, setVisible] = useState(state !== 'ready');
   const [quoteReady, setQuoteReady] = useState(false);
+  const root = useRef<HTMLElement>(null);
   const glyph = useRef<HTMLSpanElement>(null);
   const reduced = useReducedMotion();
+  useEffect(() => {
+    if (!visible) return;
+    const app = document.getElementById('root');
+    if (!app) return;
+    const wasInert = app.inert;
+    app.inert = true;
+    return () => {
+      app.inert = wasInert;
+    };
+  }, [visible]);
   useEffect(() => {
     const timer = setTimeout(() => setQuoteReady(true), motionDuration('quote'));
     return () => clearTimeout(timer);
@@ -47,10 +58,17 @@ export function StartupScreen({ state, onRetry }: { state: StartupState; onRetry
       cancelFlight?.();
     };
   }, [state, reduced, quoteReady]);
+  useEffect(() => {
+    if (!quoteReady || reduced) return;
+    const logo = root.current?.querySelector<HTMLElement>('.startup-wordmark');
+    if (!logo || !glyph.current) return;
+    return animateLogoToQuote(logo, glyph.current) ?? undefined;
+  }, [quoteReady, reduced]);
   if (!visible) return null;
   const showQuote = Boolean(quote && (quoteReady || reduced));
   return createPortal(
     <section
+      ref={root}
       className={`startup-screen${showQuote ? ' startup-screen--quote' : ''}`}
       data-testid="startup-screen"
       aria-label="Opening Mitzo"

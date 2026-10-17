@@ -34,7 +34,7 @@
   position: relative;
   width: min(100%, 32rem);
   margin-inline: auto;
-  padding: 61dvh var(--page-gutter) var(--space-6);
+  padding: max(var(--space-6), 20dvh) var(--page-gutter) var(--space-6);
   text-align: center;
 }
 .startup-phrase {
@@ -44,9 +44,11 @@
   line-height: 1.6;
   text-wrap: balance;
 }
-.startup-screen--quote .startup-liquid {
+.startup-screen--quote .startup-liquid canvas {
+  display: none;
+}
+.startup-screen--quote .startup-wordmark {
   opacity: 0;
-  transition: opacity var(--motion-duration-standard) var(--motion-ease);
 }
 .startup-screen--quote .startup-content {
   padding-top: max(var(--space-6), 20dvh);

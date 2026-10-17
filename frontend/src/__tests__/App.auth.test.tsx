@@ -6,6 +6,7 @@ import { ProtectedRoute } from '../components/ProtectedRoute';
 import { markAuthLost } from '../lib/api-fetch';
 import { hideSplash } from '../lib/splash';
 
+vi.mock('../components/LiquidLogo', () => ({ LiquidLogo: () => null }));
 vi.mock('../lib/splash', () => ({ hideSplash: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../lib/watch-auth', () => ({ saveTokenToWatch: vi.fn() }));
 const fetchMock = vi.fn();
