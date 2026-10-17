@@ -436,7 +436,14 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
               >
                 + Add outcome
               </button>
-              <button className="todo-refresh" onClick={refresh} aria-label="Refresh Telos">
+              <button
+                className="todo-refresh"
+                onClick={() => {
+                  refresh();
+                  canonical.refresh();
+                }}
+                aria-label="Refresh Telos"
+              >
                 <UiIcon name="retry" size={16} />
               </button>
             </div>

@@ -221,3 +221,38 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* Keep search usable when actions wrap at phone width. */
+.telos-search {
+  flex-basis: calc(var(--control-height) * 5);
+}
+.telos-tabs button,
+.telos-pins button,
+.telos-tree-toolbar button {
+  font-size: var(--text-sm);
+}
+.telos-tabs {
+  gap: var(--space-1);
+}
+.telos-tabs button {
+  padding-inline: var(--space-2);
+}
+.output-provenance summary {
+  min-height: var(--control-height);
+  display: list-item;
+  align-content: center;
+  cursor: pointer;
+}
+.output-provenance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.output-provenance dt {
+  margin-top: var(--space-2);
+  color: var(--color-muted);
+}
+@media (max-width: 767px) {
+  .telos-search {
+    flex-basis: 100%;
+  }
+}
