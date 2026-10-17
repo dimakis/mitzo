@@ -1,3 +1,9 @@
+import {
+  codexApplicationContextFragments,
+  codexDynamicToolsOption,
+  codexThreadOptions,
+  codexTurnStartParams,
+} from './codex-ordinary-packet.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import type { SourceSnapshot } from '@mitzo/protocol';
@@ -307,42 +313,6 @@ function requiresProviderThreadReplacement(error: unknown): boolean {
     !['rate_limit', 'authentication', 'context_limit', 'invalid_request'].includes(error.category)
   );
 }
-/** Pinned Codex truncates each additional-context value at 1,000 tokens.
- * UTF-8 byte bounds also bound token count. Version every part together so its
- * BTreeMap merge emits the complete changed selection, including unchanged parts.
- * See openai/codex 79b1b666 context-fragments/src/additional_context.rs and
- * core/src/state/additional_context.rs. No recipe text becomes ordinary user input.
- */
-function applicationContextFragments(value: string) {
-  const bytes = Buffer.byteLength(value);
-  if (bytes > 1048576) throw Error('Application context exceeds the supported delivery bound');
-  if (new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(value)) !== value)
-    throw Error('Application context contains invalid Unicode');
-  if (bytes <= 800)
-    return { 'mitzo.published-project-context': { kind: 'application' as const, value } };
-  const parts: string[] = [];
-  let part = '',
-    size = 0;
-  for (const character of value) {
-    const length = Buffer.byteLength(character);
-    if (size + length > 800) {
-      parts.push(part);
-      part = '';
-      size = 0;
-    }
-    part += character;
-    size += length;
-  }
-  if (part) parts.push(part);
-  const generation = createHash('sha256').update(value).digest('hex');
-  return Object.fromEntries(
-    parts.map((part, index) => [
-      `mitzo.published-project-context.${generation}.${String(index).padStart(6, '0')}`,
-      { kind: 'application' as const, value: part },
-    ]),
-  );
-}
-
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
 export class CodexConversation {
   private client: Rpc;
@@ -1351,24 +1321,15 @@ export class CodexConversation {
       },
     });
     this.appliedWebSearchAccess = policy.effective;
-    return {
+    return codexThreadOptions({
       model: this.binding!.model,
       modelProvider,
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-      config: {
-        // Explicit OpenShell/native runtime configs bypass codexRuntimeOverrides.
-        // Opt in on every route, while retaining an explicit summary preference.
-        model_reasoning_summary: 'auto',
-        ...runtimeConfig,
-        web_search: policy.effective,
-        // Native Codex loads project documents independently of Mitzo's compiler.
-        // Enforce pack isolation from thread birth and on every replacement/resume.
-        ...(this.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
-      },
-      approvalPolicy: 'never',
-      sandbox: 'read-only',
-      developerInstructions: this.opts.systemPrompt,
-    };
+      runtimeConfig,
+      webSearch: policy.effective,
+      disableProjectDocuments: this.disableProjectDocuments,
+      systemPrompt: this.opts.systemPrompt,
+    });
   }
 
   private async reconfigureWebSearchGrant(
@@ -1457,16 +1418,7 @@ export class CodexConversation {
   }
 
   private dynamicToolsOption() {
-    return this.opts.tools.length
-      ? {
-          dynamicTools: this.opts.tools.map((tool) => ({
-            type: 'function',
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.input_schema,
-          })),
-        }
-      : {};
+    return codexDynamicToolsOption(this.opts.tools);
   }
 
   private toolSurfaceRevision() {
@@ -1887,7 +1839,7 @@ export class CodexConversation {
         { kind: 'application' | 'untrusted'; value: string }
       > = {};
       if (systemPrompt !== undefined)
-        Object.assign(additionalContext, applicationContextFragments(systemPrompt));
+        Object.assign(additionalContext, codexApplicationContextFragments(systemPrompt));
       active.abort.signal.throwIfAborted();
       const preparedPrompt =
         (await this.opts.prepareTurn?.(
@@ -1964,26 +1916,22 @@ export class CodexConversation {
       let response: unknown;
       let dispatched = false;
       try {
-        const pendingAck = this.client.request('turn/start', {
-          threadId: this.threadId,
-          clientUserMessageId: command.id,
-          model,
-          input: continuation
-            ? []
-            : [
-                ...(attemptContext ? [{ type: 'text', text: attemptContext }] : []),
-                ...(savedSourceContext ? [{ type: 'text', text: savedSourceContext }] : []),
-                { type: 'text', text: preparedPrompt },
-                ...(command.images ?? []).map((image) => ({
-                  type: 'image',
-                  url: `data:${image.mediaType};base64,${image.data}`,
-                })),
-              ],
-          approvalPolicy: 'never',
-          sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
-          ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
-          ...(Object.keys(additionalContext).length ? { additionalContext } : {}),
-        });
+        const pendingAck = this.client.request(
+          'turn/start',
+          codexTurnStartParams({
+            threadId: this.threadId,
+            commandId: command.id,
+            model,
+            continuation: Boolean(continuation),
+            attemptContext,
+            savedSourceContext,
+            prompt: preparedPrompt,
+            images: command.images,
+            sandboxPolicy: this.opts.turnSandboxPolicy,
+            reasoningEffort: command.reasoningEffort,
+            additionalContext,
+          }),
+        );
         dispatchSpan.end();
         dispatched = true;
         response = await pendingAck;
@@ -2031,14 +1979,36 @@ export class CodexConversation {
             active.turnId,
           );
         }
-        this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
-        if (systemPrompt !== undefined)
-          this.opts.onApplicationContextAccepted?.(
-            command.id,
-            this.threadId!,
-            active.turnId,
-            systemPrompt,
-          );
+        // The exact native ACK owns acceptance even if a trusted observer's
+        // durable projection fails. Owned routes can disable capacity recovery.
+        active.accepted = true;
+        let providerObserverFailed = false;
+        let providerObserverError: unknown;
+        try {
+          this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
+        } catch (error) {
+          providerObserverFailed = true;
+          providerObserverError = error;
+        }
+        try {
+          if (systemPrompt !== undefined)
+            this.opts.onApplicationContextAccepted?.(
+              command.id,
+              this.threadId!,
+              active.turnId,
+              systemPrompt,
+            );
+        } catch (error) {
+          if (!providerObserverFailed) throw error;
+          try {
+            log.warn('Application context acknowledgement observer also failed.');
+          } catch {
+            /* Preserve the provider observer's original failure when logging is unavailable. */
+          }
+        }
+        // Preserve the first observer's exact error/category, including falsy
+        // throws, after both ACK consumers had the chance to persist their proof.
+        if (providerObserverFailed) throw providerObserverError;
         active.accepted = true;
         if (pending) {
           try {

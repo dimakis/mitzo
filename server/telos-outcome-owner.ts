@@ -1,15 +1,9 @@
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
-import { TelosOutcomeCreateBodySchema, TelosWorkIdSchema } from '@mitzo/protocol';
+import { TelosOutcomeCreateBodySchema, TelosCanonicalOutcomeReceiptSchema } from '@mitzo/protocol';
 import { TelosWorkError } from './telos-work-store.js';
 
-const CanonicalOutcomeReceiptSchema = z
-  .object({
-    ok: z.literal(true),
-    created: z.boolean(),
-    item: z.object({ id: TelosWorkIdSchema, summary: z.string().min(1) }).passthrough(),
-  })
-  .passthrough();
+const CanonicalOutcomeReceiptSchema = TelosCanonicalOutcomeReceiptSchema;
 export type CanonicalTelosOutcomeResult = {
   itemId: string;
   receipt: z.infer<typeof CanonicalOutcomeReceiptSchema>;

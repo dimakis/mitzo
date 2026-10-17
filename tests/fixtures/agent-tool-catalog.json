@@ -253,6 +253,17 @@
     "requirement": "Explicit profile selection is not supported on this native OpenShell route."
   },
   {
+    "id": "mitzo:TelosAdoptSource",
+    "version": 1,
+    "name": "TelosAdoptSource",
+    "description": "Attach an explicitly reviewed original exchange and retained materials to one exact existing Telos item. The operator selects and approves the source; this never changes progress or assigns/starts a worker.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "write",
+    "routes": [],
+    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+  },
+  {
     "id": "mitzo:TelosGetItem",
     "version": 1,
     "name": "TelosGetItem",

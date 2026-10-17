@@ -389,7 +389,11 @@ export class TelosWorkStore {
       itemId,
     );
   }
-  execute(raw: unknown, actor: TelosWorkActor): TelosWorkCommandReceipt {
+  execute(
+    raw: unknown,
+    actor: TelosWorkActor,
+    assertBeforeApply?: () => void,
+  ): TelosWorkCommandReceipt {
     this.operator(actor);
     const input = TelosWorkCommandSchema.parse(raw);
     return this.db
@@ -408,6 +412,9 @@ export class TelosWorkStore {
         }
         if (this.snapshot(input.itemId).revision !== input.expectedRevision)
           conflict('Work revision conflict; read current work before retrying');
+        // Host-only denial port, never command JSON or a grant. Exact completed
+        // receipts remain recoverable before authority for a new apply is read.
+        assertBeforeApply?.();
         this.apply(input, actorId);
         const result = { commandId: randomUUID(), actorId, work: this.snapshot(input.itemId) };
         this.db

@@ -509,6 +509,32 @@ Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromiu
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
 
+Reviewed Telos mutations use the same ordinary `PermissionBanner` on desktop and
+mobile, selected only by the host's `reviewKind` marker. Request details contains
+whole completed public messages and retained material revisions, with no initial
+selection. The exact compiled source text, boundary, brief and version pins remain
+inspectable before Once saves that packet. Changing a selection invalidates its
+preview. This request offers Once and Deny; a session allowance cannot approve
+unseen future source selections. Other tools retain their existing scope/actions.
+The source controls reuse shared fieldsets, semantic tokens, normal disclosure
+and the card's independently scrolling body with reachable 44px decisions. Late
+reads are fenced to the request/session/login. An uncertain save locks its exact
+request for recovery, even when the pending card resolves before its HTTP reply.
+Only the host can replay a prepared save as a recovery card. It restores its
+original packet after an authenticated read and offers Retry same save and
+Dismiss. Recovery continues that reviewed attempt; Dismiss neither undoes an
+uncertain item save nor discards its retained evidence. A fresh approval still
+uses its original deadline, explicit selection, Once and Deny. Source context and
+the proposed brief stay hidden until authentication is rechecked and clear on
+authentication loss. Retained source text wraps beside bounded native checkboxes;
+labels and decisions keep the shared touch target while the card body scrolls.
+Save to Telos leads with one structured brief in the existing Outcome, Why this
+matters, Done when and Milestones language. Source text, actual author/date and
+material title/revision/source lead the review; raw proposals, IDs, hashes and
+native generation/configuration proof stay under a closed Source details
+disclosure. Missing native provenance does not create unknown seat/configuration
+rows. Ordinary tools keep their original heading, raw request and scope controls.
+
 ## Artefact sharing links
 
 Markdown Telos artefact links reuse `FileShareLink` and a compact file-options

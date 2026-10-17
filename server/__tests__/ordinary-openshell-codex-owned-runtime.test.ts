@@ -1,4 +1,4 @@
-import { AgentLibraryVersionSchema } from '@mitzo/protocol';
+import { AgentLibraryVersionSchema, CollaborationSettingsSchema } from '@mitzo/protocol';
 import { contextDigest } from '../agent-context-compiler.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -577,4 +577,69 @@ it('acknowledges a retained consumed OpenShell command after catalog retirement 
   expect(f.dispatch).toHaveBeenCalledTimes(calls);
   expect(f.claim).toHaveBeenCalledTimes(claims);
   vi.restoreAllMocks();
+});
+
+it('admits the first explicit OpenShell prompt from a silent allocation without adopting continuation', async () => {
+  const f = fixture();
+  const command = f.command('first');
+  const binding = {
+    version: 2 as const,
+    account: command.runtime.account,
+    harness: { implementation: 'codex' as const },
+    execution: {
+      location: 'openshell' as const,
+      targetId: f.owners.target.targetId,
+      targetRevision: f.owners.target.targetRevision,
+    },
+  };
+  f.events.prepareOrdinarySession(f.meta, {
+    allocationOperationId: 'allocation',
+    preparationFingerprint: 'a'.repeat(64),
+    settings: CollaborationSettingsSchema.parse({
+      binding,
+      selection: command.selection,
+      repositoryWorkspaceId: 'repo',
+    }),
+  });
+  expect(f.dispatch).not.toHaveBeenCalled();
+  await expect(f.driver.admitPreparedFirst('allocation', f.meta, command)).resolves.toMatchObject({
+    dispatched: true,
+  });
+  expect(f.dispatch).toHaveBeenCalledOnce();
+  expect(f.events.getOrdinarySessionPreparation('allocation')?.firstCommandId).toBe('first');
+  await expect(f.driver.admitPreparedFirst('allocation', f.meta, command)).resolves.toMatchObject({
+    dispatched: false,
+  });
+  expect(f.dispatch).toHaveBeenCalledOnce();
+});
+
+it('keeps prepared-first retries bound after OpenShell origin is installed', async () => {
+  const f = fixture();
+  const command = f.command('first');
+  const binding = {
+    version: 2 as const,
+    account: command.runtime.account,
+    harness: { implementation: 'codex' as const },
+    execution: {
+      location: 'openshell' as const,
+      targetId: f.owners.target.targetId,
+      targetRevision: f.owners.target.targetRevision,
+    },
+  };
+  f.events.prepareOrdinarySession(f.meta, {
+    allocationOperationId: 'allocation',
+    preparationFingerprint: 'a'.repeat(64),
+    settings: CollaborationSettingsSchema.parse({
+      binding,
+      selection: command.selection,
+      repositoryWorkspaceId: 'repo',
+    }),
+  });
+  await f.driver.admitPreparedFirst('allocation', f.meta, command);
+  await expect(f.driver.admitPreparedFirst('other-operation', f.meta, command)).rejects.toThrow();
+  await expect(
+    f.driver.admitPreparedFirst('allocation', f.meta, f.command('other-command')),
+  ).rejects.toThrow();
+  expect(f.dispatch).toHaveBeenCalledOnce();
+  expect(f.events.getSendCommand('other-command')).toBeUndefined();
 });

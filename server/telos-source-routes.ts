@@ -12,6 +12,14 @@ import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-wor
 import { TelosSourceCapture } from './telos-source-capture.js';
 import { requireSameOriginJson } from './connections-router.js';
 import type { EventStore } from './event-store.js';
+import { TelosSourceApproval, TelosSourceSaveUncertainError } from './telos-source-approval.js';
+import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
+import { z } from 'zod';
+import type { Request } from 'express';
+import {
+  TelosSourcePermissionPreviewRequestSchema,
+  TelosSourcePermissionApproveRequestSchema,
+} from '@mitzo/protocol';
 
 /** Host-authenticated source selection/adoption only. No HTTP source bytes,
  * caller actors, model settings, allocator receipts or internal-token fallback.
@@ -23,6 +31,8 @@ export function createTelosSourceRouter(options: {
   ordinaryConversation(id: string): boolean;
   sourceConversation?(id: string): boolean;
   createOutcome?(input: TelosOutcomeCreation): Promise<{ itemId: string }>;
+  verifyInternal?(req: Request): boolean;
+  sessionId?(clientId: string): string | undefined;
 }) {
   const router = Router();
   router.use('/api/telos/work', (_req, res, next) => {
@@ -42,9 +52,10 @@ export function createTelosSourceRouter(options: {
   const run = async (
     res: Response,
     actor: TelosWorkActor,
-    action: (capture: TelosSourceCapture) => unknown,
+    action: (capture: TelosSourceCapture, approval: TelosSourceApproval) => unknown,
   ) => {
     let work: TelosWorkStore | undefined, artifacts: TelosArtifactStore | undefined;
+    let approvalStore: TelosSourceApprovalStore | undefined;
     try {
       const path = options.dbPath();
       work = new TelosWorkStore(path, {
@@ -61,9 +72,21 @@ export function createTelosSourceRouter(options: {
         authorizeArtifact: (who, itemId) =>
           who.kind === 'operator' && who.id === actor.id && artifacts!.userUploadAllowed(itemId),
       });
-      res.json(await action(capture));
+      approvalStore = new TelosSourceApprovalStore(path);
+      const approval = new TelosSourceApproval({
+        events: options.events,
+        work,
+        artifacts,
+        store: approvalStore,
+        createOutcome: async (input) => {
+          if (!options.createOutcome) throw new Error('Canonical creator unavailable');
+          return options.createOutcome(input);
+        },
+      });
+      res.json(await action(capture, approval));
     } catch (error) {
       const known = error instanceof TelosWorkError;
+      const uncertain = error instanceof TelosSourceSaveUncertainError;
       res
         .status(
           known
@@ -71,14 +94,96 @@ export function createTelosSourceRouter(options: {
             : 503,
         )
         .json({
-          code: known ? error.code : 'unavailable',
-          error: known ? error.message : 'Reviewed source service unavailable',
+          code: known ? error.code : uncertain ? 'save_uncertain' : 'unavailable',
+          error: known || uncertain ? error.message : 'Reviewed source service unavailable',
         });
     } finally {
       artifacts?.close();
       work?.close();
+      approvalStore?.close();
     }
   };
+  router.get(
+    '/api/telos/work/source/permissions/:permId',
+    options.operatorAuth,
+    async (req, res) => {
+      const actor = authority(res);
+      if (!actor) return;
+      const input = z
+        .strictObject({
+          permId: TelosWorkIdSchema,
+          sessionId: TelosWorkIdSchema,
+          afterSequence: z.coerce.number().int().nonnegative().safe().default(0),
+        })
+        .safeParse({ permId: req.params.permId, ...req.query });
+      if (!input.success) {
+        res.status(400).json({ code: 'invalid', error: 'Invalid source permission' });
+        return;
+      }
+      await run(res, actor, (_capture, approval) =>
+        approval.review(input.data.permId, input.data.sessionId, actor, input.data.afterSequence),
+      );
+    },
+  );
+  for (const operation of ['preview', 'approve'] as const)
+    router.post(
+      '/api/telos/work/source/permissions/:permId/' + operation,
+      options.operatorAuth,
+      requireSameOriginJson,
+      async (req, res) => {
+        const actor = authority(res);
+        if (!actor) return;
+        const id = TelosWorkIdSchema.safeParse(req.params.permId),
+          input = (
+            operation === 'preview'
+              ? TelosSourcePermissionPreviewRequestSchema
+              : TelosSourcePermissionApproveRequestSchema
+          ).safeParse(req.body);
+        if (!id.success || !input.success) {
+          res.status(400).json({ code: 'invalid', error: 'Invalid source permission request' });
+          return;
+        }
+        await run(res, actor, (_capture, approval) =>
+          operation === 'preview'
+            ? approval.preview(id.data, input.data, actor)
+            : approval.approve(id.data, input.data, actor),
+        );
+      },
+    );
+  router.post('/api/internal/telos/source/execute', async (req, res) => {
+    if (!options.verifyInternal?.(req)) {
+      res.status(401).json({ code: 'unauthorized', error: 'Internal token required' });
+      return;
+    }
+    const sessionId = options.sessionId?.(String(req.headers['x-client-id'] ?? ''));
+    if (!sessionId) {
+      res
+        .status(409)
+        .json({ code: 'unavailable', error: 'Active Mitzo source conversation required' });
+      return;
+    }
+    const input = z
+      .strictObject({
+        approvalReceiptId: z.uuid(),
+        proposal: z.record(z.string(), z.unknown()),
+        operation: z.enum(['create', 'adopt']),
+      })
+      .safeParse(req.body);
+    if (!input.success) {
+      res.status(400).json({ code: 'invalid', error: 'Reviewed source receipt required' });
+      return;
+    }
+    await run(res, { kind: 'conversation', id: sessionId }, (_capture, approval) => {
+      const receipt = approval.execute(
+        input.data.approvalReceiptId,
+        sessionId,
+        input.data.proposal,
+      );
+      if (receipt.operation.kind !== input.data.operation)
+        throw new TelosWorkError('unauthorized', 'Reviewed source operation differs');
+      return receipt;
+    });
+  });
   for (const operation of ['preview', 'adopt'] as const) {
     router.post(
       '/api/telos/work/source/' + operation,
