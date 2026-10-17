@@ -1,6 +1,8 @@
 # Telos S9 early offline acceptance evidence
 
-Latest independent review extension: [consolidated diagnostics and owning slices](audit-followup.md).
+Latest accepted-base refresh: [final offline merge validation](merge-validation.md).
+
+Independent review extension: [consolidated diagnostics and owning slices](audit-followup.md).
 
 Earlier landing refresh: [accepted-base integration and revalidation](landing.md).
 The initial map snapshots and original results below remain pinned to their original run; the refresh
