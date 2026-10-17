@@ -34,6 +34,8 @@ export function projectTelosWorkRecord(
     profile: item.profile ?? '',
     status: item.status,
     starred: starred === true || starred === 1,
+    priority:
+      item.priority === undefined ? (starred === true || starred === 1 ? 10 : 5) : item.priority,
     categories: storedJson(item.categories, []),
     createdAt: date(item.created_at),
     updatedAt: date(item.updated_at),

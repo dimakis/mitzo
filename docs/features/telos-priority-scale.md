@@ -74,3 +74,27 @@ simultaneously mounted desktop list/detail panels, with intercepted
 HTTP and an inert transport. It omits the surrounding application shell. Full
 build, broader browser acceptance and review remain CI/review gates. It uses no
 backend, live account, credentials or model calls.
+
+## Canonical workspace integration contract
+
+`TelosWorkItem.priority` accepts optional integers 1–10 for older wire compatibility.
+The current canonical projection always supplies the persisted value, or the legacy
+star mapping when an older database has no priority column. Invalid stored values
+fail validation. The existing record revision includes priority changes.
+
+The reusable `setTodoPriority(id, priority)` owner in `frontend/src/lib/todo-priority.ts`
+serializes writes across legacy and canonical views. `subscribeTodoPriorityUpdates`
+publishes confirmed `{ id, priority }` updates before the save promise resolves.
+`TodoPrioritySelect` and `todoPriority(record)` are shared presentation contracts.
+Canonical consumers must fence earlier reads, retain the acknowledged value while
+refreshing, and reread the record and revision after notification. Rejected writes
+publish no update; they preserve the last confirmed display.
+
+S7 (#1019) owns placement in `TelosItemWorkspace` and `TelosOutcomesTree`, canonical
+refresh subscriptions, and combined routed CT14 acceptance. CT14 remains open until
+the integrated workspace demonstrates all ten values, persistence/reload, failed and
+overlapping saves, and immediate header/tree badge agreement. This amendment's
+legacy workspace evidence does not close that combined acceptance row. The frozen
+r1 mock and its additive priority amendment remain unchanged. Live Telos tracker
+updates are pending availability of the canonical tools; no database edits substitute
+for a tracker update receipt.

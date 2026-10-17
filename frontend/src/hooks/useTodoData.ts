@@ -3,10 +3,12 @@ import type { TodoItem, TodoData, TodoOutcomeDraft } from '../types/todo';
 import { apiFetch, invalidateTodoReads } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import { ListCache, SupersededListRequest } from '../lib/list-cache';
+import { setTodoPriority, subscribeTodoPriorityUpdates } from '../lib/todo-priority';
 
 const todoCache = new ListCache<TodoData>();
-// Keep writes ordered even when the detail view unmounts and another one opens.
-const priorityWrites = new Map<string, Promise<void>>();
+subscribeTodoPriorityUpdates(({ id, priority }) => {
+  todoCache.update((data) => ({ ...data, items: setPriorityInTree(data.items, id, priority) }));
+});
 function invalidateTodos(): void {
   invalidateTodoReads();
   todoCache.invalidate();
@@ -207,35 +209,6 @@ export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDa
     }
   }, []);
 
-  const setPriority = useCallback(async (id: string, priority: number) => {
-    if (!Number.isInteger(priority) || priority < 1 || priority > 10)
-      throw new Error('Priority must be from 1 to 10');
-    const write = async () => {
-      const response = await apiFetch(`/api/todos/${encodeURIComponent(id)}/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'priority', priority }),
-      });
-      if (!response.ok || (await response.json()).ok !== true)
-        throw new Error('Priority change was not confirmed');
-
-      // The cache publishes confirmed changes to every mounted list/detail consumer.
-      invalidateTodoReads();
-      todoCache.update((data) => ({
-        ...data,
-        items: setPriorityInTree(data.items, id, priority),
-      }));
-    };
-    const previous = priorityWrites.get(id);
-    const pending = previous ? previous.catch(() => {}).then(write) : write();
-    priorityWrites.set(id, pending);
-    try {
-      await pending;
-    } finally {
-      if (priorityWrites.get(id) === pending) priorityWrites.delete(id);
-    }
-  }, []);
-
   const create = useCallback(
     async (summary: string, profileName: string, parentId?: string) => {
       const body: Record<string, string> = { summary, profile: profileName };
@@ -286,7 +259,7 @@ export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDa
     snooze,
     done,
     star,
-    setPriority,
+    setPriority: setTodoPriority,
     create,
     createOutcome,
     refresh,
