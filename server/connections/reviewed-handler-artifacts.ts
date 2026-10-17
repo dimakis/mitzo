@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.280-chat-settings.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.280-chat-settings.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':
-    '13b1e9a1c93aea5419585371524900e02c64ccab549409630be7628977acc8e7',
+    '9b58f5187c14f0356d49296410d6e763707544176d38583c031803a9ed7284a7',
   '../../frontend/src/components/SettingsBrandMark.tsx':
     '74b448995334f1d9b76bc0348839e83ae860b7fd249c389eee6f2ff77c42e9c6',
   '../../frontend/src/components/SettingsBrandMark.css':

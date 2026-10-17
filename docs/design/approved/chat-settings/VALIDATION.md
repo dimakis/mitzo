@@ -82,6 +82,19 @@ draft and dispatch assertions. The combined branch passes 119 focused checks and
 the final 17-check browser rerun; the earlier broader run passed its other 65 checks.
 Final-head CI and trusted Centaur review remain merge gates recorded on the PR.
 
+Centaur's full-PR pass then found `CEN-E8F60BF03BBF`: the component row's flex
+rule could override the shared hidden rule when route CSS arrived last. The rule
+now applies only to rows without `hidden`. The new full-app lazy-chat journey
+reapplies the actual component stylesheet after shared styles, reproducing the
+production cascade even with the local combined bundle. It failed with eight
+hidden rows still visible before the fix. It now checks every editor, hidden-row
+geometry and focus exclusion, Escape focus restoration and retained composer text
+in both themes on all three browser projects. All 17 selected settings/defaults/
+lazy-route browser checks and 133 component/design/source checks pass. Mobile and
+desktop account-editor screenshots were inspected in both themes. Approval,
+reference bytes and protected tests are unchanged; the reviewed CSS fingerprint
+was updated with implementation revision `v1.0.280-chat-settings.2`.
+
 Main's existing protection requires up-to-date `ci`, `Connections browser regression`
 (the browser/offline aggregate), native checks and `Centaur final LGTM`, with admin
 enforcement. The ledger's integrity/history checks run in required CI; rendered

@@ -23,7 +23,7 @@
   ) {
   display: contents;
 }
-.workspace-controls--quick .quick-settings-row {
+.workspace-controls--quick .quick-settings-row:not([hidden]) {
   position: relative;
   display: flex;
   align-items: center;

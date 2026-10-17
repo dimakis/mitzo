@@ -129,6 +129,63 @@ async function openAgentSettings(page: Page) {
   await openChatSetting(page, 'execution');
 }
 
+for (const appearance of ['dark', 'light'] as const) {
+  test(`Quick settings lazy route: hidden summaries leave layout and keyboard navigation (${appearance})`, async ({
+    page,
+  }, testInfo) => {
+    const fixture = await offlinePicker(page, appearance);
+    // CI serves the production Vite app, including route-pages.ts's lazy chat import.
+    await page.goto('/chat?agentProfile=agent&profileRevision=1');
+    const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await input.fill('Retain my draft while navigating the lazy-loaded settings');
+    await chooseSetting(page, 'Account', 'api');
+    await chooseSetting(page, 'Model', 'shell-model');
+    const panel = await settingsHome(page);
+    await expect(settingRow(page, 'Account')).toBeVisible();
+    // Also exercise component CSS arriving after shared workspace CSS when the
+    // local offline bundle combines styles instead of loading a route CSS chunk.
+    const lateStyles = await page.addStyleTag({
+      content: await readFile(resolve('frontend/src/components/QuickChatSettings.css'), 'utf8'),
+    });
+    await lateStyles.evaluate((style) => document.body.append(style));
+    for (const field of [
+      'account',
+      'model',
+      'thinking',
+      'agent',
+      'execution',
+      'repository',
+      'more',
+      'defaults',
+    ]) {
+      await openChatSetting(page, field);
+      const back = panel.getByRole('button', { name: 'Back to chat settings' });
+      await expect(back).toBeFocused();
+      await expect(panel.locator('.quick-settings-editor:not([inert])')).toHaveCount(1);
+      await expect(panel.locator('.quick-settings-row[hidden]:visible')).toHaveCount(0);
+      expect(
+        await panel.locator('.quick-settings-row[hidden]').evaluateAll((rows) => {
+          const focus = document.activeElement;
+          return rows.every((row) => {
+            (row as HTMLElement).focus();
+            return row.getClientRects().length === 0 && document.activeElement === focus;
+          });
+        }),
+      ).toBe(true);
+      if (field === 'account')
+        await page.screenshot({
+          path: testInfo.outputPath(`quick-sheet-lazy-account-${appearance}.png`),
+        });
+      await page.keyboard.press('Escape');
+      await expect(panel.locator(`[data-quick-setting="${field}"]`)).toBeFocused();
+    }
+    await expect(input).toHaveValue('Retain my draft while navigating the lazy-loaded settings');
+    await page.screenshot({ path: testInfo.outputPath(`quick-sheet-lazy-home-${appearance}.png`) });
+    expect(fixture.forbidden).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
+}
+
 test('Runtime defaults: save, fresh New chat, explicit confirmation, clear and retained draft', async ({
   page,
 }) => {
