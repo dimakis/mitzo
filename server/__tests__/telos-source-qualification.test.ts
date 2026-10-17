@@ -152,6 +152,137 @@ it.each([undefined, 'Question'])(
     );
   },
 );
+it.each(['later-only', 'combined', 'conversation_so_far'] as const)(
+  'retains repeated initial-prompt text as distinct completed messages for %s capture',
+  async (capture) => {
+    const prompt = 'Repeat this request';
+    const f = fixture(prompt);
+    const initial = f.append('user_message', { messageId: 'initial', text: prompt });
+    const firstAnswer = f.assistant('first-answer');
+    const repeated = f.append('user_message', { messageId: 'repeated', text: prompt });
+    const secondAnswer = f.assistant('second-answer');
+    const sequence = f.append('user_message', { messageId: 'repeated-again', text: prompt });
+    const replay = f.replay().messages;
+    expect(replay.map((message) => message.messageId)).toEqual([
+      'initial',
+      'first-answer',
+      'repeated',
+      'second-answer',
+      'repeated-again',
+    ]);
+    const ids =
+      capture === 'later-only'
+        ? ['repeated-again']
+        : capture === 'combined'
+          ? ['repeated-again', 'initial', 'repeated']
+          : [];
+    const selection = {
+      ...f.selection(
+        sequence,
+        'repeated-again',
+        capture === 'conversation_so_far' ? capture : 'selected',
+      ),
+      messageIds: ids,
+    };
+    const compiled = await compileCollaborationSourceContext(selection, f.source);
+    const expected = replay.filter(
+      (message) => capture === 'conversation_so_far' || ids.includes(message.messageId),
+    );
+    expect(compiled.messages.map((message) => message.messageId)).toEqual(
+      expected.map((message) => message.messageId),
+    );
+    expect(
+      compiled.messages.map((message) =>
+        message.blocks.map(({ blockId, content }) => ({ blockId, content })),
+      ),
+    ).toEqual(
+      expected.map((message) =>
+        message.blocks.map(({ blockId, content }) => ({ blockId, content })),
+      ),
+    );
+    const terminals = new Map([
+      ['initial', initial],
+      ['first-answer', firstAnswer],
+      ['repeated', repeated],
+      ['second-answer', secondAnswer],
+      ['repeated-again', sequence],
+    ]);
+    expect(compiled.messages.map((message) => message.sequence)).toEqual(
+      expected.map((message) => terminals.get(message.messageId)),
+    );
+    expect(compiled.boundary).toEqual({ sequence, messageId: 'repeated-again' });
+    const opened = await f.source.openConversation(selection);
+    expect(opened.attributions['repeated-again']).toMatchObject({ seatId: null, provenance: null });
+  },
+);
+it.each(['selected', 'conversation_so_far'] as const)(
+  'refuses repeated initial-prompt text with an ambiguous message identity in %s mode',
+  async (mode) => {
+    const f = fixture('Question');
+    f.append('user_message', { messageId: 'same-id', text: 'Question' });
+    f.assistant('completed-answer');
+    const sequence = f.append('user_message', { messageId: 'same-id', text: 'Question' });
+    await expect(
+      compileCollaborationSourceContext(f.selection(sequence, 'same-id', mode), f.source),
+    ).rejects.toThrow();
+  },
+);
+it.each(['selected', 'conversation_so_far'] as const)(
+  'refuses repeated initial-prompt text with a malformed boundary identity in %s mode',
+  async (mode) => {
+    const f = fixture('Question');
+    f.append('user_message', { messageId: 'initial', text: 'Question' });
+    f.assistant('completed-answer');
+    const sequence = f.append('user_message', { messageId: 42, text: 'Question' });
+    await expect(
+      compileCollaborationSourceContext(f.selection(sequence, 'invented-id', mode), f.source),
+    ).rejects.toThrow();
+  },
+);
+it.each(['selected', 'conversation_so_far'] as const)(
+  'refuses repeated initial-prompt text with unverified provenance in %s mode',
+  async (mode) => {
+    const f = fixture('Question');
+    const earlier = f.append('user_message', { messageId: 'initial', text: 'Question' });
+    f.assistant('completed-answer');
+    const sequence = f.append('user_message', {
+      messageId: 'repeated',
+      text: 'Question',
+      seatId: null,
+    });
+    expect(f.replay).toThrow('unverifiable Symposium attribution');
+    await expect(
+      compileCollaborationSourceContext(f.selection(sequence, 'repeated', mode), f.source),
+    ).rejects.toThrow();
+    expect(
+      (await compileCollaborationSourceContext(f.selection(earlier, 'initial'), f.source))
+        .messages[0].messageId,
+    ).toBe('initial');
+  },
+);
+it.each(['selected', 'conversation_so_far'] as const)(
+  'refuses a delayed first initial-prompt match after completed turns in %s mode',
+  async (mode) => {
+    const f = fixture('Question');
+    f.append('user_message', { messageId: 'different', text: 'Another question' });
+    f.assistant('completed-answer');
+    const sequence = f.append('user_message', {
+      messageId: 'delayed-first-match',
+      text: 'Question',
+    });
+    expect(f.replay().messages.map((message) => message.messageId)).toEqual([
+      'delayed-first-match',
+      'different',
+      'completed-answer',
+    ]);
+    await expect(
+      compileCollaborationSourceContext(
+        f.selection(sequence, 'delayed-first-match', mode),
+        f.source,
+      ),
+    ).rejects.toThrow();
+  },
+);
 it.each(['selected', 'conversation_so_far'] as const)(
   'refuses a metadata-only initial prompt that has no durable boundary in %s mode',
   async (mode) => {

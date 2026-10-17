@@ -125,7 +125,25 @@ receipt records. A prepared save can resume even if its first attempt stopped
 before canonical source capture began: it uses the original immutable approval
 packet while rechecking current source/material authority and exact pinned bytes,
 rather than recompiling later discussion. Adoption also retains the reviewed
-target revision. Dismiss settles the matching live provider request as a denial,
+target revision. An unfinished creation or adoption rechecks the actual source's current
+visibility and operator authority, plus every retained material's current access
+policy and exact bytes, before saving a new source artifact or applying a new
+source/backlink transaction. Creation also checks before a new canonical call;
+authority changed during its await blocks subsequent source writes.
+Revocation or a hidden/imported source blocks new creation,
+artifact and relationship effects; restoring access resumes the same packet and
+idempotency key without recapturing later discussion. A canonical call already in
+flight may have committed; its retained attempt is not discarded or labelled
+complete. Exact saved work-command receipts are returned before the host's
+new-apply authority callback, so a completed source/link can recover its original
+receipt even if final creation bookkeeping was interrupted. Completed receipts
+remain recoverable without new source effects if access subsequently changes.
+For a recovery conflict while current source access is unavailable, the existing Retry same save remains
+available after access returns; it resubmits the same immutable request without
+a reload, fresh preview or new save intent. Definitive invalid/not-found recovery
+failures remain blocked without advising a replacement request. Genuine authentication loss still
+clears sensitive context and blocks approval until protected recovery rechecks it.
+Dismiss settles the matching live provider request as a denial,
 including after its original deadline; it leaves a replacement request untouched
 and does not undo a retained save. Internal receipt retrieval stops further
 recovery-card replay;
@@ -226,7 +244,11 @@ Recorded runs of the separate approval/recovery matrix pass twelve route cases
 plus two browser startup checks using the real approval service, pending
 permission handler and temporary canonical creator. It preserves exact
 create/adopt consent, source and canonical response-loss boundaries, and protected
-recovery reads. Backend regressions separately cover recovery before the first
+recovery reads. A lost completed-source response recovers its existing receipt
+with the source hidden. A lost canonical response leaves source capture
+unfinished: its hidden-source retry is refused with unchanged owner counts, then
+restored access and the same existing button finish the original reviewed attempt.
+Backend regressions separately cover recovery before the first
 canonical capture and authenticated live Dismiss; these are not additional browser
 or live runtime acceptance claims. Signal-aware frontend regressions verify that
 pagination after a message/material choice preserves that choice, keeps new page

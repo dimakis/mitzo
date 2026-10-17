@@ -283,6 +283,17 @@ describe('actual ordinary Telos source approval owners', () => {
       await expect(
         f.service.approve(s.permId, s.approved, { kind: 'operator', id: 'another-operator' }),
       ).rejects.toThrow(/another operator/);
+      const beforeDeniedRecovery = f.retainedOwnerCounts();
+      await expect(f.service.approve(s.permId, s.approved, f.actor)).rejects.toThrow();
+      expect(f.retainedOwnerCounts()).toEqual(beforeDeniedRecovery);
+      expect((await f.service.review(s.permId, 'planning', f.actor)).recovery?.preview).toEqual(
+        s.preview.preview,
+      );
+      expect(f.restoreOriginalSourceAccess()).toBe(true);
+      f.events.append('planning', 'user_message', {
+        messageId: 'after-prepared-recovery',
+        text: 'Later discussion must not replace the approved source.',
+      });
       const previewNew = vi.spyOn(f.service.capture, 'previewNew');
       const preview = vi.spyOn(f.service.capture, 'preview');
       const receipt = await f.service.approve(s.permId, s.approved, f.actor);

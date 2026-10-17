@@ -724,4 +724,69 @@ describe('ordinary Telos source approval', () => {
     );
     expect(props.onRespond).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { status: 409, code: 'conflict' },
+    { status: 401, code: 'unauthorized' },
+    { status: 403, code: 'unauthorized' },
+    { status: 400, code: 'invalid' },
+    { status: 404, code: 'not_found' },
+  ])(
+    'preserves the immutable recovery retry and failure boundary after status $status',
+    async ({ status, code }) => {
+      const input = {
+        sessionId: review.sessionId,
+        requestId: '12345678-1234-4234-8234-123456789abc',
+        proposalSha256,
+        selection: {
+          mode: 'selected',
+          boundary: review.source.boundary,
+          messageIds: ['assistant-1'],
+          artifacts: [],
+        },
+      };
+      const originalPreview = await api.previewSourcePermission.getMockImplementation()!(
+        review.permId,
+        input,
+      );
+      api.getSourcePermission.mockResolvedValueOnce({
+        ...review,
+        messages: [],
+        artifacts: [],
+        recovery: { ...input, previewSha256, preview: originalPreview.preview, receipt: null },
+      });
+      api.approveSourcePermission.mockRejectedValueOnce({ status, code });
+      render(<PermissionBanner {...props} recoveryOnly expiresAt={Date.now() - 1} />);
+      await screen.findByText('Reviewed source');
+      const retry = screen.getByRole('button', { name: 'Retry same save' });
+      fireEvent.click(retry);
+      const alert = await screen.findByRole('alert');
+      if (status === 401 || status === 403) {
+        expect(alert.textContent).toMatch(/sign in again/i);
+        expect(retry.hasAttribute('disabled')).toBe(true);
+        expect(screen.queryByText('The agreed studio brief.')).toBeNull();
+        expect(api.approveSourcePermission).toHaveBeenCalledTimes(1);
+        return;
+      }
+      expect(alert.textContent).not.toMatch(/new request|ask again|review a new/i);
+      if (status !== 409) {
+        expect(retry.hasAttribute('disabled')).toBe(true);
+        expect(api.approveSourcePermission).toHaveBeenCalledTimes(1);
+        return;
+      }
+      expect(alert.textContent).toMatch(/same save|original save/i);
+      expect(retry.hasAttribute('disabled')).toBe(false);
+      expect(screen.getByText('The agreed studio brief.')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Dismiss' }).hasAttribute('disabled')).toBe(false);
+      fireEvent.click(retry);
+      await screen.findByRole('link', { name: 'Open saved item' });
+      expect(api.approveSourcePermission.mock.calls).toEqual([
+        [review.permId, { ...input, previewSha256 }],
+        [review.permId, { ...input, previewSha256 }],
+      ]);
+      expect(api.getSourcePermission).toHaveBeenCalledTimes(1);
+      expect(api.previewSourcePermission).not.toHaveBeenCalled();
+      expect(props.onRespond).not.toHaveBeenCalled();
+    },
+  );
 });

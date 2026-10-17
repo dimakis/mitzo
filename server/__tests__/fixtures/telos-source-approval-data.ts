@@ -76,6 +76,7 @@ export function createTelosSourceApprovalData() {
     sessionId: 'planning',
   });
   let canonicalCreates = 0;
+  let canonicalCalls = 0;
   let loseCanonicalResponse = false;
   const canonicalReply = (itemId: string, created: boolean, summary: string) => {
     if (loseCanonicalResponse) {
@@ -93,6 +94,7 @@ export function createTelosSourceApprovalData() {
     };
   };
   const createOutcome = async (body: TelosOutcomeCreation) => {
+    canonicalCalls++;
     const prior = db
       .prepare('SELECT id,summary FROM items WHERE idempotency_key=?')
       .get(body.idempotencyKey) as { id: string; summary: string } | undefined;
@@ -248,6 +250,33 @@ export function createTelosSourceApprovalData() {
     hideOriginalSource() {
       events.hideSession('planning');
       return events.getSession('planning')?.isHidden === true;
+    },
+    restoreOriginalSourceAccess() {
+      // Test-only restoration of access in the actual temporary metadata store.
+      // EventStore has no public unhide operation; no product UI/API is invented.
+      const metadata = new Database(join(root, 'events.db'));
+      try {
+        metadata.prepare('UPDATE sessions SET is_hidden=0 WHERE session_id=?').run('planning');
+      } finally {
+        metadata.close();
+      }
+      return events.getSession('planning')?.isHidden === false;
+    },
+    retainedOwnerCounts() {
+      const count = (table: string) =>
+        (db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get() as { total: number }).total;
+      return {
+        canonicalCalls,
+        canonicalCreates,
+        items: count('items'),
+        artifactRevisions: count('telos_artifact_revisions'),
+        sources: count('telos_work_sources'),
+        workLinks: count('telos_work_links'),
+        links: count('links'),
+        creationAttempts: count('telos_work_source_creations'),
+        approvalAttempts: count('telos_work_source_approvals'),
+        allocations: count('telos_work_allocation_outbox'),
+      };
     },
     async settled() {
       await settlement;

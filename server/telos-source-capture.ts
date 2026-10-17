@@ -182,6 +182,7 @@ export class TelosSourceCapture {
   ) {
     const preview = TelosSourcePreviewSchema.parse(read());
     const packet = preview.packet;
+    const source = this.options.events.getSession(selection.sourceConversationId);
     if (
       preview.sha256 !== previewSha256 ||
       hash(JSON.stringify(packet)) !== previewSha256 ||
@@ -192,6 +193,9 @@ export class TelosSourceCapture {
       !isDeepStrictEqual(packet.context.boundary, selection.boundary) ||
       packet.context.mode !== selection.mode ||
       packet.brief.sha256 !== hash(packet.brief.text) ||
+      !source ||
+      source.isHidden ||
+      source.conversationSource === 'external_import' ||
       !this.options.authorizeSource(actor, selection.sourceConversationId)
     )
       conflict();
@@ -233,6 +237,7 @@ export class TelosSourceCapture {
     const input = TelosSourceCreateRequestSchema.parse(raw);
     const inputHash = hash(JSON.stringify(input));
     let record = this.options.work.sourceCreation(input.requestId, inputHash, actor);
+    if (record?.receipt) return record.receipt;
     if (!record) {
       const preview = readPreparedPreview
         ? this.preparedPreview(
@@ -256,6 +261,7 @@ export class TelosSourceCapture {
           conflict();
       }
       if (preview.sha256 !== input.previewSha256) conflict();
+      this.preparedPreview(() => preview, actor, input.selection, input.previewSha256, null);
       record = this.options.work.prepareSourceCreation(
         input.requestId,
         inputHash,
@@ -263,10 +269,13 @@ export class TelosSourceCapture {
         actor,
       );
     }
-    if (record.receipt) return record.receipt;
+    const retained = { sha256: input.previewSha256, packet: record.packet };
+    const assertCurrentAuthority = () =>
+      this.preparedPreview(() => retained, actor, input.selection, input.previewSha256, null);
     const creation = record.packet.creation;
     if (!creation) conflict();
     if (!record.itemId) {
+      assertCurrentAuthority();
       const result = await createOutcome({
         ...creation.outcome,
         idempotencyKey: record.idempotencyKey,
@@ -282,7 +291,8 @@ export class TelosSourceCapture {
     const sessionId = 'source-capture:' + hash(actorId),
       requestId = requestKey('create-artifact', actorId, input.requestId);
     let artifact = this.options.artifacts.retryReceipt(sessionId, requestId, inputHash);
-    if (!artifact)
+    if (!artifact) {
+      assertCurrentAuthority();
       artifact = this.options.artifacts.save({
         itemId: record.itemId,
         filename: 'origin-' + input.previewSha256 + '.json',
@@ -294,6 +304,7 @@ export class TelosSourceCapture {
         requestId,
         requestInputHash: inputHash,
       });
+    }
     const receipt = this.linkPacket(
       record.packet,
       artifact,
@@ -304,6 +315,7 @@ export class TelosSourceCapture {
         expectedRevision: record.itemRevision,
       },
       actor,
+      assertCurrentAuthority,
     );
     return this.options.work.completeSourceCreation(input.requestId, inputHash, receipt, actor);
   }
@@ -349,6 +361,13 @@ export class TelosSourceCapture {
       )
         conflict();
       packet = preview.packet;
+      this.preparedPreview(
+        () => preview,
+        actor,
+        input.selection,
+        input.previewSha256,
+        input.itemId,
+      );
       artifact = this.options.artifacts.save({
         itemId: input.itemId,
         filename: 'origin-' + preview.sha256 + '.json',
@@ -368,7 +387,15 @@ export class TelosSourceCapture {
       packet.workRevision !== input.expectedRevision
     )
       conflict();
-    return this.linkPacket(packet, artifact, { ...input, scope: 'adopt' }, actor);
+    return this.linkPacket(packet, artifact, { ...input, scope: 'adopt' }, actor, () =>
+      this.preparedPreview(
+        () => ({ sha256: input.previewSha256, packet }),
+        actor,
+        input.selection,
+        input.previewSha256,
+        input.itemId,
+      ),
+    );
   }
 
   private linkPacket(
@@ -381,6 +408,7 @@ export class TelosSourceCapture {
       scope: 'create' | 'adopt';
     },
     actor: TelosWorkActor,
+    assertBeforeApply: () => void,
   ) {
     const actorId = operator(actor),
       requestId = requestKey(input.scope + '-command', actorId, input.requestId);
@@ -418,6 +446,7 @@ export class TelosSourceCapture {
         },
       },
       actor,
+      assertBeforeApply,
     );
   }
 

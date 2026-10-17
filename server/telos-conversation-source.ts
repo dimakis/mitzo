@@ -165,9 +165,14 @@ export function createTelosConversationSource(options: {
                 if (event.type === 'message_start') {
                   if (typeof event.payload.messageId !== 'string') refuse();
                   ordinaryActive = event.payload.messageId;
-                } else if (initialPrompt && event.payload.text === initialPrompt) {
-                  if (initialPromptSequence !== undefined || event.seq !== firstOrdinaryMessage)
-                    refuse();
+                } else if (
+                  initialPrompt &&
+                  event.payload.text === initialPrompt &&
+                  initialPromptSequence === undefined
+                ) {
+                  // Normal replay singles out the first matching user row;
+                  // later identical text retains its own durable identity.
+                  if (event.seq !== firstOrdinaryMessage) refuse();
                   initialPromptSequence = event.seq;
                 }
               } else if (

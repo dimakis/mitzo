@@ -438,9 +438,14 @@ export function useTelosSourceReview({
           setBlocked(true);
           setError('Sign in again before reviewing this request.');
         } else if (code && !['save_uncertain', 'unavailable'].includes(code)) {
-          setBlocked(true);
+          const retrySameSave = recoveryOnly && code === 'conflict';
+          setBlocked(!retrySameSave);
           setError(
-            'This request changed or is no longer authorized. Review a new request before saving.',
+            retrySameSave
+              ? 'The original save is still unconfirmed. Access changed or is no longer authorized. Retry the same save after access returns, or Dismiss.'
+              : recoveryOnly
+                ? 'The original save is still unconfirmed. This recovery cannot continue. Dismiss keeps any saved item and its retained source.'
+                : 'This request changed or is no longer authorized. Review a new request before saving.',
           );
         } else
           setError(

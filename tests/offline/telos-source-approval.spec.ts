@@ -53,6 +53,7 @@ for (const theme of ['dark', 'light'] as const)
           unexpected: string[] = [];
         const previews: TelosSourcePermissionPreview[] = [],
           receipts: TelosSourcePermissionReceipt[] = [];
+        const approvalRequests: unknown[] = [];
         const reviews: TelosSourcePermissionReview[] = [];
         let recoveryReadUnavailable = false;
         const account = {
@@ -139,6 +140,7 @@ for (const theme of ['dark', 'light'] as const)
             try {
               const permId = decodeURIComponent(permission[1]);
               const operation = permission[2];
+              if (operation === 'approve') approvalRequests.push(request.postDataJSON());
               if (!operation && recoveryReadUnavailable) {
                 return route.fulfill({
                   status: 503,
@@ -573,14 +575,52 @@ for (const theme of ['dark', 'light'] as const)
           recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }),
         ).toBeInViewport();
         await page.screenshot({ path: info.outputPath(`source-approval-recovery-${theme}.png`) });
+        const beforeHiddenRetry = host.retainedOwnerCounts();
         await recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }).click();
+        if (responseLoss === 'canonical') {
+          // Canonical creation has committed, but this source save is unfinished.
+          // Hiding its source cannot grant another creator/artifact/link write.
+          await expect(recoveryCard.getByRole('alert')).toContainText('no longer authorized');
+          await expect(recoveryCard.getByRole('alert')).not.toContainText(
+            /new request|ask again|review a new/i,
+          );
+          await expect(
+            recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }),
+          ).toBeEnabled();
+          await expect(
+            recoveryCard.getByRole('link', { name: 'Open saved item', exact: true }),
+          ).toHaveCount(0);
+          expect(host.retainedOwnerCounts()).toEqual(beforeHiddenRetry);
+          expect(receipts).toHaveLength(2);
+          expect(previews.length).toBe(previewCountBeforeRecovery);
+          expect(host.recoveryRequests()).toHaveLength(1);
+          await page.screenshot({
+            path: info.outputPath(`source-approval-recovery-denied-${theme}.png`),
+          });
+          expect(host.restoreOriginalSourceAccess()).toBe(true);
+          // The existing button retries the same immutable attempt without a
+          // reload, new tool request, preview, selection or approval intent.
+          await expect(
+            recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }),
+          ).toBeEnabled();
+          await expect(
+            recoveryCard.getByRole('region', { name: 'Reviewed source', exact: true }),
+          ).toContainText('Use the approved acoustic plan.');
+          expect(previews.length).toBe(previewCountBeforeRecovery);
+          await page.screenshot({
+            path: info.outputPath(`source-approval-recovery-restored-${theme}.png`),
+          });
+          await recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }).click();
+        }
         await expect(
           recoveryCard.getByRole('link', { name: 'Open saved item', exact: true }),
         ).toBeVisible();
         expect(receipts).toHaveLength(3);
         const recovered = receipts.at(-1)!;
+        if (responseLoss === 'canonical')
+          expect(approvalRequests.at(-1)).toEqual(approvalRequests.at(-2));
         expect(host.receiptSource(recovered).packet).toEqual(prepared.preview.packet);
-        expect(host.receiptSource(recovered).available).toBe(false);
+        expect(host.receiptSource(recovered).available).toBe(responseLoss === 'canonical');
         expect(host.counts().sources.total).toBe(savedCount + 1);
         expect(host.counts().canonicalCreates).toBe(savedBeforeRestart.canonicalCreates);
         expect(recovered.canonicalCreation).toMatchObject({
