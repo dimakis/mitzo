@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.281-symposium-capacity.1-telos-s4.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.283-tool-builder-review.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../custom-tool-registry.ts': 'a878023c7eca0f3a61284aa3298b6605c9a9831a020b705d36be1946266a21f6',
+  '../tool-builder-router.ts': '18752545ab53fbe18ed0652b2b5ab3aa4769512abb7036f29dcaa7edb283791f',
+  '../tool-builder-store.ts': '687c537c24c58fa651fbe0b49985fd42b26f87b5ae4061aaa53f8aff2f130fb0',
+  '../tool-builder.ts': 'c6e9c1edcdfdc200b9a6e315026c51aaa8cacbfeb711da96d9e16ab1466d62e6',
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':
@@ -186,7 +189,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-tool-catalog.ts': 'cce1cd0d21a2123389fa4361e8ab6f42d1d19c1182252e9496a4e5005f2f4ce3',
   '../agent-tool-selection.ts': '155026825c45663863e69c93ccdc4244adb102ba1022dbe33a2a8d3caa4010ab',
   '../../packages/protocol/src/agent-tools.ts':
-    'c2ac5032c8cae17467c1e60638b5bf0efb7410ca345f9ba116e73aa606cdac26',
+    'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
   '../symposium-session-create.ts':
     '1696f970ee8d8680ce3d73f80cc06b5712dfe78159a1a6635cad81f24e040640',
   // Task presentation and retained execution intent; no execution enrollment.
