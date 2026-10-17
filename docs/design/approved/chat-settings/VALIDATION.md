@@ -49,6 +49,14 @@ and native Swift/build acceptance. The initial offline run found older navigatio
 assumptions in the three journeys above; their focused repaired matrix is green.
 The final combined commit must still pass the complete CI matrix.
 
+Main's subsequent sandbox-cleanup change `7055f64d` was integrated without changing
+the approved settings source, approval or protected tests. Its only conflict was
+the reviewed-source revision; the combined revision retains both feature sets'
+fingerprints. All 21 integrity/history checks, the focused settings/dialog unit
+checks and 17 settings-plus-sandbox browser checks passed on the combined branch.
+The preceding `f8e7fa42` CI matrix passed 795 browser checks and native acceptance;
+full CI must also accept the integrated head.
+
 Main's existing protection requires up-to-date `ci`, `Connections browser regression`
 (the browser/offline aggregate), native checks and `Centaur final LGTM`, with admin
 enforcement. The ledger's integrity/history checks run in required CI; rendered

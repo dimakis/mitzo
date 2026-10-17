@@ -1,3 +1,8 @@
+export interface SessionRemovalOptions {
+  archive?: boolean;
+  cleanupToken?: string;
+}
+
 export interface SandboxPoolSettings {
   enabled: boolean;
   capacity: number;
@@ -27,6 +32,14 @@ export interface SandboxConversation {
   canReviewCleanup: boolean;
 }
 export interface SandboxesInventory {
+  physicalInventory?: {
+    available: boolean;
+    error?: string;
+    total?: number;
+    counts?: Record<string, number>;
+    observedAt?: number;
+    items?: Array<{ id: string; name: string; state: string; management: string }>;
+  };
   revision: number;
   settings: SandboxPoolSettings;
   resting: boolean;
@@ -39,7 +52,8 @@ export interface SandboxesInventory {
 }
 export interface SandboxCleanupPreview {
   token: string;
-  action: 'stop' | 'delete' | 'none';
+  action: 'stop' | 'stop_and_delete' | 'delete' | 'none';
   blockers: string[];
   expiresAt: number;
+  retention?: { enabled: boolean; deleteAfter: number | null; days: number };
 }
