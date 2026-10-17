@@ -166,6 +166,17 @@
         "frontend/src/components/__tests__/ChatInputVoiceOwnership.test.tsx"
       ],
       "command": "NODE_OPTIONS=--max-old-space-size=1024 npx vitest run <testFiles in listed order> --maxWorkers=1"
+    },
+    "unavailableRemovalFollowup": {
+      "regression": "A previously selected recipient may become unavailable. It must remain removable without being replaced with Defaults.",
+      "red": "1 new assertion failed because the selected unavailable checkbox was disabled.",
+      "green": {
+        "files": 3,
+        "passed": 15,
+        "failed": 0,
+        "typecheck": "passed including new projection tests and browser spec"
+      },
+      "captureImpact": "No captured fixture recipient is unavailable, so its rendered states are unchanged. Full exact-head CI reruns browser coverage."
     }
   },
   "integrationHandoff": {

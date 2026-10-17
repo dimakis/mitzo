@@ -113,3 +113,28 @@ it('retains disappeared stable recipients and never turns their explicit intent 
   expect(screen.getByRole('checkbox', { name: 'Unavailable agent · gone' })).toBeTruthy();
   expect(onChange).not.toHaveBeenCalled();
 });
+
+it('allows an unavailable selected recipient to be removed without silently choosing defaults', () => {
+  const onChange = vi.fn();
+  render(
+    <ComposerResponders
+      input={{ current: null }}
+      text="Keep draft"
+      onTextChange={vi.fn()}
+      onOpenChange={vi.fn()}
+      selection={{
+        members,
+        selectedIds: ['session-two'],
+        responders: { kind: 'selected', sessionIds: ['session-two'] },
+        onChange,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+  const unavailable = screen.getByRole('checkbox', {
+    name: 'Reviewer · on-two · Session unavailable',
+  }) as HTMLInputElement;
+  expect(unavailable.disabled).toBe(false);
+  fireEvent.click(unavailable);
+  expect(onChange).toHaveBeenCalledWith([], { kind: 'selected', sessionIds: [] });
+});

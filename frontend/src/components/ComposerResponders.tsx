@@ -167,7 +167,7 @@ export function ComposerResponders({
                 type="checkbox"
                 data-responder-choice=""
                 checked={selectedIds.includes(m.id)}
-                disabled={Boolean(m.unavailableReason)}
+                disabled={Boolean(m.unavailableReason) && !selectedIds.includes(m.id)}
                 onChange={(e) =>
                   choose(
                     e.target.checked

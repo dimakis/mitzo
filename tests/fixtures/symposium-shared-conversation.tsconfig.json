@@ -21,6 +21,8 @@
     "../../frontend/src/vite-env.d.ts",
     "../../frontend/src/components/__tests__/ChatInputResponders.test.tsx",
     "./symposium-shared-conversation.tsx",
-    "./symposium-shared-conversation-data.ts"
+    "./symposium-shared-conversation-data.ts",
+    "../../packages/client/src/__tests__/collaboration-projection-replay.test.ts",
+    "../../tests/offline/symposium-shared-conversation.spec.ts"
   ]
 }
