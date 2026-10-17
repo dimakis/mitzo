@@ -145,7 +145,7 @@ export function AgentTaskEditor({
             key={copy.taskId}
             id={copy.taskId}
             value={copy.runtime}
-            resolveSavedTarget={copy.expectedRevision > 0}
+            resolveSavedTarget={copy.execution !== null}
             retainedExecution={copy.execution}
             profileLabel={profile?.definition.name ?? copy.profile.profileId}
             onChange={(runtime, execution) => {

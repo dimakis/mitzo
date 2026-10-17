@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.284';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.285';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -196,7 +196,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1696f970ee8d8680ce3d73f80cc06b5712dfe78159a1a6635cad81f24e040640',
   // Task presentation and retained execution intent; no execution enrollment.
   '../../frontend/src/components/AgentTaskEditor.tsx':
-    '5cb47eca67f376dc4c97210b53406415176765b0102353c50d9588688e90eedd',
+    'f008032213d3d54d2a05c648b3d4f11415b752f710ed47e7a4955abe3635e979',
   '../../frontend/src/components/AgentTaskList.tsx':
     'dddafd483aad19d3e6267a69b318640f592b645c6236627a1372074756386366',
   '../../frontend/src/components/AgentTaskSettings.tsx':

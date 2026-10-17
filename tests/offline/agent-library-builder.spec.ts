@@ -977,6 +977,57 @@ test('Library keeps fresh setup when a hidden conversation receives its delayed 
   expect(fixture.errors).toEqual([]);
 });
 
+test('ordinary Builder reviews a new Local Mac task using its retained route without changing execution intent', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, isMobile ? 'dark' : 'light', false, true, 'create');
+  fixture.task.definition.execution = {
+    ...fixture.task.definition.execution!,
+    account: runtimeInventory.accounts[0].account,
+    targetId: 'mac',
+    model: 'luna-fixture',
+  };
+  fixture.task.failNext = false;
+  const execution = structuredClone(fixture.task.definition.execution);
+  await page.goto('/agent-library');
+  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await prepareFirstCommand(page, 'Propose a paused task on this Mac.');
+  const proposal = page.getByRole('region', { name: 'Agent task proposal', exact: true });
+  const taskSettings = proposal.getByRole('button', { name: /^Agent settings,/ });
+  await expect(taskSettings).toHaveAccessibleName(/Local Mac/);
+  await taskSettings.click();
+  await expect(proposal.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+    'luna-fixture',
+  );
+  await expect(proposal.getByRole('option', { name: 'Luna fixture', exact: true })).toBeEnabled();
+  await expect(proposal.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(proposal.getByText('Runs with Codex', { exact: true })).toBeVisible();
+  await proposal.getByRole('button', { name: 'Done', exact: true }).click();
+  expect(fixture.task.saves).toEqual([]);
+  expect(fixture.commands).toHaveLength(1);
+  await taskSettings.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: info.outputPath('ordinary-builder-new-local-task.png'),
+    animations: 'disabled',
+  });
+  await proposal.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved Morning review' })).toContainText(
+    'task morning-review · revision 1',
+  );
+  expect(fixture.task.saved?.definition.execution).toEqual(execution);
+  expect(fixture.task.saved?.definition.schedule?.state).toBe('paused');
+  expect(fixture.task.saves).toHaveLength(1);
+  expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 for (const operation of ['create', 'edit'] as const) {
   test(`ordinary Builder ${operation}s a paused task through explicit review and recovers its exact saved receipt`, async ({
     page,
