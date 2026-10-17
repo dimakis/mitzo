@@ -109,12 +109,10 @@ export function createToolBuilderRouter(current: () => ToolBuilderStore | undefi
       res.json(receipt);
     } catch {
       if (!res.destroyed)
-        res
-          .status(400)
-          .json({
-            error:
-              'Publication requires operator acceptance and the exact implementation installed and qualified from reviewed source on a supported runtime.',
-          });
+        res.status(400).json({
+          error:
+            'Publication requires operator acceptance and the exact implementation installed and qualified from reviewed source on a supported runtime.',
+        });
     } finally {
       unregister();
       res.off('close', close);
