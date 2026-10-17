@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import { z } from 'zod';
+import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
 import type { AgentToolCatalogEntry, AgentToolReference } from '@mitzo/protocol';
 import type { CredentialConnections } from './credential-connections.js';
 import {
@@ -172,6 +173,11 @@ export class ApiToolCatalog {
           name: draft.configuration.label,
           description: apiToolTemplate.description,
           source: 'Reviewed API template',
+          implementation: {
+            template: apiToolTemplate.id,
+            source: apiToolTemplate.source,
+            fingerprint: reviewedHandlerSourceArtifacts['../api-tool-template.ts'],
+          },
           required: false,
           behavior: 'read',
           routes: ['local-api'],

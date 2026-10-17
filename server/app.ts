@@ -1,3 +1,4 @@
+import { getApiToolCatalog } from './api-tool-runtime.js';
 import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
 import { loadMcpServers } from './mcp-config.js';
 
@@ -1085,6 +1086,10 @@ app.use(
   '/api/agent-library',
   operatorAuthMiddleware,
   createAgentLibraryRouter(getAgentLibrary(), {
+    apiTools: () => {
+      const service = getCredentialConnectionsRuntime();
+      return service ? { catalog: getApiToolCatalog(), service } : undefined;
+    },
     configuredTools: () => ({
       catalog: getConfiguredToolCatalog(),
       cwd: BASE_REPO,
