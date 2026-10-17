@@ -5,6 +5,7 @@ import {
 } from './session-collaboration.js';
 import { SessionRuntimeBindingV2Schema } from './session-runtime-binding.js';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
+import { AgentProfileSelectionSchema } from './agent-library.js';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 const sequence = z
@@ -99,6 +100,24 @@ export const CollaborationSnapshotSelectionSchema = z.strictObject({
   purpose: z.string().trim().min(1).max(4000),
   joiningBrief: z.string().max(20_000),
 });
+/** Application review intent only. Actual owners resolve settings, source access
+ * and the unused prepared workspace; these selectors confer no capacity or send right. */
+export const CollaborationApplicationReviewInputSchema = z.strictObject({
+  selection: CollaborationSnapshotSelectionSchema,
+  target: z.strictObject({
+    runOn: z.enum(['local', 'openshell']),
+    accountId: id,
+    model: id,
+    reasoningEffort: id.nullable(),
+    agent: AgentProfileSelectionSchema.nullable(),
+    repositoryWorkspaceId: id,
+    permissionMode: OrdinaryLocalCommandSelectionSchema.shape.permission.shape.mode,
+  }),
+  previousSnapshot: CollaborationSnapshotReferenceSchema.optional(),
+});
+export type CollaborationApplicationReviewInput = z.infer<
+  typeof CollaborationApplicationReviewInputSchema
+>;
 export const CollaborationMessageInputSchema = z.strictObject({
   ...request,
   expectedPolicySequence: sequence,
@@ -316,6 +335,26 @@ export const CollaborationSnapshotSchema = CollaborationSnapshotDraftSchema.omit
   snapshotId: z.uuid(),
   sha256: digest,
 });
+export const CollaborationApplicationReviewResultSchema = z.strictObject({
+  snapshot: CollaborationSnapshotSchema,
+  settings: CollaborationSettingsSchema,
+  expectedMembershipRevision: sequence,
+  artifactLabels: z
+    .array(
+      z.strictObject({
+        artifactId: id,
+        revision: z.number().int().positive().safe(),
+        sha256: digest,
+        title: z.string().trim().min(1).max(1000),
+        filename: z.string().trim().min(1).max(1000).optional(),
+      }),
+    )
+    .max(100)
+    .optional(),
+});
+export type CollaborationApplicationReviewResult = z.infer<
+  typeof CollaborationApplicationReviewResultSchema
+>;
 export const CollaborationJoinInputSchema = z.strictObject({
   ...request,
   name: z.string().trim().min(1).max(100),
