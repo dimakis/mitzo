@@ -73,6 +73,13 @@ support are unestablished. No count endpoint or model was called for this propos
 5. Retain ordinary application, workspace, provider-session, command, acknowledgement
    and reply owners. No additional provider/session system or scheduler is added.
 
+The existing native API candidate is OpenShell: `ordinary-openshell-codex-route.ts`
+resolves an enrolled `provider: openai` account with `harness: codex` to `kind: api`.
+Its entry, admission and runtime owners retain ordinary native custody. The local
+`FrozenHostCodexLogin` instead requires ChatGPT credentials; the separate local
+Responses SDK callback path creates queues and does not qualify silent native
+preparation. This source inspection selects no configured runtime or account.
+
 ## Existing owners and the native addition
 
 | Responsibility                                             | Single owner / extension point                                                                                                                                                                                           |

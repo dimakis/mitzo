@@ -70,4 +70,10 @@ refusals remain authoritative.
 For review sizing, keep HTTP transport, durable state, immutable body/restore and
 API count/send as separate dependent changes. The state patch retains its actual
 SQLite regressions with its implementation; splitting those would obscure the
-one-use guarantee. No signing policy is relaxed to create this source bundle.
+one-use guarantee.
+
+The HTTP follow-up patches preserve typed TLS classification through boxed IO
+errors and explicitly select the native backend in native fallback fixtures.
+The redirect fixture also restores blocking mode on accepted sockets. Production
+backend, trust and retry policies are unchanged; all original connection-count,
+certificate and no-replay assertions remain.

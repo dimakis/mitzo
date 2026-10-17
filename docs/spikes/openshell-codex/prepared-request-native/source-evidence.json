@@ -24,15 +24,30 @@
     {
       "file": "api-http.patch",
       "sha256": "3fdbbafd9e87e0b859343bf299c66a33f0866a62782804ac966ab61baea49fab"
+    },
+    {
+      "file": "tls-classification.patch",
+      "sha256": "73da8fd8ccea83db712a3bb5e267ccfac8e1bf095906e099efc3af45d7ffc179"
+    },
+    {
+      "file": "tls-fixtures.patch",
+      "sha256": "b68f87eb9052404f8834d3fe6a64557bda113e35336571d7edb328ed53c697eb"
+    },
+    {
+      "file": "socket-fixture.patch",
+      "sha256": "a36c2aa01f0423dfa2f6aebc6e4bfbef7049948da481565497c3d00fe476cf47"
     }
   ],
-  "sourceTree": "8a9ecd82176704513041741e4c3754b043e3631e",
-  "localSourceCommit": "bf6bde246009a52b3b3c407ff2eb1ebdcd621979",
+  "sourceTree": "a4b143a63443ca6c757141d0632882fb0b64f7c4",
+  "localSourceCommit": "6f8bef6f4c13715b0a76eb00809d4f73da954e5a",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
     "1ba3f76944a9538e8e0a52983b319916c8cc361a",
-    "bf6bde246009a52b3b3c407ff2eb1ebdcd621979"
+    "bf6bde246009a52b3b3c407ff2eb1ebdcd621979",
+    "51c455a5334bf2487066b1ca65d8dfef42d56b22",
+    "fdc16df27869da897d5f47b3817d5b07b9542d40",
+    "6f8bef6f4c13715b0a76eb00809d4f73da954e5a"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -44,10 +59,17 @@
   "checks": {
     "codexHttpClient": {
       "focusedPassed": 10,
-      "cratePassed": 135,
+      "cratePassed": 136,
       "crateSkipped": 0,
       "clippyWarnings": 0,
-      "format": "passed"
+      "format": "passed",
+      "beforeCiFixCratePassed": 135,
+      "tlsFocusedPassed": 10,
+      "controlledCustomCaFocusedPassed": 10,
+      "tlsClassificationRed": "Nested boxed IO errors failed before fix; non-TLS lookalike text remains non-TLS",
+      "nativeFixtureRed": "Prior native-dependent fixtures reproduced five failures with retained public test CA; explicit native fixture backend fixes them",
+      "socketFixtureRed": "Full suite reproduced WouldBlock before accepted socket restored blocking mode; exact one-request assertions retained",
+      "bazelLockUpdate": "passed after test-only reqwest native-tls selector; MODULE.bazel.lock and Cargo.lock unchanged"
     },
     "codexState": {
       "focusedPassed": 11,
@@ -74,7 +96,9 @@
     "localBuildJobs": 1,
     "localTestThreads": 1,
     "nativeWholeWorkspaceSuite": "CI only; not run locally",
-    "pinnedJustFixRecipe": "Uses literal {args} and fails to forward package selection; exact scoped cargo clippy --fix --tests --allow-dirty -p CRATE used without changing upstream justfile"
+    "pinnedJustFixRecipe": "Uses literal {args} and fails to forward package selection; exact scoped cargo clippy --fix --tests --allow-dirty -p CRATE used without changing upstream justfile",
+    "localPlatform": "macOS",
+    "unchangedApiAndStateSlices": "API/state suite records predate the independent HTTP classification/fixture fixes; CI reruns all three crates on reconstructed final source."
   },
   "runtimeQualified": false,
   "installed": false,
