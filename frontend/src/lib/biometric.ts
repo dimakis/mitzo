@@ -90,6 +90,7 @@ export async function saveBiometricPassphrase(
         value: passphrase,
         accessControl: AccessControl.BIOMETRY_CURRENT_SET,
       });
+      localStorage.removeItem(`${passphraseKey(apiBaseUrl)}.disabled`);
       saved = true;
     } catch {
       // Never fall back to unprotected storage for the passphrase.
@@ -101,7 +102,12 @@ export async function saveBiometricPassphrase(
 /** Remove stored credentials (logout). */
 export async function deleteCredentials(apiBaseUrl = getApiBaseUrl()): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
+  // An opted-in passphrase can create new sessions even after server logout.
+  // Persist refusal before native deletion, which can fail while the device locks.
+  const disabledKey = `${passphraseKey(apiBaseUrl)}.disabled`;
+  localStorage.setItem(disabledKey, '1');
   await enqueueCredentialMutation(async () => {
+    localStorage.setItem(disabledKey, '1');
     try {
       await NativeBiometric.deleteCredentials({ server: SERVER });
     } catch {
@@ -136,6 +142,7 @@ export function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
 
 async function performBiometricLogin(apiBaseUrl: string): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
+  if (localStorage.getItem(`${passphraseKey(apiBaseUrl)}.disabled`) === '1') return null;
   if (isLogoutPending()) {
     await deleteCredentials(apiBaseUrl);
     return null;

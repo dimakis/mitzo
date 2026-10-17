@@ -130,6 +130,21 @@ describe('deleteCredentials', () => {
     expect(NativeBiometric.deleteCredentials).not.toHaveBeenCalled();
   });
 
+  it('keeps automatic unlock disabled after logout even when Keychain deletion fails', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeBiometric.deleteData).mockRejectedValueOnce(new Error('Keychain unavailable'));
+    await deleteCredentials();
+    vi.mocked(NativeBiometric.getSecureData).mockResolvedValue({ value: 'retained-secret' });
+    expect(await biometricLogin()).toBeNull();
+    expect(NativeBiometric.getSecureData).not.toHaveBeenCalled();
+    await saveBiometricPassphrase('explicitly-reenrolled');
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'fresh' }),
+    } as Response);
+    expect(await biometricLogin()).toBe('fresh');
+  });
+
   it('removes the protected passphrase on logout even if legacy deletion fails', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     vi.mocked(NativeBiometric.deleteCredentials).mockRejectedValueOnce(new Error('no legacy JWT'));
