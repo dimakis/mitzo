@@ -273,6 +273,19 @@ export class CollaborationConversationStore {
       if (!this.owners.available(id)) throw new ContractError('unavailable_recipient');
     }
   }
+  private continuousMember(group: SessionCollaboration, sinceRevision: number, sessionId: string) {
+    return (
+      group.revision >= sinceRevision &&
+      group.participantSessionIds.includes(sessionId) &&
+      !this.db
+        .prepare(
+          `SELECT 1 FROM session_collaboration_revisions
+        WHERE collaboration_id=? AND revision>? AND revision<=? AND NOT EXISTS
+        (SELECT 1 FROM json_each(participant_session_ids) WHERE value=?) LIMIT 1`,
+        )
+        .get(group.collaborationId, sinceRevision, group.revision, sessionId)
+    );
+  }
   private policies(group: SessionCollaboration): CollaborationPolicy[] {
     return group.participantSessionIds.map((sessionId) => {
       const policy = this.current(
@@ -509,7 +522,8 @@ export class CollaborationConversationStore {
     );
   }
   /** Host-only attributed projection. The trusted source port must verify the exact ordinary
-   * command/message mapping and finalized visible blocks. Attribution never dispatches or fans out.
+   * command/message mapping and finalized visible blocks. Context receipts retain the original
+   * exchange audience; only a later explicit ordinary command can deliver them.
    */
   recordReply(
     group: string,
@@ -557,11 +571,24 @@ export class CollaborationConversationStore {
           !message.responders.includes(delivery.sessionId)
         )
           throw new ContractError('reply_conflict');
-        this.requireRecipients(this.group(group), [delivery.sessionId]);
+        const membership = this.group(group);
+        this.requireRecipients(membership, [delivery.sessionId]);
         const verified = readSource(structuredClone(input.source));
         if (!verified) throw new ContractError('reply_unavailable');
         if (sha(verified.settings) !== sha(message.settings[delivery.sessionId]))
           throw new ContractError('reply_conflict');
+        // The reply belongs to its original authorized exchange. Later checkbox
+        // edits never broaden or reinterpret that audience; re-entry cannot restore it.
+        const readers = message.readers
+          .filter(
+            (sessionId) =>
+              sessionId !== delivery.sessionId &&
+              this.continuousMember(membership, message.membershipRevision, sessionId),
+          )
+          .sort();
+        const settings = Object.fromEntries(
+          readers.map((sessionId) => [sessionId, message.settings[sessionId]]),
+        );
         const reply = CollaborationMessageSchema.parse({
           version: 1,
           messageId: randomUUID(),
@@ -575,9 +602,18 @@ export class CollaborationConversationStore {
           policySequence: message.policySequence,
           policyRevisions: message.policyRevisions,
           responders: [],
-          readers: [],
-          settings: {},
-          deliveries: [],
+          readers,
+          settings,
+          deliveries: readers.map((sessionId) => ({
+            version: 1,
+            deliveryId: randomUUID(),
+            sessionId,
+            purpose: 'context',
+            revision: 0,
+            status: 'pending',
+            commandId: null,
+            reason: null,
+          })),
           snapshot: null,
         });
         this.put(group, 'message', reply.messageId, reply);
@@ -990,6 +1026,29 @@ export class CollaborationConversationStore {
         hasMore: rows.length > 50,
       };
     })();
+  }
+  /** Host read at ordinary preparation/dispatch barriers, never an execution grant.
+   * Existing exact-ACK recovery does not call this: observed effects are not undone.
+   */
+  assertCurrentDeliveryRecipient(
+    group: string,
+    messageId: string,
+    deliveryId: string,
+    sessionId: string,
+  ): void {
+    const membership = this.group(group);
+    z.uuid().parse(messageId);
+    z.uuid().parse(deliveryId);
+    const message = this.current(group, 'message', messageId, CollaborationMessageSchema);
+    const delivery = message?.deliveries.find((row) => row.deliveryId === deliveryId);
+    if (
+      !message ||
+      !delivery ||
+      delivery.sessionId !== sessionId ||
+      !message.readers.includes(sessionId) ||
+      !this.continuousMember(membership, message.membershipRevision, sessionId)
+    )
+      throw new ContractError('reply_conflict');
   }
   /** Exact host delivery lookup, independent of the bounded recent-message view. */
   getMessage(group: string, messageId: string) {

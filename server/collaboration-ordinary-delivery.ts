@@ -184,6 +184,12 @@ export class OrdinaryCollaborationDelivery {
           !isDeepStrictEqual(message.settings[sessionId], settings)
         )
           conflict();
+        this.store.collaborationConversation.assertCurrentDeliveryRecipient(
+          ref.collaborationId,
+          ref.messageId,
+          ref.deliveryId,
+          sessionId,
+        );
         if (delivery.purpose === 'reply' && ++replyOrigins > 1) conflict();
         let snapshot: Snapshot | null = null;
         if (message.snapshot) {
