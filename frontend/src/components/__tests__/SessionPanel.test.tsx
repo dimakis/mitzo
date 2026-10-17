@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act, waitFor } from '@testing-library/react';
 vi.mock('../../lib/api-json-read', () => ({ readApiJson: vi.fn(async () => ({ sandbox: null })) }));
 
 // Mock useSessionList before importing SessionPanel
@@ -164,9 +164,9 @@ describe('SessionPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Delete me' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete conversation' }));
     expect(dismiss).not.toHaveBeenCalled();
-    await act(async () =>
-      fireEvent.click(await screen.findByRole('button', { name: 'Delete chat' })),
-    );
+    const deletion = await screen.findByRole('button', { name: 'Delete chat' });
+    await waitFor(() => expect((deletion as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => fireEvent.click(deletion));
     expect(dismiss).toHaveBeenCalledWith('s1', {});
   });
 
@@ -249,9 +249,9 @@ it('exposes a named conversation selector and keeps deletion separate', async ()
   fireEvent.click(screen.getByRole('button', { name: 'Actions for Review PR' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Delete conversation' }));
   expect(dismiss).not.toHaveBeenCalled();
-  await act(async () =>
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete chat' })),
-  );
+  const deletion = await screen.findByRole('button', { name: 'Delete chat' });
+  await waitFor(() => expect((deletion as HTMLButtonElement).disabled).toBe(false));
+  await act(async () => fireEvent.click(deletion));
   expect(dismiss).toHaveBeenCalledWith('s1', {});
   expect(select).toHaveBeenCalledTimes(1);
 });
