@@ -37,7 +37,11 @@ export {
   denyPendingBySession,
   getPendingCountBySession,
   getPendingRequestsBySession,
+  getPendingTelosSourceReview,
+  resolveReviewedTelosSourcePermission,
+  dismissReviewedTelosSourcePermission,
 } from './permissions.js';
+export type { PendingTelosSourceReview } from './permissions.js';
 
 // Tool tiers
 export type { ToolTier } from './tool-tiers.js';

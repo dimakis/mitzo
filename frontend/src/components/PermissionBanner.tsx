@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { UiIcon } from './UiIcon';
+import { useTelosSourceReview } from './TelosSourceReview';
 import { sessionApprovalServer, type QuestionAnswers, type UserQuestion } from '@mitzo/protocol';
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 interface Props {
   permId: string;
+  sessionId?: string;
+  reviewKind?: 'telos_source';
+  recoveryOnly?: true;
   toolName: string;
   toolInput: string;
   title?: string;
@@ -34,6 +38,9 @@ const TIER_LABELS: Record<ToolTier, string> = {
 
 export function PermissionBanner({
   permId,
+  sessionId,
+  reviewKind,
+  recoveryOnly,
   toolName,
   toolInput,
   title,
@@ -63,12 +70,22 @@ export function PermissionBanner({
     () => ({ id: permId, at: expiresAt ?? Date.now() + 120_000 }),
     [permId, expiresAt],
   );
+  const sourceReview = useTelosSourceReview({
+    enabled: reviewKind === 'telos_source',
+    permId,
+    sessionId,
+    expiresAt: deadline.at,
+    recoveryOnly: reviewKind === 'telos_source' && recoveryOnly === true,
+  });
+  const reviewingSource = reviewKind === 'telos_source';
+  const recoveringSource = reviewingSource && recoveryOnly === true;
   const [remaining, setRemaining] = useState(() =>
     Math.max(0, Math.ceil((deadline.at - Date.now()) / 1000)),
   );
   const expireRef = useRef(onExpire);
   expireRef.current = onExpire;
   useEffect(() => {
+    if (recoveringSource) return;
     let expired = false;
     const update = () => {
       const seconds = Math.max(0, Math.ceil((deadline.at - Date.now()) / 1000));
@@ -82,7 +99,7 @@ export function PermissionBanner({
     if (deadline.at <= Date.now()) return;
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
-  }, [deadline, permId]);
+  }, [deadline, permId, recoveringSource]);
   useEffect(() => {
     setSubmitting(false);
     setSelections(new Map());
@@ -99,7 +116,13 @@ export function PermissionBanner({
     ]),
   );
   const complete = questions?.every((q) => answers[q.id].length > 0);
-  const heading = questions ? 'A question for you' : title || displayName || toolName;
+  const heading = questions
+    ? 'A question for you'
+    : reviewingSource
+      ? recoveringSource
+        ? 'Recover Telos save'
+        : 'Save to Telos'
+      : title || displayName || toolName;
   let sessionSearch = false;
   if (toolName === 'RequestWebAccess' && approvalScope === 'session' && !questions) {
     try {
@@ -117,25 +140,33 @@ export function PermissionBanner({
         : '';
   // Local expiry hides this card; the server owns timeout resolution.
   // Keep retryable errors visible only while the request remains valid.
-  if (remaining === 0 || deadline.at <= Date.now()) return null;
+  if (!recoveringSource && (remaining === 0 || deadline.at <= Date.now())) return null;
 
   return createPortal(
     <section
       className={`perm-banner perm-banner--visible${tierClass}`}
-      aria-busy={submitting}
-      aria-label={questions ? 'Agent questions' : 'Approval required'}
+      aria-busy={submitting || sourceReview.saving}
+      aria-label={
+        questions ? 'Agent questions' : recoveringSource ? 'Save recovery' : 'Approval required'
+      }
     >
       <div className="perm-banner-heading">
         <span className="perm-banner-eyebrow">
-          {questions ? 'Your input is needed' : 'Approval required'}
+          {questions
+            ? 'Your input is needed'
+            : recoveringSource
+              ? 'Save recovery'
+              : 'Approval required'}
         </span>
-        <span className="perm-banner-timer" role="timer">
-          {remaining > 0 ? `${remaining}s remaining` : 'Request expired'}
-        </span>
+        {!recoveringSource && (
+          <span className="perm-banner-timer" role="timer">
+            {remaining > 0 ? `${remaining}s remaining` : 'Request expired'}
+          </span>
+        )}
       </div>
       <div className="perm-banner-info">
         <h2 className="perm-banner-tool">{heading}</h2>
-        {!questions && tier && (
+        {!questions && !reviewingSource && tier && (
           <span className={`perm-banner-tier perm-banner-tier--${tier}`}>{TIER_LABELS[tier]}</span>
         )}
         {questions ? (
@@ -205,31 +236,38 @@ export function PermissionBanner({
           <>
             {description && <p className="perm-banner-desc">{description}</p>}
             <p className="perm-banner-scope">
-              {sessionGrantDescription ||
-                (approvalScope === 'conversation'
-                  ? 'This integration remains available to this conversation across reconnects and Mitzo restarts, until its sandbox is deleted or access is revoked.'
-                  : approvalScope === 'request'
-                    ? 'Allow once covers the displayed request. Allow for session keeps this approval until the session ends.'
-                    : sessionSearch
-                      ? 'Allow searches on this account and model until the session ends. Website access stays separate.'
-                      : server
-                        ? `Session allowance covers all ${server} tools.`
-                        : 'Session allowance covers this tool until the task ends.')}
+              {recoveringSource
+                ? 'Retry only the same reviewed save. Dismiss keeps any saved item and its retained source.'
+                : reviewingSource
+                  ? 'This saves only the reviewed source selection.'
+                  : sessionGrantDescription ||
+                    (approvalScope === 'conversation'
+                      ? 'This integration remains available to this conversation across reconnects and Mitzo restarts, until its sandbox is deleted or access is revoked.'
+                      : approvalScope === 'request'
+                        ? 'Allow once covers the displayed request. Allow for session keeps this approval until the session ends.'
+                        : sessionSearch
+                          ? 'Allow searches on this account and model until the session ends. Website access stays separate.'
+                          : server
+                            ? `Session allowance covers all ${server} tools.`
+                            : 'Session allowance covers this tool until the task ends.')}
             </p>
-            {toolInput && (
+            {(toolInput || reviewingSource) && (
               <details key={permId} className="perm-banner-details" open>
                 <summary>
                   <UiIcon name="forward" size={16} />
                   Request details
                 </summary>
-                <pre className="perm-banner-input">{toolInput}</pre>
+                {!reviewingSource && <pre className="perm-banner-input">{toolInput}</pre>}
+                {sourceReview.content}
               </details>
             )}
           </>
         )}
       </div>
-      <div className={`perm-banner-actions${questions ? ' perm-banner-actions--questions' : ''}`}>
-        {submitting && (
+      <div
+        className={`perm-banner-actions${questions ? ' perm-banner-actions--questions' : ''}${reviewingSource ? ' perm-banner-actions--source' : ''}`}
+      >
+        {(submitting || sourceReview.saving) && (
           <p className="perm-banner-scope perm-banner-submitting" role="status">
             Sending response…
           </p>
@@ -251,28 +289,46 @@ export function PermissionBanner({
           <>
             <button
               className="perm-banner-btn perm-banner-btn--once"
-              aria-label={approvalScope === 'conversation' ? 'Grant to conversation' : 'Allow Once'}
-              disabled={submitting || remaining === 0}
-              onClick={() => respond(permId, 'once', toolName)}
+              aria-label={
+                recoveringSource
+                  ? 'Retry same save'
+                  : approvalScope === 'conversation'
+                    ? 'Grant to conversation'
+                    : 'Allow Once'
+              }
+              disabled={
+                submitting ||
+                (!recoveringSource && remaining === 0) ||
+                (reviewingSource && !sourceReview.ready)
+              }
+              onClick={() =>
+                reviewingSource ? void sourceReview.approve() : respond(permId, 'once', toolName)
+              }
             >
-              {approvalScope === 'conversation' ? 'Grant' : 'Once'}
+              {recoveringSource
+                ? 'Retry same save'
+                : approvalScope === 'conversation'
+                  ? 'Grant'
+                  : 'Once'}
             </button>
-            <button
-              className="perm-banner-btn perm-banner-btn--always"
-              aria-label={sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
-              disabled={submitting || remaining === 0}
-              onClick={() => respond(permId, 'always', toolName)}
-            >
-              Session
-            </button>
+            {!reviewingSource && (
+              <button
+                className="perm-banner-btn perm-banner-btn--always"
+                aria-label={sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
+                disabled={submitting || remaining === 0}
+                onClick={() => respond(permId, 'always', toolName)}
+              >
+                Session
+              </button>
+            )}
           </>
         )}
         <button
           className="perm-banner-btn perm-banner-btn--deny"
-          disabled={submitting}
+          disabled={submitting || sourceReview.saving || (!recoveringSource && sourceReview.saved)}
           onClick={() => respond(permId, 'deny', toolName)}
         >
-          {questions ? 'Cancel' : 'Deny'}
+          {questions ? 'Cancel' : recoveringSource ? 'Dismiss' : 'Deny'}
         </button>
       </div>
     </section>,
