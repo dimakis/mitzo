@@ -359,6 +359,28 @@ it('runs Work API Google and Telos tools after real once/session approvals and r
     registry.dispose();
   }
 });
+it('bounds empty unique-cursor pagination and closes the peer', async () => {
+  const close = vi.fn(async () => {});
+  let page = 0;
+  await expect(
+    connectCodexMcpTools(
+      { fixture: { command: 'never-started' } },
+      {
+        cwd: '/fixture',
+        env: {},
+        signal: new AbortController().signal,
+        connect: async () => ({
+          listTools: async () => ({ tools: [], nextCursor: `page-${++page}` }),
+          callTool: vi.fn(),
+          close,
+        }),
+      },
+    ),
+  ).rejects.toThrow('MCP initialization failed');
+  expect(page).toBe(100);
+  expect(close).toHaveBeenCalledOnce();
+});
+
 it('keeps permissions source-scoped when opted-in labels collide after delimiter concatenation', async () => {
   const sourceIds = [
     '11111111-1111-4111-8111-111111111111',
