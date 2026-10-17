@@ -1,11 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { SymposiumSeatExecution } from '../symposium-orchestrator.js';
 import { SymposiumAccessRequests } from '../symposium-access-tools.js';
+import * as approvedUrl from '../approved-url-fetch.js';
+import { webPageContent } from '../web-page-content.js';
 const services: SymposiumAccessRequests[] = [];
 afterEach(() => {
   for (const service of services.splice(0)) service.close();
+  vi.restoreAllMocks();
 });
-function fixture() {
+function fixture(defaults = false) {
   const abort = new AbortController();
   const execution = {
     sessionId: 'session',
@@ -26,14 +29,19 @@ function fixture() {
   } as unknown as SymposiumSeatExecution;
   const verify = vi.fn();
   const fetch = vi.fn().mockResolvedValue('External source: page');
-  const service = new SymposiumAccessRequests(':memory:', {
-    resolve: async (url) => ({
-      url,
-      origin: new URL(url).origin,
-      addresses: [{ address: '127.0.0.1', family: 4 }],
-    }),
-    fetch,
-  });
+  const service = new SymposiumAccessRequests(
+    ':memory:',
+    defaults
+      ? undefined
+      : {
+          resolve: async (url) => ({
+            url,
+            origin: new URL(url).origin,
+            addresses: [{ address: '127.0.0.1', family: 4 }],
+          }),
+          fetch,
+        },
+  );
   services.push(service);
   const tool = service.createTools({
     execution,
@@ -48,6 +56,49 @@ const request = {
   url: 'http://localhost:8123/',
   reason: 'Read my HA instance',
 };
+it('preserves complete bounded GitHub responses for seats without a full-view input', async () => {
+  const url = 'https://api.github.com/repos/example/repo/contents/';
+  const target = {
+    url,
+    origin: 'https://api.github.com',
+    addresses: [{ address: '127.0.0.1', family: 4 as const }],
+  };
+  vi.spyOn(approvedUrl, 'resolveApprovedUrl').mockResolvedValue(target);
+  const body = JSON.stringify(
+    Array.from({ length: 150 }, (_, index) => ({
+      name: `file-${index}`,
+      path: `file-${index}`,
+      type: 'file',
+      size: 1,
+    })),
+  );
+  const fetch = vi
+    .spyOn(approvedUrl, 'fetchApprovedUrl')
+    .mockImplementation(async (_url, _target, _signal, _deps, _assert, view) =>
+      webPageContent(body, 'application/json', url, undefined, view),
+    );
+  const f = fixture(true);
+  const pending = f.tool.executeTool('RequestWebAccess', { ...request, url }, f.abort.signal, call);
+  await vi.waitFor(() => expect(f.service.list('session')).toHaveLength(1));
+  const row = f.service.list('session')[0];
+  f.service.decide('session', row.id, row.hash, true);
+  expect(await pending).toMatchObject({ isError: false });
+  const result = await f.tool.executeTool(
+    'RequestWebAccess',
+    { operation: 'fetch', url, reason: 'Read directory' },
+    f.abort.signal,
+    { ...call, callId: 'fetch' },
+  );
+  expect(result).toMatchObject({ isError: false, content: expect.stringContaining('file-149') });
+  expect(fetch).toHaveBeenCalledWith(
+    url,
+    expect.any(Object),
+    expect.any(AbortSignal),
+    undefined,
+    undefined,
+    'full',
+  );
+});
 it('waits for a user decision showing the actual seat account and resolved origin, then permits reads only in that attempt', async () => {
   const f = fixture();
   expect(f.tool.tools.map((tool) => tool.name)).toEqual([
