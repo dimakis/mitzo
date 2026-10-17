@@ -313,9 +313,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
         if (!fresh()) return false;
         const definite =
           cause instanceof CollaborationApiError &&
-          cause.status >= 400 &&
-          cause.status < 500 &&
-          cause.status !== 429;
+          [400, 401, 403, 404, 409, 422].includes(cause.status);
         if (definite) pending.current = null;
         else original.uncertain = true;
         publish({ pendingPolicy: pending.current, policyError: message(cause) });

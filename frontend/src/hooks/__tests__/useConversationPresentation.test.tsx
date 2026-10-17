@@ -358,6 +358,24 @@ it('keeps conflicts explicit and does not retry a stale revision on refresh', as
   });
   expect(h.fetch.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(1);
 });
+
+it.each([408, 429, 500])(
+  'retains the original policy request after an ambiguous HTTP %i outcome',
+  async (status) => {
+    const h = harness();
+    const { result } = await loaded(h);
+    h.fetch.mockResolvedValueOnce(
+      json({ code: 'unavailable', error: 'Policy outcome unavailable' }, status),
+    );
+    await act(async () => {
+      await result.current.setPolicy('architect', { reads: true, replies: false });
+    });
+    expect(result.current.pendingPolicy?.uncertain).toBe(true);
+    expect(result.current.pendingPolicy?.input.requestId).toBe(
+      JSON.parse(String(h.fetch.mock.calls.at(-1)![1]?.body)).requestId,
+    );
+  },
+);
 it('retains the transcript on a replay gap and disables policy mutation until an authoritative refresh', async () => {
   const h = harness();
   const { result } = await loaded(h);
