@@ -186,13 +186,72 @@ for (const theme of ['dark', 'light'])
     const target = page.getByRole('button', { name: 'Plan the recording setup', exact: true });
     expect((await target.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({ path: info.outputPath('tree-' + theme + '.png'), fullPage: true });
-    await target.click();
+    const originalChild = records[1];
+    records[1] = {
+      ...originalChild,
+      summary: 'Updated recording setup',
+      status: 'completed',
+      categories: ['Updated category'],
+    };
+    await page.evaluate(() =>
+      window.fixtureTodoEvents.dispatchEvent(new MessageEvent('todo_update', { data: '{}' })),
+    );
+    await expect(
+      page.getByRole('button', { name: 'Updated recording setup', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText('completed', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Browse categories' }).click();
+    await expect(page.getByRole('button', { name: 'Pin Updated category' })).toBeVisible();
+    await page.getByRole('button', { name: 'Browse categories' }).click();
+    await page.getByRole('button', { name: 'Updated recording setup', exact: true }).click();
+    records[1] = {
+      ...records[1],
+      summary: 'Latest recording setup',
+      rationale: 'Updated without leaving this item.',
+    };
+    await page.evaluate(() =>
+      window.fixtureTodoEvents.dispatchEvent(new MessageEvent('todo_update', { data: '{}' })),
+    );
+    await expect(
+      page.getByRole('heading', { name: 'Latest recording setup', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Updated without leaving this item.', { exact: true }),
+    ).toBeVisible();
+    records[1] = originalChild;
+    await page.evaluate(() =>
+      window.fixtureTodoEvents.dispatchEvent(new MessageEvent('todo_update', { data: '{}' })),
+    );
+
     await expect(
       page.getByRole('heading', { name: 'Plan the recording setup', exact: true }),
     ).toBeVisible();
     if (!isMobile)
       expect((await page.locator('.telos-item-workspace').boundingBox())!.x).toBeGreaterThan(100);
     await expect(page.getByRole('button', { name: 'Work', exact: true })).toHaveCount(0);
+    const sharedAction = page.getByRole('button', { name: 'Choose worker', exact: true });
+    await expect(sharedAction).toBeVisible();
+    const actionColors = await sharedAction.evaluate((element) => {
+      const control = document.createElement('button');
+      control.className = 'todo-detail-chat-btn';
+      document.body.append(control);
+      const actual = getComputedStyle(element),
+        reference = getComputedStyle(control);
+      const colors = {
+        actual: actual.color,
+        expected: reference.color,
+        background: actual.backgroundColor,
+        expectedBackground: reference.backgroundColor,
+      };
+      control.remove();
+      return colors;
+    });
+    expect(actionColors.actual).toBe(actionColors.expected);
+    expect(actionColors.background).toBe(actionColors.expectedBackground);
+    await page.screenshot({
+      path: info.outputPath('overview-action-' + theme + '.png'),
+      fullPage: true,
+    });
     await page.getByRole('button', { name: 'Materials', exact: true }).click();
     await page.getByText('Provenance', { exact: true }).click();
     await expect(page.getByText('b'.repeat(64))).toBeVisible();

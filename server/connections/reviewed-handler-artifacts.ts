@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTelosRecords.ts':
     '22feb1cb2f94b53540d8ddcb2c55242cd7f74f0aff97f62f09b116025c156c17',
   '../../frontend/src/components/TelosWorkspace.css':
-    '452fc9f3066224ba203ae0e50afdc0ebf7c7bac043c98f4fc1c9b21c9be9f3f8',
+    'e418aff5c94f60a80d95c5d7e1bbc224ddd312593c2de3d62a04630edfc4753a',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
     '9d6e8047921df9db63089052543198334dc053cc9d6064d18e1eccea829536a9',
   '../../frontend/src/components/TelosOutcomesTree.tsx':

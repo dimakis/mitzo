@@ -8,8 +8,12 @@
 .telos-item-workspace button {
   min-height: var(--control-height);
   font: inherit;
-  color: inherit;
   cursor: pointer;
+}
+.telos-outcomes button,
+.telos-item-heading button,
+.telos-tabs button {
+  color: inherit;
 }
 .telos-outcomes button:disabled {
   cursor: default;

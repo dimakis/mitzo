@@ -5,6 +5,7 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { TodoWorkspace } from '../../frontend/src/pages/TodoWorkspace';
 import { DesktopShell } from '../../frontend/src/components/DesktopShell';
 import { MobileShell } from '../../frontend/src/components/MobileShell';
+import { eventBus } from '../../frontend/src/lib/event-bus-singleton';
 import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
@@ -13,6 +14,26 @@ import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/workspace-work.css';
 import '../../frontend/src/styles/mobile-workspace.css';
 import '../../frontend/src/styles/motion.css';
+declare global {
+  interface Window {
+    fixtureTodoEvents: EventTarget;
+  }
+}
+class FixtureEvents extends EventTarget {
+  readyState = 1;
+  onopen: ((event: unknown) => void) | null = null;
+  onerror: ((event: unknown) => void) | null = null;
+  constructor() {
+    super();
+    window.fixtureTodoEvents = this;
+    queueMicrotask(() => this.onopen?.({}));
+  }
+  close() {
+    this.readyState = 2;
+  }
+}
+window.EventSource = FixtureEvents as unknown as typeof EventSource;
+eventBus.connect('/api/events');
 const store = createMitzoStore({
   transport: { fetch: (url, init) => fetch(url, init) },
   wsConfig: {
