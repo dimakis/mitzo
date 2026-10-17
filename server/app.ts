@@ -1,4 +1,6 @@
 import { createSessionRemovalRouter } from './session-removal.js';
+import { summarizeSandboxInventory } from './sandbox-inventory.js';
+import { readOpenShellSandboxInventory } from './openshell-lifecycle-controller.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
 import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
 import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
@@ -1670,6 +1672,12 @@ app.use(
   createWarmPoolRouter({
     pool: getOpenShellWarmPool,
     authorize: operatorAuthMiddleware,
+    physicalInventory: async (signal) =>
+      summarizeSandboxInventory(
+        await readOpenShellSandboxInventory(signal),
+        openShellLifecycleService?.inventory() ?? [],
+        getOpenShellWarmPool()?.snapshot().spares ?? [],
+      ),
     conversations: () => {
       const records = new Map<string, Omit<SandboxConversation, 'title'>>(
         (openShellLifecycleService?.inventory() ?? []).map((record) => [
@@ -1708,6 +1716,7 @@ app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => 
       await openShellLifecycleService.preview(
         req.params.conversationId,
         AbortSignal.timeout(120_000),
+        req.query.intent === 'delete' ? 'delete' : 'policy',
       ),
     );
   } catch (error) {

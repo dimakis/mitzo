@@ -56,6 +56,23 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('lists all workspace resources beyond the first page, including unassigned and historical providers', async () => {
+    const records = Array.from({ length: 122 }, (_, i) => ({
+      id: String(i),
+      name: 'old-' + i,
+      phase: i < 74 ? 'Stopped' : 'Ready',
+      workspace: 'mitzo',
+      labels: i % 2 ? {} : { 'mitzo.account_provider': 'retired-provider' },
+    }));
+    const run = vi.fn(async (args: readonly string[]) => {
+      const offset = Number(args[args.indexOf('--offset') + 1]);
+      return JSON.stringify(records.slice(offset, offset + 100));
+    });
+    const manager = new OpenShellRuntimeManager(config, run);
+    expect(await manager.inventory(new AbortController().signal, true)).toHaveLength(122);
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(await manager.inventory(new AbortController().signal)).toEqual([]);
+  });
   it('reads a bounded task capability inventory over the selected sandbox transport', async () => {
     const observation = { mgmtCli: false, meetingPrep: false, gws: true };
     const runSsh = vi.fn(async () => JSON.stringify(observation));

@@ -98,6 +98,15 @@ function managerForProvider(provider: string) {
   });
 }
 
+/** Complete read-only workspace inventory, including historical and unassigned
+ * sandboxes. This grants no management authority to untracked resources. */
+export async function readOpenShellSandboxInventory(signal: AbortSignal) {
+  return (await managerForProvider('inventory').inventory(signal, true)).map((sandbox) => {
+    if (!sandbox.id) throw new Error('Gateway sandbox identity is unavailable');
+    return { id: sandbox.id, name: sandbox.name, phase: sandbox.phase };
+  });
+}
+
 function route(identity: OpenShellLifecycleIdentity): OpenShellAccountRoute {
   if (identity.route.kind === 'api') return identity.route;
   if (identity.route.providerType !== 'openai-codex-oauth')

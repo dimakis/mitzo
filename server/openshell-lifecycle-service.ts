@@ -125,6 +125,7 @@ export class OpenShellLifecycleService {
     return this.store.list().map((record) => ({
       conversationId: record.conversationId,
       sandboxName: record.sandboxName,
+      physicalId: record.physicalSandboxId,
       state: record.phase,
       account: record.accountProvider,
     }));
