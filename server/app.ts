@@ -56,6 +56,7 @@ import {
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
 import { canonicalRepositorySelection } from './github-repository-source.js';
 import {
+  closeIdleRepositoryWorkspaces,
   getRepositoryWorkspaces,
   repositoryWorkspaceBinding,
   repositoryWorkspaceCatalog,
@@ -4926,6 +4927,7 @@ export function closeIdleApplicationResources(): Promise<void> {
     await terminalService.closeIdle();
     notificationCenter.closeIdle();
     symposiumAccessRequests.closeIdle();
+    closeIdleRepositoryWorkspaces();
     sseRegistry.destroy();
     chatSseRegistry.destroy();
     registry.dispose();
