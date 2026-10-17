@@ -183,6 +183,10 @@ export async function prepareCollaborationForward(
     messages: selected,
     artifacts: [],
   };
+  const retainedChecks = new Map<string, () => void>();
+  function assertRetainedCurrent() {
+    for (const check of retainedChecks.values()) check();
+  }
   async function material(
     ref: CollaborationForwardSelection['artifacts'][number],
   ): Promise<Artifact> {
@@ -204,6 +208,9 @@ export async function prepareCollaborationForward(
         changed();
       if (saved.bytes.byteLength > 512 * 1024)
         throw new CollaborationContractError('capacity_refused');
+      // One private renewal per selected pin, replaced on each successful reread.
+      const check = saved.assertCurrent;
+      retainedChecks.set(`${pin.artifactId}:${pin.revision}`, () => check());
       return {
         ...pin,
         kind: ref.kind,
@@ -254,9 +261,12 @@ export async function prepareCollaborationForward(
     await authorizeTarget();
     // A target check may yield while finalized source storage changes.
     await opened.assertCurrent();
+    assertRetainedCurrent();
   }
   bounded(packet);
   await assertCurrent();
+  // The await above is another continuation; no awaited work follows this final local fence.
+  assertRetainedCurrent();
   const serialized = JSON.stringify(packet);
   return Object.freeze({
     // Fresh projections keep callers from mutating the retained closure's selection.

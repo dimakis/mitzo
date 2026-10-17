@@ -18,8 +18,12 @@ export interface RetainedCollaborationArtifact {
   provenance: Pick<TelosArtifactMetadata, 'sessionId' | 'sourceKind' | 'sourcePath'>;
   bytes: Uint8Array;
 }
+export interface RetainedCollaborationArtifactRead extends RetainedCollaborationArtifact {
+  /** Synchronous local custody/public-eligibility check only, not live authorization. */
+  assertCurrent(): void;
+}
 export interface RetainedCollaborationArtifactSource {
-  read(pin: RetainedCollaborationArtifactPin): Promise<RetainedCollaborationArtifact>;
+  read(pin: RetainedCollaborationArtifactPin): Promise<RetainedCollaborationArtifactRead>;
 }
 function changed(): never {
   throw new CollaborationContractError('snapshot_changed');
@@ -63,21 +67,26 @@ export function createRetainedCollaborationArtifactSource(deps: {
       if (original.size > maximumBytes) throw new CollaborationContractError('capacity_refused');
       await deps.authorizeArtifact(structuredClone(pin), structuredClone(original));
       if (!isDeepStrictEqual(metadata(), original)) changed();
-      let artifact;
-      try {
-        artifact = deps.store.readBoundedRevision(pin.artifactId, pin.revision, maximumBytes);
-      } catch {
-        changed();
+      function currentBytes() {
+        if (!isDeepStrictEqual(metadata(), original)) changed();
+        let artifact;
+        try {
+          artifact = deps.store.readBoundedRevision(pin.artifactId, pin.revision, maximumBytes);
+        } catch {
+          changed();
+        }
+        const { bytes, ...current } = artifact;
+        if (
+          !isDeepStrictEqual(current, original) ||
+          bytes.byteLength !== original.size ||
+          createHash('sha256').update(bytes).digest('hex') !== pin.sha256 ||
+          !deps.store.userUploadAllowed(current.itemId)
+        )
+          changed();
+        return bytes;
       }
-      const { bytes, ...current } = artifact;
-      if (
-        !isDeepStrictEqual(current, original) ||
-        bytes.byteLength !== original.size ||
-        createHash('sha256').update(bytes).digest('hex') !== pin.sha256 ||
-        !deps.store.userUploadAllowed(current.itemId)
-      )
-        changed();
-      return {
+      const bytes = currentBytes();
+      return Object.freeze({
         ...pin,
         itemId: original.itemId,
         filename: original.filename,
@@ -90,7 +99,13 @@ export function createRetainedCollaborationArtifactSource(deps: {
           sourcePath: original.sourcePath,
         },
         bytes: Buffer.from(bytes),
-      };
+        // Private pin/metadata never escape through the returned projection. No
+        // await/callback occurs in this local renewal; actual save/dispatch still
+        // requires its owning transaction and current authorization.
+        assertCurrent() {
+          currentBytes();
+        },
+      });
     },
   };
 }

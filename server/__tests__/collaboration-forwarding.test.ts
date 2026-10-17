@@ -361,6 +361,7 @@ it('keeps retained older bytes separate from transcript references and refuses a
       }),
     ]);
     expect(result.serialized).not.toContain('LATEST');
+    expect(result.packet.artifacts[0]).not.toHaveProperty('assertCurrent');
     authorizeArtifact.mockRejectedValueOnce(Error('Artifact access revoked'));
     await expect(result.assertCurrent()).rejects.toThrow('Artifact access revoked');
   } finally {
@@ -378,4 +379,68 @@ it('keeps the serialized handoff identity immutable while callers inspect indepe
   expect(Reflect.set(result, 'serialized', 'Replacement bytes')).toBe(false);
   expect(Reflect.set(result, 'sha256', '0'.repeat(64))).toBe(false);
   expect(result.sha256).toBe(sha(original));
+});
+
+it.each(
+  (['target', 'source'] as const).flatMap((last) =>
+    (['privacy', 'custody'] as const).map((change) => ({ last, change })),
+  ),
+)('renews retained $change after the last awaited $last check', async ({ last, change }) => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const retained = createCollaborationRetainedArtifactFixture();
+  try {
+    const old = retained.store.save({
+      itemId: retained.itemId,
+      filename: 'public.md',
+      title: 'Public at selection',
+      bytes: Buffer.from('EXACT SAVED MATERIAL'),
+      sessionId: 'missing-origin',
+    });
+    const input = {
+      ...selection(),
+      artifacts: [
+        { kind: 'retained_artifact', artifactId: old.id, revision: 1, sha256: old.sha256 },
+      ],
+    };
+    const retainedArtifacts = createRetainedCollaborationArtifactSource({
+      store: retained.store,
+      authorizeArtifact: async () => {},
+    });
+    let calls = 0;
+    const revoke = () => {
+      const fault = new Database(retained.path);
+      if (change === 'privacy')
+        fault.prepare('UPDATE items SET profile=? WHERE id=?').run('LifeOps', retained.itemId);
+      else
+        fault
+          .prepare('UPDATE telos_artifact_revisions SET bytes=? WHERE id=? AND revision=?')
+          .run(Buffer.alloc(old.size, '?'), old.id, 1);
+      fault.close();
+    };
+    const dependencies = deps();
+    if (last === 'target')
+      authorizeTarget.mockImplementation(async () => {
+        if (++calls === 3) revoke();
+      });
+    else {
+      const open = dependencies.source.openConversation.bind(dependencies.source);
+      dependencies.source.openConversation = async (selection) => {
+        const opened = await open(selection);
+        const check = opened.assertCurrent.bind(opened);
+        opened.assertCurrent = async () => {
+          await check();
+          if (++calls === 3) revoke();
+        };
+        return opened;
+      };
+    }
+    await expect(
+      prepareCollaborationForward(input, { ...dependencies, retainedArtifacts }),
+    ).rejects.toMatchObject({ code: 'snapshot_changed' });
+  } finally {
+    retained.close();
+  }
 });
