@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.308-tool-builder-ui.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.309-tool-builder-ui.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/lib/file-metadata.ts':
+    '111a9916ee7c46e3b9caea165397e47b0f84b4d70bc9feeeff33d00382566dd0',
+  '../../frontend/src/lib/native-file-share.ts':
+    '429b53ccf9df948b73301d6bbc556f29f30b279f998cf297baede4fb27ace09a',
+  '../../frontend/src/lib/share-file.ts':
+    '584a4c534772d590933f4cb279330719d82f9727833db16f4c18d7deadf3108d',
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../../frontend/src/components/SandboxOwnershipReview.tsx':
@@ -43,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/tool-builder-api.ts':
     '2aaf45b414922f748bdb0d86190ac919dc51144b8cb6eecac0112a13c825ebad',
   '../../frontend/src/components/ToolBuilderReview.tsx':
-    '8d80d3a25524c8374a5a8d2c14f86d5cf2caaba010b54c8f8fc3372441badf8e',
+    'e6f4bc03887b705296d7017401e8e718ed99c6dd5932fd3d2e2a6babdf41802a',
   '../../packages/protocol/src/tool-builder.ts':
     '32d7ee6cd22ce116c032165823299f7612e71cd4bdb4188582b19b224b0b22ed',
   '../tool-builder-tool-definitions.ts':

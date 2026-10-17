@@ -48,7 +48,7 @@ export async function fetchFile(filePath: string, sessionId?: string): Promise<F
   return new File([blob], filename, { type: mime });
 }
 
-function saveBrowserFile(file: File): boolean {
+export function saveBrowserFile(file: File): boolean {
   const url = URL.createObjectURL(file);
   const a = document.createElement('a');
   a.href = url;
