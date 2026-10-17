@@ -43,8 +43,18 @@ async function workspace(): Promise<ToolBuilderWorkspace> {
 const customRequest = {
   name: 'CSV row count',
   description: 'Count rows in a CSV file while ignoring the header.',
-  inputSchema: { type: 'object', properties: { csv: { type: 'string' } }, required: ['csv'] },
-  outputSchema: { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] },
+  inputSchema: {
+    type: 'object',
+    properties: { csv: { type: 'string' } },
+    required: ['csv'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: { count: { type: 'integer' } },
+    required: ['count'],
+    additionalProperties: false,
+  },
   examples: [{ input: { csv: 'name\nAda\nLin' }, expected: { count: 2 } }],
   permissions: { behavior: 'read' as const, requiredConnections: [] },
   compatibility: { routes: ['local-api'] },
@@ -57,9 +67,55 @@ const customRequest = {
   ],
   testProfile: 'unit',
 };
+
+it.each([
+  [{ input: { csv: 42 }, expected: { count: 2 } }],
+  [{ input: { csv: 'name\nAda\nLin' }, expected: { count: 'two' } }],
+])(
+  'rejects examples outside the declared schemas before allocating or running code',
+  async (example) => {
+    const allocateWorkspace = vi.fn(workspace);
+    const executor = {
+      run: vi.fn(async () => ({
+        ...successfulTest,
+        examples: [{ passed: true, actual: example.expected }],
+      })),
+    };
+    const service = new ToolBuilderService({
+      catalog: { search: async () => [] },
+      allocateWorkspace,
+      executor,
+    });
+    await expect(
+      service.propose({
+        request: 'CSV counter',
+        custom: { ...customRequest, examples: [example] },
+      }),
+    ).rejects.toThrow(/schema/i);
+    expect(allocateWorkspace).not.toHaveBeenCalled();
+    expect(executor.run).not.toHaveBeenCalled();
+  },
+);
+
+it('rejects unsupported schema references before any workspace or executor effect', async () => {
+  const allocateWorkspace = vi.fn(workspace);
+  const service = new ToolBuilderService({
+    catalog: { search: async () => [] },
+    allocateWorkspace,
+    executor: { run: vi.fn() },
+  });
+  await expect(
+    service.propose({
+      request: 'CSV counter',
+      custom: { ...customRequest, inputSchema: { $ref: 'https://external.example/schema' } },
+    }),
+  ).rejects.toThrow(/schema/i);
+  expect(allocateWorkspace).not.toHaveBeenCalled();
+});
 const successfulTest = {
   passed: true,
   complete: true,
+  evidenceKind: 'trusted-executor' as const,
   summary: '4 tests passed',
   output: 'ok',
   examples: [{ passed: true, actual: { count: 2 } }],

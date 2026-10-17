@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
+import { validateToolBuilderExamples } from './tool-builder-schema.js';
 
 const RelativeFile = z
   .string()
@@ -75,6 +76,7 @@ export type ToolBuilderExecutor = {
   }): Promise<{
     passed: boolean;
     complete: boolean;
+    evidenceKind: 'candidate-report' | 'trusted-executor';
     summary: string;
     output?: string;
     examples: Array<{ actual: Record<string, unknown>; passed: boolean }>;
@@ -95,6 +97,7 @@ export function toolBuilderContractDigest(input: CustomInput) {
 const TestResult = z.strictObject({
   passed: z.boolean(),
   complete: z.boolean(),
+  evidenceKind: z.enum(['candidate-report', 'trusted-executor']),
   summary: z.string().trim().min(1).max(500),
   output: z.string().max(32_000).optional(),
   examples: z.array(z.strictObject({ actual: JsonSchema, passed: z.boolean() })).max(20),
@@ -109,6 +112,7 @@ export type ToolBuilderDraft = CustomInput & {
   tests: {
     passed: true;
     complete: true;
+    evidenceKind: 'candidate-report' | 'trusted-executor';
     summary: string;
     sourceDigest: string;
     contractDigest: string;
@@ -141,6 +145,7 @@ export class ToolBuilderService {
     if (!input.custom) return { kind: 'needs_specification' as const, matches };
 
     const custom = CustomToolDraftInputSchema.parse(input.custom);
+    const schemas = validateToolBuilderExamples(custom);
     const workspace = await this.options.allocateWorkspace();
     try {
       signal.throwIfAborted();
@@ -162,6 +167,7 @@ export class ToolBuilderService {
         }),
       );
       signal.throwIfAborted();
+      for (const example of test.examples) schemas.output.validate(example.actual);
       if (
         !test.passed ||
         !test.complete ||
@@ -185,6 +191,7 @@ export class ToolBuilderService {
         tests: {
           passed: true,
           complete: true,
+          evidenceKind: test.evidenceKind,
           summary: test.summary,
           sourceDigest,
           contractDigest,
