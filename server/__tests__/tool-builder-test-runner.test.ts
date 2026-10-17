@@ -16,8 +16,8 @@ const workspace: ToolBuilderWorkspace = {
   read: vi.fn(),
   discard: vi.fn(),
   snapshot: async () => [
-    { path: 'src/index.mjs', content: 'export const runTool=()=>({value:1});' },
-    { path: 'test/index.test.mjs', content: 'test source' },
+    { path: 'src/index.mts', content: 'export const runTool=()=>({value:1});' },
+    { path: 'test/index.test.mts', content: 'test source' },
   ],
 };
 const tap = 'TAP version 13\n# tests 2\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n';
@@ -27,12 +27,10 @@ it('runs fixed tests and examples within an explicit read/write scope with a sin
     isError: false,
     content: tap,
   }));
-  execute
-    .mockResolvedValueOnce({ isError: false, content: tap })
-    .mockResolvedValueOnce({
-      isError: false,
-      content: JSON.stringify({ results: [{ actual: { value: 1 } }] }),
-    });
+  execute.mockResolvedValueOnce({ isError: false, content: tap }).mockResolvedValueOnce({
+    isError: false,
+    content: JSON.stringify({ results: [{ actual: { value: 1 } }] }),
+  });
   const executor = createToolBuilderExecutor({
     execute,
     privateRoots: () => ['/private/tmp/credential-fixture'],
@@ -71,11 +69,11 @@ describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('OS development ru
     try {
       const workspace = await createToolBuilderWorkspace(root, signal);
       await workspace.write(
-        'src/index.mjs',
+        'src/index.mts',
         `const examples=JSON.parse(Buffer.from(process.argv.at(-1),'base64url').toString());process.stdout.write(JSON.stringify({results:examples.map(row=>({actual:row.expected}))}));process.exit(0);export function runTool(){throw Error('never succeeds');}`,
       );
       await workspace.write(
-        'test/index.test.mjs',
+        'test/index.test.mts',
         'import {test} from "node:test";test("candidate reports success",()=>{});',
       );
       const result = await createToolBuilderExecutor({ privateRoots: () => [] }).run({
@@ -136,13 +134,14 @@ describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('OS development ru
             testProfile: 'unit',
             files: [
               {
-                path: 'src/index.mjs',
-                content: 'export const runTool = ({text}) => ({length:text.length});\n',
+                path: 'src/index.mts',
+                content:
+                  'export const runTool = ({text}: {text:string}) => ({length:text.length});\n',
               },
               {
-                path: 'test/index.test.mjs',
+                path: 'test/index.test.mts',
                 content:
-                  'import {test} from "node:test"; import assert from "node:assert/strict"; import {runTool} from "../src/index.mjs"; test("length",()=>assert.deepEqual(runTool({text:"abc"}),{length:3}));\n',
+                  'import {test} from "node:test"; import assert from "node:assert/strict"; import {runTool} from "../src/index.mts"; test("length",()=>assert.deepEqual(runTool({text:"abc"}),{length:3}));\n',
               },
             ],
           },
@@ -188,12 +187,10 @@ it.each([
 });
 it('compares actual examples in the trusted parent and refuses unsupported profiles before execution', async () => {
   const execute = vi.fn(async () => ({ isError: false, content: tap }));
-  execute
-    .mockResolvedValueOnce({ isError: false, content: tap })
-    .mockResolvedValueOnce({
-      isError: false,
-      content: JSON.stringify({ results: [{ actual: { value: 2 }, passed: true }] }),
-    });
+  execute.mockResolvedValueOnce({ isError: false, content: tap }).mockResolvedValueOnce({
+    isError: false,
+    content: JSON.stringify({ results: [{ actual: { value: 2 }, passed: true }] }),
+  });
   const executor = createToolBuilderExecutor({ execute, privateRoots: () => [] });
   expect(
     (

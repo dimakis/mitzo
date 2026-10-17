@@ -14,7 +14,7 @@ import {pathToFileURL} from 'node:url';
 const [entry,encoded]=process.argv.slice(1);
 const examples=JSON.parse(Buffer.from(encoded,'base64url').toString('utf8'));
 const {runTool}=await import(pathToFileURL(entry).href);
-if(typeof runTool!=='function') throw Error('src/index.mjs must export runTool(input)');
+if(typeof runTool!=='function') throw Error('src/index.mts must export runTool(input)');
 const results=[];
 for(const example of examples) results.push({actual:await runTool(structuredClone(example.input))});
 process.stdout.write(JSON.stringify({results}));
@@ -56,10 +56,10 @@ export function createToolBuilderExecutor(
       signal.throwIfAborted();
       options.assertCurrent?.();
       const tests = files.filter((file) =>
-        /^test\/(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.test\.mjs$/.test(file.path),
+        /^test\/(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.test\.mts$/.test(file.path),
       );
-      if (!files.some((file) => file.path === 'src/index.mjs') || !tests.length)
-        throw Error('The Node unit profile requires src/index.mjs and test/*.test.mjs files');
+      if (!files.some((file) => file.path === 'src/index.mts') || !tests.length)
+        throw Error('The Node unit profile requires src/index.mts and test/*.test.mts files');
       const serialized = JSON.stringify(examples.map(({ input }) => ({ input })));
       if (Buffer.byteLength(serialized) > 32000)
         throw Error('Example inputs and results exceed the development limit');
@@ -96,7 +96,7 @@ export function createToolBuilderExecutor(
         beforeSpawn: options.assertCurrent,
         beforeSpawnAsync: options.assertRuntimeCurrent,
       };
-      const node = `${quote(realpathSync(process.execPath))} --max-old-space-size=128 --no-addons --disable-proto=throw --openssl-config=/dev/null`;
+      const node = `${quote(realpathSync(process.execPath))} --experimental-strip-types --max-old-space-size=128 --no-addons --disable-proto=throw --openssl-config=/dev/null`;
       const tested = await execute({
         ...common,
         command: `${node} --test --test-reporter=tap --test-concurrency=1 ${tests.map((file) => quote(file.path)).join(' ')}`,
@@ -113,7 +113,7 @@ export function createToolBuilderExecutor(
         };
       const result = await execute({
         ...common,
-        command: `${node} --input-type=module -e ${quote(examplesRunner)} ${quote(workspace.root + '/src/index.mjs')} ${quote(Buffer.from(serialized).toString('base64url'))}`,
+        command: `${node} --input-type=module -e ${quote(examplesRunner)} ${quote(workspace.root + '/src/index.mts')} ${quote(Buffer.from(serialized).toString('base64url'))}`,
       });
       signal.throwIfAborted();
       options.assertCurrent?.();

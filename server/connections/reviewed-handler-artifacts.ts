@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.285-tool-builder-development.2';
+  'v1.0.285-tool-builder-development.3';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,8 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tsconfig.build.json': '88fd99085eaecacd39e0d1464b42f00d622a0a5c356ca8ae035ff72ca7336434',
+  '../../tsconfig.json': 'cae7a19ce257dcbee4915ea3e51c78f131323bb9ca98d7b4302ea9a0de1b2f66',
   '../tool-builder-test-runner.ts':
-    'cc51dace6a2d9dcefa0c036cad3645c56822e40f5bcea7e596026c7880e49fee',
+    '609f8a11772a4c4762113a3a398347b1b23b4626890d2e23990f39fccbc4993a',
   '../tool-builder-workspace.ts':
     'acd8c1b0df10b067f2ac5d9233f050c5795fa30178b5180c052986e4441ca995',
   '../tool-builder-schema.ts': 'b55fb292b80f3f1c5ad9376a27abaf62b901cdf07e5fb62ce07cf7fbc17a419f',
