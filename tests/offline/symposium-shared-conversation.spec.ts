@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import {
+  CollaborationPolicyUpdateSchema,
+  CollaborationViewSchema,
+} from '../../packages/protocol/src/index';
+import { sharedConversationView } from '../fixtures/symposium-shared-conversation-data';
 
 // Actual protocol/parser/projection/components with synthetic schema-valid retained outcomes.
 // No installed application owners or provider calls: this establishes UI behavior only.
@@ -34,9 +39,53 @@ for (const theme of ['dark', 'light'])
       mutations: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     const files = (await bundle).outputFiles!;
-    await page.route('**/*', (route) => {
+    let view = sharedConversationView();
+    let refuseNextPolicy = false;
+    let releasePolicy!: () => void;
+    const policyBarrier = new Promise<void>((resolve) => {
+      releasePolicy = resolve;
+    });
+    let holdFirstPolicy = true;
+    await page.route('**/*', async (route) => {
       const path = new URL(route.request().url()).pathname;
       if (route.request().method() !== 'GET') mutations.push(path);
+      if (path === `/api/session-collaborations/${view.collaborationId}/conversation`)
+        return route.fulfill({ json: view });
+      if (path === `/api/session-collaborations/${view.collaborationId}/policy`) {
+        const input = CollaborationPolicyUpdateSchema.parse(route.request().postDataJSON());
+        if (refuseNextPolicy) {
+          refuseNextPolicy = false;
+          return route.fulfill({
+            status: 409,
+            json: { code: 'conflict', error: 'Membership changed. Refresh discussion sharing.' },
+          });
+        }
+        if (holdFirstPolicy) {
+          holdFirstPolicy = false;
+          await policyBarrier;
+        }
+        const current = view.policies.find((policy) => policy.sessionId === input.sessionId)!;
+        expect(input.expectedMembershipRevision).toBe(view.membershipRevision);
+        expect(input.expectedRevision).toBe(current.revision);
+        const policy = {
+          ...current,
+          revision: current.revision + 1,
+          effectiveFromSequence: view.cursor + 2,
+          readsFutureDiscussion: input.readsFutureDiscussion,
+          repliesByDefault: input.repliesByDefault,
+        };
+        view = CollaborationViewSchema.parse({
+          ...view,
+          cursor: view.cursor + 1,
+          policySequence: view.cursor + 1,
+          policies: view.policies.map((row) => (row.sessionId === input.sessionId ? policy : row)),
+        });
+        return route.fulfill({ json: policy });
+      }
+      if (path === `/api/session-collaborations/${view.collaborationId}/events`)
+        return route.fulfill({
+          json: { events: [], cursor: 99, highWatermark: 99, hasMore: false },
+        });
       if (path.startsWith('/api/')) return route.fulfill({ json: [] });
       const file = files.find((file) => path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'));
       if (file)
@@ -114,11 +163,49 @@ for (const theme of ['dark', 'light'])
     const agents = page.getByRole('button', { name: /^Agents,/ });
     await agents.click();
     const dialog = page.getByRole('dialog', { name: 'Agents', exact: true });
-    await dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first().check();
+    await dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first().click();
+    try {
+      await expect(dialog.getByRole('status')).toHaveText('Saving discussion sharing choices…');
+      await expect(
+        dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first(),
+      ).not.toBeChecked();
+      await expect(
+        dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first(),
+      ).toBeDisabled();
+      await page.screenshot({
+        path: info.outputPath(`policy-pending-${theme}.png`),
+        style: '[data-fixture-control]{visibility:hidden}',
+      });
+    } finally {
+      releasePolicy();
+    }
+    await expect(
+      dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first(),
+    ).toBeChecked();
     await dialog.getByRole('button', { name: 'Close Agents' }).click();
     await expect(input).toHaveValue('Keep this shared draft');
     await expect(trigger).toContainText('Architect, Reviewer');
     await expect(page.getByLabel('Send attempts')).toHaveText('0');
+    refuseNextPolicy = true;
+    await agents.click();
+    await dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first().click();
+    await expect(dialog.getByRole('alert')).toHaveText(
+      'Membership changed. Refresh discussion sharing.',
+    );
+    await page.screenshot({
+      path: info.outputPath(`policy-refusal-${theme}.png`),
+      style: '[data-fixture-control]{visibility:hidden}',
+    });
+    await expect(
+      dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first(),
+    ).toBeChecked();
+    await dialog.getByRole('button', { name: 'Refresh sharing' }).click();
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
+    await expect(
+      dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first(),
+    ).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Close Agents' }).click();
+    await expect(agents).toBeFocused();
     await page.getByText('To Architect, Reviewer · Context for Reader', { exact: true }).click();
     await expect(page.getByText('Prompt accepted', { exact: true })).toBeVisible();
     await expect(
@@ -160,6 +247,9 @@ for (const theme of ['dark', 'light'])
     );
     await page.reload();
     await expect(input).toHaveValue('Keep this shared draft');
-    expect(mutations).toEqual([]);
+    await expect(trigger).toContainText('Architect, Reviewer');
+    expect(mutations).toEqual(
+      Array(2).fill(`/api/session-collaborations/${view.collaborationId}/policy`),
+    );
     expect(errors).toEqual([]);
   });
