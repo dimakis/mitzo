@@ -226,12 +226,18 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     pending.current = null;
     publish(empty());
     const restored = () => {
-      if (currentOwner.current !== owner) return;
-      blocked.current = false;
-      if (valid()) {
-        epoch.current++;
-        void refresh();
-      } else clearPrivate();
+      const generation = epoch.current;
+      // The existing auth owner emits restoration before assigning its verified
+      // cookie record. Check after that synchronous publication, never on a timer.
+      queueMicrotask(() => {
+        if (!mounted.current || currentOwner.current !== owner || epoch.current !== generation)
+          return;
+        blocked.current = false;
+        if (valid()) {
+          epoch.current++;
+          void refresh();
+        } else clearPrivate();
+      });
     };
     const draftsChanged = () => readDraft();
     window.addEventListener(AUTH_LOST_EVENT, clearPrivate);
@@ -330,15 +336,23 @@ export function useConversationPresentation(options: ConversationPresentationOpt
       if (
         pending.current ||
         !view ||
-        !policy ||
         current.loading ||
         current.error ||
         current.policyError ||
-        current.projection?.needsRefresh ||
-        !view.participantSessionIds.includes(sessionId) ||
-        view.unavailableParticipantSessionIds.includes(sessionId)
+        current.projection?.needsRefresh
       )
         return false;
+      if (
+        !policy ||
+        !view.participantSessionIds.includes(sessionId) ||
+        view.unavailableParticipantSessionIds.includes(sessionId)
+      ) {
+        publish({
+          policyError:
+            'Discussion sharing is unavailable for this agent. Refresh the conversation.',
+        });
+        return false;
+      }
       const original: PendingPolicy = {
         uncertain: false,
         input: {
@@ -353,7 +367,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
       pending.current = original;
       return submitPolicy(original);
     },
-    [valid, clearPrivate, owner, submitPolicy],
+    [valid, clearPrivate, owner, submitPolicy, publish],
   );
   const retryPolicy = useCallback(
     async () => (pending.current ? submitPolicy(pending.current) : false),

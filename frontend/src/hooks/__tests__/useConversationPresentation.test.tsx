@@ -5,7 +5,7 @@ import { CollaborationApiClient } from '@mitzo/client';
 import { CollaborationPolicyUpdateSchema } from '@mitzo/protocol';
 import type { CollaborationView } from '@mitzo/protocol';
 import { createChatDraft, saveChatDraft, getChatDraft } from '../../lib/chat-drafts';
-import { AUTH_LOST_EVENT } from '../../lib/api-fetch';
+import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../../lib/api-fetch';
 import { useConversationPresentation } from '../useConversationPresentation';
 import {
   sharedConversationView,
@@ -223,6 +223,33 @@ it('clears private projection immediately on auth loss and rejects a late respon
     await pending;
   });
   expect(result.current.projection).toBeNull();
+});
+it('renews only after the existing auth owner completes its synchronous restore publication', async () => {
+  const h = harness();
+  const { result } = await loaded(h);
+  h.verified = undefined;
+  act(() => {
+    window.dispatchEvent(new Event(AUTH_LOST_EVENT));
+  });
+  expect(result.current.projection).toBeNull();
+  await act(async () => {
+    // Existing api-fetch restores the latch before assigning its verified-cookie record.
+    window.dispatchEvent(new Event(AUTH_RESTORED_EVENT));
+    h.verified = 'verified-login';
+  });
+  await waitFor(() =>
+    expect(result.current.projection?.view.collaborationId).toBe(h.view.collaborationId),
+  );
+});
+it('reports an unavailable policy target without sending a mutation', async () => {
+  const h = harness();
+  h.view = { ...h.view, unavailableParticipantSessionIds: ['reviewer'] };
+  const { result } = await loaded(h);
+  await act(async () => {
+    expect(await result.current.setPolicy('reviewer', { reads: true, replies: false })).toBe(false);
+  });
+  expect(result.current.policyError).toMatch(/unavailable/i);
+  expect(h.fetch.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(0);
 });
 it('rejects an older group read after switching to another conversation', async () => {
   const h = harness();
