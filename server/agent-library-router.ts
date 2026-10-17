@@ -1,3 +1,4 @@
+import type { ConfiguredToolCatalog, ConfiguredCatalogOptions } from './configured-tool-catalog.js';
 import { agentToolCatalog } from './agent-tool-catalog.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import { Router, type Response } from 'express';
@@ -6,7 +7,7 @@ import type { AgentLibraryStore } from './agent-library-store.js';
 import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 import { compileAgentContext, type AuthorizedContextPacks } from './agent-context-compiler.js';
-import { registerAuthSession, type AuthSession } from './auth.js';
+import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import { AgentAdviceBody, type AgentLibraryAdviser } from './agent-library-adviser.js';
 import { custodianRequestSignal } from './symposium-custodian-authority.js';
@@ -31,6 +32,9 @@ export function createAgentLibraryRouter(
     contexginUrl?: string;
     contextPacks?: (signal: AbortSignal) => Promise<AuthorizedContextPacks>;
     adviser?: AgentLibraryAdviser;
+    configuredTools?: () => Omit<ConfiguredCatalogOptions, 'signal' | 'assertRuntimeCurrent'> & {
+      catalog: ConfiguredToolCatalog;
+    };
   } = {},
 ): Router {
   const router = Router();
@@ -46,28 +50,85 @@ export function createAgentLibraryRouter(
       failure(res, error);
     }
   });
+  function projectTools(auth: AuthSession) {
+    const connected = getCredentialConnectionsRuntime()
+      ?.catalog()
+      .some((connection) => connection.status === 'active');
+    const builtins = agentToolCatalog().map((tool) => ({
+      ...tool,
+      requirement:
+        !connected &&
+        [
+          'ConnectionRequest',
+          'ConnectionWebSocket',
+          'HomeAssistantDashboard',
+          'RequestConnectionAccess',
+        ].includes(tool.name)
+          ? 'No active service connection is configured. Set one up in Connections; each new session still requires approval.'
+          : tool.requirement,
+    }));
+    const configured = options.configuredTools?.();
+    const saved =
+      configured?.catalog.list().map((tool) => {
+        try {
+          configured.catalog.resolve(tool, {
+            ...configured,
+            signal: new AbortController().signal,
+            assertRuntimeCurrent: () => {
+              if (!isAuthSessionCurrent(auth))
+                throw Error('Operator authorization expired or revoked');
+            },
+          });
+          return tool;
+        } catch (error) {
+          return {
+            ...tool,
+            routes: [],
+            requirement: error instanceof Error ? error.message : 'Configured source unavailable',
+          };
+        }
+      }) ?? [];
+    return { tools: [...builtins, ...saved] };
+  }
   router.get('/tools', (_req, res) => {
     try {
-      const connected = getCredentialConnectionsRuntime()
-        ?.catalog()
-        .some((connection) => connection.status === 'active');
-      res.json({
-        tools: agentToolCatalog().map((tool) => ({
-          ...tool,
-          requirement:
-            !connected &&
-            [
-              'ConnectionRequest',
-              'ConnectionWebSocket',
-              'HomeAssistantDashboard',
-              'RequestConnectionAccess',
-            ].includes(tool.name)
-              ? 'No active service connection is configured. Set one up in Connections; each new session still requires approval.'
-              : tool.requirement,
-        })),
-      });
+      res.json(projectTools(res.locals.authSession));
     } catch (error) {
       failure(res, error);
+    }
+  });
+  router.post('/tools/refresh', requireSameOriginJson, async (req, res) => {
+    const auth = res.locals.authSession as AuthSession;
+    const controller = new AbortController();
+    const unregister = registerAuthSession(auth, () => controller.abort());
+    const ownerSignal = custodianRequestSignal(req);
+    const cancel = () => controller.abort();
+    ownerSignal?.addEventListener('abort', cancel, { once: true });
+    if (ownerSignal?.aborted) cancel();
+    const close = () => {
+      if (!res.writableEnded) cancel();
+    };
+    res.on('close', close);
+    try {
+      z.strictObject({}).parse(req.body);
+      const configured = options.configuredTools?.();
+      if (!configured) throw Error('Configured tool discovery is unavailable');
+      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]);
+      const assertRuntimeCurrent = () => {
+        signal.throwIfAborted();
+        if (!isAuthSessionCurrent(auth)) throw Error('Operator authorization expired or revoked');
+      };
+      await configured.catalog.refresh({ ...configured, signal, assertRuntimeCurrent });
+      assertRuntimeCurrent();
+      res.json(projectTools(auth));
+    } catch (error) {
+      if (!isAuthSessionCurrent(auth))
+        res.status(403).json({ error: 'Operator authorization expired or revoked' });
+      else if (!res.destroyed) failure(res, error);
+    } finally {
+      unregister();
+      ownerSignal?.removeEventListener('abort', cancel);
+      res.off('close', close);
     }
   });
   router.post('/drafts', (req, res) => {

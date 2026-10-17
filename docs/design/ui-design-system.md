@@ -962,6 +962,25 @@ build exceeded the required 1 GiB local heap; full app build acceptance remains
 with CI. Shell-owned masthead/safe-area behavior is unchanged; these focused
 captures isolate the actual page without the shell. No deployment is performed.
 
+Configured stdio discovery extends this same card collection and editor. The
+explicit Refresh configured servers action uses existing compact actions, status,
+error/retry and cancel controls; reading the page starts no server. Source names
+distinguish duplicate tool names in cards and accessible Add controls. Details
+show unavailable-source reasons and new-session guidance. Discovery never changes
+an editor's selected receipt or a published revision.
+
+The intercepted `configured-tool-selection.spec.ts` actual-page matrix covers
+refresh failure/retry/loading, duplicate sources, category filtering, keyboard
+Escape/focus, publication and portable revision export in mobile WebKit/Chromium
+at 320px and desktop Chromium at 1280px, both themes, Lavender/System and
+Teal/Georgia. Six page checks plus two startup checks pass with one worker.
+Inspected captures: [mobile dark](assets/configured-tools-mobile-dark.png),
+[mobile light](assets/configured-tools-mobile-light.png),
+[desktop dark](assets/configured-tools-desktop-dark.png),
+[desktop light](assets/configured-tools-desktop-light.png). These isolated actual
+page renders omit shell-owned navigation; full-app checks remain a separate CI
+gate. No new CSS, palette, motion or layout scale is introduced.
+
 Verified obsolete warm spares retain Replace, confirmed Remove and Recheck in the
 existing Sandboxes `HomeDialog`, including paused and manual pools. The server's
 fresh retirement capability is independent of recipe compatibility; unknown or

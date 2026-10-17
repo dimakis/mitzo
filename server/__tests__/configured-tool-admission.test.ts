@@ -80,7 +80,7 @@ it.each(['openai', 'google-vertex'] as const)(
         sessionId: 'selected',
         cwd: root,
         sessionAllowList: new Set([
-          `configured-mcp:${JSON.stringify([configs.one.librarySourceId, 'search'])}`,
+          `configured-mcp:${JSON.stringify(['11111111-1111-4111-8111-111111111111', 'search'])}`,
         ]),
       });
       setSkillPolicy(registry, clientId, ['mcp__one__search']);
@@ -160,12 +160,21 @@ it.each(['openai', 'google-vertex'] as const)(
         await runtime.executeTool({ id: 'allowed', name: wire, input: {} }, options.signal),
       ).toMatchObject({ content: 'correct peer' });
       expect(peers['fake-one']).toHaveBeenCalledOnce();
-      const otherAlias = `mitzo_mcp_${createHash('sha256').update('mcp__two__search').digest('hex').slice(0, 32)}`;
+      const otherAlias = `mitzo_mcp_${createHash('sha256')
+        .update(JSON.stringify([configs.two.librarySourceId, 'search']))
+        .digest('hex')
+        .slice(0, 32)}`;
+      const unselectedAlias = `mitzo_mcp_${createHash('sha256')
+        .update(JSON.stringify([configs.one.librarySourceId, 'unselected']))
+        .digest('hex')
+        .slice(0, 32)}`;
       for (const name of [
         'search',
         'mcp__two__search',
         'mcp__one__unselected',
         otherAlias,
+        unselectedAlias,
+        'mcp__11111111-1111-4111-8111-111111111111__search',
         'ConnectionRequest',
         'mcp__mitzo-connections__ConnectionRequest',
         'RequestGithubPublish',
@@ -183,6 +192,41 @@ it.each(['openai', 'google-vertex'] as const)(
       await catalog.refresh(options);
       expect(catalog.list().some((row) => row.name === 'added')).toBe(true);
       expect(runtime.tools).toHaveLength(2);
+      const mutableSources = configs as Record<string, typeof configs.one>;
+      mutableSources.renamed = configs.one;
+      delete mutableSources.one;
+      await catalog.refresh(options);
+      expect(catalog.list().find((tool) => tool.id === ref.id)?.version).toBe(ref.version);
+      const later = library.saveDraft('user', {
+        profileId: draft.profileId,
+        expectedVersion: 0,
+        expectedRevision: published.revision,
+        idempotencyKey: 'later-save',
+        definition: { ...definition, tools: [] },
+      });
+      library.publish('user', {
+        profileId: draft.profileId,
+        expectedVersion: later.version,
+        idempotencyKey: 'later-publish',
+      });
+      const foreignCatalog = new ConfiguredToolCatalog(':memory:');
+      try {
+        const imported = library.importDraft('user', {
+          profileId: 'imported',
+          artifact: published,
+          idempotencyKey: 'import',
+        });
+        expect(imported.definition.tools).toEqual([ref]);
+        expect(() => foreignCatalog.resolve(imported.definition.tools![0], options)).toThrow(
+          /unresolved/,
+        );
+        await foreignCatalog.refresh(options);
+        expect(() => foreignCatalog.resolve(imported.definition.tools![0], options)).toThrow(
+          /unresolved/,
+        );
+      } finally {
+        foreignCatalog.close();
+      }
       sessions.splice(0).forEach((chat) => chat.close());
       library.close();
       events.close();
@@ -207,6 +251,13 @@ it.each(['openai', 'google-vertex'] as const)(
       schema = { type: 'object', properties: { changed: { type: 'string' } } };
       await catalog.refresh(options);
       await expect(open(true)).rejects.toThrow(/changed|unavailable/);
+      expect(
+        await runtime.executeTool({ id: 'changed', name: wire, input: {} }, options.signal),
+      ).toMatchObject({ is_error: true });
+      names.splice(0, names.length, 'unselected');
+      await catalog.refresh(options);
+      await expect(open(true)).rejects.toThrow(/changed|unavailable/);
+      expect(peers['fake-one']).toHaveBeenCalledOnce();
       expect(events.getSession('selected')!.agentProfile).toEqual(published);
       expect(peers['fake-two']).not.toHaveBeenCalled();
     } finally {

@@ -1,3 +1,6 @@
+import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
+import { loadMcpServers } from './mcp-config.js';
+
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import { sessionListMetadata } from './session-list-metadata.js';
@@ -9,7 +12,11 @@ import {
 } from './ordinary-local-vertex-queue.js';
 import { assertOwnedCodexQueueControl } from './owned-codex-queue-control.js';
 import { getNativeResponsesStore } from './responses-chat-session.js';
-import { continueOwnedLocalResponsesQueue, canResumeOwnedLocalResponsesDriver } from './chat.js';
+import {
+  continueOwnedLocalResponsesQueue,
+  canResumeOwnedLocalResponsesDriver,
+  nativeExecutionEnv,
+} from './chat.js';
 import {
   readOwnedNativeContinuationConstraint,
   readOwnedResponsesQueue,
@@ -1078,6 +1085,12 @@ app.use(
   '/api/agent-library',
   operatorAuthMiddleware,
   createAgentLibraryRouter(getAgentLibrary(), {
+    configuredTools: () => ({
+      catalog: getConfiguredToolCatalog(),
+      cwd: BASE_REPO,
+      env: nativeExecutionEnv(),
+      readSources: loadMcpServers,
+    }),
     adviser: new AgentLibraryAdviser(createTerminalAdviserSession),
     workspaceRoot: BASE_REPO,
     contextPacks: async (signal) => {
