@@ -1,3 +1,8 @@
+export interface SessionRemovalOptions {
+  archive?: boolean;
+  cleanupToken?: string;
+}
+
 export interface SandboxPoolSettings {
   enabled: boolean;
   capacity: number;

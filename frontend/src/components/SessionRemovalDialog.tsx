@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { HomeDialog } from './HomeDialog';
 import { readApiJson } from '../lib/api-json-read';
-import type { SandboxCleanupPreview } from '../types/sandboxes';
-
-export interface SessionRemovalOptions {
-  archive?: boolean;
-  cleanupToken?: string;
-}
+import type { SandboxCleanupPreview, SessionRemovalOptions } from '../types/sandboxes';
 interface Review {
   sandbox: SandboxCleanupPreview | null;
   blockedReason?: string | null;
