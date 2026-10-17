@@ -1,4 +1,17 @@
 import { assertAgentToolRoute } from './agent-tool-selection.js';
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
+import {
+  executeTelosWorkerTaskTool,
+  isTelosWorkerTaskTool,
+  telosWorkerTaskDefinitions,
+  telosWorkerTaskRegistration,
+} from './telos-worker-task-tools.js';
+import {
+  executeTelosWorkTool,
+  TelosStartSliceInputSchema,
+  TELOS_START_SLICE_TOOL,
+  telosWorkDefinitions,
+} from './telos-work-tools.js';
 import { recordOrdinaryReplySource } from './collaboration-ordinary-replies.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
@@ -734,6 +747,22 @@ async function openCodexChatBound(
     options.agentContext,
     options.eventStore.getSession(options.conversationId)?.agentContext,
   );
+  const selectedTelosRole =
+    options.ownedLocal || options.ownedOpenShell || options.contributorGuidance !== undefined
+      ? resolveTelosWorkRoleContext(options.eventStore, options.conversationId, options.binding)
+      : undefined;
+  const leadWorkTools = selectedTelosRole?.role === 'lead' ? telosWorkDefinitions : [];
+  let workerTaskContext: ManagedSession['taskContext'] = null;
+  if (
+    options.ownedOpenShell &&
+    selectedTelosRole?.role === 'worker' &&
+    options.assertAgentContextAuthorization
+  ) {
+    options.assertAgentContextAuthorization();
+    const context = options.session.taskContext;
+    if (context?.currentTaskId && context.goalId === context.currentTaskId)
+      workerTaskContext = structuredClone(context);
+  }
   const managedConnection =
     managedConnections.find((connection) => connection.templateId === 'jira-readonly') ??
     managedConnections[0] ??
@@ -988,6 +1017,8 @@ async function openCodexChatBound(
         telosAdoptSourceDefinition,
         ...telosItemDefinitions,
         ...telosArtifactDefinitions,
+        ...leadWorkTools,
+        ...(workerTaskContext ? telosWorkerTaskDefinitions : []),
         ...integrationTools,
       ]
     : [];
@@ -1030,7 +1061,10 @@ async function openCodexChatBound(
     }
   };
   const ownedHost = options.ownedLocal ?? options.ownedOpenShell;
-  const assertHostCurrentSync = () => ownedHost?.assertCurrentSync();
+  const assertHostCurrentSync = () => {
+    ownedHost?.assertCurrentSync();
+    if (ownedHost) options.assertAgentContextAuthorization?.();
+  };
   const assertHostCurrent = async () => {
     await ownedHost?.assertCurrent();
     assertHostCurrentSync();
@@ -1292,6 +1326,7 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           githubPublishingDefinition,
+          ...leadWorkTools,
         ].map((tool) => tool.name),
       )
     : undefined;
@@ -1487,8 +1522,10 @@ async function openCodexChatBound(
           canClaimCommand: (commandId: string) => options.ownedLocal!.canClaimCommand(commandId),
           beforeThreadInitialization: (store: CodexConversationStore) =>
             options.ownedLocal!.persistCustody(store),
-          beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) =>
-            options.ownedLocal!.assertBeforeEnqueue(input),
+          beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.assertAgentContextAuthorization?.();
+            options.ownedLocal!.assertBeforeEnqueue(input);
+          },
           verifyBinding: async () => {
             await options.ownedLocal!.assertCurrent();
             return options.binding;
@@ -1502,8 +1539,10 @@ async function openCodexChatBound(
       ? {
           canClaimCommand: (commandId: string) =>
             options.ownedOpenShell!.canClaimCommand(commandId),
-          beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) =>
-            options.ownedOpenShell!.assertBeforeEnqueue(input),
+          beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.assertAgentContextAuthorization?.();
+            options.ownedOpenShell!.assertBeforeEnqueue(input);
+          },
           beforeThreadInitialization: (store: CodexConversationStore) => {
             persistArtifactRuntime();
             options.ownedOpenShell!.persistNativeCustody(store);
@@ -1758,6 +1797,7 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           githubPublishingDefinition,
+          ...leadWorkTools,
         ]
       : connectedOpenShell
         ? [
@@ -1802,6 +1842,7 @@ async function openCodexChatBound(
       : {}),
     emit: (event) => events.push(event),
     onProviderDispatch: (messageId) => {
+      if (ownedHost) options.assertAgentContextAuthorization?.();
       options.ownedLocal?.assertBeforeDispatch(messageId);
       options.ownedOpenShell?.assertBeforeDispatch(messageId);
       options.ordinaryTurnLifecycle?.beforeDispatch(messageId);
@@ -1893,7 +1934,111 @@ async function openCodexChatBound(
       // Refuse an unqualified helper before any owner await, approval or effect.
       if (ownedToolNames && !ownedToolNames.has(name))
         throw Error('Tool unavailable for owned local Codex chat');
+      if (connectedOpenShell && isTelosWorkerTaskTool(name)) {
+        const registration = telosWorkerTaskRegistration(name);
+        if (!registration || !workerTaskContext || !options.assertAgentContextAuthorization)
+          return { content: 'Exact mapped Telos worker task scope required', isError: true };
+        const parsed = registration.schema.safeParse(input);
+        if (!parsed.success)
+          return toolInputError('Delegated task input', registration.schema, parsed.error);
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner || owner.session !== options.session)
+          return { content: 'Exact current Telos worker owner unavailable', isError: true };
+        const assertWorkerScope = () => {
+          signal.throwIfAborted();
+          options.assertAgentContextAuthorization!();
+          const current = options.registry.findBySessionId(options.conversationId);
+          if (
+            current?.clientId !== owner.clientId ||
+            current.session !== owner.session ||
+            !isDeepStrictEqual(options.session.taskContext, workerTaskContext) ||
+            !isDeepStrictEqual(
+              resolveTelosWorkRoleContext(
+                options.eventStore,
+                options.conversationId,
+                options.binding,
+              ),
+              selectedTelosRole,
+            )
+          )
+            throw new Error('Telos worker task scope or context changed');
+        };
+        assertWorkerScope();
+        await assertHostCurrent();
+        assertWorkerScope();
+        const permission = await buildPermissionHandler(owner.clientId, options.registry, {
+          onDemandCreate: options.onDemandCreate,
+        })(name, parsed.data, { signal, toolUseID: randomUUID(), allowSessionGrant: true });
+        assertWorkerScope();
+        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
+          return { content: 'Delegated task input changed during approval', isError: true };
+        await assertHostCurrent();
+        assertWorkerScope();
+        const result = await executeTelosWorkerTaskTool(
+          localHttpBaseUrl(Number.parseInt(process.env.PORT || '3100', 10), localServerUsesTls()),
+          owner.clientId,
+          options.conversationId,
+          workerTaskContext.currentTaskId,
+          INTERNAL_TOKEN,
+          name,
+          parsed.data,
+          signal,
+        );
+        assertWorkerScope();
+        return result;
+      }
       await assertHostCurrent();
+      if (name === TELOS_START_SLICE_TOOL) {
+        if (!leadWorkTools.length)
+          return {
+            content: 'Telos delegation requires this conversation’s retained lead role',
+            isError: true,
+          };
+        const parsed = TelosStartSliceInputSchema.safeParse(input);
+        if (!parsed.success)
+          return toolInputError('Telos delegation input', TelosStartSliceInputSchema, parsed.error);
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner || owner.session !== options.session)
+          return { content: 'Exact current Telos lead owner unavailable', isError: true };
+        const assertLead = () => {
+          signal.throwIfAborted();
+          const current = options.registry.findBySessionId(options.conversationId);
+          if (
+            current?.clientId !== owner.clientId ||
+            current.session !== owner.session ||
+            resolveTelosWorkRoleContext(options.eventStore, options.conversationId, options.binding)
+              ?.role !== 'lead'
+          )
+            throw new Error('Telos lead owner changed during delegation');
+        };
+        assertLead();
+        const permission = await buildPermissionHandler(owner.clientId, options.registry, {
+          onDemandCreate: options.onDemandCreate,
+        })(name, parsed.data, {
+          signal,
+          toolUseID: randomUUID(),
+          allowSessionGrant: true,
+        });
+        assertLead();
+        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
+          return {
+            content: 'Telos delegation input changed during approval; retry the exact request',
+            isError: true,
+          };
+        await assertHostCurrent();
+        assertLead();
+        return executeTelosWorkTool(
+          localHttpBaseUrl(Number.parseInt(process.env.PORT || '3100', 10), localServerUsesTls()),
+          owner.clientId,
+          options.conversationId,
+          INTERNAL_TOKEN,
+          name,
+          parsed.data,
+          signal,
+        );
+      }
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
       if (profileResult) return profileResult;
       const keychainResult = options.ownedLocal

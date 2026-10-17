@@ -8,6 +8,7 @@ import { githubPublishingDefinition } from './github-publishing-tool.js';
 import { telosCreateOutcomeDefinition, telosAdoptSourceDefinition } from './telos-tool.js';
 import { telosItemDefinitions } from './telos-item-tools.js';
 import { telosArtifactDefinitions } from './telos-artifact-tools.js';
+import { telosWorkDefinitions } from './telos-work-tools.js';
 
 const reads = new Set([
   'Read',
@@ -39,6 +40,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
         telosAdoptSourceDefinition,
         ...telosItemDefinitions,
         ...telosArtifactDefinitions,
+        ...telosWorkDefinitions,
       ],
     },
   ];

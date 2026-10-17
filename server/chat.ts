@@ -1,4 +1,7 @@
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
+import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
+import { TelosWorkStore } from './telos-work-store.js';
+import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
@@ -190,6 +193,36 @@ import { loadAgentDef } from './agent-loader.js';
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
   _taskStore = store;
+}
+
+/** Existing ordinary admission calls this before effects and after awaits.
+ * Only a proven durable mapping can attach task-tool context to a live chat.
+ */
+export function resolveOwnedTelosWorkCommandScope(sessionId: string) {
+  let work: TelosWorkStore | undefined;
+  try {
+    const scope = resolveTelosWorkCommandScope(
+      {
+        events: eventStore,
+        tasks: _taskStore,
+        work: () =>
+          (work ??= new TelosWorkStore(
+            process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+            {
+              ordinaryConversation: (id) =>
+                isAvailableTelosWorkConversation(eventStore.getSession(id)),
+            },
+          )),
+      },
+      sessionId,
+      eventStore.getSession(sessionId)?.accountBinding ?? undefined,
+    );
+    const session = registry.findBySessionId(sessionId)?.session;
+    if (scope && session) session.taskContext = scope;
+    return scope;
+  } finally {
+    work?.close();
+  }
 }
 
 type QueryInstance = AsyncIterable<Record<string, unknown>> &
@@ -911,12 +944,22 @@ export function createSessionWorktrees(
 function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> | null {
   const session = registry.get(clientId);
   if (!session?.taskContext) return null;
-  const port = process.env.PORT || '3100';
+  const port = Number.parseInt(process.env.PORT || '3100', 10);
   const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'task-mcp-server');
   return {
     [TASK_MCP_SERVER_NAME]: {
       command: entrypoint.command,
-      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
+      args: [
+        ...entrypoint.args,
+        '--base-url',
+        localHttpBaseUrl(port, localServerUsesTls()),
+        '--client-id',
+        clientId,
+        ...(session.sessionId &&
+        _taskStore?.getTelosExecutionBinding(session.taskContext.currentTaskId)
+          ? ['--session-id', session.sessionId, '--task-id', session.taskContext.currentTaskId]
+          : []),
+      ],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
@@ -934,6 +977,9 @@ function buildTelosMcpServer(clientId: string): Record<string, McpServerConfig> 
         localHttpBaseUrl(port, localServerUsesTls()),
         '--client-id',
         clientId,
+        ...(registry.get(clientId)?.sessionId
+          ? ['--session-id', registry.get(clientId)!.sessionId!]
+          : []),
       ],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
@@ -2949,8 +2995,10 @@ export async function sendOwnedLocalCodexCommand(input: {
     const retained = registry.findBySessionId(input.sessionId)?.session.ordinaryRuntimeOwner;
     if (!retained || retained.location !== 'local' || retained.authSessionId !== captured.auth.id)
       throw unavailable();
+    resolveOwnedTelosWorkCommandScope(input.sessionId);
     const result = await retained.admit(structuredClone(input.command), input.signal);
     captured.assertCurrent();
+    resolveOwnedTelosWorkCommandScope(input.sessionId);
     if (result.dispatched) {
       const current = registry.findBySessionId(input.sessionId);
       const native = current && getCodexRuntime(current.session);
@@ -3029,6 +3077,7 @@ export async function startOwnedLocalCodexCommand(
     const reservation = structuredClone(input.reservation);
     const command = structuredClone(input.command);
     const sessionId = reservation.conversationId;
+    resolveOwnedTelosWorkCommandScope(sessionId);
     const liveOwner = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
     if (liveOwner) {
       if (
@@ -3039,7 +3088,9 @@ export async function startOwnedLocalCodexCommand(
         (liveOwner.initialResume ?? false) !== resume
       )
         throw unavailable();
-      return { ...(await liveOwner.retryInitial(command)), sessionId };
+      const result = await liveOwner.retryInitial(command);
+      resolveOwnedTelosWorkCommandScope(sessionId);
+      return { ...result, sessionId };
     }
     driver = new OrdinaryLocalCodexOwnedRuntime({
       enabled: true,
@@ -3063,6 +3114,7 @@ export async function startOwnedLocalCodexCommand(
           session.ownedLocalAuthSessionId !== ownerAuthSessionId
         )
           throw unavailable();
+        resolveOwnedTelosWorkCommandScope(sessionId);
         await native.admitExplicitSend(
           {
             id: dispatch.commandId,
@@ -3080,6 +3132,7 @@ export async function startOwnedLocalCodexCommand(
             : session.abortController.signal,
         );
         dispatch.preparationSignal?.throwIfAborted();
+        resolveOwnedTelosWorkCommandScope(sessionId);
         storeAndEchoIfNew(
           sessionId,
           dispatch.commandId,
@@ -3108,6 +3161,7 @@ export async function startOwnedLocalCodexCommand(
         ? driver!.admitPreparedFirst(preparationOperationId, command)
         : driver!.admit(command);
     const result = resume ? await driver.admitResume(command) : await admitFirst(command);
+    resolveOwnedTelosWorkCommandScope(sessionId);
     if (!result.dispatched) {
       if (prepared) throw unavailable();
       release();
@@ -3224,6 +3278,7 @@ export async function prepareOwnedCodexChat(
     )
       throw unavailable();
     input.admission.assertConsumerOwner(eventStore, input.sessionId, input.commandId);
+    resolveOwnedTelosWorkCommandScope(input.sessionId);
     selected = structuredClone({
       expected: input.expected,
       workspace: input.workspace,
@@ -3330,6 +3385,7 @@ export async function prepareOwnedCodexChat(
       ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
+    resolveOwnedTelosWorkCommandScope(sessionId);
     // Existing public stop/interrupt controls expect this lifecycle marker.
     // Native commands remain owned exclusively by CodexConversation's FIFO.
     session.inputQueue = {
@@ -3388,11 +3444,16 @@ export async function prepareOwnedCodexChat(
       agentContext: expected.agentContext,
       prepareAgentContext: async (signal) => {
         signal.throwIfAborted();
+        resolveOwnedTelosWorkCommandScope(sessionId);
         await admission.assertCurrent();
         signal.throwIfAborted();
         admission.assertCurrentSync();
+        resolveOwnedTelosWorkCommandScope(sessionId);
       },
-      assertAgentContextAuthorization: () => admission.assertCurrentSync(),
+      assertAgentContextAuthorization: () => {
+        admission.assertCurrentSync();
+        resolveOwnedTelosWorkCommandScope(sessionId);
+      },
       onBootContext: (context) => send(transport, { ...context, sessionId }),
       onAgentContextAccepted: (acceptedCommandId, threadId, turnId, contextSha256) => {
         admission.assertCurrentSync();
@@ -3416,12 +3477,16 @@ export async function prepareOwnedCodexChat(
       reasoningEffort: expected.selection.thinking,
       images: payload.images,
       env,
-      mcpServers,
+      mcpServers: {
+        ...mcpServers,
+        ...(supportsHostTaskTools(!!openShellAdmission) ? buildTaskMcpServer(clientId) : null),
+      },
       eventStore,
       publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
         .filter(Boolean)
         .map((root) => join(root, '.git')),
     });
+    resolveOwnedTelosWorkCommandScope(sessionId);
     if (closed || abortController.signal.aborted) {
       queryInstance.close();
       throw unavailable();
@@ -3453,6 +3518,7 @@ export async function prepareOwnedCodexChat(
         )
           throw unavailable();
         admission.assertConsumerOwner(eventStore, sessionId, commandId);
+        resolveOwnedTelosWorkCommandScope(sessionId);
         const current = registry.findBySessionId(sessionId);
         if (!current || current.session !== session) throw unavailable();
         if (!session.transport.isOpen())

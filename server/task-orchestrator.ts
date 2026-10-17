@@ -1,3 +1,6 @@
+import { TelosWorkDelegationReceiptSchema, type TelosWorkDelegationReceipt } from '@mitzo/protocol';
+import type { TelosWorkDelegation } from './telos-work-delegation.js';
+import type { TelosWorkActor } from './telos-work-store.js';
 import type { TaskStore, Task, GateConfig } from './task-store.js';
 import type { WorkloadStore } from './workload-store.js';
 import { sendToChat } from './chat.js';
@@ -209,6 +212,18 @@ export class TaskOrchestrator {
     return needsReuse(goalId);
   }
 
+  /** Provision-only delegation; canonical owner retains idempotency and allocation.
+   * This operation is independent of the legacy loop and never dispatches a turn.
+   */
+  async delegateSlice(
+    owner: Pick<TelosWorkDelegation, 'delegate'>,
+    actor: TelosWorkActor,
+    input: unknown,
+    signal: AbortSignal,
+  ): Promise<TelosWorkDelegationReceipt> {
+    return TelosWorkDelegationReceiptSchema.parse(await owner.delegate(actor, input, signal));
+  }
+
   start(goalId: string, opts?: StartOptions): LoopStatus {
     if (this.state === 'running') {
       log.warn('start() called while already running');
@@ -219,6 +234,17 @@ export class TaskOrchestrator {
     if (!goal) {
       log.error('start() with nonexistent goalId', { goalId });
       return this.getStatus();
+    }
+
+    const pending = [goalId];
+    const visited = new Set<string>();
+    while (pending.length) {
+      const taskId = pending.pop()!;
+      if (visited.has(taskId)) continue;
+      visited.add(taskId);
+      if (this.deps.store.getTelosExecutionBinding(taskId))
+        throw new Error('Mapped Telos tasks require an explicit ordinary worker command');
+      pending.push(...this.deps.store.getChildren(taskId).map((child) => child.id));
     }
 
     // Spec decomposition sends its first prompt immediately. A background

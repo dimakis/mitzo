@@ -8,9 +8,14 @@ import { join } from 'node:path';
 import { createTelosWorkRouter } from '../telos-work-routes.js';
 import { revokeAuthSession } from '../auth.js';
 import { randomUUID } from 'node:crypto';
+import { createTelosWorkFixtures } from './fixtures/telos-work-fixtures.js';
+import { TelosWorkError } from '../telos-work-store.js';
 
 const roots: string[] = [];
-afterEach(() => roots.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
+afterEach(() => {
+  vi.useRealTimers();
+  roots.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true }));
+});
 function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>[0]> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'telos-work-routes-'));
   roots.push(root);
@@ -51,6 +56,299 @@ function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>[0]> =
   return { app, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  const receipt = {
+    version: 1,
+    state: 'chat_ready',
+    workerConversationId: 'worker',
+    workerPath: '/chat/worker',
+    itemPath: '/todos/slice',
+    leadPath: '/chat/chat',
+    execution: 'not_started',
+    attempt: {
+      version: 1,
+      requestId: 'start',
+      attemptId: 'attempt',
+      predecessorAttemptId: null,
+      leadConversationId: 'chat',
+      childItemId: 'slice',
+      contextSnapshotId: 'context',
+      state: 'chat_ready',
+      workerConversationId: 'worker',
+      allocationReceiptId: 'ordinary',
+      executionTaskId: 'task',
+      accountingGoalId: null,
+      turnCommandId: null,
+    },
+  };
+  const selectors = {
+    requestId: 'start',
+    childItemId: 'slice',
+    mode: 'start',
+    predecessorAttemptId: null,
+  };
+  const fullInput = () => {
+    const conversation = createTelosWorkFixtures().multipleChats.conversations[0];
+    return {
+      ...selectors,
+      leadItemId: 'outcome',
+      leadConversationId: 'chat',
+      expectedRevision: 'a'.repeat(64),
+      settings: {
+        binding: { ...conversation.binding, version: 2 },
+        selection: conversation.selection,
+        repositoryWorkspaceId: randomUUID(),
+      },
+      contextSelection: {
+        version: 1,
+        itemId: 'slice',
+        role: 'worker',
+        brief: { revision: 'a'.repeat(64), sha256: 'b'.repeat(64), text: 'Reviewed' },
+        parentCriteria: [],
+        overallGoal: { itemId: 'outcome', revision: 'a'.repeat(64), text: 'Goal' },
+        sources: [],
+        artifacts: [],
+        leadConversationId: 'chat',
+      },
+    };
+  };
+  it('routes exact operator delegation with ordinary auth and canonical receipt validation', async () => {
+    const delegateSlice = vi.fn(async (input) => {
+      input.assertAuthorized();
+      expect(input.actor).toEqual({ kind: 'operator', id: 'verified-operator' });
+      expect(input.authorization.id).toBe('verified-operator');
+      return receipt;
+    });
+    const f = setup({ delegateSlice });
+    const body = fullInput();
+    const result = await request(f.app)
+      .post('/api/telos/work/delegation/start')
+      .set('x-operator', 'authenticated')
+      .send(body);
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual(receipt);
+    expect(delegateSlice.mock.calls[0][0].raw).toEqual(body);
+    expect(result.headers['cache-control']).toBe('private, no-store');
+    expect(
+      (
+        await request(f.app)
+          .post('/api/telos/work/delegation/start')
+          .set('x-internal-token', 'host')
+          .send(body)
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(f.app)
+          .post('/api/telos/work/delegation/start')
+          .set('x-operator', 'authenticated')
+          .set('origin', 'https://foreign.invalid')
+          .send(body)
+      ).status,
+    ).toBe(403);
+    expect(delegateSlice).toHaveBeenCalledOnce();
+  });
+  it('rejects selector-only operator input and raw legacy attempt commands', async () => {
+    const delegateSlice = vi.fn(async () => receipt);
+    const f = setup({ delegateSlice });
+    expect(
+      (
+        await request(f.app)
+          .post('/api/telos/work/delegation/start')
+          .set('x-operator', 'authenticated')
+          .send(selectors)
+      ).status,
+    ).toBe(400);
+    const conversation = createTelosWorkFixtures().multipleChats.conversations[0];
+    const result = await f.command({
+      operation: 'request_attempt',
+      itemId: 'item',
+      requestId: 'legacy',
+      expectedRevision: (await f.read()).body.revision,
+      attemptId: 'legacy',
+      predecessorAttemptId: null,
+      leadConversationId: 'chat',
+      contextSnapshotId: 'context',
+      configuration: { binding: conversation.binding, selection: conversation.selection },
+    });
+    expect(result.status).toBe(400);
+    expect(result.body.error).toMatch(/exact delegation/i);
+    expect(delegateSlice).not.toHaveBeenCalled();
+  });
+  it('revokes operator delegation across its host wait and redacts private host failures', async () => {
+    const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+    const delegateSlice = vi.fn(async () => {
+      revokeAuthSession(auth);
+      return receipt;
+    });
+    const f = setup({
+      delegateSlice,
+      operatorAuth: (_req, res, next) => {
+        res.locals.authSession = auth;
+        next();
+      },
+    });
+    expect(
+      (await request(f.app).post('/api/telos/work/delegation/start').send(fullInput())).status,
+    ).toBe(403);
+    const broken = setup({
+      delegateSlice: async () => {
+        throw new TelosWorkError('conflict', '/private/credential/token');
+      },
+    });
+    const result = await request(broken.app)
+      .post('/api/telos/work/delegation/start')
+      .set('x-operator', 'authenticated')
+      .send(fullInput());
+    expect(result.status).toBe(409);
+    expect(result.text).not.toContain('/private');
+    const invalid = setup({ delegateSlice: async () => ({ private: '/private/credentials' }) });
+    const output = await request(invalid.app)
+      .post('/api/telos/work/delegation/start')
+      .set('x-operator', 'authenticated')
+      .send(fullInput());
+    expect(output.status).toBe(503);
+    expect(output.text).not.toContain('/private');
+  });
+  const internal = (app: express.Express, body: unknown, client = 'valid-client', token = 'host') =>
+    request(app)
+      .post('/api/internal/telos/work/delegate')
+      .set('x-internal-token', token)
+      .set('x-client-id', client)
+      .send(body);
+  it('passes the authenticated exact internal lead identity without fabricating operator authorization', async () => {
+    const delegateSlice = vi.fn(async (input) => {
+      input.assertAuthorized();
+      expect(input.actor).toEqual({ kind: 'conversation', id: 'chat' });
+      expect(input.authorization).toBeUndefined();
+      expect(input.raw).toEqual(selectors);
+      return receipt;
+    });
+    const f = setup({ delegateSlice });
+    const result = await internal(f.app, {
+      clientId: 'valid-client',
+      sessionId: 'chat',
+      input: selectors,
+    });
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual(receipt);
+    expect(delegateSlice).toHaveBeenCalledOnce();
+    expect(f.dbPath).not.toHaveBeenCalled();
+  });
+  it('rejects internal token, header, session, ordinary availability and extra authority claims before hosting', async () => {
+    const delegateSlice = vi.fn(async () => receipt);
+    const f = setup({ delegateSlice });
+    const body = { clientId: 'valid-client', sessionId: 'chat', input: selectors };
+    expect((await internal(f.app, body, 'valid-client', 'wrong')).status).toBe(401);
+    expect((await internal(f.app, { ...body, clientId: 'other-client' })).status).toBe(403);
+    expect((await internal(f.app, { ...body, sessionId: 'unrelated' })).status).toBe(403);
+    expect((await internal(f.app, { ...body, authorization: { id: 'spoof' } })).status).toBe(400);
+    expect(
+      (await internal(f.app, { ...body, input: { ...selectors, settings: fullInput().settings } }))
+        .status,
+    ).toBe(400);
+    const hidden = setup({ delegateSlice, ordinaryConversation: () => false });
+    expect((await internal(hidden.app, body)).status).toBe(403);
+    expect(delegateSlice).not.toHaveBeenCalled();
+  });
+  it.each(['session', 'ordinary', 'token'] as const)(
+    'denies internal %s authority drift across a host wait',
+    async (kind) => {
+      let current = true;
+      const delegateSlice = vi.fn(async () => {
+        await Promise.resolve();
+        current = false;
+        return receipt;
+      });
+      const f = setup({
+        delegateSlice,
+        sessionId: () => (kind === 'session' && !current ? 'another' : 'chat'),
+        ordinaryConversation: () => kind !== 'ordinary' || current,
+        verifyInternal: () => kind !== 'token' || current,
+      });
+      const result = await internal(f.app, {
+        clientId: 'valid-client',
+        sessionId: 'chat',
+        input: selectors,
+      });
+      expect(result.status).toBe(403);
+      expect(result.body.code).toBe('unauthorized');
+      expect(result.text).not.toContain('workerPath');
+      expect(delegateSlice).toHaveBeenCalledOnce();
+    },
+  );
+  it('aborts the internal host operation when its HTTP caller disconnects', async () => {
+    let started!: (signal: AbortSignal) => void;
+    const ready = new Promise<AbortSignal>((resolve) => {
+      started = resolve;
+    });
+    const f = setup({
+      delegateSlice: async (input) => {
+        started(input.signal);
+        await new Promise<void>((_resolve, reject) =>
+          input.signal.addEventListener('abort', () => reject(Error('aborted')), { once: true }),
+        );
+        return receipt;
+      },
+    });
+    const call = internal(f.app, { clientId: 'valid-client', sessionId: 'chat', input: selectors });
+    const settled = call.then(
+      () => undefined,
+      () => undefined,
+    );
+    const signal = await ready;
+    const aborted = new Promise<void>((resolve) =>
+      signal.addEventListener('abort', () => resolve(), { once: true }),
+    );
+    call.abort();
+    await aborted;
+    await settled;
+    expect(signal.aborted).toBe(true);
+  });
+  it('bounds internal host work to 120 seconds and suppresses late successful receipts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let started!: (signal: AbortSignal) => void;
+    const ready = new Promise<AbortSignal>((resolve) => {
+      started = resolve;
+    });
+    const f = setup({
+      delegateSlice: async (input) => {
+        started(input.signal);
+        await new Promise<void>((resolve) =>
+          input.signal.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        return receipt;
+      },
+    });
+    const call = internal(f.app, {
+      clientId: 'valid-client',
+      sessionId: 'chat',
+      input: selectors,
+    }).then((result) => result);
+    const signal = await ready;
+    await vi.advanceTimersByTimeAsync(120000);
+    const result = await call;
+    expect(signal.aborted).toBe(true);
+    expect(result.status).toBe(503);
+    expect(result.text).not.toContain('workerPath');
+  });
+  it('redacts internal host errors and malformed output without leaking a false receipt', async () => {
+    for (const delegateSlice of [
+      async () => {
+        throw Error('/private/credentials');
+      },
+      async () => ({ private: '/private/credentials' }),
+    ]) {
+      const f = setup({ delegateSlice });
+      const result = await internal(f.app, {
+        clientId: 'valid-client',
+        sessionId: 'chat',
+        input: selectors,
+      });
+      expect(result.status).toBe(503);
+      expect(result.text).not.toContain('/private');
+      expect(result.text).not.toContain('workerPath');
+    }
+  });
   it('uses only interactive operator authority for advisor previews and saves, with fresh revocation across the host wait', async () => {
     const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
     const advisorSave = vi.fn(async (input: { assertAuthorized(): void; actor: unknown }) => {

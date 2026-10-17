@@ -11,6 +11,12 @@ import {
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
+  executeTelosWorkTool,
+  TelosStartSliceInputSchema,
+  TELOS_START_SLICE_TOOL,
+  telosWorkDefinitions,
+} from './telos-work-tools.js';
+import {
   telosItemDefinitions,
   telosItemSchemas,
   executeTelosItemTool,
@@ -33,10 +39,34 @@ function readArg(name: string): string {
 
 const baseUrl = readArg('--base-url');
 const clientId = readArg('--client-id');
+const sessionId = readArg('--session-id');
 const token = process.env.MITZO_INTERNAL_TOKEN ?? '';
 if (!baseUrl || !clientId || !token) throw new Error('Missing Telos MCP configuration');
 
 const server = new McpServer({ name: 'telos', version: '1.0.0' });
+if (sessionId) {
+  server.registerTool(
+    TELOS_START_SLICE_TOOL,
+    {
+      description: telosWorkDefinitions[0].description,
+      inputSchema: TelosStartSliceInputSchema.shape,
+    },
+    async (input: Record<string, unknown>) => {
+      const result = await executeTelosWorkTool(
+        baseUrl,
+        clientId,
+        sessionId,
+        token,
+        TELOS_START_SLICE_TOOL,
+        input,
+      );
+      return {
+        content: [{ type: 'text' as const, text: result.content }],
+        ...(result.isError ? { isError: true } : {}),
+      };
+    },
+  );
+}
 
 server.registerTool(
   TELOS_CREATE_OUTCOME_TOOL,

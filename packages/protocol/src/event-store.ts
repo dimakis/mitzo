@@ -479,6 +479,7 @@ export class EventStore {
       allocationOperationId: string;
       preparationFingerprint: string;
       settings: CollaborationSettings;
+      delegationAttemptId?: string;
     },
   ): OrdinarySessionPreparationReceipt {
     const receipt = OrdinarySessionPreparationReceiptSchema.parse({
@@ -970,9 +971,53 @@ export class EventStore {
       : undefined;
   }
 
-  /** Last admitted settings for display and the next draft, never a rewrite of
-   * any active, queued or historical command snapshot.
-   */
+  /** Current ordinary settings from this owner's retained preparation/admission.
+   * It does not infer a binding or select an attached client. */
+  /** Retained operation identity only; consumers still verify current authority. */
+  getOrdinarySessionPreparationForConversation(sessionId: string) {
+    const row = this.db!.prepare(
+      'SELECT operation_id FROM ordinary_session_preparations WHERE session_id=?',
+    ).get(sessionId) as { operation_id: string } | undefined;
+    return row ? this.getOrdinarySessionPreparation(row.operation_id) : undefined;
+  }
+  getOrdinaryConversationSettings(id: string): CollaborationSettings | undefined {
+    const db = this.db!;
+    const admission = this.getLatestOrdinaryCommandAdmission(id);
+    if (!admission) {
+      const row = db
+        .prepare('SELECT operation_id FROM ordinary_session_preparations WHERE session_id=?')
+        .get(id) as { operation_id: string } | undefined;
+      const prepared = row && this.getOrdinarySessionPreparation(row.operation_id);
+      if (!prepared || prepared.firstCommandId !== null) return undefined;
+      this.assertPreparedOrdinaryMetadata(
+        prepared,
+        JSON.parse(
+          (
+            db
+              .prepare('SELECT metadata FROM ordinary_session_preparations WHERE operation_id=?')
+              .get(row!.operation_id) as { metadata: string }
+          ).metadata,
+        ),
+      );
+      return prepared.settings;
+    }
+    const binding = this.getSessionRuntimeBinding(id);
+    const session = this.getSession(id);
+    if (
+      !admission ||
+      !binding ||
+      binding.version !== 2 ||
+      !isDeepStrictEqual(binding, admission.binding) ||
+      session?.repositoryWorkspaceId !== admission.workspace.workspaceId
+    )
+      return undefined;
+    return {
+      binding,
+      selection: admission.selection,
+      repositoryWorkspaceId: admission.workspace.workspaceId,
+    };
+  }
+  /** Last admitted settings for the next draft, never a historical rewrite. */
   getLatestOrdinaryCommandAdmission(sessionId: string): OrdinaryLocalCommandAdmission | undefined {
     this.assertConversationIdentity(sessionId);
     const row = this.db!.prepare(
@@ -1215,44 +1260,7 @@ export class EventStore {
       available: (id) => {
         return this.isCollaborationParticipantAvailable(id);
       },
-      settings: (id) => {
-        const admission = this.getLatestOrdinaryCommandAdmission(id);
-        if (!admission) {
-          const row = db
-            .prepare('SELECT operation_id FROM ordinary_session_preparations WHERE session_id=?')
-            .get(id) as { operation_id: string } | undefined;
-          const prepared = row && this.getOrdinarySessionPreparation(row.operation_id);
-          if (!prepared || prepared.firstCommandId !== null) return undefined;
-          this.assertPreparedOrdinaryMetadata(
-            prepared,
-            JSON.parse(
-              (
-                db
-                  .prepare(
-                    'SELECT metadata FROM ordinary_session_preparations WHERE operation_id=?',
-                  )
-                  .get(row!.operation_id) as { metadata: string }
-              ).metadata,
-            ),
-          );
-          return prepared.settings;
-        }
-        const binding = this.getSessionRuntimeBinding(id);
-        const session = this.getSession(id);
-        if (
-          !admission ||
-          !binding ||
-          binding.version !== 2 ||
-          !isDeepStrictEqual(binding, admission.binding) ||
-          session?.repositoryWorkspaceId !== admission.workspace.workspaceId
-        )
-          return undefined;
-        return {
-          binding,
-          selection: admission.selection,
-          repositoryWorkspaceId: admission.workspace.workspaceId,
-        };
-      },
+      settings: (id) => this.getOrdinaryConversationSettings(id),
       allocation: (operationId) => {
         const prepared = this.getOrdinarySessionPreparation(operationId);
         if (prepared) {

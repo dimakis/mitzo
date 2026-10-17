@@ -12,6 +12,8 @@ export const OrdinarySessionPreparationReceiptSchema = z
     settings: CollaborationSettingsSchema,
     preparationFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
     firstCommandId: id.nullable(),
+    /** Host-only S5 intent fence, committed atomically before role/task linkage. */
+    delegationAttemptId: id.optional(),
   })
   .refine(
     (receipt) =>

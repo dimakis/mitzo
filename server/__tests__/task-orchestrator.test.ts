@@ -50,6 +50,77 @@ afterEach(() => {
 });
 
 describe('TaskOrchestrator', () => {
+  it('provisions a canonical delegated slice without consulting or changing the legacy loop', async () => {
+    const receipt = {
+      version: 1 as const,
+      state: 'chat_ready' as const,
+      execution: 'not_started' as const,
+      workerConversationId: 'worker',
+      workerPath: '/chat/worker',
+      itemPath: '/todos/child',
+      leadPath: '/chat/lead',
+      attempt: {
+        version: 1 as const,
+        requestId: 'request',
+        attemptId: 'attempt',
+        predecessorAttemptId: null,
+        leadConversationId: 'lead',
+        childItemId: 'child',
+        contextSnapshotId: 'snapshot',
+        state: 'chat_ready' as const,
+        workerConversationId: 'worker',
+        allocationReceiptId: 'receipt',
+        executionTaskId: 'task',
+        accountingGoalId: null,
+        turnCommandId: null,
+      },
+    };
+    const owner = { delegate: vi.fn(async () => receipt) };
+    const actor = { kind: 'conversation' as const, id: 'lead' };
+    const input = { requestId: 'request' };
+    const signal = new AbortController().signal;
+    mockDeps.getClientId = vi.fn(() => {
+      throw Error('must not choose loop recipient');
+    });
+    const before = orchestrator.getStatus();
+    expect(await orchestrator.delegateSlice(owner, actor, input, signal)).toEqual(receipt);
+    expect(owner.delegate).toHaveBeenCalledExactlyOnceWith(actor, input, signal);
+    expect(orchestrator.getStatus()).toEqual(before);
+    expect(mockDeps.getClientId).not.toHaveBeenCalled();
+    expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+    owner.delegate.mockResolvedValueOnce({ ...receipt, execution: 'started' as 'not_started' });
+    await expect(orchestrator.delegateSlice(owner, actor, input, signal)).rejects.toThrow();
+  });
+
+  it('rejects mapped S5 leaves and mapped descendants before spec or ordinary loop admission', () => {
+    const mapped = store.createOrRecoverTelosExecutionTask(
+      { title: 'Exact slice' },
+      {
+        attemptId: 'attempt',
+        childItemId: 'child',
+        leadConversationId: 'lead',
+        workerConversationId: 'worker',
+        contextSnapshotId: 'snapshot',
+        contextHash: 'a'.repeat(64),
+      },
+    );
+    const goal = store.create({ title: 'Legacy goal' });
+    const children = vi.spyOn(store, 'getChildren');
+    children.mockImplementation((id) => (id === goal.id ? [mapped] : []));
+    mockDeps.getClientId = vi.fn(() => {
+      throw Error('must reject before recipient lookup');
+    });
+    for (const id of [mapped.id, goal.id]) {
+      for (const specMode of [true, false])
+        expect(() => orchestrator.start(id, { specMode })).toThrow(/explicit.*worker command/i);
+    }
+    expect(orchestrator.getStatus().state).toBe('idle');
+    expect(store.get(mapped.id)?.status).toBe('pending');
+    expect(mockDeps.getClientId).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
   it('rejects a role-scoped execution target before changing the workflow or sending a child', () => {
     const goal = store.create({ title: 'Outcome' });
     const child = store.create({ title: 'Exact child', parentId: goal.id });

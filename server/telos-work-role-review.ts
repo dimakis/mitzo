@@ -17,6 +17,8 @@ export interface TelosWorkRoleReviewInput {
   advisorPurpose?: 'refine' | 'child';
   selectedSourceSnapshotIds: string[];
   selectedArtifactRefs: TelosWorkRoleContextSelection['artifacts'];
+  /** Scoped host reader may grant exactly one child plus its ancestry. */
+  readTarget?(itemId: string): ReturnType<TelosWorkStore['readSourceTarget']>;
   /** Trusted host proof reader, restricted to this selected item's retained sources. */
   readReviewedSource?(snapshotId: string): ReturnType<TelosSourceCapture['read']>;
 }
@@ -25,7 +27,8 @@ export function reviewTelosWorkRoleContext(
   input: TelosWorkRoleReviewInput,
 ): TelosWorkRoleContextSelection {
   const { work, actor, itemId, role } = input;
-  const target = work.readSourceTarget(itemId, actor);
+  const readTarget = input.readTarget ?? ((id: string) => work.readSourceTarget(id, actor));
+  const target = readTarget(itemId);
   if (
     role === 'advisor' &&
     input.advisorPurpose === 'child' &&
@@ -42,7 +45,7 @@ export function reviewTelosWorkRoleContext(
     if (seen.has(parentId) || ancestors.length >= 100)
       throw new Error('Selected work ancestry unavailable');
     seen.add(parentId);
-    const parent = work.readSourceTarget(parentId, actor);
+    const parent = readTarget(parentId);
     if (/^life[-_ ]?ops$/i.test(parent.record.profile))
       throw new Error('Selected role context unavailable');
     ancestors.push(parent);
@@ -143,7 +146,7 @@ export function reviewTelosWorkRoleContext(
   });
   // Recheck each selected boundary after traversing independent SQLite reads.
   for (const boundary of [target, ...ancestors])
-    if (work.read(boundary.record.itemId, actor).revision !== boundary.work.revision)
+    if (readTarget(boundary.record.itemId).work.revision !== boundary.work.revision)
       throw new Error('Selected work context changed during review');
   renderTelosWorkRoleContext(selected);
   return selected;
