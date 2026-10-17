@@ -1,22 +1,23 @@
-import { Link, useLocation } from 'react-router-dom';
-import { artifactViewerUrl } from '../lib/file-paths';
 import { UiIcon } from './UiIcon';
 import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { apiFetch } from '../lib/api-fetch';
 import { downloadFile, shareTelosArtifact } from '../lib/share-file';
+import { SavedArtifactRouteDialog } from './SavedArtifactRouteDialog';
+import { Link, useLocation } from 'react-router-dom';
+import { savedArtifactLocationUrl } from '../lib/saved-artifact-location';
 import { UserOutputUpload } from './UserOutputUpload';
 import type { TodoOutput } from '../types/todo';
 
 /** Browse durable output bytes even after the producing agent and sandbox are gone. */
 export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: string }) {
-  const location = useLocation();
   const [result, setResult] = useState<{
     itemId: string;
     artifacts: TodoOutput[];
     limit: number;
     error?: string;
   } | null>(null);
+  const location = useLocation();
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -113,10 +114,7 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
                 <div className="output-row-copy">
                   <Link
                     className="output-open"
-                    to={artifactViewerUrl(
-                      `/api/telos/artifacts/${output.id}?revision=${output.revision}`,
-                      location.pathname + location.search,
-                    )}
+                    to={savedArtifactLocationUrl(location.pathname + location.search, output)}
                   >
                     <strong>{output.title}</strong>
                   </Link>
@@ -175,6 +173,7 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
         </>
       )}
       {actionError && <p role="alert">{actionError}</p>}
+      <SavedArtifactRouteDialog itemId={itemId} />
     </section>
   );
 }

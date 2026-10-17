@@ -1516,11 +1516,16 @@ and the existing role owner performs setup. It never allocates from a tree read.
 
 `TelosItemWorkspace` retains the original brief beside its content on desktop and
 below it on phones. One Back chevron returns through item history or the retained
-collection. The focused desktop item stays inside `DesktopShell`; `MobileShell`
+collection. The item trail is retained for this session independently of artifact-selector
+route state, so Files/dialog reloads preserve Back to the originating item. A fresh
+collection entry resets that trail. The focused desktop item stays inside `DesktopShell`; `MobileShell`
 continues to own collection branding/navigation. Parent kinds and legacy unclassified records with actual children expose Work; leaves
 expose Overview, Chat and Materials. Existing role, source and saved-output owners
 supply those entry points. Source exchanges, retained bytes and external links
-remain distinct. The output disclosure shows exact revision/hash, recorded save
+remain distinct. The shared output title selects one exact ID/revision/hash dialog on the Work URL.
+Its File options Open bridges to the existing Files editor and preserves that Work
+selection on Back; explicit saved-document references continue to use Files links.
+The output disclosure shows exact revision/hash, recorded save
 time and source identity; unavailable author/date facts remain explicit. The original Context
 section is a native, initially collapsed disclosure with populated readable labels.
 New item restores an unsent planning prompt in the full ordinary chat composer.
@@ -1551,7 +1556,9 @@ Inspected all-intercept captures: [phone tree](assets/telos-s7-tree-mobile-dark.
 [phone materials](assets/telos-s7-materials-mobile-light.png),
 [desktop materials](assets/telos-s7-materials-desktop-light.png) and
 [repository-backed brief](assets/telos-s7-software-desktop-dark.png) and
-[900px shell with enlarged text](assets/telos-s7-workspace-narrow-enlarged-light.png).
+[900px shell with enlarged text](assets/telos-s7-workspace-narrow-enlarged-light.png),
+[desktop retained-version dialog](assets/telos-s7-dialog-desktop-dark.png) and
+[phone retained-version dialog](assets/telos-s7-dialog-mobile-light.png).
 The focused fixture exercises actual pages/shells, schema-validated record/work
 DTOs and the accepted canonical projector, with an inert protocol transport.
 Checks cover 320px WebKit/Chromium, 1280px Chromium, light/dark, Mint/System and
@@ -1562,7 +1569,8 @@ not a new approval or final CT13 acceptance.
 
 Open integration boundaries: accepted S5a/S5b; CT14 accepted-source persistence
 and independent acceptance after the priority producer is accepted; the shared
-artifact viewer producer handoff; the priority protection amendment for legacy
+artifact producer accepted-source/CI qualification (published `f9409978` is composed
+for offline consumer verification); the priority protection amendment for legacy
 collection assertions (the active protected file remains unchanged); the work API's missing authoritative attention classification (Needs you
 stays unavailable); collection-wide record/category projection (currently bounded
 per-record reads); coordinator setup from its existing owner; and S8's chooser,
@@ -1571,3 +1579,23 @@ this Mac's prescribed 1 GiB heap; full build/application coverage remains CI.
 S7 and parent acceptance remain open pending real persistence/API integration and
 approved visual/contract acceptance on the combined sources. No staging or runtime
 qualification is implied by these fixtures.
+
+## Retained artifact inspection
+
+Work output titles open the shared `SavedArtifactDialog` through an exact
+artifact/revision/hash selector on the existing route. The dialog uses HomeDialog,
+UiIcon, shared motion and semantic tokens. Its bounded body scrolls while the
+header and native file actions remain reachable. The saved-version selector uses
+custom control geometry so WebKit retains the 44px touch target. Preview follows
+the existing safe document renderer policy; unsupported formats remain explicit.
+Provenance is collapsed until requested. The real Work link and Files editing
+bridge preserve existing associations and exact selected revisions across reload.
+Native export is separate from agent-delivery receipts.
+
+Focused synthetic actual-owner/browser checks cover 320px WebKit/Chromium and
+1280px desktop Chromium in dark Mint/System and light Teal/Georgia, large text,
+keyboard focus return, reduced motion, final-provenance scrolling and pinned Files
+Back navigation. Inspected captures show [mobile provenance](assets/symposium-artifact-mobile-dark.png)
+and [desktop inspection](assets/symposium-artifact-desktop-light.png). These are
+implementation evidence. The approved full Symposium participant-sharing flow
+still requires the core durable delivery contract and its own acceptance.

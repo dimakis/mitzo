@@ -369,7 +369,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
 
   function handleTap(item: TodoItem) {
     navigate(`/todos/${item.id}`, {
-      state: { item, activeProfile, scrollTop: saveScrollPosition() },
+      state: { item, activeProfile, scrollTop: saveScrollPosition(), telosHistory: [] },
     });
   }
 
@@ -438,7 +438,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
                 }
               }
               navigate(`/todos/${encodeURIComponent(id)}`, {
-                state: { activeProfile, scrollTop: saveScrollPosition() },
+                state: { activeProfile, scrollTop: saveScrollPosition(), telosHistory: [] },
               });
             }}
           />

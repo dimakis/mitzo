@@ -27,6 +27,7 @@ for (const theme of ['dark', 'light'])
     page,
     isMobile,
   }, info) => {
+    test.setTimeout(60_000);
     const fixtures = createTelosWorkFixtures();
     const software = fixtures.nestedCoordinator.items.find((item) => item.kind === 'outcome')!;
     Object.assign(
@@ -99,6 +100,22 @@ for (const theme of ['dark', 'light'])
       await page.goto(path);
     }
     const documentReads: number[] = [];
+    let denyArtifact = false;
+    const artifactVersion = (revision: number) => ({
+      id: 'a'.repeat(32),
+      itemId: 'fixture-studio-slice',
+      filename: 'plan.md',
+      title: 'Saved studio plan',
+      revision,
+      size: 21,
+      sha256: (revision === 3 ? 'b' : 'c').repeat(64),
+      createdAt: '2026-10-16T10:00:00Z',
+      sessionId: 'fixture-source',
+      sourcePath: 'plan.md',
+      sourceKind: 'session_artifact',
+      url: '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=' + revision,
+    });
+
     let failRecords = false;
     let rejectPriority = false;
     let releasePriority: (() => void) | undefined;
@@ -172,42 +189,43 @@ for (const theme of ['dark', 'light'])
         });
         return route.fulfill({ json: work });
       }
+
       if (/\/api\/telos\/items\/[^/]+\/artifacts/.test(url.pathname))
         return route.fulfill({
           json: {
             limit: 100,
-            artifacts: [
-              {
-                id: 'a'.repeat(32),
-                itemId: url.pathname.split('/')[4],
-                filename: 'plan.md',
-                title: 'Saved studio plan',
-                revision: 3,
-                size: 21,
-                sha256: 'b'.repeat(64),
-                createdAt: '2026-10-16T10:00:00Z',
-                sessionId: 'fixture-source',
-                sourcePath: 'plan.md',
-                sourceKind: 'session_artifact',
-                url: '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=3',
-              },
-            ],
+            artifacts: url.pathname.includes('/fixture-studio-slice/') ? [artifactVersion(3)] : [],
           },
         });
+      if (url.pathname === '/api/telos/artifacts/' + 'a'.repeat(32) + '/versions') {
+        if (denyArtifact) return route.fulfill({ status: 403, json: { error: 'Access revoked' } });
+        const before = Number(url.searchParams.get('beforeRevision') || Number.MAX_SAFE_INTEGER);
+        return route.fulfill({
+          json: {
+            artifacts: [artifactVersion(4), artifactVersion(3)].filter(
+              (row) => row.revision < before,
+            ),
+            cursor: null,
+            hasMore: false,
+          },
+        });
+      }
       if (url.pathname === '/api/telos/artifacts/' + 'a'.repeat(32) + '/document') {
+        if (denyArtifact) return route.fulfill({ status: 403, json: { error: 'Access revoked' } });
         const revision = Number(url.searchParams.get('revision') || 4);
         documentReads.push(revision);
         return route.fulfill({
           json: {
             path: '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=' + revision,
-            name: 'studio-plan.md',
+            name: 'plan.md',
             ext: '.md',
             content:
               revision === 3
                 ? '# Retained studio plan r3\n\nSelected original document.'
                 : '# Latest studio plan r4',
             revision,
-            editable: false,
+            editable: true,
+            previewUnavailable: false,
           },
         });
       }
@@ -426,17 +444,62 @@ for (const theme of ['dark', 'light'])
         .locator('.output-row-copy')
         .evaluate((element) => element.scrollWidth <= element.clientWidth),
     ).toBe(true);
+    await expect(page.getByRole('link', { name: 'Saved studio plan', exact: true })).toHaveCount(1);
     await page.getByRole('link', { name: 'Saved studio plan', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Latest studio plan r4' })).toHaveCount(0);
     await reload();
     await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
     expect(documentReads.every((revision) => revision === 3)).toBe(true);
+    await page.getByRole('combobox', { name: 'Version', exact: true }).selectOption('4');
+    await expect(page.getByRole('heading', { name: 'Latest studio plan r4' })).toBeVisible();
+    await page.getByRole('combobox', { name: 'Version', exact: true }).selectOption('3');
+    await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
+    const selectedWorkRoute = new URL(page.url()).pathname + new URL(page.url()).search;
+    expect(new URL(page.url()).searchParams.get('savedRevision')).toBe('3');
+    expect(new URL(page.url()).searchParams.get('savedHash')).toBe('b'.repeat(64));
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'File options', exact: true }).click();
+    await page.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(page).toHaveURL(/\/files\?/);
+    expect(new URL(page.url()).searchParams.get('from')).toBe(selectedWorkRoute);
+    await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Save new revision', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await reload();
+    await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Saved studio plan' })).toBeVisible();
+    expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(selectedWorkRoute);
+    denyArtifact = true;
+    await reload();
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'no longer available to you' }),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'File options', exact: true })).toHaveCount(0);
+    denyArtifact = false;
+    await page.getByRole('button', { name: 'Retry saved version', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
+    const badPin = new URL(page.url());
+    badPin.searchParams.set('savedHash', 'd'.repeat(64));
+    await navigate(badPin.pathname + badPin.search);
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'unavailable or changed' }),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Latest studio plan r4' })).toHaveCount(0);
+    await navigate(selectedWorkRoute);
+    await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
+
     await page.screenshot({
       path: info.outputPath('retained-document-' + theme + '.png'),
       fullPage: true,
     });
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     await reload();
     await expect(page.getByRole('button', { name: 'Materials', exact: true })).toHaveAttribute(
       'aria-pressed',
@@ -524,6 +587,11 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Work', exact: true }).click();
     await page.getByRole('button', { name: 'Plan the recording setup', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Work', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Materials', exact: true }).click();
+    await page.getByRole('link', { name: 'Saved studio plan', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
+    await reload();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(page.getByText('Unclassified · active', { exact: true })).toBeVisible();
     expect(records[0].kind).toBeNull();

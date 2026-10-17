@@ -24,6 +24,10 @@ function urgencyLabel(urgency: number): string {
   return 'minimal';
 }
 
+function parseItemHistory(value: unknown): string[] {
+  return Array.isArray(value) && value.every((id) => typeof id === 'string') ? value : [];
+}
+
 export function TodoDetailView() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -37,6 +41,26 @@ export function TodoDetailView() {
   } = useTodoData(undefined, id);
   const setPendingSession = useStageChatLaunch();
   const location = useLocation();
+  const historyKey = 'telos.item.history.' + id;
+  const navigationHistory = (location.state as { telosHistory?: unknown } | null)?.telosHistory;
+  // Artifact selectors and Files own URL navigation; S7 owns its item trail.
+  useEffect(() => {
+    if (navigationHistory === undefined) return;
+    try {
+      sessionStorage.setItem(historyKey, JSON.stringify(parseItemHistory(navigationHistory)));
+    } catch {
+      /* Navigation remains available when device preferences are unavailable. */
+    }
+  }, [historyKey, navigationHistory]);
+  function itemHistory() {
+    if (navigationHistory !== undefined) return parseItemHistory(navigationHistory);
+    try {
+      return parseItemHistory(JSON.parse(sessionStorage.getItem(historyKey) ?? '[]'));
+    } catch {
+      return [];
+    }
+  }
+
   const navigationItem = (location.state as { item?: TodoItem } | null)?.item;
   const [stateItem, setStateItem] = useState(navigationItem);
   useEffect(() => setStateItem(navigationItem), [navigationItem]);
@@ -99,8 +123,7 @@ export function TodoDetailView() {
             }}
             records={canonical.records}
             onBack={() => {
-              const state = location.state as { telosHistory?: string[] } | null;
-              const history = state?.telosHistory ?? [];
+              const history = itemHistory();
               navigate(
                 history.length
                   ? `/todos/${encodeURIComponent(history[history.length - 1])}`
@@ -120,10 +143,7 @@ export function TodoDetailView() {
                 state: {
                   ...location.state,
                   item: undefined,
-                  telosHistory: [
-                    ...((location.state as { telosHistory?: string[] } | null)?.telosHistory ?? []),
-                    record.itemId,
-                  ],
+                  telosHistory: [...itemHistory(), record.itemId],
                 },
               });
             }}

@@ -48,14 +48,14 @@ it('exposes exact saved revision, hash, recorded time and source without inventi
   expect(screen.getByText('Author not recorded')).toBeTruthy();
 });
 
-it('opens the selected retained revision in the existing viewer, separately from sharing', async () => {
+it('selects the producer exact-revision dialog route, separately from sharing', async () => {
   render(<WorkOutputs itemId="studio" />);
   const open = await screen.findByRole('link', { name: 'Studio plan' });
   const href = new URL(open.getAttribute('href')!, 'https://offline.test');
-  expect(href.pathname).toBe('/files');
-  expect(href.searchParams.get('path')).toBe(
-    '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=3',
-  );
+  expect(href.pathname).toBe('/todos/studio');
+  expect(href.searchParams.get('savedArtifact')).toBe('a'.repeat(32));
+  expect(href.searchParams.get('savedRevision')).toBe('3');
+  expect(href.searchParams.get('savedHash')).toBe('b'.repeat(64));
   expect(screen.getByRole('button', { name: 'Share Studio plan' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Download Studio plan' })).toBeTruthy();
 });
