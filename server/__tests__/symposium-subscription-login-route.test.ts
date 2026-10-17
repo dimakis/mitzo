@@ -264,50 +264,54 @@ it('quarantines unconfirmed cancellation and expires receipts without claiming s
   expect(beginDeviceLogin).toHaveBeenCalledOnce();
 });
 
-it('expires a device allocation before its handle is available without exposing a late code', async () => {
-  const { createSubscriptionLoginController } =
-    await import('../symposium-subscription-login-route.js');
-  let allocate!: (value: unknown) => void;
-  const cancel = vi.fn(async () => {});
-  const beginDeviceLogin = vi.fn(
-    () =>
-      new Promise((resolve) => {
-        allocate = resolve;
-      }),
-  );
-  const controller = createSubscriptionLoginController(() => ({
-    beginDeviceLogin: beginDeviceLogin as never,
-  }));
-  const app = express();
-  app.use(express.json());
-  app.post('/login', controller.start);
-  app.get('/status', controller.status);
-  const starting = request(app)
-    .post('/login')
-    .send({ method: 'device-code' })
-    .then((response) => response);
-  await vi.waitFor(() => expect(beginDeviceLogin).toHaveBeenCalledOnce());
-  const pending = (await request(app).get('/status')).body;
-  const now = vi.spyOn(Date, 'now').mockReturnValue(pending.expiresAt + 1);
-  try {
-    const status = request(app)
-      .get('/status')
+it.each([false, true])(
+  'expires a device allocation before its handle is available without exposing a late code (concurrent status: %s)',
+  async (concurrentStatus) => {
+    const { createSubscriptionLoginController } =
+      await import('../symposium-subscription-login-route.js');
+    let allocate!: (value: unknown) => void;
+    const cancel = vi.fn(async () => {});
+    const beginDeviceLogin = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          allocate = resolve;
+        }),
+    );
+    const controller = createSubscriptionLoginController(() => ({
+      beginDeviceLogin: beginDeviceLogin as never,
+    }));
+    const app = express();
+    app.use(express.json());
+    app.post('/login', controller.start);
+    app.get('/status', controller.status);
+    const starting = request(app)
+      .post('/login')
+      .send({ method: 'device-code' })
       .then((response) => response);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    allocate({
-      verificationUrl: 'https://auth.openai.com/codex/device',
-      userCode: 'ABCD-1234',
-      expiresAt: Date.now() + 60000,
-      completed: Promise.resolve(),
-      cancel,
-    });
-    expect((await starting).body).not.toHaveProperty('userCode');
-    expect((await status).body.state).toBe('expired');
-    expect(cancel).toHaveBeenCalledOnce();
-  } finally {
-    now.mockRestore();
-  }
-});
+    await vi.waitFor(() => expect(beginDeviceLogin).toHaveBeenCalledOnce());
+    const pending = (await request(app).get('/status')).body;
+    const now = vi.spyOn(Date, 'now').mockReturnValue(pending.expiresAt + 1);
+    try {
+      const status = concurrentStatus
+        ? request(app)
+            .get('/status')
+            .then((response) => response)
+        : undefined;
+      allocate({
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: Date.now() + 60000,
+        completed: Promise.resolve(),
+        cancel,
+      });
+      expect((await starting).body).not.toHaveProperty('userCode');
+      expect((await (status ?? request(app).get('/status'))).body.state).toBe('expired');
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally {
+      now.mockRestore();
+    }
+  },
+);
 
 it('returns only verified display identity from an already completed device start', async () => {
   const { createSubscriptionLoginController } =

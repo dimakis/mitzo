@@ -254,6 +254,9 @@ export function createSubscriptionLoginController(
       cancelLogin = login.cancel;
       allocatedDone();
       void login.completed.catch(() => undefined);
+      // Allocation can outlive the original window before any status request observes it.
+      // Settle the returned handle through the existing cleanup owner before exporting a code.
+      await expire();
       if (device && attempt?.state === 'pending' && !cancelling) {
         const selected = login as DeviceLogin;
         if (
