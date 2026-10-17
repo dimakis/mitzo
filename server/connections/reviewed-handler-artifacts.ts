@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.268';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.269';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -33,7 +33,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/global.css':
     'b7d58a6d48a82775c95eacf3965050e6a2ad9dc775eef37914b405b93d0fddd8',
   '../../frontend/src/components/TelosSourceReview.tsx':
-    'be0828222b2728f9b6addf69faa2b053c039307897074c706913a5f71001f109',
+    '41b772c7cd995c2d2f5666d45f6773a3b3cf284f7f1b8076f43c68d10291efaa',
   '../../frontend/src/components/PermissionBanner.tsx':
     '4706f371b3cdf9f80ebe40b673d4ce326b3c09a4bc88f30954f5dc4a614f03d7',
   '../telos-artifact-routes.ts': '1c08c382dd14fe90ada4d9fdea4224bf91b9b82143e15cd462f90132595089e8',

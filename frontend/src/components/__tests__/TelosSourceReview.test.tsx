@@ -789,4 +789,115 @@ describe('ordinary Telos source approval', () => {
       expect(props.onRespond).not.toHaveBeenCalled();
     },
   );
+
+  it('retries the exact live durable attempt through conflict without reconnecting or reviewing again', async () => {
+    api.approveSourcePermission
+      .mockRejectedValueOnce({ status: 503, code: 'save_uncertain' })
+      .mockRejectedValueOnce({ status: 409, code: 'conflict' });
+    render(<PermissionBanner {...props} />);
+    await selectAndPreview();
+    const allow = screen.getByRole('button', { name: 'Allow Once' });
+    fireEvent.click(allow);
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toMatch(/Save is unconfirmed/),
+    );
+    const original = api.approveSourcePermission.mock.calls[0];
+    fireEvent.click(allow);
+    await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toMatch(/same save after access returns/),
+    );
+    expect(screen.getByRole('alert').textContent).not.toMatch(
+      /new request|ask again|review a new/i,
+    );
+    expect(allow.hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('alert').textContent).not.toMatch(/Dismiss/);
+    expect(screen.getByRole('region', { name: 'Reviewed source' }).textContent).toContain(
+      'The agreed studio brief.',
+    );
+    expect(screen.queryByRole('button', { name: 'Retry same save' })).toBeNull();
+    fireEvent.click(allow);
+    await screen.findByRole('link', { name: 'Open saved item' });
+    expect(api.approveSourcePermission.mock.calls).toEqual([original, original, original]);
+    expect(api.previewSourcePermission).toHaveBeenCalledTimes(1);
+    expect(api.getSourcePermission).toHaveBeenCalledTimes(1);
+    expect(props.onRespond).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'fresh', failure: null },
+    { label: 'generic unavailable', failure: { status: 503, code: 'unavailable' } },
+    { label: 'network loss', failure: new Error('Network lost') },
+    { label: 'unverified save-uncertain', failure: { code: 'save_uncertain' } },
+  ])('does not infer durable consent from $label before a live conflict', async ({ failure }) => {
+    if (failure) api.approveSourcePermission.mockRejectedValueOnce(failure);
+    api.approveSourcePermission.mockRejectedValueOnce({ status: 409, code: 'conflict' });
+    render(<PermissionBanner {...props} />);
+    await selectAndPreview();
+    const allow = screen.getByRole('button', { name: 'Allow Once' });
+    if (failure) {
+      fireEvent.click(allow);
+      await waitFor(() =>
+        expect(screen.getByRole('alert').textContent).toMatch(/Save is unconfirmed/),
+      );
+    }
+    fireEvent.click(allow);
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toMatch(/original save|original request/i),
+    );
+    expect(screen.getByRole('alert').textContent).not.toMatch(
+      /new request|ask again|review a new/i,
+    );
+    expect(allow.hasAttribute('disabled')).toBe(true);
+    expect(api.approveSourcePermission).toHaveBeenCalledTimes(failure ? 2 : 1);
+    expect(api.previewSourcePermission).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { status: 400, code: 'invalid' },
+    { status: 404, code: 'not_found' },
+    { status: 401, code: 'unauthorized' },
+    { status: 403, code: 'unauthorized' },
+  ])(
+    'keeps definitive live status $status blocked after confirmed durable preparation',
+    async ({ status, code }) => {
+      api.approveSourcePermission
+        .mockRejectedValueOnce({ status: 503, code: 'save_uncertain' })
+        .mockRejectedValueOnce({ status, code });
+      render(<PermissionBanner {...props} />);
+      await selectAndPreview();
+      const allow = screen.getByRole('button', { name: 'Allow Once' });
+      fireEvent.click(allow);
+      await waitFor(() =>
+        expect(screen.getByRole('alert').textContent).toMatch(/Save is unconfirmed/),
+      );
+      fireEvent.click(allow);
+      await waitFor(() =>
+        expect(screen.getByRole('alert').textContent).toMatch(
+          status === 401 || status === 403 ? /Sign in again/ : /original save|original request/i,
+        ),
+      );
+      expect(allow.hasAttribute('disabled')).toBe(true);
+      expect(api.approveSourcePermission).toHaveBeenCalledTimes(2);
+      if (status === 401 || status === 403) {
+        expect(screen.getByRole('alert').textContent).toMatch(/Sign in again/);
+        expect(screen.queryByText('The agreed studio brief.')).toBeNull();
+      }
+    },
+  );
+
+  it('does not extend the original live deadline after durable preparation', async () => {
+    api.approveSourcePermission.mockRejectedValueOnce({ status: 503, code: 'save_uncertain' });
+    const { rerender } = render(<PermissionBanner {...props} />);
+    await selectAndPreview();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toMatch(/Save is unconfirmed/),
+    );
+    rerender(<PermissionBanner {...props} expiresAt={Date.now() - 1} />);
+    expect(screen.queryByLabelText('Approval required')).toBeNull();
+    expect(screen.queryByLabelText('Save recovery')).toBeNull();
+    expect(api.approveSourcePermission).toHaveBeenCalledTimes(1);
+    expect(props.onRespond).not.toHaveBeenCalled();
+  });
 });

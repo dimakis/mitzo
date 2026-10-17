@@ -16,6 +16,7 @@ type Prepared = {
   review: TelosSourcePermissionReview;
   preview: TelosSourcePermissionPreview;
   input: TelosSourcePermissionApproveRequest;
+  knownDurable?: boolean;
   pending?: ReturnType<TelosWorkApiClient['approveSourcePermission']>;
 };
 // A resolved permission can remove its card before the HTTP receipt arrives.
@@ -243,7 +244,13 @@ export function useTelosSourceReview({
             if (recovery.receipt) {
               setSaved(true);
               setSavedItem(recovery.receipt.receipt.work.itemId);
-            } else attempted.set(identity, { review: result, preview: restoredPreview, input });
+            } else
+              attempted.set(identity, {
+                review: result,
+                preview: restoredPreview,
+                input,
+                knownDurable: true,
+              });
           } else if (
             cached &&
             cached.review.toolUseId === result.toolUseId &&
@@ -407,7 +414,7 @@ export function useTelosSourceReview({
     if (!activeReview || !preview || !previewInput || saving || saved || blocked || isExpired())
       return;
     const version = generation.current;
-    const prepared = attempted.get(identity) ?? {
+    const prepared: Prepared = attempted.get(identity) ?? {
       review: activeReview,
       preview,
       input: { ...previewInput, previewSha256: preview.preview.sha256 },
@@ -429,6 +436,16 @@ export function useTelosSourceReview({
     } catch (failure) {
       prepared.pending = undefined;
       if (lostAuthority(failure)) attempted.delete(identity);
+      else if (
+        errorCode(failure) === 'save_uncertain' &&
+        failure &&
+        typeof failure === 'object' &&
+        'status' in failure &&
+        failure.status === 503
+      )
+        // The authenticated service confirms it retained this exact attempt.
+        // Transport failure, a locked card or cache presence cannot prove that.
+        prepared.knownDurable = true;
       if (valid(identity, version)) {
         const code = errorCode(failure);
         if (lostAuthority(failure)) {
@@ -438,14 +455,14 @@ export function useTelosSourceReview({
           setBlocked(true);
           setError('Sign in again before reviewing this request.');
         } else if (code && !['save_uncertain', 'unavailable'].includes(code)) {
-          const retrySameSave = recoveryOnly && code === 'conflict';
+          const retrySameSave = (recoveryOnly || prepared.knownDurable) && code === 'conflict';
           setBlocked(!retrySameSave);
           setError(
             retrySameSave
-              ? 'The original save is still unconfirmed. Access changed or is no longer authorized. Retry the same save after access returns, or Dismiss.'
+              ? `The original save is still unconfirmed. Access changed or is no longer authorized. Retry the same save after access returns${recoveryOnly ? ', or Dismiss' : ''}.`
               : recoveryOnly
                 ? 'The original save is still unconfirmed. This recovery cannot continue. Dismiss keeps any saved item and its retained source.'
-                : 'This request changed or is no longer authorized. Review a new request before saving.',
+                : 'This request changed or is no longer authorized. Saving is blocked. Reconnect to check the original save before taking another action.',
           );
         } else
           setError(

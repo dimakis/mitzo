@@ -46,6 +46,8 @@ for (const theme of ['dark', 'light'] as const)
       try {
         const { createTelosSourceApprovalData: createData } =
           await import('../fixtures/telos-source-approval-data');
+        const { TelosSourceSaveUncertainError } =
+          await import('../../server/telos-source-approval');
         data = createData();
         const host = data;
         const files = (await compiled).outputFiles;
@@ -168,9 +170,11 @@ for (const theme of ['dark', 'light'] as const)
               if (operation === 'approve') await deliver();
             } catch (error) {
               const code =
-                error && typeof error === 'object' && 'code' in error
-                  ? String(error.code)
-                  : 'unavailable';
+                error instanceof TelosSourceSaveUncertainError
+                  ? 'save_uncertain'
+                  : error && typeof error === 'object' && 'code' in error
+                    ? String(error.code)
+                    : 'unavailable';
               await route.fulfill({
                 status: code === 'conflict' ? 409 : code === 'unauthorized' ? 403 : 503,
                 json: {
@@ -496,6 +500,63 @@ for (const theme of ['dark', 'light'] as const)
             .map((link) => link.itemId),
         ).toEqual([created]);
 
+        if (responseLoss === 'canonical') {
+          // The original live card has not reconnected or become recoveryOnly.
+          // Its authenticated save_uncertain response confirms this exact
+          // durable attempt; a later authority conflict must retain same-save retry.
+          const live = await request('create', 'native');
+          await live.getByRole('checkbox', { name: /Use the approved acoustic plan/ }).check();
+          await live.getByRole('button', { name: 'Review selected source', exact: true }).click();
+          await expect(
+            live.getByRole('region', { name: 'Reviewed source', exact: true }),
+          ).toBeVisible();
+          const livePreview = previews.at(-1)!;
+          const livePreviewCount = previews.length;
+          const liveReceiptCount = receipts.length;
+          host.loseNextCanonicalResponse();
+          await live.getByRole('button', { name: 'Allow Once', exact: true }).click();
+          await expect(live.getByRole('alert')).toContainText('Save is unconfirmed');
+          expect(host.hideOriginalSource()).toBe(true);
+          const beforeLiveDenied = host.retainedOwnerCounts();
+          await live.getByRole('button', { name: 'Allow Once', exact: true }).click();
+          await expect(live.getByRole('alert')).toContainText('same save after access returns');
+          await expect(live.getByRole('alert')).not.toContainText(
+            /new request|ask again|review a new/i,
+          );
+          await expect(live.getByRole('button', { name: 'Allow Once', exact: true })).toBeEnabled();
+          await expect(live.getByRole('timer')).toHaveCount(1);
+          await expect(
+            page.getByRole('region', { name: 'Save recovery', exact: true }),
+          ).toHaveCount(0);
+          expect(host.retainedOwnerCounts()).toEqual(beforeLiveDenied);
+          expect(receipts).toHaveLength(liveReceiptCount);
+          expect(previews).toHaveLength(livePreviewCount);
+          await page.screenshot({
+            path: info.outputPath(`source-approval-live-denied-${theme}.png`),
+          });
+          expect(host.restoreOriginalSourceAccess()).toBe(true);
+          await live.getByRole('button', { name: 'Allow Once', exact: true }).click();
+          await expect(live).toHaveCount(0);
+          expect(receipts).toHaveLength(liveReceiptCount + 1);
+          const liveReceipt = receipts.at(-1)!;
+          expect(host.receiptSource(liveReceipt).packet).toEqual(livePreview.preview.packet);
+          expect(liveReceipt.canonicalCreation).toMatchObject({ created: false });
+          expect(host.counts().canonicalCreates).toBe(beforeLiveDenied.canonicalCreates);
+          expect(approvalRequests.slice(-3)).toEqual([
+            approvalRequests.at(-3),
+            approvalRequests.at(-3),
+            approvalRequests.at(-3),
+          ]);
+          expect(previews).toHaveLength(livePreviewCount);
+          expect(host.counts().allocations).toBe(0);
+          await expect(input).toHaveValue('Keep this ordinary chat draft.');
+          await page.screenshot({
+            path: info.outputPath(`source-approval-live-restored-${theme}.png`),
+          });
+        }
+        const beforeLoss = host.counts();
+        const receiptsBeforeLoss = receipts.length;
+
         // Lose either the canonical reply or a completed source-save reply.
         // Then reopen the real stores and replay the actual host recovery object,
         // with the source unavailable and the browser past the old deadline.
@@ -514,9 +575,9 @@ for (const theme of ['dark', 'light'] as const)
         await uncertain.getByRole('button', { name: 'Allow Once', exact: true }).click();
         await expect(uncertain.getByRole('alert')).toContainText('Save is unconfirmed');
         const savedBeforeRestart = host.counts();
-        expect(savedBeforeRestart.canonicalCreates).toBe(2);
+        expect(savedBeforeRestart.canonicalCreates).toBe(beforeLoss.canonicalCreates + 1);
         expect(savedBeforeRestart.sources.total).toBe(
-          savedCount + (responseLoss === 'source' ? 1 : 0),
+          beforeLoss.sources.total + (responseLoss === 'source' ? 1 : 0),
         );
         host.restartOwners();
         expect(host.hideOriginalSource()).toBe(true);
@@ -591,7 +652,7 @@ for (const theme of ['dark', 'light'] as const)
             recoveryCard.getByRole('link', { name: 'Open saved item', exact: true }),
           ).toHaveCount(0);
           expect(host.retainedOwnerCounts()).toEqual(beforeHiddenRetry);
-          expect(receipts).toHaveLength(2);
+          expect(receipts).toHaveLength(receiptsBeforeLoss);
           expect(previews.length).toBe(previewCountBeforeRecovery);
           expect(host.recoveryRequests()).toHaveLength(1);
           await page.screenshot({
@@ -615,13 +676,13 @@ for (const theme of ['dark', 'light'] as const)
         await expect(
           recoveryCard.getByRole('link', { name: 'Open saved item', exact: true }),
         ).toBeVisible();
-        expect(receipts).toHaveLength(3);
+        expect(receipts).toHaveLength(receiptsBeforeLoss + 1);
         const recovered = receipts.at(-1)!;
         if (responseLoss === 'canonical')
           expect(approvalRequests.at(-1)).toEqual(approvalRequests.at(-2));
         expect(host.receiptSource(recovered).packet).toEqual(prepared.preview.packet);
         expect(host.receiptSource(recovered).available).toBe(responseLoss === 'canonical');
-        expect(host.counts().sources.total).toBe(savedCount + 1);
+        expect(host.counts().sources.total).toBe(beforeLoss.sources.total + 1);
         expect(host.counts().canonicalCreates).toBe(savedBeforeRestart.canonicalCreates);
         expect(recovered.canonicalCreation).toMatchObject({
           created: responseLoss === 'source',
@@ -632,7 +693,7 @@ for (const theme of ['dark', 'light'] as const)
         await recoveryCard.getByRole('button', { name: 'Dismiss', exact: true }).click();
         await expect(recoveryCard).toHaveCount(0);
         expect(host.recoveryRequests()).toEqual([]);
-        expect(host.counts().sources.total).toBe(savedCount + 1);
+        expect(host.counts().sources.total).toBe(beforeLoss.sources.total + 1);
         expect(host.counts().canonicalCreates).toBe(savedBeforeRestart.canonicalCreates);
         expect(host.receiptSource(recovered).packet).toEqual(prepared.preview.packet);
         expect(externalFetches).toEqual([]);

@@ -140,7 +140,15 @@ receipt even if final creation bookkeeping was interrupted. Completed receipts
 remain recoverable without new source effects if access subsequently changes.
 For a recovery conflict while current source access is unavailable, the existing Retry same save remains
 available after access returns; it resubmits the same immutable request without
-a reload, fresh preview or new save intent. Definitive invalid/not-found recovery
+a reload, fresh preview or new save intent. A normal live approval card has the
+same conflict retry only after its authenticated `503/save_uncertain` response
+confirms that exact attempted request was durably prepared, or protected recovery
+metadata verifies it. A locked card, cached attempt, generic unavailable response
+or network loss does not establish that proof. Those attempts remain blocked on
+a later hard conflict, with guidance to reconnect and check the original save
+rather than create another request. Live retries keep their original deadline;
+only host-replayed recovery cards have the separate recovery lifetime.
+Definitive invalid/not-found recovery
 failures remain blocked without advising a replacement request. Genuine authentication loss still
 clears sensitive context and blocks approval until protected recovery rechecks it.
 Dismiss settles the matching live provider request as a denial,
