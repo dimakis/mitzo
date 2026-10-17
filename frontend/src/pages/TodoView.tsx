@@ -1,3 +1,5 @@
+import { TelosOutcomesTree } from '../components/TelosOutcomesTree';
+import { useTelosRecords } from '../hooks/useTelosRecords';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
@@ -313,6 +315,16 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   }, [items, query]);
   const sections = useMemo(() => groupIntoSections(filteredItems, sort), [filteredItems, sort]);
 
+  const recordIds: string[] = [];
+  function collectIds(values: TodoItem[]) {
+    for (const item of values) {
+      recordIds.push(item.id);
+      collectIds(item.children);
+    }
+  }
+  collectIds(items);
+  const canonical = useTelosRecords(recordIds);
+
   // Restore scroll position when returning from detail view
   useEffect(() => {
     const saved = (location.state as { scrollTop?: number } | null)?.scrollTop;
@@ -348,6 +360,47 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     setCreating({ parentId });
   }
 
+  if (canonical.records.length > 0)
+    return (
+      <div className="todo-page">
+        <div className="todo-collection-heading">
+          <WorkspacePageHeading
+            title="Telos outcomes"
+            description="Your outcomes, their child work and the coordinators connecting them."
+            actions={
+              <button
+                className="todo-refresh"
+                onClick={() => {
+                  refresh();
+                  canonical.refresh();
+                }}
+                aria-label="Refresh Telos"
+              >
+                <UiIcon name="retry" size={16} />
+              </button>
+            }
+          />
+        </div>
+        <div className="todo-scroll" ref={scrollRef}>
+          {error && <p role="alert">{error} Displayed records may be stale.</p>}
+          {canonical.unavailable.length > 0 && (
+            <p role="alert">
+              Some outcomes are unavailable. Refresh to retry. ({canonical.unavailable.length})
+            </p>
+          )}
+          <TelosOutcomesTree
+            records={canonical.records}
+            selectedId={selectedId}
+            onOpen={(id) =>
+              navigate(`/todos/${encodeURIComponent(id)}`, {
+                state: { activeProfile, scrollTop: saveScrollPosition() },
+              })
+            }
+          />
+        </div>
+      </div>
+    );
+
   return (
     <div className="todo-page">
       <div className="todo-collection-heading">
@@ -373,6 +426,11 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
       </div>
 
       <div className="todo-scroll" ref={scrollRef}>
+        {canonical.unavailable.length > 0 && (
+          <p role="alert">
+            Outcome workspace records unavailable. Original Telos fields remain available below.
+          </p>
+        )}
         <div className="todo-toolbar">
           <label className="todo-search">
             <span aria-hidden="true">

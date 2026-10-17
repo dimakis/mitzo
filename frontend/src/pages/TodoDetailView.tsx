@@ -1,3 +1,5 @@
+import { TelosItemWorkspace } from '../components/TelosItemWorkspace';
+import { useTelosRecords } from '../hooks/useTelosRecords';
 import { TelosItemSources } from '../components/TelosItemSources';
 import { TelosItemRoleEntries } from '../components/TelosItemRoleEntries';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
@@ -72,11 +74,66 @@ export function TodoDetailView() {
 
   const item = stateItem ?? fetchedItem;
 
+  const recordIds = id ? [id] : [];
+  function collectRecordIds(value: TodoItem) {
+    for (const child of value.children) {
+      recordIds.push(child.id);
+      collectRecordIds(child);
+    }
+  }
+  if (item) {
+    collectRecordIds(item);
+    if (item.parentId) recordIds.push(item.parentId);
+  }
+  const canonical = useTelosRecords(recordIds);
+  const record = canonical.records.find((value) => value.itemId === id);
+
   useEffect(() => {
-    if (fetchFailed) {
+    if (fetchFailed && !canonical.loading && !record) {
       navigate('/todos', { replace: true });
     }
-  }, [fetchFailed, navigate]);
+  }, [fetchFailed, navigate, canonical.loading, record]);
+
+  if (record)
+    return (
+      <div className="todo-detail-page">
+        <div className="todo-detail-scroll">
+          {canonical.unavailable.length > 0 && (
+            <p role="alert">
+              Some related outcome records are unavailable.{' '}
+              <button onClick={canonical.refresh}>Try again</button>
+            </p>
+          )}
+          <TelosItemWorkspace
+            key={record.itemId}
+            record={record}
+            records={canonical.records}
+            onBack={() => {
+              const state = location.state as { telosHistory?: string[] } | null;
+              const history = state?.telosHistory ?? [];
+              navigate(
+                history.length
+                  ? `/todos/${encodeURIComponent(history[history.length - 1])}`
+                  : '/todos',
+                { state: { ...location.state, telosHistory: history.slice(0, -1) } },
+              );
+            }}
+            onOpen={(itemId) =>
+              navigate(`/todos/${encodeURIComponent(itemId)}`, {
+                state: {
+                  ...location.state,
+                  item: undefined,
+                  telosHistory: [
+                    ...((location.state as { telosHistory?: string[] } | null)?.telosHistory ?? []),
+                    record.itemId,
+                  ],
+                },
+              })
+            }
+          />
+        </div>
+      </div>
+    );
 
   if (!item) {
     if (fetchFailed) return null;
@@ -196,6 +253,9 @@ export function TodoDetailView() {
       {promoteError && <div className="todo-detail-error">{promoteError}</div>}
 
       <div className="todo-detail-scroll">
+        {canonical.unavailable.includes(item.id) && (
+          <p role="alert">Outcome workspace unavailable. Showing original Telos fields.</p>
+        )}
         <div className="todo-detail-summary">{item.summary}</div>
 
         <div className="todo-detail-meta">
