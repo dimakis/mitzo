@@ -149,6 +149,7 @@ export function ComposerResponders({
               <button
                 type="button"
                 aria-pressed={intent.kind === 'all'}
+                data-responder-choice={query === 'all' ? '' : undefined}
                 onClick={() =>
                   choose(
                     selection.members.map((m) => m.id),
@@ -164,6 +165,7 @@ export function ComposerResponders({
             <label key={m.id}>
               <input
                 type="checkbox"
+                data-responder-choice=""
                 checked={selectedIds.includes(m.id)}
                 disabled={Boolean(m.unavailableReason)}
                 onChange={(e) =>
