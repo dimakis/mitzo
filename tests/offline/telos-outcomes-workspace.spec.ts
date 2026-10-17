@@ -310,16 +310,19 @@ for (const theme of ['dark', 'light'])
       expect((await page.locator('.telos-item-workspace').boundingBox())!.x).toBeGreaterThan(100);
     await expect(page.getByRole('button', { name: 'Work', exact: true })).toHaveCount(0);
     const priority = page.getByRole('combobox', { name: 'Priority', exact: true });
+    const priorityBounds = (await priority.boundingBox())!;
+    expect(priorityBounds.height).toBeGreaterThanOrEqual(44);
+    expect(priorityBounds.width).toBeGreaterThanOrEqual(44);
+    expect(priorityBounds.x + priorityBounds.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+
     for (let value = 1; value <= 10; value++) {
       await priority.selectOption(String(value));
       await expect(priority).toHaveValue(String(value));
       await expect(priority).toBeEnabled();
       await page.getByRole('button', { name: 'Back', exact: true }).click();
-      const row = page
-        .locator('.telos-tree-row')
-        .filter({
-          has: page.getByRole('button', { name: 'Plan the recording setup', exact: true }),
-        });
+      const row = page.locator('.telos-tree-row').filter({
+        has: page.getByRole('button', { name: 'Plan the recording setup', exact: true }),
+      });
       await expect(row.getByLabel(`Priority ${value} out of 10`)).toHaveText(`P${value}`);
       await row.getByRole('button', { name: 'Plan the recording setup', exact: true }).click();
       await expect(priority).toHaveValue(String(value));

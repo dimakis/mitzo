@@ -157,10 +157,14 @@
   padding-inline: var(--space-2);
 }
 .telos-item-heading {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
   padding: var(--page-gutter);
+}
+.telos-item-heading > .todo-priority-control {
+  min-width: max-content;
 }
 .telos-item-heading button {
   background: transparent;
@@ -305,6 +309,13 @@
   font-size: var(--text-sm);
 }
 @media (max-width: 767px) {
+  .telos-item-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .telos-item-heading > .todo-priority-control {
+    grid-column: 2;
+    min-width: 0;
+  }
   .telos-tree-row {
     flex-wrap: wrap;
   }

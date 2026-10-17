@@ -1503,11 +1503,18 @@ and the existing role owner performs setup. It never allocates from a tree read.
 `TelosItemWorkspace` retains the original brief beside its content on desktop and
 below it on phones. One Back chevron returns through item history or the retained
 collection. The focused desktop item stays inside `DesktopShell`; `MobileShell`
-continues to own collection branding/navigation. Parent kinds expose Work; leaves
+continues to own collection branding/navigation. Parent kinds and legacy unclassified records with actual children expose Work; leaves
 expose Overview, Chat and Materials. Existing role, source and saved-output owners
 supply those entry points. Source exchanges, retained bytes and external links
 remain distinct. The output disclosure shows exact revision/hash, recorded save
-time and source identity; unavailable author/date facts remain explicit.
+time and source identity; unavailable author/date facts remain explicit. The original Context
+section is a native, initially collapsed disclosure with populated readable labels.
+New item restores an unsent planning prompt in the full ordinary chat composer.
+Canonical record views invalidate on item events and visible resume. The published
+priority owner supplies the selector, numeric projection and ordered confirmed-save
+notifications; S7 consumes them in the header and P<n> tree badges, fences older
+reads and retains acknowledged values through failed record refresh. On phones the
+priority control occupies a separate header row rather than collapsing beside long titles.
 
 The brief's 20rem column is structural reading geometry. Search wraps before the
 actions at phone widths and uses five shared control heights as its preferred
@@ -1528,8 +1535,10 @@ recursive context search, pin persistence, navigation and reload. It makes no
 backend, credential or model calls. These captures document interim implementation,
 not a new approval or final CT13 acceptance.
 
-Open integration boundaries: accepted S5a/S5b; CT14 after the priority UI owner is
-accepted; the work API's missing authoritative attention classification (Needs you
+Open integration boundaries: accepted S5a/S5b; CT14 accepted-source persistence
+and independent acceptance after the priority producer is accepted; the shared
+artifact viewer producer handoff; the priority protection amendment for legacy
+collection assertions (the active protected file remains unchanged); the work API's missing authoritative attention classification (Needs you
 stays unavailable); collection-wide record/category projection (currently bounded
 per-record reads); coordinator setup from its existing owner; and S8's chooser,
 ordinary header and collapsible chat tree. Full frontend type checking exceeded

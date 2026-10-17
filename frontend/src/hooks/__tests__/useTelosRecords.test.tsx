@@ -153,3 +153,22 @@ it('publishes confirmed priority to mounted records, fences earlier reads and re
   expect(detail.result.current.records[0]?.priority).toBe(9);
   expect(detail.result.current.unavailable).toContain(original.itemId);
 });
+
+it('accepts later authoritative priority changes once a confirmed write is reconciled', async () => {
+  const { setTodoPriority } = await import('../../lib/todo-priority');
+  vi.spyOn(await import('../../lib/api-fetch'), 'apiFetch').mockResolvedValue(
+    new Response('{"ok":true}'),
+  );
+  let current = { ...createTelosWorkFixtures().homeStudio.items[1], priority: 5 };
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async () => current);
+  const view = renderHook(() => useTelosRecords([current.itemId]));
+  await waitFor(() => expect(view.result.current.records[0]?.priority).toBe(5));
+  current = { ...current, priority: 9 };
+  await act(async () => {
+    await setTodoPriority(current.itemId, 9);
+  });
+  await waitFor(() => expect(view.result.current.records[0]?.priority).toBe(9));
+  current = { ...current, priority: 2 };
+  act(() => updates.forEach((listener) => listener()));
+  await waitFor(() => expect(view.result.current.records[0]?.priority).toBe(2));
+});

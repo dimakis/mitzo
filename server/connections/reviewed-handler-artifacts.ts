@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTelosRecords.ts':
     '1c8588bd595b8aa7ea4971ce51629cd39144002af7b7fb51081811ffd01cb81c',
   '../../frontend/src/components/TelosWorkspace.css':
-    '66bb98303b4436a2f25863489966f3818adcea59795afac6e7ea7bc954421dff',
+    'eea986ed9ac90af12094888ba0ff59f6ba64062006003223d4901408602a6c11',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
     '5deb955ca8613a17fee3cca046dcbeae3c1ec690e5ace19c3466d52d2a30a2a5',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
@@ -1034,8 +1034,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ac071496fb4986ec4b4395384ed7777b96a01a2706ec31ef5766464362363bd4',
   '../../frontend/src/lib/list-cache.ts':
     'd84708623643d8fb7e0a2429fbb37b4340881a53192231182f066ce751d7cd04',
-  '../../frontend/src/pages/TodoView.tsx':
-    '8233594ff6a0c4c882536230dcc701a7d51499ee3f2772af45d70b2252379b61',
   '../../frontend/src/lib/todo-priority.ts':
     '7727912851c8c0a47492e77fef3b8ab1bfababda7cc241335a4746e08529cd1b',
 });
