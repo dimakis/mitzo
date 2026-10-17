@@ -64,10 +64,18 @@
     {
       "file": "native-project-doc-prefix.patch",
       "sha256": "11faea11d7fee68dac599925b6e937fa6612f1d615b829fa355bf9b37f7742ed"
+    },
+    {
+      "file": "native-resolved-tool-inputs.patch",
+      "sha256": "43ce13f19dab1dad9748440a77fb24413a292c4af168af8f54f2f547ea93c8a6"
+    },
+    {
+      "file": "native-public-tool-shapes.patch",
+      "sha256": "48f119569c27d55ec5571d5e1f06c1ebeeca4ac1fa89c065ccc3e00d1bbb7c70"
     }
   ],
-  "sourceTree": "cf8cc1682d2edf2906bc537f270bfdda77fde3db",
-  "localSourceCommit": "4f639ef745dc93cdb5e5ddfff27798fbd05f0146",
+  "sourceTree": "21b13b6fc0ebbc1461c5fa42371948f810c4b397",
+  "localSourceCommit": "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -86,7 +94,11 @@
     "75575a9926885f6804051388289169c8f0f6b711",
     "e159db0b1d937e774e2cb926de2b23445c0079c6",
     "1e70807e9b5efdae0b0ed716526be17227b69510",
-    "4f639ef745dc93cdb5e5ddfff27798fbd05f0146"
+    "4f639ef745dc93cdb5e5ddfff27798fbd05f0146",
+    "c6e9256ac3445958efa2e8b8ed7e578d3f2f39d4",
+    "4eccb2a",
+    "e673127f21b000346dfc35d4604030d7447cf6c0",
+    "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -99,21 +111,27 @@
     "scope": "Current composed source; historical foundation counts do not qualify this tree.",
     "localFocused": {
       "status": "passed",
-      "sourceCommit": "4f639ef745dc93cdb5e5ddfff27798fbd05f0146",
-      "sourceTree": "cf8cc1682d2edf2906bc537f270bfdda77fde3db",
+      "sourceCommit": "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
+      "sourceTree": "21b13b6fc0ebbc1461c5fa42371948f810c4b397",
       "packages": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
-      "kind": "selected library regressions with recording transports and temporary databases, including ordinary project-document owners",
       "automaticTestRetries": 0,
       "buildJobs": 1,
       "testThreads": 1,
-      "taskPackageArtifactsCleanedBeforeBuild": true,
-      "guardedHttpWebsocketSuites": "CI only; do not count sandbox early returns as executed fixtures",
-      "runId": "462c94f1-edab-46c0-bf6b-2b51c7266ee8",
-      "passed": 123,
-      "failed": 0,
-      "filteredOut": 3137,
       "localPlatform": "macOS",
-      "scopedFormat": "passed"
+      "guardedHttpWebsocketSuites": "CI only; do not count sandbox early returns as executed fixtures",
+      "kind": "selected library regressions using recording transports and temporary databases; includes role/tool planning, ordinary formatter and project document owners",
+      "runId": "496247cf-8668-4dbd-844b-78903b7de254",
+      "passed": 215,
+      "failed": 0,
+      "filteredOut": 3059,
+      "defaultStack": true,
+      "scopedFormat": "passed; retained existing stable-rustfmt imports_granularity warnings",
+      "taskPackageArtifactsCleanedBeforeBuild": false,
+      "exactSourceBuildObserved": true,
+      "sourcePath": "native-integration/codex-rs",
+      "warnings": [
+        "Existing codex-core ToolCallSource unused-import warning retained; no production fix applied to unrelated upstream owner."
+      ]
     },
     "ci": {
       "status": "external_PR_gate",
@@ -191,6 +209,30 @@
       "branchFilteredOut": 2643,
       "branchRunId": "4fe56601-ec17-488f-857b-edaccd20f7ee",
       "behaviorChange": "Unread tail errors/full-file size refusal no longer apply after observed overflow; configured raw prefix/ordinary rendering retained."
+    },
+    "resolvedToolInputs": {
+      "sourceCommit": "c6e9256ac3445958efa2e8b8ed7e578d3f2f39d4",
+      "integratedCommit": "4eccb2afdf65de6bfc166e136f8c4bc21ad6d592",
+      "scope": "Role descriptive loading/render separation and retained per-executor image eligibility at exact original ordinary call sites; no pure whole-plan/inventory authority.",
+      "branchFocusedPassed": 86,
+      "branchFilteredOut": 2613,
+      "branchRunId": "25c90445-fb1c-45c7-9134-de3a2eeb15c2",
+      "fixtureStackEvidence": "Original combined runtime gate fixture overflows baseline and candidate at default stack. Four contiguous tests retain every original body byte and all13 assertions; default stack passes."
+    },
+    "publicToolShapes": {
+      "sourceCommit": "e673127f21b000346dfc35d4604030d7447cf6c0",
+      "integratedCommit": "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
+      "scope": "Conditional public function/custom/namespace JSON shape validation, exact values/order retained; actual ordinary populated metadata still refuses.",
+      "red": {
+        "failed": 4,
+        "passed": 2,
+        "runId": "74e08aee-042f-48f1-b4fe-27bb90bc68ba"
+      },
+      "branchFocusedPassed": 40,
+      "branchFilteredOut": 2870,
+      "branchRunId": "60a03ee7-8549-4fc7-927a-ec2ccb8b9ce4",
+      "selectedModelAuthority": false,
+      "completeToolInventoryAuthority": false
     }
   },
   "historicalFoundation": {
@@ -277,5 +319,29 @@
     "passed": 44,
     "failed": 0,
     "scope": "Private versioned observations and renewal through existing enrolled credential owner; not native admission authority."
-  }
+  },
+  "priorCompositions": [
+    {
+      "sourceCommit": "4f639ef745dc93cdb5e5ddfff27798fbd05f0146",
+      "sourceTree": "cf8cc1682d2edf2906bc537f270bfdda77fde3db",
+      "localFocused": {
+        "status": "passed",
+        "sourceCommit": "4f639ef745dc93cdb5e5ddfff27798fbd05f0146",
+        "sourceTree": "cf8cc1682d2edf2906bc537f270bfdda77fde3db",
+        "packages": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
+        "kind": "selected library regressions with recording transports and temporary databases, including ordinary project-document owners",
+        "automaticTestRetries": 0,
+        "buildJobs": 1,
+        "testThreads": 1,
+        "taskPackageArtifactsCleanedBeforeBuild": true,
+        "guardedHttpWebsocketSuites": "CI only; do not count sandbox early returns as executed fixtures",
+        "runId": "462c94f1-edab-46c0-bf6b-2b51c7266ee8",
+        "passed": 123,
+        "failed": 0,
+        "filteredOut": 3137,
+        "localPlatform": "macOS",
+        "scopedFormat": "passed"
+      }
+    }
+  ]
 }
