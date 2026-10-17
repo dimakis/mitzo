@@ -53,6 +53,7 @@ import {
   type SymposiumPersonalConnectionService,
 } from './symposium-personal-connection-router.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
+import { canonicalRepositorySelection } from './github-repository-source.js';
 import {
   getRepositoryWorkspaces,
   repositoryWorkspaceBinding,
@@ -3187,8 +3188,38 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.status(503).json({ error: 'Work conversation context unavailable' });
     return;
   }
+  let repositoryContext: { workspaceId: string; repository: string } | undefined;
+  if (
+    meta.sessionId === req.params.id &&
+    typeof meta.repositoryWorkspaceId === 'string' &&
+    /^\S{1,200}$/.test(meta.repositoryWorkspaceId) &&
+    meta.accountBinding
+  ) {
+    try {
+      const current = eventStore.getSession(meta.sessionId);
+      const workspace = getRepositoryWorkspaces(true).get(meta.repositoryWorkspaceId);
+      if (
+        current?.repositoryWorkspaceId === meta.repositoryWorkspaceId &&
+        isDeepStrictEqual(current.accountBinding, meta.accountBinding) &&
+        workspace.id === meta.repositoryWorkspaceId &&
+        workspace.state === 'claimed' &&
+        workspace.conversationId === meta.sessionId &&
+        isDeepStrictEqual(workspace.binding, meta.accountBinding) &&
+        typeof workspace.repository === 'string' &&
+        workspace.repository.length <= 201 &&
+        canonicalRepositorySelection(workspace.repository) === workspace.repository
+      )
+        repositoryContext = {
+          workspaceId: workspace.id,
+          repository: workspace.repository,
+        };
+    } catch {
+      // Repository presentation is optional; preserve ordinary metadata on read failure.
+    }
+  }
   res.json({
     sessionId: meta.sessionId,
+    ...(repositoryContext ? { repositoryContext } : {}),
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
     ...runtimeMetadata,
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),

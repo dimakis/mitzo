@@ -171,6 +171,29 @@ export function DesktopChatView() {
     newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
+  const conversationRepository =
+    sessionId && sessionId !== activeSessionId
+      ? undefined
+      : (localRuntime.repositoryContext?.repository ??
+        (localRuntime.repositoryWorkspaceId
+          ? 'Unavailable'
+          : !localRuntime.metadataPending && (!sessionId || sessionId === activeSessionId)
+            ? [
+                ...new Set(
+                  messages.activeWorktrees
+                    .map(({ repoName }) => repoName)
+                    .filter(
+                      (name) =>
+                        typeof name === 'string' &&
+                        name.length <= 200 &&
+                        /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)?$/.test(
+                          name,
+                        ) &&
+                        !name.includes('..'),
+                    ),
+                ),
+              ].join(', ') || undefined
+            : undefined));
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew;
@@ -1093,6 +1116,7 @@ export function DesktopChatView() {
           {activeSessionId && !isSymposium && !controlsBlocked && (
             <ConversationAgents
               compact
+              repository={conversationRepository}
               scope={activeSessionId}
               agents={[
                 {
@@ -1356,6 +1380,7 @@ export function DesktopChatView() {
               navigate(path);
             }}
             conversationLayout={{
+              repository: conversationRepository,
               settings: workspaceControls,
               showHeader: isSymposium,
               actions: (
