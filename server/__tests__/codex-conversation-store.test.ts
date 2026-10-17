@@ -1112,7 +1112,7 @@ it('keeps migration source and candidate provenance separate and rejects mismatc
     binding.profileRevision,
   ]);
   db.prepare(
-    'INSERT INTO codex_runtime_migrations(conversation_id,binding,data) VALUES (?,?,?)',
+    'INSERT INTO codex_runtime_migrations(conversation_id,binding,generation,data) VALUES (?,?,1,?)',
   ).run(
     'migrated',
     tuple,

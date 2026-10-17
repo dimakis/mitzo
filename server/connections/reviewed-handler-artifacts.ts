@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.281-symposium-capacity.1-telos-s4.1-sandbox-review.2';
+  'v1.0.281-symposium-capacity.1-telos-s4.1-sandbox-review.3';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -177,7 +177,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-warm-pool-binding.ts':
     '498030ec01afaa475f3e869974ec1eba1465eb537e14c06221e2c217a1e11583',
   '../openshell-warm-pool-router.ts':
-    'dada4c6844dbfb35650df9e2c0206c0e913049d0dfe9c3c766d6450887cfe0d4',
+    '6915cd60cab521e2c8a22eeb773c348c277b30f4ad4cb337ec3615e24f3070c8',
   '../openshell-warm-pool-host.ts':
     '9760df035a16060ed3720ed621ca2d933643dcd3914936f4e54e52a3daf49578',
   '../openshell-lifecycle-service.ts':
