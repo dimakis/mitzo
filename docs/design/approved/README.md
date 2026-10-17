@@ -22,6 +22,9 @@ assertion, replace a reference or regenerate an approval to accommodate drift.
 Show the proposed design to the user and obtain explicit approval before changing
 the active revision. Append a new revision with the approval evidence, reason,
 references and checks; retain the earlier revision and its original reference.
+An explicit user instruction prescribing the particular visual change can supply
+that approval; record it without asking the user to approve the same change again.
+A feature request that says nothing about layout does not authorize a redesign.
 An agent's opinion, a rebase, a passing test or a screenshot capture is not approval.
 The first Chat settings approval is quoted from its originating conversation.
 Implementation captures are evidence of what shipped, not a substitute for the
@@ -30,14 +33,21 @@ approved mock or a new approval.
 ## Enforcement and limits
 
 `npm run test:design` checks that each active entry has approval evidence, intact
-reference hashes and existing source/test paths. The mandatory offline settings
+reference hashes, protected contract-test hashes and existing active source/test paths. The mandatory offline settings
 browser tests enforce row order, neutral surfaces, provider/runtime marks, touch
 geometry, responsive bounds, retained drafts, focus and the real editors. CI runs
 these with the combined feature branch and retains screenshots for review.
 
 These are semantic and rendered layout checks, not a claim of pixel equivalence.
-Screenshot evidence alone is not an automatic visual-diff gate. Font rendering,
+Critical contract tests are fingerprinted too: a stale rebase cannot silently replace
+them with assertions for an older layout. Screenshot evidence alone is not an automatic visual-diff gate. Font rendering,
 shared CSS changes and untested details still need visual review against the pinned
 reference. Never claim that rebases cannot change the UI: approval rules, CI and
 review must all remain in place. Changes to the ledger, references or protections
 require the same explicit design approval as changes to the protected interface.
+
+Main's protection was checked on 17 October 2026: it requires up-to-date `ci`,
+`Connections browser regression` (the aggregate of the selected browser and offline
+layout suites), native checks and `Centaur final LGTM`, with administrator enforcement.
+The ledger checks run inside `ci`; the rendered design contracts run through the
+required browser aggregate. This work does not change repository protection settings.

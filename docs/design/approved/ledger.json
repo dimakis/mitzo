@@ -7,7 +7,7 @@
       "revisions": [
         {
           "id": "quick-sheet-2026-10-17",
-          "approvedBy": "Dimitri Saridakis",
+          "approvedBy": "User (originating Codex conversation)",
           "approvedOn": "2026-10-17",
           "approval": {
             "thread": "01a14967-a90d-7691-8b06-3e00950ef9ca",
@@ -18,6 +18,10 @@
             {
               "path": "docs/design/approved/chat-settings/quick-sheet.html",
               "sha256": "281eaad8d89684cd7c16583cb9ca2c082cdfb64ab1cd3acb7647abc289c2736e"
+            },
+            {
+              "path": "docs/design/approved/chat-settings/approved-mock-dark.png",
+              "sha256": "c93d33e6512dd8894a8e27aca542b5a88579f37534a6b8c5eca225ec7e6a4847"
             }
           ],
           "mainRows": [
@@ -63,7 +67,35 @@
             "tests/offline/multi-runtime-picker.spec.ts",
             "tests/offline/local-first-command.spec.ts"
           ],
-          "implementationEvidence": []
+          "implementationEvidence": [
+            {
+              "path": "docs/design/approved/chat-settings/implemented-mobile-webkit-dark.png",
+              "kind": "offline implementation capture",
+              "appearance": "dark",
+              "browser": "mobile-webkit"
+            },
+            {
+              "path": "docs/design/approved/chat-settings/implemented-desktop-chromium-light.png",
+              "kind": "offline implementation capture",
+              "appearance": "light",
+              "browser": "desktop-chromium"
+            }
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/QuickChatSettings.test.tsx",
+              "sha256": "beb34896b1fb88690215c0a04a766993f53e2b6b2e9db4157b9644a205d63462"
+            },
+            {
+              "path": "tests/offline/chat-settings-surface.spec.ts",
+              "sha256": "723801bf293794ea06ca3cff7a5fe9287bfc69e75982102464d269c4c0396d08"
+            },
+            {
+              "path": "frontend/src/styles/__tests__/approved-designs.test.ts",
+              "sha256": "ee25f7e4111e60dd4cfb4d0da5d9d30a4d6dbd745eae6c0cfeabaa85f9b7b941"
+            }
+          ],
+          "validation": "docs/design/approved/chat-settings/VALIDATION.md"
         }
       ]
     }

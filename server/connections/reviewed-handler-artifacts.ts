@@ -23,9 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/QuickChatSettings.tsx':
-    'cf2bf40d06871ae7f97f39ddd4ae21d801ea28c04a8463f06bdba51087982623',
+    'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':
-    '862c103a6eb52edd21af126002d7be1be11a3ab46d1b5682cf29b7153dbde278',
+    '13b1e9a1c93aea5419585371524900e02c64ccab549409630be7628977acc8e7',
   '../../frontend/src/components/SettingsBrandMark.tsx':
     '74b448995334f1d9b76bc0348839e83ae860b7fd249c389eee6f2ff77c42e9c6',
   '../../frontend/src/components/SettingsBrandMark.css':
@@ -859,7 +859,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-repository-preparation-authority.ts':
     '4eac6fb91dc7be34a934c52e6fccc537efb1fdd44ea10439e2f0d3920dbbc593',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
-    'ee2a53387410d63d3f5f48b8730a97a2df6d32d1d693e06b1e408cad9852d403',
+    '9cda6bc42392508104fdf72971a8d9351a6f710130128c6b6e6146fe2033b172',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
     '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
   '../../frontend/src/lib/repository-chat-preparation.ts':

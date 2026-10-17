@@ -30,12 +30,20 @@ it('retains approved design references, human evidence and runnable regression c
           `${surface.id}: approved reference changed; retain it and seek approval for a new revision`,
         ).toBe(reference.sha256);
       }
-      for (const path of [...revision.sources, ...revision.checks])
-        expect(
-          existsSync(resolve(root, path)),
-          `${surface.id}: missing protected source/check ${path}`,
-        ).toBe(true);
     }
+    for (const path of [...active.sources, ...active.checks])
+      expect(
+        existsSync(resolve(root, path)),
+        `${surface.id}: missing protected source/check ${path}`,
+      ).toBe(true);
+    expect(active.protectedChecks.length).toBeGreaterThan(0);
+    for (const check of active.protectedChecks)
+      expect(
+        createHash('sha256')
+          .update(readFileSync(resolve(root, check.path)))
+          .digest('hex'),
+        `${surface.id}: approved design protection changed; retain the approval history and obtain approval for a new revision`,
+      ).toBe(check.sha256);
   }
 });
 

@@ -443,6 +443,7 @@ export function RepositoryChatPicker({
       page="repository"
       title="Repository"
       value={workspace?.repository ?? (unresolvedSaved ? 'Check preparation' : 'Add repository')}
+      add={!workspace && !unresolvedSaved}
       onOpen={() => {
         if (!opened) {
           setOpened(true);

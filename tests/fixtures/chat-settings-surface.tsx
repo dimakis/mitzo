@@ -127,7 +127,7 @@ function Surface() {
               </QuickSettingsField>
             }
             repository={
-              <QuickSettingsField page="repository" title="Repository" value="Add repository">
+              <QuickSettingsField page="repository" title="Repository" value="Add repository" add>
                 <button>Add repository</button>
               </QuickSettingsField>
             }

@@ -585,10 +585,10 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(local).toHaveAttribute('aria-pressed', 'true');
     await expect(local).toBeDisabled();
     await expect(openshell).toBeDisabled();
-    await expect(model).toBeEnabled();
+    await expect(model).not.toHaveAttribute('data-readonly', 'true');
     await chooseSetting(page, 'Model', 'supported-next');
     await expect(model).toHaveAttribute('data-value', 'supported-next');
-    await expect(model).toBeEnabled();
+    await expect(model).not.toHaveAttribute('data-readonly', 'true');
     await expect(thinking).toHaveAttribute('data-value', 'high');
     await expect(composer).toHaveValue('Keep this prepared development draft');
     await openChatSetting(page, 'repository');
@@ -855,6 +855,7 @@ for (const appearance of ['light', 'dark'] as const) {
     await chooseSetting(page, 'Model', 'claude-model');
     await expect(thinking).toHaveAttribute('data-value', 'low');
     await chooseSetting(page, 'Thinking level', 'high');
+    await openChatSetting(page, 'execution');
     await openshell.click();
     await expect(account).toHaveAttribute('data-value', 'vertex');
     await expect(openshell).toHaveAttribute('aria-pressed', 'true');
@@ -979,6 +980,7 @@ for (const appearance of ['light', 'dark'] as const) {
       environment: 'local',
       draft: 'Keep this development draft across environments',
     });
+    await openChatSetting(page, 'execution');
     await openshell.click();
     await expect(account).toHaveAttribute('data-value', 'google');
     await expect(model).toHaveAttribute('data-value', 'gemini-fixture');

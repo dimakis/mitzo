@@ -2847,8 +2847,8 @@ test('saved chat identity failures lock model controls until an explicit success
           page.getByRole('button', { name: 'Change account or model', exact: true }),
         ).toBeVisible();
       } else {
-        await expect(model).toBeEnabled();
-        await expect(thinking).toBeEnabled();
+        await expect(model).not.toHaveAttribute('data-readonly', 'true');
+        await expect(thinking).not.toHaveAttribute('data-readonly', 'true');
         await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveCount(0);
       }
     }
@@ -2904,6 +2904,7 @@ test('chat builder selection distinguishes built-in guidance from a saved profil
     'Help me create an agent.',
   );
   await openAgentSettings(page);
+  await openChatSetting(page, 'agent');
   const picker = page.locator('select[aria-label="Agent"]');
   await expect(picker).toHaveValue(JSON.stringify(['builtin', 'mitzo-profile-builder', 1]));
   await expect(picker.getByRole('option', { name: /My saved builder/ })).toHaveCount(1);
@@ -2911,6 +2912,7 @@ test('chat builder selection distinguishes built-in guidance from a saved profil
   await expect(page).toHaveURL(/profileRevision=2/);
   expect(new URL(page.url()).searchParams.has('agentProfileKind')).toBe(false);
   await expect(picker).toHaveValue(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));
+  await openChatSetting(page, 'agent');
   await picker.selectOption('');
   expect(new URL(page.url()).searchParams.has('agentProfile')).toBe(false);
 });

@@ -3,10 +3,12 @@
 [data-settings-slot] {
   display: contents;
 }
-.workspace-controls-content--quick {
+.workspace-controls .workspace-controls-content--quick {
   display: flex;
   flex-direction: column;
   position: relative;
+  /* Short viewports must be able to reveal a whole control above the footer. */
+  scroll-padding-block: 0;
 }
 .workspace-controls-content--quick
   :is(
@@ -22,6 +24,7 @@
   display: contents;
 }
 .workspace-controls--quick .quick-settings-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -30,13 +33,20 @@
   min-height: var(--control-height);
   padding: var(--space-3) var(--page-gutter);
   border: 0;
-  border-bottom: 1px solid var(--color-border);
   border-radius: 0;
   background: transparent;
   color: var(--color-text);
   font: inherit;
   font-size: var(--text-sm);
   text-align: left;
+}
+.workspace-controls--quick .quick-settings-row::after {
+  content: '';
+  position: absolute;
+  inset-inline: var(--page-gutter);
+  bottom: 0;
+  border-bottom: 1px solid var(--color-border);
+  pointer-events: none;
 }
 .workspace-controls--quick .quick-settings-row:hover {
   background: var(--color-panel);
@@ -60,6 +70,10 @@
 .quick-settings-value > .ui-icon:last-child {
   color: var(--color-muted);
 }
+.quick-settings-row--add .quick-settings-value,
+.quick-settings-row--add .quick-settings-value > .ui-icon:last-child {
+  color: var(--color-accent);
+}
 .workspace-controls--quick .quick-settings-row[data-quick-setting='agent'] {
   margin-top: var(--space-3);
   border-top: 1px solid var(--color-border);
@@ -68,8 +82,8 @@
   margin-top: var(--space-3);
   border-top: 1px solid var(--color-border);
 }
-.workspace-controls--quick .quick-settings-row[data-quick-setting='defaults'] {
-  border-bottom: 0;
+.workspace-controls--quick .quick-settings-row[data-quick-setting='defaults']::after {
+  display: none;
 }
 .quick-settings-editor {
   flex: none;

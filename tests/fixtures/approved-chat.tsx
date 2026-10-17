@@ -148,7 +148,7 @@ function Surface() {
             }
             agent={field('Agent', ['Default Mitzo', 'Researcher'])}
             repository={
-              <QuickSettingsField page="repository" title="Repository" value="Add repository">
+              <QuickSettingsField page="repository" title="Repository" value="Add repository" add>
                 <details className="chat-settings-advanced">
                   <summary>
                     <span>Repository</span>

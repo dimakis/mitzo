@@ -21,6 +21,7 @@ export function QuickSettingsField({
   onOpen,
   selected,
   readOnly,
+  add = false,
 }: {
   page: SettingsPage;
   title: string;
@@ -31,6 +32,7 @@ export function QuickSettingsField({
   onOpen?: () => void;
   selected?: string;
   readOnly?: boolean;
+  add?: boolean;
 }) {
   const navigation = useQuickSettings();
   const id = useId();
@@ -42,7 +44,7 @@ export function QuickSettingsField({
   const row = (
     <button
       type="button"
-      className="quick-settings-row"
+      className={`quick-settings-row${add ? ' quick-settings-row--add' : ''}`}
       hidden={!visible}
       data-quick-setting={page}
       data-value={selected}
@@ -59,7 +61,7 @@ export function QuickSettingsField({
       <span className="quick-settings-value">
         {mark}
         <span>{value}</span>
-        <UiIcon name="forward" size={16} />
+        <UiIcon name={add ? 'plus' : 'forward'} size={16} />
       </span>
     </button>
   );
