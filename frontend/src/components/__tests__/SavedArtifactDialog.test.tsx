@@ -154,3 +154,20 @@ it('refreshes the newest history page on reopen without changing the selected ol
   });
   expect((screen.getByRole('combobox', { name: 'Version' }) as HTMLSelectElement).value).toBe('1');
 });
+
+it('refuses a changed hash for the selected saved revision before preview hydration', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('/versions')
+      ? response({
+          artifacts: [{ ...version(1), sha256: '0'.repeat(64) }],
+          cursor: null,
+          hasMore: false,
+        })
+      : response(doc(1)),
+  );
+  render(<SavedArtifactDialog artifact={version(1)} onClose={vi.fn()} />);
+  await screen.findByRole('alert');
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/document'))).toBe(
+    false,
+  );
+});

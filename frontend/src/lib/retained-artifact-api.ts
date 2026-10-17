@@ -44,7 +44,8 @@ async function readJson(url: string, signal: AbortSignal) {
   return response.json() as Promise<unknown>;
 }
 export async function readSavedArtifactVersions(
-  artifact: Pick<SavedArtifactVersion, 'id' | 'itemId'>,
+  artifact: Pick<SavedArtifactVersion, 'id' | 'itemId'> &
+    Partial<Pick<SavedArtifactVersion, 'revision' | 'sha256'>>,
   signal: AbortSignal,
   beforeRevision?: number,
 ): Promise<SavedArtifactVersionPage> {
@@ -68,6 +69,12 @@ export async function readSavedArtifactVersions(
     throw Error('Saved version history changed. Retry the history.');
   let previous = beforeRevision ?? Number.MAX_SAFE_INTEGER;
   for (const row of page.artifacts) {
+    if (
+      artifact.revision === row.revision &&
+      artifact.sha256 !== undefined &&
+      artifact.sha256 !== row.sha256
+    )
+      throw Error('The selected saved version changed.');
     if (
       row.id !== artifact.id ||
       row.itemId !== artifact.itemId ||

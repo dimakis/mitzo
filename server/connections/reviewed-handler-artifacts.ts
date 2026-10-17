@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/retained-artifact.ts':
     '6ef0a64da9c950556519d8625b0aea2fe8d9c94f9b84a68de9e9acfe9f75bb00',
   '../../frontend/src/lib/retained-artifact-api.ts':
-    'e78ef176187fd4a72882cdea44a90354061a2a995a4e18ed4f47c89187c9c576',
+    '4db9e055e7b8162399233c010387066a189ce94cb8e8396ef11134f6a2ec6e9c',
   '../../frontend/src/components/SavedArtifactDialog.css':
     'e94dd20e76087411be637c21a978353e75e274cbd09addf71d224314b9e24097',
   '../../frontend/src/components/SavedArtifactDialog.tsx':
