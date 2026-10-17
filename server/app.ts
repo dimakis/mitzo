@@ -113,7 +113,6 @@ import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
 import { TelosWorkAdvisorDraft } from './telos-work-advisor-draft.js';
 import { TelosArtifactStore } from './telos-artifact-store.js';
 import { resolveChatAgentProfile } from './agent-library-binding.js';
-import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import { OrdinarySilentPreparationSelectionSchema } from './ordinary-repository-preparation.js';
 import { assertOrdinarySilentPreparationAuthority } from './ordinary-repository-preparation-authority.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
@@ -3146,11 +3145,17 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       // Keep metadata available when the optional account catalog is temporarily unreadable.
     }
   }
-  const telosWorkRoleContext = resolveTelosWorkRoleContext(
-    eventStore,
-    meta.sessionId,
-    meta.accountBinding ?? undefined,
-  );
+  let telosWorkRoleContext: ReturnType<typeof resolveTelosWorkRoleContext>;
+  try {
+    telosWorkRoleContext = resolveTelosWorkRoleContext(
+      eventStore,
+      meta.sessionId,
+      meta.accountBinding ?? undefined,
+    );
+  } catch {
+    res.status(503).json({ error: 'Work conversation context unavailable' });
+    return;
+  }
   res.json({
     sessionId: meta.sessionId,
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
