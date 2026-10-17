@@ -18,9 +18,17 @@ type Step = {
 const workflow = load(
   readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'),
 ) as {
-  jobs: { browser: { steps: Step[]; permissions: Record<string, string> } };
+  jobs: Record<
+    string,
+    {
+      steps: Step[];
+      permissions: Record<string, string>;
+      needs: string | string[];
+      if?: string;
+      strategy?: { matrix: { project: string[] }; 'fail-fast': boolean };
+    }
+  >;
 };
-const steps = workflow.jobs.browser.steps;
 
 describe('browser failure evidence', () => {
   it('isolates suite output and HTML reports so a later run cannot erase earlier failure evidence', () => {
@@ -42,10 +50,11 @@ describe('browser failure evidence', () => {
 
   it.each([
     ['browser', 'browser-tests', 'npm run test:browser'],
-    ['offline', 'offline-tests', 'npm run test:ui'],
+    ['offline', 'offline-tests', 'npm run test:ui -- --project=${{ matrix.project }}'],
   ])(
     'uploads %s failure evidence immediately after its suite and keeps rerun attempts separate',
     (suite, id, command) => {
+      const steps = workflow.jobs[suite].steps;
       const index = steps.findIndex((step) => step.run === command);
       expect(index).toBeGreaterThan(-1);
       expect(steps[index].id).toBe(id);
@@ -57,7 +66,7 @@ describe('browser failure evidence', () => {
         `playwright-report/${suite}/`,
       ]);
       expect(upload.with?.name).toBe(
-        `playwright-${suite}-failure-\${{ github.run_id }}-\${{ github.run_attempt }}`,
+        `playwright-${suite}-failure-${suite === 'offline' ? '${{ matrix.project }}-' : ''}\${{ github.run_id }}-\${{ github.run_attempt }}`,
       );
       expect(upload.with?.['retention-days']).toBe(7);
       expect(upload.with?.['if-no-files-found']).toBe('warn');
@@ -66,8 +75,24 @@ describe('browser failure evidence', () => {
     },
   );
 
-  it('preserves offline execution after a browser failure and read-only repository permissions', () => {
-    expect(steps.find((step) => step.run === 'npm run test:ui')?.if).toBe('always()');
-    expect(workflow.jobs.browser.permissions).toEqual({ contents: 'read' });
+  it('runs suites independently and keeps every configured layout project', () => {
+    expect(workflow.jobs.browser.needs).toBe('changes');
+    expect(workflow.jobs.offline.needs).toBe('changes');
+    expect(workflow.jobs.offline.if).toBe(workflow.jobs.browser.if);
+    expect(workflow.jobs.offline.strategy?.['fail-fast']).toBe(false);
+    const projects = offline.projects!.filter((p) => !p.name!.startsWith('browser-startup-'));
+    expect(workflow.jobs.offline.strategy?.matrix.project).toEqual(projects.map((p) => p.name));
+    for (const job of ['browser', 'offline', 'browser-validation']) {
+      expect(workflow.jobs[job].permissions).toEqual({ contents: 'read' });
+    }
+    const gate = workflow.jobs['browser-validation'];
+    expect(gate.needs).toEqual(['changes', 'browser', 'offline']);
+    expect(gate.if).toBe('always()');
+    expect(gate.steps.some((step) => step.run === 'node scripts/ci-browser-gate.mjs')).toBe(true);
+    for (const step of workflow.jobs.offline.steps.filter((step) =>
+      step.uses?.startsWith('actions/upload-artifact@'),
+    )) {
+      expect(step.with?.name).toContain('${{ matrix.project }}');
+    }
   });
 });
