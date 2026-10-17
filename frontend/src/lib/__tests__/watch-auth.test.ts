@@ -75,3 +75,22 @@ it('serializes watch mutations so a later clear wins over an in-flight save', as
   await Promise.all([save, clear]);
   expect(mocks.clearToken).toHaveBeenCalledOnce();
 });
+
+it('skips an obsolete login update when it reaches the native mutation queue', async () => {
+  mocks.platform = 'ios';
+  let finishClear!: () => void;
+  mocks.clearToken.mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      finishClear = resolve;
+    }),
+  );
+  const watch = await import('../watch-auth');
+  const clear = watch.clearWatchToken();
+  await vi.waitFor(() => expect(mocks.clearToken).toHaveBeenCalled());
+  let current = true;
+  const save = watch.saveTokenToWatch('obsolete', () => current);
+  current = false;
+  finishClear();
+  await Promise.all([clear, save]);
+  expect(mocks.saveToken).not.toHaveBeenCalled();
+});

@@ -5,6 +5,54 @@ Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another par
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
+## Application integration boundary
+
+The 16 October source prerequisites landed in PRs #984 (frozen joining review),
+#982 (ordinary visible source/compiler adapter), and #983 (ordinary reply
+attribution/private projection), reconciled at accepted main
+`09f1090fd5be8b1167188a178dca2186eb445795`. Historical checkpoints below do not
+supersede those merged sources or establish complete application joining.
+
+The ordinary Codex host packet constructors are shared with actual thread and
+turn dispatch. This covers resolved guidance, dynamic tools, context fragments,
+replay text, images and RPC policy fields. It does not measure the complete
+native-expanded provider prompt. The pinned native runtime has no authoritative
+nonmutating exact-capacity port; native instructions, discovered project
+documents, tools and provider framing still need an exact measurement contract
+bound to the actual dispatched input. Model ceilings, byte estimates, host-frame
+hashes and post-response usage cannot establish this proof.
+
+`OrdinaryCollaborationReview` composes the existing source/compiler with durable
+EventStore review requests. It persists the exact operator, source pins, brief and
+ordinary settings before asynchronous reads. Exact completed retries recover the
+original immutable snapshot before recompilation, including after restart.
+Recovery does not reauthorize confirmation or delivery. Missing exact capacity
+remains unverified and cannot confirm a join.
+
+`RepositoryWorkspaces.prepareOrdinarySession` reserves the actual ordinary
+workspace and persists a distinct application session under a stable allocation
+operation. The receipt contains no fabricated initial command or provider thread.
+The first explicitly requested command uses a separate prepared-session admission
+transition in the existing Local/OpenShell Codex owners. Ordinary new-session and
+continuation guards retain their original behavior. Recipe-bearing profiles and
+queue-creating API/SDK preparation remain unavailable for this silent path.
+
+`OrdinaryCollaborationDelivery` claims exact retained discussion receipts only for
+an explicitly admitted ordinary command. Pending reader context stays pending
+until that command; reading alone does not invoke a send method. The existing
+native preparation and final dispatch barriers recheck source/access authority.
+Only the exact acknowledged combined context creates a durable acceptance record,
+from which individual delivery outcomes can recover after restart. Existing
+knowledge/recipe observers retain their original base-context identity. Reply
+attribution remains with `OrdinaryCollaborationReplies` and the original private
+native command/turn mapping.
+
+Public execution and a production `ConversationJoiningOwner` remain unavailable.
+No configured account/runtime combination is qualified by these host contracts.
+The complete application flow, independent integrated design audit and actual
+web/native-iOS inspection remain acceptance work. Staging remains stood down;
+live target qualification and production activation require separate authorization.
+
 ## Product direction
 
 The user approved the revised fresh-agent flow on 16 October. Start ordinary chat,

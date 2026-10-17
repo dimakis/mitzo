@@ -126,9 +126,20 @@ export function buildSessionPermissionHooks(
                 });
               }
               if (!validInput(toolInput)) return deny('Invalid final tool input');
+              const telosSourceReview = [
+                'TelosCreateOutcome',
+                'TelosAdoptSource',
+                'mcp__telos__TelosCreateOutcome',
+                'mcp__telos__TelosAdoptSource',
+              ].includes(input.tool_name);
+              const invocationId = toolUseId || input.tool_use_id;
+              if (telosSourceReview && (!invocationId || !invocationId.trim()))
+                return deny(
+                  'Verified SDK tool invocation identity is required for reviewed Telos capture.',
+                );
               const result = await decide(input.tool_name, toolInput, {
                 signal: options.signal,
-                toolUseID: toolUseId ?? input.tool_name,
+                toolUseID: invocationId || input.tool_name,
                 ...(forcePrompt ? { forcePrompt: true } : {}),
               });
               return output({

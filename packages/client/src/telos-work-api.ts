@@ -1,4 +1,11 @@
 import {
+  TelosSourcePermissionReviewSchema,
+  TelosSourcePermissionPreviewRequestSchema,
+  TelosSourcePermissionPreviewSchema,
+  TelosSourcePermissionApproveRequestSchema,
+  TelosSourcePermissionReceiptSchema,
+  type TelosSourcePermissionPreviewRequest,
+  type TelosSourcePermissionApproveRequest,
   TelosWorkCommandSchema,
   TelosWorkViewSchema,
   TelosWorkCommandReceiptSchema,
@@ -6,6 +13,16 @@ import {
   TelosConversationWorkLinksSchema,
   TelosWorkIdSchema,
   TelosWorkItemSchema,
+  TelosSourcePreviewRequestSchema,
+  TelosSourcePreviewSchema,
+  TelosSourceAdoptRequestSchema,
+  TelosReviewedSourceViewSchema,
+  type TelosSourcePreviewRequest,
+  type TelosSourceAdoptRequest,
+  TelosSourceNewPreviewRequestSchema,
+  TelosSourceCreateRequestSchema,
+  type TelosSourceNewPreviewRequest,
+  type TelosSourceCreateRequest,
   type TelosWorkCommand,
   type TelosWorkSessionLink,
 } from '@mitzo/protocol';
@@ -25,6 +42,39 @@ export class TelosWorkApiError extends Error {
  */
 export class TelosWorkApiClient {
   constructor(private readonly fetch: ApiFetch) {}
+  getSourcePermission(permId: string, sessionId: string, signal?: AbortSignal, afterSequence = 0) {
+    return this.request(
+      'source/permissions/' +
+        encodeURIComponent(TelosWorkIdSchema.parse(permId)) +
+        '?' +
+        new URLSearchParams({
+          sessionId: TelosWorkIdSchema.parse(sessionId),
+          afterSequence: String(afterSequence),
+        }),
+      TelosSourcePermissionReviewSchema,
+      undefined,
+      signal,
+    );
+  }
+  previewSourcePermission(
+    permId: string,
+    input: TelosSourcePermissionPreviewRequest,
+    signal?: AbortSignal,
+  ) {
+    return this.request(
+      'source/permissions/' + encodeURIComponent(TelosWorkIdSchema.parse(permId)) + '/preview',
+      TelosSourcePermissionPreviewSchema,
+      TelosSourcePermissionPreviewRequestSchema.parse(input),
+      signal,
+    );
+  }
+  approveSourcePermission(permId: string, input: TelosSourcePermissionApproveRequest) {
+    return this.request(
+      'source/permissions/' + encodeURIComponent(TelosWorkIdSchema.parse(permId)) + '/approve',
+      TelosSourcePermissionReceiptSchema,
+      TelosSourcePermissionApproveRequestSchema.parse(input),
+    );
+  }
   private async request<T>(
     path: string,
     schema: { parse(value: unknown): T },
@@ -63,6 +113,48 @@ export class TelosWorkApiClient {
     return this.request(
       'items/' + encodeURIComponent(id) + '/record',
       TelosWorkItemSchema,
+      undefined,
+      signal,
+    );
+  }
+  async previewSource(input: TelosSourcePreviewRequest, signal?: AbortSignal) {
+    return this.request(
+      'source/preview',
+      TelosSourcePreviewSchema,
+      TelosSourcePreviewRequestSchema.parse(input),
+      signal,
+    );
+  }
+  async previewOutcomeSource(input: TelosSourceNewPreviewRequest, signal?: AbortSignal) {
+    return this.request(
+      'source/outcome/preview',
+      TelosSourcePreviewSchema,
+      TelosSourceNewPreviewRequestSchema.parse(input),
+      signal,
+    );
+  }
+  async createOutcomeFromSource(input: TelosSourceCreateRequest) {
+    return this.request(
+      'source/outcome/create',
+      TelosWorkCommandReceiptSchema,
+      TelosSourceCreateRequestSchema.parse(input),
+    );
+  }
+  async adoptSource(input: TelosSourceAdoptRequest) {
+    return this.request(
+      'source/adopt',
+      TelosWorkCommandReceiptSchema,
+      TelosSourceAdoptRequestSchema.parse(input),
+    );
+  }
+  readSource(itemId: string, snapshotId: string, signal?: AbortSignal) {
+    const item = TelosWorkIdSchema.parse(itemId),
+      snapshot = TelosWorkIdSchema.parse(snapshotId);
+    if (/[\\/?#]/.test(item) || /[\\/?#]/.test(snapshot))
+      return Promise.reject(new Error('Invalid source reference'));
+    return this.request(
+      'items/' + encodeURIComponent(item) + '/sources/' + encodeURIComponent(snapshot),
+      TelosReviewedSourceViewSchema,
       undefined,
       signal,
     );

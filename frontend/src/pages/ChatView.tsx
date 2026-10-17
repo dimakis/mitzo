@@ -1,3 +1,4 @@
+import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
@@ -1267,6 +1268,8 @@ export function ChatView() {
         />
         {!isSymposium && workspaceControls}
       </div>
+
+      <TelosSourceWorkLink />
 
       {(sendError || sendStatus) && (
         <div
