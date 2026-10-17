@@ -46,7 +46,6 @@ it('uses the same compact header on the TELOS cards and preserves the full item 
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />
       <TelosSection />
