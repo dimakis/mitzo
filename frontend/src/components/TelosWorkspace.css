@@ -256,3 +256,22 @@
     flex-basis: 100%;
   }
 }
+
+/* The approved desktop item uses the shell's available width, alongside its brief. */
+.telos-canonical-page {
+  width: 100%;
+  max-width: none;
+}
+.telos-item-workspace .todo-detail-output-list li {
+  grid-template-columns: var(--control-height) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+.telos-item-workspace .todo-detail-output-actions {
+  grid-column: 2;
+}
+@media (min-width: 768px) {
+  .desktop-shell .telos-canonical-page {
+    max-width: none;
+    padding-inline: var(--page-gutter);
+  }
+}

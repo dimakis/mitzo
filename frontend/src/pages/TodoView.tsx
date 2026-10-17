@@ -362,7 +362,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
 
   if (canonical.records.length > 0)
     return (
-      <div className="todo-page">
+      <div className="todo-page telos-canonical-page">
         <div className="todo-collection-heading">
           <WorkspacePageHeading
             title="Telos outcomes"

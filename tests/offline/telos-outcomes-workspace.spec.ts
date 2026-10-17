@@ -160,6 +160,7 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Materials', exact: true }).click();
     await page.getByText('Provenance', { exact: true }).click();
     await expect(page.getByText('b'.repeat(64))).toBeVisible();
+    expect((await page.locator('.output-row-copy').boundingBox())!.width).toBeGreaterThan(160);
     await page.reload();
     await expect(page.getByRole('button', { name: 'Materials', exact: true })).toHaveAttribute(
       'aria-pressed',

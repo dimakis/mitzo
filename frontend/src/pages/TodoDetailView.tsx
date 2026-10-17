@@ -96,7 +96,7 @@ export function TodoDetailView() {
 
   if (record)
     return (
-      <div className="todo-detail-page">
+      <div className="todo-detail-page telos-canonical-page">
         <div className="todo-detail-scroll">
           {canonical.unavailable.length > 0 && (
             <p role="alert">
