@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import { lazyRoute as lazy } from './lib/lazy-route';
 
 const loadSandboxesView = () =>
   import('./pages/SandboxesView').then((module) => ({ default: module.SandboxesView }));

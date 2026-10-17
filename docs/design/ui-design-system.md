@@ -17,6 +17,8 @@ Stable agent identity colors use `--seat-color-*` in the same file. Persisted pr
 
 Route loading keeps shared Home controls and dialogs in the application entry stylesheet. Component styles load with their route; their control heights must use `--control-height` independently of global CSS ordering. Static markup browser fixtures include the styles owned by the components they represent. Offline regression captures show [shared Updates controls](assets/startup-shared-controls-mobile-light.png) and [profile controls loaded with the chat route](assets/startup-profile-controls-mobile-dark.png).
 
+If a route download fails, the existing error boundary explains the connection failure. Its Try Again control reloads the current document to clear rejected module promises; ordinary rendering errors retain the existing component reset. The offline route-recovery test blocks the Login chunk, restores connectivity and verifies sign-in after retry on all three browser projects.
+
 ## Appearance preferences
 
 Settings exposes eight curated accents and seven locally available UI font stacks. Preset values live in the same token file, including the light/dark accent shades. The preference hook stores validated preset IDs in local storage and applies root data attributes immediately; startup restores them before React renders. The UI says these choices are saved on the current device. Code remains monospace, and Reset appearance restores System theme, Lavender accent and System font. Browser tests verify every accent pair meets 4.5:1 contrast for filled controls and that selections survive route changes and reloads.
