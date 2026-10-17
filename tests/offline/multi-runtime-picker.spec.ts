@@ -129,6 +129,66 @@ async function openAgentSettings(page: Page) {
   await openChatSetting(page, 'execution');
 }
 
+test('Runtime defaults: save, fresh New chat, explicit confirmation, clear and retained draft', async ({
+  page,
+}) => {
+  const fixture = await offlinePicker(page, 'dark');
+  const resets: unknown[] = [];
+  await page.route('**/api/chat/switch', (route) => {
+    expect(route.request().method()).toBe('POST');
+    const reset = route.request().postDataJSON();
+    expect(reset).toEqual({ type: 'switch_session', sessionId: null });
+    resets.push(reset);
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/chat?agentProfile=agent&profileRevision=1');
+  const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+  await input.fill('Keep this original draft and its reviewed settings');
+  await chooseSetting(page, 'Account', 'api');
+  await chooseSetting(page, 'Model', 'shell-model');
+  await chooseSetting(page, 'Thinking', 'high');
+  const original = page.url();
+  await openChatSetting(page, 'defaults');
+  await page.getByRole('button', { name: 'Make default for new chats', exact: true }).click();
+  await settingsHome(page);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^New chat$/i })
+    .first()
+    .click();
+  await expect(input).toHaveValue('');
+  await settingsHome(page);
+  await expect(settingRow(page, 'Account')).toContainText('Confirm account: API billing');
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'shell-model');
+  await expect(settingRow(page, 'Thinking')).toHaveAttribute('data-value', 'high');
+  await input.fill('New draft still needs account confirmation');
+  await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeDisabled();
+  await chooseSetting(page, 'Account', 'api');
+  await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', 'api');
+  await expect(settingRow(page, 'Account')).not.toContainText('Confirm account');
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'shell-model');
+  await expect(settingRow(page, 'Thinking')).toHaveAttribute('data-value', 'high');
+  await openChatSetting(page, 'defaults');
+  await page.getByRole('button', { name: 'Clear new-chat default', exact: true }).click();
+  await settingsHome(page);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^New chat$/i })
+    .first()
+    .click();
+  await settingsHome(page);
+  await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', '');
+  await page.goto(original);
+  await settingsHome(page);
+  await expect(input).toHaveValue('Keep this original draft and its reviewed settings');
+  await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', 'api');
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'shell-model');
+  await expect(settingRow(page, 'Thinking')).toHaveAttribute('data-value', 'high');
+  expect(resets).toHaveLength(2);
+  expect(fixture.forbidden).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 /** Fixture-only Google enrollment; no production catalogue or provider is consulted. */
 function mixedGoogleInventory() {
   const inventory = multiRuntimeInventoryFixture();

@@ -1,4 +1,5 @@
 import { resolveRuntimeTarget } from '../lib/chat-runtime-route';
+import { getDefaultAccountModel } from '../lib/account-preference';
 import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
@@ -36,17 +37,20 @@ export function useExplicitLocalChat(
 ) {
   const retained = useContext(ChatRuntimeDraftContext);
   const seed = useCallback(() => {
+    // Preferences supply editable intent, never a confirmed public billing identity.
+    // Saved runtime intent (including an empty account) and session metadata win.
+    const preferred = ChatRuntimeSelectionSchema.safeParse({
+      ...createChatRuntimeSelection(),
+      account: sessionId ? null : getDefaultAccountModel(),
+    });
+    const initial = saved ?? (preferred.success ? preferred.data : createChatRuntimeSelection());
     const params = new URLSearchParams(search);
     const requested =
       params.has('agentProfile') || params.has('profileRevision') || params.has('agentProfileKind');
     return requested
-      ? retainChatRuntimeSelection(
-          saved ?? createChatRuntimeSelection(),
-          saved?.account ?? null,
-          chatAgentProfileFromSearch(search),
-        )!
-      : (saved ?? createChatRuntimeSelection());
-  }, [saved, search]);
+      ? retainChatRuntimeSelection(initial, initial.account, chatAgentProfileFromSearch(search))!
+      : initial;
+  }, [saved, search, sessionId]);
   const [choice, setChoice] = useState(() => ({ draftId, intent: seed() }));
   const intent = retained?.selection ?? (choice.draftId === draftId ? choice.intent : seed());
   const latestIntent = useRef(intent);

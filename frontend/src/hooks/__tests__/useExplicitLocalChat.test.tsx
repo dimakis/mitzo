@@ -7,8 +7,58 @@ import { localInventoryFixture } from '../../test-utils/local-inventory-fixture'
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { prepareLocalContinuationCommand } from '../../lib/explicit-local-chat';
 import { sha256Hex } from '../../lib/browser-crypto';
+import { setDefaultAccountModel } from '../../lib/account-preference';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
+
+it.each(['', 'agentProfile=agent&profileRevision=1'])(
+  'seeds fresh runtime intent from browser defaults without confirming account identity: %s',
+  async (search) => {
+    const account = { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' };
+    setDefaultAccountModel(account);
+    vi.mocked(apiFetch).mockImplementation(
+      async () => new Response(JSON.stringify(localInventoryFixture())),
+    );
+    const { result } = renderHook(() => useExplicitLocalChat('fresh', null, null, true, search));
+    expect(result.current.intent.account).toEqual(account);
+    expect(result.current.intent.accountReference ?? null).toBeNull();
+    await waitFor(() => expect(result.current.inventory).not.toBeNull());
+    expect(result.current.accountNeedsConfirmation).toBe(true);
+    expect(result.current.reason).toContain('account identity is unconfirmed');
+    expect(result.current.intent.execution.targetId).toBeNull();
+  },
+);
+
+it.each([null, { accountId: 'saved', model: 'saved-model', reasoningEffort: 'low' }])(
+  'keeps retained draft intent ahead of browser defaults, including an explicitly empty account: %j',
+  async (account) => {
+    setDefaultAccountModel({ accountId: 'personal', model: 'luna-fixture' });
+    vi.mocked(apiFetch).mockImplementation(
+      async () => new Response(JSON.stringify(localInventoryFixture())),
+    );
+    const saved = { ...createChatRuntimeSelection(), account };
+    const { result } = renderHook(() => useExplicitLocalChat('saved', saved, null, true));
+    await waitFor(() => expect(result.current.inventory).not.toBeNull());
+    expect(result.current.intent.account).toEqual(account);
+  },
+);
+
+it('ignores malformed browser defaults and never seeds existing conversations from preferences', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async () => new Response(JSON.stringify(localInventoryFixture())),
+  );
+  setDefaultAccountModel({ accountId: 'bad account id', model: 'bad model id' });
+  const fresh = renderHook(() => useExplicitLocalChat('fresh', null, null, true));
+  expect(fresh.result.current.intent.account).toBeNull();
+  fresh.unmount();
+  setDefaultAccountModel({ accountId: 'personal', model: 'luna-fixture' });
+  const existing = renderHook(() => useExplicitLocalChat('existing', null, 'session', true));
+  expect(existing.result.current.intent.account).toBeNull();
+  existing.unmount();
+});
 
 it('hydrates the original recipe snapshot on cold resume and changes only future thinking intent', async () => {
   const data = localInventoryFixture();
