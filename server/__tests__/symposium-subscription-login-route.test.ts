@@ -736,3 +736,147 @@ it('retains terminal receipts only for the selected connection and owner', async
     ).body.state,
   ).toBe('unknown');
 });
+
+it.each([false, true])(
+  'keeps an expired allocation owned by its original operator when another start waits for cleanup (prior cancel: %s)',
+  async (priorCancel) => {
+    const { createSubscriptionLoginController } =
+      await import('../symposium-subscription-login-route.js');
+    let allocateFirst!: (value: unknown) => void;
+    let allocateSecond!: (value: unknown) => void;
+    let enteredSecond!: () => void;
+    let enteredCancel!: () => void;
+    let beganSecond!: () => void;
+    const secondEntered = new Promise<void>((resolve) => {
+      enteredSecond = resolve;
+    });
+    const cancelEntered = new Promise<void>((resolve) => {
+      enteredCancel = resolve;
+    });
+    const secondBegan = new Promise<void>((resolve) => {
+      beganSecond = resolve;
+    });
+    const cancelFirst = vi.fn(async () => {});
+    const beginDeviceLogin = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            allocateFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(() => {
+        beganSecond();
+        return new Promise((resolve) => {
+          allocateSecond = resolve;
+        });
+      });
+    const controller = createSubscriptionLoginController(
+      () => ({ beginDeviceLogin }),
+      (req) => {
+        if (req.header('x-owner') === 'second') enteredSecond();
+        if (req.path === '/cancel') enteredCancel();
+        return req.header('x-owner');
+      },
+    );
+    const app = express();
+    app.use(express.json());
+    app.post('/login', controller.start);
+    app.get('/status', controller.status);
+    app.post('/cancel', controller.cancel);
+    const first = request(app)
+      .post('/login')
+      .set('x-owner', 'first')
+      .send({ method: 'device-code' })
+      .timeout({ deadline: 2000 })
+      .then((response) => response);
+    await vi.waitFor(() => expect(beginDeviceLogin).toHaveBeenCalledOnce());
+    const pending = (await request(app).get('/status').set('x-owner', 'first')).body;
+    const now = vi.spyOn(Date, 'now').mockReturnValue(pending.expiresAt + 1);
+    let cancellation: Promise<request.Response> | undefined;
+    let second: Promise<request.Response> | undefined;
+    try {
+      if (priorCancel) {
+        cancellation = request(app)
+          .post('/cancel')
+          .set('x-owner', 'first')
+          .send({ attemptId: pending.attemptId })
+          .timeout({ deadline: 2000 })
+          .then((response) => response);
+        await Promise.race([
+          cancelEntered,
+          cancellation.then(() => {
+            throw new Error('Cancellation did not wait for allocation');
+          }),
+        ]);
+      }
+      second = request(app)
+        .post('/login')
+        .set('x-owner', 'second')
+        .send({ method: 'device-code' })
+        .timeout({ deadline: 2000 })
+        .then((response) => response);
+      await Promise.race([
+        secondEntered,
+        second.then(() => {
+          throw new Error('Replacement did not wait for expiry cleanup');
+        }),
+      ]);
+      allocateFirst({
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'FIRST-1234',
+        expiresAt: Date.now() + 60000,
+        completed: new Promise(() => {}),
+        cancel: cancelFirst,
+      });
+      await Promise.race([
+        secondBegan,
+        second.then(() => {
+          throw new Error('Replacement did not allocate');
+        }),
+      ]);
+      const firstResponse = await first;
+      expect(firstResponse.body).toMatchObject({
+        state: priorCancel ? 'cancelled' : 'expired',
+        attemptId: pending.attemptId,
+      });
+      expect(firstResponse.body).not.toHaveProperty('userCode');
+      expect(firstResponse.body).not.toHaveProperty('verificationUrl');
+      const secondPending = (await request(app).get('/status').set('x-owner', 'second')).body;
+      expect(secondPending.state).toBe('pending');
+      expect(secondPending.attemptId).not.toBe(pending.attemptId);
+      expect(secondPending).not.toHaveProperty('userCode');
+      expect(cancelFirst).toHaveBeenCalledOnce();
+      allocateSecond({
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'SECOND-5678',
+        expiresAt: Date.now() + 60000,
+        completed: new Promise(() => {}),
+        cancel: async () => {},
+      });
+      const secondResponse = await second;
+      expect(secondResponse.body).toMatchObject({
+        state: 'pending',
+        attemptId: secondPending.attemptId,
+        userCode: 'SECOND-5678',
+      });
+      expect((await request(app).get('/status').set('x-owner', 'first')).body).not.toHaveProperty(
+        'userCode',
+      );
+    } finally {
+      allocateSecond?.({
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'SECOND-5678',
+        expiresAt: Date.now() + 60000,
+        completed: new Promise(() => {}),
+        cancel: async () => {},
+      });
+      await Promise.allSettled([
+        first,
+        ...(second ? [second] : []),
+        ...(cancellation ? [cancellation] : []),
+      ]);
+      now.mockRestore();
+    }
+  },
+);
