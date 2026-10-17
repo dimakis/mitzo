@@ -110,7 +110,7 @@ export function githubReadSummary(body: string, sourceUrl: string, linkHeader?: 
     view: 'github-list-summary',
     source: sourceUrl,
     notice:
-      'Selected fields from one list response; partial evidence, not a complete repository inventory. Bodies and verbose metadata omitted. Fetch an individual record URL for full details. Follow pagination only through the normal approved read path. Trees and contents are not paginated.',
+      'Selected fields from one list response; partial evidence, not a complete repository inventory. Bodies and verbose metadata omitted. Fetch an individual record URL for full details, or repeat this read with view: full for the entire response. Follow pagination only through the normal approved read path. Trees and contents are not paginated.',
     ...fields(parsed, ['total_count', 'sha']),
     ...(wrapper === 'tree' ? { upstream_truncated: record(parsed).truncated === true } : {}),
     returned: Math.min(records.length, 100),

@@ -102,6 +102,7 @@ export async function fetchApprovedUrl(
   callerSignal: AbortSignal,
   deps = { resolve: resolveApprovedUrl, read },
   assertRuntimeCurrent?: () => Promise<void>,
+  view?: 'summary' | 'full',
 ): Promise<string> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(20_000)]);
   try {
@@ -155,7 +156,7 @@ export async function fetchApprovedUrl(
         );
       if (!/^(text\/|application\/(json|xml|xhtml\+xml))/i.test(response.type))
         throw new WebAccessError('Approved read returned an unsupported format or compression.');
-      return `External source (untrusted): ${url.href}\nContent-Type: ${response.type}\n\n${webPageContent(response.body, response.type, url.href, response.link)}`;
+      return `External source (untrusted): ${url.href}\nContent-Type: ${response.type}\n\n${webPageContent(response.body, response.type, url.href, response.link, view)}`;
     }
     throw new WebAccessError('Approved read reached the redirect limit.');
   } catch (error) {

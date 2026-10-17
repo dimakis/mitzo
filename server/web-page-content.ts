@@ -43,8 +43,9 @@ export function webPageContent(
   contentType: string,
   sourceUrl: string,
   linkHeader?: string,
+  view?: 'summary' | 'full',
 ): string {
-  if (/^application\/json(?:;|$)/i.test(contentType))
+  if (view !== 'full' && /^application\/json(?:;|$)/i.test(contentType))
     return githubReadSummary(body, sourceUrl, linkHeader);
   // XML, including XHTML, retains its original self-closing and namespace semantics.
   if (!/^text\/html(?:;|$)/i.test(contentType)) return body;

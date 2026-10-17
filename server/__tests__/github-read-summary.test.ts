@@ -173,3 +173,43 @@ describe('structured GitHub list reads', () => {
     },
   );
 });
+
+it.each(['public', 'approved'] as const)(
+  'allows an explicitly requested full GitHub list through the %s reader',
+  async (kind) => {
+    const target = {
+      url,
+      origin: 'https://api.github.com',
+      addresses: [{ address: '93.184.216.34', family: 4 }],
+    };
+    const body = JSON.stringify(records);
+    const output =
+      kind === 'public'
+        ? await fetchPublicPage(
+            url,
+            new AbortController().signal,
+            {
+              resolve: async () => target.addresses,
+              send: async () => ({
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+                body,
+              }),
+            },
+            undefined,
+            'full',
+          )
+        : await fetchApprovedUrl(
+            url,
+            target,
+            new AbortController().signal,
+            {
+              resolve: async () => target,
+              read: async () => ({ status: 200, type: 'application/json', body }),
+            },
+            undefined,
+            'full',
+          );
+    expect(output.split('\n\n').slice(1).join('\n\n')).toBe(body);
+  },
+);

@@ -66,6 +66,7 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
       // before serialization; slicing serialized JSON corrupts long requests.
       return JSON.stringify({
         operation: typeof input.operation === 'string' ? input.operation.slice(0, 20) : undefined,
+        ...(input.view === 'full' || input.view === 'summary' ? { view: input.view } : {}),
         url: typeof input.url === 'string' ? input.url.slice(0, 4000) : undefined,
         query: typeof input.query === 'string' ? input.query.slice(0, 2000) : undefined,
         reason: typeof input.reason === 'string' ? input.reason.slice(0, 1000) : undefined,

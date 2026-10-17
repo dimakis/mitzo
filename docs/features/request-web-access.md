@@ -27,7 +27,9 @@ Credential-free GitHub API list reads now return a structured summary of selecte
 fields for up to 100 records, retaining individual record URLs, page metadata,
 provider total counts where present, issue/PR counts for that page, and real Link
 pagination destinations. Bodies and verbose metadata are explicitly omitted;
-individual detail endpoints retain full JSON. Oversized trees report omitted
+individual detail endpoints retain full JSON. Use `fetch` with `view: full` on the
+same URL when omitted fields or records are needed; the exact request and existing
+origin/session checks still apply. Oversized trees report omitted
 records and upstream truncation. Other hosts, unknown endpoints, invalid JSON and
 plain text remain unchanged. Formatting happens after the same URL/DNS/approval
 checks in both public and granted readers; pagination links grant no permission
