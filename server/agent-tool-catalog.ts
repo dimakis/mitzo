@@ -5,7 +5,7 @@ import { repositoryChatToolDefinitions } from './repository-chat-tools.js';
 import { profileToolDefinitions } from './session-profile-tools.js';
 import { webAccessDefinition } from './request-web-access.js';
 import { githubPublishingDefinition } from './github-publishing-tool.js';
-import { telosCreateOutcomeDefinition } from './telos-tool.js';
+import { telosCreateOutcomeDefinition, telosAdoptSourceDefinition } from './telos-tool.js';
 import { telosItemDefinitions } from './telos-item-tools.js';
 import { telosArtifactDefinitions } from './telos-artifact-tools.js';
 
@@ -36,6 +36,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       source: 'Telos',
       definitions: [
         telosCreateOutcomeDefinition,
+        telosAdoptSourceDefinition,
         ...telosItemDefinitions,
         ...telosArtifactDefinitions,
       ],

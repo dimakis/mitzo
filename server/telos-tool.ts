@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import {
+  TelosSourcePermissionReceiptSchema,
+  TelosSourcePermissionOperationSchema,
+  type TelosSourcePermissionReceipt,
+  type TelosSourcePermissionOperation,
+} from '@mitzo/protocol';
 import { toolInputError } from './tool-input-error.js';
 import type { ToolDefinition } from '@mitzo/harness';
 
@@ -61,80 +67,131 @@ export const telosCreateOutcomeDefinition: ToolDefinition = {
   input_schema: z.toJSONSchema(TelosOutcomeInput),
 };
 
-const TelosOutcomeResponse = z
-  .object({
-    ok: z.boolean().optional(),
-    error: z.string().optional(),
-    created: z.boolean().optional(),
-    item: z
-      .object({
-        id: z.string().optional(),
-        summary: z.string().optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough();
-const TelosOutcomeReceipt = z.object({
-  ok: z.literal(true),
-  created: z.boolean(),
-  item: z.object({ id: z.string().min(1), summary: z.string().min(1) }),
-});
-
 export interface TelosToolResult {
   content: string;
   isError: boolean;
 }
 
-/** Execute through Mitzo's trusted host API. No host credential enters the sandbox. */
-export async function executeTelosCreateOutcome(
+/** Provider execution retrieves an operator-approved receipt; it cannot create. */
+export const TELOS_ADOPT_SOURCE_TOOL = 'TelosAdoptSource';
+export const TelosAdoptSourceInput = z.strictObject({ itemId: z.string().trim().min(1).max(200) });
+export const telosAdoptSourceDefinition: ToolDefinition = {
+  name: TELOS_ADOPT_SOURCE_TOOL,
+  description:
+    'Attach an explicitly reviewed original exchange and retained materials to one exact existing Telos item. The operator selects and approves the source; this never changes progress or assigns/starts a worker.',
+  input_schema: z.toJSONSchema(TelosAdoptSourceInput),
+};
+export const telosApprovalExecutionField = {
+  __mitzoTelosApproval: z
+    .uuid()
+    .optional()
+    .describe('Reserved host approval receipt; never supply this field.'),
+};
+export function formatTelosSourceResult(
+  result: TelosSourcePermissionReceipt & { operation: TelosSourcePermissionOperation },
+): TelosToolResult {
+  const itemId = result.receipt.work.itemId;
+  if (
+    result.operation.kind === 'create' &&
+    (!result.canonicalCreation || result.canonicalCreation.item.id !== itemId)
+  )
+    return {
+      content: 'Actual canonical creation receipt unavailable; creation not confirmed.',
+      isError: true,
+    };
+  return {
+    content: JSON.stringify({
+      ...(result.operation.kind === 'create'
+        ? {
+            created: result.canonicalCreation!.created,
+            canonicalCreation: result.canonicalCreation,
+          }
+        : { adopted: true }),
+      id: itemId,
+      title:
+        result.operation.kind === 'create'
+          ? result.operation.outcome.summary
+          : 'Reviewed source saved',
+      path: '/todos/' + encodeURIComponent(itemId),
+      sourceSnapshotId: result.sourceSnapshotId,
+    }),
+    isError: false,
+  };
+}
+async function executeReviewedSource(
   baseUrl: string,
   clientId: string,
   token: string,
   input: unknown,
+  operation: 'create' | 'adopt',
   signal?: AbortSignal,
 ): Promise<TelosToolResult> {
-  const parsedInput = TelosOutcomeInput.safeParse(input);
-  if (!parsedInput.success)
-    return toolInputError('Telos outcome input', TelosOutcomeInput, parsedInput.error);
-
+  const schema = operation === 'create' ? TelosOutcomeInput : TelosAdoptSourceInput;
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    return { content: 'Invalid Telos input', isError: true };
+  const { __mitzoTelosApproval, ...proposal } = input as Record<string, unknown>;
+  const parsed = schema.safeParse(proposal);
+  if (!parsed.success) return toolInputError('Telos source input', schema, parsed.error);
+  if (!z.uuid().safeParse(__mitzoTelosApproval).success)
+    return {
+      content:
+        'A host-injected reviewed source approval receipt is required; request approval again.',
+      isError: true,
+    };
   try {
-    const response = await fetch(`${baseUrl}/api/internal/telos/outcomes`, {
+    const response = await fetch(baseUrl + '/api/internal/telos/source/execute', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Internal-Token': token,
         'X-Client-Id': clientId,
       },
-      body: JSON.stringify(parsedInput.data),
+      body: JSON.stringify({
+        approvalReceiptId: __mitzoTelosApproval,
+        proposal: parsed.data,
+        operation,
+      }),
       signal,
     });
-    const parsedResult = TelosOutcomeResponse.safeParse(await response.json());
-    if (!parsedResult.success)
-      return { content: 'Live Telos returned an invalid response', isError: true };
-    const result = parsedResult.data;
-    if (!response.ok || result.ok === false)
+    const body: unknown = await response.json();
+    const result = TelosSourcePermissionReceiptSchema.extend({
+      operation: TelosSourcePermissionOperationSchema,
+    }).safeParse(body);
+    if (!response.ok || !result.success) {
+      const failure = z.object({ error: z.string() }).safeParse(body);
       return {
-        content: result.error ?? `Live Telos request failed with HTTP ${response.status}`,
+        content: failure.success
+          ? failure.data.error
+          : 'Reviewed Telos receipt unavailable; save not confirmed.',
         isError: true,
       };
-    const receipt = TelosOutcomeReceipt.safeParse(result);
-    if (!receipt.success)
-      return {
-        content: 'Live Telos returned no confirmed outcome receipt; creation not confirmed',
-        isError: true,
-      };
+    }
+    if (result.data.operation.kind !== operation)
+      return { content: 'Reviewed Telos operation differs; save not confirmed.', isError: true };
+    return formatTelosSourceResult(result.data);
+  } catch {
     return {
-      content: JSON.stringify({
-        created: receipt.data.created,
-        id: receipt.data.item.id,
-        title: receipt.data.item.summary,
-        path: `/todos/${receipt.data.item.id}`,
-      }),
-      isError: false,
+      content:
+        'Reviewed Telos receipt unavailable. Retry the exact original invocation to recover its receipt.',
+      isError: true,
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { content: `Live Telos request failed: ${message}`, isError: true };
   }
+}
+export function executeTelosCreateOutcome(
+  baseUrl: string,
+  clientId: string,
+  token: string,
+  input: unknown,
+  signal?: AbortSignal,
+) {
+  return executeReviewedSource(baseUrl, clientId, token, input, 'create', signal);
+}
+export function executeTelosAdoptSource(
+  baseUrl: string,
+  clientId: string,
+  token: string,
+  input: unknown,
+  signal?: AbortSignal,
+) {
+  return executeReviewedSource(baseUrl, clientId, token, input, 'adopt', signal);
 }

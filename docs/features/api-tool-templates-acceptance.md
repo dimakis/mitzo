@@ -25,6 +25,8 @@ the official fenced squash gate. Accepted commits, reviewed heads, review IDs an
 matching trees are recorded in the external Phase 3 evidence bundle and existing
 Telos items. A PR or queued review is not acceptance.
 
+Accepted preceding slices: #991 `5b3d32530a7cac8ee9a30788f86950eafca93e7b`; #992 `2825699deeb1dcbc2182d4f30037cb016c403344`; #993 `b0d7d94b9d9551ccd5006feceb8c10a072271afc`. The final acceptance slice is recorded only after its own exact-head reviews and CI pass.
+
 ## Deterministic coverage
 
 Fake HTTP/vault adapters, temporary stores and mocked provider runners exercise
@@ -40,6 +42,8 @@ credential, API target or model is used.
 | Approval and effects | `api-tool-execution.test.ts`: exact definition, real connection engine with fake sender, `{}` only, canonical RequestConnectionAccess approval, permission/connection/configuration/session revocation and cancellation during approval. Denied cases read no credential and send no request.                                                                                                        |
 | API lifecycle        | `responses-chat-session.test.ts`: both local API providers configure/verify/publish/assign/invoke, preserve exact optional exposure, refuse aliases/wrappers, export/import only references, reject foreign receipts, retain original profile selection across store reopen and reject replacement tool definitions on current dispatch and cold resume.                                             |
 | Operator authority   | `api-tool-router.test.ts` and retained-owner IPC tests: same-origin requests, existing recent authorization, real auth-session revocation, closed operation allowlist, private draft projection and no implicit requests.                                                                                                                                                                            |
+| Supervised bootstrap | `api-tool-bootstrap.test.ts` and `symposium-custodian-entry.test.ts`: both entry points use one initializer; temporary metadata and fake vault/HTTP verify publication, disabled/invalid settings fail closed, and the credential-free child reauthorizes browser sessions and forwards only validated recent authority. Private Keychain settings remain excluded from its environment.             |
+| Cancellation         | `api-tool-cancellation.test.ts`: actual owner IPC through the verification router aborts on cancel, timeout or disconnect, prevents proof publication, releases temporary grants and waits for HTTP cleanup before owner drain. Editor and intercepted browser fixtures also cover missing static AbortSignal helpers on older WebKit.                                                               |
 | Compatibility        | Existing selection/catalog/profile and connection/capability tests cover missing versus empty tools, published/admitted immutability, route refusals, canonical identity and write approval/idempotency/retry contracts. No write template is added.                                                                                                                                                 |
 | UI                   | Intercepted 320px WebKit/Chromium and desktop Chromium, dark Lavender/System and light Teal/Georgia, failed saves/verifications and retries, source inspection, publish, Escape/focus return, preserved drafts, overflow and 44px controls. Captures: `docs/design/assets/api-template-*.png`.                                                                                                       |
 

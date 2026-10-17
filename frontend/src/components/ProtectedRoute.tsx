@@ -1,3 +1,4 @@
+import { StartupScreen } from './StartupScreen';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -107,24 +108,16 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
         replace
       />
     );
-  if (auth === 'loading') {
-    return <div className="auth-status">Checking authentication…</div>;
-  }
-  if (auth === 'unavailable') {
-    return (
-      <div className="auth-status" role="alert">
-        <p>Mitzo could not be reached. Check your connection and try again.</p>
-        <button
-          className="btn-primary"
-          onClick={() => {
-            automaticRetries.current = 0;
-            retry();
-          }}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-  return <>{children}</>;
+  return (
+    <>
+      {auth === 'ok' && children}
+      <StartupScreen
+        state={auth === 'ok' ? 'ready' : auth}
+        onRetry={() => {
+          automaticRetries.current = 0;
+          retry();
+        }}
+      />
+    </>
+  );
 }

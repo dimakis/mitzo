@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { TelosWorkApiClient } from '@mitzo/client';
 import { shareTelosArtifact } from '../../lib/share-file';
 vi.mock('../../components/HomePinButton', () => ({
   HomePinButton: ({ pin }: { pin: { kind: string; id: string; title: string } }) => (
@@ -421,7 +422,10 @@ describe('TodoDetailView', () => {
     });
   });
 
-  it('renders gracefully with empty context hints', () => {
+  it('renders gracefully with empty context hints and a known empty source graph', async () => {
+    const read = vi
+      .spyOn(TelosWorkApiClient.prototype, 'read')
+      .mockResolvedValue({ sources: [], links: [] } as never);
     const emptyItem: TodoItem = {
       ...fullItem,
       sources: [],
@@ -446,7 +450,11 @@ describe('TodoDetailView', () => {
     );
 
     expect(screen.getByText('Fix authentication middleware')).toBeTruthy();
-    expect(container.querySelector('.todo-detail-sources')).toBeNull();
+    try {
+      await waitFor(() => expect(container.querySelector('.todo-detail-sources')).toBeNull());
+    } finally {
+      read.mockRestore();
+    }
     expect(container.querySelector('.todo-detail-context')).toBeNull();
     expect(container.querySelector('.todo-detail-task-hint')).toBeNull();
   });

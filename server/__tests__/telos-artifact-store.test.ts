@@ -32,6 +32,35 @@ afterEach(() => {
 });
 
 describe('durable Telos artifacts', () => {
+  it('keeps source packets retrievable without consuming the output page or registering generic links', () => {
+    const { store, path } = setup();
+    try {
+      const output = store.save(input);
+      const captures = Array.from({ length: 101 }, (_, i) =>
+        store.save({
+          ...input,
+          filename: 'source-' + i + '.json',
+          sessionId: 'source-capture:fixture',
+          bytes: Buffer.from('reviewed-' + i),
+        }),
+      );
+      expect(store.list({ itemId: 'task-a', limit: 100, excludeSourceCaptures: true })).toEqual([
+        output,
+      ]);
+      const source = captures[0];
+      expect(store.read(source.id, 1).bytes.toString()).toBe('reviewed-0');
+      expect(source.sourceKind).toBe('source_capture');
+      const db = new Database(path);
+      try {
+        expect(db.prepare('SELECT COUNT(*) AS n FROM links').get()).toEqual({ n: 1 });
+      } finally {
+        db.close();
+      }
+    } finally {
+      store.close();
+    }
+  });
+
   it('persists bytes and provenance in live Telos, links the item, and reads from a fresh store', () => {
     const { path, store } = setup();
     const receipt = store.save(input);

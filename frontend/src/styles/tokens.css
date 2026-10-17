@@ -60,6 +60,9 @@
   --motion-duration-spin: 800ms;
   --motion-duration-status: 1200ms;
   /* Optional decorative wordmark splash; input never waits for these timings. */
+  --motion-duration-liquid: 1600ms;
+  --motion-duration-quote: 2200ms;
+  --motion-duration-handoff: 450ms;
   --motion-duration-waterfall: 3200ms;
   --motion-duration-waterfall-pause: 2200ms;
   --motion-duration-waterfall-return: 1900ms;
