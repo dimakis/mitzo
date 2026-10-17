@@ -1,0 +1,167 @@
+{
+  "scope": "Symposium workstream A: shared conversation presentation",
+  "parent": "c0851ba23fcc5d04",
+  "milestone": "358d56cb7e4352ff",
+  "ownerSession": "01a14bdc-6a35-7041-abf2-0f6761daf29a",
+  "integrationOwnerSession": "01a14b49-df1f-7b82-be70-10be0789161c",
+  "acceptanceOwnerSession": "01a14bdc-d152-7912-84d4-c0012e9d5206",
+  "acceptedBase": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+  "capturedSource": "62c89aff166c6133ccc01aa95c8ff7aaa589241d",
+  "canonicalRecords": [
+    {
+      "artifactId": "dad6534e91551b3e375a57307df729a1",
+      "revision": 12,
+      "sha256": "8f3a3411aa93816ffb54f3545595e64e2ede7a7bb9222bc6f5bc312e556e6b67"
+    },
+    {
+      "artifactId": "4c8cef1b18a2e14db03b301fdef01c4c",
+      "revision": 2,
+      "sha256": "459c32e9c2ad66fd33c71706c0816da66c90467041ff787b75637236657a217c"
+    },
+    {
+      "artifactId": "d2b5bce4090c39a595457335763271b5",
+      "revision": 1,
+      "sha256": "cf87dbd06bff52b788cbb2dbfff13ad15e889a36d89e7958568764781e31c1ea"
+    }
+  ],
+  "reference": {
+    "filename": "symposium-fresh-agent-review.html",
+    "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "role": "Existing approved mock; unchanged. Core owns ledger registration."
+  },
+  "captures": [
+    {
+      "path": "docs/design/assets/symposium-shared-desktop-chromium-dark.png",
+      "sha256": "c9ae37c97057880e48e79d3f3fe03b735e0cf7bdeaa10d7f189e402260280b6f",
+      "kind": "isolated actual-component UI fixture; not application integration acceptance"
+    },
+    {
+      "path": "docs/design/assets/symposium-shared-desktop-chromium-light.png",
+      "sha256": "5ffec9bf2b9be984e521a8392217f1b7adf29f3381dbe0977404de17e92f3026",
+      "kind": "isolated actual-component UI fixture; not application integration acceptance"
+    },
+    {
+      "path": "docs/design/assets/symposium-shared-mobile-webkit-dark.png",
+      "sha256": "b44064f84ff3925e0f0234d7be931adbbcf14aac6dde3b44508afb8ef9ca33de",
+      "kind": "isolated actual-component UI fixture; not application integration acceptance"
+    },
+    {
+      "path": "docs/design/assets/symposium-shared-mobile-webkit-light.png",
+      "sha256": "31f625399479f9b2b818e2aaac4d4d75083a6205b8249f4b18ef996cfa237804",
+      "kind": "isolated actual-component UI fixture; not application integration acceptance"
+    }
+  ],
+  "components": [
+    "ChatArea",
+    "ChatInput",
+    "ComposerResponders",
+    "SeatLabel",
+    "ConversationAgents",
+    "HomeDialog",
+    "MotionPresence",
+    "UserBubble",
+    "TextBubble"
+  ],
+  "tokens": "Existing semantic surface/text/accent, type/spacing/control-height scales. No palette or shared scale changes.",
+  "visualInspection": {
+    "inspected": ["320px mobile WebKit dark", "1280px desktop Chromium light"],
+    "observations": [
+      "Compact existing participant header; one Agents dialog; ordinary composer retained.",
+      "Quiet native details keep individual receipt states inspectable.",
+      "Successful Architect reply remains visible beside uncertain Reviewer and pending Reader.",
+      "Reply identity is stable session ID; original account/model come only from frozen prompt settings.",
+      "Source previews use the actual author conversation rather than a group/anchor conversation."
+    ],
+    "limits": [
+      "This is structural scoped inspection, not pixel-equivalence or final combined UX approval.",
+      "C owns independent reference-to-render inspection on combined source.",
+      "Existing three-member participant count ambiguity was reported to core without editing ConversationAgents."
+    ]
+  },
+  "checks": {
+    "heap": "NODE_OPTIONS=--max-old-space-size=1024",
+    "workers": 1,
+    "focusedUnitTests": {
+      "files": 10,
+      "passed": 130,
+      "failed": 0,
+      "seconds": 8.42
+    },
+    "design": {
+      "passed": 108,
+      "skipped": 1,
+      "skipReason": "Existing base-ref protection check requires GITHUB_BASE_REF, supplied in CI."
+    },
+    "types": {
+      "command": "npx tsc --noEmit -p tests/fixtures/symposium-shared-conversation.tsconfig.json",
+      "result": "passed"
+    },
+    "lint": "Focused changed source/tests passed; normal commit hooks enabled.",
+    "browser": {
+      "command": "npx playwright test --config playwright.offline.config.ts tests/offline/symposium-shared-conversation.spec.ts --workers=1",
+      "execution": "approved outside Seatbelt",
+      "passedUiCases": 6,
+      "startupDependencies": 2,
+      "failed": 0,
+      "retries": 0,
+      "seconds": 11.3,
+      "projects": ["mobile-webkit", "mobile-chromium", "desktop-chromium"],
+      "viewports": [320, 1280],
+      "appearance": ["dark Mint/System", "light Teal/Georgia"],
+      "behaviors": [
+        "Defaults and explicit stable-ID @ selection",
+        "picker bounds",
+        "keyboard focus and Escape restoration",
+        "policy changes cause zero send attempts or mutations",
+        "independent accepted/uncertain/pending outcomes",
+        "replay gap retains successful bodies",
+        "unavailable backend blocks sends",
+        "larger text stays within bounds",
+        "ordinary text draft survives reload"
+      ]
+    },
+    "firstRunHistory": [
+      "Fixture bundling first refused two undeclared static SVG assets; declarations fixed.",
+      "Initial matrix: five UI cases plus two startup checks passed; desktop light focus failed because test pressed ArrowDown before the picker appeared.",
+      "Final matrix waits for the visible picker, keeping the same keyboard-focus assertion; all six cases pass.",
+      "One optional preview fixture initially used a relative link (ordinary link, not an inline preview); corrected to a supported absolute local Markdown path.",
+      "A command addressed nonexistent ChatInput.test.tsx and ran no tests; focused existing composer suites were selected instead."
+    ],
+    "retainedComposerRegression": {
+      "files": 5,
+      "passed": 65,
+      "failed": 0,
+      "seconds": 5.39,
+      "suites": [
+        "ChatInputFocus",
+        "ChatInputCommandStrip",
+        "ChatInputContextBlocks",
+        "ChatInputSendReceipt",
+        "ChatInputVoiceOwnership"
+      ]
+    }
+  },
+  "integrationHandoff": {
+    "responderSelection": "ComposerResponderSelection.responders uses CollaborationMessageInput[responders]; onChange(ids, intent) retains default/all/selected including selected[]. Retained maximum=1 hides Defaults/All.",
+    "transcript": "CollaborationTranscript accepts existing CollaborationProjection, names and ordinary ChatArea controls. New ChatArea renderMessageAttribution/renderMessageOutcome/messageSessionId callbacks default to existing behavior.",
+    "sourcePrivacy": "No invented legacy SymposiumProvenance, provider identity, timestamp, completed cursor, execution capability or send receipt.",
+    "coreCallSites": "Core owns actual authenticated projection reads, policy mutation, queue/Stop/send, responsive pages and final composition.",
+    "drafts": "Text uses existing ordinary draft owner. Full route/reload persistence of explicit responder intent needs core draft integration; it is not fabricated here.",
+    "history": "The protocol retains at most 50 messages in a view. Earlier-message availability is disclosed; no invented older-page endpoint."
+  },
+  "remaining": [
+    "Actual application joining/readers/dispatch/reply integration and recording-transport journey remain core/C work.",
+    "Re-run these checks and captures against final combined accepted source.",
+    "Full app build/test:ui suite and exact-head review are CI work.",
+    "Full account/runtime matrix and physical iOS behavior remain unqualified."
+  ],
+  "qualification": {
+    "sourceMerged": false,
+    "applicationIntegrationVerified": false,
+    "combinedApprovedUxVerified": false,
+    "liveRuntimeQualified": false,
+    "deployed": false,
+    "modelCalls": 0,
+    "stagingOperations": 0
+  }
+}
