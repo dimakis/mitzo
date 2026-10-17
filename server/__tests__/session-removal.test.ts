@@ -1,7 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import { expect, it, vi } from 'vitest';
-import { createSessionRemovalRouter } from '../session-removal.js';
+import { createSessionRemovalRouter, sessionNeedsSandboxReview } from '../session-removal.js';
 import type { OpenShellLifecycleService } from '../openshell-lifecycle-service.js';
 
 function fixture(managed = true) {
@@ -86,4 +86,40 @@ it('removes a chat with no sandbox without requiring a lifecycle token', async (
   ).toBeNull();
   await request(f.app).delete('/api/sessions/c').expect(200);
   expect(f.hide).toHaveBeenCalledWith('c');
+});
+
+it('blocks legacy remote ownership with a custom workdir and preserves explicit local routing', async () => {
+  const meta = { cwd: '/custom/mgmt', accountBinding: { provider: 'openai' as const } };
+  expect(sessionNeedsSandboxReview(meta, {})).toBe(true);
+  expect(sessionNeedsSandboxReview(meta, { runtimeLocation: 'openshell' })).toBe(true);
+  expect(sessionNeedsSandboxReview(meta, { runtimeLocation: 'local' })).toBe(false);
+  expect(
+    sessionNeedsSandboxReview({ cwd: '/custom/mgmt' }, { legacyOpenShellConfigured: true }),
+  ).toBe(true);
+  expect(
+    sessionNeedsSandboxReview(
+      { cwd: '/local/mgmt', accountBinding: { provider: 'anthropic-vertex' } },
+      {},
+    ),
+  ).toBe(false);
+  const hide = vi.fn();
+  const app = express();
+  app.use(
+    '/api/sessions',
+    createSessionRemovalRouter({
+      authorize: (_req, _res, next) => next(),
+      lifecycle: () => null,
+      hasSandbox: () => sessionNeedsSandboxReview(meta, {}),
+      hide,
+      changed: vi.fn(),
+    }),
+  );
+  expect(
+    (await request(app).get('/api/sessions/legacy/deletion-preview').expect(200)).body
+      .blockedReason,
+  ).toMatch(/ownership/);
+  await request(app).delete('/api/sessions/legacy').expect(409);
+  expect(hide).not.toHaveBeenCalled();
+  await request(app).delete('/api/sessions/legacy?archive=1').expect(200);
+  expect(hide).toHaveBeenCalledWith('legacy');
 });

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.277-sandbox-cleanup.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.277-sandbox-cleanup.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -488,7 +488,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '55520968c64c5ab3d80d770d289fa5da518ebf16fac8e5dc3db91fb2ed578099',
+  '../app.ts': 'a34220a59775dd7bcb4c1207cdad37befa1e403eb739f4fd2744d1b2c5799a66',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -776,7 +776,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-codex-custody.ts':
     '879381e2a91161c01c257888cc6760203e505fc43f84ee9e9d84558ea60f695b',
   '../openshell-lifecycle-controller.ts':
-    '45c8d4077b9650703c034f3fef1ce317400c84d82fba5fd66984f937dd4c73cf',
+    '788d1cd5acfc01afb62a956b220cef6450c0a23e36c1f7fda1c6fb7b4f35723e',
   '../ordinary-codex-continuation-status.ts':
     '047c367c317b24f64dd346d5deeb67360afa0fdefa3e2ae12e05f52382401a24',
   '../ordinary-openshell-codex-entry-owner.ts':
@@ -938,7 +938,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5bf3fb28f79159e8f124b1216366a9c98e6bc8e3d28d90c11ce3a4a0ed6c7934',
 
   // Reviewed conversation removal, physical inventory and shared confirmation owners.
-  '../session-removal.ts': '0fad7f5608e59c40af28329f2707b349bd59eec150694709fd298452cef1334a',
+  '../session-removal.ts': 'fadb2a3875871808bb898823779ccda1f36a32199389df403f007d56fc937919',
   '../sandbox-inventory.ts': 'c785cab670191e142ef24d819b6e56950c910f7dffbb67613c0c71ac72bca4b9',
   '../../frontend/src/components/SessionRemovalDialog.tsx':
     'a8847d5bc7f3cef2415d1a49d39a8a1763a02723f4ad97588f7b0e21df8dc814',

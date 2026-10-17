@@ -1,4 +1,4 @@
-import { createSessionRemovalRouter } from './session-removal.js';
+import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
 import { summarizeSandboxInventory } from './sandbox-inventory.js';
 import { readOpenShellSandboxInventory } from './openshell-lifecycle-controller.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
@@ -2858,11 +2858,13 @@ app.use(
     lifecycle: () => openShellLifecycleService,
     hasSandbox: (id) => {
       const meta = eventStore.getSession(id);
-      return (
-        meta?.sessionType === 'symposium' ||
-        !!meta?.symposiumConfig ||
-        meta?.cwd?.startsWith('/sandbox/') === true
-      );
+      return sessionNeedsSandboxReview(meta, {
+        runtimeLocation:
+          registry.findBySessionId(id)?.session.ordinaryRuntimeOwner?.location ??
+          (meta ? eventStore.getSessionRuntimeBinding(id)?.execution.location : undefined),
+        legacyOpenShellConfigured:
+          !!process.env.MITZO_OPENSHELL_SANDBOX_NAME || process.env.MITZO_OPENSHELL_ENABLED === '1',
+      });
     },
     hide: hideSession,
     changed: (id) => {

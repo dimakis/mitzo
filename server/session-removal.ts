@@ -2,6 +2,39 @@ import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js';
 
+/** Positive remote evidence or unresolved legacy Codex routing requires ownership
+ * review. Working directories alone cannot establish execution location. */
+export function sessionNeedsSandboxReview(
+  meta:
+    | {
+        cwd?: string | null;
+        sessionType?: string;
+        symposiumConfig?: string | null;
+        accountBinding?: { provider: string } | null;
+      }
+    | undefined
+    | null,
+  evidence: {
+    runtimeLocation?: 'local' | 'openshell';
+    legacyOpenShellConfigured?: boolean;
+  },
+): boolean {
+  if (
+    meta?.sessionType === 'symposium' ||
+    meta?.symposiumConfig ||
+    meta?.cwd?.startsWith('/sandbox/')
+  )
+    return true;
+  if (evidence.runtimeLocation) return evidence.runtimeLocation === 'openshell';
+  // Legacy OpenAI conversations predate retained location bindings. Their cwd
+  // can be arbitrary, and today's server configuration cannot prove past routing.
+  return (
+    meta?.accountBinding?.provider === 'openai' ||
+    meta?.accountBinding?.provider === 'openai-codex' ||
+    (!meta?.accountBinding && evidence.legacyOpenShellConfigured === true)
+  );
+}
+
 /** Session visibility changes only after physical release has been verified.
  * Archive is deliberately separate and never implies destructive consent. */
 export function createSessionRemovalRouter(deps: {
