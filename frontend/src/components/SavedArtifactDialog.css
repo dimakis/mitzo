@@ -26,6 +26,8 @@
   gap: var(--space-2);
 }
 .saved-artifact-version select {
+  appearance: none;
+  box-sizing: border-box;
   min-height: var(--control-height);
   width: 100%;
   background: var(--color-surface);
@@ -104,4 +106,13 @@ section.todo-detail-outputs .output-action {
 .output-provenance dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.saved-artifact-work-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--control-height);
+  text-decoration: none;
 }

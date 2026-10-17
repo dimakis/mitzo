@@ -31,13 +31,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/retained-artifact-api.ts':
     '4db9e055e7b8162399233c010387066a189ce94cb8e8396ef11134f6a2ec6e9c',
   '../../frontend/src/components/SavedArtifactDialog.css':
-    'e94dd20e76087411be637c21a978353e75e274cbd09addf71d224314b9e24097',
+    'd42d2f0316e0c3f2e3828cc73bfad511e2bd7dab44dd826566fa39efca0fe982',
   '../../frontend/src/components/SavedArtifactDialog.tsx':
-    '300db06e4a78c62b3097ac4bc1911f8311f70bb03ac87c08856941f2794aeabe',
+    'f2482a6a715ab47d4f5f7eabc7469a50f272371bad5f5bec33a7307bbd9d62cf',
   '../collaboration-retained-artifact-source.ts':
     'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
   '../collaboration-forwarding.ts':
-    '8ba9f93a9d3cb7948c87eff7559a06d0f431fb792a15b31c0904aea35608a7af',
+    '46aa4578a8d6657b14c08e3860791640d3a78e8dbdfda2b30929eda43a6717e5',
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':

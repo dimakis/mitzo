@@ -13,7 +13,7 @@ afterEach(async () => {
   fixtures.splice(0).forEach((f) => f.close());
   vi.restoreAllMocks();
 });
-async function fixture() {
+async function fixture(onAuthorize?: (path: string) => Promise<void>) {
   const f = createCollaborationRetainedArtifactFixture();
   fixtures.push(f);
   const revisions = Array.from({ length: 54 }, (_, index) =>
@@ -39,6 +39,7 @@ async function fixture() {
           res.sendStatus(403);
           return;
         }
+        await onAuthorize?.(f.path);
         res.locals.authSession = { id: 'fixture' };
         next();
       },
@@ -142,4 +143,50 @@ it('refuses changed public eligibility when an older saved preview or export is 
     .set('X-Operator', 'fixture');
   expect(preview.status).toBe(403);
   expect(preview.body.content).toBeUndefined();
+});
+
+it('refuses same-size saved-byte corruption for preview and native export', async () => {
+  const f = await fixture();
+  const saved = f.revisions[0];
+  const db = new Database(f.path);
+  db.prepare('UPDATE telos_artifact_revisions SET bytes=? WHERE id=? AND revision=1').run(
+    Buffer.alloc(saved.size, 120),
+    saved.id,
+  );
+  db.close();
+  for (const url of [saved.url, `/api/telos/artifacts/${saved.id}/document?revision=1`]) {
+    const response = await request(f.app).get(url).set('X-Operator', 'fixture');
+    expect(response.status).toBe(503);
+    expect(response.body.content).toBeUndefined();
+    expect(response.text).not.toContain('Exact saved');
+  }
+});
+
+it('renews exact scoped packet custody after interactive authorization awaits', async () => {
+  const control: { mutate?: (path: string) => void } = {};
+  const f = await fixture(async (path) => {
+    await Promise.resolve();
+    control.mutate?.(path);
+  });
+  const packet = f.store.save({
+    itemId: f.itemId,
+    filename: 'review.md',
+    title: 'Scoped review',
+    bytes: Buffer.from('Reviewed source'),
+    sessionId: 'source-capture:fixture',
+  });
+  expect((await request(f.app).get(packet.url).set('X-Operator', 'fixture')).status).toBe(200);
+  control.mutate = (path) => {
+    const db = new Database(path);
+    db.prepare('UPDATE telos_artifact_revisions SET bytes=? WHERE id=? AND revision=1').run(
+      Buffer.alloc(packet.size, 120),
+      packet.id,
+    );
+    db.close();
+  };
+  const response = await request(f.app)
+    .get(`/api/telos/artifacts/${packet.id}/document?revision=1`)
+    .set('X-Operator', 'fixture');
+  expect(response.status).toBe(503);
+  expect(response.body.content).toBeUndefined();
 });

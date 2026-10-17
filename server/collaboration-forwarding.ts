@@ -142,7 +142,7 @@ export async function prepareCollaborationForward(
           requestId: input.requestId,
           expectedMembershipRevision: input.target.expectedMembershipRevision,
           sourceConversationId: input.sourceConversationId,
-          boundary: structuredClone(input.boundary),
+          boundary: structuredClone(boundary),
           mode: 'selected',
           messageIds: input.messages.map((m) => m.messageId),
           artifacts: [],

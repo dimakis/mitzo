@@ -171,3 +171,14 @@ it('refuses a changed hash for the selected saved revision before preview hydrat
     false,
   );
 });
+
+it('links only the actual retained Work item without creating an association', async () => {
+  render(<SavedArtifactDialog artifact={version(1)} onClose={vi.fn()} />);
+  await screen.findByRole('heading', { name: 'Version 1' });
+  expect(screen.getByRole('link', { name: 'Open Work item' }).getAttribute('href')).toBe(
+    '/todos/work',
+  );
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+  ).toBe(true);
+});

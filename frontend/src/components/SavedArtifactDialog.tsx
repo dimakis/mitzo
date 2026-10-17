@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import type { TodoOutput } from '../types/todo';
 import type { SavedArtifactDocument, SavedArtifactVersion } from '../types/retained-artifact';
@@ -14,6 +14,7 @@ import {
   rehypePlugins,
   remarkPlugins,
 } from '../lib/markdown-config';
+import { UiIcon } from './UiIcon';
 import { HomeDialog } from './HomeDialog';
 import { ShareButton } from './ShareButton';
 import { HtmlPreview } from './HtmlPreview';
@@ -261,6 +262,13 @@ function SavedArtifactDetails({
           <p>Delivery information is not recorded here.</p>
           <small>Saving under Work does not deliver content to every agent.</small>
         </section>
+        <Link
+          className="home-secondary saved-artifact-work-link"
+          to={`/todos/${encodeURIComponent(version.itemId)}`}
+        >
+          <span>Open Work item</span>
+          <UiIcon name="forward" size={16} />
+        </Link>
         <details>
           <summary>Provenance</summary>
           <dl>
