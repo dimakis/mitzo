@@ -1,5 +1,8 @@
 import {
   TelosSourcePermissionReviewSchema,
+  TelosSourceMaterialPageRequestSchema,
+  TelosSourceMaterialPageSchema,
+  type TelosSourceMaterialPageRequest,
   TelosSourcePermissionPreviewRequestSchema,
   TelosSourcePermissionPreviewSchema,
   TelosSourcePermissionApproveRequestSchema,
@@ -52,6 +55,24 @@ export class TelosWorkApiClient {
           afterSequence: String(afterSequence),
         }),
       TelosSourcePermissionReviewSchema,
+      undefined,
+      signal,
+    );
+  }
+  getSourceMaterials(permId: string, raw: TelosSourceMaterialPageRequest, signal?: AbortSignal) {
+    const input = TelosSourceMaterialPageRequestSchema.parse(raw);
+    const query = new URLSearchParams({
+      sessionId: input.sessionId,
+      toolUseId: input.toolUseId,
+      proposalSha256: input.proposalSha256,
+    });
+    if (input.after) query.set('after', JSON.stringify(input.after));
+    return this.request(
+      'source/permissions/' +
+        encodeURIComponent(TelosWorkIdSchema.parse(permId)) +
+        '/materials?' +
+        query,
+      TelosSourceMaterialPageSchema,
       undefined,
       signal,
     );

@@ -13,7 +13,13 @@ export const ConfiguredToolReferenceSchema = z.strictObject({
   version: z.number().int().positive(),
   revision: z.uuid(),
 });
+export const ApiToolReferenceSchema = z.strictObject({
+  id: z.string().regex(/^api:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/),
+  version: z.number().int().positive(),
+  revision: z.uuid(),
+});
 export const AgentToolReferenceSchema = z.union([
+  ApiToolReferenceSchema,
   BuiltinToolReferenceSchema,
   ConfiguredToolReferenceSchema,
 ]);
@@ -33,4 +39,5 @@ export type AgentToolCatalogEntry = AgentToolReference & {
   behavior: 'read' | 'write' | 'mixed' | 'interaction';
   routes: string[];
   requirement: string;
+  implementation?: { template: string; source: string; fingerprint: string };
 };

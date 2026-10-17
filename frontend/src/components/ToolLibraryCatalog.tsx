@@ -131,6 +131,16 @@ export function ToolLibraryCatalog({
                 <div className="tool-library-facts">
                   <p>{tool.description}</p>
                   <dl>
+                    {tool.implementation && (
+                      <div>
+                        <dt>Reviewed implementation</dt>
+                        <dd>
+                          {tool.implementation.template} · <code>{tool.implementation.source}</code>
+                          <br />
+                          SHA-256 <code>{tool.implementation.fingerprint}</code>
+                        </dd>
+                      </div>
+                    )}
                     <div>
                       <dt>Tool ID</dt>
                       <dd>

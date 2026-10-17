@@ -33,7 +33,7 @@ export function assertAgentToolRoute(
     );
   const catalog = agentToolCatalog();
   for (const ref of definition.tools) {
-    if (ref.id.startsWith('mcp:')) continue;
+    if (ref.id.startsWith('mcp:') || ref.id.startsWith('api:')) continue;
     const entry = catalog.find((tool) => tool.id === ref.id && tool.version === ref.version);
     if (!entry?.routes.includes(route))
       throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
@@ -91,6 +91,13 @@ export function assertAgentToolAvailability(
   ];
   const selected = operations.filter((name) => names.has(`mitzo:${name}`));
   const service = getCredentialConnectionsRuntime();
+  if (
+    definition.tools.some((ref) => ref.id.startsWith('api:')) &&
+    !names.has('mitzo:RequestConnectionAccess')
+  )
+    throw Error(
+      'Select RequestConnectionAccess alongside API tools for their existing approval flow',
+    );
   if (selected.length) {
     const active =
       service?.catalog(sessionId).filter((connection) => connection.status === 'active') ?? [];

@@ -96,28 +96,34 @@ export function createCredentialConnectionTools(
         : []),
       'Your key stays private. Access lasts only for this chat until you revoke it. Other chats ask separately.',
     ].join(' ');
-    const decision = await approve(
-      'RequestConnectionAccess',
-      { ...input },
-      {
-        signal,
-        toolUseID: randomUUID(),
-        forcePrompt: true,
-        rememberSessionGrant: false,
-        approvalScope: 'conversation',
-        title: `Allow ${c.label} in this chat?`,
-        description: scope,
-      },
-    );
-    signal.throwIfAborted();
-    if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
-    if (
-      !stillAllowed('RequestConnectionAccess') ||
-      !isDeepStrictEqual(decision.updatedInput, input)
-    )
-      return { content: 'Connection approval changed; retry', isError: true };
-    service.grant(sessionId, connectionId, input.revision);
-    return { content: 'Connection is approved for this session', isError: false };
+    const revocation = service.observeSessionRevocation(sessionId, connectionId);
+    const approvalSignal = AbortSignal.any([signal, revocation.signal]);
+    try {
+      const decision = await approve(
+        'RequestConnectionAccess',
+        { ...input },
+        {
+          signal: approvalSignal,
+          toolUseID: randomUUID(),
+          forcePrompt: true,
+          rememberSessionGrant: false,
+          approvalScope: 'conversation',
+          title: `Allow ${c.label} in this chat?`,
+          description: scope,
+        },
+      );
+      approvalSignal.throwIfAborted();
+      if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
+      if (
+        !stillAllowed('RequestConnectionAccess') ||
+        !isDeepStrictEqual(decision.updatedInput, input)
+      )
+        return { content: 'Connection approval changed; retry', isError: true };
+      service.grant(sessionId, connectionId, input.revision);
+      return { content: 'Connection is approved for this session', isError: false };
+    } finally {
+      revocation.close();
+    }
   };
   return {
     definitions: credentialConnectionToolDefinitions,

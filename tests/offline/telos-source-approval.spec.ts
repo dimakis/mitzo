@@ -58,6 +58,7 @@ for (const theme of ['dark', 'light'] as const)
         const approvalRequests: unknown[] = [];
         const reviews: TelosSourcePermissionReview[] = [];
         let recoveryReadUnavailable = false;
+        let materialReadUnavailable = false;
         const account = {
           id: 'offline-account',
           label: 'Offline fixture account',
@@ -136,7 +137,7 @@ for (const theme of ['dark', 'light'] as const)
             });
           }
           const permission = path.match(
-            /^\/api\/telos\/work\/source\/permissions\/([^/]+)(?:\/(preview|approve))?$/,
+            /^\/api\/telos\/work\/source\/permissions\/([^/]+)(?:\/(preview|approve|materials))?$/,
           );
           if (permission) {
             try {
@@ -149,17 +150,39 @@ for (const theme of ['dark', 'light'] as const)
                   json: { code: 'unavailable', error: 'Offline fixture interrupts recovery reads' },
                 });
               }
+              if (operation === 'materials' && materialReadUnavailable) {
+                return route.fulfill({
+                  status: 503,
+                  json: {
+                    code: 'unavailable',
+                    error: 'Offline fixture interrupts material metadata reads',
+                  },
+                });
+              }
               const result =
                 operation === 'preview'
                   ? await host.service.preview(permId, request.postDataJSON(), host.actor)
                   : operation === 'approve'
                     ? await host.service.approve(permId, request.postDataJSON(), host.actor)
-                    : await host.service.review(
-                        permId,
-                        url.searchParams.get('sessionId')!,
-                        host.actor,
-                        Number(url.searchParams.get('afterSequence') ?? 0),
-                      );
+                    : operation === 'materials'
+                      ? await host.service.materials(
+                          permId,
+                          {
+                            sessionId: url.searchParams.get('sessionId')!,
+                            toolUseId: url.searchParams.get('toolUseId')!,
+                            proposalSha256: url.searchParams.get('proposalSha256')!,
+                            ...(url.searchParams.has('after')
+                              ? { after: JSON.parse(url.searchParams.get('after')!) }
+                              : {}),
+                          },
+                          host.actor,
+                        )
+                      : await host.service.review(
+                          permId,
+                          url.searchParams.get('sessionId')!,
+                          host.actor,
+                          Number(url.searchParams.get('afterSequence') ?? 0),
+                        );
               if (operation === 'preview') previews.push(result as TelosSourcePermissionPreview);
               if (!operation) reviews.push(result as TelosSourcePermissionReview);
               if (operation === 'approve') {
@@ -553,6 +576,83 @@ for (const theme of ['dark', 'light'] as const)
           await page.screenshot({
             path: info.outputPath(`source-approval-live-restored-${theme}.png`),
           });
+        }
+        if (responseLoss === 'canonical') {
+          const history = host.retainMaterialHistory();
+          const materials = await request('create', 'sdk');
+          await materials.getByRole('checkbox', { name: /Use the approved acoustic plan/ }).check();
+          // Text-only review remains available before material discovery ends.
+          await materials
+            .getByRole('button', { name: 'Review selected source', exact: true })
+            .click();
+          await expect(
+            materials.getByRole('region', { name: 'Reviewed source', exact: true }),
+          ).toBeVisible();
+          expect(previews.at(-1)!.preview.packet.context.artifacts).toEqual([]);
+          const more = materials.getByRole('button', {
+            name: 'Load more retained materials',
+            exact: true,
+          });
+          await more.scrollIntoViewIfNeeded();
+          expect((await more.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+          const beforeMaterialRead = host.retainedOwnerCounts();
+          const previewCountBeforeMaterialRead = previews.length;
+          materialReadUnavailable = true;
+          await more.click();
+          const readError = materials.getByRole('alert');
+          await expect(readError).toContainText('More retained materials are unavailable');
+          await expect(more).toBeEnabled();
+          await expect(
+            materials.getByRole('region', { name: 'Reviewed source', exact: true }),
+          ).toBeVisible();
+          expect(host.retainedOwnerCounts()).toEqual(beforeMaterialRead);
+          expect(previews).toHaveLength(previewCountBeforeMaterialRead);
+          await readError.scrollIntoViewIfNeeded();
+          await expect(readError).toBeInViewport();
+          await page.screenshot({
+            path: info.outputPath(`source-material-pages-error-${theme}.png`),
+          });
+          materialReadUnavailable = false;
+          await more.click();
+          const older = materials.getByRole('checkbox', {
+            name: /Retained material history.*revision 150 /,
+          });
+          await expect(older).not.toBeChecked();
+          await older.check();
+          await more.click();
+          await expect(more).toHaveCount(0);
+          await expect(older).toBeChecked();
+          await expect(
+            materials.getByRole('checkbox', { name: /Retained material history.*revision 205 / }),
+          ).not.toBeChecked();
+          await older.scrollIntoViewIfNeeded();
+          await page.screenshot({
+            path: info.outputPath(`source-material-pages-choice-${theme}.png`),
+          });
+          await materials
+            .getByRole('button', { name: 'Review selected source', exact: true })
+            .click();
+          const reviewed = materials.getByRole('region', { name: 'Reviewed source', exact: true });
+          await expect(reviewed).toBeVisible();
+          const pin = previews.at(-1)!.preview.packet.context.artifacts;
+          expect(pin).toHaveLength(1);
+          expect(pin[0]).toMatchObject({
+            artifactId: history[149].id,
+            revision: 150,
+            sha256: history[149].sha256,
+            contentBase64: Buffer.from('Exact retained material revision 150').toString('base64'),
+          });
+          expect(host.artifacts.read(history[149].id).revision).toBe(205);
+          await reviewed.scrollIntoViewIfNeeded();
+          await page.screenshot({
+            path: info.outputPath(`source-material-pages-reviewed-${theme}.png`),
+          });
+          await materials.getByRole('button', { name: 'Allow Once', exact: true }).click();
+          await expect(materials).toHaveCount(0);
+          expect(host.receiptSource(receipts.at(-1)!).packet.context.artifacts[0].revision).toBe(
+            150,
+          );
+          expect(host.counts().allocations).toBe(0);
         }
         const beforeLoss = host.counts();
         const receiptsBeforeLoss = receipts.length;

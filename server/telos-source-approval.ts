@@ -6,6 +6,9 @@ import {
   TelosSourcePermissionPreviewRequestSchema,
   TelosSourcePermissionApproveRequestSchema,
   TelosSourcePermissionReviewSchema,
+  TelosSourceMaterialPageRequestSchema,
+  TelosSourceMaterialPageSchema,
+  type TelosSourceMaterialCursor,
   TelosSourcePermissionReceiptSchema,
   type TelosSourcePermissionOperation,
   type TelosSourcePermissionPreviewRequest,
@@ -38,6 +41,8 @@ export class TelosSourceApproval {
       work: TelosWorkStore;
       artifacts: TelosArtifactStore;
       store: TelosSourceApprovalStore;
+      /** Current interactive authority supplied only by the authenticated host. */
+      assertAuthorized?(): void;
       createOutcome(input: TelosOutcomeCreation): Promise<{ itemId: string; receipt?: unknown }>;
     },
   ) {
@@ -49,6 +54,7 @@ export class TelosSourceApproval {
     });
   }
   private operator(actor: TelosWorkActor) {
+    this.options.assertAuthorized?.();
     if (actor.kind !== 'operator' || !actor.id.trim())
       throw new TelosWorkError('unauthorized', 'Interactive operator authority required');
     return 'operator:' + actor.id;
@@ -108,6 +114,8 @@ export class TelosSourceApproval {
         },
         messages: [],
         artifacts: [],
+        artifactCursor: null,
+        artifactsHasMore: false,
         cursor: preview.packet.context.boundary.sequence,
         hasMore: false,
         recovery: {
@@ -151,6 +159,7 @@ export class TelosSourceApproval {
         joiningBrief: '',
       };
       const opened = await source.openConversation(selection, true);
+      this.operator(actor);
       if (!isDeepStrictEqual(this.pending(permId, sessionId), proof))
         throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
       const message = opened.publicMessages.find((message) => message.messageId === messageId);
@@ -163,6 +172,10 @@ export class TelosSourceApproval {
     }
     if (!isDeepStrictEqual(this.pending(permId, sessionId), proof))
       throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
+    const materialPage = this.discoverMaterials(sessionId);
+    if (!isDeepStrictEqual(this.pending(permId, sessionId), proof))
+      throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
+    this.operator(actor);
     return TelosSourcePermissionReviewSchema.parse({
       permId,
       sessionId,
@@ -179,7 +192,21 @@ export class TelosSourceApproval {
         },
       },
       messages,
-      artifacts: this.options.artifacts.sourceMaterials(sessionId).map((a) => ({
+      artifacts: materialPage.artifacts,
+      artifactCursor: materialPage.cursor,
+      artifactsHasMore: materialPage.hasMore,
+      cursor,
+      hasMore: anchors.length > 50,
+    });
+  }
+  private discoverMaterials(sessionId: string, after?: TelosSourceMaterialCursor) {
+    const source = this.options.events.getSession(sessionId);
+    if (!source || source.isHidden || source.conversationSource === 'external_import')
+      throw new TelosWorkError('conflict', 'Original source is unavailable');
+    const page = this.options.artifacts.sourceMaterialPage(sessionId, after);
+    return {
+      ...page,
+      artifacts: page.artifacts.map((a) => ({
         artifactId: a.id,
         revision: a.revision,
         sha256: a.sha256,
@@ -189,8 +216,46 @@ export class TelosSourceApproval {
         createdAt: a.createdAt,
         sessionId: a.sessionId,
       })),
-      cursor,
-      hasMore: anchors.length > 50,
+    };
+  }
+  materials(permId: string, raw: unknown, actor: TelosWorkActor) {
+    const actorId = this.operator(actor);
+    const input = TelosSourceMaterialPageRequestSchema.parse(raw);
+    const retained = this.options.store.lookup(permId, input.sessionId, actorId);
+    if (retained) {
+      if (
+        retained.proof.toolUseId !== input.toolUseId ||
+        retained.input.proposalSha256 !== input.proposalSha256
+      )
+        throw new TelosWorkError('conflict', 'Original reviewed source approval changed');
+      this.operator(actor);
+      return TelosSourceMaterialPageSchema.parse({
+        permId,
+        sessionId: input.sessionId,
+        toolUseId: input.toolUseId,
+        proposalSha256: input.proposalSha256,
+        artifacts: [],
+        cursor: null,
+        hasMore: false,
+      });
+    }
+    const proof = this.pending(permId, input.sessionId);
+    const operation = this.operation(proof, actor);
+    if (
+      proof.toolUseId !== input.toolUseId ||
+      sourceApprovalHash(operation) !== input.proposalSha256
+    )
+      throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
+    const page = this.discoverMaterials(input.sessionId, input.after);
+    if (!isDeepStrictEqual(this.pending(permId, input.sessionId), proof))
+      throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
+    this.operator(actor);
+    return TelosSourceMaterialPageSchema.parse({
+      permId,
+      sessionId: input.sessionId,
+      toolUseId: proof.toolUseId,
+      proposalSha256: input.proposalSha256,
+      ...page,
     });
   }
   private async compile(
@@ -219,6 +284,7 @@ export class TelosSourceApproval {
       operation.kind === 'create'
         ? await this.capture.previewNew({ requestId, outcome: operation.outcome, selection }, actor)
         : await this.capture.preview({ itemId: operation.itemId, selection }, actor);
+    this.operator(actor);
     if (operation.kind === 'adopt' && preview.packet.workRevision !== operation.expectedRevision)
       throw new TelosWorkError('conflict', 'Target item changed; review again');
     if (!isDeepStrictEqual(this.pending(permId, input.sessionId), proof))
@@ -265,6 +331,7 @@ export class TelosSourceApproval {
         throw new TelosWorkError('conflict', 'Reviewed source changed; review again');
       if (!isDeepStrictEqual(this.pending(permId, input.sessionId), compiled.proof))
         throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
+      this.operator(actor);
       record = this.options.store.prepare(
         compiled.proof,
         actorId,
@@ -332,6 +399,7 @@ export class TelosSourceApproval {
               actor,
               readPreparedPreview,
             );
+      this.operator(actor);
       const source = receipt.work.sources.find(
         (source) =>
           source.artifacts.at(-1)?.sha256 === input.previewSha256 &&

@@ -222,6 +222,27 @@ export function createTelosSourceApprovalData() {
     loseNextCanonicalResponse() {
       loseCanonicalResponse = true;
     },
+    retainMaterialHistory(count = 205) {
+      const rows = Array.from({ length: count }, (_, i) =>
+        artifacts.save({
+          itemId: 'studio',
+          filename: 'material-history.md',
+          title: 'Retained material history',
+          bytes: Buffer.from('Exact retained material revision ' + (i + 1)),
+          sessionId: 'planning',
+        }),
+      );
+      // Deterministic, tied fixture dates exercise the actual owner keyset.
+      const fixtureDb = new Database(dbPath);
+      try {
+        fixtureDb
+          .prepare('UPDATE telos_artifact_revisions SET created_at=? WHERE id=?')
+          .run('2026-10-17T00:00:00.000Z', rows[0].id);
+      } finally {
+        fixtureDb.close();
+      }
+      return rows;
+    },
     restartOwners() {
       controller.abort();
       registry.dispose();
