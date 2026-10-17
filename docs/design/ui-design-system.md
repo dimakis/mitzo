@@ -1465,3 +1465,53 @@ large text, keyboard activation and reduced motion. Inspected captures show
 [mobile activity](assets/research-activity-mobile-dark.png) and
 [desktop activity](assets/research-activity-desktop-light.png). These isolated
 renders use intercepted traffic and no backend, credentials or model calls.
+
+## Telos outcomes and item workspace (S7)
+
+The approved r1 Telos tree remains pinned by artifact identity and SHA-256 in
+[telos-workspaces/README.md](telos-workspaces/README.md). `TelosOutcomesTree` uses
+shared `UiIcon`, semantic tokens, spacing/type/radius scales, control height and
+keyboard focus. All outcomes stays first; category pins, discovery, query and
+expansion persist on this device. Categories come from canonical records, while
+legacy profile filtering remains available in the explicit original-record fallback.
+Kind labels never come from child counts or source profiles. Current-role links
+are read through the existing work client; the row enters the workspace Chat tab
+and the existing role owner performs setup. It never allocates from a tree read.
+
+`TelosItemWorkspace` retains the original brief beside its content on desktop and
+below it on phones. One Back chevron returns through item history or the retained
+collection. The focused desktop item stays inside `DesktopShell`; `MobileShell`
+continues to own collection branding/navigation. Parent kinds expose Work; leaves
+expose Overview, Chat and Materials. Existing role, source and saved-output owners
+supply those entry points. Source exchanges, retained bytes and external links
+remain distinct. The output disclosure shows exact revision/hash, recorded save
+time and source identity; unavailable author/date facts remain explicit.
+
+The brief's 20rem column is structural reading geometry. Search wraps before the
+actions at phone widths and uses five shared control heights as its preferred
+basis. Output actions move below the copy so full hashes cannot squeeze titles.
+Native disclosures require no extra animation lifecycle. No palette, typography,
+shared settings reference or frozen approval changed.
+
+Inspected all-intercept captures: [phone tree](assets/telos-s7-tree-mobile-dark.png),
+[desktop tree](assets/telos-s7-tree-desktop-light.png),
+[phone materials](assets/telos-s7-materials-mobile-light.png),
+[desktop materials](assets/telos-s7-materials-desktop-light.png) and
+[repository-backed brief](assets/telos-s7-software-desktop-dark.png).
+The focused fixture exercises actual pages/shells, schema-validated record/work
+DTOs and the accepted canonical projector, with an inert protocol transport.
+Checks cover 320px WebKit/Chromium, 1280px Chromium, light/dark, Mint/System and
+Teal/Georgia, touch geometry, bounded copy/search, failure/retry, empty states,
+recursive context search, pin persistence, navigation and reload. It makes no
+backend, credential or model calls. These captures document interim implementation,
+not a new approval or final CT13 acceptance.
+
+Open integration boundaries: accepted S5a/S5b; CT14 after the priority UI owner is
+accepted; the work API's missing authoritative attention classification (Needs you
+stays unavailable); collection-wide record/category projection (currently bounded
+per-record reads); coordinator setup from its existing owner; and S8's chooser,
+ordinary header and collapsible chat tree. Full frontend type checking exceeded
+this Mac's prescribed 1 GiB heap; full build/application coverage remains CI.
+S7 and parent acceptance remain open pending real persistence/API integration and
+approved visual/contract acceptance on the combined sources. No staging or runtime
+qualification is implied by these fixtures.
