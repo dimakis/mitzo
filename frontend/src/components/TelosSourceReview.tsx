@@ -165,6 +165,9 @@ export function useTelosSourceReview({
   const [readAttempt, setReadAttempt] = useState(0);
   const abort = useRef<AbortController | null>(null);
   const loadingPage = useRef(false);
+  const materialAbort = useRef<AbortController | null>(null);
+  const loadingMaterials = useRef(false);
+  const [materialsLoading, setMaterialsLoading] = useState(false);
   const valid = useCallback(
     (key: string, version: number) =>
       alive.current && current.current === key && generation.current === version,
@@ -187,6 +190,9 @@ export function useTelosSourceReview({
     setSaving(false);
     setLoading(false);
     loadingPage.current = false;
+    materialAbort.current?.abort();
+    loadingMaterials.current = false;
+    setMaterialsLoading(false);
     setSaved(false);
     setSavedItem(null);
     setError(null);
@@ -290,6 +296,9 @@ export function useTelosSourceReview({
       controller.abort();
       abort.current?.abort();
       loadingPage.current = false;
+      materialAbort.current?.abort();
+      loadingMaterials.current = false;
+      setMaterialsLoading(false);
       setBlocked(true);
       setReview(null);
       setPreview(null);
@@ -306,6 +315,7 @@ export function useTelosSourceReview({
       alive.current = false;
       controller.abort();
       abort.current?.abort();
+      materialAbort.current?.abort();
       window.removeEventListener(AUTH_LOST_EVENT, authLost);
     };
   }, [identity, enabled, permId, sessionId, recoveryOnly, readAttempt, valid]);
@@ -320,6 +330,9 @@ export function useTelosSourceReview({
     generation.current++;
     abort.current?.abort();
     loadingPage.current = false;
+    materialAbort.current?.abort();
+    loadingMaterials.current = false;
+    setMaterialsLoading(false);
     setPreview(null);
     setPreviewInput(null);
     setError(null);
@@ -349,6 +362,9 @@ export function useTelosSourceReview({
     const version = ++generation.current;
     abort.current?.abort();
     loadingPage.current = false;
+    materialAbort.current?.abort();
+    loadingMaterials.current = false;
+    setMaterialsLoading(false);
     const controller = new AbortController();
     abort.current = controller;
     setLoading(true);
@@ -394,19 +410,111 @@ export function useTelosSourceReview({
         page.cursor <= activeReview.cursor
       )
         throw Error('Source request changed.');
-      setReview({
-        ...page,
-        messages: [
-          ...activeReview.messages,
-          ...page.messages.filter(
-            (m) => !activeReview.messages.some((old) => old.messageId === m.messageId),
-          ),
-        ],
-      });
+      setReview((previous) =>
+        previous && previous.permId === permId && previous.sessionId === sessionId
+          ? {
+              ...previous,
+              cursor: page.cursor,
+              hasMore: page.hasMore,
+              messages: [
+                ...previous.messages,
+                ...page.messages.filter(
+                  (m) => !previous.messages.some((old) => old.messageId === m.messageId),
+                ),
+              ],
+            }
+          : previous,
+      );
     } catch {
       if (valid(identity, version)) setError('More source messages are unavailable. Try again.');
     } finally {
       if (abort.current === controller) loadingPage.current = false;
+    }
+  }
+
+  async function loadMoreMaterials() {
+    if (!activeReview?.artifactsHasMore || !sessionId || disabled || loadingMaterials.current)
+      return;
+    const version = generation.current;
+    const controller = new AbortController();
+    materialAbort.current = controller;
+    loadingMaterials.current = true;
+    setMaterialsLoading(true);
+    setError(null);
+    try {
+      const after = activeReview.artifactCursor ?? undefined;
+      const page = await api.getSourceMaterials(
+        permId,
+        {
+          sessionId,
+          toolUseId: activeReview.toolUseId,
+          proposalSha256: activeReview.proposalSha256,
+          ...(after ? { after } : {}),
+        },
+        controller.signal,
+      );
+      if (!valid(identity, version)) return;
+      const cursor = page.cursor;
+      const advanced =
+        !after ||
+        (cursor &&
+          (cursor.createdAt > after.createdAt ||
+            (cursor.createdAt === after.createdAt &&
+              (cursor.artifactId > after.artifactId ||
+                (cursor.artifactId === after.artifactId && cursor.revision > after.revision)))));
+      if (
+        page.permId !== permId ||
+        page.sessionId !== sessionId ||
+        page.toolUseId !== activeReview.toolUseId ||
+        page.proposalSha256 !== activeReview.proposalSha256 ||
+        (page.artifacts.length > 0 && (!cursor || !advanced)) ||
+        (page.hasMore && (!cursor || !page.artifacts.length))
+      )
+        throw Error('Source material page changed.');
+      for (const artifact of page.artifacts) {
+        const old = activeReview.artifacts.find(
+          (a) => a.artifactId === artifact.artifactId && a.revision === artifact.revision,
+        );
+        if (old && old.sha256 !== artifact.sha256) throw Error('Source material revision changed.');
+      }
+      setReview((previous) =>
+        previous && previous.permId === permId && previous.sessionId === sessionId
+          ? {
+              ...previous,
+              artifacts: [
+                ...previous.artifacts,
+                ...page.artifacts.filter(
+                  (a) =>
+                    !previous.artifacts.some(
+                      (old) => old.artifactId === a.artifactId && old.revision === a.revision,
+                    ),
+                ),
+              ],
+              artifactCursor: page.cursor,
+              artifactsHasMore: page.hasMore,
+            }
+          : previous,
+      );
+    } catch (failure) {
+      if (valid(identity, version)) {
+        if (lostAuthority(failure)) {
+          attempted.delete(identity);
+          generation.current++;
+          abort.current?.abort();
+          setReview(null);
+          setPreview(null);
+          setPreviewInput(null);
+          setSelectedMessages([]);
+          setSelectedArtifacts([]);
+          setBlocked(true);
+          setError('Sign in again before reviewing this request.');
+        } else setError('More retained materials are unavailable. Try again.');
+      }
+    } finally {
+      if (materialAbort.current === controller) {
+        loadingMaterials.current = false;
+        if (alive.current) setMaterialsLoading(false);
+      }
     }
   }
 
@@ -536,7 +644,7 @@ export function useTelosSourceReview({
                   </button>
                 )}
               </fieldset>
-              {!!activeReview.artifacts.length && (
+              {(!!activeReview.artifacts.length || activeReview.artifactsHasMore) && (
                 <fieldset className="telos-source-choices" disabled={disabled}>
                   <legend>Select retained materials</legend>
                   {activeReview.artifacts.map((artifact) => (
@@ -568,6 +676,16 @@ export function useTelosSourceReview({
                       </span>
                     </label>
                   ))}
+                  {activeReview.artifactsHasMore && (
+                    <button
+                      type="button"
+                      className="perm-banner-btn"
+                      disabled={materialsLoading}
+                      onClick={() => void loadMoreMaterials()}
+                    >
+                      Load more retained materials
+                    </button>
+                  )}
                 </fieldset>
               )}
               <button

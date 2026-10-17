@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HomePreferences } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
+import { setLaunchQuoteEnabled } from '../lib/launch-quote';
 import { eventBus } from '../lib/event-bus-singleton';
 
 const LOCAL_CHANGE = 'mitzo-home-preferences-changed';
@@ -51,6 +52,7 @@ export function useHomePreferences() {
       if (mounted.current && id === request.current) {
         if (!current.current || result.revision >= current.current.revision) {
           current.current = result;
+          setLaunchQuoteEnabled(result.showDailyQuote);
           setPreferences(result);
         }
         setError((previous) => (previous?.startsWith('Couldn’t load') ? null : previous));
@@ -107,6 +109,7 @@ export function useHomePreferences() {
         const result = readPreferences(await response.json());
         if (!current.current || result.revision >= current.current.revision) {
           current.current = result;
+          setLaunchQuoteEnabled(result.showDailyQuote);
           if (mounted.current) setPreferences(result);
         }
         window.dispatchEvent(new Event(LOCAL_CHANGE));
