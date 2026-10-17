@@ -85,7 +85,9 @@ function read(
           resolve({
             status: response.statusCode ?? 0,
             location: response.headers.location,
-            link: response.headers.link,
+            link: Array.isArray(response.headers.link)
+              ? response.headers.link.join(', ')
+              : response.headers.link,
             type: response.headers['content-type'] ?? 'text/plain',
             body: Buffer.concat(chunks).toString('utf8'),
           });

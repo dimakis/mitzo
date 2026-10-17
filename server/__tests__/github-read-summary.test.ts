@@ -213,3 +213,22 @@ it.each(['public', 'approved'] as const)(
     expect(output.split('\n\n').slice(1).join('\n\n')).toBe(body);
   },
 );
+
+it('retains pagination when a transport exposes repeated Link headers', async () => {
+  const next = 'https://api.github.com/repos/example/project/issues?page=2';
+  const output = await fetchPublicPage(url, new AbortController().signal, {
+    resolve: async () => [{ address: '93.184.216.34', family: 4 }],
+    send: async () => ({
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+        link: [`<${next}>; rel="next"`, `<${next}>; rel="last"`],
+      },
+      body: JSON.stringify([]),
+    }),
+  });
+  expect(JSON.parse(output.split('\n\n').slice(1).join('\n\n')).pagination).toMatchObject({
+    next,
+    last: next,
+  });
+});
