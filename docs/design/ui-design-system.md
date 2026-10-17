@@ -15,6 +15,12 @@ The Connections inventory is the starting point: quiet surfaces, clear type, gro
 
 Stable agent identity colors use `--seat-color-*` in the same file. Persisted provider configuration is data, not a style declaration: the configuration adapter resolves the default identity color to the literal required by its existing API. Native status bars and browser theme metadata read the current background token rather than carrying their own copies.
 
+Route loading keeps shared Home controls and dialogs in the application entry stylesheet. Component styles load with their route; their control heights must use `--control-height` independently of global CSS ordering. Static markup browser fixtures include the styles owned by the components they represent. Offline regression captures show [shared Updates controls](assets/startup-shared-controls-mobile-light.png) and [profile controls loaded with the chat route](assets/startup-profile-controls-mobile-dark.png).
+
+If a route download fails, the existing error boundary explains the connection failure. Its Try Again control reloads the current document to clear rejected module promises; ordinary rendering errors retain the existing component reset. The offline route-recovery test blocks the Login chunk, restores connectivity and verifies sign-in after retry on all three browser projects.
+
+Dynamic route JavaScript uses direct imports rather than Vite modulepreload links: WebKit can retain a failed modulepreload across reloads. Initial HTML preloads and route CSS loading remain enabled, and the likely landing route still starts alongside authentication. Recovery acceptance must use the production Vite bundle because an esbuild fixture does not reproduce this preload behavior.
+
 ## Appearance preferences
 
 Settings exposes eight curated accents and seven locally available UI font stacks. Preset values live in the same token file, including the light/dark accent shades. The preference hook stores validated preset IDs in local storage and applies root data attributes immediately; startup restores them before React renders. The UI says these choices are saved on the current device. Code remains monospace, and Reset appearance restores System theme, Lavender accent and System font. Browser tests verify every accent pair meets 4.5:1 contrast for filled controls and that selections survive route changes and reloads.
@@ -1189,3 +1195,72 @@ content, long brief scrolling, pinned/reachable controls and retained edits.
 The full browser acceptance run is recorded separately with the PR checks.
 These captures qualify this bounded presentation, not application admission,
 saved-file artifact access, all-account/runtime operation or native iOS behavior.
+
+## Native biometric enrollment
+
+Native login offers an unchecked **Enable Face ID on this device** option (or the
+device's biometric label). Its description states that the passphrase is saved in
+secure device storage and protected by the enrolled biometrics. Failed legacy
+unlocks explain how to enroll after signing in. Enrollment failures remain visible
+and let the user continue with passphrase login by unchecking the option. This
+uses the existing login form and buttons, shared semantic color/type/spacing
+scales, and a checkbox label with the shared minimum control height. No new
+palette, font, motion or dialog pattern is introduced.
+
+The all-intercept `login-biometric` fixture renders the actual login component
+with a synthetic native bridge, at 320/390px mobile WebKit/Chromium and 1280px
+desktop Chromium. Dark Mint/Georgia and light Teal/System checks cover unchecked
+consent, keyboard toggle, wrapping, horizontal overflow, visible actions, minimum
+label height and protected storage arguments after login. Inspected captures:
+[mobile dark](assets/face-id-enrollment-mobile-dark.png) and
+[desktop light](assets/face-id-enrollment-desktop-light.png).
+These offline checks use synthetic credentials and no backend or model calls;
+real iOS Keychain/Face ID prompts still require separately authorized device testing.
+
+## Cold launch and offline quote handoff
+
+`StartupScreen` is the single full-screen brand surface while `ProtectedRoute`
+validates the existing session. The underlying application root is inert only
+while this surface is visible; authentication success or login redirection restores
+normal interaction immediately. The decorative animation does not grant access,
+retain a ready page, or change existing timeout/retry/logout rules.
+
+`LiquidLogo` samples the existing wordmark into bounded round droplets. One fall,
+a shallow spread, and a gathering rebound resolve into the original wordmark.
+Sampling, theme color and geometry happen once; animation frames perform no
+layout reads. Device pixel ratio is capped at two, and resize, backgrounding,
+unmount and Reduce Motion stop the animation. The shared motion helper contracts
+the wordmark into the quote mark and flies that mark to the actual Today quote
+link if it appears within a bounded window. Input never waits for either flight.
+
+The sixteen approved absurd phrases are selected once and retained through retry.
+After the introductory motion, a locally available attributed literary quote
+appears. Published daily selections and the quote visibility preference are cached
+by API origin. After Today loads, optional, cancellable reads prepare the next
+seven server-selected dates. A bundled approved quote covers first launch or a
+cache miss without claiming to be that day's server selection. No workspace data
+or credentials enter this cache. Real connection failures retain an explicit
+message and Retry below the quote.
+
+The new decorative liquid/quote/handoff timings live in `tokens.css`. All colors,
+fonts, spacing and text sizes use the existing semantic tokens; the logo's 256:94
+geometry and bounded 32rem reading width are structural. The entrance phrase keeps
+its position when the quote appears. The standalone launch surface owns viewport
+coverage; it adds no second visible collection masthead or navigation.
+
+Offline actual-component browser checks cover 320px mobile WebKit/Chromium and
+1280px desktop Chromium, dark Mint/Georgia and light Teal/System, fast success,
+slow success, retry, missing cache, expiry/login redirection, Reduce Motion,
+larger text, scrolling, keyboard Retry, 44px touch controls and uninterrupted
+input during the home handoff. These fixtures intercept all requests and use no
+backend, credentials or model. Inspected captures:
+[mobile logo](assets/startup-logo-mobile-dark.png),
+[mobile quote](assets/startup-quote-mobile-dark.png), and
+[desktop quote](assets/startup-quote-desktop-light.png).
+
+Focused unit/design checks, workspace package builds and frontend type checking
+pass. `npm run test:ui` reached the production Vite build and exhausted the required
+1 GiB local heap; the full build/application browser suite remains CI validation.
+This verifies frontend behavior, not a measured iPhone cold-start speedup. Physical
+Face ID/Keychain and device startup timings remain separately authorized device
+checks. Staging and production are untouched.

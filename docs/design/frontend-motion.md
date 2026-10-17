@@ -114,3 +114,15 @@ The duration, pause and return use the three `--motion-duration-waterfall*` toke
 Reduce Motion immediately shows/hides the wordmark without particles; preference
 changes, conversation reset and unmount cancel the active animation frame.
 Frame tests verify boundary clipping, reversible trajectories and sampling once.
+
+## Cold launch liquid and quote
+
+The optional startup decoration adds three centrally owned duration roles:
+`liquid` (1600ms), `quote` reveal (2200ms from launch), and `handoff` (450ms).
+`LiquidLogo` uses bounded round samples of the existing wordmark and a single
+normalized fall/spread/rebound; it cancels on background, resize or unmount.
+`animateLogoToQuote` and `animateQuoteHandoff` live in the shared motion helper.
+They read source/target geometry once and animate transforms/opacity only.
+The latter owns an inert decorative clone, cancelling/removing it on interruption.
+The authenticated page becomes interactive immediately, independent of the flight.
+Reduced motion shows the quote or wordmark directly and skips both flights.
