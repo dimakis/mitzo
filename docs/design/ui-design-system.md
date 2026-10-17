@@ -763,26 +763,43 @@ in dark/light appearance with Mint/Georgia. Inspected captures show the
 [fresh desktop chat](assets/fresh-chat-desktop-light.png), with briefing chrome
 restored only through the saved draft. No backend or model is used.
 
-## Agent creation advisor
+## Agent Builder entry from Library
 
-The Agent Library workbench stacks its advisor above the existing profile editor,
-including on mobile. New agent creation expands the panel; the labelled disclosure
-uses `useMotionPresence` to retain the conversation, question and picker on collapse.
-It reuses `AccountModelPicker` in adviser scope, `UiIcon`, the existing profile form,
-semantic colors, UI/mono fonts, spacing/radius scales and 44px control targets.
-The conversation has a bounded, keyboard-scrollable log. Proposed profiles expose
-review details and an explicit apply action before the ordinary Save draft and
-Publish revision actions. Stale proposals cannot replace newer form edits.
+Agent Library creation and refinement enter the existing ordinary Agent Builder
+chat. The Library keeps its manual profile editor, draft/publication lifecycle,
+version history and assigned tasks; it no longer stacks a separate advisor and
+adviser-only account setup above that editor. The shared ordinary settings own
+Agent, Account, Model, Thinking, Run on, derived Runs with and workspace controls.
+No alternate chat renderer, composer, account inventory or settings pattern is
+introduced.
 
-Offline Agent Library fixtures exercise advisor success/error, explicit selection,
-form application and draft recovery, keyboard focus, long content and scrolling,
-320px mobile and desktop layouts, light/dark themes and Teal/Georgia appearance.
-The ordinary Agent Builder chat profile retains its separate namespace fixture.
+A retained ordinary draft carries the exact profile/draft source snapshot through
+the existing source-context transport. Source context is disclosed in the ordinary
+chat and Resources; it stays separate from the editable short request. The normal
+conversation's profile proposal cards, approval controls and lifecycle remain
+available. Source content grants no runtime or publication authority. Setup never
+sends a model turn. Back navigation, repeated entry and acknowledgement retain
+the original draft/conversation rather than silently allocating another one.
 
-Inspected captures show [new agent creation on mobile](assets/agent-creation-mobile-dark.png)
-and [the desktop advisor above the profile form](assets/agent-creation-desktop-light.png).
-These are fully intercepted fixtures; no live model, backend or production service
-was used.
+Changes reuse existing shells, WorkspacePageHeading, UiIcon, shared source/context
+and resource controls, semantic tokens, motion and touch targets. Focused offline
+fixtures render the actual Library and responsive ordinary chat, with all traffic
+intercepted; broad application build and browser acceptance remain CI evidence.
+
+The focused Library/ordinary-chat fixture passes 17 checks across 320px mobile
+WebKit/Chromium and desktop Chromium in light/dark with Teal/Georgia. It covers
+exact source review, settings and draft retention, unavailable routes, accepted
+first command, proposal save failure/retry and acknowledged conversation reentry.
+Captures show [mobile source review](assets/agent-builder-mobile-source-dark.png),
+[shared mobile settings](assets/agent-builder-mobile-settings-light.png),
+[the saved proposal receipt](assets/agent-builder-mobile-saved-dark.png) and
+[ordinary desktop chat](assets/agent-builder-desktop-chat-light.png).
+These are intercepted fixtures, not live provider/device qualification. The saved
+receipt capture uses an intentionally first-command-only historical runtime to
+prove platform profile review remains available while unsupported sends stay
+blocked. Its inert event source leaves Stop visible. The shared narrow settings
+body retains an internal horizontal scrollbar; document bounds and 44px controls
+pass, and no Library-specific settings layout is introduced.
 
 ## Agent Library tasks and shared settings
 
@@ -794,7 +811,7 @@ Symposium selection stays inside a session.
 
 Task setup uses AgentSettingsPicker, controlled AccountModelPicker and
 ChatExecutionPicker with the ordinary runtime catalog. Its retained selection is
-separate from advisor and session defaults. The shared panel measures its own
+separate from Builder conversation and session defaults. The shared panel measures its own
 available space outside chat, keeps fields mounted when closed, scrolls internally,
 and restores trigger focus on Escape/Done. Library actions use quiet outlined or
 soft surfaces; type, spacing, radius, focus and touch heights use shared tokens.

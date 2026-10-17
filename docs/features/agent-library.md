@@ -100,11 +100,38 @@ The pinned Codex 0.160.0 provider truncates each additional-context value at 1,0
 
 The source contract is verified against OpenAI's exact `79b1b666f2e8551f8abbbca34957227f67f3f553` [fragment implementation](https://github.com/openai/codex/blob/79b1b666f2e8551f8abbbca34957227f67f3f553/codex-rs/context-fragments/src/additional_context.rs) and [ordered context store](https://github.com/openai/codex/blob/79b1b666f2e8551f8abbbca34957227f67f3f553/codex-rs/core/src/state/additional_context.rs). Offline tests assert complete Unicode reassembly, a fact in the middle, required final rules, complete generation replacement, and unchanged user input. This proves transport construction and acknowledged identity, not live model recall.
 
-## Agent advisor
+## Agent Builder chat
 
-**New agent** opens the advisor above the profile editor; **Create with advisor** expands it for the current profile without leaving the Library or replacing working edits. The inline advisor uses Terminal’s connected adviser account/model/thinking controls and inference-only transport. Each question deliberately includes the current draft and a bounded conversation history; it does not compile context or inspect saved profiles. A validated suggested profile can be reviewed and applied to the form with **Use suggested profile**. This leaves unsaved edits; saving and publishing remain separate actions. Changed drafts block stale suggestions, account/model changes clear the conversation, failed questions remain editable, and collapsing the panel preserves its state. The authenticated `/api/agent-library/advice` endpoint is also an explicit retained-owner IPC operation. It has no tools or catalog writes. Browser cancellation, IPC timeout and original-channel loss abort its inference signal; owner capacity and drain remain tied to actual handler cleanup. Late session preparation cannot start a cancelled model turn.
+**Create with Agent Builder** and **Refine with Agent Builder** open the existing ordinary
+Agent Builder conversation. The Library no longer embeds the inference-only
+advisor or its separate adviser-account controls. **New agent** still opens the
+manual profile editor. Account, model, thinking, execution target and workspace
+use the normal shared chat setup; an unavailable route stays unavailable rather
+than switching account or runtime.
 
-The separate built-in **Agent Builder** chat profile remains available at revision 1, with the short request “Help me create an agent.” Built-in selections carry an explicit `kind: "builtin"` namespace; selections without that marker always resolve saved catalog content, including an identical profile ID. Its guidance is resolved through authenticated profile selection, hashed and pinned in session metadata like a user profile; no setup prompt or schema is pasted into the transcript. Account and model selection remain explicit.
+The handoff retains a normal chat draft with an editable short request and an
+attached, content-hashed Agent Library source snapshot. The snapshot carries the
+exact selected published revision and definition, or the current unsaved draft
+and its version fences. It is reference data, not a tool grant or runtime profile.
+The selected chat identity remains the built-in **Agent Builder**, pinned through
+its explicit builtin namespace. Opening setup sends no provider turn, saves no
+profile and starts no scheduled work.
+
+Returning to the same source reopens its retained draft or acknowledged ordinary
+conversation. Profile edits and conversation drafts remain independent; changing
+the source preserves the earlier conversation. The normal composer, Resources,
+settings, approval, Stop and reconnect owners remain in control. Proposed profile
+edits use the existing review cards and authenticated save/publication lifecycle.
+The saved source is visible in ordinary chat context without placing the complete
+profile JSON in the editable user message.
+
+The built-in **Agent Builder** chat profile remains at revision 1. Its guidance
+is resolved through authenticated profile selection, hashed and pinned in session
+metadata like a user profile; no setup guidance is pasted into the transcript.
+Selections without the builtin marker still resolve saved catalog content,
+including an identical profile ID. The legacy inference-only advice endpoint is
+retained for compatibility, with its existing authority and cancellation limits;
+it is no longer the Library's creation/refinement entry.
 
 The builder inspects saved profiles with `SymposiumReadProfiles` and creates one complete, portable draft per `SymposiumProposeProfile` call. These tools are registered on ordinary OpenAI Responses, Gemini/Vertex, Claude SDK and Codex chats. Host-bound session and call identities fence draft creation, retry keys deduplicate tool retries, and current skill policy and cancellation remain enforced. In custodian mode, reads and draft creation go to the retained catalog owner using middleware-verified operator authentication, with no local fallback.
 

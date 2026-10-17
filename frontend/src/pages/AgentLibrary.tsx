@@ -2,7 +2,7 @@ import { ApiToolEditor } from '../components/ApiToolEditor';
 import { AgentToolsEditor } from '../components/AgentToolsEditor';
 import { ToolLibraryCatalog } from '../components/ToolLibraryCatalog';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   agentProfileLabel,
   type AgentToolCatalogEntry,
@@ -17,7 +17,7 @@ import { apiFetch } from '../lib/api-fetch';
 import { agentChatHref, agentLibraryTemplates, newAgentDefinition } from '../lib/agent-library';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { AgentProfileEditor } from '../components/AgentProfileEditor';
-import { AgentCreationAdvisor } from '../components/AgentCreationAdvisor';
+import { openAgentBuilderChat } from '../lib/agent-builder-chat';
 import { AgentContextPreview } from '../components/AgentContextPreview';
 import { AgentTaskEditor } from '../components/AgentTaskEditor';
 import { AgentTaskList } from '../components/AgentTaskList';
@@ -114,6 +114,7 @@ function navigateTabs(event: KeyboardEvent<HTMLDivElement>) {
   tabs[next].focus();
 }
 export function AgentLibrary() {
+  const navigate = useNavigate();
   const taskState = useAgentTasks();
   const [collection, setCollection] = useState<'profiles' | 'tasks'>(() =>
     loadAgentTaskWorkingCopy() ? 'tasks' : 'profiles',
@@ -123,9 +124,6 @@ export function AgentLibrary() {
   const [catalogError, setCatalogError] = useState('');
   const [catalogAttempt, setCatalogAttempt] = useState(0);
   const [editor, setEditor] = useState<Editor | null>(recovered?.editor ?? null);
-  const [advisorOpen, setAdvisorOpen] = useState(
-    !!recovered && !recovered.editor.publishedRevision,
-  );
   const [tab, setTab] = useState<Tab>('identity');
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'agents' | 'tools'>('agents');
@@ -202,11 +200,14 @@ export function AgentLibrary() {
       if (mounted.current) setDiscovering(false);
     }
   }
-  const [dirty, setDirty] = useState(!!recovered);
+  const [dirty, setDirty] = useState(recovered ? (recovered.dirty ?? true) : false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [preview, setPreview] = useState('');
+  const [reviewedContext, setReviewedContext] = useState<string | undefined>(
+    recovered?.reviewedContext,
+  );
   const [compiledPreview, setCompiledPreview] = useState<CompiledAgentContext | null>(null);
   const [portable, setPortable] = useState('');
   const [importing, setImporting] = useState(false);
@@ -245,6 +246,7 @@ export function AgentLibrary() {
     setError('');
     setPreview('');
     setCompiledPreview(null);
+    setReviewedContext(undefined);
     setPortable('');
     saveKey.current = crypto.randomUUID();
     publishKey.current = crypto.randomUUID();
@@ -289,6 +291,7 @@ export function AgentLibrary() {
     setDirty(true);
     setPreview('');
     setCompiledPreview(null);
+    setReviewedContext(undefined);
     publishKey.current = crypto.randomUUID();
   };
   const save = () =>
@@ -348,11 +351,32 @@ export function AgentLibrary() {
     setEditor(next);
     setDirty(true);
     setTab('identity');
-    setAdvisorOpen(true);
     setError('');
     setPreview('');
     setCompiledPreview(null);
+    setReviewedContext(undefined);
     setPortable('');
+    return next;
+  };
+  const openBuilder = (target: Editor, isDirty: boolean, contentHash?: string) => {
+    const sourceContext = target.profileId === editor?.profileId ? reviewedContext : undefined;
+    // Navigation keeps even a pristine selection, so Back returns to this profile.
+    if (
+      !saveAgentLibraryWorkingCopy({
+        editor: target,
+        saveKey: saveKey.current,
+        dirty: isDirty,
+        reviewedContext: sourceContext,
+      })
+    ) {
+      setError('Could not retain your profile edits. Retry before opening Agent Builder.');
+      return;
+    }
+    try {
+      navigate(openAgentBuilderChat(target, isDirty, contentHash, sourceContext));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not open Agent Builder.');
+    }
   };
   const latest = new Map<string, AgentLibraryVersion>();
   for (const version of catalog?.versions ?? [])
@@ -410,14 +434,10 @@ export function AgentLibrary() {
             <>
               <button
                 type="button"
-                disabled={!catalog || busy}
-                onClick={() => {
-                  setCollection('profiles');
-                  if (!editor) create();
-                  setAdvisorOpen(true);
-                }}
+                disabled={!catalog || busy || dirty}
+                onClick={() => openBuilder(create(), true)}
               >
-                Create with advisor
+                Create with Agent Builder
               </button>
               <button className="btn-primary" disabled={busy || dirty || !catalog} onClick={create}>
                 New agent
@@ -701,26 +721,11 @@ export function AgentLibrary() {
                 ))}
                 {!visible.length && (
                   <p>
-                    {query
-                      ? 'No matching agents.'
-                      : 'Create your first agent, or start with the advisor.'}
+                    {query ? 'No matching agents.' : 'Create your first agent with Agent Builder.'}
                   </p>
                 )}
               </section>
               <div className="agent-library-workbench">
-                {editor && (
-                  <AgentCreationAdvisor
-                    key={editor.profileId}
-                    definition={editor.definition}
-                    onApply={(definition) => {
-                      update(definition);
-                      setTab('identity');
-                    }}
-                    open={advisorOpen}
-                    onOpenChange={setAdvisorOpen}
-                    disabled={busy || historical}
-                  />
-                )}
                 <section className="agent-library-detail" aria-label="Agent profile editor">
                   {editor ? (
                     <>
@@ -738,6 +743,15 @@ export function AgentLibrary() {
                               ? `Published · r${editor.publishedRevision}`
                               : `Draft · saved ${editor.expectedVersion}`}
                         </span>
+                      </div>
+                      <div className="agent-library-actions">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => openBuilder(editor, dirty, selectedVersion?.contentHash)}
+                        >
+                          Refine with Agent Builder
+                        </button>
                       </div>
                       {canUse && (
                         <div className="agent-library-actions">
@@ -824,6 +838,7 @@ export function AgentLibrary() {
                                 void execute(async () => {
                                   setPreview('');
                                   setCompiledPreview(null);
+                                  setReviewedContext(undefined);
                                   const result = await read<{
                                     profilePrompt: string;
                                     assembledPrompt?: string;
@@ -835,6 +850,7 @@ export function AgentLibrary() {
                                     ? CompiledAgentContextSchema.parse(result.compiledContext)
                                     : null;
                                   setCompiledPreview(compiled);
+                                  setReviewedContext(compiled?.context.fullMarkdown);
                                   setPreview(result.assembledPrompt ?? result.profilePrompt);
                                 })
                               }
