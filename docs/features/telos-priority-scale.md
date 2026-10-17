@@ -47,6 +47,9 @@ and remounts, so a delayed older acknowledgment cannot replace a newer edit.
 A failed write does not prevent the next explicit edit. Item detail uses that
 same data owner rather than a second list fetch. Reloads and navigation
 revalidate the persisted value.
+An item missing from a retained snapshot stays on its detail route until the
+mounted read completes. A newly saved advisor child can therefore open while
+the previous list is cached; a failed read retains the existing Retry state.
 
 The added database column participates in the existing item revision snapshots.
 Ordinary role/delegation owners retain their existing revision conflict checks;

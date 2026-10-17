@@ -24,10 +24,17 @@ function urgencyLabel(urgency: number): string {
 
 export function TodoDetailView() {
   const navigate = useNavigate();
-  const { items, loading, error, refresh, setPriority: updatePriority } = useTodoData();
+  const { id } = useParams<{ id: string }>();
+  const {
+    items,
+    loading,
+    refreshing,
+    error,
+    refresh,
+    setPriority: updatePriority,
+  } = useTodoData(undefined, id);
   const setPendingSession = useStageChatLaunch();
   const location = useLocation();
-  const { id } = useParams<{ id: string }>();
   const stateItem = (location.state as { item?: TodoItem } | null)?.item;
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
@@ -40,8 +47,10 @@ export function TodoDetailView() {
     (id ? findInTree(items, id) : undefined) ?? (stateItem?.id === id ? stateItem : undefined);
 
   useEffect(() => {
-    if (!loading && !error && !item) navigate('/todos', { replace: true });
-  }, [loading, error, item, navigate]);
+    // A retained list may predate a newly saved child. Confirm absence with this
+    // mount's read before leaving its detail route.
+    if (!loading && !refreshing && !error && !item) navigate('/todos', { replace: true });
+  }, [loading, refreshing, error, item, navigate]);
 
   if (!item) {
     if (error)

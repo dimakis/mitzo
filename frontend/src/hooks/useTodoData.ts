@@ -15,6 +15,7 @@ eventBus.on('todo_update', invalidateTodos);
 
 export interface UseTodoDataResult {
   loading: boolean;
+  refreshing: boolean;
   error: string | null;
   items: TodoItem[];
   profiles: string[];
@@ -70,10 +71,11 @@ export function findInTree(items: TodoItem[], id: string): TodoItem | undefined 
   return undefined;
 }
 
-export function useTodoData(profile?: string): UseTodoDataResult {
+export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDataResult {
   const url = profile ? `/api/todos?${new URLSearchParams({ profile })}` : '/api/todos';
   const [data, setData] = useState<TodoData | null>(() => todoCache.get(url) ?? null);
   const [loading, setLoading] = useState(() => !todoCache.get(url));
+  const [refreshing, setRefreshing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
@@ -86,8 +88,12 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   useEffect(() => {
     let cancelled = false;
     const cached = todoCache.get(url);
+    // A direct route to a new item must not join a read admitted before its save.
+    // Keep retained rows, but resolve missing identities with a newly admitted read.
+    if (resolveItemId && !findInTree(cached?.items ?? [], resolveItemId)) invalidateTodos();
     setData(cached ?? null);
     setLoading(!cached);
+    setRefreshing(true);
     setError(null);
 
     todoCache
@@ -101,6 +107,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
           setData(result);
           setError(null);
           setLoading(false);
+          setRefreshing(false);
         }
       })
       .catch((error) => {
@@ -112,13 +119,14 @@ export function useTodoData(profile?: string): UseTodoDataResult {
         } else {
           setError('Unable to load Telos items');
           setLoading(false);
+          setRefreshing(false);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [url, refreshKey]);
+  }, [url, refreshKey, resolveItemId]);
 
   // Live update: SSE todo_update signals a refetch
   useEffect(() => {
@@ -270,6 +278,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
 
   return {
     loading,
+    refreshing,
     error,
     items: data?.items ?? [],
     profiles: data?.profiles ?? [],
