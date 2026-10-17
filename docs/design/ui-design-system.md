@@ -1127,3 +1127,24 @@ content, long brief scrolling, pinned/reachable controls and retained edits.
 The full browser acceptance run is recorded separately with the PR checks.
 These captures qualify this bounded presentation, not application admission,
 saved-file artifact access, all-account/runtime operation or native iOS behavior.
+
+## Native biometric enrollment
+
+Native login offers an unchecked **Enable Face ID on this device** option (or the
+device's biometric label). Its description states that the passphrase is saved in
+secure device storage and protected by the enrolled biometrics. Failed legacy
+unlocks explain how to enroll after signing in. Enrollment failures remain visible
+and let the user continue with passphrase login by unchecking the option. This
+uses the existing login form and buttons, shared semantic color/type/spacing
+scales, and a checkbox label with the shared minimum control height. No new
+palette, font, motion or dialog pattern is introduced.
+
+The all-intercept `login-biometric` fixture renders the actual login component
+with a synthetic native bridge, at 320/390px mobile WebKit/Chromium and 1280px
+desktop Chromium. Dark Mint/Georgia and light Teal/System checks cover unchecked
+consent, keyboard toggle, wrapping, horizontal overflow, visible actions, minimum
+label height and protected storage arguments after login. Inspected captures:
+[mobile dark](assets/face-id-enrollment-mobile-dark.png) and
+[desktop light](assets/face-id-enrollment-desktop-light.png).
+These offline checks use synthetic credentials and no backend or model calls;
+real iOS Keychain/Face ID prompts still require separately authorized device testing.
