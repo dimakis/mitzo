@@ -126,3 +126,20 @@ it('does not expose scoped source-capture metadata or current private item histo
   expect(privatePage.status).toBe(403);
   expect(privatePage.body.artifacts).toBeUndefined();
 });
+
+it('refuses changed public eligibility when an older saved preview or export is requested', async () => {
+  const f = await fixture();
+  expect((await request(f.app).get(f.url).set('X-Operator', 'fixture')).status).toBe(200);
+  const db = new Database(f.path);
+  db.prepare('UPDATE items SET profile=? WHERE id=?').run('LifeOps', f.itemId);
+  db.close();
+  const pinned = f.revisions[0].url;
+  const download = await request(f.app).get(pinned).set('X-Operator', 'fixture');
+  expect(download.status).toBe(403);
+  expect(download.text).not.toContain('Exact saved 1');
+  const preview = await request(f.app)
+    .get(`/api/telos/artifacts/${f.revisions[0].id}/document?revision=1`)
+    .set('X-Operator', 'fixture');
+  expect(preview.status).toBe(403);
+  expect(preview.body.content).toBeUndefined();
+});

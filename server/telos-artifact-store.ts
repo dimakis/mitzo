@@ -73,6 +73,55 @@ function metadata(row: ArtifactRow): TelosArtifactMetadata {
     url: `/api/telos/artifacts/${row.id}?revision=${row.revision}`,
   };
 }
+/** Format already-read bytes using the existing preview policy. This helper
+ * grants no read/access authority; response owners must validate retained custody.
+ */
+export function describeTelosArtifactDocument(
+  artifact: TelosArtifactMetadata & { bytes: Buffer },
+  editableAllowed: boolean,
+) {
+  const ext = extname(artifact.filename).toLowerCase();
+  const content = artifact.bytes.toString('utf8');
+  const text = !artifact.bytes.includes(0) && Buffer.from(content).equals(artifact.bytes);
+  const preview =
+    text &&
+    [
+      '.md',
+      '.mdx',
+      '.html',
+      '.htm',
+      '.txt',
+      '.json',
+      '.csv',
+      '.yaml',
+      '.yml',
+      '.css',
+      '.js',
+      '.ts',
+      '.tsx',
+      '.jsx',
+      '.py',
+      '.sh',
+      '.svg',
+    ].includes(ext);
+  return {
+    path: artifact.url,
+    name: artifact.filename,
+    ext,
+    revision: artifact.revision,
+    editable:
+      artifact.sourceKind !== 'source_capture' &&
+      text &&
+      editableAllowed &&
+      (['.md', '.mdx'].includes(ext) ||
+        findArtifactCapabilityByExtension(ext)?.artifact?.editable === true),
+    previewUnavailable: !preview,
+    content: preview
+      ? content
+      : 'This file has no in-app preview. Use the file options to share or save it.',
+  };
+}
+
 /** Content and item links commit together in the canonical Telos database, outside sandboxes. */
 export class TelosArtifactStore {
   private db: Database.Database;
@@ -291,6 +340,18 @@ export class TelosArtifactStore {
     const row = this.row(id, revision);
     return { ...metadata(row), bytes: row.bytes };
   }
+  /** Resolve legacy human "latest" reads to one exact metadata revision before
+   * authorization awaits or byte hydration. Explicit selectors never use this.
+   */
+  latestMetadata(id: string): TelosArtifactMetadata {
+    const row = this.db
+      .prepare(
+        'SELECT revision FROM telos_artifact_revisions WHERE id=? ORDER BY revision DESC LIMIT 1',
+      )
+      .get(id) as { revision: number } | undefined;
+    if (!row) throw new Error('Artifact not found');
+    return this.metadataForRevision(id, row.revision);
+  }
   /** Exact metadata only: length/typeof inspect custody without transferring a BLOB.
    * This is not authorization; the caller must renew current item/access policy.
    */
@@ -422,46 +483,10 @@ export class TelosArtifactStore {
   }
   document(id: string, revision?: number) {
     const artifact = this.read(id, revision);
-    const ext = extname(artifact.filename).toLowerCase();
-    const content = artifact.bytes.toString('utf8');
-    const text = !artifact.bytes.includes(0) && Buffer.from(content).equals(artifact.bytes);
-    const preview =
-      text &&
-      [
-        '.md',
-        '.mdx',
-        '.html',
-        '.htm',
-        '.txt',
-        '.json',
-        '.csv',
-        '.yaml',
-        '.yml',
-        '.css',
-        '.js',
-        '.ts',
-        '.tsx',
-        '.jsx',
-        '.py',
-        '.sh',
-        '.svg',
-      ].includes(ext);
-    return {
-      path: artifact.url,
-      name: artifact.filename,
-      ext,
-      revision: artifact.revision,
-      editable:
-        artifact.sourceKind !== 'source_capture' &&
-        text &&
-        this.userUploadAllowed(artifact.itemId) &&
-        (['.md', '.mdx'].includes(ext) ||
-          findArtifactCapabilityByExtension(ext)?.artifact?.editable === true),
-      previewUnavailable: !preview,
-      content: preview
-        ? content
-        : 'This file has no in-app preview. Use the file options to share or save it.',
-    };
+    return describeTelosArtifactDocument(
+      artifact,
+      artifact.sourceKind !== 'source_capture' && this.userUploadAllowed(artifact.itemId),
+    );
   }
   /** Compare and append under one writer lock; successful retries precede the revision fence. */
   editDocument(input: {
