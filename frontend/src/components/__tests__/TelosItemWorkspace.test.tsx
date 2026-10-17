@@ -14,6 +14,7 @@ vi.mock('../TelosItemSources', () => ({
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  sessionStorage.clear();
 });
 const records = createTelosWorkFixtures().homeStudio.items;
 it('retains the brief, original fields, exact dates, context and parent-only Work entry', () => {
@@ -85,4 +86,54 @@ it('does not turn legacy session hints into assignments and preserves selected t
   expect(
     screen.getByRole('button', { name: 'Chat', exact: true }).getAttribute('aria-pressed'),
   ).toBe('true');
+});
+
+it('does not claim empty child work when the collection boundary is loading or unavailable', () => {
+  const record = records[0];
+  const view = render(
+    <MemoryRouter>
+      <TelosItemWorkspace
+        record={record}
+        records={[record]}
+        relatedState="loading"
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('Loading child work…')).toBeTruthy();
+  expect(screen.queryByText('No child work yet.')).toBeNull();
+  view.rerender(
+    <MemoryRouter>
+      <TelosItemWorkspace
+        record={record}
+        records={[record]}
+        relatedState="unavailable"
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  expect(
+    screen.getByText('Child work unavailable. Refresh to check its current state.'),
+  ).toBeTruthy();
+  expect(screen.queryByText('No child work yet.')).toBeNull();
+});
+
+it('offers an explicit retry for unavailable child work', () => {
+  const refresh = vi.fn();
+  render(
+    <MemoryRouter>
+      <TelosItemWorkspace
+        record={records[0]}
+        records={[records[0]]}
+        relatedState="unavailable"
+        onRefresh={refresh}
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Try again', exact: true }));
+  expect(refresh).toHaveBeenCalledOnce();
 });

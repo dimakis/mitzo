@@ -27,11 +27,15 @@ export function TelosItemWorkspace({
   records,
   onOpen,
   onBack,
+  relatedState = 'ready',
+  onRefresh,
 }: {
   record: TelosWorkItem;
   records: TelosWorkItem[];
   onOpen(id: string, view?: 'Chat'): void;
   onBack(): void;
+  relatedState?: 'loading' | 'unavailable' | 'ready';
+  onRefresh?(): void;
 }) {
   const key = 'telos.item.tab.' + record.itemId;
   const [tab, setTab] = useState<Tab>(() => initialTab(key));
@@ -126,6 +130,17 @@ export function TelosItemWorkspace({
   const work = (
     <section>
       <h2>{record.kind === 'coordinator' ? 'Coordinated outcomes' : 'Child work'}</h2>
+      {relatedState === 'loading' && <p role="status">Loading child work…</p>}
+      {relatedState === 'unavailable' && (
+        <div role="alert">
+          <p>Child work unavailable. Refresh to check its current state.</p>
+          {onRefresh && (
+            <button className="todo-detail-chat-btn" onClick={onRefresh}>
+              Try again
+            </button>
+          )}
+        </div>
+      )}
       {children.length > 0 ? (
         <TelosOutcomesTree
           compact
@@ -133,9 +148,9 @@ export function TelosItemWorkspace({
           onOpen={onOpen}
           storageKey={'telos.child.navigation.' + record.itemId}
         />
-      ) : (
+      ) : relatedState === 'ready' ? (
         <p>No child work yet.</p>
-      )}
+      ) : null}
     </section>
   );
   return (

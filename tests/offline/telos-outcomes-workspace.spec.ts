@@ -236,6 +236,16 @@ for (const theme of ['dark', 'light'])
       page.getByRole('alert').filter({ hasText: 'Unable to load Telos items' }),
     ).toBeVisible();
     await expect(page.getByText('No outcomes yet.')).toHaveCount(0);
+    await page.goto('/todos/fixture-studio');
+    await expect(
+      page.getByText('Child work unavailable. Refresh to check its current state.'),
+    ).toBeVisible();
+    await expect(page.getByText('No child work yet.')).toHaveCount(0);
+    collectionMode = 'ready';
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Plan the recording setup', exact: true }),
+    ).toBeVisible();
     expect(unexpected).toEqual([]);
     expect(errors).toEqual([]);
   });

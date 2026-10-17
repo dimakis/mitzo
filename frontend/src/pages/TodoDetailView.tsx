@@ -39,6 +39,7 @@ export function TodoDetailView() {
   const stateItem = (location.state as { item?: TodoItem } | null)?.item;
   const [fetchedItem, setFetchedItem] = useState<TodoItem | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [fetchAttempt, setFetchAttempt] = useState(0);
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [ordinaryRoleItem, setOrdinaryRoleItem] = useState<string | null>(null);
@@ -47,7 +48,7 @@ export function TodoDetailView() {
   }, []);
 
   useEffect(() => {
-    if (stateItem || !id) return;
+    if ((stateItem && fetchAttempt === 0) || !id) return;
 
     const controller = new AbortController();
 
@@ -70,7 +71,7 @@ export function TodoDetailView() {
       });
 
     return () => controller.abort();
-  }, [stateItem, id]);
+  }, [stateItem, id, fetchAttempt]);
 
   const item = stateItem ?? fetchedItem;
 
@@ -107,6 +108,22 @@ export function TodoDetailView() {
           <TelosItemWorkspace
             key={record.itemId}
             record={record}
+            relatedState={
+              fetchFailed
+                ? 'unavailable'
+                : !item
+                  ? 'loading'
+                  : canonical.unavailable.some(
+                        (value) => value !== record.itemId && value !== record.parentId,
+                      )
+                    ? 'unavailable'
+                    : 'ready'
+            }
+            onRefresh={() => {
+              setFetchFailed(false);
+              setFetchAttempt((value) => value + 1);
+              canonical.refresh();
+            }}
             records={canonical.records}
             onBack={() => {
               const state = location.state as { telosHistory?: string[] } | null;
