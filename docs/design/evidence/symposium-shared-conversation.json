@@ -5,7 +5,6 @@
   "ownerSession": "01a14bdc-6a35-7041-abf2-0f6761daf29a",
   "integrationOwnerSession": "01a14b49-df1f-7b82-be70-10be0789161c",
   "acceptanceOwnerSession": "01a14bdc-d152-7912-84d4-c0012e9d5206",
-  "acceptedBase": "189289da78d971497deaa9cc4ca29365ba9c6e56",
   "capturedSource": "62c89aff166c6133ccc01aa95c8ff7aaa589241d",
   "canonicalRecords": [
     {
@@ -75,7 +74,7 @@
     "limits": [
       "This is structural scoped inspection, not pixel-equivalence or final combined UX approval.",
       "C owns independent reference-to-render inspection on combined source.",
-      "C independently confirmed mobile header violates approved <=360px one-visible-name rule: captures show Architect \u00b7 Reviewer +2 instead of Architect +2. Core owns correction and final combined capture; original approved HTML/CSS remains unchanged."
+      "Historical first captures: C confirmed the <=360px header drift. A subsequently received explicit ownership, integrated core markup and corrected container responsiveness/count placement; original four captures and approved HTML/CSS remain unchanged."
     ]
   },
   "checks": {
@@ -126,7 +125,14 @@
       "Final matrix waits for the visible picker, keeping the same keyboard-focus assertion; all six cases pass.",
       "One optional preview fixture initially used a relative link (ordinary link, not an inline preview); corrected to a supported absolute local Markdown path.",
       "A command addressed nonexistent ChatInput.test.tsx and ran no tests; focused existing composer suites were selected instead.",
-      "After accepted-main refresh, 195 assertions passed but the new async preview fixture exposed jsdom missing scrollTo. Added the normal browser-method polyfill only to that test suite; result with zero unhandled errors is recorded separately."
+      "After accepted-main refresh, 195 assertions passed but the new async preview fixture exposed jsdom missing scrollTo. Added the normal browser-method polyfill only to that test suite; result with zero unhandled errors is recorded separately.",
+      "Header regression failed at361px against the markup-only candidate; changed the actual product container boundary and separately exposed wider count.",
+      "Recipient hard-reload regression failed against the old local-state fixture; final fixture uses actual presentation hook and ordinary persisted draft.",
+      "Policy fixture first used Playwright.check, which assumes immediate checkbox state; changed to click then await authoritative state without weakening the final checked assertion.",
+      "Node-side Playwright fixture initially resolved an unbuilt workspace protocol package; imports now resolve the same real protocol source directly.",
+      "New policy-dialog unit tests first needed the normal jsdom native dialog polyfill; genuine feature RED was then reproduced with the props absent.",
+      "Auth restoration regression exposed the existing owner publishing its event before verified-cookie assignment; one microtask checks the same owner after synchronous publication.",
+      "HTTP408 originally cleared pending policy identity; genuine RED now passes with408/429/5xx retaining the original request."
     ],
     "retainedComposerRegression": {
       "files": 5,
@@ -177,21 +183,84 @@
         "typecheck": "passed including new projection tests and browser spec"
       },
       "captureImpact": "No captured fixture recipient is unavailable, so its rendered states are unchanged. Full exact-head CI reruns browser coverage."
+    },
+    "finalControllerAndComposition": {
+      "source": "9365d41dd222069a9b279bea474c73cf2d154096",
+      "unitSource": "6e1c80fa (browser fixture-only commit follows; production source identical)",
+      "files": 21,
+      "passed": 258,
+      "failed": 0,
+      "unhandledErrors": 0,
+      "seconds": 20.1,
+      "testFiles": [
+        "packages/client/src/__tests__/collaboration-projection-replay.test.ts",
+        "packages/client/src/__tests__/collaboration-conversation.test.ts",
+        "frontend/src/lib/__tests__/conversation-presentation.test.ts",
+        "frontend/src/components/__tests__/ComposerRespondersPolicy.test.tsx",
+        "frontend/src/components/__tests__/ComposerResponders.test.tsx",
+        "frontend/src/components/__tests__/ChatInputResponders.test.tsx",
+        "frontend/src/components/__tests__/ChatAreaMetadata.test.tsx",
+        "frontend/src/components/__tests__/ChatArea.test.tsx",
+        "frontend/src/components/__tests__/CollaborationTranscript.test.tsx",
+        "frontend/src/components/__tests__/SymposiumConversation.test.tsx",
+        "frontend/src/components/__tests__/ChatInputFocus.test.tsx",
+        "frontend/src/components/__tests__/ChatInputCommandStrip.test.tsx",
+        "frontend/src/components/__tests__/ChatInputContextBlocks.test.tsx",
+        "frontend/src/components/__tests__/ChatInputSendReceipt.test.tsx",
+        "frontend/src/components/__tests__/ChatInputVoiceOwnership.test.tsx",
+        "frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx",
+        "frontend/src/components/__tests__/ConversationAgents.test.tsx",
+        "frontend/src/components/__tests__/ConversationPolicyFeedback.test.tsx",
+        "frontend/src/lib/__tests__/chat-drafts.test.ts",
+        "frontend/src/lib/__tests__/conversation-draft-intent.test.ts",
+        "frontend/src/hooks/__tests__/useConversationPresentation.test.tsx"
+      ],
+      "commands": [
+        "NODE_OPTIONS=--max-old-space-size=1024 npx vitest run <testFiles in listed order> --maxWorkers=1",
+        "NODE_OPTIONS=--max-old-space-size=1024 npx tsc --noEmit -p tests/fixtures/symposium-shared-conversation.tsconfig.json",
+        "NODE_OPTIONS=--max-old-space-size=1024 npm run test:design -- --maxWorkers=1",
+        "Focused ESLint over affected production/controller/draft/browser files; normal eslint/prettier/gitleaks commit hooks"
+      ],
+      "browser": {
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx playwright test --config playwright.offline.config.ts tests/offline/symposium-shared-conversation.spec.ts --workers=1",
+        "execution": "approved outside Seatbelt, no guards disabled",
+        "passedUiCases": 6,
+        "startupDependencies": 2,
+        "seconds": 15.4,
+        "failed": 0,
+        "retries": 0,
+        "projects": ["mobile-webkit", "mobile-chromium", "desktop-chromium"],
+        "behaviors": [
+          "Actual typed CollaborationApiClient + projection + useConversationPresentation + ordinary ChatDraft/ChatInput composition",
+          "Exact selected recipients and ordinary text survive hard reload",
+          "Pending policy retains old confirmed state until authoritative read; 409 refusal stays inside Agents; refresh recovers and closing restores focus",
+          "Exactly two synthetic policy PUTs, zero sends or other mutations",
+          "Keyboard @all/selected/default choices, focus/dismissal, picker containment",
+          "Header boundary and narrow desktop container assertions",
+          "Independent receipt outcomes, backend disabled-send reason, successful replies retained through replay gaps"
+        ]
+      },
+      "counts": "Final 258 includes earlier 195 and later affected suites; do not add overlapping historical totals."
     }
   },
   "integrationHandoff": {
-    "responderSelection": "ComposerResponderSelection.responders uses CollaborationMessageInput[responders]; onChange(ids, intent) retains default/all/selected including selected[]. Retained maximum=1 hides Defaults/All.",
+    "responderSelection": "ComposerResponderSelection.responders uses CollaborationMessageInput[responders]; onChange(ids, intent): boolean | void retains default/all/selected including selected[]. A false persistence acknowledgement leaves typed @ text and picker intact; legacy void callbacks retain behavior. Previously selected unavailable IDs remain removable.",
     "transcript": "CollaborationTranscript accepts existing CollaborationProjection, names and ordinary ChatArea controls. New ChatArea renderMessageAttribution/renderMessageOutcome/messageSessionId callbacks default to existing behavior.",
     "sourcePrivacy": "No invented legacy SymposiumProvenance, provider identity, timestamp, completed cursor, execution capability or send receipt.",
-    "coreCallSites": "Core owns actual authenticated projection reads, policy mutation, queue/Stop/send, responsive pages and final composition.",
-    "drafts": "Text uses existing ordinary draft owner. Full route/reload persistence of explicit responder intent needs core draft integration; it is not fabricated here.",
+    "coreCallSites": "Core mounts useConversationPresentation and CollaborationTranscript through existing pages/auth/session owners; actual execution/queue/Stop/send and reader delivery remain core. No A API.send or execution enablement.",
+    "drafts": "Optional ChatDraft.settings.collaborationResponders={collaborationId,responders} in existing draft schema/key/version. Blank drafts retain explicit intent; consumption equality protects changed settings. Foreign-group intent is refused, unchanged timestamp notifications keep stable semantic draft references.",
     "history": "The protocol retains at most 50 messages in a view. Earlier-message availability is disclosed; no invented older-page endpoint.",
-    "messageActions": "ChatArea display ID is projectionId; share/action owners must resolve it to the actual CollaborationMessage messageId/source before forwarding. B and core notified."
+    "messageActions": "ChatArea display ID is projectionId; share/action owners must resolve it to the actual CollaborationMessage messageId/source before forwarding. B and core notified.",
+    "controller": "useConversationPresentation({collaborationId,api,authScope,getVerifiedAuthScope,draftId,names}) reuses existing real typed view/events/setPolicy, projection and ordinary draft owner. Core supplies its existing currentVerifiedAuthSessionId getter; missing or mismatched current proof fails closed. AUTH_LOST clears private state and fences late results; restore checks after existing auth owner synchronous publication.",
+    "policy": "Confirmed server view drives checkboxes. In-memory pending request retains requestId, membership/revision fences and values on network/408/429/5xx ambiguity. retryPolicy reuses exact original body. Unchanged read cannot clear uncertainty; newer authoritative revision fences it. Known definite400/401/403/404/409/422 refusal clears pending but retains error until refresh. No optimistic success.",
+    "agentsSlots": "ConversationAgents adds optional policyFeedback:ReactNode and policyUnavailableReason:string; feedback appears once inside existing Agents dialog. Core wires pending/refusal/retry/refresh via these slots. No new joining lifecycle or auth owner.",
+    "header": "Core df7aaa markup is integrated as93ab42f6 and extended by A container/count corrections a24bd063+844d5ddb. Consume final A once; do not independently reapply core header patch.",
+    "acceptanceMap": "Single combined map remains workstream C docs/evidence/symposium-integration-acceptance.md, PR1022 head9f69920e at latest refresh; A does not duplicate global acceptance. Full actual app review journey still503 pending core source/settings integration."
   },
   "remaining": [
-    "Actual application joining/readers/dispatch/reply integration and recording-transport journey remain core/C work.",
-    "Re-run these checks and captures against final combined accepted source.",
-    "Full app build/test:ui suite and exact-head review are CI work.",
+    "Core must mount the final hook/slots in actual application pages and connect its existing verified auth getter and dispatch/reader owners.",
+    "C must independently inspect these final corrected captures and rerun on final combined accepted backend/UI source; full app review/join/send remains open.",
+    "Exact-head CI and trusted Centaur review remain required; this draft is not ready-for-landing evidence.",
     "Full account/runtime matrix and physical iOS behavior remain unqualified."
   ],
   "qualification": {
@@ -203,7 +272,132 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "fea33e215b0d1bcf29604aa13e793329588a2980",
+  "latestAcceptedMain": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
   "acceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
-  "captureClosureUnchangedAfterMainMerge": true
+  "captureClosureUnchangedAfterMainMerge": true,
+  "headerConformance": {
+    "source": "9365d41dd222069a9b279bea474c73cf2d154096",
+    "coreMarkupSource": "df7aaa121edc060c6272114dc161e8691d3fcf5b",
+    "approvedRule": "Original @container (max-width:360px) on the conversation product: first visible name + N-1; wider product shows first two names + N-2. Complete accessible list at all widths.",
+    "red": "Core markup-only candidate still hid second name above360px under viewport480 rule; actual desktop Chromium assertion failed at361px. Failure screenshot/trace retained in task header-regression-red.",
+    "green": {
+      "focusedUnitTests": 258,
+      "testFiles": 21,
+      "designPassed": 108,
+      "existingDesignSkip": 1,
+      "sourceTypecheck": "passed",
+      "browserCases": 6,
+      "startupDependencies": 2,
+      "failed": 0,
+      "retries": 0,
+      "seconds": 15.4,
+      "boundaries": [320, 360, 361, 390],
+      "narrowDesktop": "1280px viewport with 320px conversation container"
+    },
+    "captures": [
+      {
+        "path": "docs/design/assets/symposium-corrected-mobile-webkit-shared-dark.png",
+        "sha256": "c9d734b01b2d37d306483e1741febdac5748351cd9218c5bbb1acf9a74167090",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-mobile-webkit-header-390-dark.png",
+        "sha256": "3f4a8eeefcb96d2046005d38cce1ccb66db79699024c0457416e4420f9656645",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-mobile-webkit-policy-pending-dark.png",
+        "sha256": "81544449e72e421a37488420a73c3596702cd130e14b8f93f7ab4de9cc496be3",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-mobile-webkit-policy-refusal-dark.png",
+        "sha256": "5cdb435c1b9d934ebe8db6a5ea414e38e6cf001a3f0dc7d6da7cea6129ff5b9d",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-mobile-webkit-shared-light.png",
+        "sha256": "d0d6c55421a0562d0ccac5b6c60be85ed4a30ec08a89e5ac6b32f430799214b0",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-mobile-webkit-header-390-light.png",
+        "sha256": "41a1c96078080d6464b9045010e837fd45286deaed1874dfb1b7e4ea0c2ed0ad",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-mobile-webkit-policy-pending-light.png",
+        "sha256": "e7589896f5ee13e6b43357a7dad3f200490c97388ba9aa8375d8002ccf12031c",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-mobile-webkit-policy-refusal-light.png",
+        "sha256": "caffb384dbf8cb0d5da8ea31427cb4f894eee150588d71590ca9ebea25428be6",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-shared-dark.png",
+        "sha256": "e43e619596c86d44122905ad3640364afaf666d6654f555d729b169d1a248487",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-header-390-dark.png",
+        "sha256": "1e3b5ea977541cf8bce1b034b4649fc6cb790e7b818f2915954effcc122d2051",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-policy-pending-dark.png",
+        "sha256": "f7442b985c2eb39ea9f4f4a00311f982abd2a24229fceab3f02a7d4c256c6e68",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-policy-refusal-dark.png",
+        "sha256": "5511be94e7c7d5594f14c46baec49d50a752a4bce57ecaaec8861d5ff19bda02",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-header-desktop-column-320-dark.png",
+        "sha256": "4a5ca4e9f0533713f86f3527c58b80d95b1ce45308e4de8c1da827d89e74c427",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-shared-light.png",
+        "sha256": "d515e57aad9da7d45dd65e53a17ca2b419e13bf75e5f06ce8e3771d86ed33bab",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-header-390-light.png",
+        "sha256": "3c0b7ee229a12b147dcadb853fc731244aebd975e67bd10cdfd583fcbbc1ea99",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-policy-pending-light.png",
+        "sha256": "54530bc8ec113597fef3e0a66185d83ac53ec320c5abc57d6e97f481b5e62a59",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-policy-refusal-light.png",
+        "sha256": "1d45cc0ec542c9a3ae6e6e37f6e98a444b84e68b51e204d6f31b2de350b32bef",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      },
+      {
+        "path": "docs/design/assets/symposium-corrected-desktop-chromium-header-desktop-column-320-light.png",
+        "sha256": "8fda571fd7038c634fa05ffd20b2ce392d5cb0ff20eb3d2b049d6abf4007a2b5",
+        "kind": "actual API-client/projection/presentation-hook/component fixture; synthetic intercepted transport, not full app acceptance"
+      }
+    ],
+    "priorCaptures": "Original four pre-correction captures remain unchanged with original hashes; approved reference remains unchanged.",
+    "remaining": "Core/C still own complete application integration, combined joining flow and independent final UX qualification.",
+    "implementation": "Noncompact ParticipantHeaderFrame establishes named inline-size container before header gutters. Narrow and wider counters are mutually exclusive and independent of unrelated viewport480 phone controls. Compact entry DOM and joining lifecycle unchanged.",
+    "visualInspection": [
+      "320px WebKit dark full conversation: first name +2, independent partial outcomes and retained successful reply; composer contained.",
+      "390px WebKit light header: first two names +1.",
+      "1280px Chromium with 320px conversation: first name +2 and shared discussion subtitle, no double count.",
+      "320px WebKit light pending / dark refusal: actual Agents dialog feedback readable; confirmed checkboxes retained and disabled; body scroll and footer contained.",
+      "1280px Chromium light full conversation / dark refusal: existing controls and successful reply retained, in-dialog Refresh sharing recovery."
+    ]
+  },
+  "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+  "integratedAcceptedBase": "fea33e215b0d1bcf29604aa13e793329588a2980",
+  "baseRefresh": "Remote main refreshed after source completion: #1010 sandbox ownership only; no overlapping A files. Core is integrating that accepted change. A retains fea33e21 integration base; final combined-source qualification remains core/C work."
 }
