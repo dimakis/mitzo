@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "surfaces": [
+    {
+      "id": "chat-settings",
+      "activeRevision": "quick-sheet-2026-10-17",
+      "revisions": [
+        {
+          "id": "quick-sheet-2026-10-17",
+          "approvedBy": "Dimitri Saridakis",
+          "approvedOn": "2026-10-17",
+          "approval": {
+            "thread": "01a14967-a90d-7691-8b06-3e00950ef9ca",
+            "quote": "So I really, really like this design.",
+            "scope": "Quick sheet variant with OpenAI and Claude model marks and the existing OpenShell mark in Run on."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-settings/quick-sheet.html",
+              "sha256": "281eaad8d89684cd7c16583cb9ca2c082cdfb64ab1cd3acb7647abc289c2736e"
+            }
+          ],
+          "mainRows": [
+            "account",
+            "model",
+            "thinking",
+            "agent",
+            "execution",
+            "repository",
+            "more",
+            "defaults"
+          ],
+          "invariants": [
+            "One Chat settings sheet opened from the chat header; composer remains separate.",
+            "Quiet neutral header and rows; no tinted form groups or permanently expanded editors.",
+            "One field editor at a time with Back; Escape leaves an editor before closing the sheet.",
+            "Visual and keyboard row order agree; mobile targets are at least 44px.",
+            "OpenAI and Claude marks identify their models; existing OpenShell mark accompanies Run on.",
+            "Preserve all account, model, thinking, agent, execution, repository, permissions, web, voice, session and default actions, including unavailable and locked states.",
+            "Opening, closing and navigating retain editor state and composer drafts.",
+            "Shared theme, accent, font, motion and reduced-motion preferences remain effective."
+          ],
+          "sources": [
+            "frontend/src/components/WorkspaceControls.tsx",
+            "frontend/src/components/QuickChatSettings.tsx",
+            "frontend/src/components/QuickChatSettings.css",
+            "frontend/src/components/AccountModelPicker.tsx",
+            "frontend/src/components/ChatAgentProfilePicker.tsx",
+            "frontend/src/components/ChatExecutionPicker.tsx",
+            "frontend/src/components/RepositoryChatPicker.tsx",
+            "frontend/src/components/SettingsBrandMark.tsx",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx",
+            "frontend/src/styles/workspace-chat.css",
+            "frontend/src/styles/tokens.css",
+            "frontend/src/components/AgentSettingsPicker.tsx",
+            "frontend/src/components/SettingsBrandMark.css",
+            "frontend/src/lib/quick-settings-context.ts"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/QuickChatSettings.test.tsx",
+            "tests/offline/chat-settings-surface.spec.ts",
+            "tests/offline/multi-runtime-picker.spec.ts",
+            "tests/offline/local-first-command.spec.ts"
+          ],
+          "implementationEvidence": []
+        }
+      ]
+    }
+  ]
+}

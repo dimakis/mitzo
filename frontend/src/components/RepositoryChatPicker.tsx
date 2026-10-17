@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import './RepositoryChatPicker.css';
+import { useQuickSettings } from '../lib/quick-settings-context';
+import { QuickSettingsField } from './QuickChatSettings';
 import {
   repositoryDraftKey,
   savedRepositoryDraft,
@@ -43,7 +45,9 @@ export function RepositoryChatPicker({
   initialPreparationId,
   draftScoped = false,
   ordinaryRuntime,
+  presentation = 'default',
 }: {
+  presentation?: 'default' | 'settings';
   accountId: string;
   model: string;
   onChange(value: RepositoryChatSelection | null): void;
@@ -59,6 +63,7 @@ export function RepositoryChatPicker({
     };
   };
 }) {
+  const quick = useQuickSettings();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [opened, setOpened] = useState(
     () => !!(initialPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model))),
@@ -281,15 +286,26 @@ export function RepositoryChatPicker({
       if (!controller.signal.aborted) setBusy(false);
     }
   };
-  if (!catalog?.available && !opened && !retainedConversationId) return null;
-  if (!repositories.length && !opened && !retainedConversationId)
-    return (
+  if ((!catalog?.available || !repositories.length) && !opened && !retainedConversationId) {
+    const hint = catalog?.available ? (
       <p className="repository-chat-hint">
         Assign a GitHub connection with repository access to this AI account in{' '}
         <a href="/connections">Connections</a>.
       </p>
+    ) : (
+      <p className="repository-chat-hint">
+        {error || 'Repository choices are unavailable for this account.'}
+      </p>
     );
-  return (
+    return quick && presentation === 'settings' ? (
+      <QuickSettingsField page="repository" title="Repository" value="Unavailable">
+        {hint}
+      </QuickSettingsField>
+    ) : catalog?.available ? (
+      hint
+    ) : null;
+  }
+  const editor = (
     <section className="repository-chat-picker" aria-label="Repository for new chat">
       {!opened ? (
         catalog?.available &&
@@ -421,5 +437,22 @@ export function RepositoryChatPicker({
         </a>
       )}
     </section>
+  );
+  return quick && presentation === 'settings' ? (
+    <QuickSettingsField
+      page="repository"
+      title="Repository"
+      value={workspace?.repository ?? (unresolvedSaved ? 'Check preparation' : 'Add repository')}
+      onOpen={() => {
+        if (!opened) {
+          setOpened(true);
+          callback.current({ blocked: true });
+        }
+      }}
+    >
+      {editor}
+    </QuickSettingsField>
+  ) : (
+    editor
   );
 }

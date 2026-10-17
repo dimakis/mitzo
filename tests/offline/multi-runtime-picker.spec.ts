@@ -1,3 +1,10 @@
+import {
+  settingRow,
+  chooseSetting,
+  openChatSetting,
+  settingsHome,
+  settingChoices,
+} from '../support/chat-settings';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -119,6 +126,7 @@ async function openAgentSettings(page: Page) {
   const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+  await openChatSetting(page, 'execution');
 }
 
 /** Fixture-only Google enrollment; no production catalogue or provider is consulted. */
@@ -171,18 +179,17 @@ async function narrowMobileEvidence(
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize)).toBe(
     '20px',
   );
-  await page.getByRole('combobox', { name: 'Model', exact: true }).scrollIntoViewIfNeeded();
+  await settingsHome(page);
+  await settingRow(page, 'Model').scrollIntoViewIfNeeded();
   await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeInViewport();
-  await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
-    selection.accountId,
-  );
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-    selection.model,
-  );
-  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
+  await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', selection.accountId);
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', selection.model);
+  await expect(settingRow(page, 'Thinking level')).toHaveAttribute(
+    'data-value',
     selection.thinking,
   );
+  await openChatSetting(page, 'execution');
   await expect(
     page.getByRole('group', { name: 'Run on', exact: true }).getByRole('button', {
       name: selection.environment === 'local' ? 'Local Mac' : 'OpenShell',
@@ -217,59 +224,33 @@ test('Approved composer clean saved-design reference aligns Agent and Account fi
   await input.fill(draft);
   await openAgentSettings(page);
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
-  const agent = panel.getByRole('combobox', { name: 'Agent', exact: true });
-  const account = panel.getByRole('combobox', { name: 'Account', exact: true });
-  await account.selectOption('api');
-  const model = panel.getByRole('combobox', { name: 'Model', exact: true });
-  await model.selectOption('shell-model');
-  await panel.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await chooseSetting(page, 'Account', 'api');
+  await chooseSetting(page, 'Model', 'shell-model');
+  await chooseSetting(page, 'Thinking level', 'high');
   await panel.getByRole('button', { name: 'Done', exact: true }).click();
-  await openAgentSettings(page);
-  await expect(panel.getByRole('combobox')).toHaveCount(4);
-  expect(
-    await panel
-      .getByRole('combobox')
-      .evaluateAll((controls) => controls.map((control) => control.getAttribute('aria-label'))),
-  ).toEqual(['Account', 'Model', 'Thinking level', 'Agent']);
-  await expect(agent).toHaveValue(JSON.stringify(['saved', 'agent', 1]));
-  await expect(account).toHaveValue('api');
-  await expect(model).toHaveValue('shell-model');
-  await expect(panel.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
-    'high',
-  );
-  const body = panel.locator('.workspace-controls-content');
-  await body.evaluate((element) => {
-    element.scrollTop = 0;
-  });
-  await agent.scrollIntoViewIfNeeded();
-  await expect(agent).toBeInViewport();
-  const geometry = await agent.evaluate((element) => {
-    const label = element.closest('label')!.getBoundingClientRect();
-    const accountLabel = document
-      .querySelector<HTMLSelectElement>('.agent-settings-panel select[aria-label="Account"]')!
-      .closest('label')!
-      .getBoundingClientRect();
-    const field = element.getBoundingClientRect();
-    return {
-      labels: Math.abs(label.left - accountLabel.left),
-      field: Math.abs(label.width - field.width),
-    };
-  });
-  expect(geometry.labels).toBeLessThanOrEqual(1);
-  expect(geometry.field).toBeLessThanOrEqual(1);
+  await settingsHome(page);
+  await expect(panel.getByRole('combobox')).toHaveCount(0);
+  const account = settingRow(panel, 'Account');
+  const agent = panel.locator('[data-quick-setting="agent"]');
+  await expect(account).toHaveAttribute('data-value', 'api');
+  await expect(settingRow(panel, 'Model')).toHaveAttribute('data-value', 'shell-model');
+  await expect(settingRow(panel, 'Thinking')).toHaveAttribute('data-value', 'high');
+  await expect(agent).toContainText('Repository helper');
+  const accountBox = (await account.boundingBox())!;
+  const agentBox = (await agent.boundingBox())!;
+  expect(Math.abs(accountBox.x - agentBox.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(accountBox.width - agentBox.width)).toBeLessThanOrEqual(1);
+  for (const row of await panel.locator('[data-quick-setting]:visible').all())
+    expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await expect(workspace).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toHaveCount(0);
   await expect(input).toBeInViewport();
-  await expect(page.getByRole('navigation', { name: 'Main navigation' }).first()).toBeInViewport();
   const bounds = (await panel.boundingBox())!;
   expect(bounds.x).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
   expect(bounds.y + bounds.height).toBeLessThanOrEqual(height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({
-    path: testInfo.outputPath(`local-approved-agent-settings-clean-${width}-top.png`),
-    fullPage: true,
-  });
+  await page.screenshot({ path: testInfo.outputPath(`quick-sheet-approved-${width}.png`) });
+  await openChatSetting(page, 'execution');
   const runOn = panel.getByRole('group', { name: 'Run on', exact: true });
   await expect(runOn.getByRole('button')).toHaveCount(2);
   await expect(runOn.getByRole('button', { name: 'OpenShell', exact: true })).toHaveAttribute(
@@ -430,118 +411,50 @@ for (const appearance of ['light', 'dark'] as const) {
     await openAgentSettings(page);
     await expect(panel).toHaveCount(1);
     expect(await panel.evaluate((element) => !!element.closest('.workspace-controls'))).toBe(true);
-    await expect(panel.getByRole('combobox')).toHaveCount(4);
-    expect(
-      await panel
-        .getByRole('combobox')
-        .evaluateAll((controls) => controls.map((control) => control.getAttribute('aria-label'))),
-    ).toEqual(['Account', 'Model', 'Thinking level', 'Agent']);
-    await expect(
-      page.locator('.workspace-controls').getByRole('combobox', {
-        name: /^(Agent|Account|Model|Thinking level)$/,
-      }),
-    ).toHaveCount(4);
-    const modelFields = panel.locator('.agent-settings-account-model');
-    await expect(modelFields.getByRole('combobox', { name: 'Account', exact: true })).toHaveCount(
-      1,
+    await settingsHome(page);
+    await expect(panel.getByRole('combobox')).toHaveCount(0);
+    const rows = panel.locator('[data-quick-setting]:visible');
+    const keys = await rows.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('data-quick-setting')),
     );
-    await expect(modelFields.getByRole('combobox', { name: 'Model', exact: true })).toHaveCount(1);
-    await expect(
-      modelFields.getByRole('combobox', { name: 'Thinking level', exact: true }),
-    ).toHaveCount(1);
-    const runOn = panel.getByRole('group', { name: 'Run on', exact: true });
-    await expect(runOn.getByRole('button')).toHaveCount(2);
-    const openshell = runOn.getByRole('button', { name: 'OpenShell', exact: true });
-    const local = runOn.getByRole('button', { name: 'Local Mac', exact: true });
-    await expect(openshell).toHaveAttribute('aria-pressed', 'true');
-    await expect(local).toHaveAttribute('aria-pressed', 'false');
-    await expect(openshell).toHaveAccessibleDescription('Run tools in an isolated sandbox.');
-    await expect(local).toHaveAccessibleDescription('Run tools on this Mac.');
-    await expect(panel.getByText('Runs with Codex', { exact: true })).toBeVisible();
-    await expect(openshell.locator('.openshell-brand')).toHaveCount(1);
-    await expect(openshell.locator('svg')).toHaveCount(1);
-    await expect(local.locator('svg')).toHaveCount(1);
-    await expect(panel.getByRole('combobox', { name: 'Run on', exact: true })).toHaveCount(0);
-    await expect(
-      panel.getByRole('button', { name: 'Refresh execution choices', exact: true }),
-    ).toHaveCount(0);
-    await expect(panel.getByRole('button', { name: /^Use these / })).toHaveCount(0);
+    expect(keys.slice(0, 5)).toEqual(['account', 'model', 'thinking', 'agent', 'execution']);
+    expect(keys.slice(-2)).toEqual(['more', 'defaults']);
     for (const width of mobile ? [390, 320] : [1280]) {
       await page.setViewportSize({ width, height: mobile ? (width === 320 ? 740 : 844) : 900 });
-      const bounds = (await panel.boundingBox())!;
-      expect(bounds.x).toBeGreaterThanOrEqual(0);
-      expect(bounds.y).toBeGreaterThanOrEqual(0);
-      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-      expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-      const body = panel.locator('.workspace-controls-content');
-      if (mobile) {
-        await expect
-          .poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
-          .toBe(true);
-        await local.scrollIntoViewIfNeeded();
-        await expect(local).toBeInViewport();
-      }
-      const modelBox = (await panel
-        .getByRole('combobox', { name: 'Model', exact: true })
-        .boundingBox())!;
-      const thinkingBox = (await panel
-        .getByRole('combobox', { name: 'Thinking level', exact: true })
-        .boundingBox())!;
-      const shellBox = (await openshell.boundingBox())!;
-      const localBox = (await local.boundingBox())!;
-      if (mobile) {
-        expect(thinkingBox.y).toBeGreaterThan(modelBox.y);
-      } else {
-        expect(Math.abs(thinkingBox.y - modelBox.y)).toBeLessThan(1);
-        expect(thinkingBox.x).toBeGreaterThan(modelBox.x);
-      }
-      expect(Math.abs(localBox.y - shellBox.y)).toBeLessThan(1);
-      expect(localBox.x).toBeGreaterThan(shellBox.x);
-      for (const control of [openshell, local, trigger]) {
-        expect(Math.round((await control.boundingBox())!.height)).toBeGreaterThanOrEqual(44);
-      }
-      const done = panel.getByRole('button', { name: 'Done', exact: true });
-      await expect(done).toBeInViewport();
+      await settingsHome(page);
+      const modelBox = (await settingRow(panel, 'Model').boundingBox())!;
+      const thinkingBox = (await settingRow(panel, 'Thinking').boundingBox())!;
+      expect(thinkingBox.y).toBeGreaterThan(modelBox.y);
+      expect(Math.abs(thinkingBox.x - modelBox.x)).toBeLessThan(1);
+      for (const row of await rows.all())
+        expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await expect(panel.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
       await expect(composer).toBeInViewport();
-      await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
-      expect(
-        await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches),
-      ).toBe(true);
-      expect(
-        await panel.evaluate(
-          (element) =>
-            element
-              .getAnimations({ subtree: true })
-              .filter((animation) => animation.playState === 'running').length,
-        ),
-      ).toBe(0);
       await page.screenshot({
-        path: testInfo.outputPath(`local-approved-agent-settings-${appearance}-${width}.png`),
-        fullPage: true,
+        path: testInfo.outputPath(`quick-sheet-${appearance}-${width}.png`),
       });
+      await openChatSetting(page, 'execution');
+      const runOn = panel.getByRole('group', { name: 'Run on', exact: true });
+      const openshell = runOn.getByRole('button', { name: 'OpenShell', exact: true });
+      const local = runOn.getByRole('button', { name: 'Local Mac', exact: true });
+      await expect(runOn.getByRole('button')).toHaveCount(2);
+      await expect(openshell).toHaveAttribute('aria-pressed', 'true');
+      await expect(local).toHaveAttribute('aria-pressed', 'false');
+      await expect(openshell).toHaveAccessibleDescription('Run tools in an isolated sandbox.');
+      await expect(local).toHaveAccessibleDescription('Run tools on this Mac.');
+      await expect(openshell.locator('.openshell-brand')).toHaveCount(1);
+      await expect(panel.getByText('Runs with Codex', { exact: true })).toBeVisible();
+      await expect(
+        panel.getByRole('button', { name: 'Refresh execution choices', exact: true }),
+      ).toHaveCount(0);
+      await expect(panel.getByRole('button', { name: /^Use these / })).toHaveCount(0);
     }
-    if (appearance === 'light') {
-      await page.evaluate(() => {
-        document.documentElement.dataset.accent = 'lavender';
-        document.documentElement.dataset.font = 'system';
-        document.documentElement.style.fontSize = '';
-      });
-      if (mobile) await page.setViewportSize({ width: 390, height: 844 });
-      await expect(panel).toBeVisible();
-      await expect(composer).toBeInViewport();
-      await expect(panel.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
-      await page.screenshot({
-        path: testInfo.outputPath(
-          `local-approved-agent-settings-light-lavender-system-${mobile ? '390' : '1280'}.png`,
-        ),
-        fullPage: true,
-      });
-    }
-    const thinking = panel.getByRole('combobox', { name: 'Thinking level', exact: true });
-    await thinking.selectOption('low');
+    await settingsHome(page);
+    const thinking = settingRow(panel, 'Thinking level');
+    await chooseSetting(page, 'Thinking level', 'low');
     await thinking.focus();
     await page.keyboard.press('Escape');
     await expect(panel).toBeHidden();
@@ -549,7 +462,7 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(composer).toHaveValue('Retain the approved composer draft');
     await expect(page.getByRole('button', { name: 'Preview attachment 1' })).toBeVisible();
     await openAgentSettings(page);
-    await expect(thinking).toHaveValue('low');
+    await expect(thinking).toHaveAttribute('data-value', 'low');
     await trigger.click();
     await expect(panel).toBeHidden();
     await expect(trigger).toBeFocused();
@@ -558,7 +471,7 @@ for (const appearance of ['light', 'dark'] as const) {
     await expect(panel).toBeHidden();
     await expect(trigger).toBeFocused();
     await openAgentSettings(page);
-    await expect(thinking).toHaveValue('low');
+    await expect(thinking).toHaveAttribute('data-value', 'low');
     await trigger.click();
     await expect(trigger).toBeFocused();
     await expect
@@ -660,25 +573,31 @@ for (const appearance of ['light', 'dark'] as const) {
     await page.goto(`/chat?draft=${draftId}&agentProfile=agent&profileRevision=1`);
     await page.addStyleTag({ content: 'html { font-size: 20px; }' });
     await openAgentSettings(page);
-    const account = page.getByRole('combobox', { name: 'Account', exact: true });
-    const model = page.getByRole('combobox', { name: 'Model', exact: true });
-    const thinking = page.getByRole('combobox', { name: 'Thinking level', exact: true });
+    const account = settingRow(page, 'Account');
+    const model = settingRow(page, 'Model');
+    const thinking = settingRow(page, 'Thinking level');
     const environments = page.getByRole('group', { name: 'Run on', exact: true });
     const local = environments.getByRole('button', { name: 'Local Mac', exact: true });
     const openshell = environments.getByRole('button', { name: 'OpenShell', exact: true });
     const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
-    await expect(account).toHaveValue('personal');
-    await expect(account).toBeDisabled();
+    await expect(account).toHaveAttribute('data-value', 'personal');
+    await expect(account).toHaveAttribute('data-readonly', 'true');
     await expect(local).toHaveAttribute('aria-pressed', 'true');
     await expect(local).toBeDisabled();
     await expect(openshell).toBeDisabled();
     await expect(model).toBeEnabled();
-    await model.selectOption('supported-next');
-    await expect(model).toHaveValue('supported-next');
+    await chooseSetting(page, 'Model', 'supported-next');
+    await expect(model).toHaveAttribute('data-value', 'supported-next');
     await expect(model).toBeEnabled();
-    await expect(thinking).toHaveValue('high');
+    await expect(thinking).toHaveAttribute('data-value', 'high');
     await expect(composer).toHaveValue('Keep this prepared development draft');
-    await expect(page.getByText('fixture/repository', { exact: true })).toBeVisible();
+    await openChatSetting(page, 'repository');
+    await expect(
+      page
+        .getByRole('region', { name: 'Repository for new chat' })
+        .getByText('fixture/repository', { exact: true }),
+    ).toBeVisible();
+    await openChatSetting(page, 'execution');
     await expect(
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
     ).toBeEnabled();
@@ -702,6 +621,7 @@ for (const appearance of ['light', 'dark'] as const) {
           },
         },
       });
+    await settingsHome(page);
     await model.scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
     await expect(composer).toBeInViewport();
@@ -722,6 +642,7 @@ for (const appearance of ['light', 'dark'] as const) {
     if (testInfo.project.name.startsWith('mobile')) {
       await page.setViewportSize({ width: 320, height: 740 });
       await openAgentSettings(page);
+      await openChatSetting(page, 'repository');
       const repository = page.getByRole('region', { name: 'Repository for new chat' });
       await repository.scrollIntoViewIfNeeded();
       await expect(repository).toBeInViewport();
@@ -744,8 +665,8 @@ for (const appearance of ['light', 'dark'] as const) {
         page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
       ).toBeInViewport();
       await openAgentSettings(page);
-      await expect(model).toHaveValue('supported-next');
-      await expect(thinking).toHaveValue('high');
+      await expect(model).toHaveAttribute('data-value', 'supported-next');
+      await expect(thinking).toHaveAttribute('data-value', 'high');
       await expect(composer).toHaveValue('Keep this prepared development draft');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
@@ -755,7 +676,8 @@ for (const appearance of ['light', 'dark'] as const) {
         fullPage: true,
       });
     }
-    await expect(account).toBeDisabled();
+    await openChatSetting(page, 'execution');
+    await expect(account).toHaveAttribute('data-readonly', 'true');
     await expect(local).toBeDisabled();
     await expect(openshell).toBeDisabled();
     await expect(
@@ -822,9 +744,9 @@ for (const appearance of ['light', 'dark'] as const) {
     // Exercise larger text without changing the application's shared token palette.
     await page.addStyleTag({ content: 'html { font-size: 20px; }' });
     await openAgentSettings(page);
-    const account = page.getByRole('combobox', { name: 'Account', exact: true });
-    const model = page.getByRole('combobox', { name: 'Model', exact: true });
-    const thinking = page.getByRole('combobox', { name: 'Thinking level', exact: true });
+    const account = settingRow(page, 'Account');
+    const model = settingRow(page, 'Model');
+    const thinking = settingRow(page, 'Thinking level');
     const environments = page.getByRole('group', { name: 'Run on', exact: true });
     const local = environments.getByRole('button', { name: 'Local Mac', exact: true });
     const openshell = environments.getByRole('button', { name: 'OpenShell', exact: true });
@@ -834,11 +756,13 @@ for (const appearance of ['light', 'dark'] as const) {
       /OpenShell.*Run tools in an isolated sandbox\./s,
       /Local Mac.*Run tools on this Mac\./s,
     ]);
-    await expect(account.locator('option:checked')).toHaveText('Confirm account: API billing');
-    await expect(account.locator('option:checked')).toHaveAttribute('disabled', '');
-    await expect(account).not.toHaveValue('api');
-    await expect(model).toHaveValue('shell-model');
-    await expect(thinking).toHaveValue('high');
+    await expect(account).toHaveAttribute('aria-label', 'Account, Confirm account: API billing');
+    await expect(
+      settingChoices(page, 'Account').locator('[data-setting-value="__mitzo_confirm_account__"]'),
+    ).toBeDisabled();
+    await expect(account).not.toHaveAttribute('data-value', 'api');
+    await expect(model).toHaveAttribute('data-value', 'shell-model');
+    await expect(thinking).toHaveAttribute('data-value', 'high');
     await expect(composer).toHaveValue('Keep this development draft across environments');
     await expect
       .poll(() =>
@@ -852,8 +776,8 @@ for (const appearance of ['light', 'dark'] as const) {
         accountReference: null,
         account: { accountId: 'api', model: 'shell-model', reasoningEffort: 'high' },
       });
-    await account.selectOption('api');
-    await expect(account).toHaveValue('api');
+    await chooseSetting(page, 'Account', 'api');
+    await expect(account).toHaveAttribute('data-value', 'api');
     await expect
       .poll(() =>
         page.evaluate(
@@ -866,22 +790,28 @@ for (const appearance of ['light', 'dark'] as const) {
         accountReference: { accountId: 'api', provider: 'openai', profileRevision: 'api-r1' },
         account: { accountId: 'api', model: 'shell-model', reasoningEffort: 'high' },
       });
-    await model.selectOption('shell-model');
-    await thinking.selectOption('high');
+    await chooseSetting(page, 'Model', 'shell-model');
+    await chooseSetting(page, 'Thinking level', 'high');
     await composer.fill('Keep this development draft across environments');
     await expect(page.getByText('Runs with Codex', { exact: true })).toBeVisible();
-    await expect(model.locator('option[value="local-model"]')).toHaveCount(0);
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="local-model"]'),
+    ).toHaveCount(0);
 
     await local.click();
     await expect(page.getByText('Runs with Mitzo Responses', { exact: true })).toBeVisible();
-    await expect(account).toHaveValue('api');
-    await expect(model).toHaveValue('shell-model');
-    await expect(thinking).toHaveValue('high');
-    await expect(model.locator('option[value="shell-model"]')).toHaveAttribute('disabled', '');
-    await expect(model.locator('option[value="shell-model"]')).toHaveText(
-      'Unavailable model: shell-model',
-    );
-    await expect(model.locator('option[value="local-model"]')).toHaveCount(1);
+    await expect(account).toHaveAttribute('data-value', 'api');
+    await expect(model).toHaveAttribute('data-value', 'shell-model');
+    await expect(thinking).toHaveAttribute('data-value', 'high');
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="shell-model"]'),
+    ).toHaveAttribute('disabled', '');
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="shell-model"]'),
+    ).toHaveText('Unavailable model: shell-model');
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="local-model"]'),
+    ).toHaveCount(1);
     await expect(composer).toHaveValue('Keep this development draft across environments');
     await expect(
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
@@ -899,33 +829,41 @@ for (const appearance of ['light', 'dark'] as const) {
       environment: 'local',
       draft: 'Keep this development draft across environments',
     });
-    await expect(model.locator('option[value="shell-model"]')).toHaveAttribute('disabled', '');
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="shell-model"]'),
+    ).toHaveAttribute('disabled', '');
     await expect(
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
     ).toBeDisabled();
 
     // Replacement is explicit; it must not discard an unsupported thinking choice.
-    await model.selectOption('local-model');
-    await expect(thinking).toHaveValue('high');
-    await expect(thinking.locator('option[value="high"]')).toHaveAttribute('disabled', '');
-    await expect(thinking.locator('option[value="high"]')).toHaveText(
-      'Unavailable thinking level: high',
-    );
-    await thinking.selectOption('low');
-    await account.selectOption('vertex');
+    await chooseSetting(page, 'Model', 'local-model');
+    await expect(thinking).toHaveAttribute('data-value', 'high');
+    await expect(
+      settingChoices(page, 'Thinking level').locator('[data-setting-value="high"]'),
+    ).toHaveAttribute('disabled', '');
+    await expect(
+      settingChoices(page, 'Thinking level').locator('[data-setting-value="high"]'),
+    ).toHaveText('Unavailable thinking level: high');
+    await chooseSetting(page, 'Thinking level', 'low');
+    await chooseSetting(page, 'Account', 'vertex');
     await expect(page.getByText('Runs with Claude', { exact: true })).toBeVisible();
-    await expect(model).toHaveValue('local-model');
-    await expect(model.locator('option[value="claude-model"]')).toHaveCount(1);
-    await model.selectOption('claude-model');
-    await expect(thinking).toHaveValue('low');
-    await thinking.selectOption('high');
+    await expect(model).toHaveAttribute('data-value', 'local-model');
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="claude-model"]'),
+    ).toHaveCount(1);
+    await chooseSetting(page, 'Model', 'claude-model');
+    await expect(thinking).toHaveAttribute('data-value', 'low');
+    await chooseSetting(page, 'Thinking level', 'high');
     await openshell.click();
-    await expect(account).toHaveValue('vertex');
+    await expect(account).toHaveAttribute('data-value', 'vertex');
     await expect(openshell).toHaveAttribute('aria-pressed', 'true');
-    await expect(model).toHaveValue('claude-model');
-    await expect(thinking).toHaveValue('high');
+    await expect(model).toHaveAttribute('data-value', 'claude-model');
+    await expect(thinking).toHaveAttribute('data-value', 'high');
     await expect(page.getByText(/^Runs with /)).toHaveCount(0);
-    await expect(model.locator('option[value="shell-model"]')).toHaveCount(0);
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="shell-model"]'),
+    ).toHaveCount(0);
     await expect(composer).toHaveValue('Keep this development draft across environments');
     await expect(
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
@@ -968,10 +906,10 @@ for (const appearance of ['light', 'dark'] as const) {
       draft: 'Keep this development draft across environments',
     });
     // Keep the existing Vertex identity proof above before choosing another account.
-    await account.selectOption('google');
-    await expect(account).toHaveValue('google');
-    await expect(model).toHaveValue('claude-model');
-    await expect(thinking).toHaveValue('high');
+    await chooseSetting(page, 'Account', 'google');
+    await expect(account).toHaveAttribute('data-value', 'google');
+    await expect(model).toHaveAttribute('data-value', 'claude-model');
+    await expect(thinking).toHaveAttribute('data-value', 'high');
     await expect(page.getByText(/^Runs with /)).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
@@ -982,19 +920,27 @@ for (const appearance of ['light', 'dark'] as const) {
       /Local Mac.*Run tools on this Mac\./s,
     ]);
     await expect(page.getByText('Runs with Gemini', { exact: true })).toBeVisible();
-    await expect(account).toHaveValue('google');
-    await expect(model).toHaveValue('claude-model');
-    await expect(model.locator('option[value="claude-model"]')).toHaveAttribute('disabled', '');
-    await expect(model.locator('option[value="claude-model"]')).toHaveText(
-      'Unavailable model: claude-model',
-    );
-    await expect(model.locator('option[value="gemini-fixture"]')).toHaveCount(1);
-    await expect(model.locator('option[value="shell-model"]')).toHaveCount(0);
+    await expect(account).toHaveAttribute('data-value', 'google');
+    await expect(model).toHaveAttribute('data-value', 'claude-model');
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="claude-model"]'),
+    ).toHaveAttribute('disabled', '');
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="claude-model"]'),
+    ).toHaveText('Unavailable model: claude-model');
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="gemini-fixture"]'),
+    ).toHaveCount(1);
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="shell-model"]'),
+    ).toHaveCount(0);
     await expect(composer).toHaveValue('Keep this development draft across environments');
-    await model.selectOption('gemini-fixture');
-    await expect(thinking).toHaveValue('high');
-    await expect(thinking.locator('option[value="high"]')).toHaveAttribute('disabled', '');
-    await thinking.selectOption('low');
+    await chooseSetting(page, 'Model', 'gemini-fixture');
+    await expect(thinking).toHaveAttribute('data-value', 'high');
+    await expect(
+      settingChoices(page, 'Thinking level').locator('[data-setting-value="high"]'),
+    ).toHaveAttribute('disabled', '');
+    await chooseSetting(page, 'Thinking level', 'low');
     await expect
       .poll(() =>
         page.evaluate(() => {
@@ -1015,6 +961,7 @@ for (const appearance of ['light', 'dark'] as const) {
         account: { accountId: 'google', model: 'gemini-fixture', reasoningEffort: 'low' },
         execution: { location: 'local', targetId: 'gemini' },
       });
+    await settingsHome(page);
     await model.scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
     await expect(composer).toBeInViewport();
@@ -1033,11 +980,13 @@ for (const appearance of ['light', 'dark'] as const) {
       draft: 'Keep this development draft across environments',
     });
     await openshell.click();
-    await expect(account).toHaveValue('google');
-    await expect(model).toHaveValue('gemini-fixture');
-    await expect(thinking).toHaveValue('low');
+    await expect(account).toHaveAttribute('data-value', 'google');
+    await expect(model).toHaveAttribute('data-value', 'gemini-fixture');
+    await expect(thinking).toHaveAttribute('data-value', 'low');
     await expect(page.getByText(/^Runs with /)).toHaveCount(0);
-    await expect(model.locator('option[value="shell-model"]')).toHaveCount(0);
+    await expect(
+      settingChoices(page, 'Model').locator('[data-setting-value="shell-model"]'),
+    ).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
     ).toBeDisabled();

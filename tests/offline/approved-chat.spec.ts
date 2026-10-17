@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 const bundled = build({
   entryPoints: [resolve('tests/fixtures/approved-chat.tsx')],
   bundle: true,
-  external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
+  external: ['/*.png', '/*.svg'],
   write: false,
   outfile: '/tmp/mitzo-approved-chat.js',
   jsx: 'automatic',
@@ -46,6 +46,8 @@ for (const theme of ['dark', 'light'] as const)
           '/mitzo-icon.png',
           '/openshell-mark.svg',
           '/github-mark.svg',
+          '/openai-mark.svg',
+          '/claude-mark.svg',
         ].includes(path)
       )
         return route.fulfill({
@@ -80,7 +82,7 @@ for (const theme of ['dark', 'light'] as const)
       expect(
         await heading.evaluate((element) => {
           const probe = document.createElement('span');
-          probe.style.color = 'var(--color-accent)';
+          probe.style.color = 'var(--color-text)';
           document.body.append(probe);
           const matches = getComputedStyle(probe).color === getComputedStyle(element).color;
           probe.remove();

@@ -1316,3 +1316,23 @@ focus, retained edits, failure/retry, publication, 44px actions and scrolling.
 These checks use fake responses without backend, credentials or models. Full-app
 build/browser acceptance remains a separate CI gate. The application shell and
 advisor/editor placement are unchanged.
+
+## Approved interface contracts
+
+The [approved-design ledger](approved/README.md) records human approvals and pinned
+references separately from implementation captures. Read it before changing an
+existing surface or resolving a UI conflict. Feature work and rebases preserve the
+active design; intentional changes need a new explicit user approval and an appended
+revision. Tests and reference hashes are protections, not baselines to rewrite when
+an unrelated feature changes the screen.
+
+Chat settings uses the shared `QuickSettingsField` pattern: an ordered summary list
+opens one retained editor at a time. Back and Escape return through the sheet and
+restore focus. Account/model locks, explicit confirmation, repository preparation,
+existing action callbacks and unavailable choices retain their original authority.
+Summary rows are portaled into ordered slots so visual and keyboard order agree.
+The header and surfaces use neutral tokens; Done uses the selected action accent.
+`SettingsBrandMark` uses the existing OpenShell mask and vendored OpenAI/Claude SVG
+marks (LobeHub icon assets); unknown model identities remain unbranded. The 18px mark
+is icon geometry; controls still use the shared 44px minimum. Claude's brand role
+is defined for both themes in tokens.css and is independent of the user's accent.

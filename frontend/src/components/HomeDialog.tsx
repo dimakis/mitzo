@@ -61,13 +61,23 @@ export function HomeDialog({
       dialog.close();
       releaseScroll();
       if (focus instanceof HTMLElement && focus.isConnected) {
-        const concealed = focus.closest('[inert], [hidden]');
-        const trigger = concealed?.id
-          ? Array.from(document.querySelectorAll<HTMLElement>('[aria-controls]')).find(
-              (element) => element.getAttribute('aria-controls') === concealed.id,
-            )
-          : null;
-        (trigger ?? focus).focus({ preventScroll: true });
+        let concealed = focus.closest('[inert], [hidden]');
+        if (!concealed) focus.focus({ preventScroll: true });
+        while (concealed) {
+          const id = concealed.id;
+          const trigger = id
+            ? Array.from(document.querySelectorAll<HTMLElement>('[aria-controls]')).find(
+                (element) =>
+                  element.getAttribute('aria-controls') === id &&
+                  !element.closest('[inert], [hidden]'),
+              )
+            : null;
+          if (trigger) {
+            trigger.focus({ preventScroll: true });
+            break;
+          }
+          concealed = concealed.parentElement?.closest('[inert], [hidden]') ?? null;
+        }
       }
     };
   }, [open]);

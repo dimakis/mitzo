@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.275-api-tools.6';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.276-chat-settings.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,17 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/QuickChatSettings.tsx':
+    'cf2bf40d06871ae7f97f39ddd4ae21d801ea28c04a8463f06bdba51087982623',
+  '../../frontend/src/components/QuickChatSettings.css':
+    '862c103a6eb52edd21af126002d7be1be11a3ab46d1b5682cf29b7153dbde278',
+  '../../frontend/src/components/SettingsBrandMark.tsx':
+    '74b448995334f1d9b76bc0348839e83ae860b7fd249c389eee6f2ff77c42e9c6',
+  '../../frontend/src/components/SettingsBrandMark.css':
+    'f7f5f2bef17dc218b04179dd8e6f94311c0520f64ef40343c7b44fec6d4f31e8',
+  '../../frontend/src/lib/quick-settings-context.ts':
+    'd0fde0a0dedce0bc4e2977a49a9758f52be228d1491c4b864d27d6cdc42ee96d',
+
   '../symposium-custodian-main.ts':
     '68a9235ca4c5d0a33b84a4a72b92165a9dbc00f9375770b166270ebb9ecdd699',
   '../api-tool-router.ts': '2b95fa7fa918be7ea1b59e04293d7fbbd80e55ef719d1b0a90e65ffb2e0b3eef',
@@ -114,7 +125,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/home.css':
     'aa3da55b033e5e580ba3dec2822cab53f6c90610b26af28af172aab5e928e702',
   '../../frontend/src/styles/tokens.css':
-    '1286a09206e1630e8f8d1d7315a2df2208538117dc08f2248b68f00339fd07d7',
+    'f028f328310f111d619e015e09774c02e5caec9049863756d77095425b82d97f',
   '../../frontend/src/hooks/useMotionPresence.ts':
     'ace66416845a7e8a85ce17c07c8310b4b7089e89f09ce6e8cb7919907d035838',
   '../../frontend/src/hooks/useReducedMotion.ts':
@@ -290,16 +301,16 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-artifact-route-composition.ts':
     '8d9e87e2a2873f0dc841429a5b9a43b93aa194237e4f9594b572e87bff27142b',
   '../../frontend/src/styles/workspace-chat.css':
-    '8e0cd6d86742c10ecbe41806adb991fe4c887219b7da84b8f41b4760d1f49755',
+    '6f02e8ee0b05aa1c6fd1fbd0ceddc2248bae1e0906064eda9564f93c8daf83e9',
   // Explicit Local draft selection, exact-request delivery and bound conversation controls.
   '../../frontend/src/client-store.ts':
     '57b117fac6b16cf168aa0bd5918a657d93889b64a03dec597c6e35816f202e75',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    '0d361c3f71c21d1ebe557c288ad0df4a25450e6a4d6703b75f56c98fd912c94b',
+    '9eceb83413e6ae50d00b1aaf4f3fd9547f3289a2ead0acae764df25c3de8c3e3',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
-    '168cd6ef908fbdf1876e2efd28c5af8121cb1a7feeac07e12c0e7f4e1a795e76',
+    '4e31288412968cd38828169c6f1d17ada0e27d30393758bef86df45542685b62',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
-    'd89edd080618961d6b92ad72c2410301690494a77ef5a563b112736e73fb14d8',
+    '09e817e4b6a0b2447c97f8dbad2b1aa9537d0b8958d87819dd5ca7600d219ff6',
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
@@ -313,11 +324,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/OrdinaryCollaborationEntry.tsx':
     '23d4b7d10ec64b7e3e9daf19d81dd0951ed6c6d3d6602fb0b977e305cc535360',
   '../../frontend/src/components/HomeDialog.tsx':
-    '1993098c16aa6d774bc2d94ed4f07609613281983d00b7e46d9d4612ddb8ce71',
+    'fa28d9039091b61d5cd29647ce4b49fe35dfc23f447fd3eb96b147f12c6b7601',
   '../../frontend/src/components/SessionTray.tsx':
     'da210c89a8dd6821ddd98b1c6429ae58fa6731d1afe98c08a75f0867695d99ba',
   '../../frontend/src/components/WorkspaceControls.tsx':
-    'e81eb3531c111c21bf4a49486058fe52cfdc717a0e70f6401695ab3bb997a2e6',
+    'f439a002496c7999033e27fd9374eecb094f35c8077da00d60936528dffed17a',
   '../../frontend/src/hooks/ChatRuntimeDraftProvider.tsx':
     'fcebbeefa5ff14bd074515519a0c4e1d6774ecd7177921ca2264328239cc9720',
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
@@ -346,9 +357,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     'f27a25d30f2890a67aa2b15c7da54ceedc73317aadced7bc2b27371287bbb98c',
   '../../frontend/src/pages/ChatView.tsx':
-    'd21e391ff531de24232498d70aba294910ca30904b74c60e23e1942c6a773e91',
+    '405797efcbea8611c2f52bb5cdd6809c324a3cdcfeea96e57242967d917c001b',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'bab3afac6b6cb44ecff6485615a7f1822febcedb1071f0d7637c600615027e68',
+    '12bfe033be394eeac5af7035efd0f876c0782abf766242c210f4183701972f55',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -848,7 +859,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-repository-preparation-authority.ts':
     '4eac6fb91dc7be34a934c52e6fccc537efb1fdd44ea10439e2f0d3920dbbc593',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
-    '6eafd2ece6d8a288b62aff7b0be56edd435459b67d2eef9e542e0f595b77dfb4',
+    'ee2a53387410d63d3f5f48b8730a97a2df6d32d1d693e06b1e408cad9852d403',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
     '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
   '../../frontend/src/lib/repository-chat-preparation.ts':
@@ -862,7 +873,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentSettingsPicker.css':
     'bd30b16df165a784f34285058165f6e4cb6dd07839da21fe258be8410303d408',
   '../../frontend/src/components/AgentSettingsPicker.tsx':
-    '5c6ab4349d5019fe5e3e989bc465983dbd930997a45f2da06d90130bae1a6725',
+    '34a3cc605bd76ab3d371bb04b06b6df317f60923d1f23e412a415c354239e595',
   '../../frontend/src/components/UiIcon.tsx':
     '0bda160e1f55b845fd274492144504b76442730729397028db617ef8570b41ab',
   // Responsive controls, bounded reads, authentication recovery and operational observers.

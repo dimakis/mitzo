@@ -87,8 +87,8 @@ it('closes when changing conversations without resetting mounted fields', () => 
   expect(trigger.getAttribute('aria-expanded')).toBe('false');
 });
 
-it('groups secondary controls behind More settings in the single top panel', () => {
-  const view = render(
+it('groups secondary controls behind More options in the single top panel', () => {
+  render(
     <WorkspaceControls
       {...props}
       settings={
@@ -106,10 +106,8 @@ it('groups secondary controls behind More settings in the single top panel', () 
   const trigger = screen.getByRole('button', { name: /^Workspace controls/ });
   fireEvent.click(trigger);
   expect(screen.getByRole('combobox', { name: 'Agent' })).toBeTruthy();
-  const options = view.container.querySelector('details')!;
-  expect(options.open).toBe(false);
-  fireEvent.click(screen.getByText('More settings'));
-  expect(options.open).toBe(true);
+  expect(screen.queryByRole('button', { name: 'Collaborate' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'More options, Permissions, web & voice' }));
   expect(screen.getByRole('button', { name: 'Collaborate' })).toBeTruthy();
 });
 

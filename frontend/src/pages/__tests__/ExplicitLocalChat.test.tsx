@@ -13,6 +13,14 @@ import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { getChatDraft } from '../../lib/chat-drafts';
 import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
+// Route wiring tests exercise the existing controls directly. The real sheet
+// navigation, retained editors and summary layout are covered by QuickChatSettings
+// unit tests and the all-intercept local-first/multi-runtime browser suites.
+vi.mock('../../lib/quick-settings-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/quick-settings-context')>()),
+  useQuickSettings: () => null,
+}));
+
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ center }: { center: React.ReactNode }) => <div>{center}</div>,
 }));

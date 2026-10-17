@@ -3,6 +3,8 @@ import { onKeyboardToggle } from '../../frontend/src/lib/keyboard';
 import { createRoot } from 'react-dom/client';
 import { SymposiumConversation } from '../../frontend/src/components/SymposiumConversation';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
+import { QuickSettingsField } from '../../frontend/src/components/QuickChatSettings';
+import { RuntimeBrandMark } from '../../frontend/src/components/SettingsBrandMark';
 import { UiIcon } from '../../frontend/src/components/UiIcon';
 import { WorkspaceControls } from '../../frontend/src/components/WorkspaceControls';
 import { AgentSettingsFields } from '../../frontend/src/components/AgentSettingsPicker';
@@ -19,14 +21,16 @@ import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/workspace-chat.css';
 
 const field = (label: string, values: string[]) => (
-  <label>
-    {label}
-    <select aria-label={label}>
-      {values.map((value) => (
-        <option key={value}>{value}</option>
-      ))}
-    </select>
-  </label>
+  <QuickSettingsField page="agent" title={label} value={values[0]}>
+    <label>
+      {label}
+      <select aria-label={label}>
+        {values.map((value) => (
+          <option key={value}>{value}</option>
+        ))}
+      </select>
+    </label>
+  </QuickSettingsField>
 );
 function Surface() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -93,27 +97,39 @@ function Surface() {
               />
             }
             execution={
-              <div className="agent-execution-settings">
-                <strong>Run on</strong>
-                <div className="agent-execution-cards" role="group" aria-label="Run on">
-                  <button
-                    type="button"
-                    className="agent-execution-card"
-                    aria-pressed={location === 'openshell'}
-                    onClick={() => setLocation('openshell')}
-                  >
-                    <span className="openshell-brand" aria-hidden="true" /> OpenShell
-                  </button>
-                  <button
-                    type="button"
-                    className="agent-execution-card"
-                    aria-pressed={location === 'local'}
-                    onClick={() => setLocation('local')}
-                  >
-                    <UiIcon name="laptop" /> Local Mac
-                  </button>
+              <QuickSettingsField
+                page="execution"
+                title="Run on"
+                value={location === 'openshell' ? 'OpenShell' : 'Local Mac'}
+                mark={<RuntimeBrandMark location={location as 'openshell' | 'local'} />}
+              >
+                <div className="agent-execution-settings">
+                  <strong>Run on</strong>
+                  <div className="agent-execution-cards" role="group" aria-label="Run on">
+                    <button
+                      type="button"
+                      className="agent-execution-card"
+                      aria-pressed={location === 'openshell'}
+                      onClick={() => setLocation('openshell')}
+                    >
+                      <span className="openshell-brand" aria-hidden="true" /> OpenShell
+                    </button>
+                    <button
+                      type="button"
+                      className="agent-execution-card"
+                      aria-pressed={location === 'local'}
+                      onClick={() => setLocation('local')}
+                    >
+                      <UiIcon name="laptop" /> Local Mac
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </QuickSettingsField>
+            }
+            repository={
+              <QuickSettingsField page="repository" title="Repository" value="Add repository">
+                <button>Add repository</button>
+              </QuickSettingsField>
             }
           />
         }
