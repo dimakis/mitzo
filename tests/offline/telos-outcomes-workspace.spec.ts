@@ -55,6 +55,7 @@ for (const theme of ['dark', 'light'])
     const unexpected: string[] = [];
     const errors: string[] = [];
     let failRecords = false;
+    let collectionMode: 'ready' | 'empty' | 'error' = 'ready';
     page.on('pageerror', (e) => {
       errors.push(e.message);
       console.error('Fixture page error:', e.message);
@@ -82,7 +83,11 @@ for (const theme of ['dark', 'light'])
           body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
         });
       if (url.pathname === '/api/todos')
-        return route.fulfill({ json: { profiles: ['manual'], items: todos } });
+        return collectionMode === 'error'
+          ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
+          : route.fulfill({
+              json: { profiles: ['manual'], items: collectionMode === 'empty' ? [] : todos },
+            });
       const match = url.pathname.match(/^\/api\/telos\/work\/items\/([^/]+)(\/record)?$/);
       if (match) {
         const record = records.find((r) => r.itemId === match[1])!;
@@ -184,6 +189,16 @@ for (const theme of ['dark', 'light'])
     failRecords = false;
     await page.getByRole('button', { name: 'Refresh Telos' }).click();
     await expect(page.getByRole('button', { name: 'All outcomes', exact: true })).toBeVisible();
+    collectionMode = 'empty';
+    await page.reload();
+    await expect(page.getByText('No outcomes yet.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'All outcomes', exact: true })).toBeVisible();
+    collectionMode = 'error';
+    await page.reload();
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Unable to load Telos items' }),
+    ).toBeVisible();
+    await expect(page.getByText('No outcomes yet.')).toHaveCount(0);
     expect(unexpected).toEqual([]);
     expect(errors).toEqual([]);
   });
