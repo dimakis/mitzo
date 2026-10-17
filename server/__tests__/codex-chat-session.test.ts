@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
+import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -261,7 +262,10 @@ function options(abortController: AbortController) {
   } as unknown as Parameters<typeof openCodexChat>[0];
 }
 
-function ownedLocalOptions(cwd = '/tmp') {
+function ownedLocalOptions(
+  cwd = '/tmp',
+  agentProfile?: import('@mitzo/protocol').AgentLibraryVersion,
+) {
   const eventStore = new EventStore(':memory:');
   const profiles = new AccountProfiles(
     [
@@ -308,6 +312,7 @@ function ownedLocalOptions(cwd = '/tmp') {
     capabilityRevision: 'cap',
     workspace: { workspaceId: 'owned-workspace', cwd },
     selection,
+    ...(agentProfile ? { agentProfile } : {}),
   } as OrdinaryLocalCodexAdmissionExpectation;
   eventStore.admitOrdinaryLocalCommand(
     {
@@ -318,13 +323,18 @@ function ownedLocalOptions(cwd = '/tmp') {
       selectedModel: 'owned-model',
       reasoningEffort: null,
       mode: 'agent',
+      ...(agentProfile ? { agentProfile } : {}),
     },
     runtimeBinding,
     {
       clientMsgId: 'owned-command',
       requestFingerprint: 'owned-fingerprint',
       selection,
-      payload: { text: 'Frozen prompt', systemPrompt: '', intent: 'Original intent' },
+      payload: {
+        text: 'Frozen prompt',
+        systemPrompt: agentProfile ? buildAgentProfilePrompt(agentProfile.definition) : '',
+        intent: 'Original intent',
+      },
     },
   );
   eventStore.claimOrdinaryLocalCommandDispatch('owned-command');
@@ -358,7 +368,8 @@ function ownedLocalOptions(cwd = '/tmp') {
     intent: 'Original intent',
     model: 'owned-model',
     reasoningEffort: null,
-    systemPrompt: '',
+    systemPrompt: agentProfile ? buildAgentProfilePrompt(agentProfile.definition) : '',
+    ...(agentProfile ? { agentProfile } : {}),
     env: {},
     repositoryWorkspace: {
       id: 'owned-workspace',
@@ -433,6 +444,7 @@ it.each([
     chat.close();
   },
 );
+
 it('retains the failing initialization step while closing the runtime', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
@@ -3781,6 +3793,211 @@ it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
   },
 );
 
+it('carries the published selected surface and instructions through the owned Local Codex adapter', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'owned-selected-codex-'));
+  const definition = {
+    name: 'Owned selected agent',
+    role: 'agent',
+    instructions: 'Use the published instructions.',
+    expectedOutput: 'Evidence',
+    acceptanceCriteria: ['Only selected effects'],
+    modelPolicyRole: 'agent',
+    tools: [{ id: 'mitzo:Read', version: 1 }],
+  };
+  const profile = {
+    profileId: 'owned-agent',
+    revision: 1,
+    definition,
+    contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+  };
+  const f = ownedLocalOptions(root, profile);
+  const { SessionRegistry } = await import('@mitzo/harness');
+  const registry = new SessionRegistry();
+  registry.register('owned-client', {
+    ...f.opts.session,
+    sessionId: 'owned-session',
+    sessionAllowList: new Set<string>(),
+    transport: { send: () => {}, isOpen: () => true },
+  });
+  f.opts.registry = registry;
+  f.opts.session = registry.get('owned-client')!;
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    displayName: (name: string) => name,
+    close: mocks.mcpClose,
+  });
+  mocks.permissionHandler.mockImplementation(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: input,
+  }));
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  writeFileSync(join(root, 'selected.txt'), 'Owned selected result');
+  const query = await openCodexChat(f.opts);
+  try {
+    expect(mocks.conversationOptions!.systemPrompt).toContain('Use the published instructions.');
+    expect(
+      (mocks.conversationOptions!.tools as { name: string }[]).map((tool) => tool.name),
+    ).toEqual(['AskUserQuestion', 'Read']);
+    const execute = mocks.conversationOptions!.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      context: { turnId: string; callId: string },
+    ) => Promise<{ content: string; isError: boolean }>;
+    expect(
+      await execute(
+        'Read',
+        { file_path: join(root, 'selected.txt') },
+        new AbortController().signal,
+        { turnId: 'turn', callId: 'call' },
+      ),
+    ).toMatchObject({ content: expect.stringContaining('Owned selected result'), isError: false });
+    await expect(
+      execute(
+        'Write',
+        { file_path: join(root, 'blocked.txt'), content: 'not selected' },
+        new AbortController().signal,
+        { turnId: 'turn', callId: 'blocked' },
+      ),
+    ).rejects.toThrow(/not selected/);
+    expect(existsSync(join(root, 'blocked.txt'))).toBe(false);
+  } finally {
+    query.close();
+    f.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('admits selected MCP through the actual owned Local Codex lifecycle and fences its effects after approval', async () => {
+  const { ConfiguredToolCatalog } = await import('../configured-tool-catalog.js');
+  const { SessionRegistry } = await import('@mitzo/harness');
+  const actualMcp =
+    await vi.importActual<typeof import('../codex-mcp-tools.js')>('../codex-mcp-tools.js');
+  const root = mkdtempSync(join(tmpdir(), 'owned-selected-mcp-'));
+  const catalog = new ConfiguredToolCatalog(':memory:');
+  const sources = {
+    selected: { command: 'offline-peer', librarySourceId: '11111111-1111-4111-8111-111111111111' },
+  };
+  const peerCall = vi.fn(async () => ({ content: [{ type: 'text', text: 'Owned MCP result' }] }));
+  const peerClose = vi.fn(async () => {});
+  const sourceOptions = {
+    cwd: root,
+    env: {},
+    signal: new AbortController().signal,
+    readSources: () => sources,
+    assertRuntimeCurrent: () => {},
+    connect: vi.fn(async () => ({
+      listTools: async () => ({ tools: [{ name: 'search', inputSchema: { type: 'object' } }] }),
+      callTool: peerCall,
+      close: peerClose,
+    })),
+  };
+  let f: ReturnType<typeof ownedLocalOptions> | undefined;
+  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  mocks.connect.mockImplementation(actualMcp.connectCodexMcpTools);
+  try {
+    const entry = (await catalog.refresh(sourceOptions))[0];
+    peerClose.mockClear();
+    sourceOptions.connect.mockClear();
+    const definition = {
+      name: 'Owned source',
+      role: 'agent',
+      instructions: 'Use the selected source.',
+      expectedOutput: 'Evidence',
+      acceptanceCriteria: ['Original owner only'],
+      modelPolicyRole: 'agent',
+      tools: [catalog.reference(entry)],
+    };
+    const profile = {
+      profileId: 'owned-agent',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    f = ownedLocalOptions(root, profile);
+    const registry = new SessionRegistry();
+    registry.register('owned-client', {
+      ...f.opts.session,
+      sessionId: 'owned-session',
+      sessionAllowList: new Set<string>(),
+      transport: { send: () => {}, isOpen: () => true },
+    });
+    f.opts.session = registry.get('owned-client')!;
+    f.opts.registry = registry;
+    f.opts.configuredSourceEnv = {};
+    f.opts.configuredTools = { catalog, ...sourceOptions };
+    f.opts.mcpServers = sources;
+    mocks.connect.mockImplementation(actualMcp.connectCodexMcpTools);
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.permissionHandler.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    query = await openCodexChat(f.opts);
+    const definitions = mocks.conversationOptions!.tools as { name: string }[];
+    expect(definitions).toHaveLength(2);
+    expect(sourceOptions.connect).toHaveBeenCalledOnce();
+    const wire = definitions.find((tool) => tool.name !== 'AskUserQuestion')!.name;
+    const execute = mocks.conversationOptions!.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      context: { turnId: string; callId: string },
+    ) => Promise<{ isError: boolean; content: string }>;
+    const call = () =>
+      execute(wire, {}, new AbortController().signal, { turnId: 'turn', callId: 'call' });
+    expect(await call()).toMatchObject({ content: 'Owned MCP result', isError: false });
+    peerCall.mockClear();
+    const lease = f.lease;
+    mocks.permissionHandler.mockImplementationOnce(async (_name, input) => {
+      vi.mocked(lease.assertCurrentSync).mockImplementation(() => {
+        throw Error('Original owner revoked');
+      });
+      return { behavior: 'allow', updatedInput: input };
+    });
+    expect(await call()).toMatchObject({ isError: true });
+    expect(peerCall).not.toHaveBeenCalled();
+  } finally {
+    query?.close();
+    f?.eventStore.close();
+    catalog.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+  expect(peerClose).toHaveBeenCalledOnce();
+});
+
+it('disposes acquired hooks when the owned admission is revoked before configured source launch', async () => {
+  vi.clearAllMocks();
+  const nativeHooks = await import('../native-hooks.js');
+  const root = mkdtempSync(join(tmpdir(), 'owned-revoked-hooks-'));
+  const f = ownedLocalOptions(root);
+  const dispose = vi.fn();
+  const originalFactory = nativeHooks.createNativeHooks;
+  const factory = vi.spyOn(nativeHooks, 'createNativeHooks').mockImplementationOnce((...args) => {
+    const acquired = originalFactory(...args);
+    vi.mocked(f.lease.assertCurrent).mockRejectedValue(Error('Owned admission revoked'));
+    return {
+      ...acquired,
+      dispose: () => {
+        dispose();
+        acquired.dispose();
+      },
+    };
+  });
+  try {
+    await expect(openCodexChat(f.opts)).rejects.toThrow('Owned local Codex chat unavailable');
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  } finally {
+    factory.mockRestore();
+    f.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it('exposes exact slice allocation to a retained owned local lead and fences approval and owner changes', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
@@ -4157,3 +4374,76 @@ it.each([
     }
   },
 );
+
+it('keeps explicit owned lead tool selection authoritative over S5 helpers and ambient task MCP servers', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    displayName: (name: string) => name,
+    close: mocks.mcpClose,
+  });
+  const definition = {
+    name: 'Selected lead',
+    role: 'agent' as const,
+    instructions: 'Plan within the selected tools.',
+    expectedOutput: 'Evidence',
+    acceptanceCriteria: ['Selected effects only'],
+    modelPolicyRole: 'agent' as const,
+    tools: [{ id: 'mitzo:Read', version: 1 }],
+  };
+  const profile = {
+    profileId: 'owned-agent',
+    revision: 1,
+    definition,
+    contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+  };
+  const f = ownedLocalOptions('/tmp', profile);
+  retainTelosWorkRoleContext(f.eventStore, f.opts.conversationId, f.opts.binding, {
+    version: 1,
+    itemId: 'outcome',
+    role: 'lead',
+    brief: {
+      revision: 'r1',
+      text: 'Lead',
+      sha256: createHash('sha256').update('Lead').digest('hex'),
+    },
+    parentCriteria: [],
+    overallGoal: { itemId: 'outcome', revision: 'r1', text: 'Outcome' },
+    sources: [],
+    artifacts: [],
+  });
+  f.opts.mcpServers = {
+    'task-board': { command: 'offline-task-board', args: [] },
+    telos: { command: 'offline-telos', args: [] },
+  };
+  f.opts.registry = {
+    findBySessionId: () => ({ clientId: 'selected-lead', session: f.opts.session }),
+    get: () => f.opts.session,
+  } as never;
+  const query = await openCodexChat(f.opts);
+  try {
+    expect(
+      (mocks.conversationOptions!.tools as Array<{ name: string }>).map((tool) => tool.name),
+    ).toEqual(['AskUserQuestion', 'Read']);
+    expect(mocks.connect).toHaveBeenCalledWith({}, expect.anything());
+    const execute = mocks.conversationOptions!.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<unknown>;
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    mocks.permissionHandler.mockClear();
+    for (const name of [
+      'TelosStartSlice',
+      'mcp__task-board__TaskComplete',
+      'mcp__telos__TelosStartSlice',
+    ])
+      await expect(execute(name, {}, new AbortController().signal)).rejects.toThrow(/not selected/);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+  } finally {
+    query.close();
+    f.eventStore.close();
+  }
+});

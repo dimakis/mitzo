@@ -5,15 +5,21 @@ The refreshed main contains that commit. Existing parent `85e8444019a4ae4a`,
 S4 `4cd96f8d0f5a5f3f` and S5 `cf8dc85a4b6afaad` remain the tracking records.
 Dimitri explicitly separated S4 qualification from starting S5; this implementation
 and its offline checks do not close S4's interactive mock qualification.
+The combined source also preserves accepted tools/context main
+`fea33e215b0d1bcf29604aa13e793329588a2980` and its target-derived profile admission.
 
 ## Exact request and ordinary worker
 
-A retained ordinary outcome lead receives `TelosStartSlice`. It takes one exact
+An unrestricted retained ordinary outcome lead receives `TelosStartSlice`. It takes one exact
 child ID and request ID. An ambiguous or missing child must be resolved in the lead
 chat; the host accepts no title guessing, outcome-wide dispatch or sibling list.
 Native Codex and the existing Telos MCP adapter use the same strict input and
 internal route. Existing tool permission policy applies without an added custom
-confirmation. Held profile tool-source activation remains held.
+confirmation. S5's catalog reference keeps `routes: []`; it does not become an
+eligible explicit profile selection. Accepted main's qualified Local tool-selection
+admission and filtering remain enforced. Explicit profiles gain no undeclared S5
+tools or ambient Telos/Task MCP servers; explicit OpenShell selections remain
+unavailable through that accepted owner.
 
 `POST /api/internal/telos/work/delegate` rechecks the internal credential, exact
 client/session owner and current lead across awaits. The authenticated operator

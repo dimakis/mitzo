@@ -142,6 +142,49 @@ const publishedProfile = {
   definition: publishedDefinition,
   contentHash: contextDigest(publishedDefinition),
 };
+
+it.each([
+  { tools: [] },
+  { tools: [{ id: 'mitzo:Read', version: 1 }] },
+  {
+    tools: [
+      {
+        id: `mcp:11111111-1111-4111-8111-111111111111:${'a'.repeat(64)}`,
+        version: 1,
+        revision: '33333333-3333-4333-8333-333333333333',
+      },
+    ],
+  },
+])(
+  'advertises supported explicit tool profiles on the actual Local Codex route: %j',
+  async ({ tools }) => {
+    const definition = { ...publishedDefinition, tools };
+    const profile = { ...publishedProfile, definition, contentHash: contextDigest(definition) };
+    fixtures.library.mockReturnValue({
+      version: () => profile,
+      list: () => ({ versions: [profile] }),
+    });
+    const response = await invoke('GET', '/capabilities', undefined);
+    expect(response.status).toBe(200);
+    const route = (
+      response.body as {
+        routes: Array<{
+          location?: string;
+          harness: string;
+          agentProfiles: unknown[];
+          agentProfileRejections: unknown[];
+        }>;
+      }
+    ).routes.find(
+      (entry: { location?: string; harness: string }) =>
+        (entry.location ?? 'local') === 'local' && entry.harness === 'codex',
+    );
+    expect(route?.agentProfiles).toContainEqual({ profileId: 'published', revision: 1 });
+    expect(route?.agentProfileRejections).not.toContainEqual(
+      expect.objectContaining({ agent: { profileId: 'published', revision: 1 } }),
+    );
+  },
+);
 const target = new OrdinaryLocalCodexTarget({
   version: 1,
   targetId: 'host',

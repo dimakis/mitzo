@@ -27,6 +27,7 @@ import {
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISION,
   type AgentLibraryVersion,
+  type AgentToolReference,
 } from '@mitzo/protocol';
 import { OrdinaryRepositoryPreparationSchema } from '../../ordinary-repository-preparation.js';
 
@@ -34,6 +35,7 @@ import { nativeStartupSessionId } from '../../ordinary-repository-startup.js';
 export async function ownedRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
   options: {
+    tools?: AgentToolReference[];
     workspaceId?: string;
     contextRecipe?: boolean | 'workspace';
     chatRoute?: boolean;
@@ -124,6 +126,7 @@ export async function ownedRuntimeFixture(
       expectedOutput: 'Reviewed changes',
       acceptanceCriteria: ['Use evidence'],
       modelPolicyRole: 'agent',
+      ...(options.tools !== undefined ? { tools: options.tools } : {}),
       ...(options.contextRecipe
         ? {
             contextRecipe:
