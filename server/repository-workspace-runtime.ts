@@ -1,6 +1,7 @@
 import {
   captureOrdinaryRepositoryPreparation,
   assertOrdinaryRepositoryPreparation,
+  assertOrdinarySilentPreparationAuthority,
 } from './ordinary-repository-preparation-authority.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { existsSync } from 'node:fs';
@@ -90,6 +91,7 @@ export function getRepositoryWorkspaces(readOnly = false) {
     ordinaryPreparation: {
       capture: captureOrdinaryRepositoryPreparation,
       assert: assertOrdinaryRepositoryPreparation,
+      assertSilent: assertOrdinarySilentPreparationAuthority,
     },
     authorize: async (binding, connectionId, repository, signal) => {
       const profiles = loadAccountProfiles();

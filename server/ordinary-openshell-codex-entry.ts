@@ -89,6 +89,7 @@ export async function startOwnedOpenShellCodexCommand(
     ownerConnectionId: string;
     signal: AbortSignal;
     resume?: boolean;
+    preparationOperationId?: string;
   },
 ) {
   if (
@@ -97,6 +98,18 @@ export async function startOwnedOpenShellCodexCommand(
     custodianOwnerMode ||
     !input.meta.accountBinding ||
     !input.meta.repositoryWorkspaceId
+  )
+    throw unavailable();
+  const preparationOperationId = input.preparationOperationId;
+  const requestedResume = input.resume;
+  const resume = requestedResume === true;
+  if (
+    (preparationOperationId !== undefined &&
+      (typeof preparationOperationId !== 'string' ||
+        preparationOperationId.length > 200 ||
+        !/^\S+$/.test(preparationOperationId))) ||
+    (requestedResume !== undefined && typeof requestedResume !== 'boolean') ||
+    (resume && preparationOperationId !== undefined)
   )
     throw unavailable();
   const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
@@ -141,7 +154,9 @@ export async function startOwnedOpenShellCodexCommand(
     if (
       liveOwner.location !== 'openshell' ||
       liveOwner.authSessionId !== captured.auth.id ||
-      liveOwner.initialCommandId !== initial.command.clientMsgId
+      liveOwner.initialCommandId !== initial.command.clientMsgId ||
+      liveOwner.initialPreparationOperationId !== preparationOperationId ||
+      (liveOwner.initialResume ?? false) !== resume
     )
       throw unavailable();
     return { ...(await liveOwner.retryInitial(input.command)), sessionId };
@@ -156,7 +171,7 @@ export async function startOwnedOpenShellCodexCommand(
       taskRoot: input.taskRoot,
       operatorConnectionId: input.operatorConnectionId,
       signal: input.signal,
-      resume: input.resume,
+      resume,
       selectedModel: initial.command.selection.model,
       readRetained: () => {
         try {
@@ -196,7 +211,14 @@ export async function startOwnedOpenShellCodexCommand(
       },
       close,
     });
-    const result = await composed.driver.admit(initial.meta, initial.command);
+    const result =
+      preparationOperationId !== undefined
+        ? await composed.driver.admitPreparedFirst(
+            preparationOperationId,
+            initial.meta,
+            initial.command,
+          )
+        : await composed.driver.admit(initial.meta, initial.command);
     if (!result.dispatched) {
       close();
       return result;
@@ -209,13 +231,17 @@ export async function startOwnedOpenShellCodexCommand(
       authSessionId: captured.auth.id,
       identity: driver,
       initialCommandId: initial.command.clientMsgId,
+      initialPreparationOperationId: preparationOperationId,
+      initialResume: resume,
       admit: (raw, signal) => {
         const next = derive(raw);
         return driver.admit(next.meta, next.command, signal);
       },
       retryInitial: (raw) => {
         const next = derive(raw);
-        return driver.admit(next.meta, next.command);
+        return preparationOperationId !== undefined
+          ? driver.admitPreparedFirst(preparationOperationId, next.meta, next.command)
+          : driver.admit(next.meta, next.command);
       },
       close,
     };
