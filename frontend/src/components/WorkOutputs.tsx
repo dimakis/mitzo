@@ -116,6 +116,21 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
                     {output.sourceKind === 'user_edit' && ' · Edited by user'}
                     {output.sourceKind === 'external_codex_report' && ' · External Codex report'}
                   </span>
+                  <details className="output-provenance">
+                    <summary>Provenance</summary>
+                    <dl>
+                      <dt>SHA-256</dt>
+                      <dd>{output.sha256}</dd>
+                      <dt>Saved revision date</dt>
+                      <dd>{output.createdAt ?? 'Unknown'}</dd>
+                      <dt>Source conversation</dt>
+                      <dd>{output.sessionId ?? 'Unknown'}</dd>
+                      <dt>Source path</dt>
+                      <dd>{output.sourcePath ?? 'Unknown'}</dd>
+                      <dt>Author</dt>
+                      <dd>Author not recorded</dd>
+                    </dl>
+                  </details>
                 </div>
                 <div className="todo-detail-output-actions">
                   {!Capacitor.isNativePlatform() && (

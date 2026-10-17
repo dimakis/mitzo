@@ -72,5 +72,8 @@ export interface TodoOutput {
   revision: number;
   size: number;
   sha256: string;
+  createdAt?: string;
+  sessionId?: string;
+  sourcePath?: string | null;
   url: string;
 }
