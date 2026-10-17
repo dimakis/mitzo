@@ -127,6 +127,120 @@ it('proposes actual catalog reuse before any development approval, workspace or 
   expect(f.store.list('user')).toEqual([]);
 });
 
+it('does not add Builder capabilities to legacy sessions and refuses private workspace overlap', async () => {
+  const f = await sessionFixture();
+  const legacy = { ...f.session };
+  expect(sessionToolBuilderTools('builder', legacy, f.registry, f.options).definitions).toEqual([]);
+  const privateRoot = f.session.worktreePaths.get('primary')!.path;
+  const tools = sessionToolBuilderTools('builder', f.session, f.registry, {
+    ...f.options,
+    privateRoots: () => [join(privateRoot, 'private')],
+  });
+  expect(
+    (
+      await tools.execute(
+        'ToolBuilderPrepareDraft',
+        { request: 'Count', custom: f.custom },
+        new AbortController().signal,
+        identity('private'),
+      )
+    )?.isError,
+  ).toBe(true);
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.allocateWorkspace).not.toHaveBeenCalled();
+});
+
+it('coalesces identical in-flight calls and refuses changed retry input', async () => {
+  const f = await sessionFixture();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = f.executor.run.getMockImplementation()!;
+  f.executor.run.mockImplementationOnce(async (input) => {
+    await gate;
+    return original(input);
+  });
+  const body = { request: 'Count characters', custom: f.custom };
+  const signal = new AbortController().signal;
+  const first = f.tools.execute('ToolBuilderPrepareDraft', body, signal, identity('duplicate'));
+  await vi.waitFor(() => expect(f.executor.run).toHaveBeenCalledOnce(), { timeout: 5000 });
+  const second = f.tools.execute('ToolBuilderPrepareDraft', body, signal, identity('duplicate'));
+  expect(
+    (
+      await f.tools.execute(
+        'ToolBuilderPrepareDraft',
+        { ...body, request: 'Different' },
+        signal,
+        identity('duplicate'),
+      )
+    )?.isError,
+  ).toBe(true);
+  release();
+  const value = await first;
+  expect(await second).toEqual(value);
+  expect(f.allocateWorkspace).toHaveBeenCalledOnce();
+  expect(
+    (
+      await f.tools.execute(
+        'ToolBuilderPrepareDraft',
+        { ...body, request: 'Different' },
+        signal,
+        identity('duplicate'),
+      )
+    )?.isError,
+  ).toBe(true);
+  expect(f.store.list('user')).toHaveLength(1);
+}, 15000);
+
+it('requires independent operator acceptance and installed source before publishing a generated draft; assignment stays separate', async () => {
+  const f = await sessionFixture();
+  const signal = new AbortController().signal;
+  const prepared = result(
+    await f.tools.execute(
+      'ToolBuilderPrepareDraft',
+      { request: 'Count characters', custom: f.custom },
+      signal,
+      identity('acceptance'),
+    ),
+  );
+  const draft = f.store.read('user', prepared.draft.id)!.draft;
+  await expect(f.store.publish('user', draft.id, 1, draft.contractDigest)).rejects.toThrow();
+  result(
+    await f.tools.execute(
+      'ToolBuilderSubmitReview',
+      { id: draft.id, version: 1, contractDigest: draft.contractDigest },
+      signal,
+      identity('submit-acceptance'),
+    ),
+  );
+  f.store.review(
+    'user',
+    draft.id,
+    1,
+    { decision: 'accepted', feedback: '', contractDigest: draft.contractDigest },
+    'user',
+  );
+  await expect(f.store.publish('user', draft.id, 1, draft.contractDigest)).rejects.toThrow(
+    'not installed',
+  );
+  expect(f.store.listTools('user')).toEqual([]);
+  f.installDraft(draft); // Synthetic accepted application-source installation, never a tool input.
+  const publication = await f.store.publish('user', draft.id, 1, draft.contractDigest);
+  expect(f.store.listTools('user')).toEqual([publication.entry]);
+  expect(
+    f.tools.definitions.some((tool) => tool.name === publication.binding.definition.name),
+  ).toBe(false);
+  expect(
+    await f.tools.execute(
+      publication.binding.definition.name,
+      { text: 'abc' },
+      signal,
+      identity('unassigned'),
+    ),
+  ).toBeUndefined();
+});
+
 it('discards tested source if immutable draft persistence fails', async () => {
   const f = await sessionFixture();
   vi.spyOn(f.store, 'save').mockImplementationOnce(() => {
