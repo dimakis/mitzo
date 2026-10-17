@@ -291,6 +291,54 @@ export class TelosArtifactStore {
     const row = this.row(id, revision);
     return { ...metadata(row), bytes: row.bytes };
   }
+  /** Exact metadata only: length/typeof inspect custody without transferring a BLOB.
+   * This is not authorization; the caller must renew current item/access policy.
+   */
+  metadataForRevision(id: string, revision: number): TelosArtifactMetadata {
+    z.number().int().positive().safe().parse(revision);
+    const row = this.db
+      .prepare(
+        `SELECT id,item_id,filename,title,revision,sha256,size,
+      session_id,source_path,created_at,length(bytes) AS actual_size,typeof(bytes) AS byte_type
+      FROM telos_artifact_revisions WHERE id=? AND revision=?`,
+      )
+      .get(id, revision) as (ArtifactRow & { actual_size: number; byte_type: string }) | undefined;
+    this.assertByteCustody(row);
+    return metadata(row!);
+  }
+  /** Refuse before BLOB transfer when either metadata or actual custody exceeds the
+   * caller's bound. The SQL projection also guards a concurrent size/custody change.
+   */
+  readBoundedRevision(id: string, revision: number, maxBytes: number) {
+    z.number().int().positive().safe().parse(revision);
+    z.number().int().positive().safe().parse(maxBytes);
+    const row = this.db
+      .prepare(
+        `SELECT id,item_id,filename,title,revision,sha256,size,
+      session_id,source_path,created_at,length(bytes) AS actual_size,typeof(bytes) AS byte_type,
+      CASE WHEN typeof(bytes)='blob' AND typeof(size)='integer' AND size>=0
+        AND size=length(bytes) AND size<=? AND length(bytes)<=? THEN bytes END AS bytes
+      FROM telos_artifact_revisions WHERE id=? AND revision=?`,
+      )
+      .get(maxBytes, maxBytes, id, revision) as
+      (ArtifactRow & { actual_size: number; byte_type: string }) | undefined;
+    this.assertByteCustody(row);
+    if (row!.size > maxBytes || !Buffer.isBuffer(row!.bytes))
+      throw new Error('Artifact exceeds read bound');
+    return { ...metadata(row!), bytes: row!.bytes };
+  }
+  private assertByteCustody(
+    row: (ArtifactRow & { actual_size: number; byte_type: string }) | undefined,
+  ) {
+    if (!row) throw new Error('Artifact not found');
+    if (
+      row.byte_type !== 'blob' ||
+      !Number.isSafeInteger(row.size) ||
+      row.size < 0 ||
+      row.size !== row.actual_size
+    )
+      throw new Error('Artifact byte custody unavailable');
+  }
   /** Exact retained revision metadata, with current access filtering before
    * the bounded page. Never loads content bytes or substitutes latest revisions. */
   sourceMaterialPage(sessionId: string, after?: TelosSourceMaterialCursor) {
