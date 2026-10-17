@@ -1,3 +1,4 @@
+import { editProfile, openProfileTools, openToolLibrary } from '../support/agent-library';
 import { expect, test, type Page } from '@playwright/test';
 import { openChatSetting, settingRow, settingsHome } from '../support/chat-settings';
 import { readFile } from 'node:fs/promises';
@@ -472,7 +473,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   ).toBeVisible();
   await expect(page.getByRole('region', { name: 'Agent advisor', exact: true })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('agent-library.png'), fullPage: true });
-  await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+  await openProfileTools(page);
   await expect(page.getByText(/Legacy behavior: this profile/)).toBeVisible();
   await page.getByRole('button', { name: 'Choose specific tools', exact: true }).click();
   await expect(page.getByText(/No optional tools selected/)).toBeVisible();
@@ -526,7 +527,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.reload();
   await expect(await editableProfileName(page)).toHaveValue('Robert');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The systems architect');
-  await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+  await openProfileTools(page);
   await expect(page.getByRole('button', { name: 'Remove Read', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Identity', exact: true }).click();
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
@@ -593,8 +594,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       );
       await page.goto('/agent-library');
       await expect(await editableProfileName(page)).toHaveValue('Robert');
-      await libraryOptions(page);
-      await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+      await openToolLibrary(page);
       await page.getByRole('searchbox', { name: 'Search tool library', exact: true }).fill('Read');
       await page
         .getByRole('article')
@@ -610,7 +610,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         animations: 'disabled',
       });
       await page.getByRole('button', { name: 'Agent library', exact: true }).click();
-      await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+      await openProfileTools(page);
       await page.getByRole('button', { name: 'Add tools', exact: true }).click();
       await page.getByRole('searchbox', { name: 'Search tools', exact: true }).fill('Connection');
       await page.getByRole('searchbox', { name: 'Search tools', exact: true }).focus();
@@ -730,6 +730,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       await settings.getByRole('button', { name: 'Done', exact: true }).click();
       await page.getByRole('button', { name: 'Close task editor', exact: true }).click();
       await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
+      await editProfile(page);
       await page.getByRole('tab', { name: 'Context', exact: true }).click();
       const contextSource = page.getByRole('combobox', { name: 'Context source', exact: true });
       expect(

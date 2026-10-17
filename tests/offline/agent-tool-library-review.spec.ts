@@ -1,3 +1,4 @@
+import { editProfile, openToolLibrary } from '../support/agent-library';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -91,7 +92,7 @@ for (const theme of ['dark', 'light'])
       });
     });
     await page.goto('/');
-    await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+    await openToolLibrary(page);
     await expect(page.getByRole('button', { name: 'New agent', exact: true })).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: 'Create with Agent Builder', exact: true }),
@@ -207,11 +208,12 @@ for (const theme of ['dark', 'light'])
     expect(largeTextCapture.readUInt32BE(20)).toBe(captureGeometry.documentHeight);
     await search.fill('mitzo:Write');
     await page.getByRole('button', { name: 'Agent library', exact: true }).click();
+    await editProfile(page);
     await expect(page.getByLabel('Agent name', { exact: true })).toHaveValue('Evidence reader');
     await expect(page.getByRole('button', { name: 'New agent', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'New agent', exact: true }).click();
     await expect(page.getByLabel('Agent name', { exact: true })).toHaveValue('');
-    await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+    await openToolLibrary(page);
     await expect(search).toHaveValue('mitzo:Write');
     await expect(library.getByRole('article')).toHaveCount(1);
   });
