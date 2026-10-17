@@ -6,6 +6,7 @@ import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
 import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
+import { conversationRepositoryLabel } from '../lib/conversation-repository-label';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
 import {
@@ -171,29 +172,14 @@ export function DesktopChatView() {
     newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
-  const conversationRepository =
-    sessionId && sessionId !== activeSessionId
-      ? undefined
-      : (localRuntime.repositoryContext?.repository ??
-        (localRuntime.repositoryWorkspaceId
-          ? 'Unavailable'
-          : !localRuntime.metadataPending && (!sessionId || sessionId === activeSessionId)
-            ? [
-                ...new Set(
-                  messages.activeWorktrees
-                    .map(({ repoName }) => repoName)
-                    .filter(
-                      (name) =>
-                        typeof name === 'string' &&
-                        name.length <= 200 &&
-                        /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)?$/.test(
-                          name,
-                        ) &&
-                        !name.includes('..'),
-                    ),
-                ),
-              ].join(', ') || undefined
-            : undefined));
+  const conversationRepository = conversationRepositoryLabel({
+    routeConversationId: sessionId,
+    conversationId: activeSessionId,
+    repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
+    repositoryContext: localRuntime.repositoryContext,
+    metadataPending: localRuntime.metadataPending,
+    repoNames: messages.activeWorktrees.map(({ repoName }) => repoName),
+  });
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew;
