@@ -1567,7 +1567,12 @@ recursive context search, pin persistence, navigation and reload. It makes no
 backend, credential or model calls. These captures document interim implementation,
 not a new approval or final CT13 acceptance.
 
-Open integration boundaries: accepted S5a/S5b; CT14 accepted-source persistence
+Accepted MGMT `3077b7b4` fresh/upgraded schema exports are pinned in the narrow
+S7 accepted-owner read test. It exercises the actual record router/client with
+synthetic rows, preserving original IDs/dates, ordered categories and priorities
+1–10. This proves read-side compatibility, with no live migration or new writer.
+
+Open integration boundaries: accepted Mitzo S5a/S5b; CT14 accepted-source persistence
 and independent acceptance after the priority producer is accepted; the shared
 artifact producer accepted-source/CI qualification (published `f9409978` is composed
 for offline consumer verification); the priority protection amendment for legacy
