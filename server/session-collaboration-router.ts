@@ -10,12 +10,15 @@ import {
   CollaborationJoinInputSchema,
   CollaborationJoinReconcileInputSchema,
   CollaborationJoinSchema,
+  CollaborationApplicationReviewRequestSchema,
+  CollaborationApplicationReviewResultSchema,
   COLLABORATION_EXECUTION_DISABLED,
 } from '@mitzo/protocol';
 import { z } from 'zod';
 import { registerAuthSession, isAuthSessionCurrent } from './auth.js';
 import { custodianRequestSignal } from './symposium-custodian-authority.js';
 import type { OrdinaryCollaborationJoiningPort } from './collaboration-joining-owner.js';
+import type { CollaborationApplicationReview } from './collaboration-application-review.js';
 import type { EventStore } from './event-store.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
 
@@ -43,9 +46,12 @@ function failure(res: Response, error: unknown) {
 export function createSessionCollaborationRouter({
   store,
   joining,
+  review,
 }: {
   store: EventStore;
   joining?: OrdinaryCollaborationJoiningPort;
+  /** Lazy construction uses the existing real workspace owner, never caller settings. */
+  review?: () => CollaborationApplicationReview;
 }) {
   const router = Router();
   router.use((_req, res, next) => {
@@ -109,6 +115,48 @@ export function createSessionCollaborationRouter({
       error: COLLABORATION_EXECUTION_DISABLED.reason,
       execution: COLLABORATION_EXECUTION_DISABLED,
     });
+  router.post('/:id/reviews', requireSameOriginJson, async (req, res) => {
+    const auth = recentAuthorizationSession(res);
+    if (!auth) return;
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const input = CollaborationApplicationReviewRequestSchema.safeParse(req.body);
+    if (!id.success || !input.success)
+      return res.status(400).json({ error: 'Invalid collaboration review' });
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    const unregister = registerAuthSession(auth, cancel);
+    const ownerSignal = custodianRequestSignal(req);
+    ownerSignal?.addEventListener('abort', cancel, { once: true });
+    if (ownerSignal?.aborted || req.aborted) cancel();
+    const close = () => {
+      if (!res.writableEnded) cancel();
+    };
+    req.once('aborted', cancel);
+    res.once('close', close);
+    const timer = setTimeout(cancel, Math.min(120000, Math.max(0, auth.expiresAt - Date.now())));
+    try {
+      controller.signal.throwIfAborted();
+      if (!store.getSessionCollaboration(id.data))
+        throw new CollaborationContractError('not_found');
+      if (!review) return unavailable(res);
+      const { clientId, ...intent } = input.data;
+      const result = await review().review(auth, clientId, id.data, intent, controller.signal);
+      controller.signal.throwIfAborted();
+      if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
+      return res.json(CollaborationApplicationReviewResultSchema.parse(result));
+    } catch (error) {
+      if (res.destroyed) return;
+      if (!isAuthSessionCurrent(auth))
+        return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+      return failure(res, error);
+    } finally {
+      clearTimeout(timer);
+      unregister();
+      ownerSignal?.removeEventListener('abort', cancel);
+      req.off('aborted', cancel);
+      res.off('close', close);
+    }
+  });
   const join = async (
     req: Request,
     res: Response,
