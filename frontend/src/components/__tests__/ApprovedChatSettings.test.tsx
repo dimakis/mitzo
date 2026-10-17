@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { AgentSettingsFields } from '../AgentSettingsPicker';
 import { WorkspaceControls } from '../WorkspaceControls';
 
@@ -57,6 +57,13 @@ it('prioritizes account/model/thinking, shows runtime and repository preparation
   );
   const labels = screen.getAllByRole('textbox').map((input) => input.parentElement?.textContent);
   expect(labels).toEqual(['Account', 'Model', 'Thinking', 'Agent']);
+  const accountGroup = screen.getByRole('heading', { name: 'Account & model' }).closest('section')!;
+  expect(within(accountGroup).getAllByRole('textbox')).toHaveLength(3);
+  const workspaceGroup = screen
+    .getByRole('heading', { name: 'Agent & workspace' })
+    .closest('section')!;
+  expect(within(workspaceGroup).getByRole('textbox', { name: 'Agent' })).toBeTruthy();
+  expect(within(workspaceGroup).getByRole('button', { name: 'Choose repository' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'OpenShell runtime' }).closest('details')).toBeNull();
   expect(screen.getByRole('button', { name: 'Choose repository' }).closest('details')).toBeNull();
 });

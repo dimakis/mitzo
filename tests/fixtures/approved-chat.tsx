@@ -8,6 +8,9 @@ import { WorkspaceControls } from '../../frontend/src/components/WorkspaceContro
 import { AgentSettingsFields } from '../../frontend/src/components/AgentSettingsPicker';
 import { SessionAccess } from '../../frontend/src/components/SessionAccess';
 import { DesktopShell } from '../../frontend/src/components/DesktopShell';
+import { QuickSettingsField } from '../../frontend/src/components/QuickChatSettings';
+import { RuntimeBrandMark, ModelBrandMark } from '../../frontend/src/components/SettingsBrandMark';
+import type { SettingsPage } from '../../frontend/src/lib/quick-settings-context';
 import { UiIcon } from '../../frontend/src/components/UiIcon';
 import type { UseVoiceReturn } from '../../frontend/src/hooks/useVoice';
 import type { ContextCompaction, FinishedMessage } from '@mitzo/protocol';
@@ -55,14 +58,21 @@ const messages: FinishedMessage[] = [
   },
 ];
 const field = (name: string, values: string[]) => (
-  <label>
-    {name}
-    <select aria-label={name}>
-      {values.map((value) => (
-        <option key={value}>{value}</option>
-      ))}
-    </select>
-  </label>
+  <QuickSettingsField
+    page={name.toLowerCase() as SettingsPage}
+    title={name}
+    value={values[0]}
+    mark={name === 'Model' ? <ModelBrandMark model="gpt-luna-fixture" /> : undefined}
+  >
+    <label>
+      {name}
+      <select aria-label={name}>
+        {values.map((value) => (
+          <option key={value}>{value}</option>
+        ))}
+      </select>
+    </label>
+  </QuickSettingsField>
 );
 function Surface() {
   const [sends, setSends] = useState(0),
@@ -138,23 +148,32 @@ function Surface() {
             }
             agent={field('Agent', ['Default Mitzo', 'Researcher'])}
             repository={
-              <details className="chat-settings-advanced">
-                <summary>
-                  <span>Repository</span>
-                  <UiIcon name="down" size={16} />
-                </summary>
-                <p>Choose from repositories available to this account.</p>
-              </details>
+              <QuickSettingsField page="repository" title="Repository" value="Add repository" add>
+                <details className="chat-settings-advanced">
+                  <summary>
+                    <span>Repository</span>
+                    <UiIcon name="down" size={16} />
+                  </summary>
+                  <p>Choose from repositories available to this account.</p>
+                </details>
+              </QuickSettingsField>
             }
             execution={
-              <div className="agent-execution-settings">
-                <strong>Run on</strong>
-                <button type="button">
-                  <span className="openshell-brand" aria-hidden="true" />
-                  OpenShell
-                </button>
-                <button type="button">Local Mac</button>
-              </div>
+              <QuickSettingsField
+                page="execution"
+                title="Run on"
+                value="OpenShell"
+                mark={<RuntimeBrandMark location="openshell" />}
+              >
+                <div className="agent-execution-settings">
+                  <strong>Run on</strong>
+                  <button type="button">
+                    <span className="openshell-brand" aria-hidden="true" />
+                    OpenShell
+                  </button>
+                  <button type="button">Local Mac</button>
+                </div>
+              </QuickSettingsField>
             }
           />
         }

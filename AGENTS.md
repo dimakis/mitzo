@@ -63,3 +63,14 @@ Host configuration selects the knowledge store and pinned format adapter. Contex
 Enrolled ordinary OpenShell Codex chats select fresh knowledge at command admission. For an eligible new explicit command, sandbox creation and its first turn share the exact verified publication selected for that command through a one-use, identity-bound receipt. Reattach, recovery, failed or cancelled attempts, later commands, externally prepared seeds and unclaimed warmups cannot inherit that receipt and reconcile afresh. An active turn keeps its selected version. Use the published knowledge root supplied in application context for shared instructions and retrieval; it supersedes older accepted knowledge copied into the writable task checkout. Keep edits and observations in the task workspace and submit them through the store's normal acceptance process. A local commit must reach the configured accepted remote ref before other chats can select it.
 
 Publication preserves task branches, dirty worktrees, checkpoints and provider history. Do not pull, reset or rebase task roots to refresh shared knowledge. Selection is not delivery: an adoption receipt is recorded only after the provider acknowledges the exact turn and context, including source, bundle, sandbox and runtime identities. Missing configuration retains legacy behavior; incompatible runtime/publication or failed reconciliation blocks enrolled admission. Host, Responses, Claude and Symposium enrollment require separate implementation. See `docs/operations/mgmt-knowledge-publication.md` for configuration and rollout.
+
+## Approved designs survive feature work and rebases
+
+Before changing an existing UI or resolving a UI conflict, read
+[the approved-design ledger](docs/design/approved/README.md) and the relevant entry
+in `docs/design/approved/ledger.json`. Preserve the active approved design while
+integrating feature behavior. Incoming branch history does not grant design approval.
+Run its checks again on the final combined branch. Do not rewrite references,
+weaken checks or update the active revision to make a regression pass. An intentional
+redesign or a change to these protections requires new explicit user approval;
+append the new approval and retain earlier revisions and references.

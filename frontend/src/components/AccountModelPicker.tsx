@@ -1,11 +1,19 @@
 import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { AdviserSubscriptions } from './AdviserSubscriptions';
+import { UiIcon } from './UiIcon';
 import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import type { WorkspaceSummary } from '../types/workspace';
 import { subscribeSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
+import { useQuickSettings, type SettingsPage } from '../lib/quick-settings-context';
+import {
+  QuickSettingsChoices,
+  QuickSettingsField,
+  QuickSettingsSupplement,
+} from './QuickChatSettings';
+import { ModelBrandMark } from './SettingsBrandMark';
 
 import type { AccountSelection } from '../types/account-selection';
 export type { AccountSelection } from '../types/account-selection';
@@ -57,11 +65,46 @@ function PickerField({
   label,
   visible,
   children,
+  quick,
 }: {
   label: string;
   visible: boolean;
   children: ReactNode;
+  quick?: {
+    page: SettingsPage;
+    value: string;
+    selected: string;
+    choices: { id: string; label: string; disabled?: boolean }[];
+    disabled?: boolean;
+    onChange(value: string): void;
+  };
 }) {
+  const navigation = useQuickSettings();
+  if (navigation && quick) {
+    const title = quick.page === 'thinking' ? 'Thinking' : label;
+    return (
+      <QuickSettingsField
+        page={quick.page}
+        title={title}
+        value={quick.value}
+        selected={quick.selected}
+        readOnly={quick.disabled}
+        mark={
+          quick.page === 'model' ? (
+            <ModelBrandMark model={quick.selected} label={quick.value} />
+          ) : undefined
+        }
+      >
+        <QuickSettingsChoices
+          title={label}
+          value={quick.selected}
+          choices={quick.choices}
+          disabled={quick.disabled}
+          onChange={quick.onChange}
+        />
+      </QuickSettingsField>
+    );
+  }
   return visible ? (
     <label className="account-model-field">
       <span>{label}</span>
@@ -69,6 +112,49 @@ function PickerField({
     </label>
   ) : (
     <>{children}</>
+  );
+}
+
+function PickerOptions({
+  collapsible,
+  children,
+  saved = false,
+}: {
+  collapsible: boolean;
+  children: ReactNode;
+  saved?: boolean;
+}) {
+  const navigation = useQuickSettings();
+  if (navigation && collapsible)
+    return (
+      <QuickSettingsField
+        page="defaults"
+        title="New-chat defaults"
+        value={saved ? 'Saved' : 'Not set'}
+      >
+        {children}
+      </QuickSettingsField>
+    );
+  return collapsible ? (
+    <details className="chat-settings-advanced">
+      <summary>
+        <span>Account options</span>
+        <UiIcon name="down" size={16} />
+      </summary>
+      <div className="account-model-settings-utilities">{children}</div>
+    </details>
+  ) : (
+    <>{children}</>
+  );
+}
+
+function pickerStatus(quick: boolean, value: string, children: ReactNode) {
+  return quick ? (
+    <QuickSettingsField page="account" title="Account" value={value}>
+      {children}
+    </QuickSettingsField>
+  ) : (
+    children
   );
 }
 
@@ -82,6 +168,7 @@ export function AccountModelPicker(
       onChange(selection: AccountSelection): void;
       onAccountChange?(selection: AccountSelection): void;
       accountNeedsConfirmation?: boolean;
+      onRefresh?(): void;
     };
   },
 ) {
@@ -93,6 +180,7 @@ export function AccountModelPicker(
         lockAccountModel={props.lockAccountModel}
         lockAccount={props.lockAccount}
         presentation={props.presentation}
+        canSaveDefault={!props.sessionId && !props.lockAccountModel && !props.lockAccount}
       />
     );
   const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}:${JSON.stringify(props.allowedAccountIds?.slice().sort() ?? null)}`;
@@ -140,6 +228,9 @@ function SessionAccountModelPicker({
   onDraftSelectionChange?: (selection: AccountSelection) => void;
   onSummaryChange?: (summary: WorkspaceSummary | null) => void;
 }) {
+  const quick = useQuickSettings();
+  const status = (value: string, children: ReactNode) =>
+    pickerStatus(!!quick && presentation === 'settings', value, children);
   const sessionId = scope === 'chat' ? requestedSessionId : null;
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
   const [savedDefault, setSavedDefault] = useState(getDefaultAccountModel);
@@ -465,7 +556,8 @@ function SessionAccountModelPicker({
       />
     ) : null;
   if (error)
-    return (
+    return status(
+      'Unavailable',
       <>
         {subscriptionLogin}
         <span role="alert">{error}</span>
@@ -482,14 +574,25 @@ function SessionAccountModelPicker({
               Use legacy server account
             </button>
           )}
-      </>
+      </>,
     );
   if (sessionId && fixedSession)
-    return <span className="chat-account-binding">{bindingLabel}</span>;
+    return status(
+      bindingLabel || 'Unavailable',
+      <>
+        <span className="chat-account-binding">{bindingLabel}</span>
+      </>,
+    );
   if (sessionId && !selection)
-    return <span className="chat-account-binding">{bindingLabel || 'Loading account…'}</span>;
+    return status(
+      bindingLabel || 'Loading…',
+      <>
+        <span className="chat-account-binding">{bindingLabel || 'Loading account…'}</span>
+      </>,
+    );
   if (empty)
-    return (
+    return status(
+      'No accounts configured',
       <>
         {subscriptionLogin}
         <span>
@@ -504,14 +607,15 @@ function SessionAccountModelPicker({
             Use legacy server account
           </button>
         )}
-      </>
+      </>,
     );
   if (!selection)
-    return (
+    return status(
+      'Loading…',
       <>
         {subscriptionLogin}
         <span>Loading accounts…</span>
-      </>
+      </>,
     );
   const account =
     accounts.find((a) => a.id === (selection.accountId ?? '')) ??
@@ -519,6 +623,33 @@ function SessionAccountModelPicker({
       ? { id: selection.accountId ?? '', label: 'Unavailable account', models: [] }
       : undefined);
   if (!account) return <span role="alert">Selected account is unavailable. Reopen the task.</span>;
+  const changeAccount = (id: string) => {
+    const nextAccount = accounts.find((a) => a.id === id);
+    if (!nextAccount || disabled || requiredSelection || lockAccountModel) return;
+    setEditingAlias(false);
+    const next = withThinking(
+      { accountId: nextAccount.id, model: nextAccount.models[0].id },
+      nextAccount,
+    );
+    setDraftUnavailable(false);
+    setNeedsConfirmation(false);
+    setSelection(next);
+    onChange(explicitSelection ? null : next);
+  };
+  const changeModel = (id: string) => {
+    if (disabled || requiredSelection || lockAccountModel) return;
+    const next = withThinking({ accountId: selection.accountId, model: id }, account);
+    setDraftUnavailable(false);
+    setSelection(next);
+    onChange(explicitSelection || needsConfirmation ? null : next);
+  };
+  const changeThinking = (value: string) => {
+    if (disabled) return;
+    const next = { ...selection, reasoningEffort: value || null };
+    setSelection(next);
+    onChange(explicitSelection || needsConfirmation ? null : next);
+  };
+  const fieldModel = account.models.find((m) => m.id === selection.model);
   const fields = (
     <>
       {subscriptionLogin}
@@ -528,28 +659,45 @@ function SessionAccountModelPicker({
         </span>
       )}
       {sessionId ? (
-        <span className="chat-account-binding">{account.label}</span>
+        status(
+          account.label,
+          <>
+            <span className="chat-account-binding">{account.label}</span>
+          </>,
+        )
       ) : legacy ? (
-        <span>Legacy server account</span>
+        status(
+          'Legacy server account',
+          <>
+            <span>Legacy server account</span>
+          </>,
+        )
       ) : (
-        <PickerField label="Account" visible={draftOnly || presentation === 'settings'}>
+        <PickerField
+          label="Account"
+          visible={draftOnly || presentation === 'settings'}
+          quick={
+            presentation === 'settings'
+              ? {
+                  page: 'account',
+                  value:
+                    explicitSelection || needsConfirmation
+                      ? `Confirm ${account.label}`
+                      : account.label,
+                  selected: account.id,
+                  choices: accounts,
+                  disabled: disabled || !!requiredSelection || lockAccountModel,
+                  onChange: changeAccount,
+                }
+              : undefined
+          }
+        >
           <select
             disabled={disabled || !!requiredSelection || lockAccountModel}
             aria-label="Account"
             className="chat-model-select"
             value={account.id}
-            onChange={(e) => {
-              setEditingAlias(false);
-              const nextAccount = accounts.find((a) => a.id === e.target.value)!;
-              const next = withThinking(
-                { accountId: nextAccount.id, model: nextAccount.models[0].id },
-                nextAccount,
-              );
-              setDraftUnavailable(false);
-              setNeedsConfirmation(false);
-              setSelection(next);
-              onChange(explicitSelection ? null : next);
-            }}
+            onChange={(e) => changeAccount(e.target.value)}
           >
             {!accounts.some((a) => a.id === account.id) && (
               <option value={account.id} disabled>
@@ -623,21 +771,37 @@ function SessionAccountModelPicker({
         </form>
       )}
 
-      <PickerField label="Model" visible={draftOnly || presentation === 'settings'}>
+      <PickerField
+        label="Model"
+        visible={draftOnly || presentation === 'settings'}
+        quick={
+          presentation === 'settings'
+            ? {
+                page: 'model',
+                value: fieldModel?.label ?? `${selection.model} (unavailable)`,
+                selected: selection.model,
+                choices: fieldModel
+                  ? account.models
+                  : [
+                      {
+                        id: selection.model,
+                        label: `${selection.model} (unavailable)`,
+                        disabled: true,
+                      },
+                      ...account.models,
+                    ],
+                disabled: disabled || !!requiredSelection || lockAccountModel,
+                onChange: changeModel,
+              }
+            : undefined
+        }
+      >
         <select
           disabled={disabled || !!requiredSelection || lockAccountModel}
           aria-label="Model"
           className="chat-model-select"
           value={selection.model}
-          onChange={(e) => {
-            const next = withThinking(
-              { accountId: selection.accountId, model: e.target.value },
-              account,
-            );
-            setDraftUnavailable(false);
-            setSelection(next);
-            onChange(explicitSelection || needsConfirmation ? null : next);
-          }}
+          onChange={(e) => changeModel(e.target.value)}
         >
           {!account.models.some((m) => m.id === selection.model) && (
             <option value={selection.model} disabled>
@@ -655,18 +819,28 @@ function SessionAccountModelPicker({
         <PickerField
           label={presentation === 'settings' ? 'Thinking level' : 'Thinking'}
           visible={draftOnly || presentation === 'settings'}
+          quick={
+            presentation === 'settings'
+              ? {
+                  page: 'thinking',
+                  value: selection.reasoningEffort || 'Model default',
+                  selected: selection.reasoningEffort ?? '',
+                  choices: [
+                    { id: '', label: 'Model default' },
+                    ...(fieldModel?.reasoningEfforts ?? []).map((id) => ({ id, label: id })),
+                  ],
+                  disabled,
+                  onChange: changeThinking,
+                }
+              : undefined
+          }
         >
           <select
             aria-label={presentation === 'settings' ? 'Thinking level' : 'Thinking'}
             className="chat-model-select"
             disabled={disabled}
             value={selection.reasoningEffort ?? ''}
-            onChange={(e) => {
-              const next = { ...selection };
-              next.reasoningEffort = e.target.value || null;
-              setSelection(next);
-              onChange(explicitSelection || needsConfirmation ? null : next);
-            }}
+            onChange={(e) => changeThinking(e.target.value)}
           >
             <option value="">{scope === 'adviser' ? 'Adviser default' : 'Model default'}</option>
             {account.models
@@ -683,65 +857,74 @@ function SessionAccountModelPicker({
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
       )}
-      {(explicitSelection || needsConfirmation) && (
-        <button
-          type="button"
-          disabled={
-            disabled ||
-            draftUnavailable ||
-            !account.models.some((model) => model.id === selection.model)
-          }
-          onClick={() => {
-            if (!draftUnavailable && account.models.some((model) => model.id === selection.model)) {
-              setNeedsConfirmation(false);
-              onChange(selection);
+      <QuickSettingsSupplement page="account">
+        {(explicitSelection || needsConfirmation) && (
+          <button
+            type="button"
+            disabled={
+              disabled ||
+              draftUnavailable ||
+              !account.models.some((model) => model.id === selection.model)
             }
-          }}
-        >
-          Use {account.label} ·{' '}
-          {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
-        </button>
+            onClick={() => {
+              if (
+                !draftUnavailable &&
+                account.models.some((model) => model.id === selection.model)
+              ) {
+                setNeedsConfirmation(false);
+                onChange(selection);
+              }
+            }}
+          >
+            Use {account.label} ·{' '}
+            {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
+          </button>
+        )}
+      </QuickSettingsSupplement>
+      {quick && scope === 'chat' && !legacy && (
+        <QuickSettingsSupplement page="model">
+          <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
+            Refresh models
+          </button>
+        </QuickSettingsSupplement>
       )}
-      {scope === 'chat' &&
-        !sessionId &&
-        !legacy &&
-        !requiredSelection &&
-        !lockAccountModel &&
-        !draftOnly && (
-          <>
-            <button
-              disabled={disabled || draftUnavailable}
-              onClick={() => {
-                setDefaultAccountModel(selection);
-                setSavedDefault(selection);
-              }}
-            >
-              Make default for new chats
-            </button>
-            {savedDefault && (
+      {scope === 'chat' && !legacy && (
+        <PickerOptions collapsible={presentation === 'settings'} saved={!!savedDefault}>
+          {!sessionId && !requiredSelection && !lockAccountModel && !draftOnly && (
+            <>
               <button
-                disabled={disabled}
+                disabled={disabled || draftUnavailable}
                 onClick={() => {
-                  setDefaultAccountModel(null);
-                  setSavedDefault(null);
-                  setNeedsConfirmation(true);
-                  onChange(null);
+                  setDefaultAccountModel(selection);
+                  setSavedDefault(selection);
                 }}
               >
-                Clear new-chat default
+                Make default for new chats
               </button>
-            )}
-            <span>
-              {savedDefault
-                ? 'Saved default for new chats on this browser.'
-                : 'No saved account default. Review the account before sending.'}
-            </span>
-          </>
-        )}
-      {scope === 'chat' && !legacy && (
-        <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
-          Refresh models
-        </button>
+              {savedDefault && (
+                <button
+                  disabled={disabled}
+                  onClick={() => {
+                    setDefaultAccountModel(null);
+                    setSavedDefault(null);
+                    setNeedsConfirmation(true);
+                    onChange(null);
+                  }}
+                >
+                  Clear new-chat default
+                </button>
+              )}
+              <span>
+                {savedDefault
+                  ? 'Saved default for new chats on this browser.'
+                  : 'No saved account default. Review the account before sending.'}
+              </span>
+            </>
+          )}
+          <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
+            Refresh models
+          </button>
+        </PickerOptions>
       )}
     </>
   );
@@ -779,6 +962,8 @@ function ControlledAccountModelPicker({
   lockAccount,
   onAccountChange,
   accountNeedsConfirmation = false,
+  onRefresh,
+  canSaveDefault = false,
   presentation = 'default',
 }: {
   presentation?: 'default' | 'settings';
@@ -787,10 +972,14 @@ function ControlledAccountModelPicker({
   onChange(selection: AccountSelection): void;
   onAccountChange?(selection: AccountSelection): void;
   accountNeedsConfirmation?: boolean;
+  onRefresh?(): void;
+  canSaveDefault?: boolean;
   disabled?: boolean;
   lockAccountModel?: boolean;
   lockAccount?: boolean;
 }) {
+  const quick = useQuickSettings();
+  const [savedDefault, setSavedDefault] = useState(getDefaultAccountModel);
   const account = accounts.find((a) => a.id === selection?.accountId);
   const model = account?.models.find((m) => m.id === selection?.model);
   const pendingAccount = accountNeedsConfirmation && !!account && !lockAccount && !lockAccountModel;
@@ -806,7 +995,48 @@ function ControlledAccountModelPicker({
     const label =
       identity === 'Thinking' && presentation === 'settings' ? 'Thinking level' : identity;
     return (
-      <PickerField label={label} visible>
+      <PickerField
+        label={label}
+        visible
+        quick={
+          presentation === 'settings'
+            ? {
+                page: identity.toLowerCase() as 'account' | 'model' | 'thinking',
+                value:
+                  pendingLabel ??
+                  entries.find((entry) => entry.id === value)?.label ??
+                  (value
+                    ? `Unavailable: ${value}`
+                    : identity === 'Thinking'
+                      ? 'Model default'
+                      : `Choose ${label.toLowerCase()}`),
+                selected: value,
+                choices: [
+                  {
+                    id: '',
+                    label:
+                      identity === 'Thinking' ? 'Model default' : `Choose ${label.toLowerCase()}`,
+                  },
+                  ...(!value || entries.some((entry) => entry.id === value)
+                    ? []
+                    : [
+                        {
+                          id: value,
+                          label: pendingLabel ?? `Unavailable ${label.toLowerCase()}: ${value}`,
+                          disabled: true,
+                        },
+                      ]),
+                  ...entries,
+                ],
+                disabled:
+                  disabled ||
+                  (identity !== 'Thinking' && lockAccountModel) ||
+                  (identity === 'Account' && lockAccount),
+                onChange: change,
+              }
+            : undefined
+        }
+      >
         <select
           aria-label={label}
           className="chat-model-select"
@@ -864,6 +1094,59 @@ function ControlledAccountModelPicker({
         (effort) => {
           if (selection) onChange({ ...selection, reasoningEffort: effort || null });
         },
+      )}
+      {quick && presentation === 'settings' && (
+        <PickerOptions collapsible saved={!!savedDefault}>
+          {canSaveDefault && (
+            <>
+              <button
+                disabled={
+                  disabled ||
+                  pendingAccount ||
+                  !account ||
+                  !model ||
+                  (!!selection?.reasoningEffort &&
+                    !model.reasoningEfforts?.includes(selection.reasoningEffort))
+                }
+                onClick={() => {
+                  if (!selection) return;
+                  setDefaultAccountModel(selection);
+                  setSavedDefault(selection);
+                }}
+              >
+                Make default for new chats
+              </button>
+              {savedDefault && (
+                <button
+                  disabled={disabled}
+                  onClick={() => {
+                    setDefaultAccountModel(null);
+                    setSavedDefault(null);
+                  }}
+                >
+                  Clear new-chat default
+                </button>
+              )}
+            </>
+          )}
+          <p>
+            {savedDefault
+              ? 'Saved default for new chats on this browser.'
+              : 'No saved account default. Review the account before sending.'}
+          </p>
+          {onRefresh && (
+            <button disabled={disabled} onClick={onRefresh}>
+              Refresh models
+            </button>
+          )}
+        </PickerOptions>
+      )}
+      {quick && onRefresh && (
+        <QuickSettingsSupplement page="model">
+          <button disabled={disabled} onClick={onRefresh}>
+            Refresh models
+          </button>
+        </QuickSettingsSupplement>
       )}
     </>
   );

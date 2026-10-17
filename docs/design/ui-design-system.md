@@ -1131,6 +1131,34 @@ reachable close/Done controls. Short-screen bounds are measured in rendered pixe
 Settings motion uses the shared popover presence and retains the mounted fields.
 The trigger’s accessible name includes its visible Settings label and selected context.
 
+The 17 October restoration brings back the earlier approved **Account & model**
+and **Agent & workspace** groups and accent-colored heading from
+[the retained approved design](assets/approved-chat-settings-teal.png).
+The compact popover geometry, full-width composer and primary Run on controls
+remain in place. Account defaults, clear-default and model refresh live in the
+closed **Account options** disclosure; required account confirmation and catalog
+warnings remain visible. This reuses `chat-settings-group`,
+`chat-settings-advanced`, `UiIcon` and the existing semantic/spacing/type tokens.
+Opening settings starts its scrolling body at Account while preserving mounted
+selections, confirmation state and composer drafts. Both mobile and desktop use
+the same field set.
+
+The restoration passes 107 design checks, 83 focused component/page regressions
+and 17 intercepted browser checks including browser startup. The browser fixture
+uses the real `AccountModelPicker` with synthetic catalog responses and covers
+saved defaults, refresh, account/model/thinking selection, dismissal/focus,
+retained drafts and reopening at Account. Inspected captures show
+[390px mobile dark](assets/restored-chat-settings-mobile-dark.png),
+[1280px desktop light](assets/restored-chat-settings-desktop-light.png),
+[320px mobile with larger text](assets/restored-chat-settings-short-mobile-light.png)
+and [300px-high desktop with larger text](assets/restored-chat-settings-short-desktop-dark.png).
+Constrained panels reduce header/footer padding using the shared spacing scale
+to keep a complete runtime row reachable while retaining 44px actions. Themes,
+Mint/Teal accents and Georgia/System fonts remain effective. Workspace builds and
+frontend TypeScript checks pass; `npm run test:ui` reaches Vite but exceeds the
+required local 1 GiB heap, so full production build acceptance remains with CI.
+These fixtures start no backend and make no model calls.
+
 New and existing composers use the full chat pane with the same shared gutters.
 Commands, image attachment, Terminal, Resources, collaboration, context, voice and
 send/queue/interrupt controls retain their original order and behavior. Resources
@@ -1329,6 +1357,26 @@ focus, retained edits, failure/retry, publication, 44px actions and scrolling.
 These checks use fake responses without backend, credentials or models. Full-app
 build/browser acceptance remains a separate CI gate. The application shell and
 advisor/editor placement are unchanged.
+
+## Approved interface contracts
+
+The [approved-design ledger](approved/README.md) records human approvals and pinned
+references separately from implementation captures. Read it before changing an
+existing surface or resolving a UI conflict. Feature work and rebases preserve the
+active design; intentional changes need a new explicit user approval and an appended
+revision. Tests and reference hashes are protections, not baselines to rewrite when
+an unrelated feature changes the screen.
+
+Chat settings uses the shared `QuickSettingsField` pattern: an ordered summary list
+opens one retained editor at a time. Back and Escape return through the sheet and
+restore focus. Account/model locks, explicit confirmation, repository preparation,
+existing action callbacks and unavailable choices retain their original authority.
+Summary rows are portaled into ordered slots so visual and keyboard order agree.
+The header and surfaces use neutral tokens; Done uses the selected action accent.
+`SettingsBrandMark` uses the existing OpenShell mask and vendored OpenAI/Claude SVG
+marks (LobeHub icon assets); unknown model identities remain unbranded. The 18px mark
+is icon geometry; controls still use the shared 44px minimum. Claude's brand role
+is defined for both themes in tokens.css and is independent of the user's accent.
 
 ## Device continuity
 

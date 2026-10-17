@@ -1,4 +1,5 @@
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
+import { chooseSetting, openChatSetting, settingRow, settingsHome } from '../support/chat-settings';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -197,9 +198,7 @@ test('Access: empty ordinary composer survives Connections and return', async ({
   const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
-  await page
-    .getByRole('combobox', { name: 'Account', exact: true })
-    .selectOption('fixture-account');
+  await chooseSetting(page, 'Account', 'fixture-account');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(settings).toBeFocused();
   const composer = page.getByPlaceholder('Message Mitzo...');
@@ -324,7 +323,7 @@ test('References: historical links and observed tools are not outputs', async ({
   expect(errors).toEqual([]);
 });
 
-test('Ordinary Agent settings keeps Model and Thinking paired without shared account renaming', async ({
+test('Ordinary Agent settings keeps Model and Thinking together in the approved sheet without shared account renaming', async ({
   page,
   isMobile,
 }, testInfo) => {
@@ -370,43 +369,58 @@ test('Ordinary Agent settings keeps Model and Thinking paired without shared acc
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   const panel = page.getByRole('region', { name: 'Agent settings', exact: true });
   await expect(panel).toBeVisible();
-  const account = panel.getByRole('combobox', { name: 'Account', exact: true });
-  const model = panel.getByRole('combobox', { name: 'Model', exact: true });
-  const thinking = panel.getByRole('combobox', { name: 'Thinking level', exact: true });
-  await expect(account).toHaveValue('fixture-account');
-  await expect(model).toHaveValue('fixture-model');
-  await expect(thinking).toHaveValue('high');
+  const account = settingRow(panel, 'Account');
+  const model = settingRow(panel, 'Model');
+  const thinking = settingRow(panel, 'Thinking');
+  await expect(account).toHaveAttribute('data-value', 'fixture-account');
+  await expect(model).toHaveAttribute('data-value', 'fixture-model');
+  await expect(thinking).toHaveAttribute('data-value', 'high');
   const send = page.getByRole('button', { name: 'Start session', exact: true });
   await expect(send).toBeDisabled();
   async function assertFields() {
     const modelBox = (await model.boundingBox())!;
     const thinkingBox = (await thinking.boundingBox())!;
     const accountBox = (await account.boundingBox())!;
-    if (isMobile) {
-      expect(thinkingBox.y).toBeGreaterThan(modelBox.y);
-      expect(Math.abs(thinkingBox.x - modelBox.x)).toBeLessThanOrEqual(1);
-    } else {
-      expect(Math.abs(thinkingBox.y - modelBox.y)).toBeLessThanOrEqual(1);
-      expect(thinkingBox.x).toBeGreaterThan(modelBox.x + modelBox.width);
-      expect(accountBox.width).toBeGreaterThan(modelBox.width);
-    }
+    // The approved sheet uses the same consecutive rows on phone and desktop.
+    expect(thinkingBox.y).toBeGreaterThanOrEqual(modelBox.y + modelBox.height - 1);
+    expect(Math.abs(thinkingBox.x - modelBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(accountBox.width - modelBox.width)).toBeLessThanOrEqual(1);
     expect(Math.abs(accountBox.x - modelBox.x)).toBeLessThanOrEqual(1);
-    expect(modelBox.y).toBeGreaterThan(accountBox.y + accountBox.height);
+    expect(modelBox.y).toBeGreaterThanOrEqual(accountBox.y + accountBox.height - 1);
+    for (const box of [accountBox, modelBox, thinkingBox])
+      expect(box.height).toBeGreaterThanOrEqual(44);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
     await expect(input).toHaveValue(draft);
   }
-  await assertFields();
+  await openChatSetting(page, 'account');
+  await expect(panel.locator('[data-setting-value="fixture-account"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await expect(panel.getByRole('button', { name: 'Edit account alias', exact: true })).toHaveCount(
     0,
   );
   await expect(send).toBeDisabled();
+  await settingsHome(page);
   await assertFields();
-  await account.selectOption('fixture-account');
+  await chooseSetting(page, 'Account', 'fixture-account');
   await expect(send).toBeEnabled();
-  await expect(model).toHaveValue('fixture-model');
-  await expect(thinking).toHaveValue('high');
+  await expect(model).toHaveAttribute('data-value', 'fixture-model');
+  await expect(thinking).toHaveAttribute('data-value', 'high');
+  await openChatSetting(page, 'model');
+  await expect(panel.locator('[data-setting-value="fixture-model"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await openChatSetting(page, 'thinking');
+  await expect(panel.locator('[data-setting-value="high"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await settingsHome(page);
+  await assertFields();
   await expect(input).toHaveValue(draft);
   expect(aliasWrites).toEqual([]);
   expect(sends).toEqual([]);
