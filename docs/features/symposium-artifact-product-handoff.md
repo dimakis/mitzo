@@ -1,11 +1,11 @@
 # Symposium saved-artifact handoff
 
 Producer: workstream B, draft PR [#1020](https://github.com/dimakis/mitzo/pull/1020).
-Final implementation source `f8b3b289c4f4ab0cbc2ade851a925583fdf97aa2`, tree
+Product and transcript-custody baseline `f8b3b289c4f4ab0cbc2ade851a925583fdf97aa2`, tree
 `dc892c2aa52c7eb882efee833443012951c08e19`. It includes accepted main
 `13669901` (#1010). Artifact UI implementation remains byte-identical to the
-rendered UI at `fcefea95ad6837e8bc2dd2bb7f1ca7bf431ec8a0`. The subsequent evidence commit
-changes only documentation, captures and focused test assertions.
+rendered UI at `fcefea95ad6837e8bc2dd2bb7f1ca7bf431ec8a0`. Evidence commit `f9409978` changes only documentation, captures and focused test
+assertions. Subsequent save-hook/callback contract changes are recorded below.
 
 ## Final shared behavior and consumption
 
@@ -133,3 +133,10 @@ complete authorization, including for message-only packets, and grants no dispat
 permit. Two actual-owner red/green tests cover post-preparation transcript-reference
 removal and retained-item privacy changes; missing/async/value transcript callbacks
 continue to refuse through the earlier regressions.
+
+The save-hook follow-up also rejects Promise/value-returning retained-artifact
+callbacks (the transcript path already refused them). Two more actual-owner red/green
+cases cover this contract. The final focused forwarding/retained-source set passes
+50 checks in two files, with strict types and source fingerprints verified. The earlier
+175-check combined receipt and C's separately reported 55-check consumption remain
+scoped to their recorded source; no new full-application acceptance is inferred.

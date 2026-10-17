@@ -204,8 +204,7 @@ export async function prepareCollaborationForward(
   const retainedChecks = new Map<string, () => void>();
   const transcriptChecks = new Map<string, () => void>();
   function assertLocalCustody() {
-    for (const check of retainedChecks.values()) check();
-    for (const check of transcriptChecks.values()) {
+    for (const check of [...retainedChecks.values(), ...transcriptChecks.values()]) {
       const asserted: unknown = check();
       if (asserted !== undefined) {
         void Promise.resolve(asserted).catch(() => {});

@@ -770,3 +770,54 @@ it('renews retained material privacy synchronously for the existing save owner',
     f.close();
   }
 });
+
+it.each(['promise', 'value'] as const)(
+  'refuses a %s retained material custody callback',
+  async (kind) => {
+    const { createCollaborationRetainedArtifactFixture } =
+      await import('./fixtures/collaboration-retained-artifacts.js');
+    const { createRetainedCollaborationArtifactSource } =
+      await import('../collaboration-retained-artifact-source.js');
+    const f = createCollaborationRetainedArtifactFixture();
+    try {
+      const saved = f.store.save({
+        itemId: f.itemId,
+        filename: 'retained.md',
+        title: 'Retained',
+        bytes: Buffer.from('EXACT MATERIAL'),
+        sessionId: 'gone',
+      });
+      const original = createRetainedCollaborationArtifactSource({
+        store: f.store,
+        authorizeArtifact: async () => {},
+      });
+      const retainedArtifacts = {
+        read: async (pin: Parameters<typeof original.read>[0]) => ({
+          ...(await original.read(pin)),
+          assertCurrent: kind === 'promise' ? async () => {} : () => true,
+        }),
+      };
+      await expect(
+        prepareCollaborationForward(
+          {
+            ...selection(),
+            sourceConversationId: null,
+            boundary: null,
+            messages: [],
+            artifacts: [
+              {
+                kind: 'retained_artifact',
+                artifactId: saved.id,
+                revision: 1,
+                sha256: saved.sha256,
+              },
+            ],
+          },
+          { authorizeTarget, retainedArtifacts },
+        ),
+      ).rejects.toMatchObject({ code: 'snapshot_changed' });
+    } finally {
+      f.close();
+    }
+  },
+);
