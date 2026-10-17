@@ -834,7 +834,14 @@ it.each(['', '0'])(
       ).toBeUndefined();
       const signal = AbortSignal.timeout(1000);
       expect(await readOpenShellSandboxInventory(signal)).toEqual([
-        { id: 'physical', name: 'legacy', phase: 'Stopped' },
+        {
+          id: 'physical',
+          name: 'legacy',
+          phase: 'Stopped',
+          workspace: 'default',
+          gateway: 'openshell',
+          gatewayEndpoint: null,
+        },
       ]);
       expect(inventory).toHaveBeenCalledWith(signal, true);
       initializeOpenShellLifecycle(
