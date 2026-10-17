@@ -90,7 +90,10 @@ export function ToolLibraryCatalog({
             catalog &&
             [...catalog.drafts, ...catalog.versions].filter((profile) =>
               profile.definition.tools?.some(
-                (ref) => ref.id === tool.id && ref.version === tool.version,
+                (ref) =>
+                  ref.id === tool.id &&
+                  ref.version === tool.version &&
+                  (!('revision' in ref) || ('revision' in tool && ref.revision === tool.revision)),
               ),
             );
           return (
@@ -139,13 +142,19 @@ export function ToolLibraryCatalog({
                       <dd>
                         {tool.routes.includes('local-api')
                           ? 'Local OpenAI Responses and Gemini/Vertex API chats'
-                          : 'Explicit selection unsupported on its runtime'}
+                          : tool.requirement}
                       </dd>
                     </div>
                     <div>
                       <dt>Permissions</dt>
                       <dd>{tool.requirement}</dd>
                     </div>
+                    {'revision' in tool && (
+                      <div>
+                        <dt>Catalog changes</dt>
+                        <dd>New session required. Existing chats retain their admitted tools.</dd>
+                      </div>
+                    )}
                     <div>
                       <dt>Selection</dt>
                       <dd>{tool.required ? 'Required platform tool' : 'Optional profile tool'}</dd>
