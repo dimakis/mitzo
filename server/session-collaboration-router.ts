@@ -8,6 +8,7 @@ import {
   CollaborationPolicyUpdateSchema,
   CollaborationCursorSchema,
   CollaborationJoinInputSchema,
+  CollaborationJoinReconcileInputSchema,
   CollaborationJoinSchema,
   COLLABORATION_EXECUTION_DISABLED,
 } from '@mitzo/protocol';
@@ -108,7 +109,11 @@ export function createSessionCollaborationRouter({
       error: COLLABORATION_EXECUTION_DISABLED.reason,
       execution: COLLABORATION_EXECUTION_DISABLED,
     });
-  const join = async (req: Request, res: Response, recovery: boolean) => {
+  const join = async (
+    req: Request,
+    res: Response,
+    operation: 'confirm' | 'recover' | 'reconcile',
+  ) => {
     const auth = recentAuthorizationSession(res);
     if (!auth) return;
     const id = SessionCollaborationIdSchema.safeParse(req.params.id);
@@ -120,11 +125,14 @@ export function createSessionCollaborationRouter({
       return failure(res, error);
     }
     if (!joining) return unavailable(res);
-    const input = recovery
-      ? z.strictObject({}).safeParse(req.body)
-      : CollaborationJoinInputSchema.safeParse(req.body);
-    const joinId = recovery ? z.uuid().safeParse(req.params.joinId) : undefined;
-    if (!input.success || (recovery && !joinId?.success))
+    const input =
+      operation === 'recover'
+        ? z.strictObject({}).safeParse(req.body)
+        : operation === 'reconcile'
+          ? CollaborationJoinReconcileInputSchema.safeParse(req.body)
+          : CollaborationJoinInputSchema.safeParse(req.body);
+    const joinId = operation !== 'confirm' ? z.uuid().safeParse(req.params.joinId) : undefined;
+    if (!input.success || (operation !== 'confirm' && !joinId?.success))
       return res.status(400).json({ error: 'Invalid collaboration join' });
     const controller = new AbortController();
     const cancel = () => controller.abort();
@@ -141,9 +149,11 @@ export function createSessionCollaborationRouter({
     try {
       controller.signal.throwIfAborted();
       const result =
-        recovery && joinId?.success
+        operation === 'recover' && joinId?.success
           ? await joining.recover(auth.id, id.data, joinId.data, controller.signal)
-          : await joining.confirm(auth.id, id.data, input.data, controller.signal);
+          : operation === 'reconcile' && joinId?.success
+            ? await joining.reconcile(auth.id, id.data, joinId.data, input.data, controller.signal)
+            : await joining.confirm(auth.id, id.data, input.data, controller.signal);
       controller.signal.throwIfAborted();
       if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
       return res.json(CollaborationJoinSchema.parse(result));
@@ -160,9 +170,12 @@ export function createSessionCollaborationRouter({
       res.off('close', close);
     }
   };
-  router.post('/:id/joins', requireSameOriginJson, (req, res) => join(req, res, false));
+  router.post('/:id/joins', requireSameOriginJson, (req, res) => join(req, res, 'confirm'));
   router.post('/:id/joins/:joinId/recover', requireSameOriginJson, (req, res) =>
-    join(req, res, true),
+    join(req, res, 'recover'),
+  );
+  router.post('/:id/joins/:joinId/reconcile', requireSameOriginJson, (req, res) =>
+    join(req, res, 'reconcile'),
   );
   // Source compilation and ordinary delivery still need their application owners.
   for (const operation of ['messages', 'snapshots']) {

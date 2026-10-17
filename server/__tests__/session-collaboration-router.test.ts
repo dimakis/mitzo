@@ -192,7 +192,11 @@ function installJoining() {
         'Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.',
     },
   };
-  const joining = { confirm: vi.fn(async () => result), recover: vi.fn(async () => result) };
+  const joining = {
+    confirm: vi.fn(async () => result),
+    recover: vi.fn(async () => result),
+    reconcile: vi.fn(async () => result),
+  };
   const mounted = express();
   mounted.use(express.json());
   mounted.use((req, res, next) => {
@@ -323,6 +327,16 @@ it('conceals provider errors and rejects private or malformed owner results', as
   const invalid = await request(mounted).post(`${path}/joins`).set('x-operator', 'yes').send(input);
   expect(invalid.status).toBe(503);
   expect(JSON.stringify(invalid.body)).not.toContain('secret');
+  joining.reconcile.mockResolvedValueOnce({
+    ...result,
+    providerThreadId: 'secret',
+  } as typeof result);
+  const invalidReconcile = await request(mounted)
+    .post(`${path}/joins/${result.joinId}/reconcile`)
+    .set('x-operator', 'yes')
+    .send({ requestId: randomUUID(), expectedMembershipRevision: 1, snapshot: result.snapshot });
+  expect(invalidReconcile.status).toBe(503);
+  expect(JSON.stringify(invalidReconcile.body)).not.toContain('secret');
 });
 
 it('aborts in-flight joining on operator revocation and refuses a late result', async () => {

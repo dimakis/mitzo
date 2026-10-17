@@ -8,6 +8,7 @@ import {
   CollaborationSnapshotSchema,
   CollaborationJoinSchema,
   CollaborationJoinInputSchema,
+  CollaborationJoinReconcileInputSchema,
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
   CollaborationSnapshotReferenceSchema,
@@ -16,6 +17,7 @@ import {
   type CollaborationPolicyUpdate,
   type CollaborationMessageInput,
   type CollaborationJoinInput,
+  type CollaborationJoinReconcileInput,
 } from '@mitzo/protocol';
 import type { ApiFetch } from './api-client.js';
 
@@ -103,6 +105,30 @@ export class CollaborationApiClient {
       method: 'POST',
       body: CollaborationJoinInputSchema.parse(input),
     });
+  }
+  recoverJoin(id: string, joinId: string, signal?: AbortSignal) {
+    CollaborationJoinSchema.shape.joinId.parse(joinId);
+    return this.request(this.path(id, `joins/${joinId}/recover`), CollaborationJoinSchema, signal, {
+      method: 'POST',
+      body: {},
+    });
+  }
+  reconcileJoin(
+    id: string,
+    joinId: string,
+    input: CollaborationJoinReconcileInput,
+    signal?: AbortSignal,
+  ) {
+    CollaborationJoinSchema.shape.joinId.parse(joinId);
+    return this.request(
+      this.path(id, `joins/${joinId}/reconcile`),
+      CollaborationJoinSchema,
+      signal,
+      {
+        method: 'POST',
+        body: CollaborationJoinReconcileInputSchema.parse(input),
+      },
+    );
   }
   /** No public dispatch until ordinary delivery is wired and qualified. */
   send(id: string, input: CollaborationMessageInput) {
