@@ -19,6 +19,7 @@ const runtime = vi.hoisted(() => ({
   mode: 'dispatch' as 'dispatch' | 'duplicate' | 'failure',
   instances: [] as Array<{ owners: Owners; close: ReturnType<typeof vi.fn> }>,
   beforeDispatch: undefined as (() => void) | undefined,
+  queryGate: undefined as Promise<void> | undefined,
   controller: false,
   owner: false,
 }));
@@ -29,6 +30,10 @@ vi.mock('../ordinary-local-codex-owned-runtime.js', () => ({
     });
     constructor(readonly owners: Owners) {
       runtime.instances.push(this);
+    }
+    async admitPreparedFirst(operationId: string, raw: unknown) {
+      runtime.trace.push(`prepared:${operationId}`);
+      return this.admit(raw);
     }
     async admit(raw: unknown) {
       runtime.trace.push('admit');
@@ -101,6 +106,7 @@ vi.mock('../goal-client.js', () => ({
 }));
 
 let chat: typeof import('../chat.js');
+let startOpenShell: typeof import('../ordinary-openshell-codex-entry.js').startOwnedOpenShellCodexCommand;
 let root: string;
 let sequence = 0;
 const profiles = new AccountProfiles(
@@ -129,6 +135,8 @@ beforeAll(async () => {
     }),
   );
   chat = await import('../chat.js');
+  startOpenShell = (await import('../ordinary-openshell-codex-entry.js'))
+    .startOwnedOpenShellCodexCommand;
 });
 beforeEach(() => {
   vi.clearAllMocks();
@@ -136,8 +144,10 @@ beforeEach(() => {
   runtime.instances.splice(0);
   runtime.mode = 'dispatch';
   runtime.beforeDispatch = undefined;
+  runtime.queryGate = undefined;
   runtime.controller = runtime.owner = false;
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
+  vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
   vi.mocked(openCodexChat).mockImplementation(async (options) => {
     runtime.trace.push('native-open');
     options.ownedLocal!.assertOptions(options);
@@ -155,6 +165,7 @@ beforeEach(() => {
           'consumed',
         );
         yield { type: 'system', subtype: 'init', session_id: options.conversationId };
+        await runtime.queryGate;
       },
       setPermissionMode: async () => {},
       interrupt: async () => {},
@@ -433,3 +444,218 @@ it('retains command uncertainty and releases driver ownership when native prepar
   expect(runtime.trace).not.toContain('loop');
   expect(chat.registry.get(f.clientId)).toBeUndefined();
 });
+
+function liveRetry(location: 'local' | 'openshell', operationId?: string, resume = false) {
+  const f = request();
+  const retry = vi.fn(async () => ({ dispatched: false }));
+  const admit = vi.fn(async () => {
+    throw Error('A retry must not admit a new command');
+  });
+  const close = vi.fn();
+  chat.registry.register(f.clientId, {
+    sessionId: f.args.reservation.conversationId,
+    transport: f.transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionAllowList: new Set(),
+    ordinaryRuntimeOwner: {
+      location,
+      authSessionId: 'fixture-owner-login',
+      identity: {},
+      initialCommandId: f.args.commandId,
+      ...{ initialPreparationOperationId: operationId, initialResume: resume },
+      retryInitial: retry,
+      admit,
+      close,
+    },
+  });
+  const definition = {
+    name: 'Agent',
+    descriptor: 'Offline',
+    role: 'agent' as const,
+    instructions: 'Offline',
+    expectedOutput: 'Evidence',
+    acceptanceCriteria: ['Evidence'],
+    modelPolicyRole: 'agent' as const,
+  };
+  const command = {
+    clientMsgId: f.args.commandId,
+    capabilityRevision: 'offline-capability',
+    runtime: {
+      account: {
+        accountId: binding.accountId,
+        provider: binding.provider,
+        profileRevision: binding.profileRevision,
+      },
+      harness: 'codex' as const,
+      targetId: 'offline-target',
+      mode: 'agent' as const,
+    },
+    selection: {
+      version: 1 as const,
+      agent: { profileId: 'agent', revision: 1 },
+      context: { source: 'none' as const, revision: null },
+      permission: { mode: 'agent' as const, revision: 0 },
+      model: binding.model,
+      thinking: null,
+    },
+    payload: { text: 'Original explicit prompt' },
+  };
+  return {
+    retry,
+    admit,
+    close,
+    sessionId: f.args.reservation.conversationId,
+    remove: () => chat.registry.remove(f.clientId),
+    invoke: (identity: { preparationOperationId?: string; resume?: boolean }) =>
+      location === 'local'
+        ? chat.startOwnedLocalCodexCommand(f.transport, f.clientId, { ...f.args, ...identity })
+        : startOpenShell(f.transport, f.clientId, {
+            ...identity,
+            command,
+            taskRoot: root,
+            meta: {
+              sessionId: f.args.reservation.conversationId,
+              repositoryWorkspaceId: f.args.reservation.id,
+              cwd: '/offline/sandbox',
+              accountBinding: binding,
+              agentProfile: {
+                profileId: 'agent',
+                revision: 1,
+                definition,
+                contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+              },
+            },
+            operatorConnectionId: f.args.operatorConnectionId,
+            ownerConnectionId: f.clientId,
+            signal: f.args.signal,
+          }),
+  };
+}
+
+it.each(['local', 'openshell'] as const)(
+  '%s live prepared retries require the original allocation operation',
+  async (location) => {
+    const f = liveRetry(location, 'original-allocation');
+    try {
+      for (const changed of [
+        undefined,
+        'another-allocation',
+        '',
+        'bad allocation',
+        'a'.repeat(201),
+        null,
+        7,
+      ]) {
+        await expect(
+          f.invoke({ preparationOperationId: changed as string | undefined }),
+        ).rejects.toThrow(/unavailable/);
+      }
+      expect(f.retry).not.toHaveBeenCalled();
+      await expect(f.invoke({ preparationOperationId: 'original-allocation' })).resolves.toEqual({
+        dispatched: false,
+        sessionId: f.sessionId,
+      });
+      expect(f.retry).toHaveBeenCalledTimes(1);
+      expect(f.admit).not.toHaveBeenCalled();
+      expect(f.close).not.toHaveBeenCalled();
+      expect(runtime.instances).toEqual([]);
+      expect(openCodexChat).not.toHaveBeenCalled();
+    } finally {
+      f.remove();
+    }
+  },
+);
+
+it('captures prepared entry identity before startup awaits and retains it for an exact live retry', async () => {
+  const f = request();
+  const args = { ...f.args, preparationOperationId: 'original-allocation', resume: false };
+  let release!: () => void;
+  runtime.queryGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  runtime.beforeDispatch = () => {
+    args.preparationOperationId = 'changed-during-startup';
+    args.resume = true;
+  };
+  try {
+    await expect(
+      chat.startOwnedLocalCodexCommand(f.transport, f.clientId, args),
+    ).resolves.toMatchObject({ dispatched: true });
+    const owner = chat.registry.findBySessionId(f.args.reservation.conversationId)?.session
+      .ordinaryRuntimeOwner;
+    expect(owner).toMatchObject({
+      initialPreparationOperationId: 'original-allocation',
+      initialResume: false,
+    });
+    runtime.mode = 'duplicate';
+    runtime.beforeDispatch = undefined;
+    await expect(
+      chat.startOwnedLocalCodexCommand(f.transport, f.clientId, {
+        ...f.args,
+        preparationOperationId: 'original-allocation',
+        resume: false,
+      }),
+    ).resolves.toEqual({ dispatched: false, sessionId: f.args.reservation.conversationId });
+    expect(runtime.trace.filter((event) => event.startsWith('prepared:'))).toEqual([
+      'prepared:original-allocation',
+      'prepared:original-allocation',
+    ]);
+    expect(runtime.instances).toHaveLength(1);
+    expect(openCodexChat).toHaveBeenCalledTimes(1);
+  } finally {
+    release();
+    await vi.waitFor(() => expect(runtime.instances[0]?.close).toHaveBeenCalled());
+  }
+});
+
+it.each(['local', 'openshell'] as const)(
+  '%s live ordinary retries cannot acquire preparation or resume identity',
+  async (location) => {
+    const f = liveRetry(location);
+    try {
+      await expect(f.invoke({ preparationOperationId: 'new-allocation' })).rejects.toThrow(
+        /unavailable/,
+      );
+      await expect(f.invoke({ resume: true })).rejects.toThrow(/unavailable/);
+      await expect(f.invoke({ resume: 'yes' as unknown as boolean })).rejects.toThrow(
+        /unavailable/,
+      );
+      expect(f.retry).not.toHaveBeenCalled();
+      await expect(f.invoke({})).resolves.toEqual({ dispatched: false, sessionId: f.sessionId });
+      await expect(f.invoke({ resume: false })).resolves.toEqual({
+        dispatched: false,
+        sessionId: f.sessionId,
+      });
+      expect(f.retry).toHaveBeenCalledTimes(2);
+      expect(f.admit).not.toHaveBeenCalled();
+      expect(openCodexChat).not.toHaveBeenCalled();
+    } finally {
+      f.remove();
+    }
+  },
+);
+
+it.each(['local', 'openshell'] as const)(
+  '%s live resume retries preserve the original resume identity',
+  async (location) => {
+    const f = liveRetry(location, undefined, true);
+    try {
+      await expect(f.invoke({})).rejects.toThrow(/unavailable/);
+      await expect(f.invoke({ resume: false })).rejects.toThrow(/unavailable/);
+      await expect(
+        f.invoke({ resume: true, preparationOperationId: 'new-allocation' }),
+      ).rejects.toThrow(/unavailable/);
+      expect(f.retry).not.toHaveBeenCalled();
+      await expect(f.invoke({ resume: true })).resolves.toEqual({
+        dispatched: false,
+        sessionId: f.sessionId,
+      });
+      expect(f.retry).toHaveBeenCalledTimes(1);
+      expect(f.admit).not.toHaveBeenCalled();
+      expect(openCodexChat).not.toHaveBeenCalled();
+    } finally {
+      f.remove();
+    }
+  },
+);

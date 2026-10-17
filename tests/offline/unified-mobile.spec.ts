@@ -1372,7 +1372,12 @@ test('accent-filled controls retain their paired foreground on hover and in user
   const stylesheets = [...html.matchAll(/href="([^"\s]+\.css)"/g)];
   const css = (
     await Promise.all(
-      stylesheets.map((match) => readFile(resolve('frontend/dist', match[1].slice(1)), 'utf8')),
+      [
+        ...stylesheets.map((match) => resolve('frontend/dist', match[1].slice(1))),
+        // This component brings its CSS with its lazy route. The static
+        // markup fixture must load that stylesheet alongside its markup.
+        resolve('frontend/src/components/CodexQueueStatus.css'),
+      ].map((path) => readFile(path, 'utf8')),
     )
   ).join('\n');
   expect(css).toContain('.mode-pill--active');

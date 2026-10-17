@@ -18,6 +18,7 @@ import {
   CollaborationDeliverySchema,
   CollaborationDeliveryReceiptInputSchema,
   CollaborationSnapshotDraftSchema,
+  CollaborationSnapshotSelectionSchema,
   CollaborationSnapshotSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
@@ -59,6 +60,15 @@ interface Owners {
   ): { sessionId: string; settings: CollaborationSettings } | undefined;
 }
 type Row = { body: string };
+const ReviewCompilationInput = z.strictObject({
+  operatorId: z.string().min(1).max(200),
+  selection: CollaborationSnapshotSelectionSchema,
+  settings: z.array(CollaborationSettingsSchema).min(1).max(16),
+});
+const ReviewCompilation = ReviewCompilationInput.extend({
+  snapshotRequestId: z.uuid(),
+  snapshotId: z.uuid().nullable(),
+});
 /** Slice-2 metadata only. Existing EventStore connection/backup owner; no dispatcher or scheduler.
  * saveSnapshot/acceptMessage/recordDelivery/recordAllocation are trusted host ports, not HTTP writes.
  */
@@ -523,9 +533,71 @@ export class CollaborationConversationStore {
       },
     );
   }
-  /** Trusted source compiler only: source authorization, completeness and token estimates belong to that owner.
-   * No public route accepts these bytes. Hashes are recomputed before the review object is saved.
-   */
+  /** Persist exact host review intent before asynchronous compilation. */
+  reserveReviewCompilation(group: string, raw: unknown) {
+    const input = ReviewCompilationInput.parse(raw);
+    const reservation = this.mutation(
+      group,
+      input.selection.requestId,
+      { kind: 'review-compilation', input },
+      ReviewCompilation,
+      () => {
+        const membership = this.membership(group, input.selection.expectedMembershipRevision);
+        if (!membership.participantSessionIds.includes(input.selection.sourceConversationId))
+          throw new ContractError('unknown_recipient');
+        const record = ReviewCompilation.parse({
+          ...input,
+          snapshotRequestId: randomUUID(),
+          snapshotId: null,
+        });
+        this.put(group, 'review-compilation', input.selection.requestId, record);
+        return record;
+      },
+    );
+    // The immutable request receipt predates compilation. Read its latest result,
+    // so exact retries recover before source/capacity owners are invoked again.
+    return (
+      this.current(group, 'review-compilation', input.selection.requestId, ReviewCompilation) ??
+      reservation
+    );
+  }
+  completeReviewCompilation(group: string, requestId: string, raw: unknown) {
+    z.uuid().parse(requestId);
+    return this.db
+      .transaction(() => {
+        this.group(group);
+        const record = this.current(group, 'review-compilation', requestId, ReviewCompilation);
+        if (!record) throw new ContractError('not_found');
+        if (record.snapshotId) {
+          const completed = this.getSnapshot(group, record.snapshotId);
+          if (!completed) throw new ContractError('snapshot_changed');
+          return completed;
+        }
+        this.membership(group, record.selection.expectedMembershipRevision);
+        const draft = CollaborationSnapshotDraftSchema.parse(raw);
+        const { selection } = record;
+        if (
+          draft.requestId !== requestId ||
+          draft.sourceConversationId !== selection.sourceConversationId ||
+          sha(draft.boundary) !== sha(selection.boundary) ||
+          draft.mode !== selection.mode ||
+          draft.purpose !== selection.purpose ||
+          draft.joiningBrief !== selection.joiningBrief
+        )
+          throw new ContractError('snapshot_changed');
+        const snapshot = this.saveSnapshot(group, {
+          ...draft,
+          requestId: record.snapshotRequestId,
+        });
+        this.put(group, 'review-compilation', requestId, {
+          ...record,
+          snapshotId: snapshot.snapshotId,
+        });
+        return snapshot;
+      })
+      .immediate();
+  }
+  /** Trusted source compiler only. No public route accepts these bytes. */
   saveSnapshot(group: string, raw: unknown) {
     const draft = structuredClone(raw) as z.infer<typeof CollaborationSnapshotDraftSchema>;
     if (Array.isArray(draft?.messages))
@@ -768,6 +840,12 @@ export class CollaborationConversationStore {
         hasMore: rows.length > 50,
       };
     })();
+  }
+  /** Exact host delivery lookup, independent of the bounded recent-message view. */
+  getMessage(group: string, messageId: string) {
+    this.group(group);
+    z.uuid().parse(messageId);
+    return this.current(group, 'message', messageId, CollaborationMessageSchema);
   }
   view(group: string) {
     return this.db.transaction(() => {
