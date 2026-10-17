@@ -123,8 +123,11 @@ it('same-origin and operator revocation fence verification, retaining an unverif
     .send(f.body)
     .expect(200);
   f.send.mockImplementationOnce(async () => {
-    revokeAuthSession(f.auth.id);
-    return { status: 200, body: '{}' };
+    revokeAuthSession(f.auth);
+    return {
+      status: 200,
+      body: '{"entity_id":"sensor.office","state":"21","last_changed":"2026-10-17T00:00:00Z"}',
+    };
   });
   await request(f.app)
     .post(base + '/verify')
