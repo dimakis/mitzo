@@ -590,6 +590,37 @@ never saves automatically. Offline fixtures cover direct save, empty/error state
 long instructions, keyboard activation, 320px/390px mobile and desktop, dark/light
 themes and alternate accent/font preferences.
 
+### Task proposals in ordinary chat
+
+Task review extends the same proposal area with the existing `AgentTaskEditor`,
+`AgentSettingsPicker`, account/model and execution controls. The task owns its
+retained execution intent independently of Builder settings. Native disclosures
+expose the exact reviewed definition and profile pin; shared profile/task styles,
+semantic tokens, control-height targets and normal motion remain in use.
+
+Explicit Save task returns its exact task identity and revision and links to the
+Library task. Confirmed receipts survive chat reload. Failed validation preserves
+editable input; a definitive owner rejection permits editing or discard. An
+uncertain save keeps its exact reviewed request for retry. Cancel save wait ends
+waiting and fences late responses without claiming that an accepted save was
+undone. Missing conversation authority disables mutations while preserving review.
+No control runs a task or enables its paused schedule.
+
+Offline actual-chat checks cover task creation/editing, independent Builder and
+task settings, validation, failure/retry, cancellation/revocation and reload.
+The final focused matrix passes 38 checks across 320px mobile WebKit/Chromium
+and 1280px desktop Chromium, dark/light with Teal/Georgia, plus six capture checks.
+It checks task-card horizontal bounds, keyboard activation, 44px controls, raw
+validation and the original save request through reload/cancellation/revocation.
+Inspected captures: [mobile task review](assets/agent-builder-task-mobile-dark-top.png),
+[mobile failed save and retry](assets/agent-builder-task-mobile-light-review.png),
+[desktop task edit](assets/agent-builder-task-desktop-light-top.png), and
+[exact saved receipt](assets/agent-builder-task-desktop-dark-receipt.png).
+These use intercepted traffic and inert ordinary drivers; full app build/browser
+acceptance remains a separate CI gate, and live runtime admission remains separate.
+The inert driver leaves Stop visible while reviewing; it does not establish live
+continuation or completion.
+
 ## Google Workspace policy status
 
 `GoogleWorkspaceControls` retains the existing Connections surface and controls,

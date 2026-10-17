@@ -14,7 +14,11 @@ import { join } from 'node:path';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import { contextDigest } from '../agent-context-compiler.js';
-import { LocalCodexFirstCommandSchema, PROFILE_BUILDER_ID } from '@mitzo/protocol';
+import {
+  LocalCodexFirstCommandSchema,
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+} from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import { AccountProfiles } from '../account-profiles.js';
@@ -525,7 +529,12 @@ it('projects configuration-only eligible account tuples and published profiles w
     authority: 'configuration-only',
     defaultLocation: 'openshell',
     agentProfiles: [
-      expect.objectContaining({ kind: 'builtin', profileId: PROFILE_BUILDER_ID }),
+      expect.objectContaining({
+        kind: 'builtin',
+        profileId: PROFILE_BUILDER_ID,
+        revision: PROFILE_BUILDER_REVISION,
+      }),
+      expect.objectContaining({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 }),
       eligible,
     ],
   });

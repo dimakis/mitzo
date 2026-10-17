@@ -2485,6 +2485,10 @@ it('persists a fake provider profile proposal without saving a reusable profile'
       getSession: () => ({ sessionId: 'conversation' }),
     } as never,
   });
+  for (const name of ['AgentReadTasks', 'AgentProposeTask'])
+    expect(
+      (mocks.conversationOptions?.tools as Array<{ name: string }>).map((tool) => tool.name),
+    ).not.toContain(name);
   const execute = mocks.conversationOptions?.executeTool as (
     name: string,
     input: unknown,
@@ -3269,6 +3273,8 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       [
         ...native.nativeToolDefinitions.map((tool) => tool.name),
         ...profileToolDefinitions.map((tool) => tool.name),
+        'AgentReadTasks',
+        'AgentProposeTask',
         'RequestGithubPublish',
         mcpDefinition.name,
       ].sort(),
@@ -3629,6 +3635,9 @@ it('consumes frozen owned OpenShell configuration and executes guarded runtime a
     const captured = mocks.conversationOptions!;
     expect(captured.systemPrompt).toContain('<mitzo_capabilities>');
     expect(captured.systemPrompt).toContain('clickable mockup');
+    expect((captured.tools as Array<{ name: string }>).map(({ name }) => name)).toEqual(
+      expect.arrayContaining(['AgentReadTasks', 'AgentProposeTask']),
+    );
     expect(captured.enableCapacityRecovery).toBe(false);
     const prepare = captured.prepareAgentContext as (signal: AbortSignal) => Promise<void>;
     vi.mocked(owner.assertCurrent).mockClear();
@@ -3741,3 +3750,92 @@ it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
     ).rejects.toThrow('tool selection is not supported');
   },
 );
+
+it('routes qualified owned Codex task provider calls to durable review proposals without saving tasks', async () => {
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  const { default: Database } = await import('better-sqlite3');
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const root = mkdtempSync(join(tmpdir(), 'owned-codex-task-route-'));
+  vi.stubEnv('REPO_PATH', root);
+  const f = ownedLocalOptions(root);
+  f.opts.session.sessionId = 'owned-session';
+  f.opts.registry = {
+    findBySessionId: () => ({ clientId: 'owned-task-client', session: f.opts.session }),
+    get: () => f.opts.session,
+  } as never;
+  const release = bindAgentLibraryTransport('owned-task-client', {
+    id: 'owned-task-login',
+    expiresAt: Date.now() + 60000,
+  });
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    const config = mocks.conversationOptions!;
+    expect((config.tools as Array<{ name: string }>).map(({ name }) => name)).toEqual(
+      expect.arrayContaining(['AgentReadTasks', 'AgentProposeTask']),
+    );
+    const execute = config.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      context: { turnId: string; callId: string },
+    ) => Promise<{ content: string; isError: boolean }>;
+    const input = {
+      taskId: 'owned-daily',
+      expectedRevision: 0,
+      definition: {
+        name: 'Owned daily',
+        objective: '',
+        profile: { profileId: 'trace', revision: 3, contentHash: 'a'.repeat(64) },
+        execution: null,
+        workspace: null,
+        schedule: null,
+        notificationPolicy: 'results',
+        outputPolicy: 'session',
+      },
+    };
+    const context = { turnId: 'owned-provider-turn', callId: 'owned-provider-call' };
+    const signal = new AbortController().signal;
+    const first = await execute('AgentProposeTask', input, signal, context);
+    expect(first).toMatchObject({ isError: false });
+    expect(JSON.parse(first.content)).toMatchObject({
+      status: 'awaiting_user_review',
+      taskId: 'owned-daily',
+      expectedRevision: 0,
+    });
+    expect(await execute('AgentProposeTask', input, signal, context)).toEqual(first);
+    const db = new Database(join(root, '.mitzo', 'events.db'), { readonly: true });
+    try {
+      expect(
+        db
+          .prepare("SELECT idempotency_key FROM symposium_profile_proposals WHERE kind='task'")
+          .all(),
+      ).toEqual([
+        {
+          idempotency_key: createHash('sha256')
+            .update(JSON.stringify(['task', 'owned-session', context.turnId, context.callId]))
+            .digest('hex'),
+        },
+      ]);
+      expect(
+        db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'agent_task_%'").all(),
+      ).toEqual([]);
+    } finally {
+      db.close();
+    }
+    expect(f.lease.assertCurrent).toHaveBeenCalled();
+    expect(f.lease.assertCurrentSync).toHaveBeenCalled();
+  } finally {
+    chat?.close();
+    release();
+    f.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

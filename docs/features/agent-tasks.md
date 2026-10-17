@@ -82,6 +82,39 @@ activation requires the later reviewed admission and occurrence fences. CRUD
 creates no run, session, resource allocation, provider request or scheduler.
 Run/occurrence types reserve the boundary for later slices; no run endpoints exist.
 
+## Ordinary Builder task proposals
+
+Task authoring reuses the ordinary Agent Builder conversation and its existing
+proposal review area. `AgentReadTasks` reads the owner-scoped saved definitions;
+`AgentProposeTask` creates a durable review proposal for a new task or an edit
+with the exact expected revision. The tool cannot save or run a task. Its proposed
+profile ID, revision and content hash stay explicit; Builder account, model,
+thinking and runtime settings do not replace the task's execution intent.
+
+The authenticated review action saves through `AgentTaskService` and the same
+`AgentTaskStore` used by Library. Task and proposal receipt commit on the same
+SQLite connection. Exact retries return the original saved task record, even after
+later task edits or deletion. Changed input under that save identity returns 409.
+Saved proposal receipts survive chat reload and link to the exact Library task.
+The review preserves failed or uncertain input for retry and does not report a
+proposal as saved without validating its task identity, revision and definition.
+
+Task tools require current interactive operator, session, skill, selected-tool and
+runtime authority, including after awaited work, and cancellation is checked before
+effects. Proposal identity derives from the verified ordinary session, provider turn
+and tool call, rather than model-supplied owner or retry fields. In custodian mode,
+reads and proposals use the authenticated retained-owner channel; failure never
+initializes a controller-local catalog. Registration is limited to ordinary owned Codex/OpenShell routes and the
+Responses adapter with its supplied command authority, verified tool-call identity
+and current runtime guards. SDK and unowned legacy routes remain unavailable for
+task tools. Selecting a tool reference does not qualify another route.
+
+Review and save grant no execution authority. Incomplete intent remains editable,
+complete definitions remain blocked with `admission-unavailable`, and schedules
+remain paused. Task CRUD allocates no conversation, run, provider request or
+scheduler. Qualified run admission, cron occurrence recovery and real run receipts
+remain separate slices.
+
 ## Validation evidence
 
 The first implementation artefacts were the store/service and API tests. Their
@@ -95,4 +128,4 @@ no live model or staging deployment.
 
 Remaining delivery: Library UI/shared settings (slice 2), qualified ordinary-session
 run admission and receipts (3), scheduler/calendar recovery and activation (4),
-Agent Builder task adapters (5), integrated product/route acceptance (6).
+remaining Builder run receipt acceptance (5), integrated product/route acceptance (6).

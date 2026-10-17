@@ -2,7 +2,7 @@ import { ApiToolEditor } from '../components/ApiToolEditor';
 import { AgentToolsEditor } from '../components/AgentToolsEditor';
 import { ToolLibraryCatalog } from '../components/ToolLibraryCatalog';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   agentProfileLabel,
   type AgentToolCatalogEntry,
@@ -115,10 +115,30 @@ function navigateTabs(event: KeyboardEvent<HTMLDivElement>) {
 }
 export function AgentLibrary() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const linkedTaskId = searchParams.get('task');
+  const handledTaskLink = useRef<string | null>(null);
+  const [taskLinkError, setTaskLinkError] = useState('');
   const taskState = useAgentTasks();
+  const { tasks: linkedTasks, update: updateLinkedTask } = taskState;
   const [collection, setCollection] = useState<'profiles' | 'tasks'>(() =>
-    loadAgentTaskWorkingCopy() ? 'tasks' : 'profiles',
+    linkedTaskId || loadAgentTaskWorkingCopy() ? 'tasks' : 'profiles',
   );
+  useEffect(() => {
+    if (!linkedTaskId || handledTaskLink.current === linkedTaskId || !linkedTasks) return;
+    const task = linkedTasks.find((row) => row.taskId === linkedTaskId);
+    setCollection('tasks');
+    if (!task) {
+      setTaskLinkError(
+        'This Library task is unavailable. Refresh tasks to retry. Your retained input is unchanged.',
+      );
+      return;
+    }
+    const retained = loadAgentTaskWorkingCopy(task.taskId);
+    updateLinkedTask(retained ?? editAgentTask(task));
+    handledTaskLink.current = linkedTaskId;
+    setTaskLinkError('');
+  }, [linkedTaskId, linkedTasks, updateLinkedTask]);
   const [recovered] = useState(loadAgentLibraryWorkingCopy);
   const [catalog, setCatalog] = useState<AgentLibraryCatalog | null>(null);
   const [catalogError, setCatalogError] = useState('');
@@ -412,7 +432,7 @@ export function AgentLibrary() {
   const canUse = !!selectedVersion && !dirty;
   const openTask = (task: Parameters<typeof editAgentTask>[0]) => {
     const retained = loadAgentTaskWorkingCopy(task.taskId);
-    taskState.update(retained ?? editAgentTask(task));
+    updateLinkedTask(retained ?? editAgentTask(task));
     setCollection('tasks');
   };
   const newerTask =
@@ -578,6 +598,7 @@ export function AgentLibrary() {
               Refresh tasks
             </button>
           </div>
+          {taskLinkError && <p role="alert">{taskLinkError}</p>}
           {taskState.error && <p role="alert">{taskState.error}</p>}
           {taskState.storageError && <p role="alert">{taskState.storageError}</p>}
           {taskState.notice && <p role="status">{taskState.notice}</p>}
@@ -875,6 +896,7 @@ export function AgentLibrary() {
                         )}
                         {tab === 'tasks' && (
                           <>
+                            {taskLinkError && <p role="alert">{taskLinkError}</p>}
                             {taskState.error && <p role="alert">{taskState.error}</p>}
                             {taskState.tasks && (
                               <AgentTaskList

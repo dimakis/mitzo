@@ -6,6 +6,15 @@ import {
 } from '../connections/reviewed-handler-artifacts.js';
 
 it.each([
+  '../session-agent-task-tools.ts',
+  '../../frontend/src/components/AgentTaskProposal.tsx',
+  '../agent-task-store.ts',
+  '../agent-task-service.ts',
+  '../agent-task-router.ts',
+  '../symposium-profile-proposals.ts',
+  '../symposium-profile-proposal-routes.ts',
+  '../../packages/protocol/src/agent-tasks.ts',
+  '../../packages/protocol/src/profile-builder.ts',
   '../../packages/protocol/src/source-snapshot.ts',
   '../../packages/protocol/src/agent-library-editable.ts',
   '../source-snapshot-context.ts',

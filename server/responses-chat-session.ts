@@ -205,6 +205,7 @@ export async function openResponsesChat(options: Options) {
     undefined,
     assertRuntimeCurrent,
     assertRuntimeCurrentSync,
+    !!options.commandAuthority,
   );
   signal.throwIfAborted();
   const privateStorage = options.store ?? getNativeResponsesStore();

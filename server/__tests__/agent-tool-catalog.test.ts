@@ -89,3 +89,20 @@ it('keeps the offline browser inventory aligned with authoritative registrations
   );
   expect(fixture).toEqual(agentToolCatalog());
 });
+
+it('registers task proposals separately from execution with explicit selection ceilings', () => {
+  expect(agentToolCatalog().find((tool) => tool.name === 'AgentReadTasks')).toMatchObject({
+    version: 1,
+    behavior: 'read',
+    routes: ['local-api'],
+  });
+  expect(agentToolCatalog().find((tool) => tool.name === 'AgentProposeTask')).toMatchObject({
+    version: 1,
+    behavior: 'write',
+    routes: ['local-api'],
+  });
+  const session = {};
+  bindAgentToolSelection(session, { tools: [] } as never);
+  expect(agentToolAllowed(session, 'AgentReadTasks')).toBe(false);
+  expect(agentToolAllowed(session, 'AgentProposeTask')).toBe(false);
+});

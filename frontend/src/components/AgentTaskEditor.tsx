@@ -8,12 +8,14 @@ export function AgentTaskEditor({
   update,
   save,
   busy,
+  disabled = false,
 }: {
   copy: AgentTaskWorkingCopy;
   versions: AgentLibraryVersion[];
   update(copy: AgentTaskWorkingCopy): void;
   save(): void;
   busy: boolean;
+  disabled?: boolean;
 }) {
   const change = (patch: Partial<AgentTaskWorkingCopy>) => {
     if (JSON.stringify({ ...copy, ...patch }) === JSON.stringify(copy)) return;
@@ -44,7 +46,7 @@ export function AgentTaskEditor({
           save();
         }}
       >
-        <fieldset disabled={busy} className="agent-task-fields">
+        <fieldset disabled={busy || disabled} className="agent-task-fields">
           <label>
             Agent profile
             <select
@@ -164,7 +166,7 @@ export function AgentTaskEditor({
                 update({ ...copy, runtime });
               } else change({ runtime, execution: nextExecution ?? null });
             }}
-            disabled={busy}
+            disabled={busy || disabled}
           />
           <label>
             Workspace reference
