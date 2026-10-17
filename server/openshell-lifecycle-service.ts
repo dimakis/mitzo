@@ -369,12 +369,23 @@ export class OpenShellLifecycleService {
       // Retention consent authorizes destructive deletion only. Checkpointing
       // and stopping an idle retained sandbox remain safe without it.
       if (record.phase === 'stopped' && !this.consented(record)) continue;
-      if (
-        record.phase === 'retained' &&
-        (!record.idleSince || this.now() < record.idleSince + this.policy.idleMs)
-      )
-        continue;
       try {
+        if (record.phase === 'retained') {
+          // Close callbacks are not guaranteed across process loss. Observe a
+          // fresh, protected idle interval instead of backdating from activity.
+          const { blockers } = await this.state(record, signal);
+          if (blockers.length || record.idleSince === null) {
+            await sharedOpenShellLifecycleCoordinator.admit(record.conversationId, async () => {
+              const current = this.store.get(record.conversationId);
+              if (current?.generation !== record.generation) return;
+              const idleSince = blockers.length ? null : this.now();
+              if (current.idleSince !== idleSince)
+                this.store.upsert({ ...current, idleSince, generation: current.generation + 1 });
+            });
+            continue;
+          }
+          if (this.now() < record.idleSince + this.policy.idleMs) continue;
+        }
         const preview = await this.preview(record.conversationId, signal);
         previews.push(preview);
         if (preview.action !== 'none') await this.confirm(preview.token, signal);

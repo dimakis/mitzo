@@ -117,6 +117,43 @@ it('allows a manual stop without granting retention consent', async () => {
   expect(preview.action).toBe('stop');
   await expect(service.confirm(preview.token, AbortSignal.timeout(100))).resolves.toBe('stopped');
 });
+
+it('starts a fresh idle observation after restart when a retained row has no idle timestamp', async () => {
+  const { service, store, adapters } = setup('retained');
+  const record = store.get('c')!;
+  store.upsert({ ...record, idleSince: null, generation: record.generation + 1 });
+  let now = 100 + 30 * DAY;
+  adapters.now = () => now;
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(store.get('c')?.idleSince).toBe(now);
+  expect(adapters.stop).not.toHaveBeenCalled();
+  now += 30 * 60_000 - 1;
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(adapters.stop).not.toHaveBeenCalled();
+  now++;
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(adapters.stop).toHaveBeenCalledOnce();
+});
+
+it('does not infer idleness from old activity while authoritative work is protected', async () => {
+  const { service, store, adapters } = setup('retained');
+  const record = store.get('c')!;
+  store.upsert({ ...record, idleSince: null, generation: record.generation + 1 });
+  adapters.protect.mockResolvedValue({ blockers: ['active_session'] } as never);
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(store.get('c')?.idleSince).toBeNull();
+  expect(adapters.stop).not.toHaveBeenCalled();
+});
+
+it('restarts the idle grace period after protected work interrupts an observation', async () => {
+  const { service, store, adapters } = setup('retained');
+  adapters.protect.mockResolvedValueOnce({ blockers: ['queued_work'] } as never);
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(store.get('c')?.idleSince).toBeNull();
+  await service.reconcile(AbortSignal.timeout(100));
+  expect(store.get('c')?.idleSince).toBe(adapters.now());
+  expect(adapters.stop).not.toHaveBeenCalled();
+});
 it('rechecks consent before a manual deletion', async () => {
   const { service, adapters } = setup();
   const preview = await service.preview('c', AbortSignal.timeout(100));
