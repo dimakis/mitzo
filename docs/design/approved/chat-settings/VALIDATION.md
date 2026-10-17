@@ -57,6 +57,13 @@ checks and 17 settings-plus-sandbox browser checks passed on the combined branch
 The preceding `f8e7fa42` CI matrix passed 795 browser checks and native acceptance;
 full CI must also accept the integrated head.
 
+That pre-integration full unit run passed 17,056 tests and found 18 failures confined
+to two remaining route-wiring files querying the superseded form. Those files now
+use the same original-editor isolation as the other route authority tests; their
+account confirmation, locked binding, repository receipt and preparation lifecycle
+assertions remain. All 29 tests in the two files pass. The real sheet and its
+protected navigation/layout checks continue to run without that isolation.
+
 Main's existing protection requires up-to-date `ci`, `Connections browser regression`
 (the browser/offline aggregate), native checks and `Centaur final LGTM`, with admin
 enforcement. The ledger's integrity/history checks run in required CI; rendered
