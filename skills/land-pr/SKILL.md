@@ -1,6 +1,6 @@
 ---
 name: land-pr
-description: Take a selected PR through CI, review fixes, final verification and authorized merge. Use --prepare-only to make it ready without changing draft or merge state. Canonical workflow for autopilot and shepherd aliases.
+description: Land PRs through CI, reviews and authorized merge; --prepare-only stops before merge.
 mutating: true
 allowed-tools:
   - Read

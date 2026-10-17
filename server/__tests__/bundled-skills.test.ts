@@ -15,6 +15,8 @@ describe('bundled skills', () => {
   it('discovers all bundled skills', () => {
     const names = skills.map((s) => s.name).sort();
     expect(names).toEqual([
+      'auto-pr-shepherd',
+      'autopilot',
       'land-pr',
       'mockup',
       'person',
@@ -191,28 +193,20 @@ describe('bundled skills', () => {
     }
   });
 
-  it('/pr-shepherd is a mutating skill with full tool access', () => {
-    const prShepherd = skills.find((s) => s.name === 'pr-shepherd');
-    expect(prShepherd).toBeDefined();
-    expect(prShepherd!.mutating).toBe(true);
-    expect(prShepherd!.allowedTools).toBeDefined();
-    expect(prShepherd!.allowedTools).toContain('Bash');
-    expect(prShepherd!.allowedTools).toContain('Read');
-    expect(prShepherd!.allowedTools).toContain('Edit');
-    expect(prShepherd!.allowedTools).toContain('Write');
-    expect(prShepherd!.allowedTools).toContain('Agent');
-  });
-
-  it('/pr-shepherd body references the shepherd loop and merge gate', () => {
-    const body = registry.getBody('pr-shepherd')!;
-    expect(body).toBeDefined();
-    expect(body).toContain('$ARGUMENTS');
-    expect(body.toLowerCase()).toContain('conflict');
-    expect(body.toLowerCase()).toContain('ci');
-    expect(body.toLowerCase()).toContain('review');
-    expect(body.toLowerCase()).toContain('merge-ready');
-    expect(body.toLowerCase()).toContain('schedulewakeup');
-  });
+  it.each(['autopilot', 'pr-shepherd', 'auto-pr-shepherd'])(
+    '/%s preserves PR arguments and permits the canonical fixing workflow',
+    (name) => {
+      const args = 'https://github.com/dimakis/mitzo/pull/989 --prepare-only';
+      const result = resolveSlashCommand(`/${name} ${args}`, registry, new Set());
+      expect(result).toMatchObject({ type: 'skill', name, arguments: args });
+      if (result.type !== 'skill') throw Error('Expected a compatibility skill');
+      expect(result.renderedPrompt).toContain(args);
+      expect(result.renderedPrompt).not.toContain('$ARGUMENTS');
+      expect(new Set(result.allowedTools)).toEqual(new Set(registry.get('land-pr')?.allowedTools));
+      expect(registry.get(name)?.mutating).toBe(true);
+      expect(result.allowedTools).not.toContain('Agent');
+    },
+  );
 
   it('renderSkillPrompt correctly substitutes $ARGUMENTS in real bundled skill content', () => {
     const body = registry.getBody('simplify')!;
