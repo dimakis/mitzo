@@ -46,7 +46,7 @@ function read(
   url: URL,
   address: { address: string; family: number },
   signal: AbortSignal,
-): Promise<{ status: number; location?: string; type: string; body: string }> {
+): Promise<{ status: number; location?: string; link?: string; type: string; body: string }> {
   return new Promise((resolve, reject) => {
     const request = url.protocol === 'https:' ? httpsRequest : httpRequest;
     const req = request(
@@ -85,6 +85,9 @@ function read(
           resolve({
             status: response.statusCode ?? 0,
             location: response.headers.location,
+            link: Array.isArray(response.headers.link)
+              ? response.headers.link.join(', ')
+              : response.headers.link,
             type: response.headers['content-type'] ?? 'text/plain',
             body: Buffer.concat(chunks).toString('utf8'),
           });
@@ -101,6 +104,7 @@ export async function fetchApprovedUrl(
   callerSignal: AbortSignal,
   deps = { resolve: resolveApprovedUrl, read },
   assertRuntimeCurrent?: () => Promise<void>,
+  view?: 'summary' | 'full',
 ): Promise<string> {
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(20_000)]);
   try {
@@ -154,7 +158,7 @@ export async function fetchApprovedUrl(
         );
       if (!/^(text\/|application\/(json|xml|xhtml\+xml))/i.test(response.type))
         throw new WebAccessError('Approved read returned an unsupported format or compression.');
-      return `External source (untrusted): ${url.href}\nContent-Type: ${response.type}\n\n${webPageContent(response.body, response.type, url.href)}`;
+      return `External source (untrusted): ${url.href}\nContent-Type: ${response.type}\n\n${webPageContent(response.body, response.type, url.href, response.link, view)}`;
     }
     throw new WebAccessError('Approved read reached the redirect limit.');
   } catch (error) {

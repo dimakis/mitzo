@@ -18,8 +18,8 @@ export function codexRuntimeOverrides(
   if (parsed.data.model_providers?.openai)
     throw new Error('Custom OpenAI routing is unsupported for the ChatGPT runtime');
   const config: Record<string, unknown> = {
-    // Temporary Phase 0 enablement. Replace this unconditional setting with
-    // the durable, approval-gated capability policy tracked in Telos.
+    // Availability ceiling only; codexThreadOptions applies durable conversation
+    // consent and the current mode before starting or resuming a thread.
     web_search: 'live',
     'agents.enabled': false,
     model_reasoning_summary: parsed.data.model_reasoning_summary ?? 'detailed',
