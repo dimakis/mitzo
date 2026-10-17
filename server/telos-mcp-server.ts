@@ -20,6 +20,10 @@ import {
   executeTelosCreateOutcome,
   telosOutcomeShape,
   TELOS_CREATE_OUTCOME_TOOL,
+  telosApprovalExecutionField,
+  TELOS_ADOPT_SOURCE_TOOL,
+  TelosAdoptSourceInput,
+  executeTelosAdoptSource,
 } from './telos-tool.js';
 
 function readArg(name: string): string {
@@ -39,10 +43,25 @@ server.registerTool(
   {
     description:
       'Create one durable Telos outcome with an explicit result, rationale, evidence criteria, and ordered milestone children. This mutates Telos and requires user approval.',
-    inputSchema: telosOutcomeShape,
+    inputSchema: { ...telosOutcomeShape, ...telosApprovalExecutionField },
   },
   async (input: Record<string, unknown>) => {
     const result = await executeTelosCreateOutcome(baseUrl, clientId, token, input);
+    return {
+      content: [{ type: 'text' as const, text: result.content }],
+      ...(result.isError ? { isError: true } : {}),
+    };
+  },
+);
+server.registerTool(
+  TELOS_ADOPT_SOURCE_TOOL,
+  {
+    description:
+      'Adopt an explicitly reviewed original exchange and retained materials into one exact existing Telos item. Requires one operator source review; no progress, assignment or execution change.',
+    inputSchema: { ...TelosAdoptSourceInput.shape, ...telosApprovalExecutionField },
+  },
+  async (input: Record<string, unknown>) => {
+    const result = await executeTelosAdoptSource(baseUrl, clientId, token, input);
     return {
       content: [{ type: 'text' as const, text: result.content }],
       ...(result.isError ? { isError: true } : {}),

@@ -32,14 +32,45 @@ vi.mock('../ProgressWidget', () => ({
 }));
 
 vi.mock('../PermissionBanner', () => ({
-  PermissionBanner: ({ permId }: { permId: string }) => (
-    <div data-testid="permission-banner">{permId}</div>
+  PermissionBanner: ({
+    permId,
+    sessionId,
+    reviewKind,
+  }: {
+    permId: string;
+    sessionId?: string;
+    reviewKind?: string;
+  }) => (
+    <div data-testid="permission-banner" data-session-id={sessionId} data-review-kind={reviewKind}>
+      {permId}
+    </div>
   ),
 }));
 
 afterEach(() => cleanup());
 
 describe('ChatArea', () => {
+  it('passes the host source-review marker and selected conversation to the shared approval card', () => {
+    const permission = {
+      permId: 'source',
+      sessionId: 'previous-chat',
+      toolName: 'TelosCreateOutcome',
+      toolInput: '{}',
+      reviewKind: 'telos_source' as const,
+    };
+    render(
+      <ChatArea
+        messages={[]}
+        current={null}
+        running={true}
+        permission={permission}
+        sessionId="selected-chat"
+        onPermissionRespond={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('permission-banner').dataset.reviewKind).toBe('telos_source');
+    expect(screen.getByTestId('permission-banner').dataset.sessionId).toBe('selected-chat');
+  });
   it('keeps distinct seat generations mounted when provider message IDs collide', () => {
     const provenance = (seatId: string, membershipGeneration: number) => ({
       seatId,

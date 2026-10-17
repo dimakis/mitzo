@@ -1,4 +1,11 @@
 import {
+  TelosSourcePermissionReviewSchema,
+  TelosSourcePermissionPreviewRequestSchema,
+  TelosSourcePermissionPreviewSchema,
+  TelosSourcePermissionApproveRequestSchema,
+  TelosSourcePermissionReceiptSchema,
+  type TelosSourcePermissionPreviewRequest,
+  type TelosSourcePermissionApproveRequest,
   TelosWorkCommandSchema,
   TelosWorkViewSchema,
   TelosWorkCommandReceiptSchema,
@@ -35,6 +42,39 @@ export class TelosWorkApiError extends Error {
  */
 export class TelosWorkApiClient {
   constructor(private readonly fetch: ApiFetch) {}
+  getSourcePermission(permId: string, sessionId: string, signal?: AbortSignal, afterSequence = 0) {
+    return this.request(
+      'source/permissions/' +
+        encodeURIComponent(TelosWorkIdSchema.parse(permId)) +
+        '?' +
+        new URLSearchParams({
+          sessionId: TelosWorkIdSchema.parse(sessionId),
+          afterSequence: String(afterSequence),
+        }),
+      TelosSourcePermissionReviewSchema,
+      undefined,
+      signal,
+    );
+  }
+  previewSourcePermission(
+    permId: string,
+    input: TelosSourcePermissionPreviewRequest,
+    signal?: AbortSignal,
+  ) {
+    return this.request(
+      'source/permissions/' + encodeURIComponent(TelosWorkIdSchema.parse(permId)) + '/preview',
+      TelosSourcePermissionPreviewSchema,
+      TelosSourcePermissionPreviewRequestSchema.parse(input),
+      signal,
+    );
+  }
+  approveSourcePermission(permId: string, input: TelosSourcePermissionApproveRequest) {
+    return this.request(
+      'source/permissions/' + encodeURIComponent(TelosWorkIdSchema.parse(permId)) + '/approve',
+      TelosSourcePermissionReceiptSchema,
+      TelosSourcePermissionApproveRequestSchema.parse(input),
+    );
+  }
   private async request<T>(
     path: string,
     schema: { parse(value: unknown): T },

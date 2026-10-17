@@ -15,10 +15,14 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { INTERNAL_TOKEN } from '../internal-token.js';
 import * as commands from '../protected-sdk-command.js';
+import { EventStore } from '../event-store.js';
+import type { TelosOutcomeCreation, TelosOutcomeProposal } from '@mitzo/protocol';
+import { randomUUID } from 'node:crypto';
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 const TODO_SCRIPT = join(TEST_REPO, 'command_center', 'todo_api.py');
 const sourceSessions = vi.hoisted(() => new Map<string, string>());
+const sourceEvents = vi.hoisted(() => new Map<string, EventStore>());
 
 function sourceFixture(useDefaultPath = false) {
   const root = mkdtempSync(join(TEST_REPO, 'source-'));
@@ -28,26 +32,60 @@ function sourceFixture(useDefaultPath = false) {
   if (useDefaultPath) mkdirSync(join(TEST_REPO, 'command_center', 'data'), { recursive: true });
   const db = new Database(dbPath);
   db.exec(
-    `CREATE TABLE items(id TEXT PRIMARY KEY,parent_id TEXT,summary TEXT,updated_at TEXT,idempotency_key TEXT,context_hints TEXT)`,
+    `CREATE TABLE items(id TEXT PRIMARY KEY,parent_id TEXT,summary TEXT,intent TEXT,rationale TEXT,acceptance_criteria TEXT,profile TEXT,status TEXT,starred INTEGER,context_hints TEXT,created_at TEXT,updated_at TEXT,idempotency_key TEXT UNIQUE);
+    CREATE TABLE sources(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,source_id TEXT,url TEXT,title TEXT,author TEXT,timestamp TEXT,raw_snippet TEXT);
+    CREATE TABLE links(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,url TEXT,title TEXT,description TEXT,created_at TEXT);`,
   );
   db.close();
   vi.stubEnv('TELOS_DB_PATH', useDefaultPath ? '' : dbPath);
   sourceSessions.set('client-7', 'planning-7');
+  const events = new EventStore(join(root, 'events.db'));
+  events.upsertSession({
+    sessionId: 'planning-7',
+    conversationSource: 'mitzo',
+    summary: 'Planning',
+  });
+  const sequence = events.append('planning-7', 'user_message', {
+    messageId: 'reviewed-message',
+    text: 'Exact original exchange approved by the operator.',
+  });
+  sourceEvents.set('planning-7', events);
   return {
     dbPath,
-    persist(input: {
-      summary: string;
-      idempotencyKey: string;
-      contextHints?: { sessionIds?: string[] };
-    }) {
+    selection: {
+      requestId: randomUUID(),
+      expectedMembershipRevision: 0,
+      sourceConversationId: 'planning-7',
+      boundary: { sequence, messageId: 'reviewed-message' },
+      mode: 'selected' as const,
+      messageIds: ['reviewed-message'],
+      artifacts: [],
+      purpose: 'Preserve reviewed planning',
+      joiningBrief: '',
+    },
+    persist(input: TelosOutcomeCreation) {
       const db = new Database(dbPath);
       try {
-        db.prepare('INSERT INTO items VALUES(?,NULL,?,?,?,?)').run(
+        db.prepare(
+          `INSERT INTO items(id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,idempotency_key)
+          VALUES(?,?,?,?,?,?,'active',0,?,'fixture-time','fixture-time',?)`,
+        ).run(
           'created-source',
           input.summary,
-          'fixture-time',
-          input.idempotencyKey,
+          input.intent,
+          input.rationale,
+          JSON.stringify(input.acceptanceCriteria),
+          input.profile,
           JSON.stringify({ session_ids: input.contextHints?.sessionIds ?? [] }),
+          input.idempotencyKey,
+        );
+        input.milestones.forEach((summary, index) =>
+          db
+            .prepare(
+              `INSERT INTO items(id,parent_id,summary,profile,status,context_hints,created_at,updated_at)
+            VALUES(?,'created-source',?,?,'active','{}','fixture-time','fixture-time')`,
+            )
+            .run(`created-milestone-${index}`, summary, input.profile),
         );
       } finally {
         db.close();
@@ -55,6 +93,8 @@ function sourceFixture(useDefaultPath = false) {
       return { id: 'created-source', ...input };
     },
     close() {
+      events.close();
+      sourceEvents.delete('planning-7');
       if (useDefaultPath) rmSync(dbPath, { force: true });
       sourceSessions.clear();
       vi.unstubAllEnvs();
@@ -96,11 +136,16 @@ vi.mock('../chat.js', () => {
       ),
     },
     eventStore: {
-      getEventsAfter: vi.fn().mockReturnValue([]),
-      getSession: vi.fn((id: string) =>
-        [...sourceSessions.values()].includes(id)
-          ? { sessionId: id, conversationSource: 'mitzo' }
-          : null,
+      getEventsAfter: vi.fn(
+        (id: string, after: number, limit: number) =>
+          sourceEvents.get(id)?.getEventsAfter(id, after, limit) ?? [],
+      ),
+      getSession: vi.fn(
+        (id: string) =>
+          sourceEvents.get(id)?.getSession(id) ??
+          ([...sourceSessions.values()].includes(id)
+            ? { sessionId: id, conversationSource: 'mitzo' }
+            : null),
       ),
     },
     setTaskStore: vi.fn(),
@@ -144,6 +189,22 @@ beforeAll(async () => {
   const agent = request(app);
   authCookie = await getAuthCookie(agent);
 });
+
+async function createReviewedOutcome(
+  source: ReturnType<typeof sourceFixture>,
+  outcome: TelosOutcomeProposal,
+) {
+  const body = { requestId: randomUUID(), selection: source.selection, outcome };
+  const preview = await request(app)
+    .post('/api/telos/work/source/outcome/preview')
+    .set('Cookie', authCookie)
+    .send(body);
+  expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+  return request(app)
+    .post('/api/telos/work/source/outcome/create')
+    .set('Cookie', authCookie)
+    .send({ ...body, previewSha256: preview.body.sha256 });
+}
 
 describe('todo routes', () => {
   it('mounts agent item routes behind host authentication and active session identity', async () => {
@@ -453,41 +514,33 @@ print(json.dumps({"ok": True, "created": True, "item": payload}))
     expect(res.body.item).toMatchObject(body);
   });
 
-  it('gives the agent tool a server-derived idempotency key and session provenance', async () => {
-    const successScript = `
-import json, os, sqlite3, sys
-payload = json.loads(sys.argv[sys.argv.index('--create-outcome-json') + 1])
-with sqlite3.connect(os.environ['TELOS_DB_PATH']) as db:
-    db.execute('INSERT INTO items VALUES(?,NULL,?,?,?,?)', ('created-source', payload['summary'], 'fixture-time', payload['idempotencyKey'], json.dumps({'session_ids': payload['contextHints']['sessionIds']})))
-print(json.dumps({"ok": True, "created": True, "item": {"id": "created-source", **payload}}))
-`;
-    writeFileSync(TODO_SCRIPT, successScript);
+  it('retires token-only outcome creation before the workspace script or canonical stores mutate', async () => {
+    const executed = join(TEST_REPO, 'retired-endpoint-executed');
+    writeFileSync(
+      TODO_SCRIPT,
+      `from pathlib import Path\nPath(${JSON.stringify(executed)}).write_text('executed')\n`,
+    );
     const res = await request(app)
       .post('/api/internal/telos/outcomes')
       .set('x-internal-token', INTERNAL_TOKEN)
       .set('x-client-id', 'client-7')
-      .send({
-        summary: 'Ship searchable Telos outcomes',
-        intent: 'People understand durable work in ten seconds.',
-        rationale: 'Progress logs currently obscure intent.',
-        acceptanceCriteria: ['Search matches outcome and context'],
-        milestones: ['Add the structured contract'],
-        profile: 'work',
-      });
-
-    expect(res.status).toBe(200);
-    expect(res.body.item.idempotencyKey).toMatch(/^planning-7:[a-f0-9]{64}$/);
-    expect(res.body.item.contextHints.sessionIds).toEqual(['planning-7']);
+      .send({ summary: 'Unreviewed proposal' });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Reviewed original source approval is required'),
+    });
     const db = new Database(source.dbPath, { readonly: true });
     try {
-      expect(db.prepare('SELECT role,conversation_id FROM telos_work_links').all()).toEqual([
-        { role: 'origin', conversation_id: 'planning-7' },
-      ]);
-      expect(db.prepare('SELECT kind FROM telos_work_kinds').all()).toEqual([{ kind: 'outcome' }]);
-      expect(db.prepare('SELECT * FROM telos_work_assignments').all()).toEqual([]);
+      expect(db.prepare('SELECT COUNT(*) AS count FROM items').get()).toEqual({ count: 0 });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM links').get()).toEqual({ count: 0 });
+      expect(
+        db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'telos_work_%'").all(),
+      ).toEqual([]);
     } finally {
       db.close();
     }
+    expect(() => readFileSync(executed)).toThrow();
   });
 });
 
@@ -495,15 +548,15 @@ describe('enrolled mutable controller commands', () => {
   const operator = join(TEST_REPO, 'operator');
   const enrollment = join(operator, 'enrollment.json');
   const config = join(operator, 'runtime.json');
-  const outcome = {
+  const outcomeProposal = {
     summary: 'Protected fixture outcome',
     intent: 'Preserve the existing Todo contract.',
     rationale: 'Controller entrypoints require the runtime fence.',
     acceptanceCriteria: ['Authority remains unchanged'],
     milestones: ['Run the existing entrypoint safely'],
     profile: 'work',
-    idempotencyKey: 'fixture-request',
   };
+  const outcome = { ...outcomeProposal, idempotencyKey: 'fixture-request' };
   let source: ReturnType<typeof sourceFixture>;
   const runner = vi.fn<commands.ProtectedSdkCommandRunner>();
   let factory: import('vitest').MockInstance<typeof commands.createWorkspaceRuntimeCommandRunner>;
@@ -588,13 +641,6 @@ describe('enrolled mutable controller commands', () => {
     ['post', '/api/todos', { summary: 'Fixture', profile: 'work' }, 201, '--create'],
     ['post', '/api/todos/item-1/action', { action: 'ack' }, 200, '--action'],
     ['post', '/api/todos/outcomes', outcome, 201, '--create-outcome-json'],
-    [
-      'post',
-      '/api/internal/telos/outcomes',
-      { ...outcome, idempotencyKey: undefined },
-      200,
-      '--create-outcome-json',
-    ],
   ] as const)(
     'protects %s %s while retaining its response contract',
     async (method, path, body, status, argument) => {
@@ -613,24 +659,60 @@ describe('enrolled mutable controller commands', () => {
     },
   );
 
-  it('forwards the selected fallback Telos database through the protected command owner', async () => {
-    source.close();
-    source = sourceFixture(true);
-    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', realpathSync(enrollment));
+  it('keeps retired token-only creation outside the protected runner', async () => {
     const result = await request(app)
       .post('/api/internal/telos/outcomes')
       .set('x-internal-token', INTERNAL_TOKEN)
       .set('x-client-id', 'client-7')
-      .send({ ...outcome, idempotencyKey: undefined });
-    expect(result.status).toBe(200);
-    expect(runner).toHaveBeenCalledWith(
-      'python3',
-      expect.any(Array),
-      expect.objectContaining({
-        env: expect.objectContaining({ TELOS_DB_PATH: source.dbPath }),
-      }),
-    );
+      .send(outcomeProposal);
+    expect(result.status).toBe(403);
+    expect(runner).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])(
+    'runs reviewed creation through the protected canonical owner with fallback database=%s',
+    async (fallback) => {
+      if (fallback) {
+        source.close();
+        source = sourceFixture(true);
+        vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', realpathSync(enrollment));
+      }
+      const result = await createReviewedOutcome(source, outcomeProposal);
+      expect(result.status, JSON.stringify(result.body)).toBe(200);
+      expect(result.body.work).toMatchObject({
+        itemId: 'created-source',
+        kind: 'outcome',
+        assignments: [],
+        attempts: [],
+        links: [
+          { role: 'origin', conversation: { namespace: 'mitzo', conversationId: 'planning-7' } },
+        ],
+      });
+      expect(runner).toHaveBeenCalledTimes(1);
+      expect(runner).toHaveBeenCalledWith(
+        'python3',
+        expect.arrayContaining([TODO_SCRIPT, '--create-outcome-json']),
+        expect.objectContaining({
+          env: expect.objectContaining({ TELOS_DB_PATH: source.dbPath }),
+          timeout: 30_000,
+          maxBuffer: 8 * 1024 * 1024,
+        }),
+      );
+      const canonicalInput = JSON.parse(runner.mock.calls[0][1][2]);
+      expect(canonicalInput.idempotencyKey).toMatch(/^telos-source:/);
+      expect(canonicalInput.contextHints.sessionIds).toEqual(['planning-7']);
+      const db = new Database(source.dbPath, { readonly: true });
+      try {
+        expect(db.prepare('SELECT role,conversation_id FROM telos_work_links').all()).toEqual([
+          { role: 'origin', conversation_id: 'planning-7' },
+        ]);
+        expect(db.prepare('SELECT * FROM telos_work_assignments').all()).toEqual([]);
+        expect(db.prepare('SELECT * FROM telos_work_attempts').all()).toEqual([]);
+      } finally {
+        db.close();
+      }
+    },
+  );
 
   it('fails closed when runtime protection cannot initialize without executing the workspace script', async () => {
     factory.mockImplementation(() => {
