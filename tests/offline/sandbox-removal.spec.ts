@@ -22,6 +22,14 @@ for (const theme of ['dark', 'light'] as const)
     const mobile = info.project.name.startsWith('mobile');
     await page.setViewportSize({ width: mobile ? 320 : 1280, height: mobile ? 740 : 900 });
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+    await page.addInitScript(
+      ({ theme }) => {
+        localStorage.setItem('mitzo-theme', theme);
+        localStorage.setItem('mitzo-accent', theme === 'light' ? 'teal' : 'mint');
+        localStorage.setItem('mitzo-font', theme === 'light' ? 'georgia' : 'system');
+      },
+      { theme },
+    );
     const compiled = await bundle;
     const writes: Array<{ url: string; body: unknown }> = [];
     const errors: string[] = [];
@@ -56,6 +64,14 @@ for (const theme of ['dark', 'light'] as const)
       });
     });
     await page.goto('/remove');
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-accent',
+      theme === 'light' ? 'teal' : 'mint',
+    );
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-font',
+      theme === 'light' ? 'georgia' : 'system',
+    );
     await page.getByRole('button', { name: 'Review chat removal' }).click();
     const dialog = page.getByRole('dialog', { name: 'Delete chat?' });
     await expect(dialog.getByRole('button', { name: 'Delete chat and sandbox' })).toBeEnabled();
