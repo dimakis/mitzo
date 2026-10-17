@@ -236,6 +236,29 @@ it('selects the built-in profile builder without a user-created catalog entry', 
   );
 });
 
+it('selects the built-in Tool Builder from regular chat settings', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [] }));
+  const change = vi.fn();
+  render(
+    <MemoryRouter>
+      <ChatAgentProfilePicker
+        sessionId={null}
+        search="?agentProfile=mitzo-tool-builder&profileRevision=1&agentProfileKind=builtin"
+        onChange={change}
+      />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('option', {
+    name: 'Tool Builder · Prepares reviewed tool implementations · r1',
+  });
+  await waitFor(() =>
+    expect(change).toHaveBeenLastCalledWith(
+      { profileId: 'mitzo-tool-builder', revision: 1, kind: 'builtin' },
+      undefined,
+    ),
+  );
+});
+
 it.each(['mitzo-profile-builder', 'builtin:mitzo-profile-builder'])(
   'keeps saved ID %s independently selectable from built-in guidance',
   async (profileId) => {

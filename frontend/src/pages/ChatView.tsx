@@ -36,6 +36,8 @@ import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
 import {
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISION,
+  TOOL_BUILDER_ID,
+  TOOL_BUILDER_REVISION,
   type AgentProfileSelection,
 } from '@mitzo/protocol';
 import { UiIcon } from '../components/UiIcon';
@@ -213,10 +215,13 @@ export function ChatView() {
     : newChatDraft.draft.settings.sourceSnapshots;
   const builderSourceReason =
     !activeSessionId && builderSources?.some((source) => source.kind === 'agent-library')
-      ? searchParams.get('agentProfile') !== PROFILE_BUILDER_ID ||
-        searchParams.get('agentProfileKind') !== 'builtin' ||
-        searchParams.get('profileRevision') !== String(PROFILE_BUILDER_REVISION)
-        ? 'Choose Agent Builder to use this reviewed Library context, or start a new chat.'
+      ? !(
+          (searchParams.get('agentProfile') === PROFILE_BUILDER_ID &&
+            searchParams.get('profileRevision') === String(PROFILE_BUILDER_REVISION)) ||
+          (searchParams.get('agentProfile') === TOOL_BUILDER_ID &&
+            searchParams.get('profileRevision') === String(TOOL_BUILDER_REVISION))
+        ) || searchParams.get('agentProfileKind') !== 'builtin'
+        ? 'Choose a built-in Agent Builder or Tool Builder profile to use this reviewed Library context, or start a new chat.'
         : undefined
       : undefined;
   const missingDraftReason = newChatDraft.missing

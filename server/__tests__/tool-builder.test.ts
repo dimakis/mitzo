@@ -7,6 +7,7 @@ import {
   type ToolBuilderCatalog,
   type ToolBuilderWorkspace,
 } from '../tool-builder.js';
+import { ToolBuilderStore } from '../tool-builder-store.js';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -36,10 +37,10 @@ const customRequest = {
   permissions: { behavior: 'read' as const, requiredConnections: [] },
   compatibility: { routes: ['local-api'] },
   files: [
+    { path: 'src/index.mjs', content: 'export function runTool(input) { return { count: 2 }; }\n' },
     {
-      path: 'src/index.ts',
-      content:
-        'export function countRows(csv: string) { return csv.trim().split("\\n").length - 1; }\n',
+      path: 'test/row-count.test.mjs',
+      content: "import test from 'node:test';\ntest('rows', () => {});\n",
     },
   ],
   testProfile: 'unit',
@@ -119,11 +120,12 @@ it('prepares a tested unpublished custom draft inside the authorized workspace',
       tests: { passed: true, summary: '4 tests passed' },
     },
   });
-  expect(await readFile(join(root, 'src/index.ts'), 'utf8')).toBe(customRequest.files[0].content);
+  expect(await readFile(join(root, 'src/index.mjs'), 'utf8')).toBe(customRequest.files[0].content);
   expect(executor.run).toHaveBeenCalledWith({
     workspace: ws,
     profile: 'unit',
     signal: expect.any(AbortSignal),
+    examples: customRequest.examples,
   });
   expect(result).not.toHaveProperty('publication');
 });
@@ -206,7 +208,7 @@ it('refuses a test receipt if source changes during the test run', async () => {
     allocateWorkspace: vi.fn(async () => ws),
     executor: {
       run: vi.fn(async () => {
-        await writeFile(join(ws.root, 'src/index.ts'), 'changed during test run');
+        await writeFile(join(ws.root, 'src/index.mjs'), 'changed during test run');
         return successfulTest;
       }),
     },
@@ -229,5 +231,72 @@ it('rejects parent traversal before writing outside the authorized workspace', a
   await expect(
     service.propose({ request: 'Build a CSV row counter', custom: invalid }),
   ).rejects.toThrow();
-  expect(await readFile(join(ws.root, 'src/index.ts'), 'utf8').catch(() => null)).toBeNull();
+  expect(await readFile(join(ws.root, 'src/index.mjs'), 'utf8').catch(() => null)).toBeNull();
+});
+
+it('retests a new source version after review feedback and preserves the rejected version', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-tool-builder-revision-'));
+  roots.push(root);
+  const store = new ToolBuilderStore(join(root, 'builder.db'));
+  const allocateWorkspace = vi.fn(workspace);
+  const service = new ToolBuilderService({
+    catalog: { search: vi.fn(async () => []) },
+    allocateWorkspace,
+    executor: {
+      run: vi.fn(async ({ workspace: target }) => {
+        const source = await target.read('src/index.mjs');
+        return {
+          passed: true,
+          complete: true,
+          summary: 'tests passed',
+          examples: [
+            { passed: true, actual: { count: 2 } },
+            ...(source.includes('empty-case') ? [{ passed: true, actual: { count: 0 } }] : []),
+          ],
+        };
+      }),
+    },
+    store,
+    authorId: 'session-author',
+  });
+  const proposed = await service.propose({ request: 'Count rows in CSV', custom: customRequest });
+  if (proposed.kind !== 'draft') throw Error('Expected a draft');
+  const submitted = store.submitForReview(
+    proposed.draft.id,
+    proposed.draft.version,
+    proposed.draft.sourceDigest,
+  );
+  store.resolveReview({
+    draftId: submitted.id,
+    version: submitted.version,
+    reviewId: 'revision-feedback',
+    reviewerId: 'independent-reviewer',
+    decision: 'rejected',
+    sourceDigest: proposed.draft.sourceDigest,
+    feedback: 'Cover an empty file in the examples.',
+  });
+  const revisedInput = {
+    ...customRequest,
+    files: [
+      { ...customRequest.files[0], content: `${customRequest.files[0].content}// empty-case\n` },
+      customRequest.files[1],
+    ],
+    examples: [...customRequest.examples, { input: { csv: '' }, expected: { count: 0 } }],
+  };
+  const revised = await service.reviseDraft({
+    id: proposed.draft.id,
+    expectedVersion: proposed.draft.version,
+    feedback: 'Cover an empty file in the examples.',
+    custom: revisedInput,
+  });
+
+  expect(revised.draft.version).toBe(2);
+  expect(revised.draft.toolId).toBe(proposed.draft.toolId);
+  expect(revised.draft.examples).toHaveLength(2);
+  expect(store.getDraft(proposed.draft.id, 1)?.status).toBe('rejected');
+  expect(store.getDraft(proposed.draft.id, 1)?.review?.feedback).toBe(
+    'Cover an empty file in the examples.',
+  );
+  expect(allocateWorkspace).toHaveBeenCalledTimes(2);
+  store.close();
 });

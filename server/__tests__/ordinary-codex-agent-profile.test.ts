@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { contextDigest } from '../agent-context-compiler.js';
-import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
+import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION, TOOL_BUILDER_ID } from '@mitzo/protocol';
 import {
   readOrdinaryCodexAgentProfile,
   ordinaryCodexAgentProfiles,
@@ -156,5 +156,5 @@ it('capabilities retain supported recipes and exclude native packs', () => {
   packs.contentHash = contextDigest(packs.definition);
   expect(
     ordinaryCodexAgentProfiles([workspace, packs]).map((profile) => profile.profileId),
-  ).toEqual([PROFILE_BUILDER_ID, 'workspace']);
+  ).toEqual([PROFILE_BUILDER_ID, TOOL_BUILDER_ID, 'workspace']);
 });

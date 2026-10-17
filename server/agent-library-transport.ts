@@ -3,6 +3,9 @@ import {
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISION,
   profileBuilderDefinition,
+  TOOL_BUILDER_ID,
+  TOOL_BUILDER_REVISION,
+  toolBuilderDefinition,
   AgentLibraryVersionSchema,
   type AgentProfileSelection,
 } from '@mitzo/protocol';
@@ -53,16 +56,26 @@ export async function withAgentLibraryRecoveryAuthorization<T>(
 /** Builtin identity is code-owned and never resolved through the user Library. */
 export function readBuiltinAgentLibraryProfile(selection: AgentProfileSelection) {
   if (selection.kind === 'builtin') {
-    if (selection.profileId !== PROFILE_BUILDER_ID) return null;
-    if (selection.revision !== PROFILE_BUILDER_REVISION) return null;
+    const builtin =
+      selection.profileId === PROFILE_BUILDER_ID && selection.revision === PROFILE_BUILDER_REVISION
+        ? {
+            profileId: PROFILE_BUILDER_ID,
+            revision: PROFILE_BUILDER_REVISION,
+            definition: profileBuilderDefinition,
+          }
+        : selection.profileId === TOOL_BUILDER_ID && selection.revision === TOOL_BUILDER_REVISION
+          ? {
+              profileId: TOOL_BUILDER_ID,
+              revision: TOOL_BUILDER_REVISION,
+              definition: toolBuilderDefinition,
+            }
+          : null;
+    if (!builtin) return null;
     return {
       kind: 'builtin' as const,
-      profileId: PROFILE_BUILDER_ID,
-      revision: PROFILE_BUILDER_REVISION,
-      definition: structuredClone(profileBuilderDefinition),
-      contentHash: createHash('sha256')
-        .update(JSON.stringify(profileBuilderDefinition))
-        .digest('hex'),
+      ...builtin,
+      definition: structuredClone(builtin.definition),
+      contentHash: createHash('sha256').update(JSON.stringify(builtin.definition)).digest('hex'),
     };
   }
   return null;

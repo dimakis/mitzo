@@ -4,6 +4,9 @@ import {
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISION,
   profileBuilderDefinition,
+  TOOL_BUILDER_ID,
+  TOOL_BUILDER_REVISION,
+  toolBuilderDefinition,
   AgentProfileSelectionSchema,
   agentProfileLabel,
   type AgentLibraryVersion,
@@ -132,18 +135,21 @@ function LibraryChatAgentProfilePicker({
         }
         const catalog = body as AgentLibraryCatalog;
         if (!Array.isArray(catalog.versions)) throw Error('Agent Library response is invalid');
-        const available =
-          requested?.kind === 'builtin' && requested.profileId === PROFILE_BUILDER_ID
-            ? [
-                ...catalog.versions,
-                {
-                  kind: 'builtin' as const,
-                  profileId: PROFILE_BUILDER_ID,
-                  revision: PROFILE_BUILDER_REVISION,
-                  definition: profileBuilderDefinition,
-                },
-              ]
-            : catalog.versions;
+        const available = [
+          ...catalog.versions,
+          {
+            kind: 'builtin' as const,
+            profileId: PROFILE_BUILDER_ID,
+            revision: PROFILE_BUILDER_REVISION,
+            definition: profileBuilderDefinition,
+          },
+          {
+            kind: 'builtin' as const,
+            profileId: TOOL_BUILDER_ID,
+            revision: TOOL_BUILDER_REVISION,
+            definition: toolBuilderDefinition,
+          },
+        ];
         setVersions(available);
         if (
           requested &&
