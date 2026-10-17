@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { TelosWorkItem } from '@mitzo/protocol';
 import { UiIcon } from './UiIcon';
-import { TelosOutcomesTree, telosKindLabel } from './TelosOutcomesTree';
+import { TelosOutcomesTree } from './TelosOutcomesTree';
+import { telosKindLabel } from '../lib/telos-kind-label';
 import { TelosItemRoleEntries } from './TelosItemRoleEntries';
 import { TelosItemSources } from './TelosItemSources';
 import { WorkOutputs } from './WorkOutputs';

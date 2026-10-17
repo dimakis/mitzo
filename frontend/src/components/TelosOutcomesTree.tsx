@@ -1,16 +1,9 @@
 import { useMemo, useState } from 'react';
 import type { TelosWorkItem } from '@mitzo/protocol';
 import { UiIcon } from './UiIcon';
+import { telosKindLabel } from '../lib/telos-kind-label';
 import './TelosWorkspace.css';
 
-export const telosKindLabel = (kind: TelosWorkItem['kind']) =>
-  kind === 'coordinator'
-    ? 'Coordinator'
-    : kind === 'outcome'
-      ? 'Outcome'
-      : kind === 'work_item'
-        ? 'Work item'
-        : 'Unclassified';
 interface NavigationState {
   query: string;
   category: string;
