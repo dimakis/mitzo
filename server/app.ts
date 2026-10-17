@@ -1,3 +1,6 @@
+import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
+import { summarizeSandboxInventory } from './sandbox-inventory.js';
+import { readOpenShellSandboxInventory } from './openshell-lifecycle-controller.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
 import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
 import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
@@ -1680,6 +1683,12 @@ app.use(
   createWarmPoolRouter({
     pool: getOpenShellWarmPool,
     authorize: operatorAuthMiddleware,
+    physicalInventory: async (signal) =>
+      summarizeSandboxInventory(
+        await readOpenShellSandboxInventory(signal),
+        openShellLifecycleService?.inventory() ?? [],
+        getOpenShellWarmPool()?.snapshot().spares ?? [],
+      ),
     conversations: () => {
       const records = new Map<string, Omit<SandboxConversation, 'title'>>(
         (openShellLifecycleService?.inventory() ?? []).map((record) => [
@@ -1718,6 +1727,7 @@ app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => 
       await openShellLifecycleService.preview(
         req.params.conversationId,
         AbortSignal.timeout(120_000),
+        req.query.intent === 'delete' ? 'delete' : 'policy',
       ),
     );
   } catch (error) {
@@ -3013,13 +3023,29 @@ app.use(
   }),
 );
 
-app.delete('/api/sessions/:id', (req, res) => {
-  hideSession(req.params.id as string);
-  clearPublicationControllerSessionGrants(registry, req.params.id as string);
-  overviewEmitter?.scheduleBroadcast();
-  sseRegistry.broadcast('sessions_changed', {});
-  res.json({ ok: true });
-});
+app.use(
+  '/api/sessions',
+  createSessionRemovalRouter({
+    authorize: operatorAuthMiddleware,
+    lifecycle: () => openShellLifecycleService,
+    hasSandbox: (id) => {
+      const meta = eventStore.getSession(id);
+      return sessionNeedsSandboxReview(meta, {
+        runtimeLocation:
+          registry.findBySessionId(id)?.session.ordinaryRuntimeOwner?.location ??
+          (meta ? eventStore.getSessionRuntimeBinding(id)?.execution.location : undefined),
+        legacyOpenShellConfigured:
+          !!process.env.MITZO_OPENSHELL_SANDBOX_NAME || process.env.MITZO_OPENSHELL_ENABLED === '1',
+      });
+    },
+    hide: hideSession,
+    changed: (id) => {
+      clearPublicationControllerSessionGrants(registry, id);
+      overviewEmitter?.scheduleBroadcast();
+      sseRegistry.broadcast('sessions_changed', {});
+    },
+  }),
+);
 
 app.use(
   '/api/sessions/:id/access',

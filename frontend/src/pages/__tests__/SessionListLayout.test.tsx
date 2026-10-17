@@ -175,7 +175,7 @@ it.each([true, false])(
     try {
       mount();
       fireEvent.click(screen.getByLabelText('Conversation options'));
-      fireEvent.click(screen.getByRole('button', { name: 'Clear conversation history' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Archive all chats' }));
       expect(mocks.search.clear).not.toHaveBeenCalled();
       await act(async () => finish(ok));
       expect(mocks.search.clear).toHaveBeenCalledTimes(ok ? 1 : 0);
@@ -207,7 +207,7 @@ it.each(['delete', 'clear'] as const)(
         act(() => vi.advanceTimersByTime(200));
       } else {
         fireEvent.click(screen.getByLabelText('Conversation options'));
-        fireEvent.click(screen.getByRole('button', { name: 'Clear conversation history' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Archive all chats' }));
       }
       // The hook still supplies these rows until the server confirms deletion.
       fireEvent.click(screen.getByRole('button', { name: /^Active/ }));

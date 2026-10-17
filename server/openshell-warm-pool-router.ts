@@ -14,6 +14,7 @@ export function createWarmPoolRouter(deps: {
   pool(): OpenShellWarmPool | null;
   authorize: RequestHandler;
   conversations(): SandboxConversation[];
+  physicalInventory?(signal: AbortSignal): Promise<unknown>;
 }) {
   const router = express.Router();
   router.use(deps.authorize);
@@ -24,8 +25,17 @@ export function createWarmPoolRouter(deps: {
       return;
     }
     try {
+      const signal = AbortSignal.timeout(8000);
+      const [snapshot, physicalInventory] = await Promise.all([
+        pool.observe(signal),
+        deps.physicalInventory?.(signal).catch(() => ({
+          available: false,
+          error: 'Gateway inventory is unavailable. The physical sandbox count is unknown.',
+        })),
+      ]);
       res.json({
-        ...(await pool.observe(AbortSignal.timeout(8000))),
+        ...snapshot,
+        physicalInventory,
         conversations: deps.conversations(),
       });
     } catch {

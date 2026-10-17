@@ -750,6 +750,21 @@ describe('session routes', () => {
     expect(overviewBroadcast).toHaveBeenCalledOnce();
   });
 
+  it('keeps Symposium deletion under its own custody and offers archive instead', async () => {
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'symposium',
+      sessionType: 'symposium',
+      cwd: '/host/workspace',
+    } as ReturnType<typeof eventStore.getSession>);
+    const res = await request(app).delete('/api/sessions/symposium').set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+    expect(hideSession).not.toHaveBeenCalled();
+    await request(app)
+      .delete('/api/sessions/symposium?archive=1')
+      .set('Cookie', authCookie)
+      .expect(200);
+  });
+
   it('DELETE /api/sessions — hides all sessions', async () => {
     const res = await request(app).delete('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);

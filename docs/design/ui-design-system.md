@@ -1,5 +1,29 @@
 # Mitzo UI design contract
 
+## Sandbox inventory and removal
+
+Sandboxes shows physical workspace totals separately from recorded conversations
+and pool spares. Needs ownership review is a native disclosure over quiet grouped
+rows; listing a resource does not enable destructive controls. Gateway failure
+shows an unknown count rather than zero. Details separates checkpoint/stop,
+explicit deletion, and automatic retention consent and date.
+
+`SessionRemovalDialog` is shared by Chats and the session panel. It uses HomeDialog,
+shared secondary controls and `home-inline-actions`. The common `home-danger`
+modifier takes its foreground/border from the semantic danger token; it introduces
+no palette, spacing or typography scale. Archive keeps resources, while deletion
+requires a fresh lifecycle review and retains the dialog/chat on failure. Copy
+explicitly states that saved history and recovery checkpoints remain.
+
+Focused component/API/design checks and intercepted browser checks cover mobile
+WebKit/Chromium and desktop Chromium, dark Mint/System and light Teal/Georgia,
+44px controls, keyboard focus/restoration, narrow wrapping and failure states.
+Inspected captures: [mobile removal](assets/sandbox-removal-mobile-dark.png) and
+[desktop inventory](assets/sandbox-inventory-desktop-light.png). These use
+synthetic fixture inventory and no backend, credentials or model calls. Full-app
+build/type/layout acceptance remains CI validation when the local 1 GiB heap is
+insufficient. See [sandbox lifecycle](sandbox-lifecycle.md) for operation semantics.
+
 The Connections inventory is the starting point: quiet surfaces, clear type, grouped rows, restrained lavender actions, and detail views that expose context when requested.
 
 ## One theme source

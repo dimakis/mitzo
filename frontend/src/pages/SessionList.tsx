@@ -1,4 +1,5 @@
 import { ConversationPins } from '../components/ConversationPins';
+import { SessionRemovalDialog } from '../components/SessionRemovalDialog';
 import { ResizableSessionLayout } from '../components/ResizableSessionLayout';
 import { SessionInspector } from '../components/SessionInspector';
 import { SessionContextMenu, type SessionMenuState } from '../components/SessionContextMenu';
@@ -343,6 +344,7 @@ function SwipeableSession({
 }
 
 export function SessionList() {
+  const [removing, setRemoving] = useState<string | null>(null);
   const navigate = useNavigate();
   const desktop = useMediaQuery('(min-width: 768px)');
   const [mobilePinPreview, setMobilePinPreview] = useState<Session | null>(null);
@@ -414,8 +416,8 @@ export function SessionList() {
     selectionChanged();
     navigate(`/chat/${id}`);
   }
-  async function dismiss(id: string) {
-    if (await dismissSession(id)) setPreview((current) => (current?.id === id ? null : current));
+  function dismiss(id: string) {
+    setRemoving(id);
   }
 
   async function handleRename(id: string, title: string) {
@@ -480,7 +482,7 @@ export function SessionList() {
                   }
                 }}
               >
-                Clear conversation history
+                Archive all chats
               </button>
             </div>
           </details>
@@ -677,6 +679,17 @@ export function SessionList() {
         />
       )}
       {details && <SessionDetailsDialog session={details} onClose={() => setDetails(null)} />}
+      {removing && (
+        <SessionRemovalDialog
+          sessionId={removing}
+          onClose={() => setRemoving(null)}
+          onRemove={async (options) => {
+            const removed = await dismissSession(removing, options);
+            if (removed) setPreview((current) => (current?.id === removing ? null : current));
+            return removed;
+          }}
+        />
+      )}
       {mobilePinPreview && (
         <SessionPreview
           session={mobilePinPreview}
