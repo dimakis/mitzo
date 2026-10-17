@@ -47,6 +47,8 @@ Repository deployment and live-test restrictions continue to apply. Landing is n
 
 For Centaur-governed repositories, require the trusted publisher's non-dismissed **final LGTM**, recommendation **`merge`**, and **zero new and unresolved blocking findings** for the exact live head. `fix`, `human_decision`, missing or stale evidence blocks merge. Verify the repository's required `Centaur final LGTM` status and its configured App identity, not only text in a comment. Use a repository-provided gate helper where available, after checking it implements the current contract.
 
+If a valid current-head review exists but its required status remains pending, inspect the configured status writer. Use its documented PR-scoped reconciliation trigger when available; do not request another model review or write a replacement approval status yourself. A scheduled reconciliation is not a guaranteed deadline.
+
 Immediately before merge, refresh the head and base, required checks, review threads, trusted final review and mergeability. All required checks must pass; skipped or missing checks qualify only under the repository's explicit conditional-check contract. If strict protection says the branch is behind, integrate once in the landing slot and repeat validation. Report unknown or contradictory gate state and diagnose it; never bypass it.
 
 In prepare-only mode, report the verified state and remaining final-integration work, then stop. In authorized landing mode, mark a draft ready once its scoped work is complete, then merge using the repository's method and an exact-head guard, for example:
