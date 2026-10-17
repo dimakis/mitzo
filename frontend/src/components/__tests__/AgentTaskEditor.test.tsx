@@ -3,7 +3,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { AgentTaskEditor } from '../AgentTaskEditor';
-import { createAgentTaskWorkingCopy } from '../../lib/agent-task-working-copy';
+import {
+  createAgentTaskWorkingCopy,
+  type AgentTaskWorkingCopy,
+} from '../../lib/agent-task-working-copy';
 
 vi.mock('../AgentTaskSettings', () => ({
   AgentTaskSettings: () => <p>Existing independent execution settings</p>,
@@ -35,7 +38,7 @@ it('keeps Library task heading/close and save/cancel in one detail panel, with a
   const close = vi.fn(),
     save = vi.fn();
   function Editor() {
-    const [copy, update] = useState(seed);
+    const [copy, update] = useState<AgentTaskWorkingCopy>(seed);
     return (
       <AgentTaskEditor
         copy={copy}

@@ -1109,7 +1109,7 @@ it('keeps malformed proposal navigation out of generic task editing and preserve
 
 it('opens a published profile as readable guidance and keeps editing as an explicit action', async () => {
   await setup({ edit: false });
-  await screen.findByRole('tab', { name: 'Profile', exact: true });
+  await screen.findByRole('tab', { name: 'Profile' });
   expect(screen.getByRole('heading', { name: 'Instructions' })).toBeTruthy();
   expect(screen.getByText('Review assumptions.')).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Expected output' })).toBeTruthy();
