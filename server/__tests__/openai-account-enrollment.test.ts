@@ -410,7 +410,9 @@ it('blocks a second controller request while the first validation is still in fl
 it('observes immutable secret-free custody while holding the existing enrollment gate', async () => {
   const f = fixture();
   let gateDepth = 0;
-  const gate = vi.fn(async <T>(work: () => Promise<T>) => {
+  const gateCalls = vi.fn();
+  const gate = async <T>(work: () => Promise<T>): Promise<T> => {
+    gateCalls();
     expect(gateDepth).toBe(0);
     gateDepth++;
     try {
@@ -418,11 +420,11 @@ it('observes immutable secret-free custody while holding the existing enrollment
     } finally {
       gateDepth--;
     }
-  });
+  };
   const service = new OpenAIAccountEnrollment({ ...f.options, gate });
   const account = await service.enroll(f.input, AbortSignal.timeout(1000));
   const row = f.store.account(account.id)!;
-  gate.mockClear();
+  gateCalls.mockClear();
   const observed = await service.withCredentialCustody(
     account.id,
     AbortSignal.timeout(1000),
@@ -444,7 +446,7 @@ it('observes immutable secret-free custody while holding the existing enrollment
       return observation;
     },
   );
-  expect(gate).toHaveBeenCalledOnce();
+  expect(gateCalls).toHaveBeenCalledOnce();
   expect(gateDepth).toBe(0);
   expect(
     await service.withCredentialCustody(

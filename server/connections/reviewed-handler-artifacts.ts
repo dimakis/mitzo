@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.282-codex-research';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.283-symposium-native-request.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -632,7 +633,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-enrollment-models.ts':
     '11a318042fbd8f7aecc09563c80456bfff424813a3d12a05d01bc768a0358263',
   '../openai-account-enrollment.ts':
-    '610827421850db26976f2e9a6c8552ea984e0b9bbd61621573fdb0f8fb0847f6',
+    'ade50acdf50e214b62f2c4068565995c1b949d18f96533e0d1d081ab83f4dfe0',
   '../openai-account-enrollment-keychain.ts':
     '8bd52d66fc18bb9a573b3602f20eff4fdbdd9194ced1f30246d39584f4076cbe',
   '../openai-provider-enrollment-gateway.ts':
