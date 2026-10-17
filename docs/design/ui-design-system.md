@@ -1459,3 +1459,21 @@ later requests to both devices, and cover joining/unwatching subscribers, closed
 or failing sockets and expiry/cancellation. The browser continuity fixture also
 verifies resolved/expired cards disappear while the draft, focus and live reply
 remain intact. No approval scope or decision authority is added by subscription.
+
+## Research activity
+
+Ordinary tool use and reasoning share the existing Activity disclosure. Only groups
+with real delegated agents use Agents at work. The summary prefers the latest tool
+and its readable destination; reasoning-only groups use a short plain heading.
+Reasoning details start collapsed, including during streaming. Completed successful
+website reads join the group, while pending reads, errors, access decisions and
+search results (including Google suggestions) stay visible. Existing speaker
+boundaries, reply collapse, shared MotionPresence, focus restoration and setup cards
+remain in place. No new tokens, palette, layout scale or motion were introduced.
+
+Offline fixtures use the real ChatArea and shared styles on mobile WebKit/Chromium
+and desktop Chromium, dark Mint/System and light Teal/Georgia, including 320px,
+large text, keyboard activation and reduced motion. Inspected captures show
+[mobile activity](assets/research-activity-mobile-dark.png) and
+[desktop activity](assets/research-activity-desktop-light.png). These isolated
+renders use intercepted traffic and no backend, credentials or model calls.
