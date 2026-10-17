@@ -2149,3 +2149,196 @@ it.each([
     }
   },
 );
+
+it.each(['openai', 'google-vertex'] as const)(
+  'admits published API tools with exact dispatch and cold resume on %s',
+  async (provider) => {
+    const { ApiToolCatalog } = await import('../api-tool-catalog.js');
+    const { randomUUID } = await import('node:crypto');
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-api-template-'));
+    let catalog = new ApiToolCatalog(join(root, 'api.db'));
+    let connections = new CredentialConnectionStore(join(root, 'connections.db'));
+    let events = new EventStore(join(root, 'events.db'));
+    let library = new AgentLibraryStore(join(root, 'events.db'));
+    let privateStore = new NativeResponsesStore(join(root, 'private.db'));
+    const send = vi.fn<ConnectionSender>(async () => ({
+      status: 200,
+      body: '{"entity_id":"sensor.office","state":"21","last_changed":"2026-10-17T00:00:00Z"}',
+    }));
+    const vault = {
+      save: vi.fn(async () => ({ service: 'fixture', account: 'fixture' })),
+      link: vi.fn(),
+      read: vi.fn(async () => 'fake-secret'),
+      remove: vi.fn(),
+    };
+    let service = new CredentialConnections(connections, vault, send);
+    const registry = new SessionRegistry();
+    const runtime = vi
+      .spyOn(credentialRuntime, 'getCredentialConnectionsRuntime')
+      .mockImplementation(() => service);
+    try {
+      const c = await service.create(
+        {
+          label: 'Fixture',
+          serviceTemplate: 'home-assistant',
+          endpoint: 'https://ha.example.com',
+          auth: { kind: 'bearer' },
+          methods: ['GET'],
+          paths: ['/api/'],
+        },
+        { secret: 'fixture' },
+      );
+      const draft = catalog.save(
+        {
+          id: randomUUID(),
+          expectedVersion: 0,
+          configuration: {
+            template: 'home-assistant.state@1',
+            label: 'Office',
+            connectionId: c.id,
+            entityId: 'sensor.office',
+          },
+        },
+        service,
+      );
+      await catalog.verify(draft.id, 1, {
+        service,
+        signal: new AbortController().signal,
+        assertCurrent: () => {},
+      });
+      const entry = catalog.publish(draft.id, 1, service);
+      const definition = {
+        name: 'Reader',
+        role: 'agent' as const,
+        instructions: 'Read.',
+        expectedOutput: 'State',
+        acceptanceCriteria: ['Evidence'],
+        modelPolicyRole: 'agent' as const,
+        tools: [catalog.reference(entry), { id: 'mitzo:RequestConnectionAccess', version: 1 }],
+      };
+      const saved = library.saveDraft('user', {
+        profileId: 'api-reader',
+        expectedVersion: 0,
+        expectedRevision: 0,
+        idempotencyKey: 'save',
+        definition,
+      });
+      const published = library.publish('user', {
+        profileId: 'api-reader',
+        expectedVersion: saved.version,
+        idempotencyKey: 'publish',
+      });
+      const exported = library.version('user', 'api-reader', 1);
+      expect(JSON.stringify(exported)).not.toMatch(
+        /sensor.office|ha.example.com|connectionId|fake-secret/,
+      );
+      events.upsertSession({ sessionId: 'api-chat', agentProfile: published });
+      const wire = catalog.resolve(entry, service).definition.name;
+      for (const resume of [false, true]) {
+        registry.register('api-client', {
+          sessionId: 'api-chat',
+          cwd: root,
+          mode: 'agent',
+          abortController: new AbortController(),
+          sessionAllowList: new Set(),
+        } as never);
+        const session = registry.get('api-client')!;
+        service.grant('api-chat', c.id, c.revision);
+        const input = new AsyncQueue<{ message: { content: string } }>();
+        input.close();
+        const chat = await openResponsesChat({
+          conversationId: 'api-chat',
+          binding: {
+            accountId: 'fixture',
+            accountLabel: 'Fixture',
+            provider,
+            model: 'offline-fixture',
+            profileRevision: 'r1',
+          },
+          session,
+          registry,
+          input,
+          systemPrompt: '',
+          env: {},
+          mcpServers: {},
+          eventStore: events,
+          store: privateStore,
+          resume,
+          apiTools: { catalog },
+        });
+        const options = calls.options.at(-1)! as {
+          tools: { name: string }[];
+          executeTool(
+            block: { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> },
+            signal: AbortSignal,
+          ): Promise<{ is_error: boolean; content: string }>;
+        };
+        expect(options.tools.map((t) => t.name).sort()).toEqual(
+          ['AskUserQuestion', 'RequestConnectionAccess', wire].sort(),
+        );
+        send.mockClear();
+        for (const name of [
+          'ConnectionRequest',
+          'mcp__mitzo-connections__ConnectionRequest',
+          'api_forged',
+          entry.id,
+          'ExecuteProviderCapability',
+        ])
+          expect(
+            (
+              await options.executeTool(
+                { type: 'tool_use', id: 'deny', name, input: {} },
+                session.abortController.signal,
+              )
+            ).is_error,
+          ).toBe(true);
+        expect(send).not.toHaveBeenCalled();
+        expect(
+          (
+            await options.executeTool(
+              { type: 'tool_use', id: 'read', name: wire, input: {} },
+              session.abortController.signal,
+            )
+          ).is_error,
+        ).toBe(false);
+        expect(send).toHaveBeenCalledOnce();
+        chat.close();
+        session.abortController.abort();
+        if (!resume) {
+          const next = library.saveDraft('user', {
+            profileId: 'api-reader',
+            expectedVersion: 0,
+            expectedRevision: 1,
+            idempotencyKey: 'next',
+            definition: { ...definition, tools: [] },
+          });
+          library.publish('user', {
+            profileId: 'api-reader',
+            expectedVersion: next.version,
+            idempotencyKey: 'next-publish',
+          });
+          catalog.close();
+          connections.close();
+          privateStore.close();
+          library.close();
+          events.close();
+          catalog = new ApiToolCatalog(join(root, 'api.db'));
+          connections = new CredentialConnectionStore(join(root, 'connections.db'));
+          service = new CredentialConnections(connections, vault, send);
+          privateStore = new NativeResponsesStore(join(root, 'private.db'));
+          events = new EventStore(join(root, 'events.db'));
+          library = new AgentLibraryStore(join(root, 'events.db'));
+        }
+      }
+    } finally {
+      runtime.mockRestore();
+      registry.dispose();
+      catalog.close();
+      connections.close();
+      privateStore.close();
+      library.close();
+      events.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
