@@ -62,6 +62,12 @@ export type ToolBuilderExecutor = {
   }>;
 };
 type CustomInput = z.infer<typeof CustomToolDraftInputSchema>;
+export function toolBuilderSourceDigest(files: readonly { path: string; content: string }[]) {
+  const hash = createHash('sha256');
+  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path)))
+    hash.update(JSON.stringify([file.path, file.content]));
+  return hash.digest('hex');
+}
 export type ToolBuilderDraft = CustomInput & {
   id: string;
   version: number;
@@ -162,9 +168,9 @@ export class ToolBuilderService {
   }
 
   private async digest(paths: string[], workspace: ToolBuilderWorkspace) {
-    const hash = createHash('sha256');
-    for (const path of [...paths].sort())
-      hash.update(JSON.stringify([path, await workspace.read(path)]));
-    return hash.digest('hex');
+    const files = await Promise.all(
+      paths.map(async (path) => ({ path, content: await workspace.read(path) })),
+    );
+    return toolBuilderSourceDigest(files);
   }
 }
