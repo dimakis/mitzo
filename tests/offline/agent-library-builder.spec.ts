@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { ordinaryRuntimeInventoryFixture } from '../../frontend/src/test-utils/ordinary-runtime-inventory-fixture';
 import { OrdinaryRuntimeFirstCommandSchema } from '../../packages/protocol/src/local-codex-first-command';
 import { profileBuilderDefinition } from '../../packages/protocol/src/profile-builder';
+import { V2SendMessage } from '../../packages/protocol/src/ws-schemas-v2';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const bundle = build({
@@ -72,7 +73,17 @@ async function offline(
     });
   });
   const commands: Array<ReturnType<typeof OrdinaryRuntimeFirstCommandSchema.parse>> = [];
+  const legacyCommands: Array<ReturnType<typeof V2SendMessage.parse>> = [];
   const proposalSaves: Record<string, unknown>[] = [];
+  const lifecycle = {
+    legacy: false,
+    acceptLegacy: false,
+    legacyAccepted: 0,
+    commandState: 'consumed' as 'reserved' | 'consumed',
+    metadata: 'visible' as
+      'visible' | 'hidden' | 'unavailable' | 'malformed' | 'not-found' | 'unclassified',
+    metadataReads: 0,
+  };
   let proposalSaved = false;
   const controlPosts = [
     '/api/chat/switch',
@@ -103,6 +114,21 @@ async function offline(
       if (route.request().method() === 'POST' && controlPosts.includes(path))
         return route.fulfill({ json: { ok: true, applied: true } });
       if (allowDispatch && route.request().method() === 'POST') {
+        if (path === '/api/chat/send' && lifecycle.legacy) {
+          const command = V2SendMessage.strict().parse(route.request().postDataJSON());
+          legacyCommands.push(command);
+          if (!lifecycle.acceptLegacy)
+            return route.fulfill({
+              status: 503,
+              json: { error: 'Offline receipt unavailable; original command retained' },
+            });
+          await route.fulfill({
+            status: 202,
+            json: { accepted: true, clientMsgId: command.clientMsgId, sessionId },
+          });
+          lifecycle.legacyAccepted++;
+          return;
+        }
         if (path === '/api/symposium/profile-proposals/offline-builder-proposal/save') {
           const body = route.request().postDataJSON() as Record<string, unknown>;
           proposalSaves.push(body);
@@ -146,8 +172,8 @@ async function offline(
               ok: true,
               clientMsgId: command.clientMsgId,
               sessionId,
-              dispatched: true,
-              state: 'consumed',
+              dispatched: lifecycle.commandState === 'consumed',
+              state: lifecycle.commandState,
             },
           });
         }
@@ -161,10 +187,25 @@ async function offline(
       }
       if (['/api/chat/runtime/capabilities', '/api/chat/local-codex/capabilities'].includes(path))
         return route.fulfill(
-          unavailable
-            ? { status: 503, json: { error: 'Offline runtime unavailable' } }
-            : { json: runtimeInventory },
+          lifecycle.legacy
+            ? { status: 503, json: { code: 'entry_disabled' } }
+            : unavailable
+              ? { status: 503, json: { error: 'Offline runtime unavailable' } }
+              : { json: runtimeInventory },
         );
+      if (path === `/api/sessions/${sessionId}/meta`) {
+        lifecycle.metadataReads++;
+        if (lifecycle.metadata === 'not-found')
+          return route.fulfill({ status: 404, json: { error: 'Conversation not found' } });
+        if (lifecycle.metadata === 'unclassified') return route.fulfill({ json: { sessionId } });
+        if (lifecycle.metadata === 'unavailable')
+          return route.fulfill({
+            status: 503,
+            json: { error: 'Offline conversation metadata unavailable' },
+          });
+        if (lifecycle.metadata === 'malformed')
+          return route.fulfill({ json: { sessionId: 'unrelated-conversation', isHidden: false } });
+      }
       const data: Record<string, unknown> = {
         '/api/repository-workspaces/catalog': {
           available: true,
@@ -189,7 +230,17 @@ async function offline(
         },
         '/api/agent-library/tools': { tools: [] },
         '/api/agent-tasks': [],
-        '/api/accounts': [],
+        '/api/accounts': lifecycle.legacy
+          ? [
+              {
+                id: 'legacy-account',
+                label: 'Offline legacy account',
+                models: [
+                  { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+                ],
+              },
+            ]
+          : [],
         '/api/terminals/accounts': [],
         '/api/terminals/subscriptions': { enabled: false, accounts: [] },
         '/api/config': { quickActions: [], contextBlocks: {} },
@@ -199,23 +250,29 @@ async function offline(
         '/api/home/preferences': { revision: 1, names: {}, pins: [] },
         [`/api/sessions/${sessionId}/meta`]: {
           sessionId,
+          isHidden: lifecycle.metadata === 'hidden',
           sessionType: 'chat',
           mode: 'agent',
           runtimeCommandScope: 'first-command-only',
-          runtimeBinding: {
-            version: 2,
-            account: ordinaryRuntimeInventoryFixture().accounts[0].account,
-            harness: { implementation: 'codex' },
-            execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
-          },
+          runtimeBinding: lifecycle.legacy
+            ? null
+            : {
+                version: 2,
+                account: ordinaryRuntimeInventoryFixture().accounts[0].account,
+                harness: { implementation: 'codex' },
+                execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+              },
           agentProfile: runtimeInventory.agentProfiles.find(
             (profile) => profile.profileId === 'mitzo-profile-builder',
           ),
-          repositoryWorkspaceId: preparationId,
+          repositoryWorkspaceId: lifecycle.legacy ? undefined : preparationId,
           accountBinding: {
             ...ordinaryRuntimeInventoryFixture().accounts[0].account,
             accountLabel: 'Personal ChatGPT',
             model: 'luna-fixture',
+            ...(lifecycle.legacy
+              ? { accountId: 'legacy-account', accountLabel: 'Offline legacy account' }
+              : {}),
           },
           modelSelection: {
             model: 'luna-fixture',
@@ -223,19 +280,25 @@ async function offline(
             models: ordinaryRuntimeInventoryFixture().accounts[0].models,
           },
         },
-        [`/api/sessions/${sessionId}/messages`]: commands.length
-          ? [
-              {
-                messageId: commands[0].clientMsgId,
-                role: 'user',
-                blocks: [
-                  { blockId: 'user-text', blockType: 'text', content: commands[0].payload.text },
-                ],
-                sourceSnapshots: commands[0].payload.sourceSnapshots,
-                timestamp: 1,
-              },
-            ]
-          : [],
+        [`/api/sessions/${sessionId}/messages`]:
+          commands.length || legacyCommands.length
+            ? [
+                {
+                  messageId: (commands[0] ?? legacyCommands[0]).clientMsgId,
+                  role: 'user',
+                  blocks: [
+                    {
+                      blockId: 'user-text',
+                      blockType: 'text',
+                      content: commands[0]?.payload.text ?? legacyCommands[0].prompt,
+                    },
+                  ],
+                  sourceSnapshots:
+                    commands[0]?.payload.sourceSnapshots ?? legacyCommands[0].sourceSnapshots,
+                  timestamp: 1,
+                },
+              ]
+            : [],
         '/api/symposium/profile-proposals':
           allowDispatch && commands.length && !proposalSaved
             ? [
@@ -260,13 +323,30 @@ async function offline(
       body: `<!doctype html><html data-theme="${theme}" data-accent="teal" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
     });
   });
-  return { unexpected, errors, commands, proposalSaves };
+  return { unexpected, errors, commands, legacyCommands, proposalSaves, lifecycle };
 }
 
 async function openSettings(page: Page) {
   const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
   return page.getByRole('region', { name: 'Agent settings', exact: true });
+}
+
+async function prepareFirstCommand(page: Page, prompt: string) {
+  const panel = await openSettings(page);
+  await panel.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
+  await panel.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await panel.getByRole('button', { name: 'Local Mac', exact: true }).click();
+  await panel.getByRole('button', { name: 'Add repository', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'GitHub repository', exact: true })
+    .selectOption('github:owner/repository');
+  await page.getByRole('button', { name: 'Preview repository', exact: true }).click();
+  await page.getByRole('button', { name: 'Prepare repository', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Message Mitzo', exact: true }).fill(prompt);
+  const currentPanel = await openSettings(page);
+  await currentPanel.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }).click();
 }
 
 async function reviewSource(page: Page, name: string, screenshotPath?: string) {
@@ -573,6 +653,225 @@ test('Library Builder sends one ordinary command with exact reviewed context and
     page.getByText('Propose clearer acceptance criteria for this exact draft.', { exact: true }),
   ).toBeVisible();
   expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('Library starts fresh ordinary setup after the assigned conversation is confirmed hidden', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, 'dark', false, true);
+  await page.goto('/agent-library');
+  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await page.getByLabel('Agent name').fill('Working Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  const originalDraft = new URL(page.url()).searchParams.get('draft');
+  const source = await reviewSource(page, 'Working Bob');
+  await prepareFirstCommand(page, 'Refine the original reviewed profile.');
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await page
+    .locator('.telos-chat-context')
+    .getByRole('link', { name: 'Open Agent Library', exact: true })
+    .click();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+  fixture.lifecycle.metadata = 'hidden';
+  const readsBefore = fixture.lifecycle.metadataReads;
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await expect(page).toHaveURL(/\/chat\?/);
+  expect(fixture.lifecycle.metadataReads).toBeGreaterThan(readsBefore);
+  expect(new URL(page.url()).searchParams.get('draft')).not.toBe(originalDraft);
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
+    'Help me refine this agent.',
+  );
+  expect(await reviewSource(page, 'Working Bob')).toEqual(source);
+  await page.screenshot({
+    path: info.outputPath('ordinary-builder-hidden-fresh-setup.png'),
+    animations: 'disabled',
+  });
+  expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('Library retains its assigned conversation through uncertain metadata and retries the same handoff', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, 'light', false, true);
+  await page.goto('/agent-library');
+  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await page.getByLabel('Agent name').fill('Working Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await prepareFirstCommand(
+    page,
+    'Retain this exact conversation while its metadata is unavailable.',
+  );
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await page
+    .locator('.telos-chat-context')
+    .getByRole('link', { name: 'Open Agent Library', exact: true })
+    .click();
+  for (const uncertainty of ['unavailable', 'malformed', 'not-found', 'unclassified'] as const) {
+    fixture.lifecycle.metadata = uncertainty;
+    const readsBefore = fixture.lifecycle.metadataReads;
+    await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText(/retained|retry|could not/i);
+    await expect(page).toHaveURL(/\/agent-library$/);
+    expect(fixture.lifecycle.metadataReads).toBeGreaterThan(readsBefore);
+    await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+    expect(fixture.commands).toHaveLength(1);
+  }
+  await page.screenshot({
+    path: info.outputPath('ordinary-builder-metadata-recovery.png'),
+    animations: 'disabled',
+  });
+  fixture.lifecycle.metadata = 'visible';
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await expect(
+    page.getByText('Retain this exact conversation while its metadata is unavailable.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('Library recovers the original uncertain command after its ordinary draft is discarded', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, 'dark', false, true);
+  fixture.lifecycle.legacy = true;
+  await page.goto('/agent-library');
+  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await page.getByLabel('Agent name').fill('Working Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  const originalDraft = new URL(page.url()).searchParams.get('draft');
+  const source = await reviewSource(page, 'Working Bob');
+  const settings = await openSettings(page);
+  await settings
+    .getByRole('combobox', { name: 'Account', exact: true })
+    .selectOption('legacy-account');
+  await settings
+    .getByRole('combobox', { name: 'Thinking level', exact: true })
+    .selectOption('high');
+  await settings.getByRole('button', { name: 'Done', exact: true }).click();
+  const originalPrompt = 'Recover this exact reviewed command after its response is lost.';
+  await page.getByRole('textbox', { name: 'Message Mitzo', exact: true }).fill(originalPrompt);
+  await page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }).click();
+  await expect.poll(() => fixture.legacyCommands.length).toBeGreaterThan(0);
+  const originalCommand = fixture.legacyCommands[0];
+  expect(originalCommand).toMatchObject({
+    sessionId: null,
+    accountId: 'legacy-account',
+    model: 'luna-fixture',
+    reasoningEffort: 'high',
+    prompt: originalPrompt,
+    agentProfile: { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 1 },
+  });
+  expect(JSON.parse(originalCommand.sourceSnapshots![0].content)).toEqual(source);
+
+  // Use the real saved-draft collection and discard confirmation. The reviewed
+  // outbox remains uncertain; no source mapping or storage is modified by tests.
+  await page.goto('/sessions/drafts');
+  const draft = page
+    .getByRole('article')
+    .filter({ has: page.getByRole('heading', { name: originalPrompt, exact: true }) });
+  await draft.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm discard', exact: true }).click();
+  await expect(draft).toHaveCount(0);
+  await page.goto('/agent-library');
+  await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await expect(page).toHaveURL(/\/chat\?/);
+  expect(new URL(page.url()).searchParams.get('draft')).toBe(originalDraft);
+  expect(await reviewSource(page, 'Working Bob')).toEqual(source);
+  const reopenedSettings = await openSettings(page);
+  await reopenedSettings
+    .getByRole('combobox', { name: 'Account', exact: true })
+    .selectOption('legacy-account');
+  await reopenedSettings
+    .getByRole('combobox', { name: 'Thinking level', exact: true })
+    .selectOption('high');
+  await reopenedSettings.getByRole('button', { name: 'Done', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Message Mitzo', exact: true })
+    .fill('A second command must wait for the original receipt.');
+  await page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }).click();
+  await expect(
+    page
+      .getByRole('alert')
+      .filter({ hasText: 'The reviewed conversation identity could not be retained.' }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: info.outputPath('ordinary-builder-discarded-uncertain-draft.png'),
+    animations: 'disabled',
+  });
+
+  fixture.lifecycle.acceptLegacy = true;
+  await expect.poll(() => fixture.lifecycle.legacyAccepted, { timeout: 15_000 }).toBeGreaterThan(0);
+  await page.goto('/agent-library');
+  await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await expect(page.getByText(originalPrompt, { exact: true })).toBeVisible();
+  expect(fixture.legacyCommands.length).toBeGreaterThan(1);
+  for (const retry of fixture.legacyCommands) expect(retry).toEqual(originalCommand);
+  expect(fixture.commands).toEqual([]);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('Library keeps fresh setup when a hidden conversation receives its delayed original command receipt', async ({
+  page,
+  isMobile,
+}) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, 'light', false, true);
+  fixture.lifecycle.commandState = 'reserved';
+  await page.goto('/agent-library');
+  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await page.getByLabel('Agent name').fill('Working Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  const oldDraft = new URL(page.url()).searchParams.get('draft');
+  await prepareFirstCommand(page, 'Keep this original reserved command identity.');
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await page
+    .locator('.telos-chat-context')
+    .getByRole('link', { name: 'Open Agent Library', exact: true })
+    .click();
+  fixture.lifecycle.metadata = 'hidden';
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await expect(page).toHaveURL(/\/chat\?/);
+  const freshUrl = page.url();
+  expect(new URL(freshUrl).searchParams.get('draft')).not.toBe(oldDraft);
+  fixture.lifecycle.commandState = 'consumed';
+  const recoverySettings = await openSettings(page);
+  await recoverySettings.getByText('More settings', { exact: true }).click();
+  const recover = page.getByRole('button', { name: 'Recover original Local command', exact: true });
+  await expect(recover).toBeEnabled();
+  await recover.click();
+  await expect.poll(() => fixture.commands.length).toBe(2);
+  await expect(recover).toBeDisabled();
+  expect(fixture.commands[1]).toEqual(fixture.commands[0]);
+  await recoverySettings.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page).toHaveURL(freshUrl);
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
+    'Help me refine this agent.',
+  );
+  await page
+    .locator('.telos-chat-context')
+    .getByRole('link', { name: 'Open Agent Library', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await expect(page).toHaveURL(freshUrl);
+  expect(fixture.commands).toHaveLength(2);
   expect(fixture.unexpected).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

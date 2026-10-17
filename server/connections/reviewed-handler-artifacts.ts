@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.278';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.279';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -535,7 +535,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    'ba3874ec4023090b53ebefa5505634b80bb595bd99b721771e2607719895ef76',
+    '2b831e4c18ebc2385118fefb76f415c4b9b5dc656856c453ac36e8f877590a43',
   // Read-only tool catalog cards and their shared visual presentation.
   '../../frontend/src/components/ToolLibraryCatalog.tsx':
     'e287ccd9d36b3def7b49918a955866d8e6466e576742b885b65d7898e03c3037',
@@ -947,7 +947,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-rollover-context.ts':
     '4c043831ee4166cd8948b67aa40aa4baeb1a63f307b74385fa8972d4ac67ea01',
   '../../frontend/src/lib/agent-builder-chat.ts':
-    '59d57b8461bf7a4496725d98a32da18c85805cc66942c7c66b04b458d6f278f7',
+    '77cf7406897627da216d7c47ef6bfff450f202b19701ed0bab8d4088de7422a1',
   '../../frontend/src/lib/agent-library-working-copy.ts':
     'a01d40fae60598dc66ad61e439e11052cc792c936e0d09507a526d3fbf06eb22',
   '../../frontend/src/components/AgentLibraryChatSource.tsx':

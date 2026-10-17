@@ -358,7 +358,9 @@ export function AgentLibrary() {
     setPortable('');
     return next;
   };
-  const openBuilder = (target: Editor, isDirty: boolean, contentHash?: string) => {
+  const builderOpening = useRef(false);
+  const openBuilder = async (target: Editor, isDirty: boolean, contentHash?: string) => {
+    if (builderOpening.current) return;
     const sourceContext = target.profileId === editor?.profileId ? reviewedContext : undefined;
     // Navigation keeps even a pristine selection, so Back returns to this profile.
     if (
@@ -372,10 +374,18 @@ export function AgentLibrary() {
       setError('Could not retain your profile edits. Retry before opening Agent Builder.');
       return;
     }
+    builderOpening.current = true;
+    setBusy(true);
+    setError('');
     try {
-      navigate(openAgentBuilderChat(target, isDirty, contentHash, sourceContext));
+      const path = await openAgentBuilderChat(target, isDirty, contentHash, sourceContext);
+      if (mounted.current) navigate(path);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not open Agent Builder.');
+      if (mounted.current)
+        setError(cause instanceof Error ? cause.message : 'Could not open Agent Builder.');
+    } finally {
+      builderOpening.current = false;
+      if (mounted.current) setBusy(false);
     }
   };
   const latest = new Map<string, AgentLibraryVersion>();

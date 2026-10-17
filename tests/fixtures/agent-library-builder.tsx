@@ -3,11 +3,13 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { createMitzoStore, type WebSocketLike } from '@mitzo/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { AgentLibrary } from '../../frontend/src/pages/AgentLibrary';
+import { DraftsView } from '../../frontend/src/pages/DraftsView';
 import { ResponsiveChatView } from '../../frontend/src/components/ResponsiveChatView';
 import { DesktopShell } from '../../frontend/src/components/DesktopShell';
 import { MobileShell } from '../../frontend/src/components/MobileShell';
 import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
 import { agentBuilderCommandHandoff } from '../../frontend/src/lib/agent-builder-chat';
+import { createReviewedOutboxStorage } from '../../frontend/src/lib/reviewed-outbox-storage';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/desktop.css';
@@ -23,7 +25,21 @@ import '../../frontend/src/styles/motion.css';
 const store = createMitzoStore({
   sendHandoff: agentBuilderCommandHandoff,
   transport: { fetch: (url, init) => fetch(url, init) },
-  localFirstCommandConfig: { url: '/api/chat/local-codex/send', storage: localStorage },
+  localFirstCommandConfig: {
+    url: '/api/chat/local-codex/send',
+    storage: createReviewedOutboxStorage(
+      localStorage,
+      new URL('/api/chat/local-codex/send', location.href).href,
+      'local',
+    ),
+  },
+  reviewedSendConfig: {
+    url: '/api/chat/send',
+    storage: createReviewedOutboxStorage(
+      localStorage,
+      new URL('/api/chat/send', location.href).href,
+    ),
+  },
   sseConfig: {
     baseUrl: '',
     fetch: (url, init) => fetch(url, init),
@@ -87,6 +103,9 @@ const store = createMitzoStore({
 function LibraryRoute() {
   return useIsDesktop() ? <DesktopShell center={<AgentLibrary />} /> : <AgentLibrary />;
 }
+function DraftsRoute() {
+  return useIsDesktop() ? <DesktopShell center={<DraftsView />} /> : <DraftsView />;
+}
 
 createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={store}>
@@ -94,6 +113,7 @@ createRoot(document.getElementById('root')!).render(
       <MobileShell>
         <Routes>
           <Route path="/agent-library" element={<LibraryRoute />} />
+          <Route path="/sessions/drafts" element={<DraftsRoute />} />
           <Route path="/chat" element={<ResponsiveChatView />} />
           <Route path="/chat/:sessionId" element={<ResponsiveChatView />} />
         </Routes>

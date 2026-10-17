@@ -118,7 +118,12 @@ its explicit builtin namespace. Opening setup sends no provider turn, saves no
 profile and starts no scheduled work.
 
 Returning to the same source reopens its retained draft or acknowledged ordinary
-conversation. Profile edits and conversation drafts remain independent; changing
+conversation. Reusing an assigned conversation first checks its exact metadata owner.
+An explicit hidden state starts fresh setup; an unavailable or mismatched read
+retains the link and offers retry. Discarding a composer draft does not cancel an
+uncertain send: its pending command identity survives draft recreation until
+acknowledgement or definitive rejection, preventing a second command.
+Profile edits and conversation drafts remain independent; changing
 the source preserves the earlier conversation. The normal composer, Resources,
 settings, approval, Stop and reconnect owners remain in control. Proposed profile
 edits use the existing review cards and authenticated save/publication lifecycle.

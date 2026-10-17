@@ -10,6 +10,7 @@ import {
 import { within } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import userEvent from '@testing-library/user-event';
+import { openAgentBuilderChat, markAgentBuilderAssigned } from '../../lib/agent-builder-chat';
 import { getChatDraft } from '../../lib/chat-drafts';
 function Location() {
   const location = useLocation();
@@ -251,6 +252,9 @@ it('refines the exact unsaved profile in an ordinary Builder draft without infer
   await screen.findByDisplayValue('Bob');
   fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'Working Bob' } });
   fireEvent.click(screen.getByRole('button', { name: 'Refine with Agent Builder' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route').textContent).toContain('/chat?'),
+  );
   const path = screen.getByLabelText('Current route').textContent!;
   expect(new URL(path, 'https://mitzo.example').pathname).toBe('/chat');
   const draft = getChatDraft(new URL(path, 'https://mitzo.example').searchParams.get('draft')!)!;
@@ -266,6 +270,9 @@ it('starts creation in the ordinary Builder and keeps direct profile editing ava
   setup();
   await screen.findByDisplayValue('Bob');
   fireEvent.click(screen.getByRole('button', { name: 'Create with Agent Builder' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route').textContent).toContain('/chat?'),
+  );
   const path = screen.getByLabelText('Current route').textContent!;
   const draft = getChatDraft(new URL(path, 'https://mitzo.example').searchParams.get('draft')!)!;
   expect(draft.text).toBe('Help me create an agent.');
@@ -899,4 +906,54 @@ it('notifies a remounted editor when its pending save is acknowledged without ne
   expect(
     JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!).expectedRevision,
   ).toBe(1);
+});
+
+it('retains the Library and its mapped conversation during uncertain visibility and retries the same owner', async () => {
+  setup();
+  await screen.findByDisplayValue('Bob');
+  const path = await openAgentBuilderChat(
+    { profileId: 'bob', definition, expectedVersion: 0, baseRevision: 3, publishedRevision: 3 },
+    false,
+    published.contentHash,
+  );
+  const draft = getChatDraft(new URL(path, 'https://mitzo.example').searchParams.get('draft')!)!;
+  markAgentBuilderAssigned(draft, 'retained-session');
+  vi.mocked(apiFetch).mockResolvedValueOnce(new Response('{}', { status: 503 }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refine with Agent Builder' }));
+  await screen.findByText(/Could not verify the retained Agent Builder conversation/);
+  expect(screen.getByLabelText('Current route').textContent).toBe('/agent-library');
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Bob');
+  const retry = screen.getByRole('button', { name: 'Refine with Agent Builder' });
+  await waitFor(() => expect(retry).toHaveProperty('disabled', false));
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    new Response(JSON.stringify({ sessionId: 'retained-session', isHidden: false })),
+  );
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route').textContent).toBe('/chat/retained-session'),
+  );
+});
+it('opens fresh setup after authoritative hidden metadata instead of navigating back into the removed conversation', async () => {
+  setup();
+  await screen.findByDisplayValue('Bob');
+  const path = await openAgentBuilderChat(
+    { profileId: 'bob', definition, expectedVersion: 0, baseRevision: 3, publishedRevision: 3 },
+    false,
+    published.contentHash,
+  );
+  const draft = getChatDraft(new URL(path, 'https://mitzo.example').searchParams.get('draft')!)!;
+  markAgentBuilderAssigned(draft, 'removed-session');
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    new Response(JSON.stringify({ sessionId: 'removed-session', isHidden: true })),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Refine with Agent Builder' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route').textContent).toContain('/chat?'),
+  );
+  const next = new URL(
+    screen.getByLabelText('Current route').textContent!,
+    'https://mitzo.example',
+  );
+  expect(next.searchParams.get('draft')).not.toBe(draft.id);
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
 });
