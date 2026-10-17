@@ -1,0 +1,551 @@
+diff --git a/codex-rs/http-client/src/client_builder.rs b/codex-rs/http-client/src/client_builder.rs
+index a3ad63d..1b06375 100644
+--- a/codex-rs/http-client/src/client_builder.rs
++++ b/codex-rs/http-client/src/client_builder.rs
+@@ -37,9 +37,10 @@ pub struct HttpClientBuilder {
+     http2_prior_knowledge: bool,
+     pub(crate) default_headers: Option<HeaderMap>,
+     follow_redirects: bool,
++    retry_requests: bool,
+     pub(crate) redirect_observed: Option<Arc<AtomicBool>>,
+     connect_timeout: Option<Duration>,
+-    chatgpt_cloudflare_cookie_store: bool,
++    pub(crate) chatgpt_cloudflare_cookie_store: bool,
+     chatgpt_cookie_store: Option<Arc<ChatGptCookieStore>>,
+     pub(crate) request_logging: RequestLogging,
+     tls_backend: TlsBackend,
+@@ -119,6 +120,11 @@ impl HttpClientBuilder {
+         self
+     }
+ 
++    pub(crate) fn without_retries(mut self) -> Self {
++        self.retry_requests = false;
++        self
++    }
++
+     /// Marks the supplied flag when a redirect is encountered, preserving the default policy.
+     /// Use a fresh flag for each operation whose retry safety depends on its redirect history.
+     pub fn with_redirect_tracking(mut self, redirect_observed: Arc<AtomicBool>) -> Self {
+@@ -356,6 +362,17 @@ impl HttpClientBuilder {
+ 
+     fn base_reqwest_builder(self) -> reqwest::ClientBuilder {
+         let mut builder = reqwest::Client::builder();
++        if !self.retry_requests {
++            // Disable protocol NACK retries and reuse of idle connections, whose
++            // cancellation can otherwise cause a transparent Hyper replay.
++            builder = builder
++                .retry(reqwest::retry::never())
++                .pool_max_idle_per_host(/*max*/ 0)
++                .no_gzip()
++                .no_brotli()
++                .no_zstd()
++                .no_deflate();
++        }
+         if self.http2_prior_knowledge {
+             builder = builder.http2_prior_knowledge();
+         }
+@@ -398,6 +415,7 @@ impl Default for HttpClientBuilder {
+             http2_prior_knowledge: false,
+             default_headers: None,
+             follow_redirects: true,
++            retry_requests: true,
+             redirect_observed: None,
+             connect_timeout: None,
+             chatgpt_cloudflare_cookie_store: false,
+diff --git a/codex-rs/http-client/src/lib.rs b/codex-rs/http-client/src/lib.rs
+index 5eb01f0..2c5f8d6 100644
+--- a/codex-rs/http-client/src/lib.rs
++++ b/codex-rs/http-client/src/lib.rs
+@@ -71,6 +71,10 @@ pub use crate::transport::HttpTransport;
+ pub use crate::transport::ReqwestTransport;
+ pub use crate::transport::StreamResponse;
+ 
++#[cfg(test)]
++#[path = "single_attempt_tests.rs"]
++mod single_attempt_tests;
++
+ #[cfg(windows)]
+ mod windows_tls;
+ 
+diff --git a/codex-rs/http-client/src/route_aware_client_pool.rs b/codex-rs/http-client/src/route_aware_client_pool.rs
+index 905aaf8..71e9bf4 100644
+--- a/codex-rs/http-client/src/route_aware_client_pool.rs
++++ b/codex-rs/http-client/src/route_aware_client_pool.rs
+@@ -54,6 +54,7 @@ pub struct RouteAwareClientPool {
+     http_client_factory: HttpClientFactory,
+     route_class: ClientRouteClass,
+     pub(crate) client_builder: HttpClientBuilder,
++    preserve_request_headers: bool,
+     default_headers: HeaderMap,
+     custom_ca_fallback: CustomCaFallback,
+     clients: Arc<Mutex<HashMap<OutboundProxyRoute, TransportClient>>>,
+@@ -202,6 +203,32 @@ impl RouteAwareRequestError {
+ }
+ 
+ impl RouteAwareClientPool {
++    /// Preserve the selected route and network policy while disabling every
++    /// automatic replay. Fresh caches prevent reuse of a less restrictive client.
++    pub(crate) fn without_replays(&self) -> Result<Self, crate::TransportError> {
++        if self.allows_system_proxy_fallback()
++            || self.custom_ca_fallback != CustomCaFallback::Disabled
++            || !self.default_headers.is_empty()
++            || self.client_builder.chatgpt_cloudflare_cookie_store
++        {
++            return Err(crate::TransportError::Build(
++                "single-attempt transport does not support fallback or implicit request headers"
++                    .to_string(),
++            ));
++        }
++        let mut pool = self.clone();
++        pool.client_builder = pool
++            .client_builder
++            .without_redirects()
++            .without_retries()
++            .without_request_logging();
++        pool.preserve_request_headers = true;
++        pool.clients = Arc::new(Mutex::new(HashMap::new()));
++        pool.client_build = Arc::new(tokio::sync::Mutex::new(()));
++        pool.rustls_clients = None;
++        Ok(pool)
++    }
++
+     pub(crate) fn request_logging_enabled(&self) -> bool {
+         self.client_builder.request_logging_enabled()
+     }
+@@ -287,6 +314,7 @@ impl RouteAwareClientPool {
+             http_client_factory,
+             route_class,
+             client_builder,
++            preserve_request_headers: false,
+             default_headers,
+             custom_ca_fallback: CustomCaFallback::Disabled,
+             clients: Arc::new(Mutex::new(HashMap::new())),
+diff --git a/codex-rs/http-client/src/route_aware_client_pool/execution.rs b/codex-rs/http-client/src/route_aware_client_pool/execution.rs
+index 7ef0d36..ca0b698 100644
+--- a/codex-rs/http-client/src/route_aware_client_pool/execution.rs
++++ b/codex-rs/http-client/src/route_aware_client_pool/execution.rs
+@@ -122,7 +122,12 @@ impl RouteAwareClientPool {
+                 let version = request.version();
+                 let timeout = request.timeout().copied();
+                 let replay = request.try_clone();
+-                let result = if follows_redirects_manually {
++                let result = if self.preserve_request_headers {
++                    // A frozen request already includes its reviewed headers.
++                    // Default headers and cookie stores were refused at construction;
++                    // bypass opaque tracing propagators and body/header diagnostics.
++                    client.inner.execute(request).await
++                } else if follows_redirects_manually {
+                     client.execute_without_request_logging(request).await
+                 } else {
+                     client.execute(request).await
+diff --git a/codex-rs/http-client/src/route_aware_tls_fallback_tests.rs b/codex-rs/http-client/src/route_aware_tls_fallback_tests.rs
+index dc716e3..28cdf4e 100644
+--- a/codex-rs/http-client/src/route_aware_tls_fallback_tests.rs
++++ b/codex-rs/http-client/src/route_aware_tls_fallback_tests.rs
+@@ -29,6 +29,26 @@ use crate::tls_backend_fallback::should_retry_with_rustls;
+ 
+ const PROTOCOL_VERSION_TLS_ALERT: &[u8] = &[21, 3, 3, 0, 2, 2, 70];
+ 
++#[tokio::test]
++async fn single_attempt_disables_tls_fallback_without_replaying() {
++    let (url, attempts, stop_server) =
++        spawn_protocol_version_rejection_server(/*maximum_attempts*/ 2).unwrap();
++    let pool = RouteAwareClientPool::new(
++        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
++        ClientRouteClass::Api,
++    )
++    .with_tls_backend_fallback()
++    .without_replays()
++    .unwrap();
++    let request = reqwest::Request::new(Method::POST, reqwest::Url::parse(&url).unwrap());
++    let result = pool
++        .send_with_resolver(request, |_| async { Ok(OutboundProxyRoute::Direct) })
++        .await;
++    let _ = stop_server.send(());
++    assert!(result.unwrap_err().is_connect());
++    assert_eq!(attempts.recv().unwrap().unwrap(), 1);
++}
++
+ type SuccessfulTlsFallbackServer = (
+     String,
+     TransportClient,
+diff --git a/codex-rs/http-client/src/single_attempt_tests.rs b/codex-rs/http-client/src/single_attempt_tests.rs
+new file mode 100644
+index 0000000..03cc532
+--- /dev/null
++++ b/codex-rs/http-client/src/single_attempt_tests.rs
+@@ -0,0 +1,282 @@
++use crate::*;
++use http::Method;
++use http::StatusCode;
++use pretty_assertions::assert_eq;
++use std::io::Read;
++use std::io::Write;
++use std::net::TcpListener;
++use std::thread;
++use std::time::Duration;
++use std::time::Instant;
++
++#[derive(Debug)]
++struct ChangingPropagator;
++
++impl opentelemetry::propagation::TextMapPropagator for ChangingPropagator {
++    fn inject_context(
++        &self,
++        _: &opentelemetry::Context,
++        injector: &mut dyn opentelemetry::propagation::Injector,
++    ) {
++        injector.set("x-openai-internal-codex-responses-lite", "1".to_string());
++    }
++
++    fn extract_with_context(
++        &self,
++        context: &opentelemetry::Context,
++        _: &dyn opentelemetry::propagation::Extractor,
++    ) -> opentelemetry::Context {
++        context.clone()
++    }
++
++    fn fields(&self) -> opentelemetry::propagation::text_map_propagator::FieldIter<'_> {
++        opentelemetry::propagation::text_map_propagator::FieldIter::new(&[])
++    }
++}
++
++struct UnqualifiedTransport;
++
++fn retained_request(url: impl Into<String>) -> Request {
++    let mut request = Request::new(Method::POST, url.into());
++    request.headers.insert(
++        http::header::ACCEPT,
++        http::HeaderValue::from_static("application/json"),
++    );
++    request
++}
++
++impl HttpTransport for UnqualifiedTransport {
++    async fn execute(&self, _: Request) -> Result<Response, TransportError> {
++        panic!("single-attempt streaming cannot call execute")
++    }
++
++    async fn stream(&self, _: Request) -> Result<StreamResponse, TransportError> {
++        panic!("ordinary streaming is not proof of one attempt")
++    }
++}
++
++#[tokio::test]
++async fn single_attempt_default_refuses_without_calling_ordinary_transport() {
++    let result = UnqualifiedTransport
++        .execute_once(Request::new(
++            Method::POST,
++            "https://example.test/responses/input_tokens".into(),
++        ))
++        .await;
++    assert!(matches!(result, Err(TransportError::Build(_))));
++    let result = UnqualifiedTransport
++        .stream_once(Request::new(
++            Method::POST,
++            "https://example.test/responses".into(),
++        ))
++        .await;
++    assert!(matches!(result, Err(TransportError::Build(_))));
++}
++
++#[tokio::test]
++async fn single_attempt_refuses_opaque_direct_clients_before_connecting() {
++    let transport = ReqwestTransport::new(reqwest::Client::new());
++    let result = transport
++        .stream_once(retained_request("http://127.0.0.1:1/responses"))
++        .await;
++    assert!(matches!(result, Err(TransportError::Build(_))));
++}
++
++#[tokio::test]
++async fn single_attempt_preserves_current_network_authority() {
++    let controller = NetworkPolicyController::default();
++    let transport = ReqwestTransport::from_route_aware_client_pool(RouteAwareClientPool::new(
++        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault)
++            .with_network_policy(controller.policy()),
++        ClientRouteClass::Api,
++    ));
++    let result = transport
++        .stream_once(retained_request("https://example.test/responses"))
++        .await;
++    assert!(matches!(
++        result,
++        Err(TransportError::Policy(NetworkPolicyDenied::Unavailable))
++    ));
++}
++
++#[tokio::test]
++async fn single_attempt_refuses_route_fallback_instead_of_reconfiguring_it() {
++    let transport = ReqwestTransport::from_route_aware_client_pool(RouteAwareClientPool::new(
++        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault).with_system_proxy_fallback(),
++        ClientRouteClass::Api,
++    ));
++    let result = transport
++        .stream_once(retained_request("https://example.test/responses"))
++        .await;
++    assert!(matches!(result, Err(TransportError::Build(_))));
++}
++
++#[tokio::test]
++async fn single_attempt_refuses_hidden_headers_and_cookie_injection() {
++    let mut defaults = http::HeaderMap::new();
++    defaults.insert(
++        "x-openai-internal-codex-responses-lite",
++        http::HeaderValue::from_static("1"),
++    );
++    for builder in [
++        HttpClientBuilder::new().default_headers(defaults),
++        HttpClientBuilder::new().with_chatgpt_cloudflare_cookie_store(),
++    ] {
++        let transport =
++            ReqwestTransport::from_route_aware_client_pool(RouteAwareClientPool::with_builder(
++                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
++                ClientRouteClass::Api,
++                builder,
++            ));
++        let result = transport
++            .execute_once(retained_request(
++                "https://example.test/responses/input_tokens",
++            ))
++            .await;
++        assert!(matches!(result, Err(TransportError::Build(_))));
++    }
++}
++
++#[tokio::test]
++async fn single_attempt_redirects_never_reissue_the_retained_request() {
++    // Nextest runs tests in separate processes, as with the existing client
++    // propagator regression. This hook must not rewrite an already frozen send.
++    opentelemetry::global::set_text_map_propagator(ChangingPropagator);
++    for status in [StatusCode::FOUND, StatusCode::TEMPORARY_REDIRECT] {
++        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
++        listener.set_nonblocking(true).unwrap();
++        let address = listener.local_addr().unwrap();
++        let server = thread::spawn(move || {
++            let deadline = Instant::now() + Duration::from_secs(/*secs*/ 2);
++            let mut requests = Vec::new();
++            while Instant::now() < deadline {
++                let (mut socket, _) = match listener.accept() {
++                    Ok(connection) => connection,
++                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
++                        thread::sleep(Duration::from_millis(/*millis*/ 5));
++                        continue;
++                    }
++                    Err(error) => panic!("fixture accept failed: {error}"),
++                };
++                socket
++                    .set_read_timeout(Some(Duration::from_secs(/*secs*/ 1)))
++                    .unwrap();
++                let mut bytes = Vec::new();
++                let mut chunk = [0_u8; 1024];
++                loop {
++                    let count = socket.read(&mut chunk).unwrap();
++                    assert_ne!(count, 0);
++                    bytes.extend_from_slice(&chunk[..count]);
++                    if let Some(boundary) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
++                        let headers = String::from_utf8_lossy(&bytes[..boundary]).to_lowercase();
++                        let length = headers
++                            .lines()
++                            .find_map(|line| line.strip_prefix("content-length: "))
++                            .and_then(|value| value.parse::<usize>().ok())
++                            .unwrap_or(0);
++                        if bytes.len() >= boundary + 4 + length {
++                            break;
++                        }
++                    }
++                }
++                requests.push(bytes);
++                write!(socket, "HTTP/1.1 {} fixture\r\nLocation: http://{address}/again\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", status.as_u16()).unwrap();
++                if requests.len() == 3 {
++                    break;
++                }
++            }
++            requests
++        });
++        let controller = NetworkPolicyController::default();
++        let policy = controller.policy();
++        assert!(controller.publish(policy.revision(), DestinationPolicy::Unrestricted));
++        let pool = RouteAwareClientPool::new(
++            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault).with_network_policy(policy),
++            ClientRouteClass::Api,
++        )
++        .with_tls_backend_fallback();
++        let transport = ReqwestTransport::from_http_client(pool.into_client());
++        let result = transport
++            .stream_once(
++                retained_request(format!("http://{address}/responses"))
++                    .with_raw_body("retained body"),
++            )
++            .await;
++        assert!(matches!(result, Err(TransportError::Http {status:actual,..}) if actual == status));
++        let requests = server.join().unwrap();
++        assert_eq!(requests.len(), 1);
++        assert!(requests[0].starts_with(b"POST /responses HTTP/1.1\r\n"));
++        assert!(requests[0].ends_with(b"retained body"));
++        assert!(
++            !String::from_utf8_lossy(&requests[0])
++                .contains("x-openai-internal-codex-responses-lite")
++        );
++        assert!(!String::from_utf8_lossy(&requests[0]).contains("accept-encoding:"));
++        assert!(String::from_utf8_lossy(&requests[0]).contains("accept: application/json\r\n"));
++    }
++}
++
++#[tokio::test]
++async fn single_attempt_count_redirect_cannot_change_counter_authority() {
++    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
++    let address = listener.local_addr().unwrap();
++    let server = thread::spawn(move || {
++        let (mut socket, _) = listener.accept().unwrap();
++        socket
++            .set_read_timeout(Some(Duration::from_secs(/*secs*/ 2)))
++            .unwrap();
++        let mut bytes = [0_u8; 4096];
++        assert!(socket.read(&mut bytes).unwrap() > 0);
++        socket.write_all(b"HTTP/1.1 307 fixture\r\nLocation: http://127.0.0.1:1/changed-counter\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
++    });
++    let controller = NetworkPolicyController::default();
++    let policy = controller.policy();
++    assert!(controller.publish(policy.revision(), DestinationPolicy::Unrestricted));
++    let transport = ReqwestTransport::from_route_aware_client_pool(RouteAwareClientPool::new(
++        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault).with_network_policy(policy),
++        ClientRouteClass::Api,
++    ));
++    let result = transport
++        .execute_once(
++            retained_request(format!("http://{address}/responses/input_tokens"))
++                .with_raw_body("retained count projection"),
++        )
++        .await;
++    server.join().unwrap();
++    assert!(matches!(
++        result,
++        Err(TransportError::Http {
++            status: StatusCode::TEMPORARY_REDIRECT,
++            ..
++        })
++    ));
++}
++
++#[tokio::test]
++async fn single_attempt_refuses_unretained_default_accept() {
++    let transport = ReqwestTransport::from_route_aware_client_pool(RouteAwareClientPool::new(
++        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
++        ClientRouteClass::Api,
++    ));
++    let result = transport
++        .execute_once(Request::new(
++            Method::POST,
++            "https://example.test/responses/input_tokens".into(),
++        ))
++        .await;
++    assert!(matches!(result, Err(TransportError::Build(_))));
++}
++
++#[tokio::test]
++async fn single_attempt_refuses_url_credentials_before_late_basic_auth() {
++    let transport = ReqwestTransport::from_route_aware_client_pool(RouteAwareClientPool::new(
++        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
++        ClientRouteClass::Api,
++    ));
++    let result = transport
++        .execute_once(retained_request(
++            "https://fixture-user:fixture-password@example.test/responses/input_tokens",
++        ))
++        .await;
++    assert!(matches!(result, Err(TransportError::Build(_))));
++}
+diff --git a/codex-rs/http-client/src/transport.rs b/codex-rs/http-client/src/transport.rs
+index 369d4ea..27eed10 100644
+--- a/codex-rs/http-client/src/transport.rs
++++ b/codex-rs/http-client/src/transport.rs
+@@ -33,6 +33,12 @@ pub struct StreamResponse {
+     pub bytes: ByteStream,
+ }
+ 
++/// HTTP execution with explicit opt-in for requests that cannot be replayed.
++/// Implementations of the single-attempt methods must disable redirects,
++/// protocol retries and transport fallback while preserving network authority.
++/// They must also preserve explicit headers without late application defaults,
++/// cookie injection or opaque tracing propagation.
++/// Ordinary transports refuse those methods unless they establish that contract.
+ pub trait HttpTransport: Send + Sync {
+     fn execute(
+         &self,
+@@ -42,6 +48,24 @@ pub trait HttpTransport: Send + Sync {
+         &self,
+         req: Request,
+     ) -> impl std::future::Future<Output = Result<StreamResponse, TransportError>> + Send;
++
++    fn execute_once(
++        &self,
++        _req: Request,
++    ) -> impl std::future::Future<Output = Result<Response, TransportError>> + Send {
++        std::future::ready(Err(TransportError::Build(
++            "single-attempt HTTP execution unavailable".to_string(),
++        )))
++    }
++
++    fn stream_once(
++        &self,
++        _req: Request,
++    ) -> impl std::future::Future<Output = Result<StreamResponse, TransportError>> + Send {
++        std::future::ready(Err(TransportError::Build(
++            "single-attempt HTTP streaming unavailable".to_string(),
++        )))
++    }
+ }
+ 
+ #[derive(Clone, Debug)]
+@@ -56,6 +80,34 @@ enum TransportClient {
+ }
+ 
+ impl ReqwestTransport {
++    fn without_replays(&self, req: &Request) -> Result<Self, TransportError> {
++        let url = reqwest::Url::parse(&req.url).map_err(|_| {
++            TransportError::Build("single-attempt HTTP requires a valid explicit URL".to_string())
++        })?;
++        // Reqwest otherwise supplies Accept and converts URL credentials into
++        // Basic auth after the caller has frozen and validated its headers.
++        if !req.headers.contains_key(http::header::ACCEPT)
++            || !url.username().is_empty()
++            || url.password().is_some()
++        {
++            return Err(TransportError::Build(
++                "single-attempt HTTP requires explicit Accept and no URL credentials".to_string(),
++            ));
++        }
++        let pool = match &self.client {
++            TransportClient::RouteAware(pool) => pool.as_ref(),
++            TransportClient::Fixed(client) => match &client.backend {
++                HttpClientBackend::Routed(pool) => pool.as_ref(),
++                HttpClientBackend::Direct(_) => {
++                    return Err(TransportError::Build(
++                        "single-attempt HTTP requires an explicit route-aware client".to_string(),
++                    ));
++                }
++            },
++        };
++        Ok(Self::from_route_aware_client_pool(pool.without_replays()?))
++    }
++
+     pub fn new(client: reqwest::Client) -> Self {
+         Self::from_http_client(HttpClient::new(client))
+     }
+@@ -172,6 +224,14 @@ fn request_body_for_trace(req: &Request) -> String {
+ }
+ 
+ impl HttpTransport for ReqwestTransport {
++    async fn execute_once(&self, req: Request) -> Result<Response, TransportError> {
++        self.without_replays(&req)?.execute(req).await
++    }
++
++    async fn stream_once(&self, req: Request) -> Result<StreamResponse, TransportError> {
++        self.without_replays(&req)?.stream(req).await
++    }
++
+     async fn execute(&self, req: Request) -> Result<Response, TransportError> {
+         self.trace_request(&req);
+ 
