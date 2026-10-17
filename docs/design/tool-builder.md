@@ -31,6 +31,19 @@ of a contract invalidates prior evidence. Failed or cancelled preparation
 discards its workspace; a cleanup failure is reported. A failed,
 cancelled, or incomplete run cannot be submitted as tested.
 
+Schemas use a bounded object/array/primitive JSON-schema subset. Every example
+input, expected value and reported actual value must validate; references,
+patterns and unsupported keywords fail before development effects. Nested
+schemas, source size, string length and array lengths are bounded.
+
+The OS sandbox protects authority; it does not authenticate assertions made by
+candidate code running inside the test process. Evidence records whether it is
+a candidate report or a trusted executor result. Candidate reports are review
+material, not publication certification. Publication additionally requires
+independent qualification through the statically installed, accepted source
+registration under a host-owned oracle. No candidate completion envelope can
+replace those checks.
+
 ## Review and immutable publication
 
 Draft edits create a new version. Feedback is attached to the submitted version;
