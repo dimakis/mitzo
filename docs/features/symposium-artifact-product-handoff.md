@@ -1,8 +1,10 @@
 # Symposium saved-artifact handoff
 
 Producer: workstream B, draft PR [#1020](https://github.com/dimakis/mitzo/pull/1020).
-Implementation source `fcefea95ad6837e8bc2dd2bb7f1ca7bf431ec8a0`, tree
-`bdff7db5224a6b030735bd493a6206056ae45d9a`. The subsequent evidence commit
+Final implementation source `f8b3b289c4f4ab0cbc2ade851a925583fdf97aa2`, tree
+`dc892c2aa52c7eb882efee833443012951c08e19`. It includes accepted main
+`13669901` (#1010). Artifact UI implementation remains byte-identical to the
+rendered UI at `fcefea95ad6837e8bc2dd2bb7f1ca7bf431ec8a0`. The subsequent evidence commit
 changes only documentation, captures and focused test assertions.
 
 ## Final shared behavior and consumption
@@ -41,10 +43,18 @@ backup plus supported artifact initialization. No live account, model, credentia
 staging, production or runtime activation is involved. One worker and a 1 GiB Node
 heap were used. Normal lint/format/secret/commit hooks remain enabled.
 
-- Backend: 167 tests / 7 files passed, zero skips. Exact retained-only source-null
+- Backend: 175 tests / 7 files passed, zero skips. Exact retained-only source-null
   forwarding, missing chats, older bytes after later edits, source/private-history
   exclusion, bounds, authority renewal, retries/conflicts, metadata paging, public
   policy changes, same-size BLOB corruption and changed scoped custody are covered.
+  CEN-873972402DBA is addressed in source by a required private synchronous
+  transcript read renewal after final awaits and before serialization. Four actual
+  EventStore red/green cases cover reference removal/content changes during final
+  target/source awaits with messages empty. Missing, Promise/value-returning callbacks
+  and revoked synchronous source authority refuse. The original source witness is
+  never reopened. Core explicitly assigned the shared source/compiler repair;
+  dependency commit `5633cf82` copies its exact `a6724a90` source file, then
+  `f8b3b289` adds the callback. Final Centaur verification remains pending.
 - Components: 25 tests / 3 files passed, zero skips. Exact route selection, old-version
   preview/export, no retargeting, late-response refusal, hash mismatch before preview,
   real Work link and Files return route are covered.

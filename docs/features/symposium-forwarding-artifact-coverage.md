@@ -2,7 +2,7 @@
 
 Workstream B, 17 October 2026. Initial accepted main
 `189289da78d971497deaa9cc4ca29365ba9c6e56`; subsequently integrated accepted
-`fea33e215b0d1bcf29604aa13e793329588a2980` (#1006). Draft PR
+`fea33e215b0d1bcf29604aa13e793329588a2980` (#1006), then `13669901` (#1010). Draft PR
 [#1020](https://github.com/dimakis/mitzo/pull/1020) now includes exact-content
 preparation and the assigned saved-artifact product surfaces. Source implementation,
 application integration, approved full UX, physical native share, live qualification
@@ -147,3 +147,11 @@ sharing status. Prepared bytes, persisted forwarding receipts, dispatched contex
 visible recipient acknowledgment are distinct stages. Ordinary recipient admission,
 unsupported media refusal, queueing and uncertainty remain with core. Native export
 is distinct from agent delivery. Full approved Symposium UX is not yet accepted.
+
+Centaur CEN-873972402DBA identified a transcript-reference final-await custody gap.
+Core assigned the narrow shared source/compiler repair. The actual source now
+returns a private synchronous renewal tied to its original opened witness and
+registered byte digests; forwarding requires it and invokes it after final awaits
+and before serialization. Missing and value/Promise-returning callbacks refuse.
+Four actual-owner red cases now pass, with operator revocation/no-reopen checks.
+The final seven-file backend set passes 175 checks. Review verification remains open.
