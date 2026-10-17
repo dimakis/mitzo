@@ -12,6 +12,8 @@ import {
   bindAgentToolSelection,
   bindConfiguredAgentTools,
   agentToolAllowed,
+  agentToolReferenceSupportsRoute,
+  assertAgentToolRoute,
 } from '../agent-tool-selection.js';
 import { NativeResponsesStore } from '../native-responses-store.js';
 import { ToolBuilderStore } from '../tool-builder-store.js';
@@ -50,6 +52,20 @@ async function published() {
   f.execute.mockClear();
   return { ...f, publication };
 }
+
+it('keeps accepted custom references local-api only after native tool enrollment', async () => {
+  const f = await published();
+  try {
+    expect(agentToolReferenceSupportsRoute(f.publication.reference, 'local-api')).toBe(true);
+    expect(() => assertAgentToolRoute(profile(f.publication.reference), 'local-api')).not.toThrow();
+    for (const route of ['codex', 'codex-owned-local', 'openshell', 'sdk']) {
+      expect(agentToolReferenceSupportsRoute(f.publication.reference, route)).toBe(false);
+      expect(() => assertAgentToolRoute(profile(f.publication.reference), route)).toThrow();
+    }
+  } finally {
+    f.store.close();
+  }
+});
 
 it('requires separate assignment and enforces exact exposure, schema, approval and dispatch', async () => {
   const f = await published();

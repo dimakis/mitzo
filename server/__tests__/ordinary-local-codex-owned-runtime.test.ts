@@ -19,7 +19,11 @@ vi.mock('../auth.js', async (importOriginal) => ({
 }));
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { contextDigest } from '../agent-context-compiler.js';
-import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
+import {
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  type AgentToolReference,
+} from '@mitzo/protocol';
 import {
   OrdinaryLocalCodexOwnedRuntime,
   type OrdinaryLocalCodexOwnedDispatch,
@@ -45,6 +49,7 @@ afterEach(async () => {
 });
 
 const fixture = (options?: {
+  tools?: AgentToolReference[];
   workspaceId?: string;
   contextRecipe?: boolean | 'workspace';
   silentPreparation?: boolean;
@@ -769,40 +774,59 @@ it.each(['controller', 'owner'] as const)(
   },
 );
 
-it('retains native custody for an admitted later command and never replays its consumed retry', async () => {
-  const f = await fixture();
-  const continuation = vi.fn(async (input: OrdinaryLocalCodexOwnedDispatch) => {
-    expect(input.lease).toBe(f.dispatch.mock.calls[0][0].lease);
-    expect(f.events.getOrdinaryLocalCommandAdmission(input.commandId)?.state).toBe('uncertain');
-    input.admission.assertBeforeEnqueue({
-      id: input.commandId,
-      prompt: input.payload.text,
-      intent: input.payload.intent,
-      model: input.expected.selection.model,
-      reasoningEffort: input.expected.selection.thinking,
+it.each([
+  { tools: undefined },
+  { tools: [] },
+  { tools: [{ id: 'mitzo:Read', version: 1 }] },
+] satisfies { tools?: AgentToolReference[] }[])(
+  'retains native custody and selected tools for an admitted later command without replaying consumed retries: %j',
+  async ({ tools }) => {
+    const f = await fixture({ tools });
+    const continuation = vi.fn(async (input: OrdinaryLocalCodexOwnedDispatch) => {
+      expect(input.lease).toBe(f.dispatch.mock.calls[0][0].lease);
+      expect(input.expected.agentProfile).toEqual(f.agentProfile);
+      expect(f.events.getOrdinaryLocalCommandAdmission(input.commandId)?.state).toBe('uncertain');
+      input.admission.assertBeforeEnqueue({
+        id: input.commandId,
+        prompt: input.payload.text,
+        intent: input.payload.intent,
+        model: input.expected.selection.model,
+        reasoningEffort: input.expected.selection.thinking,
+      });
     });
-  });
-  const driver = new OrdinaryLocalCodexOwnedRuntime({
-    ...f.dependencies,
-    dispatchContinuation: continuation,
-  });
-  cleanups.push(() => driver.close());
-  await driver.admit(f.request);
-  const next = {
-    ...structuredClone(f.request),
-    clientMsgId: randomUUID(),
-    payload: { text: 'Second explicit message' },
-  };
-  await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: true });
-  expect(f.events.getOrdinaryLocalCommandAdmission(next.clientMsgId)?.state).toBe('consumed');
-  expect(f.launch).toHaveBeenCalledOnce();
-  expect(continuation).toHaveBeenCalledOnce();
-  await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: false });
-  expect(continuation).toHaveBeenCalledOnce();
-  const admission = f.dispatch.mock.calls[0][0].admission;
-  admission.assertBeforeDispatch(next.clientMsgId);
-  expect(() => admission.assertBeforeDispatch(next.clientMsgId)).toThrow();
-});
+    const driver = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      dispatchContinuation: continuation,
+    });
+    cleanups.push(() => driver.close());
+    await driver.admit(f.request);
+    const next = {
+      ...structuredClone(f.request),
+      clientMsgId: randomUUID(),
+      payload: { text: 'Second explicit message' },
+    };
+    const changedProfile = {
+      ...structuredClone(next),
+      clientMsgId: randomUUID(),
+      selection: {
+        ...next.selection,
+        agent: { ...next.selection.agent, revision: next.selection.agent.revision + 1 },
+      },
+    };
+    await expect(driver.admitContinuation(changedProfile)).rejects.toThrow();
+    expect(continuation).not.toHaveBeenCalled();
+    expect(f.events.getSendCommand(changedProfile.clientMsgId)).toBeUndefined();
+    await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: true });
+    expect(f.events.getOrdinaryLocalCommandAdmission(next.clientMsgId)?.state).toBe('consumed');
+    expect(f.launch).toHaveBeenCalledOnce();
+    expect(continuation).toHaveBeenCalledOnce();
+    await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: false });
+    expect(continuation).toHaveBeenCalledOnce();
+    const admission = f.dispatch.mock.calls[0][0].admission;
+    admission.assertBeforeDispatch(next.clientMsgId);
+    expect(() => admission.assertBeforeDispatch(next.clientMsgId)).toThrow();
+  },
+);
 
 it('rejects missing native model support before saving a later command and retains task files', async () => {
   const f = await fixture();
@@ -1383,4 +1407,77 @@ it('preserves Telos role guidance when an ordinary Local continuation selects an
   expect(packet.workspace.id).toBe(f.dispatch.mock.calls[0][0].workspace.id);
   expect(packet.lease.binding).toEqual(binding);
   expect(f.events.getSession(sessionId)?.accountBinding).toEqual(binding);
+});
+
+it.each([
+  { tools: [], prepared: false },
+  { tools: [{ id: 'mitzo:Read', version: 1 }], prepared: false },
+  { tools: [], prepared: true },
+  { tools: [{ id: 'mitzo:Read', version: 1 }], prepared: true },
+] satisfies { tools: AgentToolReference[]; prepared: boolean }[])(
+  'admits the published explicit selection through the actual owned runtime on first command and cold resume: %j',
+  async ({ tools, prepared }) => {
+    const f = await fixture({ tools, silentPreparation: prepared });
+    const first = f.create();
+    await expect(
+      prepared ? first.admitPreparedFirst('allocation', f.request) : first.admit(f.request),
+    ).resolves.toEqual({ dispatched: true });
+    expect(f.events.getOrdinaryLocalCommandAdmission(f.request.clientMsgId)?.state).toBe(
+      'consumed',
+    );
+    const original = f.dispatch.mock.calls[0][0];
+    expect(original.expected.agentProfile?.definition.tools).toEqual(tools);
+    expect(original.payload.systemPrompt).toContain('Preserve task ownership.');
+    const native = new CodexConversationStore(join(f.root, 'selected-native.db'));
+    cleanups.push(() => native.close());
+    native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+    original.admission.persistCustody(native);
+    native.bindThread(original.sessionId, original.lease.binding, 'selected-retained-thread');
+    first.close();
+    const next = {
+      ...structuredClone(f.request),
+      clientMsgId: randomUUID(),
+      payload: { text: 'Continue with the published selection' },
+    };
+    const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
+      expect(value.expected.agentProfile).toEqual(original.expected.agentProfile);
+      expect(value.expected.agentProfile?.definition.tools).toEqual(tools);
+      value.admission.assertOptions({
+        conversationId: value.sessionId,
+        messageId: value.commandId,
+        binding: value.lease.binding,
+        profile: value.profile,
+        session: { cwd: value.expected.workspace.cwd, mode: 'agent' },
+        prompt: value.payload.text,
+        systemPrompt: value.payload.systemPrompt,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+        agentProfile: value.expected.agentProfile,
+        agentContext: value.expected.agentContext,
+        repositoryWorkspace: value.workspace,
+        resume: true,
+      });
+    });
+    const cold = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      nativeStore: native,
+      commandId: next.clientMsgId,
+      launch: () => f.rpc,
+      dispatch,
+    });
+    cleanups.push(() => cold.close());
+    await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: true });
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(native.read(original.sessionId, original.lease.binding).threadId).toBe(
+      'selected-retained-thread',
+    );
+  },
+);
+
+it('refuses unsupported published tools through actual owned profile resolution before native startup', async () => {
+  const f = await fixture({ tools: [{ id: 'mitzo:GetConnectionGuide', version: 1 }] });
+  await expect(f.create().admit(f.request)).rejects.toThrow();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(f.launch).not.toHaveBeenCalled();
+  expect(f.rpc.request).not.toHaveBeenCalled();
 });

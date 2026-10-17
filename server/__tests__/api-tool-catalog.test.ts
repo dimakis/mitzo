@@ -70,7 +70,12 @@ it('requires verified exact configuration before publishing a portable immutable
   await f.catalog.verify(draft.id, draft.version, f.options);
   const entry = f.catalog.publish(draft.id, draft.version, f.service);
   expect(f.catalog.publish(draft.id, draft.version, f.service)).toEqual(entry);
-  expect(entry).toMatchObject({ id: `api:${draft.id}`, behavior: 'read', version: 1 });
+  expect(entry).toMatchObject({
+    id: `api:${draft.id}`,
+    behavior: 'read',
+    version: 1,
+    routes: ['local-api', 'codex'],
+  });
   const ref = f.catalog.reference(entry);
   expect(Object.keys(ref).sort()).toEqual(['id', 'revision', 'version']);
   expect(JSON.stringify(ref)).not.toMatch(/sensor|connection|https|secret/);
