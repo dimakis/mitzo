@@ -11,10 +11,11 @@ import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { z } from 'zod';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
-import { isAbsolute, posix } from 'node:path';
+import { dirname, isAbsolute, posix } from 'node:path';
+import { AccountBindingSchema, type AccountBinding } from '@mitzo/protocol';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
@@ -75,6 +76,21 @@ export interface CodexLifecycleTransport {
   onNotification(method: string, params: JsonObject): void;
   onRequest(method: string, params: JsonObject, signal: AbortSignal): Promise<JsonObject>;
   onClose(error: Error): void;
+}
+
+/** The existing admission owner supplies an exclusively owned, new private home
+ * and its credential/revocation fence. API account/read reports only an auth
+ * mode, so it cannot replace that owner's proof of the selected billing account.
+ */
+export interface CodexApiBootstrapOptions {
+  privateHome: string;
+  executable: FrozenHostCodexExecutable;
+  binding: AccountBinding;
+  lifecycle: CodexLifecycleTransport;
+  signal: AbortSignal;
+  resolveKey(binding: Readonly<AccountBinding>, signal: AbortSignal): Promise<string>;
+  assertCurrent(binding: Readonly<AccountBinding>): Promise<void>;
+  base?: NodeJS.ProcessEnv;
 }
 interface Pending {
   method: string;
@@ -486,12 +502,90 @@ export class CodexAppServerClient {
     return this.launchHost(privateHome, base, lifecycle, true, executable);
   }
 
+  /** New-account bootstrap only. Login is private to this operation; the returned
+   * transport cannot log in again or switch billing through its public RPC API.
+   * The caller retains workspace/command authority and owns subsequent custody,
+   * credential renewal and cold continuation. This does not enable a chat route.
+   */
+  static async launchIsolatedApi(options: CodexApiBootstrapOptions): Promise<{
+    client: CodexAppServerClient;
+    binding: Readonly<AccountBinding>;
+  }> {
+    let client: CodexAppServerClient | undefined;
+    const { privateHome, executable, signal, lifecycle } = options;
+    const assertCurrent = options.assertCurrent.bind(options);
+    const resolveKey = options.resolveKey.bind(options);
+    const base = { ...(options.base ?? process.env) };
+    const onAbort = () => client?.close();
+    try {
+      const binding = Object.freeze(AccountBindingSchema.parse(options.binding));
+      if (binding.provider !== 'openai') throw new Error('API account required');
+      signal.throwIfAborted();
+      const home = lstatSync(privateHome);
+      const assertNewHome = () => {
+        const current = lstatSync(privateHome);
+        if (
+          !isAbsolute(privateHome) ||
+          realpathSync(privateHome) !== privateHome ||
+          !current.isDirectory() ||
+          current.dev !== home.dev ||
+          current.ino !== home.ino ||
+          (current.mode & 0o077) !== 0 ||
+          current.uid !== process.getuid?.() ||
+          !(executable instanceof FrozenHostCodexExecutable) ||
+          dirname(executable.path) !== privateHome ||
+          lstatSync(`${privateHome}/auth.json`, { throwIfNoEntry: false }) ||
+          lstatSync(`${privateHome}/config.toml`, { throwIfNoEntry: false })
+        )
+          throw new Error('New private API home required');
+      };
+      assertNewHome();
+      await assertCurrent(binding);
+      signal.throwIfAborted();
+      const key = await resolveKey(binding, signal);
+      signal.throwIfAborted();
+      if (typeof key !== 'string' || !key.trim()) throw new Error('API credential required');
+      await assertCurrent(binding);
+      signal.throwIfAborted();
+      executable.assertLaunchCurrent();
+      assertNewHome();
+      client = this.launchHost(privateHome, base, lifecycle, true, executable, 'api');
+      signal.addEventListener('abort', onAbort, { once: true });
+      signal.throwIfAborted();
+      await client.initialize();
+      await assertCurrent(binding);
+      signal.throwIfAborted();
+      assertNewHome();
+      const login = await client.sendRequest('account/login/start', {
+        type: 'apiKey',
+        apiKey: key,
+      });
+      signal.throwIfAborted();
+      z.object({ type: z.literal('apiKey') }).parse(login);
+      const observed = await client.request('account/read', { refreshToken: false });
+      z.object({
+        account: z.object({ type: z.literal('apiKey') }),
+        requiresOpenaiAuth: z.literal(true),
+      }).parse(observed);
+      await assertCurrent(binding);
+      signal.throwIfAborted();
+      return { client, binding };
+    } catch {
+      client?.close();
+      // Neither credential-provider errors nor login frames are public diagnostics.
+      throw new Error('API Codex authentication unavailable');
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
   private static launchHost(
     credentialRef: string,
     base: NodeJS.ProcessEnv,
     lifecycle: CodexLifecycleTransport | undefined,
     isolated: boolean,
     executable?: FrozenHostCodexExecutable,
+    authentication: 'chatgpt' | 'api' = 'chatgpt',
   ) {
     const env = codexEnvironment(credentialRef, base);
     assertHostCodexRuntimeVersion(isolated ? env : base, executable?.path);
@@ -503,11 +597,14 @@ export class CodexAppServerClient {
           'app-server',
           '--stdio',
           '-c',
-          'forced_login_method="chatgpt"',
+          `forced_login_method="${authentication}"`,
           '-c',
           'model_provider="openai"',
+          ...(authentication === 'api'
+            ? ['-c', 'openai_base_url="https://api.openai.com/v1"']
+            : []),
           ...(isolated ? ['-c', 'cli_auth_credentials_store="file"'] : []),
-          ...(lifecycle
+          ...(lifecycle || authentication === 'api'
             ? Object.entries(codexRuntimeOverrides({})).flatMap(([key, value]) => [
                 '-c',
                 `${key}=${JSON.stringify(value)}`,
