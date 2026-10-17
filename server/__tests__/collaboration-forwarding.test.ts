@@ -260,3 +260,55 @@ it('refuses an over-budget handoff without truncating selected content', async (
     code: 'capacity_refused',
   });
 });
+
+it('accepts exactly 512 KiB serialized content and refuses the next byte', async () => {
+  const input = selection();
+  const sequence = store.append('source', 'user_message', { messageId: 'budget', text: 'x' });
+  const raw = {
+    ...input,
+    boundary: { sequence, messageId: 'budget' },
+    messages: [
+      { messageId: 'budget', sequence, blocks: [{ blockId: 'user-budget', sha256: sha('x') }] },
+    ],
+  };
+  const sample = await prepareCollaborationForward(raw, deps());
+  const maximum = 512 * 1024 - Buffer.byteLength(sample.serialized) + 1;
+  const fault = new Database(path);
+  for (const length of [maximum, maximum + 1]) {
+    const text = 'π'.repeat(Math.floor(length / 2)) + (length % 2 ? 'x' : '');
+    fault
+      .prepare('UPDATE events SET payload=? WHERE session_id=? AND seq=?')
+      .run(JSON.stringify({ messageId: 'budget', text }), 'source', sequence);
+    const selected = {
+      ...raw,
+      messages: [{ ...raw.messages[0], blocks: [{ blockId: 'user-budget', sha256: sha(text) }] }],
+    };
+    if (length === maximum)
+      expect(
+        Buffer.byteLength((await prepareCollaborationForward(selected, deps())).serialized),
+      ).toBe(512 * 1024);
+    else
+      await expect(prepareCollaborationForward(selected, deps())).rejects.toMatchObject({
+        code: 'capacity_refused',
+      });
+  }
+  fault.close();
+});
+
+it('detects a finalized source edit during the final target authorization await', async () => {
+  const input = selection();
+  let calls = 0;
+  authorizeTarget.mockImplementation(async () => {
+    if (++calls !== 3) return;
+    const fault = new Database(path);
+    fault
+      .prepare(
+        "UPDATE events SET payload=json_set(payload,'$.delta',?) WHERE session_id=? AND type='block_delta' AND json_extract(payload,'$.blockId')=?",
+      )
+      .run('CHANGED WHILE AUTHORIZING TARGET', 'source', 'chosen');
+    fault.close();
+  });
+  await expect(prepareCollaborationForward(input, deps())).rejects.toMatchObject({
+    code: 'snapshot_changed',
+  });
+});

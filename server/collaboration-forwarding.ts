@@ -211,6 +211,8 @@ export async function prepareCollaborationForward(
     }
     await opened.assertCurrent();
     await authorizeTarget();
+    // A target check may yield while finalized source storage changes.
+    await opened.assertCurrent();
   }
   bounded(packet);
   await assertCurrent();
