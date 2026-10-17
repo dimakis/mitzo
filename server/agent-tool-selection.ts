@@ -33,6 +33,7 @@ export function assertAgentToolRoute(
     );
   const catalog = agentToolCatalog();
   for (const ref of definition.tools) {
+    if (ref.id.startsWith('custom:')) continue; // Exact receipt/route admission is mandatory below the profile gate.
     if (ref.id.startsWith('mcp:') || ref.id.startsWith('api:')) continue;
     const entry = catalog.find((tool) => tool.id === ref.id && tool.version === ref.version);
     if (!entry?.routes.includes(route))

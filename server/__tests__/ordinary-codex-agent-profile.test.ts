@@ -156,5 +156,5 @@ it('capabilities retain supported recipes and exclude native packs', () => {
   packs.contentHash = contextDigest(packs.definition);
   expect(
     ordinaryCodexAgentProfiles([workspace, packs]).map((profile) => profile.profileId),
-  ).toEqual([PROFILE_BUILDER_ID, 'workspace']);
+  ).toEqual([PROFILE_BUILDER_ID, 'mitzo-tool-builder', 'workspace']);
 });

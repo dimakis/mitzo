@@ -3,10 +3,13 @@ import {
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISION,
   profileBuilderDefinition,
+  TOOL_BUILDER_ID,
+  TOOL_BUILDER_REVISION,
+  toolBuilderDefinition,
   AgentLibraryVersionSchema,
   type AgentProfileSelection,
 } from '@mitzo/protocol';
-import { registerAuthSession, type AuthSession } from './auth.js';
+import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 
@@ -20,6 +23,21 @@ export function captureAgentLibraryAuthorization(connectionId?: string) {
     assertCurrent() {
       if (operators.get(connectionId!) !== auth || auth.expiresAt <= Date.now())
         throw Error('Agent profile authorization expired or revoked');
+    },
+  };
+}
+/** A single awaited operation keeps its exact operator, including across reconnect/logout. */
+export function captureAgentLibraryOperation(connectionId: string) {
+  const authorization = captureAgentLibraryAuthorization(connectionId);
+  const controller = new AbortController();
+  const dispose = registerAuthSession(authorization.auth, () => controller.abort());
+  return {
+    signal: controller.signal,
+    dispose,
+    assertCurrent() {
+      controller.signal.throwIfAborted();
+      authorization.assertCurrent();
+      if (!isAuthSessionCurrent(authorization.auth)) throw Error('Operator authorization revoked');
     },
   };
 }
@@ -53,16 +71,27 @@ export async function withAgentLibraryRecoveryAuthorization<T>(
 /** Builtin identity is code-owned and never resolved through the user Library. */
 export function readBuiltinAgentLibraryProfile(selection: AgentProfileSelection) {
   if (selection.kind === 'builtin') {
-    if (selection.profileId !== PROFILE_BUILDER_ID) return null;
-    if (selection.revision !== PROFILE_BUILDER_REVISION) return null;
+    const builtin =
+      selection.profileId === PROFILE_BUILDER_ID
+        ? {
+            id: PROFILE_BUILDER_ID,
+            revision: PROFILE_BUILDER_REVISION,
+            definition: profileBuilderDefinition,
+          }
+        : selection.profileId === TOOL_BUILDER_ID
+          ? {
+              id: TOOL_BUILDER_ID,
+              revision: TOOL_BUILDER_REVISION,
+              definition: toolBuilderDefinition,
+            }
+          : undefined;
+    if (!builtin || selection.revision !== builtin.revision) return null;
     return {
       kind: 'builtin' as const,
-      profileId: PROFILE_BUILDER_ID,
-      revision: PROFILE_BUILDER_REVISION,
-      definition: structuredClone(profileBuilderDefinition),
-      contentHash: createHash('sha256')
-        .update(JSON.stringify(profileBuilderDefinition))
-        .digest('hex'),
+      profileId: builtin.id,
+      revision: builtin.revision,
+      definition: structuredClone(builtin.definition),
+      contentHash: createHash('sha256').update(JSON.stringify(builtin.definition)).digest('hex'),
     };
   }
   return null;
