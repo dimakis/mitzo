@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import type { DailyQuote } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
+import { cachedDailyQuote, saveDailyQuote } from '../lib/launch-quote';
 
 export function useDailyQuote(date: string) {
   const [result, setResult] = useState<{
     date: string;
     quote: DailyQuote | null;
     error: string | null;
-  } | null>(null);
+  } | null>(() => {
+    const quote = cachedDailyQuote(date);
+    return quote ? { date, quote, error: null } : null;
+  });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
@@ -22,11 +26,17 @@ export function useDailyQuote(date: string) {
           typeof daily.quote.author !== 'string'
         )
           throw new Error('Invalid quote');
-        if (!controller.signal.aborted) setResult({ date, quote: daily, error: null });
+        if (!controller.signal.aborted) {
+          saveDailyQuote(daily);
+          setResult({ date, quote: daily, error: null });
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted)
-          setResult({ date, quote: null, error: 'Couldn’t load the quote. Try again.' });
+          setResult(() => {
+            const quote = cachedDailyQuote(date);
+            return { date, quote, error: quote ? null : 'Couldn’t load the quote. Try again.' };
+          });
       });
     return () => controller.abort();
   }, [date, attempt]);
