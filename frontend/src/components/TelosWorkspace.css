@@ -275,3 +275,11 @@
     padding-inline: var(--page-gutter);
   }
 }
+@media (min-width: 768px) {
+  .desktop-shell .telos-canonical-page {
+    position: relative;
+    inset: auto;
+    height: 100%;
+    min-height: 0;
+  }
+}

@@ -156,6 +156,8 @@ for (const theme of ['dark', 'light'])
     await expect(
       page.getByRole('heading', { name: 'Plan the recording setup', exact: true }),
     ).toBeVisible();
+    if (!isMobile)
+      expect((await page.locator('.telos-item-workspace').boundingBox())!.x).toBeGreaterThan(100);
     await expect(page.getByRole('button', { name: 'Work', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: 'Materials', exact: true }).click();
     await page.getByText('Provenance', { exact: true }).click();
