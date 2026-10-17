@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { TodoWorkspace } from '../TodoWorkspace';
 import type { TodoItem } from '../../types/todo';
@@ -93,33 +93,27 @@ afterEach(() => {
   state.desktop = true;
 });
 describe('TELOS workspace', () => {
-  it('opens desktop details beside the list and keeps the selected filter', () => {
+  it('opens one focused item workspace on desktop and restores the list filter on Back', async () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'work' }));
     fireEvent.click(screen.getByRole('button', { name: 'Ship desktop work' }));
-    const inspector = screen.getByRole('region', { name: 'Work details' });
-    expect(within(inspector).getByText('Inspect current pages')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'work' }).className).toContain('--active');
+    expect(screen.getByText('Inspect current pages')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Review desktop work' })).toBeNull();
     expect(screen.getByLabelText('Route').textContent).toBe('/todos/first');
-    fireEvent.click(screen.getByRole('button', { name: 'Review desktop work' }));
-    expect(within(inspector).getByText('Review desktop work')).toBeTruthy();
-    expect(within(inspector).queryByText('Ship desktop work')).toBeNull();
-    fireEvent.click(within(inspector).getByRole('button', { name: 'Back' }));
-    expect(screen.getByText('Select a work item')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('button', { name: 'work' }).className).toContain('--active');
   });
-  it('loads a bookmarked item beside the desktop list', async () => {
+  it('loads a bookmarked item without an extra desktop collection pane', async () => {
     mount('/todos/first');
-    const inspector = screen.getByRole('region', { name: 'Work details' });
-    expect(await within(inspector).findByText('Inspect current pages')).toBeTruthy();
-    expect(await within(inspector).findByText('No saved outputs yet.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Review desktop work' })).toBeTruthy();
+    expect(await screen.findByText('Inspect current pages')).toBeTruthy();
+    expect(await screen.findByText('No saved outputs yet.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Review desktop work' })).toBeNull();
   });
-  it('keeps mobile detail as a separate page', () => {
+  it('keeps mobile detail as a focused page', () => {
     state.desktop = false;
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'Ship desktop work' }));
     expect(screen.getByText('Inspect current pages')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Review desktop work' })).toBeNull();
-    expect(screen.queryByRole('region', { name: 'Work details' })).toBeNull();
   });
 });
