@@ -6,10 +6,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTelosWorkRouter } from '../telos-work-routes.js';
+import { revokeAuthSession } from '../auth.js';
+import { randomUUID } from 'node:crypto';
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })));
-function setup() {
+function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>[0]> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'telos-work-routes-'));
   roots.push(root);
   const path = join(root, 'telos.db');
@@ -32,13 +34,14 @@ function setup() {
           res.status(403).json({ error: 'Operator required' });
           return;
         }
-        res.locals.authSession = { id: 'verified-operator' };
+        res.locals.authSession = { id: 'verified-operator', expiresAt: Date.now() + 60000 };
         next();
       },
       verifyInternal: (req) => req.headers['x-internal-token'] === 'host',
       sessionId: (id) =>
         id === 'valid-client' ? 'chat' : id === 'other-client' ? 'unrelated' : undefined,
       ordinaryConversation: (id) => ['chat', 'unrelated'].includes(id),
+      ...overrides,
     }),
   );
   const read = () =>
@@ -48,6 +51,76 @@ function setup() {
   return { app, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  it('passes only host identity to the role owner and returns its exact retained receipt', async () => {
+    const roleSetup = vi.fn(
+      async (
+        input: Parameters<NonNullable<Parameters<typeof createTelosWorkRouter>[0]['roleSetup']>>[0],
+      ) => {
+        input.assertAuthorized();
+        expect(input.actor).toEqual({ kind: 'operator', id: 'verified-operator' });
+        return { receipt: 'saved' };
+      },
+    );
+    const f = setup({ roleSetup });
+    const result = await request(f.app)
+      .post('/api/telos/work/roles/setup')
+      .set('x-operator', 'authenticated')
+      .send({ requestId: 'unchanged' });
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ receipt: 'saved' });
+    expect(roleSetup).toHaveBeenCalledOnce();
+    expect(result.headers['cache-control']).toBe('private, no-store');
+  });
+
+  it('denies a successful delayed receipt after operator revocation without repeating the host operation', async () => {
+    const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+    const roleSetup = vi.fn(async () => {
+      await Promise.resolve();
+      revokeAuthSession(auth);
+      return { receipt: 'committed-and-retained' };
+    });
+    const f = setup({
+      roleSetup,
+      operatorAuth: (_req, res, next) => {
+        res.locals.authSession = auth;
+        next();
+      },
+    });
+    const result = await request(f.app)
+      .post('/api/telos/work/roles/setup')
+      .send({ requestId: 'same' });
+    expect(result.status).toBe(403);
+    expect(result.body.code).toBe('unauthorized');
+    expect(roleSetup).toHaveBeenCalledOnce();
+    expect(result.text).not.toContain('committed-and-retained');
+  });
+
+  it('keeps atomic role setup behind its context-authorizing host entry', async () => {
+    const f = setup();
+    const before = await f.read();
+    const result = await f.command({
+      operation: 'setup_role',
+      itemId: 'item',
+      requestId: 'bypass',
+      expectedRevision: before.body.revision,
+      role: 'lead',
+      conversationId: 'chat',
+      expectedAssignmentRevision: 0,
+    });
+    expect(result.status).toBe(400);
+    expect((await f.read()).body).toEqual(before.body);
+  });
+
+  it('reports role setup as unavailable without a configured ordinary host and denies internal-token substitution', async () => {
+    const f = setup();
+    const path = '/api/telos/work/roles/setup';
+    expect((await request(f.app).post(path).set('x-internal-token', 'host').send({})).status).toBe(
+      403,
+    );
+    expect(
+      (await request(f.app).post(path).set('x-operator', 'authenticated').send({})).status,
+    ).toBe(503);
+  });
   it('requires interactive operator authority before opening canonical data; internal headers cannot substitute', async () => {
     const f = setup();
     expect((await request(f.app).get('/api/telos/work/items/item')).status).toBe(403);

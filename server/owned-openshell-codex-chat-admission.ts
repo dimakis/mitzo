@@ -1,3 +1,4 @@
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { bootContextWithRetainedReceipt } from './agent-context-delivery.js';
 import {
   assertOrdinaryCodexContextIdentity,
@@ -395,6 +396,7 @@ export class OwnedOpenShellCodexChatAdmission {
   }
   assertCurrentSync() {
     this.owner.assertCurrentSync();
+    resolveTelosWorkRoleContext(this.owner.events, this.owner.sessionId, this.owner.account);
     if (
       this.#session &&
       (this.#session.cwd !== this.#expected.workspace.cwd ||

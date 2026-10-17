@@ -1,3 +1,7 @@
+import {
+  resolveTelosWorkRoleContext,
+  resolveTelosWorkSystemPrompt,
+} from './telos-work-role-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { resolveChatAgentProfile } from './agent-library-binding.js';
 import {
@@ -238,7 +242,12 @@ export class OrdinaryLocalCodexOwnedRuntime {
       if (resume) assertOrdinaryCodexSnapshotCustody(custody!, agentProfile, retainedContext);
       const payload: Payload = {
         ...rawPayload,
-        systemPrompt: buildAgentProfilePrompt(agentProfile.definition),
+        systemPrompt: resolveTelosWorkSystemPrompt(
+          this.owners.eventStore,
+          this.#reservation.conversationId,
+          this.#reservation.binding,
+          buildAgentProfilePrompt(agentProfile.definition),
+        ),
       };
       const target = this.#runtime.target();
       const catalog = new OrdinaryLocalCodexCapabilityCatalog(profiles, target, 'ordinary');
@@ -453,7 +462,12 @@ export class OrdinaryLocalCodexOwnedRuntime {
       profiles.validateModelSelection(binding, request.selection.model, request.selection.thinking);
       const payload: Payload = {
         ...rawPayload,
-        systemPrompt: buildAgentProfilePrompt(original.agentProfile!.definition),
+        systemPrompt: resolveTelosWorkSystemPrompt(
+          this.owners.eventStore,
+          this.#reservation.conversationId,
+          this.#reservation.binding,
+          buildAgentProfilePrompt(original.agentProfile!.definition),
+        ),
       };
       const assertSelection = async (
         expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
@@ -593,6 +607,11 @@ export class OrdinaryLocalCodexOwnedRuntime {
     if (this.#closed) throw unavailable();
     this.#signal.throwIfAborted();
     this.#operator.assertCurrent();
+    resolveTelosWorkRoleContext(
+      this.owners.eventStore,
+      this.#reservation.conversationId,
+      this.owners.eventStore.getSession(this.#reservation.conversationId)?.accountBinding,
+    );
   }
 
   close(): void {

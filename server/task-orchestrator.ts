@@ -24,6 +24,9 @@ export interface StartOptions {
 
 export interface OrchestratorDeps {
   store: TaskStore;
+  /** Host role authority for this exact ordinary conversation and execution task.
+   * This denial boundary grants no dispatch or allocation authority. */
+  assertTaskExecutionScope?: (clientId: string, taskId: string) => void;
   workloadStore?: WorkloadStore;
   /** Resolve session's clientId for the reuse session */
   getClientId: () => string | null;
@@ -113,6 +116,15 @@ export class TaskOrchestrator {
   }
 
   private dispatchToPinned(taskId: string, clientId: string, prompt: string): void {
+    try {
+      this.deps.assertTaskExecutionScope?.(clientId, taskId);
+    } catch (error) {
+      this.markDispatchFailed(
+        taskId,
+        error instanceof Error ? error.message : 'Work scope unavailable',
+      );
+      return;
+    }
     const generation = this.runGeneration;
     const signal = this.dispatchAbort.signal;
     void Promise.resolve(
@@ -212,6 +224,7 @@ export class TaskOrchestrator {
     // Spec decomposition sends its first prompt immediately. A background
     // caller must name a chat; never activate the goal without a recipient.
     const pinnedClientId = opts?.clientId ?? this.deps.getClientId();
+    if (pinnedClientId) this.deps.assertTaskExecutionScope?.(pinnedClientId, goalId);
     if (!pinnedClientId && this.requiresClientId(goalId, opts)) {
       log.warn('start() requires an explicit session target', { goalId });
       return this.getStatus();
@@ -450,6 +463,7 @@ export class TaskOrchestrator {
     // reach it after spawned work, so leave it pending when there is nowhere
     // to send rejection feedback.
     if (!targetClientId) return false;
+    this.deps.assertTaskExecutionScope?.(targetClientId, taskId);
 
     const retryPrompt =
       `Your previous work on "${task.title}" was rejected.\n` +
@@ -757,6 +771,18 @@ export class TaskOrchestrator {
             this.deps.store.cascadeStatus(next.id);
             this.deps.broadcastTasks();
             this.state = 'paused';
+            this.deps.broadcastStatus(this.getStatus());
+            break;
+          }
+          try {
+            this.deps.assertTaskExecutionScope?.(this.pinnedClientId, next.id);
+          } catch (error) {
+            log.warn('task execution scope denied', {
+              taskId: next.id,
+              error: error instanceof Error ? error.message : 'Work scope unavailable',
+            });
+            this.state = 'paused';
+            this.autoPausedReason = null;
             this.deps.broadcastStatus(this.getStatus());
             break;
           }

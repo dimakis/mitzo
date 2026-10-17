@@ -8,6 +8,8 @@ import {
   TelosSourcePacketSchema,
   TelosWorkCommandReceiptSchema,
   TelosOutcomeContextHintsSchema,
+  TelosWorkRoleSetupInputSchema,
+  type TelosWorkRoleSetupIntent,
   type TelosWorkCommand,
   type TelosWorkCommandReceipt,
   type TelosWorkView,
@@ -85,6 +87,82 @@ export class TelosWorkStore {
   }
   close() {
     if (this.db.open) this.db.close();
+  }
+  prepareRoleSetup(
+    raw: unknown,
+    actor: TelosWorkActor,
+  ): { setup: TelosWorkRoleSetupIntent; receipt: TelosWorkCommandReceipt | null } {
+    this.operator(actor);
+    const input = TelosWorkRoleSetupInputSchema.parse(raw);
+    return this.db
+      .transaction(() => {
+        const actorId = `operator:${actor.id}`;
+        const fingerprint = hash(input);
+        const saved = this.db
+          .prepare(
+            'SELECT fingerprint,intent,receipt FROM telos_work_role_setups WHERE actor_id=? AND request_id=?',
+          )
+          .get(actorId, input.requestId) as
+          { fingerprint: string; intent: string; receipt: string | null } | undefined;
+        if (saved) {
+          if (saved.fingerprint !== fingerprint)
+            conflict('Role setup identity reused with different input');
+          return {
+            setup: JSON.parse(saved.intent) as TelosWorkRoleSetupIntent,
+            receipt: saved.receipt
+              ? TelosWorkCommandReceiptSchema.parse(JSON.parse(saved.receipt))
+              : null,
+          };
+        }
+        if (this.snapshot(input.itemId).revision !== input.expectedRevision)
+          conflict('Work revision conflict');
+        const setup: TelosWorkRoleSetupIntent = {
+          actorId,
+          input,
+          allocationOperationId: randomUUID(),
+        };
+        this.db
+          .prepare(
+            'INSERT INTO telos_work_role_setups(actor_id,request_id,fingerprint,intent) VALUES(?,?,?,?)',
+          )
+          .run(actorId, input.requestId, fingerprint, JSON.stringify(setup));
+        return { setup, receipt: null };
+      })
+      .immediate();
+  }
+  completeRoleSetup(
+    setup: TelosWorkRoleSetupIntent,
+    conversationId: string,
+    actor: TelosWorkActor,
+    assertBeforeApply: () => void,
+  ): TelosWorkCommandReceipt {
+    this.operator(actor);
+    return this.db
+      .transaction(() => {
+        const retained = this.prepareRoleSetup(setup.input, actor);
+        if (JSON.stringify(retained.setup) !== JSON.stringify(setup))
+          conflict('Role setup scope mismatch');
+        if (retained.receipt) return retained.receipt;
+        const { itemId, expectedRevision, role, expectedAssignmentRevision } = setup.input;
+        const receipt = this.execute(
+          {
+            itemId,
+            expectedRevision,
+            role,
+            expectedAssignmentRevision,
+            requestId: `role:${setup.allocationOperationId}`,
+            operation: 'setup_role',
+            conversationId,
+          },
+          actor,
+          assertBeforeApply,
+        );
+        this.db
+          .prepare('UPDATE telos_work_role_setups SET receipt=? WHERE actor_id=? AND request_id=?')
+          .run(JSON.stringify(receipt), setup.actorId, setup.input.requestId);
+        return receipt;
+      })
+      .immediate();
   }
   private item(id: string): Item {
     const item = this.db.prepare('SELECT * FROM items WHERE id=?').get(id) as Item | undefined;
@@ -525,6 +603,33 @@ export class TelosWorkStore {
       case 'link':
         this.addLink(input.itemId, input.role, input.conversation, actorId);
         break;
+      case 'setup_role': {
+        if (
+          (input.role === 'advisor' || input.role === 'reviewer') &&
+          input.expectedAssignmentRevision !== null
+        )
+          invalid('An advisor or reviewer cannot be the current lead or worker');
+        this.addLink(
+          input.itemId,
+          input.role,
+          { namespace: 'mitzo', conversationId: input.conversationId },
+          actorId,
+        );
+        if (
+          (input.role === 'lead' || input.role === 'worker') &&
+          input.expectedAssignmentRevision !== null
+        )
+          this.apply(
+            {
+              ...input,
+              operation: 'assign',
+              role: input.role,
+              expectedAssignmentRevision: input.expectedAssignmentRevision,
+            },
+            actorId,
+          );
+        break;
+      }
       case 'assign': {
         if (!this.policy.ordinaryConversation(input.conversationId))
           invalid('A registered ordinary Mitzo conversation is required');

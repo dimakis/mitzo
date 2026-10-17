@@ -1,3 +1,4 @@
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
@@ -1357,6 +1358,12 @@ async function _startChatInner(
         options.contributorGuidance,
       ),
     };
+    if (options.resume ?? options.initialSessionId)
+      resolveTelosWorkRoleContext(
+        eventStore,
+        (options.resume ?? options.initialSessionId)!,
+        accountBinding ?? undefined,
+      );
     const toolRoute =
       accountBinding?.provider === 'openai-codex'
         ? 'codex'

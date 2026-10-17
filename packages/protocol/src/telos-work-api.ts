@@ -8,11 +8,35 @@ import {
 } from './telos-work.js';
 import { SessionRuntimeBindingSchema } from './session-runtime-binding.js';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
+import { CollaborationSettingsSchema } from './collaboration-conversation.js';
 
 export const TelosWorkIdSchema = z.string().min(1).max(200).regex(/^\S+$/);
 const id = TelosWorkIdSchema;
 const revision = z.string().regex(/^[a-f0-9]{64}$/);
 const base = { itemId: id, requestId: id, expectedRevision: revision };
+export const TelosWorkRoleSetupInputSchema = z
+  .strictObject({
+    ...base,
+    role: z.enum(['lead', 'worker', 'advisor', 'reviewer']),
+    expectedAssignmentRevision: z.number().int().nonnegative().safe().nullable(),
+    settings: CollaborationSettingsSchema,
+    // The role context owner validates this immutable selection, including its
+    // canonical work/source authority, before preparing an ordinary session.
+    contextSelection: z
+      .unknown()
+      .refine((value) => value !== undefined, 'Exact role context selection required'),
+  })
+  .refine(
+    (value) => ['lead', 'worker'].includes(value.role) || value.expectedAssignmentRevision === null,
+    'Invalid role assignment selection',
+  );
+export const TelosWorkRoleSetupIntentSchema = z.strictObject({
+  actorId: id,
+  input: TelosWorkRoleSetupInputSchema,
+  allocationOperationId: z.uuid(),
+});
+export type TelosWorkRoleSetupInput = z.infer<typeof TelosWorkRoleSetupInputSchema>;
+export type TelosWorkRoleSetupIntent = z.infer<typeof TelosWorkRoleSetupIntentSchema>;
 export const TelosWorkCommandSchema = z.discriminatedUnion('operation', [
   z.strictObject({
     ...base,
@@ -32,6 +56,13 @@ export const TelosWorkCommandSchema = z.discriminatedUnion('operation', [
     role: z.enum(['lead', 'worker']),
     conversationId: id,
     expectedAssignmentRevision: z.number().int().nonnegative().safe(),
+  }),
+  z.strictObject({
+    ...base,
+    operation: z.literal('setup_role'),
+    role: z.enum(['lead', 'worker', 'advisor', 'reviewer']),
+    conversationId: id,
+    expectedAssignmentRevision: z.number().int().nonnegative().safe().nullable(),
   }),
   z.strictObject({
     ...base,

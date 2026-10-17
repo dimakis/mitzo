@@ -1,3 +1,7 @@
+import {
+  resolveTelosWorkRoleContext,
+  resolveTelosWorkSystemPrompt,
+} from './telos-work-role-context.js';
 import { isDeepStrictEqual } from 'node:util';
 import { OrdinaryCodexFirstCommandSchema } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
@@ -117,6 +121,7 @@ export async function startOwnedOpenShellCodexCommand(
   const sessionId = input.meta.sessionId;
   const account = structuredClone(input.meta.accountBinding);
   const nativeStore = getCodexConversationStore();
+  const assertRoleCurrent = () => resolveTelosWorkRoleContext(eventStore, sessionId, account);
   let prepared: Awaited<ReturnType<typeof prepareOwnedCodexChat>> | undefined;
   let closed = false;
   let composed: ReturnType<typeof createOrdinaryOpenShellCodexEntryOwner> | undefined;
@@ -136,7 +141,12 @@ export async function startOwnedOpenShellCodexCommand(
       ...request,
       payload: {
         ...request.payload,
-        systemPrompt: buildAgentProfilePrompt(input.meta.agentProfile.definition),
+        systemPrompt: resolveTelosWorkSystemPrompt(
+          eventStore,
+          sessionId,
+          account,
+          buildAgentProfilePrompt(input.meta.agentProfile.definition),
+        ),
       },
     };
     const meta = {
@@ -181,14 +191,17 @@ export async function startOwnedOpenShellCodexCommand(
         }
       },
       dispatch: async (dispatch) => {
+        assertRoleCurrent();
         if (prepared || closed) throw unavailable();
         prepared = await prepareOwnedCodexChat(transport, clientId, dispatch, {
           ownerConnectionId: input.ownerConnectionId,
           ownerAuthSessionId: captured.auth.id,
           onEnded: close,
         });
+        assertRoleCurrent();
       },
       dispatchContinuation: async (dispatch) => {
+        assertRoleCurrent();
         const live = registry.findBySessionId(sessionId)?.session;
         const native = live && getCodexRuntime(live);
         if (closed || !live || !native || live.ownedLocalAuthSessionId !== captured.auth.id)
@@ -223,6 +236,7 @@ export async function startOwnedOpenShellCodexCommand(
       close();
       return result;
     }
+    assertRoleCurrent();
     const session = registry.findBySessionId(sessionId)?.session;
     if (!session || !prepared || closed) throw unavailable();
     const driver = composed.driver;
