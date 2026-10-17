@@ -82,7 +82,9 @@ export class CollaborationApiClient {
       SessionCollaborationSchema.refine(
         (receipt) =>
           receipt.collaborationId === group &&
-          receipt.participantSessionIds.includes(body.sessionId),
+          receipt.revision === 1 &&
+          receipt.participantSessionIds.length === 1 &&
+          receipt.participantSessionIds[0] === body.sessionId,
         'Collaboration preparation identity changed',
       ),
       signal,

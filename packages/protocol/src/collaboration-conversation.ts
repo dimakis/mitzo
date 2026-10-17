@@ -160,6 +160,11 @@ export const CollaborationDeliverySchema = z.strictObject({
   commandId: id.nullable(),
   reason: z.string().max(1000).nullable(),
 });
+/** Reference only. Exact retained forwarding bytes stay with the host storage owner. */
+export const CollaborationForwardReferenceSchema = z.strictObject({
+  forwardId: z.uuid(),
+  packetSha256: digest,
+});
 export const CollaborationMessageSchema = z
   .strictObject({
     version: z.literal(1),
@@ -167,7 +172,8 @@ export const CollaborationMessageSchema = z
     projectionId: z.uuid(),
     sequence,
     author,
-    text: z.string().min(1).max(100_000),
+    text: z.string().max(100_000),
+    forward: CollaborationForwardReferenceSchema.optional(),
     // Replies must originate in an explicitly mapped ordinary command, never all session activity.
     source: CollaborationMessageSourceSchema.nullable(),
     replyToDeliveryId: z.uuid().nullable(),
@@ -181,6 +187,18 @@ export const CollaborationMessageSchema = z
     deliveries: z.array(CollaborationDeliverySchema).max(16),
   })
   .superRefine((message, context) => {
+    if (
+      message.forward
+        ? message.author !== 'operator' ||
+          message.source !== null ||
+          message.replyToDeliveryId !== null ||
+          message.snapshot !== null ||
+          message.responders.length !== 0 ||
+          message.readers.length === 0 ||
+          message.deliveries.some((delivery) => delivery.purpose !== 'context')
+        : message.text.length === 0
+    )
+      context.addIssue({ code: 'custom', message: 'Invalid forwarding context message' });
     if (
       message.responders.some((id) => !message.readers.includes(id)) ||
       Object.keys(message.settings).sort().join('\0') !== [...message.readers].sort().join('\0') ||

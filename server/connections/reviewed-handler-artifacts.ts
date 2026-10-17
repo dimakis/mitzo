@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.287-symposium-integration.6';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.287-symposium-integration.7';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -45,7 +45,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-retained-artifact-source.ts':
     'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
   '../collaboration-forwarding.ts':
-    'e478c10cb104ad5b2b1b32643588c525455d299c0a139d81b866d41e43c4c529',
+    'fdc3746940ad4b1c9b577e9b4c74d4cf2f4fe54839de5dd292a361f9cf0019fe',
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../../frontend/src/components/SandboxOwnershipReview.tsx':
@@ -181,12 +181,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Fresh-agent review compilation and metadata; execution remains disabled.
   '../collaboration-context-compiler.ts':
     'd52551cd2b7515c93b86acdcba09ca46118d6632c698831e2bc5540dd866e572',
+  '../../packages/protocol/src/collaboration-forward.ts':
+    '102364eea13520355ff0852506b4f5002ed6585149cd9f2cb39ef2d474dd6adb',
   '../../packages/protocol/src/collaboration-conversation.ts':
-    'ef88c27891c2eea9c09653fb6394c8b8d8beead8b10d4b5c781e41f63d7d2f78',
+    'ab95eb8658192f89d338e53eb6d342f8bbeedecfd80003e004460eb83e131e17',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    '543e8ace99082b3432db99eb5961036a10c58f5d6601f15f89c830757819d485',
+    'e7f1af8a89063d4cbfa39d2c33a0d057a721f2b2e634928d152984c9d3b76176',
   '../../packages/client/src/collaboration-api.ts':
-    'b563eaea9ab20badd02a7bb479fd4040650f78c3bedf847473e99b80bae7a9ee',
+    'c1305792f5d04a5b5bb586ae406668111ce1eccc097f8c1cab42c89bc8fc207f',
   '../../packages/client/src/collaboration-projection.ts':
     'c1c4ba9954434950444389c70be7c1f31460e5fcddc4d99d6edfd74fd113890e',
   '../../packages/client/src/index.ts':
@@ -777,7 +779,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    'eca3cd671b19c6c0a419737b26fbc202fca4d1c41015f4fe99c313ba28223713',
+    'cea2d66c6851c6213ba4d8c7b00b7e462ded6c46922f4f21ad2dcdd215acd032',
   // Approved Telos workspace wire contracts only; no work/session runtime activation.
   '../../packages/protocol/src/telos-work.ts':
     'e3c01517b0fd4009f7e4b79a05a1d88935cc95aa3c70f4811298487868ffb7ae',
@@ -981,7 +983,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bc3c9556216aaea4e4abd405e6bbab9e8158c6d3f7daed51b0d370273ca2c54f',
   '../codex-ordinary-packet.ts': '30dab46fda1ff4daddccf2503bae33bacc3ab1f438c113a102c08854d9d0532a',
   '../collaboration-ordinary-delivery.ts':
-    '8613b0eb451dd8729c2975847a65e3895b0986f1da65b8ae634c84bae76867c5',
+    'bd5f853078019770871a660083177cd54e7dae8c7718f230fdd203ca39a942e7',
   '../collaboration-review-owner.ts':
     '43048f38b48cb2ca5cd007f129d640c13f966766060c1a45355dfa0bb099bde2',
 

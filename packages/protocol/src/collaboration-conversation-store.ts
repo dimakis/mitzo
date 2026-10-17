@@ -1,6 +1,17 @@
 import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { isDeepStrictEqual } from 'node:util';
+import {
+  CollaborationForwardPrepareInputSchema,
+  CollaborationForwardConfirmInputSchema,
+  CollaborationForwardPreparationSchema,
+  CollaborationForwardConfirmationSchema,
+  CollaborationForwardReadSchema,
+  collaborationForwardSelectionFingerprint,
+  validateCollaborationForwardPacket,
+  type CollaborationForwardPreparation,
+} from './collaboration-forward.js';
 import {
   SessionCollaborationIdSchema,
   SessionCollaborationSchema,
@@ -466,6 +477,319 @@ export class CollaborationConversationStore {
         return message;
       },
     );
+  }
+  /** Private reservation before asynchronous source reads. Existing ordinary
+   * settings and membership are captured once; no context is delivered here. */
+  reserveForwardPreparation(group: string, raw: unknown) {
+    const { operatorId, input } = z
+      .strictObject({
+        operatorId: z.string().min(1).max(200).regex(/^\S+$/),
+        input: CollaborationForwardPrepareInputSchema,
+      })
+      .parse(raw);
+    if (Buffer.byteLength(JSON.stringify(input), 'utf8') > 512 * 1024)
+      throw new ContractError('capacity_refused');
+    const initial = this.mutation(
+      group,
+      input.selection.requestId,
+      { kind: 'forward-preparation', operatorId, input },
+      CollaborationForwardPreparationSchema,
+      () => {
+        if (input.selection.target.collaborationId !== group)
+          throw new ContractError('snapshot_changed');
+        const current = this.membership(group, input.selection.target.expectedMembershipRevision);
+        this.requireRecipients(current, input.selection.target.sessionIds);
+        const settings = Object.fromEntries(
+          input.selection.target.sessionIds.map((sessionId) => {
+            const selected = this.owners.settings(sessionId);
+            if (!selected) throw new ContractError('unavailable_recipient');
+            return [sessionId, CollaborationSettingsSchema.parse(selected)];
+          }),
+        );
+        const record = CollaborationForwardPreparationSchema.parse({
+          version: 1,
+          forwardId: randomUUID(),
+          operatorId,
+          input,
+          selectionFingerprint: collaborationForwardSelectionFingerprint(input.selection),
+          settings,
+          serialized: null,
+          packetSha256: null,
+          confirmation: null,
+        });
+        this.put(group, 'forward-preparation', record.forwardId, record);
+        return record;
+      },
+    );
+    return this.privateForward(group, initial.forwardId)!;
+  }
+  /** Host-private exact original actor/request observation, including pending state. */
+  getForwardPreparation(group: string, operatorId: string, requestId: string) {
+    this.group(group);
+    z.uuid().parse(requestId);
+    const receipt = this.db
+      .prepare(
+        'SELECT result FROM collaboration_requests WHERE collaboration_id=? AND request_id=?',
+      )
+      .get(group, requestId) as { result: string } | undefined;
+    if (!receipt) return null;
+    const initial = CollaborationForwardPreparationSchema.safeParse(JSON.parse(receipt.result));
+    if (!initial.success || initial.data.operatorId !== operatorId)
+      throw new ContractError('request_conflict');
+    return this.privateForward(group, initial.data.forwardId);
+  }
+  private privateForward(group: string, forwardId: string): CollaborationForwardPreparation | null {
+    this.group(group);
+    z.uuid().parse(forwardId);
+    const record = this.current(
+      group,
+      'forward-preparation',
+      forwardId,
+      CollaborationForwardPreparationSchema,
+    );
+    if (!record) return null;
+    const receipt = this.db
+      .prepare(
+        'SELECT fingerprint,result FROM collaboration_requests WHERE collaboration_id=? AND request_id=?',
+      )
+      .get(group, record.input.selection.requestId) as
+      { fingerprint: string; result: string } | undefined;
+    if (!receipt) throw new ContractError('snapshot_changed');
+    const initial = CollaborationForwardPreparationSchema.parse(JSON.parse(receipt.result));
+    if (
+      !isDeepStrictEqual(
+        { ...record, serialized: null, packetSha256: null, confirmation: null },
+        initial,
+      ) ||
+      receipt.fingerprint !==
+        sha({ kind: 'forward-preparation', operatorId: record.operatorId, input: record.input }) ||
+      record.input.selection.target.collaborationId !== group ||
+      record.selectionFingerprint !==
+        collaborationForwardSelectionFingerprint(record.input.selection) ||
+      Object.keys(record.settings).sort().join('\0') !==
+        [...record.input.selection.target.sessionIds].sort().join('\0') ||
+      (record.serialized === null) !== (record.packetSha256 === null)
+    )
+      throw new ContractError('snapshot_changed');
+    if (record.serialized !== null && record.packetSha256 !== null)
+      validateCollaborationForwardPacket(record.input, record.serialized, record.packetSha256);
+    if (
+      record.confirmation &&
+      (record.serialized === null ||
+        record.confirmation.forward.forwardId !== record.forwardId ||
+        record.confirmation.forward.packetSha256 !== record.packetSha256 ||
+        record.confirmation.forward.selectionFingerprint !== record.selectionFingerprint ||
+        !isDeepStrictEqual(
+          record.confirmation.deliveries.map((delivery) => delivery.sessionId),
+          record.input.selection.target.sessionIds,
+        ) ||
+        record.confirmation.deliveries.some(
+          (delivery) =>
+            delivery.purpose !== 'context' ||
+            delivery.status !== 'pending' ||
+            delivery.revision !== 0 ||
+            delivery.commandId !== null ||
+            delivery.reason !== null,
+        ))
+    )
+      throw new ContractError('snapshot_changed');
+    return record;
+  }
+  private assertForwardRecipients(group: string, record: CollaborationForwardPreparation) {
+    const current = this.membership(
+      group,
+      record.input.selection.target.expectedMembershipRevision,
+    );
+    this.requireRecipients(current, record.input.selection.target.sessionIds);
+    for (const sessionId of record.input.selection.target.sessionIds) {
+      const selected = this.owners.settings(sessionId);
+      if (
+        !selected ||
+        !isDeepStrictEqual(CollaborationSettingsSchema.parse(selected), record.settings[sessionId])
+      )
+        throw new ContractError('unavailable_recipient');
+    }
+  }
+  private assertForwardFence(assertCurrent: () => void) {
+    if (typeof assertCurrent !== 'function') throw new ContractError('snapshot_changed');
+    const asserted: unknown = assertCurrent();
+    if (asserted !== undefined) {
+      void Promise.resolve(asserted).catch(() => {});
+      throw new ContractError('snapshot_changed');
+    }
+  }
+  completeForwardPreparation(
+    group: string,
+    requestId: string,
+    raw: unknown,
+    assertCurrent: () => void,
+  ) {
+    const input = z
+      .strictObject({
+        operatorId: z.string().min(1).max(200),
+        serialized: z.string(),
+        packetSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .parse(raw);
+    return this.db
+      .transaction(() => {
+        const record = this.getForwardPreparation(group, input.operatorId, requestId);
+        if (!record) throw new ContractError('not_found');
+        if (record.serialized !== null) {
+          if (record.serialized !== input.serialized || record.packetSha256 !== input.packetSha256)
+            throw new ContractError('request_conflict');
+          return this.readForward(group, input.operatorId, record.forwardId);
+        }
+        validateCollaborationForwardPacket(record.input, input.serialized, input.packetSha256);
+        this.assertForwardRecipients(group, record);
+        const cursor = this.cursor(group);
+        this.assertForwardFence(assertCurrent);
+        if (
+          this.cursor(group) !== cursor ||
+          !isDeepStrictEqual(this.privateForward(group, record.forwardId), record)
+        )
+          throw new ContractError('conflict');
+        this.assertForwardRecipients(group, record);
+        this.put(group, 'forward-preparation', record.forwardId, {
+          ...record,
+          serialized: input.serialized,
+          packetSha256: input.packetSha256,
+        });
+        return this.readForward(group, input.operatorId, record.forwardId);
+      })
+      .immediate();
+  }
+  /** No dispatch. A first confirmation only retains context receipts; exact
+   * retries observe their immutable identities before any fresh mutation fence. */
+  confirmForward(group: string, raw: unknown, assertCurrent: () => void) {
+    const { operatorId, input } = z
+      .strictObject({
+        operatorId: z.string().min(1).max(200),
+        input: CollaborationForwardConfirmInputSchema,
+      })
+      .parse(raw);
+    return this.mutation(
+      group,
+      input.requestId,
+      { kind: 'forward-confirmation', operatorId, input },
+      CollaborationForwardConfirmationSchema,
+      () => {
+        const record = this.privateForward(group, input.forward.forwardId);
+        if (!record) throw new ContractError('not_found');
+        if (record.operatorId !== operatorId) throw new ContractError('request_conflict');
+        if (record.confirmation) throw new ContractError('request_conflict');
+        if (
+          record.serialized === null ||
+          record.packetSha256 !== input.forward.packetSha256 ||
+          record.selectionFingerprint !== input.forward.selectionFingerprint ||
+          input.expectedMembershipRevision !==
+            record.input.selection.target.expectedMembershipRevision
+        )
+          throw new ContractError('snapshot_changed');
+        this.assertForwardRecipients(group, record);
+        const current = this.group(group),
+          policies = this.policies(current);
+        const message = CollaborationMessageSchema.parse({
+          version: 1,
+          messageId: randomUUID(),
+          projectionId: randomUUID(),
+          sequence: this.cursor(group) + 1,
+          author: 'operator',
+          text: record.input.note,
+          forward: { forwardId: record.forwardId, packetSha256: record.packetSha256 },
+          source: null,
+          replyToDeliveryId: null,
+          snapshot: null,
+          membershipRevision: current.revision,
+          policySequence: this.policySequence(group),
+          policyRevisions: Object.fromEntries(
+            policies.map((policy) => [policy.sessionId, policy.revision]),
+          ),
+          responders: [],
+          readers: record.input.selection.target.sessionIds,
+          settings: record.settings,
+          deliveries: record.input.selection.target.sessionIds.map((sessionId) => ({
+            version: 1,
+            deliveryId: randomUUID(),
+            sessionId,
+            purpose: 'context',
+            revision: 0,
+            status: 'pending',
+            commandId: null,
+            reason: null,
+          })),
+        });
+        const confirmation = CollaborationForwardConfirmationSchema.parse({
+          version: 1,
+          requestId: input.requestId,
+          forward: input.forward,
+          messageId: message.messageId,
+          deliveries: message.deliveries,
+        });
+        this.assertForwardFence(assertCurrent);
+        if (
+          this.cursor(group) + 1 !== message.sequence ||
+          !isDeepStrictEqual(this.privateForward(group, record.forwardId), record)
+        )
+          throw new ContractError('conflict');
+        this.assertForwardRecipients(group, record);
+        this.put(group, 'message', message.messageId, message);
+        this.event(group, { kind: 'message', message });
+        this.put(group, 'forward-preparation', record.forwardId, { ...record, confirmation });
+        return confirmation;
+      },
+    );
+  }
+  /** Redacted host observation. Middleware/current source/item access belongs to
+   * the caller; exact identities never confer a fresh send or model grant. */
+  readForward(group: string, operatorId: string, forwardId: string) {
+    return this.db.transaction(() => {
+      const record = this.privateForward(group, forwardId);
+      if (!record) throw new ContractError('not_found');
+      if (record.operatorId !== operatorId) throw new ContractError('request_conflict');
+      let deliveries: CollaborationDelivery[] = [];
+      if (record.confirmation) {
+        const message = this.getMessage(group, record.confirmation.messageId);
+        if (
+          !message ||
+          !isDeepStrictEqual(message.forward, { forwardId, packetSha256: record.packetSha256 }) ||
+          message.text !== record.input.note ||
+          !isDeepStrictEqual(message.settings, record.settings) ||
+          !isDeepStrictEqual(message.readers, record.input.selection.target.sessionIds) ||
+          !isDeepStrictEqual(
+            message.deliveries.map((delivery) => delivery.deliveryId),
+            record.confirmation.deliveries.map((delivery) => delivery.deliveryId),
+          )
+        )
+          throw new ContractError('snapshot_changed');
+        deliveries = message.deliveries;
+      }
+      return CollaborationForwardReadSchema.parse({
+        version: 1,
+        forwardId,
+        requestId: record.input.selection.requestId,
+        selection: record.input.selection,
+        note: record.input.note,
+        selectionFingerprint: record.selectionFingerprint,
+        packetSha256: record.packetSha256,
+        state: record.confirmation
+          ? 'confirmed'
+          : record.serialized === null
+            ? 'preparing'
+            : 'prepared',
+        confirmation: record.confirmation,
+        deliveries,
+      });
+    })();
+  }
+  /** Private exact retained bytes for the ordinary resolver. Not an access,
+   * input-format, capacity or dispatch capability and never an HTTP response. */
+  getForwardPacket(group: string, raw: unknown) {
+    const ref = CollaborationMessageSchema.shape.forward.unwrap().parse(raw);
+    const record = this.privateForward(group, ref.forwardId);
+    if (!record || record.serialized === null || record.packetSha256 !== ref.packetSha256)
+      throw new ContractError('snapshot_changed');
+    return { ...record, serialized: record.serialized, packetSha256: ref.packetSha256 };
   }
   /** Host-only receipt, never a scheduler. Unknown external outcomes remain uncertain. */
   recordDelivery(group: string, messageId: string, deliveryId: string, raw: unknown) {

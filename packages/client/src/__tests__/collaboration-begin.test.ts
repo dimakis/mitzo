@@ -35,6 +35,8 @@ it.each([
   { ready: true },
   { ...receipt, collaborationId: '00000000-0000-4000-8000-000000000002' },
   { ...receipt, participantSessionIds: ['other-source'] },
+  { ...receipt, revision: 2 },
+  { ...receipt, participantSessionIds: [input.sessionId, 'other-source'] },
 ])('refuses a malformed or foreign receipt', async (body) => {
   const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(body)));
   await expect(new CollaborationApiClient(fetch).begin(group, input)).rejects.toBeInstanceOf(
