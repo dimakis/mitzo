@@ -56,6 +56,76 @@ function fixture(path?: string) {
   });
   return { root, pool, adapter, physical, request };
 }
+it('prepares command seed only for a verified new claim, under durable ownership', async () => {
+  const f = fixture();
+  const prepare = vi.fn(async () => {
+    expect(f.pool.lookup('chat', 'account')?.state).toBe('claiming');
+    return '/fresh/command-seed';
+  });
+  await expect(
+    f.pool.claim(
+      'chat',
+      'account',
+      AbortSignal.timeout(5000),
+      undefined,
+      undefined,
+      undefined,
+      prepare,
+    ),
+  ).resolves.toBeNull();
+  expect(prepare).not.toHaveBeenCalled();
+  await f.pool.mutate(f.request('prepare'));
+  const claimed = await f.pool.claim(
+    'chat',
+    'account',
+    AbortSignal.timeout(5000),
+    undefined,
+    undefined,
+    undefined,
+    prepare,
+  );
+  expect(claimed?.state).toBe('claimed');
+  expect(prepare).toHaveBeenCalledOnce();
+  expect(f.adapter.bind).toHaveBeenCalledWith(
+    expect.anything(),
+    'account',
+    expect.anything(),
+    '/fresh/command-seed',
+    undefined,
+  );
+  await f.pool.claim(
+    'chat',
+    'account',
+    AbortSignal.timeout(5000),
+    undefined,
+    undefined,
+    undefined,
+    prepare,
+  );
+  expect(prepare).toHaveBeenCalledOnce();
+});
+
+it('retains the original assigned resource when command seed preparation fails', async () => {
+  const f = fixture();
+  await f.pool.mutate(f.request('prepare'));
+  const physicalId = f.pool.snapshot().spares[0].physicalId;
+  await expect(
+    f.pool.claim(
+      'chat',
+      'account',
+      AbortSignal.timeout(5000),
+      undefined,
+      undefined,
+      undefined,
+      async () => {
+        throw Error('Fresh publication refused');
+      },
+    ),
+  ).rejects.toThrow('Fresh publication refused');
+  expect(f.pool.lookup('chat', 'account')).toMatchObject({ state: 'uncertain', physicalId });
+  expect(f.adapter.bind).not.toHaveBeenCalled();
+  expect(f.adapter.remove).not.toHaveBeenCalled();
+});
 it('starts disabled and reads never provision; saves persist across stores', async () => {
   const f = fixture();
   expect(f.pool.snapshot().settings).toMatchObject({

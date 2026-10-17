@@ -582,6 +582,29 @@ describe('Codex app-server transport', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('observes a freshly available provider environment without a fixed ten-second delay', async () => {
+    vi.useFakeTimers();
+    const first = processStub();
+    const second = processStub();
+    const create = vi.fn(() => second.child);
+    const client = new CodexAppServerClient(first.child, { environmentLaunch: { create } });
+    try {
+      const ready = client.initialize();
+      void ready.catch(() => undefined);
+      first.child.emit('exit', 78);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(create).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(create).toHaveBeenCalledOnce();
+      expect(second.sent.every((frame) => frame.method === 'initialize')).toBe(true);
+      second.reply({ id: second.sent[0].id, result: {} });
+      await ready;
+      expect(second.sent.some((frame) => frame.method === 'turn/start')).toBe(false);
+    } finally {
+      client.close();
+    }
+  });
+
   it('retries only missing provider environment before initialization and never starts a model turn', async () => {
     vi.useFakeTimers();
     const first = processStub();
@@ -607,19 +630,19 @@ describe('Codex app-server transport', () => {
 
   it('reports bounded environment pending rather than usable or denied after all fresh launches miss credentials', async () => {
     vi.useFakeTimers();
-    const peers = [processStub(), processStub(), processStub()];
+    const peers = Array.from({ length: 41 }, () => processStub());
     let next = 1;
     const client = new CodexAppServerClient(peers[0].child, {
       environmentLaunch: { create: () => peers[next++].child },
     });
     const ready = client.initialize();
     const rejected = expect(ready).rejects.toMatchObject({ category: 'environment_pending' });
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 41; attempt++) {
       peers[attempt].child.emit('exit', 78);
-      if (attempt < 2) await vi.advanceTimersByTimeAsync(10_000);
+      if (attempt < 40) await vi.advanceTimersByTimeAsync(500);
     }
     await rejected;
-    expect(next).toBe(3);
+    expect(next).toBe(41);
     expect(peers.every((peer) => peer.sent.every((frame) => frame.method === 'initialize'))).toBe(
       true,
     );
