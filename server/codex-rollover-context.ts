@@ -51,7 +51,7 @@ export function codexRolloverSources(store: EventStore, conversationId: string):
   for (const value of store.getConversationSourceSnapshots(conversationId)) {
     for (const source of SourceSnapshotsSchema.parse(value)) {
       assembleSourceSnapshots('', [source]);
-      const key = `${source.kind}:${source.date}:${source.revision}`;
+      const key = `${source.kind}:${source.kind === 'briefing' ? source.date : ''}:${source.revision}`;
       if (sources.has(key)) continue;
       bytes += Buffer.byteLength(source.content, 'utf8');
       if (bytes > 2 * 1024 * 1024) throw new Error('Saved source snapshots exceed 2 MiB');

@@ -17,6 +17,7 @@ import { MotionPresence } from './MotionPresence';
 type TraySnap = 'peek' | 'half' | 'full';
 
 export interface SessionTrayProps {
+  sourceSnapshots?: import('@mitzo/protocol').SourceSnapshot[];
   compactions?: import('@mitzo/protocol').ContextCompaction[];
   compactionError?: string;
   compactionTruncated?: boolean;

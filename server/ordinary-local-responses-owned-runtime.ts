@@ -1,3 +1,4 @@
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile as readResponsesAgentProfile } from './ordinary-codex-agent-profile.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
@@ -297,7 +298,10 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
       !isDeepStrictEqual(receipt.selection, command.expected.selection) ||
       !isDeepStrictEqual(
         content,
-        responsesUserContent(command.payload.text, command.payload.images),
+        responsesUserContent(
+          assembleSourceSnapshots(command.payload.text, command.payload.sourceSnapshots),
+          command.payload.images,
+        ),
       ) ||
       selection?.model !== command.expected.selection.model ||
       selection?.reasoningEffort !== command.expected.selection.thinking
@@ -630,6 +634,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     if (continuation && !resume && (!this.#initialized || !this.owners.dispatchContinuation))
       throw unavailable();
     const payload = Payload.parse(request.payload);
+    assembleSourceSnapshots(payload.text, payload.sourceSnapshots);
     if (this.#adc && payload.images?.length)
       throw Error('Google Vertex image attachments are unsupported');
     responsesUserContent(payload.text, payload.images);

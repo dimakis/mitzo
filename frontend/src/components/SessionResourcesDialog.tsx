@@ -1,3 +1,4 @@
+import { AgentLibrarySourceContext } from './AgentLibraryChatSource';
 import { ConversationWorkLinks } from './SessionWorkLink';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SessionOutputReference } from '@mitzo/protocol';
@@ -366,6 +367,12 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
             >
               {tab === 'Sources' && (
                 <>
+                  <AgentLibrarySourceContext
+                    sources={[
+                      ...(props.sourceSnapshots ?? []),
+                      ...messages.flatMap((message) => message.sourceSnapshots ?? []),
+                    ]}
+                  />
                   {sessionId && <ConversationWorkLinks conversationId={sessionId} />}
                   <h3>Next prompt</h3>
                   {draftImages.map((image, index) => (

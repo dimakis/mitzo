@@ -1,3 +1,5 @@
+import { SourceSnapshotsSchema } from '@mitzo/protocol';
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { bootContextWithRetainedReceipt } from './agent-context-delivery.js';
 import {
   assertOrdinaryCodexContextIdentity,
@@ -35,6 +37,7 @@ import type { OrdinarySessionRuntimeCatalog } from './ordinary-session-runtime.j
 
 const unavailable = () => new Error('Owned OpenShell Codex chat unavailable');
 export const OwnedOpenShellCodexPayloadSchema = z.strictObject({
+  sourceSnapshots: SourceSnapshotsSchema.optional(),
   text: z.string().min(1).max(1_000_000),
   systemPrompt: z.string().max(1_000_000),
   intent: z.string().max(1_000_000).optional(),
@@ -171,7 +174,8 @@ export class OwnedOpenShellCodexChatAdmission {
       result.register(queued.id, { ...owner.expected, selection: receipt.selection }, true);
       const retained = result.#commands.get(queued.id)!;
       if (
-        queued.prompt !== retained.payload.text ||
+        queued.prompt !==
+          assembleSourceSnapshots(retained.payload.text, retained.payload.sourceSnapshots) ||
         (queued.intent ?? queued.prompt) !== (retained.payload.intent ?? retained.payload.text) ||
         queued.model !== receipt.selection.model ||
         (queued.reasoningEffort ?? null) !== receipt.selection.thinking ||
@@ -291,7 +295,8 @@ export class OwnedOpenShellCodexChatAdmission {
       options.repositoryWorkspace?.id !== this.#expected.workspace.workspaceId ||
       !options.repositoryWorkspace.sandbox ||
       options.repositoryWorkspace.conversationId !== this.owner.sessionId ||
-      options.prompt !== command.payload.text ||
+      options.prompt !==
+        assembleSourceSnapshots(command.payload.text, command.payload.sourceSnapshots) ||
       options.systemPrompt !== command.payload.systemPrompt ||
       (options.intent ?? options.prompt) !== (command.payload.intent ?? command.payload.text) ||
       !isDeepStrictEqual(options.images ?? [], command.payload.images ?? []) ||
@@ -476,7 +481,8 @@ export class OwnedOpenShellCodexChatAdmission {
     if (
       !command ||
       command.enqueued ||
-      input.prompt !== command.payload.text ||
+      input.prompt !==
+        assembleSourceSnapshots(command.payload.text, command.payload.sourceSnapshots) ||
       (input.intent ?? input.prompt) !== (command.payload.intent ?? command.payload.text) ||
       !isDeepStrictEqual(input.images ?? [], command.payload.images ?? []) ||
       (input.model ?? command.expected.selection.model) !== command.expected.selection.model ||
