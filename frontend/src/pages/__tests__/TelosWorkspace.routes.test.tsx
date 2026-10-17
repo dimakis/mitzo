@@ -84,6 +84,7 @@ it('opens actual record workspace from All outcomes, navigates child and returns
     </MemoryRouter>,
   );
   await screen.findByRole('button', { name: 'All outcomes', exact: true });
+  expect(screen.getByRole('button', { name: 'New item', exact: true })).toBeTruthy();
   const list = document.body;
   fireEvent.change(within(list).getByRole('searchbox'), { target: { value: 'recording' } });
   fireEvent.click(

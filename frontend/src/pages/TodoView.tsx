@@ -368,20 +368,39 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             title="Telos outcomes"
             description="Your outcomes, their child work and the coordinators connecting them."
             actions={
-              <button
-                className="todo-refresh"
-                onClick={() => {
-                  refresh();
-                  canonical.refresh();
-                }}
-                aria-label="Refresh Telos"
-              >
-                <UiIcon name="retry" size={16} />
-              </button>
+              <div className="todo-collection-actions">
+                <button
+                  className="todo-add-btn"
+                  onClick={() => setCreating({ parentId: undefined })}
+                >
+                  New item
+                </button>
+                <button
+                  className="todo-refresh"
+                  onClick={() => {
+                    refresh();
+                    canonical.refresh();
+                  }}
+                  aria-label="Refresh Telos"
+                >
+                  <UiIcon name="retry" size={16} />
+                </button>
+              </div>
             }
           />
         </div>
         <div className="todo-scroll" ref={scrollRef}>
+          {creating && (
+            <TodoCreateForm
+              parentId={creating.parentId}
+              profile={activeProfile}
+              profiles={profiles}
+              onCreate={create}
+              onCreateOutcome={createOutcome}
+              onCancel={() => setCreating(null)}
+            />
+          )}
+
           {error && <p role="alert">{error} Displayed records may be stale.</p>}
           {canonical.unavailable.length > 0 && (
             <p role="alert">
