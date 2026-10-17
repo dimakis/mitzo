@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { projectTelosWorkRecord } from '../../server/telos-work-record';
 import { createTelosWorkFixtures } from '../../server/__tests__/fixtures/telos-work-fixtures';
 import { TelosWorkItemSchema, TelosWorkViewSchema } from '@mitzo/protocol';
 import { readFile } from 'node:fs/promises';
@@ -25,6 +26,34 @@ for (const theme of ['dark', 'light'])
     isMobile,
   }, info) => {
     const fixtures = createTelosWorkFixtures();
+    const software = fixtures.nestedCoordinator.items.find((item) => item.kind === 'outcome')!;
+    Object.assign(
+      software,
+      projectTelosWorkRecord(
+        {
+          id: software.itemId,
+          parent_id: software.parentId,
+          summary: software.summary,
+          intent: software.intent,
+          rationale: software.rationale,
+          acceptance_criteria: JSON.stringify(software.acceptanceCriteria),
+          profile: software.profile,
+          status: software.status,
+          starred: 0,
+          categories: JSON.stringify(['Mitzo']),
+          created_at: software.createdAt,
+          updated_at: software.updatedAt,
+          context_hints: JSON.stringify({
+            repos: ['fixture/mitzo'],
+            paths: ['frontend/src/pages/TodoView.tsx'],
+            task_hint: 'Review the approved workspace contract.',
+          }),
+        },
+        [],
+        [],
+        software.kind,
+      ),
+    );
     const scenarios = [fixtures.homeStudio, fixtures.nestedCoordinator];
     const records = scenarios
       .flatMap((s) => s.items)
@@ -115,7 +144,7 @@ for (const theme of ['dark', 'light'])
             artifacts: [
               {
                 id: 'a'.repeat(32),
-                itemId: 'fixture-studio',
+                itemId: url.pathname.split('/')[4],
                 filename: 'plan.md',
                 title: 'Saved studio plan',
                 revision: 3,
@@ -181,6 +210,14 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(search).toHaveValue('recording');
     await expect(page.getByRole('button', { name: 'Recording', exact: true })).toBeVisible();
+    await search.fill('frontend/src/pages/TodoView.tsx');
+    await page.getByRole('button', { name: 'Nested outcome', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Nested outcome', exact: true })).toBeVisible();
+    await expect(page.getByText('fixture/mitzo', { exact: true })).toBeVisible();
+    await expect(page.getByText('frontend/src/pages/TodoView.tsx', { exact: true })).toBeVisible();
+    await page.screenshot({ path: info.outputPath('software-' + theme + '.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(search).toHaveValue('frontend/src/pages/TodoView.tsx');
     failRecords = true;
     await page.reload();
     await expect(
