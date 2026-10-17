@@ -202,3 +202,23 @@ it('accepts the bounded owner read at exactly 512 KiB and refuses the next byte'
   const tooLarge = f.save('x'.repeat(512 * 1024 + 1));
   expect(() => f.store.readBoundedRevision(tooLarge.id, tooLarge.revision, 512 * 1024)).toThrow();
 });
+
+it('retains exact bytes after the contributing source database is removed', async () => {
+  const { EventStore } = await import('../event-store.js');
+  const { join, dirname } = await import('node:path');
+  const { rmSync } = await import('node:fs');
+  const f = fixture();
+  const sourcePath = join(dirname(f.path), 'original-events.db');
+  const events = new EventStore(sourcePath);
+  events.upsertSession({ sessionId: 'removed-origin', conversationSource: 'mitzo' });
+  events.append('removed-origin', 'user_message', {
+    messageId: 'origin',
+    text: '  Older\r\nπ saved bytes ',
+  });
+  expect((await f.source().read(f.pin)).bytes.toString()).toBe('  Older\r\nπ saved bytes ');
+  events.close();
+  // Synthetic source-custody loss, separate from retained artifact custody.
+  for (const suffix of ['', '-wal', '-shm']) rmSync(sourcePath + suffix, { force: true });
+  f.restart();
+  expect((await f.source().read(f.pin)).bytes.toString()).toBe('  Older\r\nπ saved bytes ');
+});
