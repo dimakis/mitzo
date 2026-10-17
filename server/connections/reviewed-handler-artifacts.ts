@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.281-api-codex.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.281-symposium-capacity.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -149,11 +149,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent review compilation and metadata; execution remains disabled.
   '../collaboration-context-compiler.ts':
-    '24432afe2c8880e03dea778eb42b2ee1bed207092a8af3921abbb9edffca5970',
+    '9a29ff1be1dbba5c9c0c46ab3e4e54de70304af0429adef44548a9fb149283bf',
   '../../packages/protocol/src/collaboration-conversation.ts':
-    '7af0022bfab7db8cb69dee73d949e2eb9df0d031f61a88b8a46228bf85a88657',
+    'ba36974dbb2d289d3568c159704f0751982071b48b6b32ee23656ec6a5464ea3',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    '913704f9e8140c2ceffcd839e8235b91ef83db24fd35bdec7f45bfaec49f5031',
+    'cb01ab9d6dd9cca3ce81782a45c2c53cd54c26cd2c72adf909bb6adbf96067f5',
   '../../packages/client/src/collaboration-api.ts':
     '05ef5f932a9bd36ff9cddf70971449e25c1376fc539150ff0a523446733e6cbb',
   '../../packages/client/src/collaboration-projection.ts':
@@ -943,7 +943,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-ordinary-delivery.ts':
     '80ff1b619e945d38883e2cabeb0c8c018c98e2231e5fff629bc742fab95beef3',
   '../collaboration-review-owner.ts':
-    '3c76ab1873cf72a103d1b5def5cde2793e0cf7c1f85b239d1664e49214134fb1',
+    'f4d11ddce9221608dbcd45da03a8f23fc9f875741938265d96a16f9c0519f6d1',
 
   '../collaboration-joining-owner.ts':
     '5bf3fb28f79159e8f124b1216366a9c98e6bc8e3d28d90c11ce3a4a0ed6c7934',

@@ -1,0 +1,90 @@
+diff --git a/codex-rs/http-client/Cargo.toml b/codex-rs/http-client/Cargo.toml
+index d59c2e7..577ec47 100644
+--- a/codex-rs/http-client/Cargo.toml
++++ b/codex-rs/http-client/Cargo.toml
+@@ -45,6 +45,7 @@ codex-utils-cargo-bin = { workspace = true }
+ opentelemetry_sdk = { workspace = true }
+ pretty_assertions = { workspace = true }
+ rcgen = { workspace = true }
++reqwest = { workspace = true, features = ["native-tls"] }
+ tempfile = { workspace = true }
+ tokio = { workspace = true, features = ["test-util"] }
+ tracing-subscriber = { workspace = true }
+diff --git a/codex-rs/http-client/src/route_aware_tls_fallback_tests.rs b/codex-rs/http-client/src/route_aware_tls_fallback_tests.rs
+index 28cdf4e..9b44000 100644
+--- a/codex-rs/http-client/src/route_aware_tls_fallback_tests.rs
++++ b/codex-rs/http-client/src/route_aware_tls_fallback_tests.rs
+@@ -29,6 +29,25 @@ use crate::tls_backend_fallback::should_retry_with_rustls;
+ 
+ const PROTOCOL_VERSION_TLS_ALERT: &[u8] = &[21, 3, 3, 0, 2, 2, 70];
+ 
++// These fixtures exercise native TLS fallback, irrespective of ambient custom
++// CA configuration (which intentionally selects rustls in production).
++fn install_native_tls_fixture_client(pool: &RouteAwareClientPool) {
++    let client = TransportClient::new(
++        reqwest::Client::builder()
++            .use_native_tls()
++            .no_proxy()
++            .redirect(reqwest::redirect::Policy::none())
++            .build()
++            .expect("native TLS fixture client should build"),
++        RequestLogging::Enabled,
++        http::HeaderMap::new(),
++    );
++    pool.clients
++        .lock()
++        .expect("fixture client cache should be available")
++        .insert(OutboundProxyRoute::Direct, client);
++}
++
+ #[tokio::test]
+ async fn single_attempt_disables_tls_fallback_without_replaying() {
+     let (url, attempts, stop_server) =
+@@ -64,6 +83,7 @@ async fn default_pool_does_not_retry_a_native_tls_protocol_failure() {
+         HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+         ClientRouteClass::Other,
+     );
++    install_native_tls_fixture_client(&pool);
+     let request = reqwest::Request::new(
+         Method::POST,
+         reqwest::Url::parse(&url).expect("valid HTTPS URL"),
+@@ -95,6 +115,7 @@ async fn retries_a_native_tls_protocol_failure_once_with_rustls() {
+         ClientRouteClass::Other,
+     )
+     .with_tls_backend_fallback();
++    install_native_tls_fixture_client(&pool);
+     let destination = reqwest::Url::parse(&url).expect("valid HTTPS URL");
+     let mut request = reqwest::Request::new(Method::POST, destination.clone());
+     *request.body_mut() = Some(Bytes::from_static(b"mcp-initialize").into());
+@@ -136,6 +157,7 @@ async fn retries_a_native_tls_failure_after_another_request_caches_rustls() {
+         ClientRouteClass::Other,
+     )
+     .with_tls_backend_fallback();
++    install_native_tls_fixture_client(&pool);
+     let destination = reqwest::Url::parse(&url).expect("valid HTTPS URL");
+     let (route, native_client, selected_tls_backend) = pool
+         .client_for_url_with_resolver(destination.as_str(), |_| async {
+@@ -229,6 +251,7 @@ async fn successful_rustls_fallback_replays_the_request_and_reuses_the_destinati
+         ClientRouteClass::Other,
+     )
+     .with_tls_backend_fallback();
++    install_native_tls_fixture_client(&pool);
+     let destination = reqwest::Url::parse(&url).expect("valid HTTPS URL");
+     let existing_destination =
+         reqwest::Url::parse("https://another-mcp.example.com/mcp").expect("valid HTTPS URL");
+@@ -294,6 +317,7 @@ async fn retries_a_tls_protocol_failure_when_request_url_contains_certificate_ma
+         ClientRouteClass::Other,
+     )
+     .with_tls_backend_fallback();
++    install_native_tls_fixture_client(&pool);
+     let mut destination = reqwest::Url::parse(&url).expect("valid HTTPS URL");
+     destination.set_path("/certificate/hostname/expired/revoked/mcp");
+     let request = reqwest::Request::new(Method::POST, destination);
+@@ -325,6 +349,7 @@ async fn does_not_retry_a_non_replayable_streaming_request() {
+         ClientRouteClass::Other,
+     )
+     .with_tls_backend_fallback();
++    install_native_tls_fixture_client(&pool);
+     let mut request = reqwest::Request::new(
+         Method::POST,
+         reqwest::Url::parse(&url).expect("valid HTTPS URL"),

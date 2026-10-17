@@ -1,0 +1,1256 @@
+diff --git a/codex-rs/state/migrations/0059_prepared_requests.sql b/codex-rs/state/migrations/0059_prepared_requests.sql
+new file mode 100644
+index 0000000..81bef9a
+--- /dev/null
++++ b/codex-rs/state/migrations/0059_prepared_requests.sql
+@@ -0,0 +1,77 @@
++-- Private request capabilities may exist before any native thread exists.
++CREATE TABLE prepared_requests (
++    preparation_id TEXT PRIMARY KEY NOT NULL,
++    operation_id TEXT NOT NULL UNIQUE,
++    scope TEXT NOT NULL CHECK (scope IN ('review_context', 'command')),
++    binding_json TEXT NOT NULL CHECK (json_valid(binding_json) AND length(binding_json) <= 65536),
++    request_identity TEXT NOT NULL CHECK (length(request_identity) = 64),
++    model TEXT NOT NULL,
++    encoded_body BLOB NOT NULL CHECK (length(encoded_body) BETWEEN 1 AND 4194304),
++    max_output_tokens INTEGER NOT NULL CHECK (max_output_tokens BETWEEN 1 AND 9007199254740991),
++    measurement_json TEXT CHECK (measurement_json IS NULL OR (json_valid(measurement_json) AND length(measurement_json) <= 65536)),
++    consumed INTEGER NOT NULL DEFAULT 0 CHECK (consumed IN (0, 1)),
++    native_thread_id TEXT,
++    native_turn_id TEXT,
++    provider_response_id TEXT,
++    created_at INTEGER NOT NULL,
++    consumed_at INTEGER,
++    CHECK (consumed = 0 OR (scope = 'command' AND measurement_json IS NOT NULL)),
++    CHECK ((native_thread_id IS NULL) = (native_turn_id IS NULL)),
++    CHECK (consumed = 1 OR (native_thread_id IS NULL AND provider_response_id IS NULL)),
++    UNIQUE (native_thread_id, native_turn_id)
++);
++
++-- Account changes cannot release an ordinary command's consumption tombstone.
++CREATE UNIQUE INDEX prepared_requests_consumed_command
++ON prepared_requests (
++    json_extract(binding_json, '$.application_scope_id'),
++    json_extract(binding_json, '$.command_id')
++) WHERE consumed = 1;
++
++-- Opaque upstream identities are namespaced by the retained account authority.
++CREATE UNIQUE INDEX prepared_requests_provider_response
++ON prepared_requests (
++    json_extract(binding_json, '$.account_id'),
++    provider_response_id
++) WHERE provider_response_id IS NOT NULL;
++
++CREATE TRIGGER prepared_requests_immutable_request
++BEFORE UPDATE OF preparation_id, operation_id, scope, binding_json, request_identity,
++    model, encoded_body, max_output_tokens ON prepared_requests
++BEGIN
++    SELECT RAISE(ABORT, 'prepared request is immutable');
++END;
++
++CREATE TRIGGER prepared_requests_irreversible_consumption
++BEFORE UPDATE OF consumed ON prepared_requests
++WHEN OLD.consumed = 1 AND NEW.consumed != 1
++BEGIN
++    SELECT RAISE(ABORT, 'prepared request consumption is irreversible');
++END;
++
++CREATE TRIGGER prepared_requests_immutable_measurement
++BEFORE UPDATE OF measurement_json ON prepared_requests
++WHEN OLD.measurement_json IS NOT NULL OR OLD.consumed = 1
++BEGIN
++    SELECT RAISE(ABORT, 'prepared request measurement is immutable');
++END;
++
++CREATE TRIGGER prepared_requests_retain_consumed
++BEFORE DELETE ON prepared_requests WHEN OLD.consumed = 1
++BEGIN
++    SELECT RAISE(ABORT, 'consumed request tombstone must be retained');
++END;
++
++CREATE TRIGGER prepared_requests_immutable_native_receipt
++BEFORE UPDATE OF native_thread_id, native_turn_id ON prepared_requests
++WHEN OLD.native_turn_id IS NOT NULL
++BEGIN
++    SELECT RAISE(ABORT, 'native admission receipt is immutable');
++END;
++
++CREATE TRIGGER prepared_requests_immutable_provider_receipt
++BEFORE UPDATE OF provider_response_id ON prepared_requests
++WHEN OLD.provider_response_id IS NOT NULL
++BEGIN
++    SELECT RAISE(ABORT, 'provider acceptance receipt is immutable');
++END;
+diff --git a/codex-rs/state/src/lib.rs b/codex-rs/state/src/lib.rs
+index be969b0..299c019 100644
+--- a/codex-rs/state/src/lib.rs
++++ b/codex-rs/state/src/lib.rs
+@@ -81,6 +81,13 @@ pub use runtime::GoalAccountingOutcome;
+ pub use runtime::GoalStore;
+ pub use runtime::GoalUpdate;
+ pub use runtime::MemoryStore;
++pub use runtime::NewPreparedRequest;
++pub use runtime::PreparedProviderReceipt;
++pub use runtime::PreparedRequestBinding;
++pub use runtime::PreparedRequestMeasurement;
++pub use runtime::PreparedRequestRecord;
++pub use runtime::PreparedRequestScope;
++pub use runtime::PreparedTurnReceipt;
+ pub use runtime::RemoteControlEnrollmentRecord;
+ pub use runtime::SqliteIntegrityCheck;
+ pub use runtime::SqliteQueueStore;
+diff --git a/codex-rs/state/src/runtime.rs b/codex-rs/state/src/runtime.rs
+index 14fcd2d..c2a1f74 100644
+--- a/codex-rs/state/src/runtime.rs
++++ b/codex-rs/state/src/runtime.rs
+@@ -45,6 +45,7 @@ mod goals;
+ mod logs;
+ mod memories;
+ mod memory_versions;
++mod prepared_requests;
+ mod projects;
+ mod queued_items;
+ pub(crate) mod reclamation;
+@@ -67,6 +68,13 @@ pub use goals::GoalAccountingOutcome;
+ pub use goals::GoalStore;
+ pub use goals::GoalUpdate;
+ pub use memories::MemoryStore;
++pub use prepared_requests::NewPreparedRequest;
++pub use prepared_requests::PreparedProviderReceipt;
++pub use prepared_requests::PreparedRequestBinding;
++pub use prepared_requests::PreparedRequestMeasurement;
++pub use prepared_requests::PreparedRequestRecord;
++pub use prepared_requests::PreparedRequestScope;
++pub use prepared_requests::PreparedTurnReceipt;
+ pub use queued_items::SqliteQueueStore;
+ pub use recovery::backup_runtime_db_for_fresh_start;
+ pub use recovery::is_sqlite_corruption_error;
+diff --git a/codex-rs/state/src/runtime/prepared_requests.rs b/codex-rs/state/src/runtime/prepared_requests.rs
+new file mode 100644
+index 0000000..e0e5a2b
+--- /dev/null
++++ b/codex-rs/state/src/runtime/prepared_requests.rs
+@@ -0,0 +1,434 @@
++//! Private durable request capabilities; this store creates no thread or history.
++//!
++//! Callers are trusted native owners. They must capture authority and serialize
++//! consumption with ordinary execution. Request identities label frozen bytes;
++//! storage compares the complete immutable request rather than trusting a digest.
++
++use super::StateRuntime;
++use serde::Deserialize;
++use serde::Serialize;
++use sqlx::Connection;
++use sqlx::Row;
++use sqlx::Sqlite;
++use sqlx::pool::PoolConnection;
++use sqlx::sqlite::SqliteRow;
++use uuid::Uuid;
++
++const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
++const MAX_TEXT_BYTES: usize = 1024;
++const MAX_SAFE_TOKENS: u64 = 9_007_199_254_740_991;
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
++pub enum PreparedRequestScope {
++    ReviewContext,
++    Command,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct PreparedRequestBinding {
++    pub application_scope_id: String,
++    pub account_id: String,
++    pub route_revision: String,
++    pub source_revision: String,
++    pub settings_revision: String,
++    pub history_revision: String,
++    pub tools_revision: String,
++    pub runtime_revision: String,
++    pub command_id: Option<String>,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct NewPreparedRequest {
++    pub scope: PreparedRequestScope,
++    pub binding: PreparedRequestBinding,
++    pub request_identity: String,
++    pub model: String,
++    pub encoded_body: Vec<u8>,
++    pub max_output_tokens: u64,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct PreparedRequestMeasurement {
++    pub witness_id: String,
++    pub request_identity: String,
++    pub input_tokens: u64,
++    pub effective_context_ceiling: u64,
++    pub max_output_tokens: u64,
++    pub counter_revision: String,
++    pub limit_revision: String,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct PreparedTurnReceipt {
++    pub thread_id: String,
++    pub turn_id: String,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct PreparedProviderReceipt {
++    pub request_identity: String,
++    pub provider_response_id: String,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct PreparedRequestRecord {
++    pub preparation_id: String,
++    pub operation_id: String,
++    pub request: NewPreparedRequest,
++    pub measurement: Option<PreparedRequestMeasurement>,
++    pub consumed: bool,
++    pub exact_turn: Option<PreparedTurnReceipt>,
++    pub provider_receipt: Option<PreparedProviderReceipt>,
++}
++
++impl StateRuntime {
++    /// Retain frozen bytes before any thread exists. Only exact operation retries succeed.
++    pub async fn prepare_request(
++        &self,
++        operation_id: &str,
++        request: &NewPreparedRequest,
++    ) -> anyhow::Result<PreparedRequestRecord> {
++        validate_text(operation_id)?;
++        validate_request(request)?;
++        let mut connection = self.prepared_request_connection().await?;
++        let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
++        sqlx::query("INSERT INTO prepared_requests (preparation_id, operation_id, scope, binding_json, request_identity, model, encoded_body, max_output_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(operation_id) DO NOTHING")
++            .bind(Uuid::now_v7().to_string()).bind(operation_id)
++            .bind(match request.scope { PreparedRequestScope::ReviewContext => "review_context", PreparedRequestScope::Command => "command" })
++            .bind(serde_json::to_string(&request.binding)?).bind(&request.request_identity)
++            .bind(&request.model).bind(&request.encoded_body).bind(i64::try_from(request.max_output_tokens)?)
++            .bind(chrono::Utc::now().timestamp_millis()).execute(&mut *transaction).await?;
++        let row = sqlx::query("SELECT * FROM prepared_requests WHERE operation_id = ?")
++            .bind(operation_id)
++            .fetch_one(&mut *transaction)
++            .await?;
++        let record = record_from_row(&row)?;
++        anyhow::ensure!(
++            record.request == *request,
++            "prepared operation inputs conflict"
++        );
++        transaction.commit().await?;
++        Ok(record)
++    }
++
++    /// Recover one original operation without dispatching, recounting or releasing consumption.
++    pub async fn read_prepared_request(
++        &self,
++        operation_id: &str,
++    ) -> anyhow::Result<Option<PreparedRequestRecord>> {
++        validate_text(operation_id)?;
++        sqlx::query("SELECT * FROM prepared_requests WHERE operation_id = ?")
++            .bind(operation_id)
++            .fetch_optional(self.pool.as_ref())
++            .await?
++            .as_ref()
++            .map(record_from_row)
++            .transpose()
++    }
++
++    /// Attach a trusted native counter witness to the complete retained request exactly once.
++    pub async fn measure_prepared_request(
++        &self,
++        preparation_id: &str,
++        request: &NewPreparedRequest,
++        measurement: &PreparedRequestMeasurement,
++    ) -> anyhow::Result<()> {
++        validate_text(preparation_id)?;
++        validate_request(request)?;
++        validate_measurement(request, measurement)?;
++        let mut connection = self.prepared_request_connection().await?;
++        let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
++        let row = sqlx::query("SELECT * FROM prepared_requests WHERE preparation_id = ?")
++            .bind(preparation_id)
++            .fetch_one(&mut *transaction)
++            .await?;
++        let record = record_from_row(&row)?;
++        anyhow::ensure!(
++            record.request == *request,
++            "prepared request inputs conflict"
++        );
++        anyhow::ensure!(!record.consumed, "prepared request already consumed");
++        if let Some(existing) = record.measurement {
++            anyhow::ensure!(existing == *measurement, "prepared measurement conflicts");
++        } else {
++            sqlx::query("UPDATE prepared_requests SET measurement_json = ? WHERE preparation_id = ? AND consumed = 0 AND measurement_json IS NULL")
++                .bind(serde_json::to_string(measurement)?).bind(preparation_id)
++                .execute(&mut *transaction).await?;
++        }
++        transaction.commit().await?;
++        Ok(())
++    }
++
++    /// Claim the single dispatch right. Every later attempt refuses, including after a crash.
++    ///
++    /// The trusted caller must establish its current authority fence before invoking this CAS.
++    pub async fn consume_prepared_request(
++        &self,
++        preparation_id: &str,
++        request: &NewPreparedRequest,
++        witness_id: &str,
++    ) -> anyhow::Result<PreparedRequestRecord> {
++        validate_text(preparation_id)?;
++        validate_text(witness_id)?;
++        validate_request(request)?;
++        anyhow::ensure!(
++            request.scope == PreparedRequestScope::Command,
++            "review context cannot be consumed"
++        );
++        let mut connection = self.prepared_request_connection().await?;
++        let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
++        let row = sqlx::query("SELECT * FROM prepared_requests WHERE preparation_id = ?")
++            .bind(preparation_id)
++            .fetch_one(&mut *transaction)
++            .await?;
++        let mut record = record_from_row(&row)?;
++        anyhow::ensure!(
++            record.request == *request,
++            "prepared request inputs conflict"
++        );
++        anyhow::ensure!(
++            record
++                .measurement
++                .as_ref()
++                .is_some_and(|measurement| measurement.witness_id == witness_id),
++            "prepared witness missing or conflicting"
++        );
++        anyhow::ensure!(!record.consumed, "prepared request already consumed");
++        let result = sqlx::query("UPDATE prepared_requests SET consumed = 1, consumed_at = ? WHERE preparation_id = ? AND consumed = 0 AND measurement_json IS NOT NULL")
++            .bind(chrono::Utc::now().timestamp_millis()).bind(preparation_id)
++            .execute(&mut *transaction).await?;
++        anyhow::ensure!(result.rows_affected() == 1, "prepared consumption lost");
++        transaction.commit().await?;
++        record.consumed = true;
++        Ok(record)
++    }
++
++    /// Retain exact native admission independently from upstream provider acceptance.
++    pub async fn acknowledge_prepared_request(
++        &self,
++        preparation_id: &str,
++        receipt: &PreparedTurnReceipt,
++    ) -> anyhow::Result<()> {
++        validate_text(&receipt.thread_id)?;
++        validate_text(&receipt.turn_id)?;
++        self.record_prepared_receipt(preparation_id, Receipt::Turn(receipt))
++            .await
++    }
++
++    /// Retain upstream acceptance even if native admission acknowledgement has not arrived.
++    pub async fn record_prepared_provider_receipt(
++        &self,
++        preparation_id: &str,
++        receipt: &PreparedProviderReceipt,
++    ) -> anyhow::Result<()> {
++        validate_identity(&receipt.request_identity)?;
++        validate_text(&receipt.provider_response_id)?;
++        self.record_prepared_receipt(preparation_id, Receipt::Provider(receipt))
++            .await
++    }
++
++    async fn record_prepared_receipt(
++        &self,
++        preparation_id: &str,
++        receipt: Receipt<'_>,
++    ) -> anyhow::Result<()> {
++        validate_text(preparation_id)?;
++        let mut connection = self.prepared_request_connection().await?;
++        let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
++        let row = sqlx::query("SELECT * FROM prepared_requests WHERE preparation_id = ?")
++            .bind(preparation_id)
++            .fetch_one(&mut *transaction)
++            .await?;
++        let record = record_from_row(&row)?;
++        anyhow::ensure!(record.consumed, "unconsumed request cannot have a receipt");
++        match receipt {
++            Receipt::Turn(receipt) => {
++                if let Some(existing) = record.exact_turn {
++                    anyhow::ensure!(existing == *receipt, "native turn receipt conflicts");
++                } else {
++                    sqlx::query("UPDATE prepared_requests SET native_thread_id = ?, native_turn_id = ? WHERE preparation_id = ? AND consumed = 1 AND native_turn_id IS NULL")
++                        .bind(&receipt.thread_id).bind(&receipt.turn_id).bind(preparation_id)
++                        .execute(&mut *transaction).await?;
++                }
++            }
++            Receipt::Provider(receipt) => {
++                anyhow::ensure!(
++                    record.request.request_identity == receipt.request_identity,
++                    "provider receipt request conflicts"
++                );
++                if let Some(existing) = record.provider_receipt {
++                    anyhow::ensure!(existing == *receipt, "provider receipt conflicts");
++                } else {
++                    sqlx::query("UPDATE prepared_requests SET provider_response_id = ? WHERE preparation_id = ? AND consumed = 1 AND provider_response_id IS NULL")
++                        .bind(&receipt.provider_response_id).bind(preparation_id)
++                        .execute(&mut *transaction).await?;
++                }
++            }
++        }
++        transaction.commit().await?;
++        Ok(())
++    }
++
++    async fn prepared_request_connection(&self) -> anyhow::Result<PoolConnection<Sqlite>> {
++        let mut connection = self.pool.acquire().await?;
++        // Keep the pool permit, but never return FULL synchronization to another
++        // metadata borrower. Closing on drop also covers cancellation and errors.
++        connection.close_on_drop();
++        sqlx::query("PRAGMA synchronous = FULL")
++            .execute(&mut *connection)
++            .await?;
++        Ok(connection)
++    }
++}
++
++enum Receipt<'a> {
++    Turn(&'a PreparedTurnReceipt),
++    Provider(&'a PreparedProviderReceipt),
++}
++
++fn validate_text(value: &str) -> anyhow::Result<()> {
++    anyhow::ensure!(
++        !value.is_empty() && value.len() <= MAX_TEXT_BYTES,
++        "prepared identity/revision size invalid"
++    );
++    Ok(())
++}
++
++fn validate_identity(value: &str) -> anyhow::Result<()> {
++    anyhow::ensure!(
++        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()),
++        "prepared request identity must be SHA256 hex"
++    );
++    Ok(())
++}
++
++fn validate_request(request: &NewPreparedRequest) -> anyhow::Result<()> {
++    let binding = &request.binding;
++    for value in [
++        &binding.application_scope_id,
++        &binding.account_id,
++        &binding.route_revision,
++        &binding.source_revision,
++        &binding.settings_revision,
++        &binding.history_revision,
++        &binding.tools_revision,
++        &binding.runtime_revision,
++        &request.model,
++    ] {
++        validate_text(value)?;
++    }
++    match (request.scope, binding.command_id.as_deref()) {
++        (PreparedRequestScope::Command, Some(command)) => validate_text(command)?,
++        (PreparedRequestScope::ReviewContext, None) => {}
++        (PreparedRequestScope::Command, None) | (PreparedRequestScope::ReviewContext, Some(_)) => {
++            anyhow::bail!("prepared request command scope invalid")
++        }
++    }
++    validate_identity(&request.request_identity)?;
++    anyhow::ensure!(
++        request.max_output_tokens > 0 && request.max_output_tokens <= MAX_SAFE_TOKENS,
++        "prepared output bound invalid"
++    );
++    anyhow::ensure!(
++        !request.encoded_body.is_empty() && request.encoded_body.len() <= MAX_BODY_BYTES,
++        "prepared body size invalid"
++    );
++    let body: serde_json::Value = serde_json::from_slice(&request.encoded_body)?;
++    anyhow::ensure!(
++        body.get("model").and_then(serde_json::Value::as_str) == Some(request.model.as_str())
++            && body
++                .get("max_output_tokens")
++                .and_then(serde_json::Value::as_u64)
++                == Some(request.max_output_tokens),
++        "prepared body model/output bound conflicts"
++    );
++    Ok(())
++}
++
++fn validate_measurement(
++    request: &NewPreparedRequest,
++    measurement: &PreparedRequestMeasurement,
++) -> anyhow::Result<()> {
++    for value in [
++        &measurement.witness_id,
++        &measurement.counter_revision,
++        &measurement.limit_revision,
++    ] {
++        validate_text(value)?;
++    }
++    anyhow::ensure!(
++        measurement.request_identity == request.request_identity
++            && measurement.max_output_tokens == request.max_output_tokens,
++        "prepared witness request conflicts"
++    );
++    anyhow::ensure!(
++        measurement.input_tokens <= MAX_SAFE_TOKENS
++            && measurement.effective_context_ceiling > 0
++            && measurement.effective_context_ceiling <= MAX_SAFE_TOKENS,
++        "prepared measurement bounds invalid"
++    );
++    let total = measurement
++        .input_tokens
++        .checked_add(measurement.max_output_tokens)
++        .ok_or_else(|| anyhow::anyhow!("prepared measurement overflows"))?;
++    anyhow::ensure!(
++        total <= measurement.effective_context_ceiling,
++        "prepared measurement exceeds context budget"
++    );
++    Ok(())
++}
++
++fn record_from_row(row: &SqliteRow) -> anyhow::Result<PreparedRequestRecord> {
++    let scope: String = row.try_get("scope")?;
++    let request = NewPreparedRequest {
++        scope: match scope.as_str() {
++            "review_context" => PreparedRequestScope::ReviewContext,
++            "command" => PreparedRequestScope::Command,
++            _ => anyhow::bail!("invalid stored request scope"),
++        },
++        binding: serde_json::from_str(&row.try_get::<String, _>("binding_json")?)?,
++        request_identity: row.try_get("request_identity")?,
++        model: row.try_get("model")?,
++        encoded_body: row.try_get("encoded_body")?,
++        max_output_tokens: u64::try_from(row.try_get::<i64, _>("max_output_tokens")?)?,
++    };
++    validate_request(&request)?;
++    let measurement = row
++        .try_get::<Option<String>, _>("measurement_json")?
++        .map(|json| serde_json::from_str::<PreparedRequestMeasurement>(&json))
++        .transpose()?;
++    if let Some(measurement) = &measurement {
++        validate_measurement(&request, measurement)?;
++    }
++    let native_thread_id: Option<String> = row.try_get("native_thread_id")?;
++    let native_turn_id: Option<String> = row.try_get("native_turn_id")?;
++    let exact_turn = match (native_thread_id, native_turn_id) {
++        (Some(thread_id), Some(turn_id)) => Some(PreparedTurnReceipt { thread_id, turn_id }),
++        (None, None) => None,
++        (Some(_), None) | (None, Some(_)) => anyhow::bail!("incomplete stored native receipt"),
++    };
++    let provider_receipt = row
++        .try_get::<Option<String>, _>("provider_response_id")?
++        .map(|provider_response_id| PreparedProviderReceipt {
++            request_identity: request.request_identity.clone(),
++            provider_response_id,
++        });
++    Ok(PreparedRequestRecord {
++        preparation_id: row.try_get("preparation_id")?,
++        operation_id: row.try_get("operation_id")?,
++        request,
++        measurement,
++        consumed: row.try_get("consumed")?,
++        exact_turn,
++        provider_receipt,
++    })
++}
++
++#[cfg(test)]
++#[path = "prepared_requests_tests.rs"]
++mod tests;
+diff --git a/codex-rs/state/src/runtime/prepared_requests_tests.rs b/codex-rs/state/src/runtime/prepared_requests_tests.rs
+new file mode 100644
+index 0000000..3e84af7
+--- /dev/null
++++ b/codex-rs/state/src/runtime/prepared_requests_tests.rs
+@@ -0,0 +1,683 @@
++use super::*;
++use crate::runtime::test_support::unique_temp_dir;
++use codex_utils_absolute_path::test_support::PathExt;
++use pretty_assertions::assert_eq;
++use std::path::Path;
++use std::sync::Arc;
++
++async fn open(home: &Path) -> Arc<StateRuntime> {
++    StateRuntime::init(
++        crate::SqliteConfig::new_for_testing(home.abs()),
++        "test".into(),
++    )
++    .await
++    .unwrap()
++}
++
++fn request() -> NewPreparedRequest {
++    NewPreparedRequest {
++        scope: PreparedRequestScope::Command,
++        binding: PreparedRequestBinding {
++            application_scope_id: "session".into(),
++            account_id: "account".into(),
++            route_revision: "route".into(),
++            source_revision: "sources".into(),
++            settings_revision: "settings".into(),
++            history_revision: "history".into(),
++            tools_revision: "tools".into(),
++            runtime_revision: "runtime".into(),
++            command_id: Some("command".into()),
++        },
++        request_identity: "a".repeat(/*n*/ 64),
++        model: "test-model".into(),
++        encoded_body:
++            br#"{"model":"test-model","input":"explicit command","max_output_tokens":10}"#.to_vec(),
++        max_output_tokens: 10,
++    }
++}
++
++fn measurement() -> PreparedRequestMeasurement {
++    PreparedRequestMeasurement {
++        witness_id: "witness".into(),
++        request_identity: "a".repeat(/*n*/ 64),
++        input_tokens: 90,
++        effective_context_ceiling: 100,
++        max_output_tokens: 10,
++        counter_revision: "counter".into(),
++        limit_revision: "limits".into(),
++    }
++}
++
++#[tokio::test]
++async fn prepared_request_reopen_and_exact_operation_retry_without_thread() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let request = request();
++    let prepared = runtime
++        .prepare_request("operation", &request)
++        .await
++        .unwrap();
++    assert_eq!(prepared.request, request);
++    assert_eq!(
++        runtime
++            .prepare_request("operation", &request)
++            .await
++            .unwrap(),
++        prepared
++    );
++    assert_eq!(
++        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM threads")
++            .fetch_one(runtime.pool.as_ref())
++            .await
++            .unwrap(),
++        0
++    );
++    assert_eq!(
++        sqlx::query_scalar::<_, i64>("PRAGMA synchronous")
++            .fetch_one(runtime.pool.as_ref())
++            .await
++            .unwrap(),
++        1,
++        "preparation must preserve NORMAL policy for unrelated pooled metadata borrowers"
++    );
++    assert!(!runtime.sqlite.thread_history_db_path().exists());
++    let queue = runtime
++        .sqlite
++        .open_queue_db(
++            &crate::migrations::runtime_queue_migrator(),
++            /*telemetry_override*/ None,
++        )
++        .await
++        .unwrap();
++    assert_eq!(
++        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM queued_items")
++            .fetch_one(&queue)
++            .await
++            .unwrap(),
++        0
++    );
++    queue.close().await;
++    runtime.close().await;
++    let reopened = open(&home).await;
++    assert_eq!(
++        reopened.read_prepared_request("operation").await.unwrap(),
++        Some(prepared)
++    );
++    reopened.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_changed_inputs_conflict_even_with_same_identity() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let original = request();
++    let prepared = runtime
++        .prepare_request("operation", &original)
++        .await
++        .unwrap();
++    let mut candidates = Vec::new();
++    let mut body = original.clone();
++    body.encoded_body.push(b' ');
++    candidates.push(body);
++    let mut model = original.clone();
++    model.model.push('2');
++    candidates.push(model);
++    let mut output = original.clone();
++    output.max_output_tokens += 1;
++    candidates.push(output);
++    for field in 0..9 {
++        let mut changed = original.clone();
++        let binding = &mut changed.binding;
++        let value = match field {
++            0 => &mut binding.account_id,
++            1 => &mut binding.route_revision,
++            2 => &mut binding.source_revision,
++            3 => &mut binding.settings_revision,
++            4 => &mut binding.history_revision,
++            5 => &mut binding.tools_revision,
++            6 => &mut binding.runtime_revision,
++            7 => binding.command_id.as_mut().unwrap(),
++            8 => &mut binding.application_scope_id,
++            _ => unreachable!(),
++        };
++        value.push('2');
++        candidates.push(changed);
++    }
++    for changed in candidates {
++        assert!(
++            runtime
++                .prepare_request("operation", &changed)
++                .await
++                .is_err()
++        );
++        assert!(
++            runtime
++                .measure_prepared_request(&prepared.preparation_id, &changed, &measurement())
++                .await
++                .is_err()
++        );
++    }
++    runtime
++        .measure_prepared_request(&prepared.preparation_id, &original, &measurement())
++        .await
++        .unwrap();
++    let mut stale = original.clone();
++    stale.binding.history_revision.push('2');
++    assert!(
++        runtime
++            .consume_prepared_request(&prepared.preparation_id, &stale, "witness")
++            .await
++            .is_err()
++    );
++    runtime.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_review_and_unmeasured_cannot_consume() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let mut review = request();
++    review.scope = PreparedRequestScope::ReviewContext;
++    review.binding.command_id = None;
++    let prepared = runtime.prepare_request("review", &review).await.unwrap();
++    runtime
++        .measure_prepared_request(&prepared.preparation_id, &review, &measurement())
++        .await
++        .unwrap();
++    assert!(
++        runtime
++            .consume_prepared_request(&prepared.preparation_id, &review, "witness")
++            .await
++            .is_err()
++    );
++    let command = request();
++    let prepared = runtime.prepare_request("command", &command).await.unwrap();
++    assert!(
++        runtime
++            .consume_prepared_request(&prepared.preparation_id, &command, "witness")
++            .await
++            .is_err()
++    );
++    runtime.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_measurement_is_bound_immutable_and_budget_checked() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let request = request();
++    let prepared = runtime
++        .prepare_request("operation", &request)
++        .await
++        .unwrap();
++    let mut invalid = vec![];
++    let mut overflow = measurement();
++    overflow.input_tokens = u64::MAX;
++    invalid.push(overflow);
++    let mut exceeded = measurement();
++    exceeded.input_tokens += 1;
++    invalid.push(exceeded);
++    let mut wrong_output = measurement();
++    wrong_output.max_output_tokens -= 1;
++    invalid.push(wrong_output);
++    let mut wrong_identity = measurement();
++    wrong_identity.request_identity.push('2');
++    invalid.push(wrong_identity);
++    for invalid in invalid {
++        assert!(
++            runtime
++                .measure_prepared_request(&prepared.preparation_id, &request, &invalid)
++                .await
++                .is_err()
++        );
++    }
++    let witness = measurement();
++    runtime
++        .measure_prepared_request(&prepared.preparation_id, &request, &witness)
++        .await
++        .unwrap();
++    runtime
++        .measure_prepared_request(&prepared.preparation_id, &request, &witness)
++        .await
++        .unwrap();
++    let mut replacement = witness.clone();
++    replacement.witness_id.push('2');
++    assert!(
++        runtime
++            .measure_prepared_request(&prepared.preparation_id, &request, &replacement)
++            .await
++            .is_err()
++    );
++    assert!(
++        runtime
++            .consume_prepared_request(&prepared.preparation_id, &request, "wrong-witness")
++            .await
++            .is_err()
++    );
++    runtime.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_one_winner_across_runtimes_and_uncertain_reopen_never_reuses() {
++    let home = unique_temp_dir();
++    let first = open(&home).await;
++    let second = open(&home).await;
++    let request = request();
++    let prepared = first.prepare_request("operation", &request).await.unwrap();
++    first
++        .measure_prepared_request(&prepared.preparation_id, &request, &measurement())
++        .await
++        .unwrap();
++    let (a, b) = tokio::join!(
++        first.consume_prepared_request(&prepared.preparation_id, &request, "witness"),
++        second.consume_prepared_request(&prepared.preparation_id, &request, "witness"),
++    );
++    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
++    first.close().await;
++    second.close().await;
++    let reopened = open(&home).await;
++    let record = reopened
++        .read_prepared_request("operation")
++        .await
++        .unwrap()
++        .unwrap();
++    assert!(record.consumed);
++    assert_eq!(record.exact_turn, None);
++    assert!(
++        reopened
++            .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++            .await
++            .is_err()
++    );
++    assert!(
++        reopened
++            .measure_prepared_request(&prepared.preparation_id, &request, &measurement())
++            .await
++            .is_err()
++    );
++    let mut changed_account = request.clone();
++    changed_account.binding.account_id.push('2');
++    let replacement = reopened
++        .prepare_request("replacement", &changed_account)
++        .await
++        .unwrap();
++    reopened
++        .measure_prepared_request(
++            &replacement.preparation_id,
++            &changed_account,
++            &measurement(),
++        )
++        .await
++        .unwrap();
++    assert!(
++        reopened
++            .consume_prepared_request(&replacement.preparation_id, &changed_account, "witness")
++            .await
++            .is_err()
++    );
++    let mut independent = request.clone();
++    independent.binding.application_scope_id.push('2');
++    let separate = reopened
++        .prepare_request("separate", &independent)
++        .await
++        .unwrap();
++    reopened
++        .measure_prepared_request(&separate.preparation_id, &independent, &measurement())
++        .await
++        .unwrap();
++    reopened
++        .consume_prepared_request(&separate.preparation_id, &independent, "witness")
++        .await
++        .unwrap();
++    reopened.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_ack_is_exact_and_native_turn_has_one_owner() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let request = request();
++    let prepared = runtime
++        .prepare_request("operation", &request)
++        .await
++        .unwrap();
++    let ack = PreparedTurnReceipt {
++        thread_id: "thread".into(),
++        turn_id: "turn".into(),
++    };
++    assert!(
++        runtime
++            .acknowledge_prepared_request(&prepared.preparation_id, &ack)
++            .await
++            .is_err()
++    );
++    runtime
++        .measure_prepared_request(&prepared.preparation_id, &request, &measurement())
++        .await
++        .unwrap();
++    runtime
++        .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++        .await
++        .unwrap();
++    runtime
++        .acknowledge_prepared_request(&prepared.preparation_id, &ack)
++        .await
++        .unwrap();
++    runtime
++        .acknowledge_prepared_request(&prepared.preparation_id, &ack)
++        .await
++        .unwrap();
++    let provider = PreparedProviderReceipt {
++        request_identity: request.request_identity.clone(),
++        provider_response_id: "response".into(),
++    };
++    runtime
++        .record_prepared_provider_receipt(&prepared.preparation_id, &provider)
++        .await
++        .unwrap();
++    let mut changed = ack.clone();
++    changed.turn_id.push('2');
++    assert!(
++        runtime
++            .acknowledge_prepared_request(&prepared.preparation_id, &changed)
++            .await
++            .is_err()
++    );
++    let mut other = request.clone();
++    other.binding.command_id = Some("other-command".into());
++    let other_prepared = runtime.prepare_request("other", &other).await.unwrap();
++    runtime
++        .measure_prepared_request(&other_prepared.preparation_id, &other, &measurement())
++        .await
++        .unwrap();
++    runtime
++        .consume_prepared_request(&other_prepared.preparation_id, &other, "witness")
++        .await
++        .unwrap();
++    assert!(
++        runtime
++            .acknowledge_prepared_request(&other_prepared.preparation_id, &ack)
++            .await
++            .is_err()
++    );
++    assert!(
++        runtime
++            .record_prepared_provider_receipt(&other_prepared.preparation_id, &provider)
++            .await
++            .is_err()
++    );
++    let mut independent = request.clone();
++    independent.binding.account_id = "independent-account".into();
++    independent.binding.application_scope_id = "independent-session".into();
++    let separate = runtime
++        .prepare_request("independent-account", &independent)
++        .await
++        .unwrap();
++    runtime
++        .measure_prepared_request(&separate.preparation_id, &independent, &measurement())
++        .await
++        .unwrap();
++    runtime
++        .consume_prepared_request(&separate.preparation_id, &independent, "witness")
++        .await
++        .unwrap();
++    runtime
++        .record_prepared_provider_receipt(&separate.preparation_id, &provider)
++        .await
++        .unwrap();
++    runtime.close().await;
++    let reopened = open(&home).await;
++    assert_eq!(
++        reopened
++            .read_prepared_request("operation")
++            .await
++            .unwrap()
++            .unwrap()
++            .exact_turn,
++        Some(ack)
++    );
++    reopened.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_provider_receipt_is_separate_immutable_and_bound() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let request = request();
++    let prepared = runtime
++        .prepare_request("operation", &request)
++        .await
++        .unwrap();
++    let receipt = PreparedProviderReceipt {
++        request_identity: request.request_identity.clone(),
++        provider_response_id: "response".into(),
++    };
++    assert!(
++        runtime
++            .record_prepared_provider_receipt(&prepared.preparation_id, &receipt)
++            .await
++            .is_err()
++    );
++    runtime
++        .measure_prepared_request(&prepared.preparation_id, &request, &measurement())
++        .await
++        .unwrap();
++    runtime
++        .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++        .await
++        .unwrap();
++    let mut wrong = receipt.clone();
++    wrong.request_identity = "b".repeat(/*n*/ 64);
++    assert!(
++        runtime
++            .record_prepared_provider_receipt(&prepared.preparation_id, &wrong)
++            .await
++            .is_err()
++    );
++    runtime
++        .record_prepared_provider_receipt(&prepared.preparation_id, &receipt)
++        .await
++        .unwrap();
++    runtime
++        .record_prepared_provider_receipt(&prepared.preparation_id, &receipt)
++        .await
++        .unwrap();
++    let mut changed = receipt.clone();
++    changed.provider_response_id.push('2');
++    assert!(
++        runtime
++            .record_prepared_provider_receipt(&prepared.preparation_id, &changed)
++            .await
++            .is_err()
++    );
++    runtime.close().await;
++    let reopened = open(&home).await;
++    let record = reopened
++        .read_prepared_request("operation")
++        .await
++        .unwrap()
++        .unwrap();
++    assert_eq!(record.provider_receipt, Some(receipt.clone()));
++    assert_eq!(record.exact_turn, None);
++    let ack = PreparedTurnReceipt {
++        thread_id: "thread".into(),
++        turn_id: "turn".into(),
++    };
++    reopened
++        .acknowledge_prepared_request(&prepared.preparation_id, &ack)
++        .await
++        .unwrap();
++    let acknowledged = reopened
++        .read_prepared_request("operation")
++        .await
++        .unwrap()
++        .unwrap();
++    assert_eq!(acknowledged.provider_receipt, Some(receipt));
++    assert_eq!(acknowledged.exact_turn, Some(ack));
++    reopened.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_rejects_malformed_and_oversized_storage_inputs() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let original = request();
++    let mut invalid = vec![];
++    let mut missing_command = original.clone();
++    missing_command.binding.command_id = None;
++    invalid.push(missing_command);
++    let mut missing_scope = original.clone();
++    missing_scope.binding.application_scope_id.clear();
++    invalid.push(missing_scope);
++    let mut bad_identity = original.clone();
++    bad_identity.request_identity = "caller assertion".into();
++    invalid.push(bad_identity);
++    let mut invalid_json = original.clone();
++    invalid_json.encoded_body = b"invalid".to_vec();
++    invalid.push(invalid_json);
++    let mut unsafe_integer = original.clone();
++    unsafe_integer.max_output_tokens = 9_007_199_254_740_992;
++    invalid.push(unsafe_integer);
++    let mut zero_output = original.clone();
++    zero_output.max_output_tokens = 0;
++    invalid.push(zero_output);
++    let mut oversized_binding = original.clone();
++    oversized_binding.binding.tools_revision = "x".repeat(/*n*/ 1025);
++    invalid.push(oversized_binding);
++    for invalid in invalid {
++        assert!(
++            runtime
++                .prepare_request("operation", &invalid)
++                .await
++                .is_err()
++        );
++    }
++    assert_eq!(
++        runtime.read_prepared_request("operation").await.unwrap(),
++        None
++    );
++    runtime.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_cross_process_single_winner() {
++    const HOME_KEY: &str = "CODEX_PREPARED_REQUEST_TEST_HOME";
++    const RESULT_KEY: &str = "CODEX_PREPARED_REQUEST_TEST_RESULT";
++    if let Some(home) = std::env::var_os(HOME_KEY) {
++        let runtime = open(Path::new(&home)).await;
++        let record = runtime
++            .read_prepared_request("operation")
++            .await
++            .unwrap()
++            .unwrap();
++        let won = runtime
++            .consume_prepared_request(&record.preparation_id, &record.request, "witness")
++            .await
++            .is_ok();
++        std::fs::write(
++            std::env::var_os(RESULT_KEY).unwrap(),
++            if won { "won" } else { "lost" },
++        )
++        .unwrap();
++        runtime.close().await;
++        return;
++    }
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let request = request();
++    let prepared = runtime
++        .prepare_request("operation", &request)
++        .await
++        .unwrap();
++    runtime
++        .measure_prepared_request(&prepared.preparation_id, &request, &measurement())
++        .await
++        .unwrap();
++    runtime.close().await;
++    let mut children = vec![];
++    for index in 0..2 {
++        let result = home.join(format!("result-{index}"));
++        let child = std::process::Command::new(std::env::current_exe().unwrap())
++            .args([
++                "--exact",
++                "runtime::prepared_requests::tests::prepared_request_cross_process_single_winner",
++                "--nocapture",
++            ])
++            .env(HOME_KEY, &home)
++            .env(RESULT_KEY, &result)
++            .spawn()
++            .unwrap();
++        children.push((child, result));
++    }
++    let mut wins = 0;
++    for (mut child, result) in children {
++        assert!(child.wait().unwrap().success());
++        wins += usize::from(std::fs::read_to_string(result).unwrap() == "won");
++    }
++    assert_eq!(wins, 1);
++    let reopened = open(&home).await;
++    assert!(
++        reopened
++            .read_prepared_request("operation")
++            .await
++            .unwrap()
++            .unwrap()
++            .consumed
++    );
++    reopened.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_body_exact_bound_and_next_byte() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let mut boundary = request();
++    boundary.encoded_body.resize(4 * 1024 * 1024, b' ');
++    let retained = runtime
++        .prepare_request("body-limit", &boundary)
++        .await
++        .unwrap();
++    assert!(
++        retained.request == boundary,
++        "4MiB body must be retained exactly"
++    );
++    boundary.encoded_body.push(b' ');
++    assert!(
++        runtime
++            .prepare_request("oversized", &boundary)
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        runtime.read_prepared_request("oversized").await.unwrap(),
++        None
++    );
++    runtime.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_unknown_stored_authority_field_refuses_recovery() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    runtime
++        .prepare_request("original", &request())
++        .await
++        .unwrap();
++    // Simulate a newer native binary retaining an authority field unknown here.
++    // Insert a distinct row: immutable-record triggers deliberately forbid edits.
++    sqlx::query("INSERT INTO prepared_requests (preparation_id, operation_id, scope, binding_json, request_identity, model, encoded_body, max_output_tokens, created_at) SELECT 'future-preparation', 'future-operation', scope, json_set(binding_json, '$.future_authority_revision', 'required'), request_identity, model, encoded_body, max_output_tokens, created_at FROM prepared_requests WHERE operation_id = 'original'")
++        .execute(runtime.pool.as_ref()).await.unwrap();
++    assert!(
++        runtime
++            .read_prepared_request("future-operation")
++            .await
++            .is_err()
++    );
++    assert!(
++        runtime
++            .prepare_request("future-operation", &request())
++            .await
++            .is_err()
++    );
++    runtime.close().await;
++}

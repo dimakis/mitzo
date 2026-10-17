@@ -1,9 +1,14 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   CollaborationContractError,
   CollaborationSettingsSchema,
+  CollaborationReviewIdentitySchema,
+  collaborationCapacityOperationKey,
+  CollaborationNativeCapacityAssessmentSchema,
+  CollaborationNativeCapacityWitnessSchema,
+  type CollaborationNativeCapacityWitness,
   CollaborationSnapshotDraftSchema,
   CollaborationSnapshotMessageSchema,
   CollaborationSnapshotSelectionSchema,
@@ -68,7 +73,9 @@ export interface AuthorizedCollaborationContext {
 
 /** A registered ordinary adapter must measure its actual serialized joining packet,
  * standard boot/guidance/repository instructions, tool definitions and framing for
- * this exact selection. No provider call, preparation, allocation or dispatch here.
+ * this exact selection. Native preparation/counting must be non-generating and
+ * retain its private witness; no allocation or dispatch is permitted here.
+ * Legacy additive results remain historical/test evidence, never native authority.
  * A missing adapter is unverified; character heuristics are not a ready assessment.
  */
 export interface CollaborationCapacityAdapter {
@@ -76,17 +83,42 @@ export interface CollaborationCapacityAdapter {
     settings: CollaborationSettings;
     context: Context;
     contextSha256: string;
-  }): Promise<{
-    settings: CollaborationSettings;
-    contextSha256: string;
-    contextTokens: number;
-    adapterTokens: number;
-    bootTokens: number;
-    toolTokens: number;
-    reservedOutputTokens: number;
-    contextWindowTokens: number;
-    estimatorRevision: string;
-  }>;
+    /** Original durable review+settings identity, never derived from mutable source bytes. */
+    nativeOperationId?: string;
+  }): Promise<
+    | UnavailableCollaborationCapacityMeasurement
+    | NativeCollaborationCapacityMeasurement
+    | {
+        settings: CollaborationSettings;
+        contextSha256: string;
+        contextTokens: number;
+        adapterTokens: number;
+        bootTokens: number;
+        toolTokens: number;
+        reservedOutputTokens: number;
+        contextWindowTokens: number;
+        estimatorRevision: string;
+      }
+  >;
+}
+
+export interface UnavailableCollaborationCapacityMeasurement {
+  kind: 'unavailable';
+  settings: CollaborationSettings;
+  contextSha256: string;
+  status: 'unverified' | 'refused';
+  /** Fixed public-safe explanation; never forward native/provider error text. */
+  reason: string;
+}
+export interface NativeCollaborationCapacityMeasurement {
+  kind: 'nativePreparedRequest';
+  scope: 'reviewContext';
+  settings: CollaborationSettings;
+  contextSha256: string;
+  inputTokens: number;
+  maxOutputTokens: number;
+  contextWindowTokens: number;
+  nativeWitness: CollaborationNativeCapacityWitness['nativeWitness'];
 }
 
 function changed(): never {
@@ -101,6 +133,10 @@ function unique(values: string[]) {
 }
 const artifactKey = (pin: ArtifactPin) => `${pin.artifactId}:${pin.revision}`;
 
+export interface CollaborationCompilationOptions {
+  reviewIdentity?: z.infer<typeof CollaborationReviewIdentitySchema>;
+  retainNativeWitnesses?: (witnesses: CollaborationNativeCapacityWitness[]) => void;
+}
 /** Compile only. The EventStore remains the review/persistence owner. Callers must
  * recover an existing operation receipt before recompiling on a mutation retry.
  * No public execution route or account/runtime is qualified by this host-only port.
@@ -110,10 +146,11 @@ export async function compileCollaborationContext(
   rawSettings: unknown,
   sources: AuthorizedCollaborationContext,
   adapter?: CollaborationCapacityAdapter,
+  options: CollaborationCompilationOptions = {},
 ): Promise<Draft> {
   const input = CollaborationSnapshotSelectionSchema.parse(rawSelection);
   const parsedSettings = z.array(CollaborationSettingsSchema).min(1).max(16).parse(rawSettings);
-  return compileSource(input, parsedSettings, sources, adapter);
+  return compileSource(input, parsedSettings, sources, adapter, options);
 }
 
 /** Retain an explicitly selected source before any recipient/lead exists. Shares
@@ -132,7 +169,12 @@ async function compileSource(
   parsedSettings: CollaborationSettings[],
   sources: AuthorizedCollaborationContext,
   adapter?: CollaborationCapacityAdapter,
+  options: CollaborationCompilationOptions = {},
 ): Promise<Draft> {
+  const reviewIdentity =
+    options.reviewIdentity && CollaborationReviewIdentitySchema.parse(options.reviewIdentity);
+  if (reviewIdentity && reviewIdentity.requestId !== input.requestId) changed();
+  const nativeWitnesses: CollaborationNativeCapacityWitness[] = [];
   // Assess identical selections once. Settings equality never combines session ownership.
   const settings = [
     ...new Map(parsedSettings.map((selected) => [JSON.stringify(selected), selected])).values(),
@@ -275,8 +317,78 @@ async function compileSource(
   if (adapter) {
     const assessments: Extract<Draft['capacity'], { status: 'ready' }>['assessments'] = [];
     let exceeds = false;
+    let unavailable: { status: 'unverified' | 'refused'; reason: string } | undefined;
     for (const selected of settings) {
       const contextSha256 = sha(JSON.stringify(context));
+      const nativeOperationId = reviewIdentity
+        ? `collaboration-review:${sha(collaborationCapacityOperationKey(reviewIdentity, selected))}`
+        : undefined;
+      const rawMeasurement = await adapter.measure({
+        nativeOperationId,
+        settings: structuredClone(selected),
+        context: structuredClone(context),
+        contextSha256,
+      });
+      bounded(rawMeasurement);
+      if ('kind' in rawMeasurement && rawMeasurement.kind === 'unavailable') {
+        const result = z
+          .strictObject({
+            kind: z.literal('unavailable'),
+            settings: CollaborationSettingsSchema,
+            contextSha256: z.literal(contextSha256),
+            status: z.enum(['unverified', 'refused']),
+            reason: z.string().trim().min(1).max(1000),
+          })
+          .parse(rawMeasurement);
+        if (!isDeepStrictEqual(result.settings, selected)) changed();
+        if (!unavailable || result.status === 'refused')
+          unavailable = { status: result.status, reason: result.reason };
+        continue;
+      }
+      if ('kind' in rawMeasurement && rawMeasurement.kind === 'nativePreparedRequest') {
+        const measurement = z
+          .strictObject({
+            kind: z.literal('nativePreparedRequest'),
+            scope: z.literal('reviewContext'),
+            settings: CollaborationSettingsSchema,
+            contextSha256: z.literal(contextSha256),
+            inputTokens: z.number().int().nonnegative().safe(),
+            maxOutputTokens: z.number().int().positive().safe(),
+            contextWindowTokens: z.number().int().positive().safe(),
+            nativeWitness: CollaborationNativeCapacityWitnessSchema.shape.nativeWitness,
+          })
+          .parse(rawMeasurement);
+        if (!isDeepStrictEqual(measurement.settings, selected)) changed();
+        if (!nativeOperationId) {
+          unavailable ??= {
+            status: 'unverified',
+            reason: 'Native capacity requires the original retained ordinary review operation.',
+          };
+          continue;
+        }
+        const total = measurement.inputTokens + measurement.maxOutputTokens;
+        if (!Number.isSafeInteger(total)) throw new CollaborationContractError('capacity_refused');
+        if (total > measurement.contextWindowTokens) exceeds = true;
+        else {
+          const assessment = CollaborationNativeCapacityAssessmentSchema.parse({
+            kind: measurement.kind,
+            scope: measurement.scope,
+            settings: measurement.settings,
+            measurementId: randomUUID(),
+            inputTokens: measurement.inputTokens,
+            maxOutputTokens: measurement.maxOutputTokens,
+            contextWindowTokens: measurement.contextWindowTokens,
+          });
+          assessments.push(assessment);
+          nativeWitnesses.push({
+            assessment,
+            nativeOperationId,
+            contextSha256,
+            nativeWitness: measurement.nativeWitness,
+          });
+        }
+        continue;
+      }
       const measurement = z
         .strictObject({
           settings: CollaborationSettingsSchema,
@@ -289,13 +401,7 @@ async function compileSource(
           contextWindowTokens: sequence,
           estimatorRevision: z.string().min(1).max(200).regex(/^\S+$/),
         })
-        .parse(
-          await adapter.measure({
-            settings: structuredClone(selected),
-            context: structuredClone(context),
-            contextSha256,
-          }),
-        );
+        .parse(rawMeasurement);
       if (!isDeepStrictEqual(measurement.settings, selected)) changed();
       const { settings: measuredSettings, estimatorRevision } = measurement;
       const components = {
@@ -328,16 +434,25 @@ async function compileSource(
           components,
         });
     }
-    draft.capacity = exceeds
-      ? {
-          status: 'needs_reviewed_summary',
-          reason:
-            'The complete packet and ordinary overhead exceed the selected context capacity. Narrow the selection or review a separate attributed summary.',
-        }
-      : { status: 'ready', assessments };
+    draft.capacity =
+      unavailable ??
+      (exceeds
+        ? {
+            status: 'needs_reviewed_summary',
+            reason:
+              'The complete packet and ordinary overhead exceed the selected context capacity. Narrow the selection or review a separate attributed summary.',
+          }
+        : { status: 'ready', assessments });
   }
   await opened.assertCurrent();
   for (const pin of pins.values()) await sources.authorizeArtifact(structuredClone(pin));
   bounded(draft);
-  return CollaborationSnapshotDraftSchema.parse(draft);
+  const result = CollaborationSnapshotDraftSchema.parse(draft);
+  // Only publish the private association to the review owner after every source
+  // fence and final byte/schema check succeeds. Refused reviews retain no witness.
+  if (result.capacity.status === 'ready' && nativeWitnesses.length) {
+    bounded(nativeWitnesses);
+    options.retainNativeWitnesses?.(structuredClone(nativeWitnesses));
+  }
+  return result;
 }

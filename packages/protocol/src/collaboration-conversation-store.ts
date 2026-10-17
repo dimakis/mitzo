@@ -12,6 +12,8 @@ import {
   CollaborationPolicyUpdateSchema,
   CollaborationPolicySchema,
   CollaborationSettingsSchema,
+  collaborationCapacityOperationKey,
+  CollaborationNativeCapacityWitnessSchema,
   CollaborationMessageInputSchema,
   CollaborationReplyInputSchema,
   CollaborationMessageSchema,
@@ -69,6 +71,51 @@ const ReviewCompilation = ReviewCompilationInput.extend({
   snapshotRequestId: z.uuid(),
   snapshotId: z.uuid().nullable(),
 });
+const ReviewCapacityWitnesses = z.strictObject({
+  snapshotSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  reviewRequestId: z.uuid(),
+  witnesses: z.array(CollaborationNativeCapacityWitnessSchema).min(1).max(16),
+});
+function reviewContextSha(draft: z.infer<typeof CollaborationSnapshotDraftSchema>) {
+  const context = {
+    sourceConversationId: draft.sourceConversationId,
+    boundary: draft.boundary,
+    mode: draft.mode,
+    purpose: draft.purpose,
+    joiningBrief: draft.joiningBrief,
+    messages: draft.messages,
+    artifacts: draft.artifacts,
+  };
+  return createHash('sha256').update(JSON.stringify(context)).digest('hex');
+}
+function validateCapacityWitnesses(
+  draft: z.infer<typeof CollaborationSnapshotDraftSchema>,
+  raw: unknown,
+  identity: { collaborationId: string; operatorId: string; requestId: string },
+) {
+  const witnesses = z.array(CollaborationNativeCapacityWitnessSchema).max(16).parse(raw);
+  if (Buffer.byteLength(JSON.stringify(witnesses)) > 512 * 1024)
+    throw new ContractError('capacity_refused');
+  const native =
+    draft.capacity.status === 'ready'
+      ? draft.capacity.assessments.filter(
+          (assessment) => 'kind' in assessment && assessment.kind === 'nativePreparedRequest',
+        )
+      : [];
+  if (
+    native.length !== witnesses.length ||
+    new Set(witnesses.map((w) => w.assessment.measurementId)).size !== witnesses.length ||
+    witnesses.some(
+      (w) =>
+        w.contextSha256 !== reviewContextSha(draft) ||
+        w.nativeOperationId !==
+          `collaboration-review:${createHash('sha256').update(collaborationCapacityOperationKey(identity, w.assessment.settings)).digest('hex')}` ||
+        !native.some((a) => sha(a) === sha(w.assessment)),
+    )
+  )
+    throw new ContractError('snapshot_changed');
+  return witnesses;
+}
 /** Slice-2 metadata only. Existing EventStore connection/backup owner; no dispatcher or scheduler.
  * saveSnapshot/acceptMessage/recordDelivery/recordAllocation are trusted host ports, not HTTP writes.
  */
@@ -561,7 +608,12 @@ export class CollaborationConversationStore {
       reservation
     );
   }
-  completeReviewCompilation(group: string, requestId: string, raw: unknown) {
+  completeReviewCompilation(
+    group: string,
+    requestId: string,
+    raw: unknown,
+    rawWitnesses: unknown = [],
+  ) {
     z.uuid().parse(requestId);
     return this.db
       .transaction(() => {
@@ -575,6 +627,19 @@ export class CollaborationConversationStore {
         }
         this.membership(group, record.selection.expectedMembershipRevision);
         const draft = CollaborationSnapshotDraftSchema.parse(raw);
+        const witnesses = validateCapacityWitnesses(draft, rawWitnesses, {
+          collaborationId: group,
+          operatorId: record.operatorId,
+          requestId: record.selection.requestId,
+        });
+        if (
+          draft.capacity.status === 'ready' &&
+          draft.capacity.assessments.some(
+            (assessment) =>
+              !record.settings.some((selected) => sha(selected) === sha(assessment.settings)),
+          )
+        )
+          throw new ContractError('snapshot_changed');
         const { selection } = record;
         if (
           draft.requestId !== requestId ||
@@ -589,6 +654,12 @@ export class CollaborationConversationStore {
           ...draft,
           requestId: record.snapshotRequestId,
         });
+        if (witnesses.length)
+          this.put(group, 'review-capacity-witnesses', snapshot.snapshotId, {
+            snapshotSha256: snapshot.sha256,
+            reviewRequestId: record.selection.requestId,
+            witnesses,
+          });
         this.put(group, 'review-compilation', requestId, {
           ...record,
           snapshotId: snapshot.snapshotId,
@@ -596,6 +667,46 @@ export class CollaborationConversationStore {
         return snapshot;
       })
       .immediate();
+  }
+  /** Trusted ordinary review/confirmation owners only. Never project native capability
+   * identities into snapshots, events or HTTP. Missing historical records confer no proof. */
+  getReviewCapacityWitnesses(group: string, snapshotId: string) {
+    const snapshot = this.getSnapshot(group, snapshotId);
+    if (!snapshot) throw new ContractError('not_found');
+    const retained = this.current(
+      group,
+      'review-capacity-witnesses',
+      snapshotId,
+      ReviewCapacityWitnesses,
+    );
+    if (!retained) return [];
+    if (retained.snapshotSha256 !== snapshot.sha256) throw new ContractError('snapshot_changed');
+    const record = this.current(
+      group,
+      'review-compilation',
+      retained.reviewRequestId,
+      ReviewCompilation,
+    );
+    if (
+      !record ||
+      record.snapshotId !== snapshotId ||
+      record.selection.requestId !== retained.reviewRequestId ||
+      retained.witnesses.some(
+        (witness) =>
+          !record.settings.some((selected) => sha(selected) === sha(witness.assessment.settings)),
+      )
+    )
+      throw new ContractError('snapshot_changed');
+    const { version: _version, snapshotId: _snapshotId, sha256: _sha256, ...draft } = snapshot;
+    return validateCapacityWitnesses(
+      { ...draft, requestId: record.selection.requestId },
+      retained.witnesses,
+      {
+        collaborationId: group,
+        operatorId: record.operatorId,
+        requestId: record.selection.requestId,
+      },
+    );
   }
   /** Trusted source compiler only. No public route accepts these bytes. */
   saveSnapshot(group: string, raw: unknown) {
