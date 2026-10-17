@@ -11,7 +11,10 @@ import { within } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import userEvent from '@testing-library/user-event';
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
+  apiFetch: vi.fn(),
+}));
 vi.mock('../../components/AccountModelPicker', async (original) => ({
   ...(await original<typeof import('../../components/AccountModelPicker')>()),
   AccountModelPicker: ({ onChange }: { onChange: (value: unknown) => void }) => (
