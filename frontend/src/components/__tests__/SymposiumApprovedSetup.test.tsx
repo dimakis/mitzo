@@ -63,8 +63,8 @@ it('retains the approved fresh setup footer, runtime order and actual repository
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Architect' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
-  const add = screen.getByRole('dialog', { name: 'Add agent', exact: true });
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
+  const add = screen.getByRole('dialog', { name: /^Add agent$/ });
   expect(
     within(add)
       .getAllByRole('radio')
@@ -86,9 +86,9 @@ it('retains the approved fresh setup footer, runtime order and actual repository
   fireEvent.change(within(add).getByRole('textbox', { name: 'Purpose' }), {
     target: { value: 'Check this exact draft.' },
   });
-  fireEvent.click(within(footer).getByRole('button', { name: 'Cancel', exact: true }));
-  expect(screen.getByRole('dialog', { name: 'Agents', exact: true })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+  fireEvent.click(within(footer).getByRole('button', { name: /^Cancel$/ }));
+  expect(screen.getByRole('dialog', { name: /^Agents$/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
   expect((screen.getByRole('textbox', { name: 'Purpose' }) as HTMLTextAreaElement).value).toBe(
     'Check this exact draft.',
   );
