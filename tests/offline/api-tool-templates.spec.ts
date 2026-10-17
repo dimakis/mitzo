@@ -184,7 +184,7 @@ for (const theme of ['dark', 'light'])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
-    for (const button of await editor.getByRole('button').all()) {
+    for (const button of await editor.locator('button, input, select').all()) {
       if (await button.isVisible())
         expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     }
