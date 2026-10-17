@@ -31,6 +31,8 @@ export function createTelosWorkRouter(options: {
   sourceConversation?(id: string): boolean;
   roleSetup?(request: TelosWorkRoleRequest): Promise<unknown>;
   roleContext?(request: TelosWorkRoleRequest): Promise<unknown>;
+  advisorPreview?(request: TelosWorkRoleRequest): Promise<unknown>;
+  advisorSave?(request: TelosWorkRoleRequest): Promise<unknown>;
   assertRoleAssignment?(itemId: string, role: 'lead' | 'worker', conversationId: string): void;
 }) {
   const router = Router();
@@ -127,15 +129,20 @@ export function createTelosWorkRouter(options: {
     }
     run(res, (store) => store.execute(input.data, authority));
   });
-  for (const operation of ['setup', 'context'] as const)
+  for (const operation of [
+    { path: 'roles/setup', host: options.roleSetup },
+    { path: 'roles/context', host: options.roleContext },
+    { path: 'advisor/preview', host: options.advisorPreview },
+    { path: 'advisor/save', host: options.advisorSave },
+  ])
     router.post(
-      `/api/telos/work/roles/${operation}`,
+      `/api/telos/work/${operation.path}`,
       options.operatorAuth,
       requireSameOriginJson,
       async (req, res) => {
         const authority = actor(res);
         if (!authority) return;
-        const host = operation === 'setup' ? options.roleSetup : options.roleContext;
+        const host = operation.host;
         if (!host) {
           res.status(503).json({
             code: 'unavailable',

@@ -252,3 +252,35 @@ it('explicitly prepares an independent reviewer chat while preserving the curren
   }
   expect(f.ordinary.store.listSessions()).toHaveLength(2);
 });
+
+it('retains explicit advisor purpose in the bound chat across a plain conversation reopen', async () => {
+  const f = await fixture();
+  const contextSelection = await f.host().context(
+    f.request({
+      itemId: 'item',
+      role: 'advisor',
+      advisorPurpose: 'child',
+      sourceSnapshotIds: [],
+      artifactRefs: [],
+    }),
+  );
+  expect(contextSelection).toMatchObject({ role: 'advisor', advisorPurpose: 'child' });
+  const input = {
+    itemId: 'item',
+    requestId: 'child-advisor',
+    expectedRevision: contextSelection.brief.revision,
+    role: 'advisor',
+    expectedAssignmentRevision: null,
+    settings: f.ordinary.input.settings,
+    contextSelection,
+  };
+  const receipt = await f.host().setup(f.request(input));
+  const advisorId = receipt.work.links.find((link) => link.role === 'advisor')!.conversation
+    .conversationId;
+  f.ordinary.reopen();
+  const session = f.ordinary.store.getSession(advisorId)!;
+  expect(
+    resolveTelosWorkRoleContext(f.ordinary.store, advisorId, session.accountBinding),
+  ).toMatchObject({ itemId: 'item', role: 'advisor', advisorPurpose: 'child' });
+  expect(f.ordinary.store.getOrdinaryInitialCommandId(advisorId)).toBeUndefined();
+});

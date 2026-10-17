@@ -562,3 +562,20 @@ it('selects an explicitly prepared ordinary lead atomically while preserving its
   expect(f.store.getOrdinaryInitialCommandId(receipt.sessionId)).toBeUndefined();
   expect(selected.work.attempts).toEqual([]);
 });
+
+it('rejects a globally retained role request UUID from another auth actor before creating another intent or resolving ordinary preparation', async () => {
+  const r = await roleFixture();
+  r.input.requestId = randomUUID();
+  r.retainContext.mockRejectedValueOnce(new Error('uncertain role retention'));
+  await expect(r.owner().setup(r.actor, r.input, r.f.signal)).rejects.toThrow(
+    'uncertain role retention',
+  );
+  const original = r.work.prepareRoleSetup(r.input, r.actor).setup;
+  r.f.resolvePreparation.mockClear();
+  await expect(
+    r.owner().setup({ kind: 'operator', id: 'new-auth-session' }, r.input, r.f.signal),
+  ).rejects.toThrow('another operator');
+  expect(r.f.resolvePreparation).not.toHaveBeenCalled();
+  expect(r.work.prepareRoleSetup(r.input, r.actor).setup).toEqual(original);
+  expect(r.f.store.listSessions()).toHaveLength(2);
+});

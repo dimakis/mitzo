@@ -12,6 +12,7 @@ export interface TelosWorkRoleReviewInput {
   actor: TelosWorkActor;
   itemId: string;
   role: TelosWorkRoleContextSelection['role'];
+  advisorPurpose?: 'refine' | 'child';
   selectedSourceSnapshotIds: string[];
   selectedArtifactRefs: TelosWorkRoleContextSelection['artifacts'];
 }
@@ -91,6 +92,7 @@ export function reviewTelosWorkRoleContext(
     version: 1,
     itemId,
     role,
+    ...(input.advisorPurpose ? { advisorPurpose: input.advisorPurpose } : {}),
     brief: {
       revision: target.work.revision,
       text,

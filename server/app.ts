@@ -109,7 +109,9 @@ import { createTelosWorkRouter, type TelosWorkRoleRequest } from './telos-work-r
 import { createTelosWorkRoleHost } from './telos-work-role-host.js';
 import type { TelosWorkRoleSetupScope } from './telos-work-role-setup.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
-import { TelosWorkError } from './telos-work-store.js';
+import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
+import { TelosWorkAdvisorDraft } from './telos-work-advisor-draft.js';
+import { TelosArtifactStore } from './telos-artifact-store.js';
 import { resolveChatAgentProfile } from './agent-library-binding.js';
 import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import { OrdinarySilentPreparationSelectionSchema } from './ordinary-repository-preparation.js';
@@ -2096,6 +2098,37 @@ async function setupTelosRole(request: TelosWorkRoleRequest) {
     telosRoleHost(connectionId).setup(request),
   );
 }
+async function saveTelosAdvisorDraft(operation: 'preview' | 'save', request: TelosWorkRoleRequest) {
+  request.assertAuthorized();
+  const work = new TelosWorkStore(telosDatabasePath(), {
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+  });
+  let artifacts: TelosArtifactStore | undefined;
+  try {
+    artifacts = new TelosArtifactStore(telosDatabasePath());
+    const owner = new TelosWorkAdvisorDraft({
+      events: eventStore,
+      work,
+      artifacts,
+      assertAuthorized: request.assertAuthorized,
+      authorizeSource: (actor, id) =>
+        actor.kind === 'operator' &&
+        actor.id === request.actor.id &&
+        isAvailableTelosWorkConversation(eventStore.getSession(id)),
+      authorizeArtifact: (actor, itemId) =>
+        actor.kind === 'operator' &&
+        actor.id === request.actor.id &&
+        artifacts!.userUploadAllowed(itemId),
+    });
+    const receipt = await owner[operation](structuredClone(request.raw), request.actor);
+    request.assertAuthorized();
+    return receipt;
+  } finally {
+    artifacts?.close();
+    work.close();
+  }
+}
 /** Host-only capture capability. No route, scheduler or upload is enabled here. */
 export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
   events: eventStore,
@@ -2119,6 +2152,8 @@ app.use(
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
     roleSetup: setupTelosRole,
     roleContext: (request) => telosRoleHost().context(request),
+    advisorPreview: (request) => saveTelosAdvisorDraft('preview', request),
+    advisorSave: (request) => saveTelosAdvisorDraft('save', request),
     assertRoleAssignment: (itemId, role, conversationId) => {
       const context = resolveTelosWorkRoleContext(
         eventStore,
@@ -3111,8 +3146,14 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       // Keep metadata available when the optional account catalog is temporarily unreadable.
     }
   }
+  const telosWorkRoleContext = resolveTelosWorkRoleContext(
+    eventStore,
+    meta.sessionId,
+    meta.accountBinding,
+  );
   res.json({
     sessionId: meta.sessionId,
+    ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
     ...runtimeMetadata,
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,

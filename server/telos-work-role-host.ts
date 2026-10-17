@@ -1,9 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
-import { z } from 'zod';
 import {
   TelosWorkRoleSetupInputSchema,
-  TelosWorkIdSchema,
-  TelosWorkArtifactReferenceSchema,
+  TelosWorkRoleContextRequestSchema,
   type TelosWorkCommandReceipt,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
@@ -30,12 +28,7 @@ export interface TelosWorkRoleHostDependencies {
   resolvePreparation: SetupDependencies['resolvePreparation'];
   authorizeSettings: SetupDependencies['authorize'];
 }
-const ReviewInput = z.strictObject({
-  itemId: TelosWorkIdSchema,
-  role: z.enum(['lead', 'worker', 'advisor', 'reviewer']),
-  sourceSnapshotIds: z.array(TelosWorkIdSchema),
-  artifactRefs: z.array(TelosWorkArtifactReferenceSchema),
-});
+const ReviewInput = TelosWorkRoleContextRequestSchema;
 
 export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
   context(request: TelosWorkRoleRequest): Promise<TelosWorkRoleContextSelection>;
@@ -74,6 +67,7 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
           actor,
           itemId: input.itemId,
           role: input.role,
+          advisorPurpose: input.advisorPurpose,
           selectedSourceSnapshotIds: input.sourceSnapshotIds,
           selectedArtifactRefs: input.artifactRefs,
         });
@@ -106,7 +100,8 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
             artifacts,
             actor,
             itemId: input.itemId,
-            role: saved.receipt ? 'lead' : input.role,
+            role: saved.receipt && input.role === 'worker' ? 'lead' : input.role,
+            advisorPurpose: selection.advisorPurpose,
             selectedSourceSnapshotIds: selection.sources.map((source) => source.snapshotId),
             selectedArtifactRefs: selection.artifacts,
           });

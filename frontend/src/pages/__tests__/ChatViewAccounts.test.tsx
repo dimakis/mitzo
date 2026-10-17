@@ -933,3 +933,44 @@ vi.mock('../../hooks/useExplicitLocalChat', async () => {
   const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
   return { useExplicitLocalChat: disabledLocalChat };
 });
+it('keeps a Telos lead draft in ordinary setup without allowing a first model send', () => {
+  const store = createTestStore();
+  const sendMessage = vi.fn();
+  store.setState({ sendMessage });
+  render(
+    <MemoryRouter initialEntries={['/chat?telosRoleItem=item&telosRole=lead&telosRoleMode=assign']}>
+      <MitzoStoreProvider value={store}>
+        <ChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Assign lead & open chat' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+it.each(['unknown', 'advisor'])(
+  'refuses unsupported role setup %s without falling back to ordinary sending',
+  (role) => {
+    const store = createTestStore();
+    const sendMessage = vi.fn();
+    store.setState({ sendMessage });
+    render(
+      <MemoryRouter
+        initialEntries={[`/chat?telosRoleItem=item&telosRole=${role}&telosRoleMode=assign`]}
+      >
+        <MitzoStoreProvider value={store}>
+          <ChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByText(
+        'This work conversation setup is unavailable. Return to the work item and choose a supported role.',
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(sendMessage).not.toHaveBeenCalled();
+  },
+);

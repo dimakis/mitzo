@@ -1288,3 +1288,34 @@ focus, retained edits, failure/retry, publication, 44px actions and scrolling.
 These checks use fake responses without backend, credentials or models. Full-app
 build/browser acceptance remains a separate CI gate. The application shell and
 advisor/editor placement are unchanged.
+
+## Telos ordinary role setup
+
+Telos role entry reuses the existing item detail actions and opens the full ordinary
+chat settings, renderer, composer and Resources. It adds no settings menu, reduced
+advisor form or alternate runtime. Item/lead return links use the shared chat context
+row; exact reviewed pins are available in its native details disclosure. The context
+region is bounded to 35vh as structural viewport geometry so the ordinary transcript
+and composer remain reachable at large text sizes.
+
+Advisor proposals reuse RepositoryChatPicker controls inside the ordinary transcript.
+Its transcript modifier prevents flex shrinking and delegates scrolling to the chat,
+so proposal fields and Save remain reachable rather than collapsing into an inner
+scroll strip. Existing semantic tokens, type, focus, control geometry and appearance
+preferences remain effective. The ordinary draft owner retains text/images/context
+through silent role binding and first-send consumption.
+
+The scoped offline role fixture checks source-only lead setup, full refinement/child
+advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
+expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,
+dark Mint and light Teal/Georgia, larger light-theme text and keyboard activation.
+Traffic is intercepted; real transaction/admission behavior has separate inert-driver
+regressions. See [S4 ownership and qualification](../features/telos-s4-role-bindings.md).
+
+Inspected S4 captures: [mobile ordinary settings](assets/telos-role-settings-mobile-dark.png),
+[desktop settings with larger text](assets/telos-role-settings-desktop-light.png),
+[mobile proposal fields](assets/telos-advisor-fields-mobile-dark.png),
+[mobile child Save](assets/telos-advisor-save-mobile-light.png), and
+[desktop refinement Save](assets/telos-advisor-save-desktop-light.png).
+The final run passed18 route scenarios plus two browser startup dependencies;
+the startup checks are not additional role journeys.

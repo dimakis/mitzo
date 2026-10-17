@@ -481,3 +481,43 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(screen.getByTestId('restored-selection').textContent).toContain('personal');
   });
 }
+
+import { act } from '@testing-library/react';
+import {
+  bindChatDraftToSession,
+  consumeChatDraft,
+  getSessionChatDraft,
+} from '../../lib/chat-drafts';
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} restores a silently bound rich draft and releases it to the ordinary owner after acceptance`, async () => {
+    const draft = {
+      ...createChatDraft(),
+      text: 'Typed before binding',
+      images: [
+        { data: 'ZmFrZQ==', preview: 'data:image/png;base64,ZmFrZQ==', mediaType: 'image/png' },
+      ],
+      contextBlocks: ['Retained selected resource'],
+    };
+    draft.settings.retainRuntimeIntent = true;
+    saveChatDraft(draft);
+    expect(bindChatDraftToSession(draft.id, 'bound-chat')).toBe('bound');
+    mount(Page, '/chat/bound-chat', 'bound-chat');
+    expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
+      'Typed before binding',
+    );
+    expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+    expect(getSessionChatDraft('bound-chat')?.contextBlocks).toEqual([
+      'Retained selected resource',
+    ]);
+    act(() => {
+      expect(consumeChatDraft(getChatDraft(draft.id)!)).toBe(true);
+    });
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Next ordinary message' },
+    });
+    await waitFor(() =>
+      expect(localStorage.getItem('mitzo-draft-bound-chat')).toBe('Next ordinary message'),
+    );
+    expect(getChatDraft(draft.id)).toBeNull();
+  });
+}

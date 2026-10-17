@@ -359,7 +359,10 @@ export {
 export * from './telos-work.js';
 
 export * from './telos-work-api.js';
+export * from './telos-work-advisor.js';
 
 export * from './ordinary-prepared-session.js';
 export * from './telos-source.js';
 export * from './telos-outcome.js';
+
+export * from './telos-work-role-context.js';

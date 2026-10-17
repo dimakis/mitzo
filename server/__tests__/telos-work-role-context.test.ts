@@ -168,3 +168,11 @@ it('rejects oversized reviewed context before retaining either role or guidance 
   expect(() => retainTelosWorkRoleContext(store, 'lead', binding, input)).toThrow(/size|exceed/i);
   expect(store.events).toHaveLength(0);
 });
+
+import * as protocol from '@mitzo/protocol';
+it('exposes the role context shape through the browser-safe shared protocol boundary', () => {
+  const shared = Reflect.get(protocol, 'TelosWorkRoleContextSelectionSchema') as
+    { parse(value: unknown): unknown } | undefined;
+  expect(shared, 'shared role context schema must exist for ordinary frontend setup').toBeDefined();
+  expect(shared?.parse(selected())).toEqual(selected());
+});

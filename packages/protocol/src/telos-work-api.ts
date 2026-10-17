@@ -9,22 +9,33 @@ import {
 import { SessionRuntimeBindingSchema } from './session-runtime-binding.js';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
 import { CollaborationSettingsSchema } from './collaboration-conversation.js';
+import { TelosWorkRoleContextSelectionSchema } from './telos-work-role-context.js';
+import { TelosWorkArtifactReferenceSchema } from './telos-work.js';
 
 export const TelosWorkIdSchema = z.string().min(1).max(200).regex(/^\S+$/);
 const id = TelosWorkIdSchema;
 const revision = z.string().regex(/^[a-f0-9]{64}$/);
 const base = { itemId: id, requestId: id, expectedRevision: revision };
+export const TelosWorkRoleContextRequestSchema = z
+  .strictObject({
+    itemId: id,
+    role: z.enum(['lead', 'worker', 'advisor', 'reviewer']),
+    sourceSnapshotIds: z.array(id),
+    artifactRefs: z.array(TelosWorkArtifactReferenceSchema),
+    advisorPurpose: z.enum(['refine', 'child']).optional(),
+  })
+  .refine(
+    (value) => value.role === 'advisor' || value.advisorPurpose === undefined,
+    'Advisor purpose requires an advisor role',
+  );
+export type TelosWorkRoleContextRequest = z.infer<typeof TelosWorkRoleContextRequestSchema>;
 export const TelosWorkRoleSetupInputSchema = z
   .strictObject({
     ...base,
     role: z.enum(['lead', 'worker', 'advisor', 'reviewer']),
     expectedAssignmentRevision: z.number().int().nonnegative().safe().nullable(),
     settings: CollaborationSettingsSchema,
-    // The role context owner validates this immutable selection, including its
-    // canonical work/source authority, before preparing an ordinary session.
-    contextSelection: z
-      .unknown()
-      .refine((value) => value !== undefined, 'Exact role context selection required'),
+    contextSelection: TelosWorkRoleContextSelectionSchema,
   })
   .refine(
     (value) => ['lead', 'worker'].includes(value.role) || value.expectedAssignmentRevision === null,

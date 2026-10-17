@@ -51,6 +51,45 @@ function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>[0]> =
   return { app, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  it('uses only interactive operator authority for advisor previews and saves, with fresh revocation across the host wait', async () => {
+    const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+    const advisorSave = vi.fn(async (input: { assertAuthorized(): void; actor: unknown }) => {
+      input.assertAuthorized();
+      expect(input.actor).toEqual({ kind: 'operator', id: auth.id });
+      revokeAuthSession(auth);
+      return { receipt: 'committed' };
+    });
+    const f = setup({
+      advisorSave,
+      operatorAuth: (_req, res, next) => {
+        res.locals.authSession = auth;
+        next();
+      },
+    });
+    const result = await request(f.app)
+      .post('/api/telos/work/advisor/save')
+      .send({ itemId: 'item' });
+    expect(result.status).toBe(403);
+    expect(advisorSave).toHaveBeenCalledOnce();
+    expect(result.headers['cache-control']).toBe('private, no-store');
+    const unavailable = setup();
+    expect(
+      (
+        await request(unavailable.app)
+          .post('/api/telos/work/advisor/preview')
+          .set('x-operator', 'authenticated')
+          .send({})
+      ).status,
+    ).toBe(503);
+    expect(
+      (
+        await request(unavailable.app)
+          .post('/api/telos/work/advisor/save')
+          .set('x-internal-token', 'host')
+          .send({})
+      ).status,
+    ).toBe(403);
+  });
   it('passes only host identity to the role owner and returns its exact retained receipt', async () => {
     const roleSetup = vi.fn(
       async (

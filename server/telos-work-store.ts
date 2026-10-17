@@ -10,6 +10,8 @@ import {
   TelosOutcomeContextHintsSchema,
   TelosWorkRoleSetupInputSchema,
   type TelosWorkRoleSetupIntent,
+  TelosWorkAdvisorDraftSaveRequestSchema,
+  TelosWorkSourceSnapshotSchema,
   type TelosWorkCommand,
   type TelosWorkCommandReceipt,
   type TelosWorkView,
@@ -88,6 +90,129 @@ export class TelosWorkStore {
   close() {
     if (this.db.open) this.db.close();
   }
+  /** Internal operator-only advisor save port. Receipt identity shares the
+   * existing command owner; no conversation capability or dispatch is granted. */
+  advisorDraftReceipt(raw: unknown, actor: TelosWorkActor): TelosWorkCommandReceipt | undefined {
+    this.operator(actor);
+    const input = TelosWorkAdvisorDraftSaveRequestSchema.parse(raw);
+    const saved = this.db
+      .prepare(
+        'SELECT fingerprint,receipt FROM telos_work_commands WHERE actor_id=? AND request_id=?',
+      )
+      .get(`operator:${actor.id}`, `advisor:${input.requestId}`) as
+      { fingerprint: string; receipt: string } | undefined;
+    if (!saved) return undefined;
+    if (saved.fingerprint !== hash(input))
+      conflict('Advisor request identity reused with different input');
+    return TelosWorkCommandReceiptSchema.parse(JSON.parse(saved.receipt));
+  }
+  saveAdvisorDraft(
+    raw: unknown,
+    actor: TelosWorkActor,
+    retainSource: (database: Database.Database, itemId: string) => TelosWorkSourceSnapshot,
+    assertBeforeApply: () => void,
+  ): TelosWorkCommandReceipt {
+    this.operator(actor);
+    const input = TelosWorkAdvisorDraftSaveRequestSchema.parse(raw);
+    return this.db
+      .transaction(() => {
+        const previous = this.advisorDraftReceipt(input, actor);
+        if (previous) return previous;
+        const anchor = this.readSourceTarget(input.itemId, actor);
+        if (input.operation === 'refine' && anchor.work.kind !== input.proposed.type)
+          invalid('Refinement cannot change item type');
+        if (anchor.work.revision !== input.expectedRevision)
+          conflict('Advisor item revision conflict');
+        if (input.operation === 'refine' && anchor.record.parentId !== input.parentId)
+          conflict('Advisor parent scope changed');
+        if (
+          input.parentId !== null &&
+          this.snapshot(input.parentId).revision !== input.expectedParentRevision
+        )
+          conflict('Advisor parent revision conflict');
+        if (/^life[-_ ]?ops$/i.test(anchor.record.profile))
+          invalid('This item requires private case storage');
+        assertBeforeApply();
+        const actorId = `operator:${actor.id}`;
+        const itemId =
+          input.operation === 'refine'
+            ? input.itemId
+            : hash(['advisor-child', actorId, input.requestId]).slice(0, 16);
+        const now = new Date().toISOString();
+        if (input.operation === 'child') {
+          this.db
+            .prepare(
+              'INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,categories,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            )
+            .run(
+              itemId,
+              input.parentId,
+              input.proposed.name,
+              input.proposed.desiredOutcome,
+              '',
+              '[]',
+              anchor.record.profile,
+              'active',
+              0,
+              JSON.stringify({ session_ids: [input.advisorConversationId] }),
+              JSON.stringify([input.proposed.category]),
+              now,
+              now,
+            );
+        } else {
+          const categories = [
+            ...new Set([input.proposed.category, ...anchor.record.categories.slice(1)]),
+          ];
+          this.db
+            .prepare('UPDATE items SET summary=?,intent=?,categories=?,updated_at=? WHERE id=?')
+            .run(
+              input.proposed.name,
+              input.proposed.desiredOutcome,
+              JSON.stringify(categories),
+              now,
+              itemId,
+            );
+        }
+        this.apply(
+          {
+            operation: 'classify',
+            itemId,
+            requestId: `advisor-kind:${input.requestId}`,
+            expectedRevision: this.snapshot(itemId).revision,
+            kind: input.proposed.type,
+          },
+          actorId,
+        );
+        const snapshot = TelosWorkSourceSnapshotSchema.parse(retainSource(this.db, itemId));
+        if (
+          snapshot.itemId !== itemId ||
+          snapshot.source?.namespace !== 'mitzo' ||
+          snapshot.source.conversationId !== input.advisorConversationId ||
+          snapshot.selection.kind !== 'selected' ||
+          snapshot.selection.throughSequence !== input.selection.boundary.sequence
+        )
+          invalid('Advisor draft requires its exact reviewed planning source');
+        assertBeforeApply();
+        this.apply(
+          {
+            operation: 'source',
+            itemId,
+            requestId: `advisor-source:${input.requestId}`,
+            expectedRevision: this.snapshot(itemId).revision,
+            snapshot,
+          },
+          actorId,
+        );
+        const receipt = { commandId: randomUUID(), actorId, work: this.snapshot(itemId) };
+        this.db
+          .prepare(
+            'INSERT INTO telos_work_commands(actor_id,request_id,fingerprint,receipt) VALUES(?,?,?,?)',
+          )
+          .run(actorId, `advisor:${input.requestId}`, hash(input), JSON.stringify(receipt));
+        return receipt;
+      })
+      .immediate();
+  }
   prepareRoleSetup(
     raw: unknown,
     actor: TelosWorkActor,
@@ -114,6 +239,14 @@ export class TelosWorkStore {
               : null,
           };
         }
+        if (
+          this.db
+            .prepare(
+              'SELECT 1 FROM telos_work_role_setups WHERE request_id=? AND actor_id<>? LIMIT 1',
+            )
+            .get(input.requestId, actorId)
+        )
+          conflict('Role setup request belongs to another operator');
         if (this.snapshot(input.itemId).revision !== input.expectedRevision)
           conflict('Work revision conflict');
         const setup: TelosWorkRoleSetupIntent = {
