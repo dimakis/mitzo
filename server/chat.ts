@@ -1333,6 +1333,7 @@ async function _startChatInner(
   let accountBinding;
   let agentProfile: AgentLibraryVersion | undefined;
   let codexProfile: CodexAccountProfile | undefined;
+  let toolRoute: string;
   let apiKey: string | undefined;
   let enrolledOpenAIAccount = false;
   let apiCredentialRef: Parameters<typeof credentials.resolve>[0] | undefined;
@@ -1366,9 +1367,11 @@ async function _startChatInner(
         (options.resume ?? options.initialSessionId)!,
         accountBinding ?? undefined,
       );
-    const toolRoute =
+    toolRoute =
       accountBinding?.provider === 'openai-codex'
-        ? 'codex'
+        ? openShellAvailable
+          ? 'openshell'
+          : 'codex'
         : accountBinding?.provider === 'openai' &&
             openShellAvailable &&
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'
@@ -1890,7 +1893,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
-  bindAgentToolSelection(session, agentProfile?.definition);
+  bindAgentToolSelection(session, agentProfile?.definition, toolRoute);
   if (options.contributorGuidance !== undefined && session.sessionId)
     saveOrdinaryContributorGuidance(
       eventStore,
@@ -2270,6 +2273,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           ? acceptAgentContext
           : undefined,
         env: sessionEnv,
+        configuredSourceEnv: nativeExecutionEnv(),
         mcpServers: allMcpServers,
         eventStore,
         onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
@@ -3416,6 +3420,7 @@ export async function prepareOwnedCodexChat(
       reasoningEffort: expected.selection.thinking,
       images: payload.images,
       env,
+      configuredSourceEnv: nativeExecutionEnv(),
       mcpServers,
       eventStore,
       publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
