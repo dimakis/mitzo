@@ -1077,3 +1077,75 @@ it.each(['dispatch', 'ownership', 'repaired'] as const)(
     }
   },
 );
+it('lists minimal saved sandbox provenance without exposing route credentials or requiring visible chats', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('legacy', binding, '/sandbox/workspaces/project');
+  s.setArtifactRuntime('legacy', binding, artifactRuntime);
+  const rows = s.listSandboxOwnership();
+  expect(rows).toEqual([
+    {
+      conversationId: 'legacy',
+      physicalId: 'resource-one',
+      sandboxName: 'sandbox-one',
+      workspace: 'tenant-workspace',
+      gateway: 'gateway',
+      gatewayEndpoint: null,
+      accountId: 'personal',
+      ownerKind: 'ordinary',
+      relation: 'runtime',
+    },
+  ]);
+  expect(JSON.stringify(rows)).not.toContain('cliEnvironment');
+  s.close();
+});
+it('keeps migration source and candidate provenance separate and rejects mismatched saved account bindings', () => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  store.create('migrated', binding, '/sandbox/workspaces/project');
+  store.setArtifactRuntime('migrated', binding, artifactRuntime);
+  const db = new Database(path);
+  const tuple = JSON.stringify([
+    binding.accountId,
+    binding.provider,
+    binding.model,
+    binding.profileRevision,
+  ]);
+  db.prepare(
+    'INSERT INTO codex_runtime_migrations(conversation_id,binding,generation,data) VALUES (?,?,1,?)',
+  ).run(
+    'migrated',
+    tuple,
+    JSON.stringify({
+      source: artifactRuntime,
+      candidate: {
+        ...artifactRuntime,
+        runtime: {
+          ...artifactRuntime.runtime,
+          sandboxId: 'candidate',
+          sandboxName: 'candidate-name',
+        },
+        route: {
+          kind: 'chatgpt-subscription',
+          provider: 'account-provider',
+          providerType: 'openai-codex-oauth',
+          providerId: 'private-provider',
+          grantId: 'private-grant',
+          model: 'test-model',
+        },
+      },
+    }),
+  );
+  const rows = store.listSandboxOwnership();
+  expect(rows.map((row) => row.relation)).toEqual([
+    'runtime',
+    'migration_source',
+    'migration_candidate',
+  ]);
+  expect(rows.at(-1)?.physicalId).toBe('candidate');
+  expect(JSON.stringify(rows)).not.toContain('private-grant');
+  db.prepare('UPDATE codex_runtime_migrations SET binding=?').run('["different"]');
+  expect(() => store.listSandboxOwnership()).toThrow(/binding changed/);
+  db.close();
+  store.close();
+});

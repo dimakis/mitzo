@@ -3,6 +3,7 @@ import type { RequestHandler } from 'express';
 import { z } from 'zod';
 import type { OpenShellWarmPool } from './openshell-warm-pool.js';
 export interface SandboxConversation {
+  physicalId?: string | null;
   conversationId: string;
   sandboxName: string;
   state: string;
@@ -14,6 +15,7 @@ export function createWarmPoolRouter(deps: {
   pool(): OpenShellWarmPool | null;
   authorize: RequestHandler;
   conversations(): SandboxConversation[];
+  ownershipReview?(physicalId: string, signal: AbortSignal): Promise<unknown>;
   physicalInventory?(signal: AbortSignal): Promise<unknown>;
 }) {
   const router = express.Router();
@@ -42,6 +44,20 @@ export function createWarmPoolRouter(deps: {
       res
         .status(503)
         .json({ error: 'Could not observe sandbox inventory. Existing resources are retained.' });
+    }
+  });
+  router.get('/:physicalId/ownership', async (req, res) => {
+    try {
+      if (!deps.ownershipReview)
+        return void res
+          .status(503)
+          .json({ error: 'Ownership review is unavailable. Existing resources are retained.' });
+      res.json(await deps.ownershipReview(req.params.physicalId, AbortSignal.timeout(8000)));
+    } catch {
+      res.status(409).json({
+        error:
+          'Ownership could not be verified. Refresh inventory; existing resources are retained.',
+      });
     }
   });
   router.post('/', async (req, res) => {
