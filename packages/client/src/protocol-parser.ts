@@ -213,18 +213,9 @@ export function parseServerMessage(
       break;
 
     case 'session_takeover':
-      // Takeover is a connection-local control message. Older servers could
-      // persist live notices with a sequence number. The transport identifies
-      // actual reconnect replay independently of that durable sequence.
-      if (msg.replayed === true) break;
-      // Server unwatches the old client after takeover, so no subsequent
-      // session_state_changed event will arrive — clear running inline.
-      result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
-      result.messagesActions.push({ type: 'CLEAR_PERMISSIONS' });
-      result.messagesActions.push({
-        type: 'ERROR',
-        error: 'Session resumed on another device.',
-      });
+      // Legacy handoff notices do not end a shared conversation. Keep its
+      // running state, transcript and approvals until authoritative events
+      // arrive; durable replay of an old notice is equally harmless.
       break;
 
     case 'session_switched': {
