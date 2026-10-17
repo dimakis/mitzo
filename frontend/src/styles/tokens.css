@@ -29,6 +29,7 @@
   --color-overlay: rgb(0 0 0 / 55%);
   --color-shadow: rgb(0 0 0 / 25%);
   --color-code-bg: #101114;
+  --color-brand-claude: #df9b82;
   /* Artifact HTML keeps its own styling on a neutral light canvas. */
   --color-preview-canvas: #ffffff;
 
@@ -132,6 +133,7 @@
 }
 
 [data-theme='light'] {
+  --color-brand-claude: #ae5c45;
   color-scheme: light;
   --color-bg: #faf9f6;
   --color-surface: #ffffff;

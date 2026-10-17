@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openChatSetting, settingRow, settingsHome } from '../support/chat-settings';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -601,15 +602,21 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       const chatSettings = page.getByRole('button', { name: /^Workspace controls,/ });
       if ((await chatSettings.getAttribute('aria-expanded')) !== 'true') await chatSettings.click();
       const chatPanel = page.getByRole('region', { name: 'Agent settings', exact: true });
+      await openChatSetting(page, 'agent');
       await expect(chatPanel.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
         JSON.stringify(['builtin', 'mitzo-profile-builder', 1]),
       );
-      for (const name of ['Account', 'Model', 'Thinking level'])
-        await expect(chatPanel.getByRole('combobox', { name, exact: true })).toBeVisible();
-      for (const control of await chatPanel.getByRole('combobox').all())
-        // WebKit may report a 44px control as 43.999984px after scrolling.
-        expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(43.99);
-      await chatPanel.getByRole('combobox', { name: 'Agent', exact: true }).press('Escape');
+      await settingsHome(page);
+      for (const field of ['Account', 'Model', 'Thinking'] as const) {
+        const row = settingRow(chatPanel, field);
+        await expect(row).toBeVisible();
+        // Allow only subpixel arithmetic noise; retain the 44px layout target.
+        expect(
+          await row.evaluate((element) => (element as HTMLElement).offsetHeight),
+        ).toBeGreaterThanOrEqual(44);
+        expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44 - 0.0001);
+      }
+      await chatPanel.press('Escape');
       await expect(chatSettings).toBeFocused();
       await composer.focus();
       await expect(composer).toBeFocused();
@@ -798,12 +805,18 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+  await openChatSetting(page, 'agent');
   const profilePicker = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(profilePicker).toBeVisible();
   await expect(profilePicker).toBeEnabled();
-  expect(
-    await profilePicker.evaluate((element) => element.getBoundingClientRect().height),
-  ).toBeGreaterThanOrEqual(44);
+  const pickerGeometry = await profilePicker.evaluate((element) => ({
+    layout: (element as HTMLSelectElement).offsetHeight,
+    rendered: element.getBoundingClientRect().height,
+  }));
+  // Fractional motion offsets can yield 43.999969px for a 44px control in Chromium.
+  // Require the full layout target and agreement within floating-point precision.
+  expect(pickerGeometry.layout).toBeGreaterThanOrEqual(44);
+  expect(pickerGeometry.rendered).toBeCloseTo(pickerGeometry.layout, 3);
   await profilePicker.focus();
   await expect(profilePicker).toBeFocused();
   expect(inferenceRequests).toEqual([]);

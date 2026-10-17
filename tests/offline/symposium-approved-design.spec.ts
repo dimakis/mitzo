@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 const bundle = build({
   entryPoints: [resolve('frontend/src/preview/main.tsx')],
   bundle: true,
-  external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
+  external: ['/*.png', '/*.svg'],
   write: false,
   outfile: '/tmp/mitzo-symposium-design.js',
   jsx: 'automatic',

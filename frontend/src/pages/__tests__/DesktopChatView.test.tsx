@@ -19,6 +19,14 @@ async function confirmAccount(accountId: string) {
   });
 }
 
+// Route wiring tests exercise the existing controls directly. The real sheet
+// navigation, retained editors and summary layout are covered by QuickChatSettings
+// unit tests and the all-intercept local-first/multi-runtime browser suites.
+vi.mock('../../lib/quick-settings-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/quick-settings-context')>()),
+  useQuickSettings: () => null,
+}));
+
 vi.mock('../../components/RepositoryChatPicker', () => ({
   RepositoryChatPicker: ({
     onChange,
@@ -751,7 +759,6 @@ it('retains the ordinary Close action after ordinary session metadata loads', as
   fireEvent.click(close);
   expect(store.getState().closeSession).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
-  fireEvent.click(screen.getByText('More settings'));
   expect(screen.getByRole('button', { name: 'Ask' })).toBeTruthy();
 });
 
