@@ -83,6 +83,8 @@ import { bindConnectionSetupApplication } from './credential-setup-application.j
 import { getResponsesRuntime } from './responses-chat-session.js';
 import {
   getCredentialConnectionsRuntime,
+  keychainConnectionConfig,
+  createCredentialConnectionsRuntime,
   setCredentialConnectionsRuntime as setActiveCredentialConnectionsRuntime,
 } from './credential-connections-runtime.js';
 import type { CredentialConnections } from './credential-connections.js';
@@ -293,7 +295,7 @@ import {
 import { DEFAULT_AGENT_NAME } from './constants.js';
 import { createGitInfoDiscovery, createGitInfoHandler } from './git-discovery.js';
 import { isValidInternalToken } from './internal-token.js';
-import { createConnectionsRouter } from './connections-router.js';
+import { createConnectionsRouter, recentAppReauthorizationHandlers } from './connections-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
 import {
   personalInventorySource,
@@ -579,6 +581,31 @@ export function setCredentialConnectionsRuntime(service: CredentialConnections |
     ? createCredentialConnectionsRouter(service, credentialSetupApplication)
     : null;
 }
+/** Both ordinary startup and the retained owner install the same private runtime.
+ * The supervised app child receives no Keychain configuration or metadata store. */
+export function configureCredentialConnectionsRuntime() {
+  setCredentialConnectionsRuntime(null);
+  let runtime: ReturnType<typeof createCredentialConnectionsRuntime> | undefined;
+  try {
+    const config = keychainConnectionConfig(process.env);
+    if (!config) return null;
+    runtime = createCredentialConnectionsRuntime(config);
+    setCredentialConnectionsRuntime(runtime.service);
+    return runtime;
+  } catch {
+    setCredentialConnectionsRuntime(null);
+    runtime?.store.close();
+    log.error('Apple Keychain connections disabled: invalid signed helper configuration');
+    return null;
+  }
+}
+// Reauthorization belongs to the authenticated browser process, even when the
+// connection owner is retained elsewhere. It creates no connection runtime.
+app.post(
+  '/api/credential-connections/reauthorize',
+  operatorAuthMiddleware,
+  ...recentAppReauthorizationHandlers(),
+);
 app.use('/api/credential-connections', operatorAuthMiddleware, (req, res, next) => {
   if (!res.locals.authSession)
     return res.status(401).json({ error: 'Browser authentication required' });
