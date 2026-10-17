@@ -54,6 +54,9 @@ export function ConversationAgents(props: {
   unavailableReason?: string;
   renderPreview?(agent: ConversationAgent): ReactNode;
   onPolicyChange?(id: string, policy: { reads: boolean; replies: boolean }): void;
+  /** Confirmed policy state and explicit recovery controls from the existing owner. */
+  policyFeedback?: ReactNode;
+  policyUnavailableReason?: string;
   /** Supplied only when real source, capacity and ordinary preparation owners exist. */
   joiningOwner?: ConversationJoiningOwner;
 }) {
@@ -77,6 +80,8 @@ function ConversationAgentsBody({
   unavailableReason,
   renderPreview,
   onPolicyChange,
+  policyFeedback,
+  policyUnavailableReason,
   joiningOwner,
 }: Parameters<typeof ConversationAgents>[0]) {
   const [view, setView] = useState<
@@ -200,6 +205,9 @@ function ConversationAgentsBody({
                   Choose who reads future discussion and who replies by default. @ changes who
                   replies to one prompt.
                 </p>
+                {policyFeedback && (
+                  <div className="conversation-policy-feedback">{policyFeedback}</div>
+                )}
                 {agents.length === 0 && <p role="status">Agent details are loading.</p>}
                 {agents.map((a) => (
                   <article className="conversation-agent-record" key={a.id}>
@@ -262,7 +270,8 @@ function ConversationAgentsBody({
                     </fieldset>
                     {(!a.policy || !onPolicyChange) && (
                       <small>
-                        Discussion sharing settings are not available for this agent yet.
+                        {policyUnavailableReason ??
+                          'Discussion sharing settings are not available for this agent yet.'}
                       </small>
                     )}
                     <button

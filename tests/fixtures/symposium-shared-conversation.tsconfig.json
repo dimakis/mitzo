@@ -27,6 +27,7 @@
     "../../frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx",
     "../../frontend/src/hooks/useConversationPresentation.ts",
     "../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx",
-    "../../frontend/src/lib/__tests__/conversation-draft-intent.test.ts"
+    "../../frontend/src/lib/__tests__/conversation-draft-intent.test.ts",
+    "../../frontend/src/components/__tests__/ConversationPolicyFeedback.test.tsx"
   ]
 }
