@@ -10,10 +10,11 @@ import {
 it('allows Local ContexGin and only explicitly configured OpenShell preset combinations', () => {
   const builtin = readOrdinaryCodexAgentProfile(
     { version: () => null },
-    { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 },
+    { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: PROFILE_BUILDER_REVISION },
   )!;
   const profile = {
     ...builtin,
+    revision: 1,
     kind: undefined,
     profileId: 'preset',
     definition: {
@@ -45,7 +46,7 @@ it('allows Local ContexGin and only explicitly configured OpenShell preset combi
 it('projects published provider compatibility on the existing exact route', () => {
   const builtin = readOrdinaryCodexAgentProfile(
     { version: () => null },
-    { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 },
+    { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: PROFILE_BUILDER_REVISION },
   )!;
   const profile = {
     ...builtin,
@@ -75,10 +76,11 @@ it('projects published provider compatibility on the existing exact route', () =
 it('keeps plain compatible builtins eligible while a plain-only native adapter refuses recipes', () => {
   const builtin = readOrdinaryCodexAgentProfile(
     { version: () => null },
-    { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 },
+    { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: PROFILE_BUILDER_REVISION },
   )!;
   const recipe = {
     ...builtin,
+    revision: 1,
     kind: undefined,
     profileId: 'recipe',
     definition: {
@@ -95,7 +97,7 @@ it('keeps plain compatible builtins eligible while a plain-only native adapter r
     { contextRecipes: 'none' },
   );
   expect(projected.agentProfiles).toEqual([
-    { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 },
+    { kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: PROFILE_BUILDER_REVISION },
   ]);
   expect(projected.agentProfileRejections).toEqual([
     { agent: { profileId: 'recipe', revision: 1 }, reason: 'native_context_unavailable' },
@@ -124,6 +126,7 @@ it('capabilities retain supported recipes and exclude native packs', () => {
   )!;
   const workspace = {
     ...builtin,
+    revision: 1,
     kind: undefined,
     profileId: 'workspace',
     definition: {
@@ -140,6 +143,7 @@ it('capabilities retain supported recipes and exclude native packs', () => {
   };
   const packs = {
     ...builtin,
+    revision: 1,
     kind: undefined,
     profileId: 'packs',
     definition: {
@@ -156,5 +160,15 @@ it('capabilities retain supported recipes and exclude native packs', () => {
   packs.contentHash = contextDigest(packs.definition);
   expect(
     ordinaryCodexAgentProfiles([workspace, packs]).map((profile) => profile.profileId),
-  ).toEqual([PROFILE_BUILDER_ID, 'workspace']);
+  ).toEqual([PROFILE_BUILDER_ID, PROFILE_BUILDER_ID, 'workspace']);
+});
+
+it('keeps historical Builder revision one eligible without replacing its captured definition', () => {
+  const inventory = ordinaryCodexAgentProfiles([]);
+  expect(inventory.map(({ revision }) => revision)).toEqual([PROFILE_BUILDER_REVISION, 1]);
+  const historical = inventory.find((profile) => profile.revision === 1)!;
+  expect(historical.definition.instructions).not.toContain('AgentProposeTask');
+  expect(
+    ordinaryCodexAgentProfileRouteProjection(inventory, 'openai-codex', 'local').agentProfiles,
+  ).toContainEqual({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 });
 });

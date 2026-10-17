@@ -6,7 +6,14 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { ordinaryRuntimeInventoryFixture } from '../../frontend/src/test-utils/ordinary-runtime-inventory-fixture';
 import { OrdinaryRuntimeFirstCommandSchema } from '../../packages/protocol/src/local-codex-first-command';
-import { profileBuilderDefinition } from '../../packages/protocol/src/profile-builder';
+import {
+  PROFILE_BUILDER_REVISION,
+  profileBuilderDefinition,
+} from '../../packages/protocol/src/profile-builder';
+import {
+  AgentTaskDefinitionSchema,
+  type AgentTaskRecord,
+} from '../../packages/protocol/src/agent-tasks';
 import { V2SendMessage } from '../../packages/protocol/src/ws-schemas-v2';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
@@ -44,7 +51,7 @@ const runtimeInventory = {
     {
       kind: 'builtin' as const,
       profileId: 'mitzo-profile-builder',
-      revision: 1,
+      revision: PROFILE_BUILDER_REVISION,
       definition: profileBuilderDefinition,
       contentHash: createHash('sha256')
         .update(JSON.stringify(profileBuilderDefinition))
@@ -57,6 +64,7 @@ async function offline(
   theme: 'light' | 'dark',
   unavailable = false,
   allowDispatch = false,
+  taskAuthoring: 'create' | 'edit' | null = null,
 ) {
   const files = (await bundle).outputFiles;
   const unexpected: string[] = [];
@@ -84,6 +92,41 @@ async function offline(
     metadata: 'visible' as
       'visible' | 'hidden' | 'unavailable' | 'malformed' | 'not-found' | 'unclassified',
     metadataReads: 0,
+  };
+  const task = {
+    definition: AgentTaskDefinitionSchema.parse({
+      name: 'Morning review',
+      objective: 'Review the accepted report.',
+      profile: {
+        profileId: 'bob',
+        revision: 3,
+        contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+      },
+      execution: {
+        account: {
+          accountId: 'task-only-account',
+          provider: 'openai-codex',
+          profileRevision: 'task-r1',
+        },
+        harness: 'codex',
+        targetId: 'task-only-target',
+        model: 'luna-task-fixture',
+        reasoningEffort: 'low',
+        mode: 'ask',
+        authorityRefs: ['reviewed-task-authority'],
+      },
+      workspace: { workspaceId: 'task-only-workspace', sourceRefs: ['report-r3'] },
+      schedule: { cron: '0 7 * * 1-5', timezone: 'Europe/Dublin', state: 'paused' },
+      notificationPolicy: 'results',
+      outputPolicy: 'session',
+    }),
+    expectedRevision: taskAuthoring === 'edit' ? 3 : 0,
+    saves: [] as Record<string, unknown>[],
+    saved: null as AgentTaskRecord | null,
+    failNext: true,
+    revoked: false,
+    holdSave: false,
+    releaseSave: null as (() => void) | null,
   };
   let proposalSaved = false;
   const controlPosts = [
@@ -129,6 +172,45 @@ async function offline(
           });
           lifecycle.legacyAccepted++;
           return;
+        }
+        if (
+          taskAuthoring &&
+          path === '/api/symposium/profile-proposals/offline-task-proposal/save'
+        ) {
+          const body = route.request().postDataJSON() as Record<string, unknown>;
+          task.saves.push(body);
+          if (task.holdSave)
+            await new Promise<void>((resolve) => {
+              task.releaseSave = resolve;
+            });
+          if (task.revoked)
+            return route.fulfill({
+              status: 403,
+              json: { error: 'Interactive operator authority was revoked' },
+            });
+          if (task.failNext) {
+            task.failNext = false;
+            return route.fulfill({
+              status: 503,
+              json: { error: 'Offline task owner unavailable' },
+            });
+          }
+          const savedDefinition = AgentTaskDefinitionSchema.parse(body.definition);
+          task.saved = {
+            taskId: 'morning-review',
+            revision: task.expectedRevision + 1,
+            definition: savedDefinition,
+            configuration:
+              savedDefinition.objective.trim() &&
+              savedDefinition.execution &&
+              savedDefinition.workspace
+                ? { state: 'blocked', reason: 'admission-unavailable' }
+                : { state: 'draft' },
+            deleted: false,
+            createdAt: '2026-10-17T10:00:00Z',
+            updatedAt: '2026-10-17T10:00:00Z',
+          };
+          return route.fulfill({ json: task.saved });
         }
         if (path === '/api/symposium/profile-proposals/offline-builder-proposal/save') {
           const body = route.request().postDataJSON() as Record<string, unknown>;
@@ -230,7 +312,7 @@ async function offline(
           ],
         },
         '/api/agent-library/tools': { tools: [] },
-        '/api/agent-tasks': [],
+        '/api/agent-tasks': task.saved ? [task.saved] : [],
         '/api/accounts': lifecycle.legacy
           ? [
               {
@@ -254,7 +336,7 @@ async function offline(
           isHidden: lifecycle.metadata === 'hidden',
           sessionType: 'chat',
           mode: 'agent',
-          runtimeCommandScope: 'first-command-only',
+          runtimeCommandScope: taskAuthoring ? 'conversation' : 'first-command-only',
           runtimeBinding: lifecycle.legacy
             ? null
             : {
@@ -301,20 +383,32 @@ async function offline(
               ]
             : [],
         '/api/symposium/profile-proposals':
-          allowDispatch && commands.length && !proposalSaved
+          taskAuthoring && commands.length
             ? [
                 {
-                  proposalId: 'offline-builder-proposal',
-                  suggestedProfileId: null,
-                  state: 'pending',
-                  definition: {
-                    ...definition,
-                    name: 'Bob refined',
-                    instructions: 'Compare options and cite decision evidence.',
-                  },
+                  kind: 'task',
+                  proposalId: 'offline-task-proposal',
+                  taskId: 'morning-review',
+                  expectedRevision: task.expectedRevision,
+                  definition: task.definition,
+                  state: task.saved ? 'saved' : 'pending',
+                  savedTask: task.saved,
                 },
               ]
-            : [],
+            : allowDispatch && commands.length && !proposalSaved
+              ? [
+                  {
+                    proposalId: 'offline-builder-proposal',
+                    suggestedProfileId: null,
+                    state: 'pending',
+                    definition: {
+                      ...definition,
+                      name: 'Bob refined',
+                      instructions: 'Compare options and cite decision evidence.',
+                    },
+                  },
+                ]
+              : [],
         [`/api/sessions/${sessionId}/symposium/status`]: { sessionId, config: null, seats: [] },
       };
       return route.fulfill({ json: data[path] ?? [] });
@@ -324,7 +418,7 @@ async function offline(
       body: `<!doctype html><html data-theme="${theme}" data-accent="teal" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
     });
   });
-  return { unexpected, errors, commands, legacyCommands, proposalSaves, lifecycle };
+  return { unexpected, errors, commands, legacyCommands, proposalSaves, lifecycle, task };
 }
 
 async function openSettings(page: Page) {
@@ -419,7 +513,7 @@ for (const theme of ['light', 'dark'] as const) {
     const panel = await openSettings(page);
     await openChatSetting(page, 'agent');
     await expect(panel.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
-      JSON.stringify(['builtin', 'mitzo-profile-builder', 1]),
+      JSON.stringify(['builtin', 'mitzo-profile-builder', PROFILE_BUILDER_REVISION]),
     );
     await settingsHome(page);
     for (const field of ['Account', 'Model', 'Thinking'] as const) {
@@ -594,7 +688,11 @@ test('Library Builder sends one ordinary command with exact reviewed context and
       targetId: 'mac',
     },
     selection: {
-      agent: { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 1 },
+      agent: {
+        kind: 'builtin',
+        profileId: 'mitzo-profile-builder',
+        revision: PROFILE_BUILDER_REVISION,
+      },
       model: 'luna-fixture',
       thinking: 'high',
     },
@@ -776,7 +874,11 @@ test('Library recovers the original uncertain command after its ordinary draft i
     model: 'luna-fixture',
     reasoningEffort: 'high',
     prompt: originalPrompt,
-    agentProfile: { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 1 },
+    agentProfile: {
+      kind: 'builtin',
+      profileId: 'mitzo-profile-builder',
+      revision: PROFILE_BUILDER_REVISION,
+    },
   });
   expect(JSON.parse(originalCommand.sourceSnapshots![0].content)).toEqual(source);
 
@@ -871,6 +973,185 @@ test('Library keeps fresh setup when a hidden conversation receives its delayed 
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   await expect(page).toHaveURL(freshUrl);
   expect(fixture.commands).toHaveLength(2);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+for (const operation of ['create', 'edit'] as const) {
+  test(`ordinary Builder ${operation}s a paused task through explicit review and recovers its exact saved receipt`, async ({
+    page,
+    isMobile,
+  }, info) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+    const fixture = await offline(
+      page,
+      operation === 'create' ? 'dark' : 'light',
+      false,
+      true,
+      operation,
+    );
+    await page.goto('/agent-library');
+    await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+    await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+    await prepareFirstCommand(page, 'Prepare a paused morning task for review.');
+    await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+    const proposal = page.getByRole('region', { name: 'Agent task proposal', exact: true });
+    await expect(proposal.getByLabel('Task name', { exact: true })).toHaveValue('Morning review');
+    await expect(proposal).toContainText(
+      operation === 'create' ? 'Nothing is saved as a task yet.' : 'at revision 3',
+    );
+    await expect(proposal).toContainText(fixture.task.definition.profile.contentHash);
+    expect(fixture.task.saves).toEqual([]);
+    // The Builder used its own ordinary account/model/thinking/target. Task intent
+    // deliberately names unavailable selections and remains inspectable verbatim.
+    expect(fixture.commands[0].selection.thinking).toBe('high');
+    expect(fixture.task.definition.execution?.reasoningEffort).toBe('low');
+    const builderSettings = await openSettings(page);
+    await chooseSetting(page, 'Thinking', 'low');
+    await expect(settingRow(builderSettings, 'Thinking')).toHaveAttribute('data-value', 'low');
+    await chooseSetting(page, 'Thinking', 'high');
+    await expect(settingRow(builderSettings, 'Thinking')).toHaveAttribute('data-value', 'high');
+    await builderSettings.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(proposal.locator('pre')).toContainText('"reasoningEffort": "low"');
+    await expect(proposal.locator('pre')).toContainText('task-only-account');
+    expect(fixture.task.saves).toEqual([]);
+    expect(fixture.commands).toHaveLength(1);
+    await proposal.locator(':scope > p').first().scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: info.outputPath(`ordinary-builder-task-${operation}-top.png`),
+      animations: 'disabled',
+    });
+    await proposal.getByLabel('Task name', { exact: true }).fill('Reviewed morning task');
+    await proposal.getByRole('combobox', { name: 'Schedule', exact: true }).selectOption('cron');
+    await proposal.getByLabel('Cron expression', { exact: true }).fill('tomorrow');
+    await proposal.getByRole('button', { name: 'Save task', exact: true }).click();
+    await expect(proposal.getByRole('alert')).toContainText('five-field cron');
+    expect(fixture.task.saves).toEqual([]);
+    await proposal.getByLabel('Cron expression', { exact: true }).fill('30 8 * * 1-5');
+    await proposal.getByRole('button', { name: 'Save task', exact: true }).click();
+    await expect(proposal.getByRole('alert')).toHaveText('Offline task owner unavailable');
+    expect(fixture.task.saves).toHaveLength(1);
+    const originalSave = fixture.task.saves[0];
+    expect(originalSave).toMatchObject({
+      sessionId,
+      kind: 'task',
+      taskId: 'morning-review',
+      expectedRevision: operation === 'edit' ? 3 : 0,
+    });
+    expect((originalSave.definition as typeof fixture.task.definition).execution).toEqual(
+      fixture.task.definition.execution,
+    );
+    await proposal.getByRole('alert').scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        proposal.evaluate((element) => ({
+          card: element.scrollWidth <= element.clientWidth,
+          area: element.parentElement!.scrollWidth <= element.parentElement!.clientWidth,
+        })),
+      )
+      .toEqual({ card: true, area: true });
+    await page.screenshot({
+      path: info.outputPath(`ordinary-builder-task-${operation}-review.png`),
+      animations: 'disabled',
+    });
+    await page.reload();
+    await expect(proposal.getByLabel('Task name', { exact: true })).toHaveValue(
+      'Reviewed morning task',
+    );
+    await proposal.getByRole('button', { name: 'Retry task save', exact: true }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Saved Reviewed morning task' }),
+    ).toContainText(`task morning-review · revision ${operation === 'edit' ? 4 : 1}`);
+    expect(fixture.task.saves[1]).toEqual(originalSave);
+    expect(fixture.task.saved?.definition.execution).toEqual(fixture.task.definition.execution);
+    expect(fixture.task.saved?.definition.schedule).toEqual({
+      cron: '30 8 * * 1-5',
+      timezone: 'Europe/Dublin',
+      state: 'paused',
+    });
+    expect(fixture.task.saved?.configuration).toEqual({
+      state: 'blocked',
+      reason: 'admission-unavailable',
+    });
+    await page.reload();
+    const receipt = page.getByRole('status').filter({ hasText: 'Saved Reviewed morning task' });
+    await expect(receipt).toContainText('Schedule paused.');
+    await expect(receipt).toContainText('Saving does not start work.');
+    await page.screenshot({
+      path: info.outputPath(`ordinary-builder-task-${operation}-receipt.png`),
+      animations: 'disabled',
+    });
+    await receipt.getByRole('link', { name: 'Open Library task', exact: true }).click();
+    await expect(page).toHaveURL(/\/agent-library\?task=morning-review$/);
+    await expect(page.getByLabel('Task name', { exact: true })).toHaveValue(
+      'Reviewed morning task',
+    );
+    expect(fixture.commands).toHaveLength(1);
+    expect(fixture.proposalSaves).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    expect(fixture.unexpected).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
+}
+
+test('ordinary Builder cancels a task save wait, retains exact retry through operator revocation', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, 'light', false, true, 'create');
+  await page.goto('/agent-library');
+  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await prepareFirstCommand(page, 'Review this task before saving.');
+  const proposal = page.getByRole('region', { name: 'Agent task proposal', exact: true });
+  await expect(proposal.getByLabel('Task name', { exact: true })).toHaveValue('Morning review');
+  fixture.task.failNext = false;
+  fixture.task.holdSave = true;
+  await proposal.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect.poll(() => fixture.task.saves.length).toBe(1);
+  await proposal.getByRole('button', { name: 'Cancel save wait', exact: true }).click();
+  await expect(proposal.getByRole('alert')).toContainText('outcome is unconfirmed');
+  await expect(proposal.getByRole('textbox', { name: 'Objective', exact: true })).toBeDisabled();
+  fixture.task.revoked = true;
+  fixture.task.holdSave = false;
+  fixture.task.releaseSave?.();
+  await proposal.getByRole('button', { name: 'Retry task save', exact: true }).click();
+  await expect(proposal.getByRole('alert')).toContainText(
+    'Interactive operator authority was revoked',
+  );
+  await expect(proposal.getByRole('textbox', { name: 'Objective', exact: true })).toBeDisabled();
+  await expect(
+    proposal.getByRole('button', { name: 'Discard task proposal', exact: true }),
+  ).toBeDisabled();
+  expect(fixture.task.saves[1]).toEqual(fixture.task.saves[0]);
+  expect(fixture.task.saved).toBeNull();
+  await page.screenshot({
+    path: info.outputPath('ordinary-builder-task-revocation.png'),
+    animations: 'disabled',
+  });
+  fixture.lifecycle.metadata = 'unavailable';
+  await page.reload();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Conversation settings are unavailable' }),
+  ).toBeVisible();
+  await expect(proposal).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  expect(fixture.task.saves).toHaveLength(2);
+  fixture.lifecycle.metadata = 'visible';
+  fixture.task.revoked = false;
+  await page.reload();
+  await expect(
+    proposal.getByRole('button', { name: 'Retry task save', exact: true }),
+  ).toBeEnabled();
+  await proposal.getByRole('button', { name: 'Retry task save', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved Morning review' })).toContainText(
+    'revision 1',
+  );
+  expect(fixture.task.saves[2]).toEqual(fixture.task.saves[0]);
+  expect(fixture.commands).toHaveLength(1);
   expect(fixture.unexpected).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

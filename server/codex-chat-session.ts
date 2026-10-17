@@ -1,3 +1,4 @@
+import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { recordOrdinaryReplySource } from './collaboration-ordinary-replies.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
@@ -1275,6 +1276,16 @@ async function openCodexChatBound(
         startupReservation?.();
         throw error;
       });
+  const localTaskTools = options.ownedLocal
+    ? sessionAgentTaskTools(
+        options.conversationId,
+        options.session,
+        options.registry,
+        '',
+        assertHostCurrent,
+        assertHostCurrentSync,
+      )
+    : undefined;
   const localProfileTools = options.ownedLocal
     ? sessionProfileTools(
         options.conversationId,
@@ -1291,6 +1302,7 @@ async function openCodexChatBound(
           ...nativeToolDefinitions,
           ...mcp.definitions,
           ...profileToolDefinitions,
+          ...agentTaskToolDefinitions,
           githubPublishingDefinition,
         ].map((tool) => tool.name),
       )
@@ -1326,6 +1338,7 @@ async function openCodexChatBound(
     },
     ownedHost ? assertHostCurrent : undefined,
     ownedHost ? assertHostCurrentSync : undefined,
+    !!ownedHost,
   );
   const managedCapabilityConnection = options.binding?.accountId
     ? (managedConnections.find((connection) => connection.templateId === 'github-readonly') ?? null)
@@ -1757,6 +1770,7 @@ async function openCodexChatBound(
           ...nativeToolDefinitions,
           ...mcp.definitions,
           ...profileToolDefinitions,
+          ...agentTaskToolDefinitions,
           githubPublishingDefinition,
         ]
       : connectedOpenShell
@@ -1894,6 +1908,8 @@ async function openCodexChatBound(
       if (ownedToolNames && !ownedToolNames.has(name))
         throw Error('Tool unavailable for owned local Codex chat');
       await assertHostCurrent();
+      const taskResult = await localTaskTools?.execute(name, input, signal, callContext);
+      if (taskResult) return taskResult;
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
       if (profileResult) return profileResult;
       const keychainResult = options.ownedLocal

@@ -3,7 +3,12 @@ import { openChatSetting, settingRow, settingsHome } from '../support/chat-setti
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import type { AgentLibraryCatalog, AgentLibraryDraft, AgentLibraryVersion } from '@mitzo/protocol';
+import {
+  PROFILE_BUILDER_REVISION,
+  type AgentLibraryCatalog,
+  type AgentLibraryDraft,
+  type AgentLibraryVersion,
+} from '@mitzo/protocol';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
 test('edits and publishes named agents while preserving Agents navigation', async ({
@@ -604,7 +609,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       const chatPanel = page.getByRole('region', { name: 'Agent settings', exact: true });
       await openChatSetting(page, 'agent');
       await expect(chatPanel.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
-        JSON.stringify(['builtin', 'mitzo-profile-builder', 1]),
+        JSON.stringify(['builtin', 'mitzo-profile-builder', PROFILE_BUILDER_REVISION]),
       );
       await settingsHome(page);
       for (const field of ['Account', 'Model', 'Thinking'] as const) {

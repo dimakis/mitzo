@@ -24,7 +24,8 @@ beforeEach(() => {
   app = express();
   app.use(express.json());
   app.use((req, res, next) => {
-    if (req.headers.authorization === 'Bearer interactive') res.locals.authSession = { id: 'jti' };
+    if (req.headers.authorization === 'Bearer interactive')
+      res.locals.authSession = { id: 'jti', expiresAt: Date.now() + 60000 };
     next();
   });
   app.use(
@@ -84,3 +85,124 @@ it('accepts bounded draft creation for remote ordinary chats and refuses unknown
     409,
   );
 });
+
+it('lists reviewable task proposals and accepts only exact explicit task saves', async () => {
+  const { SymposiumProfileStore } = await import('../symposium-profiles.js');
+  const profiles = new SymposiumProfileStore(join(directory, 'events.db'));
+  const profile = profiles.save('user', {
+    profileId: 'reviewer',
+    expectedRevision: 0,
+    idempotencyKey: 'profile',
+    definition,
+  });
+  profiles.close();
+  const task = {
+    taskId: 'daily',
+    expectedRevision: 0,
+    definition: {
+      name: 'Daily',
+      objective: '',
+      profile: {
+        profileId: profile.profileId,
+        revision: profile.revision,
+        contentHash: profile.contentHash,
+      },
+      execution: null,
+      workspace: null,
+      schedule: null,
+      notificationPolicy: 'results',
+      outputPolicy: 'session',
+    },
+  };
+  const post = (path: string, body: object) =>
+    request(app).post(path).set('Authorization', 'Bearer interactive').send(body);
+  const draft = await post('/proposals', {
+    kind: 'task',
+    sessionId: 'chat',
+    idempotencyKey: 'task-call',
+    ...task,
+  });
+  expect(draft.status).toBe(200);
+  expect(draft.body).toMatchObject({ kind: 'task', state: 'pending', ...task });
+  const list = () =>
+    request(app)
+      .get('/proposals')
+      .set('Authorization', 'Bearer interactive')
+      .query({ sessionId: 'chat' });
+  expect((await list()).body[0].proposalId).toBe(draft.body.proposalId);
+  const save = await post(`/proposals/${draft.body.proposalId}/save`, {
+    sessionId: 'chat',
+    kind: 'task',
+    ...task,
+  });
+  expect(save.status).toBe(200);
+  expect(save.body).toMatchObject({
+    taskId: 'daily',
+    revision: 1,
+    configuration: { state: 'draft' },
+  });
+  expect((await list()).body[0].savedTask).toEqual(save.body);
+  expect(
+    (
+      await post(`/proposals/${draft.body.proposalId}/save`, {
+        sessionId: 'chat',
+        kind: 'task',
+        ...task,
+        expectedRevision: 1,
+      })
+    ).status,
+  ).toBe(409);
+});
+
+it.each(['cancel', 'revoke', 'expire'])(
+  'rejects %s at canonical proposal dispatch before writes',
+  async (change) => {
+    const { bindCustodianAuthority } = await import('../symposium-custodian-authority.js');
+    const auth = { id: `canonical-task-${change}`, expiresAt: Date.now() + 60000 };
+    const controller = new AbortController();
+    let revoked = false;
+    const guarded = express();
+    guarded.use(express.json());
+    guarded.use((req, res, next) => {
+      res.locals.authSession = auth;
+      bindCustodianAuthority(req, {
+        authorization: auth,
+        assertCurrent() {
+          if (revoked) throw Error('Revoked');
+        },
+        publicationSignal: controller.signal,
+      });
+      next();
+    });
+    guarded.use(
+      '/proposals',
+      createSymposiumProfileProposalRouter(store, () => {
+        if (change === 'cancel') controller.abort();
+        if (change === 'revoke') revoked = true;
+        if (change === 'expire') auth.expiresAt = 0;
+        return true;
+      }),
+    );
+    const response = await request(guarded)
+      .post('/proposals')
+      .send({
+        kind: 'task',
+        sessionId: 'chat',
+        idempotencyKey: 'guarded-call',
+        taskId: 'guarded',
+        expectedRevision: 0,
+        definition: {
+          name: 'Guarded',
+          objective: '',
+          profile: { profileId: 'missing', revision: 1, contentHash: 'a'.repeat(64) },
+          execution: null,
+          workspace: null,
+          schedule: null,
+          notificationPolicy: 'results',
+          outputPolicy: 'session',
+        },
+      });
+    expect(response.status).toBe(403);
+    expect(store.listTaskProposals('user', 'chat')).toEqual([]);
+  },
+);
