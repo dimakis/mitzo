@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { AgentLibrary } from '../AgentLibrary';
 import {
   createAgentTaskWorkingCopy,
@@ -10,28 +10,22 @@ import {
 import { within } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import userEvent from '@testing-library/user-event';
+import { openAgentBuilderChat, markAgentBuilderAssigned } from '../../lib/agent-builder-chat';
+import { getChatDraft } from '../../lib/chat-drafts';
+function Location() {
+  const location = useLocation();
+  return <output aria-label="Current route">{location.pathname + location.search}</output>;
+}
 
 vi.mock('../../lib/api-fetch', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
   apiFetch: vi.fn(),
 }));
-vi.mock('../../components/AccountModelPicker', async (original) => ({
-  ...(await original<typeof import('../../components/AccountModelPicker')>()),
-  AccountModelPicker: ({ onChange }: { onChange: (value: unknown) => void }) => (
-    <>
-      <button onClick={() => onChange({ accountId: 'work', model: 'luna' })}>
-        Choose advisor account
-      </button>
-      <button onClick={() => onChange({ accountId: 'personal', model: 'luna' })}>
-        Choose another advisor account
-      </button>
-    </>
-  ),
-}));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   sessionStorage.clear();
+  localStorage.clear();
 });
 const definition = {
   name: 'Bob',
@@ -57,7 +51,8 @@ function setup() {
     response(path === '/api/agent-tasks' ? [] : { drafts: [], versions: [published] }),
   );
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/agent-library']}>
+      <Location />
       <AgentLibrary />
     </MemoryRouter>,
   );
@@ -97,7 +92,8 @@ it('saves identity edits as a draft and publishes only that saved version', asyn
     return response({ drafts, versions });
   });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/agent-library']}>
+      <Location />
       <AgentLibrary />
     </MemoryRouter>,
   );
@@ -251,80 +247,38 @@ it('previews the actual compiled prompt with source and trimming details and cle
   await screen.findByRole('alert');
   expect(screen.queryByText(/Compiled architecture context/)).toBeNull();
 });
-it('opens the advisor above the editor without navigating away or losing edits', async () => {
+it('refines the exact unsaved profile in an ordinary Builder draft without inference', async () => {
   setup();
   await screen.findByDisplayValue('Bob');
   fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'Working Bob' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Create with advisor' }));
-  const advisor = screen.getByRole('region', { name: 'Agent advisor' });
-  const editor = screen.getByRole('region', { name: 'Agent profile editor' });
-  expect(advisor.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Working Bob');
-  expect(screen.getByRole('button', { name: 'Ask advisor' })).toHaveProperty('disabled', true);
-  fireEvent.click(screen.getByRole('button', { name: 'Choose advisor account' }));
-  fireEvent.change(screen.getByLabelText('Ask agent advisor'), {
-    target: { value: 'Improve this agent' },
-  });
-  vi.mocked(apiFetch).mockResolvedValueOnce(
-    response({ text: 'Clarify the output.', proposal: { ...definition, name: 'Ada' } }),
+  fireEvent.click(screen.getByRole('button', { name: 'Refine with Agent Builder' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route').textContent).toContain('/chat?'),
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Ask advisor' }));
-  await screen.findByText('Clarify the output.');
-  fireEvent.click(screen.getByRole('button', { name: 'Choose advisor account' }));
-  expect(screen.getByText('Clarify the output.')).toBeTruthy();
-  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Working Bob');
-  const call = vi.mocked(apiFetch).mock.calls.find(([path]) => path.endsWith('/advice'))!;
-  expect(JSON.parse(call[1]!.body as string)).toMatchObject({
-    accountId: 'work',
-    model: 'luna',
-    draft: expect.stringContaining('Working Bob'),
+  const path = screen.getByLabelText('Current route').textContent!;
+  expect(new URL(path, 'https://mitzo.example').pathname).toBe('/chat');
+  const draft = getChatDraft(new URL(path, 'https://mitzo.example').searchParams.get('draft')!)!;
+  expect(JSON.parse(draft.settings.sourceSnapshots![0].content)).toMatchObject({
+    definition: { name: 'Working Bob' },
+    source: { profileId: 'bob', kind: 'draft', baseRevision: 3, expectedVersion: 0 },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Use suggested profile' }));
-  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Ada');
-  expect(screen.getByText('Unsaved edits')).toBeTruthy();
-  expect(vi.mocked(apiFetch).mock.calls.some(([path]) => /\/drafts|\/publish/.test(path))).toBe(
-    false,
-  );
+  expect(screen.queryByRole('region', { name: 'Agent advisor' })).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Working Bob');
 });
-
-it('starts a new agent with its advisor already expanded', async () => {
+it('starts creation in the ordinary Builder and keeps direct profile editing available', async () => {
   setup();
   await screen.findByDisplayValue('Bob');
-  fireEvent.click(screen.getByRole('button', { name: 'New agent' }));
-  expect(screen.getByRole('region', { name: 'Agent advisor' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Create with Agent Builder' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route').textContent).toContain('/chat?'),
+  );
+  const path = screen.getByLabelText('Current route').textContent!;
+  const draft = getChatDraft(new URL(path, 'https://mitzo.example').searchParams.get('draft')!)!;
+  expect(draft.text).toBe('Help me create an agent.');
+  expect(JSON.parse(draft.settings.sourceSnapshots![0].content).definition.name).toBe('');
+  expect(screen.queryByRole('region', { name: 'Agent advisor' })).toBeNull();
   expect(screen.getByLabelText('Agent name')).toHaveProperty('value', '');
-});
-
-it('retains failed questions and prevents a late proposal from overwriting newer edits', async () => {
-  setup();
-  await screen.findByDisplayValue('Bob');
-  fireEvent.click(screen.getByRole('button', { name: 'Create with advisor' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Choose advisor account' }));
-  const question = screen.getByLabelText('Ask agent advisor');
-  fireEvent.change(question, { target: { value: 'Help with research' } });
-  vi.mocked(apiFetch).mockResolvedValueOnce(response({}, false));
-  fireEvent.click(screen.getByRole('button', { name: 'Ask advisor' }));
-  await screen.findByRole('alert');
-  expect(question).toHaveProperty('value', 'Help with research');
-  let finish!: (value: Response) => void;
-  vi.mocked(apiFetch).mockReturnValueOnce(
-    new Promise((resolve) => {
-      finish = resolve;
-    }),
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Ask advisor' }));
-  fireEvent.change(question, { target: { value: 'A follow-up I am still writing' } });
-  fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'My newer name' } });
-  finish(response({ text: 'A suggestion.', proposal: { ...definition, name: 'Ada' } }));
-  await screen.findByText('A suggestion.');
-  expect(question).toHaveProperty('value', 'A follow-up I am still writing');
-  expect(screen.getByRole('button', { name: 'Use suggested profile' })).toHaveProperty(
-    'disabled',
-    true,
-  );
-  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'My newer name');
-  fireEvent.click(screen.getByRole('button', { name: 'Choose another advisor account' }));
-  expect(screen.queryByText('A suggestion.')).toBeNull();
 });
 
 it('recovers unsaved edits after navigation without replacing their save basis', async () => {
@@ -461,7 +415,8 @@ it('keeps recovered edits actionable when another device publishes a newer revis
     }),
   );
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/agent-library']}>
+      <Location />
       <AgentLibrary />
     </MemoryRouter>,
   );
@@ -613,7 +568,8 @@ it('keeps assigned tasks on r3 when r4 is published, retains rows after refresh 
     });
   });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/agent-library']}>
+      <Location />
       <AgentLibrary />
     </MemoryRouter>,
   );
@@ -755,7 +711,8 @@ it('merges unrelated tasks from a delayed list while retaining the newer save re
     return Promise.resolve(response({ drafts: [], versions: [published] }));
   });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/agent-library']}>
+      <Location />
       <AgentLibrary />
     </MemoryRouter>,
   );
@@ -809,7 +766,8 @@ it('keeps a newer known task row when an exact create retry returns its older du
     return response({ drafts: [], versions: [published] });
   });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/agent-library']}>
+      <Location />
       <AgentLibrary />
     </MemoryRouter>,
   );
@@ -860,7 +818,8 @@ it('retains incomplete execution choices when switching between saved tasks', as
     return response({ drafts: [], versions: [published] });
   });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/agent-library']}>
+      <Location />
       <AgentLibrary />
     </MemoryRouter>,
   );
@@ -947,4 +906,54 @@ it('notifies a remounted editor when its pending save is acknowledged without ne
   expect(
     JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!).expectedRevision,
   ).toBe(1);
+});
+
+it('retains the Library and its mapped conversation during uncertain visibility and retries the same owner', async () => {
+  setup();
+  await screen.findByDisplayValue('Bob');
+  const path = await openAgentBuilderChat(
+    { profileId: 'bob', definition, expectedVersion: 0, baseRevision: 3, publishedRevision: 3 },
+    false,
+    published.contentHash,
+  );
+  const draft = getChatDraft(new URL(path, 'https://mitzo.example').searchParams.get('draft')!)!;
+  markAgentBuilderAssigned(draft, 'retained-session');
+  vi.mocked(apiFetch).mockResolvedValueOnce(new Response('{}', { status: 503 }));
+  fireEvent.click(screen.getByRole('button', { name: 'Refine with Agent Builder' }));
+  await screen.findByText(/Could not verify the retained Agent Builder conversation/);
+  expect(screen.getByLabelText('Current route').textContent).toBe('/agent-library');
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Bob');
+  const retry = screen.getByRole('button', { name: 'Refine with Agent Builder' });
+  await waitFor(() => expect(retry).toHaveProperty('disabled', false));
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    new Response(JSON.stringify({ sessionId: 'retained-session', isHidden: false })),
+  );
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route').textContent).toBe('/chat/retained-session'),
+  );
+});
+it('opens fresh setup after authoritative hidden metadata instead of navigating back into the removed conversation', async () => {
+  setup();
+  await screen.findByDisplayValue('Bob');
+  const path = await openAgentBuilderChat(
+    { profileId: 'bob', definition, expectedVersion: 0, baseRevision: 3, publishedRevision: 3 },
+    false,
+    published.contentHash,
+  );
+  const draft = getChatDraft(new URL(path, 'https://mitzo.example').searchParams.get('draft')!)!;
+  markAgentBuilderAssigned(draft, 'removed-session');
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    new Response(JSON.stringify({ sessionId: 'removed-session', isHidden: true })),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Refine with Agent Builder' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Current route').textContent).toContain('/chat?'),
+  );
+  const next = new URL(
+    screen.getByLabelText('Current route').textContent!,
+    'https://mitzo.example',
+  );
+  expect(next.searchParams.get('draft')).not.toBe(draft.id);
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
 });

@@ -1,57 +1,24 @@
 import { z } from 'zod';
-import { SymposiumProfileDefinitionSchema, SymposiumProfileRecipeSchema } from '@mitzo/protocol';
+import { AgentLibraryEditableDefinitionSchema } from '@mitzo/protocol';
 
-// Editing must preserve incomplete values and whitespace. Publication still uses
-// the server's strict portable-profile contract and original version fence.
-const recipe = SymposiumProfileRecipeSchema.extend({
-  skillRefs: z.array(z.string()),
-  toolDefaults: SymposiumProfileRecipeSchema.shape.toolDefaults.extend({
-    preferredTools: z.array(z.string()),
-  }),
-  compatibleProviders: SymposiumProfileRecipeSchema.shape.compatibleProviders.unwrap().array(),
-});
-const definition = SymposiumProfileDefinitionSchema.extend({
-  name: z.string(),
-  descriptor: z.string().optional(),
-  description: z.string().optional(),
-  role: z.string(),
-  instructions: z.string(),
-  expectedOutput: z.string(),
-  acceptanceCriteria: z.array(z.string()),
-  modelPolicyRole: z.string(),
-  recipe: recipe.optional(),
-  contextRecipe: z
-    .discriminatedUnion('source', [
-      z.strictObject({
-        version: z.literal(1),
-        source: z.literal('workspace'),
-        files: z.array(z.string()),
-        tokenBudget: z.number(),
-        required: z.array(z.array(z.string())),
-        excluded: z.array(z.array(z.string())),
-      }),
-      z.strictObject({
-        version: z.literal(2),
-        source: z.literal('packs'),
-        packs: z.array(z.strictObject({ id: z.string(), revision: z.number(), hash: z.string() })),
-        tokenBudget: z.number(),
-      }),
-      z.strictObject({
-        version: z.literal(1),
-        source: z.literal('contexgin'),
-        agentName: z.string(),
-      }),
-    ])
-    .optional(),
-});
+// Editing retains incomplete values; publication uses the strict portable schema.
 const editor = z.strictObject({
   profileId: z.string().min(1),
-  definition,
+  definition: AgentLibraryEditableDefinitionSchema,
   expectedVersion: z.number().int().nonnegative(),
   baseRevision: z.number().int().nonnegative(),
   publishedRevision: z.number().int().positive().nullable(),
 });
-const recovery = z.strictObject({ version: z.literal(1), editor, saveKey: z.string().uuid() });
+const recovery = z.strictObject({
+  version: z.literal(1),
+  editor,
+  saveKey: z.string().uuid(),
+  dirty: z.boolean().optional(),
+  reviewedContext: z
+    .string()
+    .max(1024 * 1024)
+    .optional(),
+});
 export type AgentLibraryEditor = z.infer<typeof editor>;
 export type AgentLibraryWorkingCopy = Omit<z.infer<typeof recovery>, 'version'>;
 const KEY = 'mitzo-agent-library-working-copy';
@@ -64,7 +31,15 @@ export function loadAgentLibraryWorkingCopy(): AgentLibraryWorkingCopy | null {
     const raw = sessionStorage.getItem(KEY);
     if (!raw) return pendingStorage ? memory : null;
     const parsed = recovery.safeParse(JSON.parse(raw));
-    return parsed.success ? { editor: parsed.data.editor, saveKey: parsed.data.saveKey } : null;
+    if (!parsed.success) return null;
+    return {
+      editor: parsed.data.editor,
+      saveKey: parsed.data.saveKey,
+      ...(parsed.data.dirty === undefined ? {} : { dirty: parsed.data.dirty }),
+      ...(parsed.data.reviewedContext === undefined
+        ? {}
+        : { reviewedContext: parsed.data.reviewedContext }),
+    };
   } catch {
     return memory;
   }

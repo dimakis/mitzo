@@ -1,3 +1,4 @@
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
   assertOrdinaryCodexContextIdentity,
   assertOrdinaryCodexSnapshotCustody,
@@ -109,7 +110,8 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     o.signal.throwIfAborted();
     const current = o.capabilitiesCurrent();
     const request = OrdinaryLocalCodexCommandRequestSchema.parse(requestInput);
-    OwnedOpenShellCodexPayloadSchema.parse(request.payload);
+    const sourcePayload = OwnedOpenShellCodexPayloadSchema.parse(request.payload);
+    assembleSourceSnapshots(sourcePayload.text, sourcePayload.sourceSnapshots);
     const meta = structuredClone(metaInput);
     if (
       meta.sessionId !== o.sessionId ||

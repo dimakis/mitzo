@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SourceSnapshotsSchema } from './source-snapshot.js';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
 import { AgentProfileSelectionSchema } from './agent-library.js';
 import { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
@@ -37,6 +38,7 @@ export const LocalCodexFirstCommandSchema = z
       }),
     }).strict(),
     payload: z.strictObject({
+      sourceSnapshots: SourceSnapshotsSchema.optional(),
       text: z.string().min(1).max(1_000_000),
       intent: z.string().max(1_000_000).optional(),
       images: z

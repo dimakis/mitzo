@@ -254,3 +254,43 @@ it('does not borrow an older account after a controlled runtime explicitly requi
   expect(getChatDraft(draft.id)?.settings.selection).toBeNull();
   expect(getChatDraft(draft.id)?.settings.runtimeSelection?.account).toBeNull();
 });
+
+it('retains reviewed Library sources through ordinary account and settings changes without leaking into New chat', () => {
+  const draft = { ...createChatDraft(), text: 'Help refine' };
+  const source = {
+    kind: 'agent-library' as const,
+    revision: 'a'.repeat(64),
+    content: JSON.stringify({
+      version: 1,
+      source: {
+        kind: 'draft',
+        profileId: 'bob',
+        baseRevision: 3,
+        draftVersion: null,
+        expectedVersion: 0,
+      },
+      definition: {
+        name: '',
+        role: 'agent',
+        instructions: '',
+        expectedOutput: '',
+        acceptanceCriteria: [],
+        modelPolicyRole: 'agent',
+      },
+    }),
+  };
+  draft.settings.sourceSnapshots = [source];
+  saveChatDraft(draft);
+  const { result, rerender } = renderHook(
+    ({ id, generation }) => useNewChatDraft(id, generation, true),
+    { initialProps: { id: draft.id as string | null, generation: 0 } },
+  );
+  const settings = { ...draft.settings };
+  delete settings.sourceSnapshots;
+  act(() =>
+    result.current.saveSettings({ ...settings, selection: { accountId: 'work', model: 'luna' } }),
+  );
+  expect(getChatDraft(draft.id)?.settings.sourceSnapshots).toEqual([source]);
+  rerender({ id: null, generation: 1 });
+  expect(result.current.draft.settings.sourceSnapshots).toBeUndefined();
+});

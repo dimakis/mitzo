@@ -1,3 +1,5 @@
+import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
+import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
@@ -27,7 +29,11 @@ import {
 import { useBriefingChat } from '../hooks/useBriefingChat';
 import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
-import type { AgentProfileSelection } from '@mitzo/protocol';
+import {
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  type AgentProfileSelection,
+} from '@mitzo/protocol';
 import { UiIcon } from '../components/UiIcon';
 import {
   savedRepositoryDraft,
@@ -168,6 +174,18 @@ export function DesktopChatView() {
     localRuntime.metadataPending ||
     (!!sessionId && sessionId !== activeSessionId);
 
+  const [builderLinkError, setBuilderLinkError] = useState('');
+  const builderSources = activeSessionId
+    ? messages.messages.flatMap((message) => message.sourceSnapshots ?? [])
+    : newChatDraft.draft.settings.sourceSnapshots;
+  const builderSourceReason =
+    !activeSessionId && builderSources?.some((source) => source.kind === 'agent-library')
+      ? searchParams.get('agentProfile') !== PROFILE_BUILDER_ID ||
+        searchParams.get('agentProfileKind') !== 'builtin' ||
+        searchParams.get('profileRevision') !== String(PROFILE_BUILDER_REVISION)
+        ? 'Choose Agent Builder to use this reviewed Library context, or start a new chat.'
+        : undefined
+      : undefined;
   const missingDraftReason = newChatDraft.missing
     ? 'This draft is unavailable. Open Drafts or start a new chat.'
     : undefined;
@@ -439,6 +457,7 @@ export function DesktopChatView() {
         ? {
             ...newChatDraft.draft,
             settings: {
+              sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
               retainRuntimeIntent: newChatDraft.draft.settings.retainRuntimeIntent,
               runtimeSelection: explicitNew
                 ? localRuntime.intent
@@ -590,7 +609,7 @@ export function DesktopChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
-    if (controlsBlocked) return false;
+    if (controlsBlocked || builderSourceReason) return false;
     if (localRuntime.continuation && activeSessionId) {
       if (
         ctxBlocks?.length ||
@@ -630,6 +649,7 @@ export function DesktopChatView() {
         repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId,
         mode,
         text,
+        sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
       if (!command) return false;
@@ -637,6 +657,13 @@ export function DesktopChatView() {
         draftId: newChatDraft.draft.id,
         onDelivery,
         onSessionAssigned: (assignedId) => {
+          try {
+            markAgentBuilderAssigned(newChatDraft.draft, assignedId);
+          } catch {
+            setBuilderLinkError(
+              'The conversation opened, but its Agent Library return link could not be saved. Keep this conversation open.',
+            );
+          }
           if (accountSelection?.accountId)
             consumeRepositoryDraft(
               repositoryDraftKey(accountSelection.accountId, accountSelection.model),
@@ -664,6 +691,7 @@ export function DesktopChatView() {
     const options = {
       images,
       contextBlocks: ctxBlocks,
+      ...(!activeSessionId ? { sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots } : {}),
       ...(onDelivery ? { onDelivery } : {}),
       ...(accountSelection ?? {}),
       ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
@@ -697,11 +725,18 @@ export function DesktopChatView() {
       ...(!activeSessionId && agentProfile ? { agentProfile } : {}),
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     };
-    if (onSessionAssigned) {
+    if (onSessionAssigned || newChatDraft.draft.settings.sourceSnapshots?.length) {
       const originalAssignment = options.onSessionAssigned;
       options.onSessionAssigned = (assignedId: string) => {
         originalAssignment?.(assignedId);
-        onSessionAssigned(assignedId);
+        try {
+          markAgentBuilderAssigned(newChatDraft.draft, assignedId);
+        } catch {
+          setBuilderLinkError(
+            'The conversation opened, but its Agent Library return link could not be saved. Keep this conversation open.',
+          );
+        }
+        onSessionAssigned?.(assignedId);
       };
     }
     try {
@@ -1235,6 +1270,8 @@ export function DesktopChatView() {
           {!isSymposium && workspaceControls}
 
           <TelosSourceWorkLink />
+          <AgentLibraryChatLink sources={builderSources} />
+          {builderLinkError && <p role="alert">{builderLinkError}</p>}
 
           {(sendError || sendStatus) && (
             <div role={sendError ? 'alert' : 'status'}>{sendError || sendStatus}</div>
@@ -1286,6 +1323,12 @@ export function DesktopChatView() {
               (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
             }
             ordinaryExcluded={isSymposium}
+            ordinaryProfileProposalReview={
+              localRuntime.bound &&
+              !localRuntime.metadataPending &&
+              (!sessionId || sessionId === activeSessionId) &&
+              !isSymposium
+            }
             profileToolsTarget={profileToolsTarget}
             readOnly={controlsBlocked || localBound}
             sessionId={sessionId ?? activeSessionId}
@@ -1385,6 +1428,7 @@ export function DesktopChatView() {
                               repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
                               mode,
                               text,
+                              sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
                               images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
                             }).reason
                         : undefined
@@ -1397,6 +1441,7 @@ export function DesktopChatView() {
                       : undefined
                   }
                   sendDisabledReason={
+                    builderSourceReason ??
                     localRuntime.reason ??
                     (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
                     (localRuntime.continuation && localCommand && localCommand.state !== 'consumed'

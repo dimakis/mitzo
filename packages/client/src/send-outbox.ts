@@ -1,4 +1,5 @@
 import {
+  SourceSnapshotsSchema,
   OrdinaryRuntimeFirstCommandSchema,
   OrdinaryRuntimeContinuationCommandSchema,
   LocalCodexFirstCommandReceiptSchema,
@@ -29,11 +30,12 @@ interface Config {
   localFirstCommand?: boolean;
 }
 
-function reviewedBriefing(body: Record<string, unknown>): boolean {
+export function hasReviewedSource(body: Record<string, unknown>): boolean {
   return (
     body.sessionId === null &&
     Array.isArray(body.sourceSnapshots) &&
-    body.sourceSnapshots[0]?.kind === 'briefing'
+    body.sourceSnapshots.length > 0 &&
+    SourceSnapshotsSchema.safeParse(body.sourceSnapshots).success
   );
 }
 
@@ -167,7 +169,7 @@ export class SendOutbox {
     if (
       (this.config.localFirstCommand ||
         this.config.durableLaunches ||
-        (this.config.requireDurableBriefings && reviewedBriefing(body))) &&
+        (this.config.requireDurableBriefings && hasReviewedSource(body))) &&
       !durable
     ) {
       this.entries.pop();
@@ -199,7 +201,7 @@ export class SendOutbox {
       if (
         (!this.config.localFirstCommand &&
           !this.config.durableLaunches &&
-          !reviewedBriefing(entry.body)) ||
+          !hasReviewedSource(entry.body)) ||
         (!entry.uncertain && !(hadInFlight && index === 0))
       )
         return false;
@@ -332,7 +334,7 @@ export class SendOutbox {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let receivedResponse = false;
     try {
-      if ((this.config.durableLaunches || reviewedBriefing(entry.body)) && !entry.uncertain) {
+      if ((this.config.durableLaunches || hasReviewedSource(entry.body)) && !entry.uncertain) {
         // Persist possible acceptance before admission, not only while fetch is
         // in flight. A lost response remains ambiguous during backoff/reload.
         entry.uncertain = true;
@@ -400,7 +402,11 @@ export class SendOutbox {
                 model: entry.body.model,
                 reasoningEffort: entry.body.reasoningEffort,
               }
-            : undefined;
+            : entry.body.sessionId === null &&
+                source?.kind === 'agent-library' &&
+                hasReviewedSource(entry.body)
+              ? { kind: 'agent-library', revision: source.revision }
+              : undefined;
         // A synchronous durable handoff must finish before dropping this exact command.
         // If it throws, replay the original clientMsgId/body for the same server receipt.
         this.config.notify({
@@ -416,7 +422,7 @@ export class SendOutbox {
             if (
               queued.scope === entry.scope &&
               queued.body.sessionId === null &&
-              !reviewedBriefing(queued.body)
+              !hasReviewedSource(queued.body)
             )
               queued.body.sessionId = receipt.sessionId;
           }

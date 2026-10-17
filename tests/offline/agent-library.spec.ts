@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import type { AgentLibraryCatalog, AgentLibraryDraft, AgentLibraryVersion } from '@mitzo/protocol';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
@@ -26,11 +27,10 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     versions: [{ profileId: 'bob', revision: 3, definition, contentHash: 'a'.repeat(64) }],
   };
   const errors: string[] = [];
+  const inferenceRequests: string[] = [];
   let catalogMode: 'content' | 'empty' | 'error' | 'loading' = 'content';
   let releaseCatalog: (() => void) | undefined;
   let previewError = false;
-  let adviceError = false;
-  let adviceCalls = 0;
   let taskSaveError = true;
   let holdTaskSave = false;
   let releaseTaskSave: (() => void) | undefined;
@@ -127,6 +127,13 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (
+      url.pathname === '/api/agent-library/advice' ||
+      /^\/api\/chat\/(?:send|(?:runtime|local-codex)\/(?:send|continue))$/.test(url.pathname)
+    ) {
+      inferenceRequests.push(url.pathname);
+      return route.fulfill({ status: 405, json: { error: 'Setup must not dispatch inference' } });
+    }
     if (
       ['/api/chat/runtime/capabilities', '/api/chat/local-codex/capabilities'].includes(
         url.pathname,
@@ -226,21 +233,6 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       }
       if (url.pathname.endsWith('/events'))
         return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
-      if (url.pathname === '/api/agent-library/advice') {
-        adviceCalls++;
-        const body = route.request().postDataJSON();
-        expect(body.accountId).toBe('work-advisor');
-        expect(body.model).toBe('luna-fixture');
-        expect(body.draft).toContain('Bob');
-        if (adviceError)
-          return route.fulfill({ status: 409, json: { error: 'Advisor unavailable' } });
-        return route.fulfill({
-          json: {
-            text: 'Make the expected output a decision brief with evidence and tradeoffs.',
-            proposal: { ...definition, name: 'Ada', descriptor: 'The research partner' },
-          },
-        });
-      }
       if (url.pathname === '/api/agent-library/preview') {
         if (previewError)
           return route.fulfill({
@@ -320,13 +312,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         '/api/sessions': { sessions: [], hasMore: false },
         '/api/accounts': [],
         '/api/agent-tasks': [],
-        '/api/terminals/accounts': [
-          {
-            id: 'work-advisor',
-            label: 'Work advisor',
-            models: [{ id: 'luna-fixture', label: 'Luna fixture' }],
-          },
-        ],
+        '/api/terminals/accounts': [],
         '/api/terminals/subscriptions': { enabled: false, accounts: [] },
         '/api/service-health': { services: [], checkedAt: Date.now() },
       };
@@ -451,38 +437,12 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.getByRole('button', { name: 'Close task editor', exact: true }).click();
   await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Create with advisor', exact: true }).click();
-  await expect(page).toHaveURL(/\/agent-library$/);
-  const advisor = page.getByRole('region', { name: 'Agent advisor', exact: true });
-  await expect(advisor.getByRole('combobox', { name: 'Account', exact: true })).toBeVisible();
-  await advisor.getByLabel('Ask agent advisor').fill('Help me refine this agent');
-  await expect(advisor.getByRole('button', { name: 'Ask advisor', exact: true })).toBeDisabled();
-  await advisor
-    .getByRole('button', { name: 'Use Work advisor · Luna fixture', exact: true })
-    .click();
-  await advisor.getByRole('button', { name: 'Ask advisor', exact: true }).click();
-  await expect(advisor.getByRole('log')).toContainText('decision brief with evidence');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
-  await page.screenshot({
-    path: testInfo.outputPath('agent-creation-advisor.png'),
-    fullPage: true,
-    animations: 'disabled',
-  });
-  await advisor.getByRole('button', { name: 'Use suggested profile' }).click();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Ada');
-  await page.getByRole('button', { name: 'Discard unsaved edits', exact: true }).click();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
-  adviceError = true;
-  await advisor.getByLabel('Ask agent advisor').fill('Try another approach');
-  await advisor.getByRole('button', { name: 'Ask advisor', exact: true }).click();
-  await expect(advisor.getByRole('alert')).toContainText('Advisor unavailable');
-  await expect(advisor.getByLabel('Ask agent advisor')).toHaveValue('Try another approach');
-  await advisor.getByRole('button', { name: 'Agent advisor', exact: true }).click();
-  await expect(advisor.getByLabel('Ask agent advisor')).toBeHidden();
-  await advisor.getByRole('button', { name: 'Agent advisor', exact: true }).click();
-  await expect(advisor.getByLabel('Ask agent advisor')).toHaveValue('Try another approach');
-  await advisor.getByRole('button', { name: 'Agent advisor', exact: true }).click();
-  expect(adviceCalls).toBe(2);
+  // Builder entry and ordinary chat lifecycle are exercised by the actual-page
+  // agent-library-builder fixture; this journey owns catalog/editor/task behavior.
+  await expect(
+    page.getByRole('button', { name: 'Create with Agent Builder', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Agent advisor', exact: true })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('agent-library.png'), fullPage: true });
   await page.getByRole('tab', { name: 'Tools', exact: true }).click();
   await expect(page.getByText(/Legacy behavior: this profile/)).toBeVisible();
@@ -634,20 +594,42 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       });
       await page.getByRole('searchbox', { name: 'Search tools', exact: true }).press('Escape');
       await page.getByRole('tab', { name: 'Identity', exact: true }).click();
-      await page.getByRole('button', { name: 'Create with advisor', exact: true }).click();
-      await expect(page.getByLabel('Ask agent advisor')).toBeVisible();
-      await page.getByLabel('Ask agent advisor').focus();
-      await expect(page.getByLabel('Ask agent advisor')).toBeFocused();
-      const advisorBounds = await page.locator('.agent-creation-advisor').boundingBox();
-      const editorBounds = await page.locator('.agent-library-detail').boundingBox();
-      expect(advisorBounds!.y + advisorBounds!.height).toBeLessThanOrEqual(editorBounds!.y + 1);
-      await page
-        .locator('.agent-creation-advisor')
-        .evaluate((element) => element.scrollIntoView({ block: 'start' }));
+      await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+      await expect(page).toHaveURL(/\/chat\?/);
+      const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+      await expect(composer).toHaveValue('Help me refine this agent.');
+      const chatSettings = page.getByRole('button', { name: /^Workspace controls,/ });
+      if ((await chatSettings.getAttribute('aria-expanded')) !== 'true') await chatSettings.click();
+      const chatPanel = page.getByRole('region', { name: 'Agent settings', exact: true });
+      await expect(chatPanel.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
+        JSON.stringify(['builtin', 'mitzo-profile-builder', 1]),
+      );
+      for (const name of ['Account', 'Model', 'Thinking level'])
+        await expect(chatPanel.getByRole('combobox', { name, exact: true })).toBeVisible();
+      for (const control of await chatPanel.getByRole('combobox').all())
+        // WebKit may report a 44px control as 43.999984px after scrolling.
+        expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(43.99);
+      await chatPanel.getByRole('combobox', { name: 'Agent', exact: true }).press('Escape');
+      await expect(chatSettings).toBeFocused();
+      await composer.focus();
+      await expect(composer).toBeFocused();
+      await expect(composer).toBeInViewport();
+      // The shared mobile composer has a shallow 32px text line inside its
+      // rounded input surface; validate that complete surface's touch geometry.
+      const composerSurface = page.locator('.chat-input-row').filter({ has: composer });
+      await expect(composerSurface).toBeInViewport();
+      expect((await composerSurface.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      expect(inferenceRequests).toEqual([]);
       await page.screenshot({
-        path: testInfo.outputPath(`agent-advisor-${theme}-${accent}-${font}.png`),
+        path: testInfo.outputPath(`agent-builder-${theme}-${accent}-${font}.png`),
         animations: 'disabled',
       });
+      await page.getByRole('link', { name: 'Open Agent Library', exact: true }).click();
+      await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+      await expect(page.getByRole('region', { name: 'Agent advisor', exact: true })).toHaveCount(0);
       if (isMobile) {
         await expect(page.locator('.mobile-workspace-masthead')).toBeVisible();
         expect(
@@ -739,13 +721,26 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       });
     }
   }
-  const savedIdentity = {
-    name: catalog.versions[0].definition.name,
-    description: catalog.versions[0].definition.description,
+  // A separate published profile keeps its immutable bytes and preserves the
+  // original selection retained by the ordinary Builder handoff. Published
+  // state is needed here because Assign task is unavailable for dirty profiles.
+  const longDefinition = {
+    ...catalog.versions[0].definition,
+    name: 'B'.repeat(80),
+    description: 'Compare designs and document evidence. '.repeat(10),
   };
-  catalog.versions[0].definition.name = 'B'.repeat(80);
-  catalog.versions[0].definition.description = 'Compare designs and document evidence. '.repeat(10);
+  catalog.versions.unshift({
+    profileId: 'long-name-layout',
+    revision: 1,
+    definition: longDefinition,
+    contentHash: createHash('sha256').update(JSON.stringify(longDefinition)).digest('hex'),
+  });
   await page.reload();
+  await page
+    .getByRole('region', { name: 'Saved agents', exact: true })
+    .getByRole('button')
+    .filter({ hasText: 'B'.repeat(80) })
+    .click();
   await expect(page.getByLabel('Agent name')).toHaveValue('B'.repeat(80));
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '20px';
@@ -768,13 +763,15 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     path: testInfo.outputPath('agent-context-large-text.png'),
     fullPage: true,
   });
-  Object.assign(catalog.versions[0].definition, savedIdentity);
+  catalog.versions = catalog.versions.filter((version) => version.profileId !== 'long-name-layout');
+  await page.reload();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '';
   });
   catalogMode = 'empty';
   await page.reload();
-  await expect(page.getByText('Create your first agent, or start with the advisor.')).toBeVisible();
+  await expect(page.getByText('Create your first agent with Agent Builder.')).toBeVisible();
   catalogMode = 'error';
   await page.reload();
   await expect(page.getByRole('alert')).toContainText('Offline Library unavailable');
@@ -789,10 +786,10 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
   await page.getByRole('button', { name: 'New agent', exact: true }).click();
   await expect(page.getByLabel('Agent name')).toHaveValue('');
-  await expect(page.getByLabel('Ask agent advisor')).toBeVisible();
-  await page
-    .locator('.agent-creation-advisor')
-    .evaluate((element) => element.scrollIntoView({ block: 'start' }));
+  await expect(page.getByLabel('Ask agent advisor')).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }),
+  ).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('agent-creation-new.png'),
     animations: 'disabled',
@@ -809,5 +806,6 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   ).toBeGreaterThanOrEqual(44);
   await profilePicker.focus();
   await expect(profilePicker).toBeFocused();
+  expect(inferenceRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
