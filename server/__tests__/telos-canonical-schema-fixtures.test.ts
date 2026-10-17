@@ -13,6 +13,7 @@ it.each(['fresh', 'upgraded'])('retains actual MGMT %s schema invariants', (vari
   expect(manifest.upgrade.priority).toBe(10);
   expect(manifest.upgrade.firstSeenPreserved).toBe(true);
   expect(manifest.upgrade.historyPreserved).toBe(true);
+  expect(manifest.defaultDatabaseUntouched).toBe(true);
   const db = new Database(':memory:');
   try {
     db.pragma('foreign_keys = ON');

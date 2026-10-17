@@ -21,5 +21,6 @@
     "priority": 10,
     "firstSeenPreserved": true,
     "historyPreserved": true
-  }
+  },
+  "defaultDatabaseUntouched": true
 }

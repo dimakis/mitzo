@@ -8,6 +8,7 @@ import argparse
 import ast
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -55,8 +56,6 @@ def main():
     # Explicit paths prevent the owner's worktree-aware default from accessing Telos.
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(root / "command_center"))
-    from lib.todo.store import TodoStore
-
     args.output.mkdir(parents=True, exist_ok=True)
     manifest = {
         "version": 1,
@@ -69,6 +68,12 @@ def main():
     }
     stamp = "2026-10-16T10:00:00"
     with TemporaryDirectory(prefix="telos-canonical-owner-") as temporary:
+        # The module resolves DEFAULT_DB_PATH at import time. Fence that lookup
+        # too, even though every actual TodoStore call below passes an explicit path.
+        unused_default = Path(temporary) / "unused-default.db"
+        os.environ["TELOS_DB_PATH"] = str(unused_default)
+        from lib.todo.store import TodoStore
+
         for variant in ["fresh", "upgraded"]:
             path = Path(temporary) / f"{variant}.db"
             if variant == "upgraded":
@@ -105,6 +110,8 @@ def main():
                 schema = "\n\n".join(row[0] + ";" for row in statements) + "\n"
                 (args.output / f"{variant}.sql").write_text(schema)
                 manifest["schemas"][variant] = digest(schema.encode())
+        assert not unused_default.exists(), "Canonical owner opened its default database"
+        manifest["defaultDatabaseUntouched"] = True
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
 
