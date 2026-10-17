@@ -19,7 +19,16 @@ const RelativeFile = z
   }, 'File path must stay inside the authorized workspace');
 
 const JsonSchema = z.record(z.string(), z.json());
-const File = z.strictObject({ path: RelativeFile, content: z.string().max(256_000) });
+const File = z.strictObject({
+  path: RelativeFile,
+  content: z
+    .string()
+    .max(256_000)
+    .refine(
+      (value) => Buffer.byteLength(value) <= 256_000,
+      'Draft source file exceeds its UTF-8 byte limit',
+    ),
+});
 const Files = z
   .array(File)
   .min(1)
