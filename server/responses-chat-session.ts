@@ -1,3 +1,8 @@
+import { admitApiTools } from './api-tool-execution.js';
+import { getApiToolCatalog } from './api-tool-runtime.js';
+import type { ApiToolCatalog } from './api-tool-catalog.js';
+import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
+import { checkSkillPolicy } from '@mitzo/harness';
 import { admitConfiguredTools } from './configured-tool-admission.js';
 import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
 import type { ConfiguredToolCatalog, ConfiguredCatalogOptions } from './configured-tool-catalog.js';
@@ -122,6 +127,7 @@ export function getNativeResponsesStore() {
 interface Options {
   agentProfile?: AgentLibraryVersion;
   /** Trusted offline seam, never client input. */
+  apiTools?: { catalog: ApiToolCatalog };
   configuredTools?: Pick<
     ConfiguredCatalogOptions,
     'readSources' | 'connect' | 'assertRuntimeCurrent'
@@ -266,9 +272,55 @@ export async function openResponsesChat(options: Options) {
     dispose();
     throw error;
   });
+  let apiTools: ReturnType<typeof admitApiTools> | undefined;
   try {
-    if (configuredAdmissions.length)
-      bindConfiguredAgentTools(options.session, configuredAdmissions);
+    const apiRefs =
+      agentProfile?.definition.tools?.filter((ref) => ref.id.startsWith('api:')) ?? [];
+    if (apiRefs.length) {
+      const service = getCredentialConnectionsRuntime();
+      if (!service) throw Error('API tools require the existing connection runtime');
+      const assertCurrent = () => {
+        signal.throwIfAborted();
+        assertMcpCurrent?.();
+        if (
+          getCredentialConnectionsRuntime() !== service ||
+          options.registry.findBySessionId(options.conversationId)?.session !== options.session
+        )
+          throw Error('API tool session ownership changed');
+      };
+      apiTools = admitApiTools({
+        catalog: options.apiTools?.catalog ?? getApiToolCatalog(),
+        service,
+        sessionId: options.conversationId,
+        refs: apiRefs,
+        assertCurrent,
+        assertRuntimeCurrent,
+        stillAllowed: (name) => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          return (
+            !!owner &&
+            (name === 'ConnectionRequest' || agentToolAllowed(options.session, name)) &&
+            checkSkillPolicy(options.registry, owner.clientId, name) !== 'deny'
+          );
+        },
+        approve: async (name, input, opts) => {
+          assertCurrent();
+          const owner = options.registry.findBySessionId(options.conversationId)!;
+          const decision = await buildPermissionHandler(owner.clientId, options.registry)(
+            name,
+            input,
+            opts,
+          );
+          assertCurrent();
+          return decision;
+        },
+      });
+    }
+    if (configuredAdmissions.length || apiTools?.admitted.length)
+      bindConfiguredAgentTools(options.session, [
+        ...configuredAdmissions,
+        ...(apiTools?.admitted ?? []),
+      ]);
   } catch (error) {
     dispose();
     await mcp.close();
@@ -298,6 +350,7 @@ export async function openResponsesChat(options: Options) {
       ...connectionTools.definitions,
       ...nativeToolDefinitions,
       ...mcp.definitions,
+      ...(apiTools?.definitions ?? []),
       webAccessDefinition,
       githubPublishingDefinition,
     ]),
@@ -311,6 +364,7 @@ export async function openResponsesChat(options: Options) {
           profileHash: agentProfile.contentHash,
           tools: definitions,
           ...(configuredAdmissions.length ? { configuredTools: configuredAdmissions } : {}),
+          ...(apiTools?.admitted.length ? { apiTools: apiTools.admitted } : {}),
         },
         !!options.resume,
       );
@@ -356,6 +410,12 @@ export async function openResponsesChat(options: Options) {
         async (input, forcePrompt) => {
           if (options.commandAuthority)
             await options.commandAuthority.assertEffect(publishingTurnId);
+          const apiResult = await apiTools?.execute(
+            block.name,
+            input,
+            AbortSignal.any([signal, options.session.abortController.signal]),
+          );
+          if (apiResult) return apiResult;
           const keychainResult = await connectionTools.execute(block.name, input, signal, {
             turnId: publishingTurnId,
             callId: block.id,

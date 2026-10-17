@@ -174,9 +174,9 @@ export class ApiToolCatalog {
           source: 'Reviewed API template',
           required: false,
           behavior: 'read',
-          routes: [],
+          routes: ['local-api'],
           requirement:
-            'API template execution is not yet enrolled. Connection approval is always required.',
+            'Reviewed read-only API template. Select RequestConnectionAccess too; current connection approval is required. New session required for changes.',
         };
         const receipt: Receipt = {
           entry,
