@@ -21,7 +21,7 @@ async function fixture() {
     body: '{"entity_id":"sensor.office","state":"21","last_changed":"2026-10-17T00:00:00Z","attributes":{"private":"omit"}}',
   }));
   const vault = {
-    save: vi.fn<ConnectionSender>(async () => ({ service: 'fixture', account: 'fixture' })),
+    save: vi.fn(async () => ({ service: 'fixture', account: 'fixture' })),
     link: vi.fn(),
     read: vi.fn(async () => 'fake-secret'),
     remove: vi.fn(),
