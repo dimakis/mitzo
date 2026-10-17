@@ -158,3 +158,27 @@ it('capabilities retain supported recipes and exclude native packs', () => {
     ordinaryCodexAgentProfiles([workspace, packs]).map((profile) => profile.profileId),
   ).toEqual([PROFILE_BUILDER_ID, 'mitzo-tool-builder', 'workspace']);
 });
+it('offers Tool Builder only on local API routes after native profile enrollment', () => {
+  const profiles = ordinaryCodexAgentProfiles([]);
+  const selection = { kind: 'builtin', profileId: 'mitzo-tool-builder', revision: 1 };
+  const api = ordinaryCodexAgentProfileRouteProjection(profiles, 'openai', 'local', undefined, {
+    contextRecipes: 'supported',
+    toolSelection: true,
+    toolRoute: 'local-api',
+  });
+  expect(api.agentProfiles).toContainEqual(selection);
+  for (const route of ['codex', 'codex-owned-local']) {
+    const native = ordinaryCodexAgentProfileRouteProjection(
+      profiles,
+      'openai',
+      'local',
+      undefined,
+      { contextRecipes: 'none', toolSelection: true, toolRoute: route },
+    );
+    expect(native.agentProfiles).not.toContainEqual(selection);
+    expect(native.agentProfileRejections).toContainEqual({
+      agent: selection,
+      reason: 'tool_selection_unavailable',
+    });
+  }
+});
