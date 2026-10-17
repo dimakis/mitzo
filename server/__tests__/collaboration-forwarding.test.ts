@@ -312,3 +312,58 @@ it('detects a finalized source edit during the final target authorization await'
     code: 'snapshot_changed',
   });
 });
+
+it('keeps retained older bytes separate from transcript references and refuses absent retained capability', async () => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const retained = createCollaborationRetainedArtifactFixture();
+  try {
+    const old = retained.store.save({
+      itemId: retained.itemId,
+      filename: 'old.md',
+      title: 'Selected old version',
+      bytes: Buffer.from('OLDER SAVED'),
+      sessionId: 'missing-original-session',
+    });
+    retained.store.save({
+      itemId: retained.itemId,
+      filename: 'old.md',
+      title: 'Selected old version',
+      bytes: Buffer.from('LATEST MUST NOT LEAK'),
+      sessionId: 'other-editor',
+    });
+    const input = {
+      ...selection(),
+      messages: [],
+      artifacts: [
+        { kind: 'retained_artifact', artifactId: old.id, revision: 1, sha256: old.sha256 },
+      ],
+    };
+    await expect(prepareCollaborationForward(input, deps())).rejects.toThrow();
+    const authorizeArtifact = vi.fn(async () => {});
+    const retainedArtifacts = createRetainedCollaborationArtifactSource({
+      store: retained.store,
+      authorizeArtifact,
+    });
+    const result = await prepareCollaborationForward(input, { ...deps(), retainedArtifacts });
+    expect(result.packet.artifacts).toEqual([
+      expect.objectContaining({
+        kind: 'retained_artifact',
+        retention: 'independent',
+        itemId: retained.itemId,
+        artifactId: old.id,
+        revision: 1,
+        sha256: old.sha256,
+        contentBase64: Buffer.from('OLDER SAVED').toString('base64'),
+        provenance: expect.objectContaining({ sessionId: 'missing-original-session' }),
+      }),
+    ]);
+    expect(result.serialized).not.toContain('LATEST');
+    authorizeArtifact.mockRejectedValueOnce(Error('Artifact access revoked'));
+    await expect(result.assertCurrent()).rejects.toThrow('Artifact access revoked');
+  } finally {
+    retained.close();
+  }
+});

@@ -8,6 +8,10 @@ import {
   SessionCollaborationSchema,
 } from '@mitzo/protocol';
 import type { AuthorizedCollaborationContext } from './collaboration-context-compiler.js';
+import type {
+  RetainedCollaborationArtifact,
+  RetainedCollaborationArtifactSource,
+} from './collaboration-retained-artifact-source.js';
 
 const sha = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const selection = CollaborationSnapshotSelectionSchema.shape;
@@ -39,7 +43,14 @@ export const CollaborationForwardSelectionSchema = z
         }),
       )
       .max(500),
-    artifacts: z.array(artifactPin.extend({ kind: z.literal('transcript_reference') })).max(100),
+    artifacts: z
+      .array(
+        z.discriminatedUnion('kind', [
+          artifactPin.extend({ kind: z.literal('transcript_reference') }),
+          artifactPin.extend({ kind: z.literal('retained_artifact') }),
+        ]),
+      )
+      .max(100),
   })
   .refine(
     (input) => input.messages.length + input.artifacts.length > 0,
@@ -49,7 +60,7 @@ export type CollaborationForwardSelection = z.infer<typeof CollaborationForwardS
 export type CollaborationForwardTarget = z.infer<typeof target>;
 
 type Message = z.infer<typeof CollaborationSnapshotMessageSchema>;
-type Artifact = z.infer<typeof artifactPin> & {
+type TranscriptArtifact = z.infer<typeof artifactPin> & {
   kind: 'transcript_reference';
   retention: 'source_dependent';
   sourceConversationId: string;
@@ -57,6 +68,13 @@ type Artifact = z.infer<typeof artifactPin> & {
   contentBase64: string;
   sizeBytes: number;
 };
+type Artifact =
+  | TranscriptArtifact
+  | (Omit<RetainedCollaborationArtifact, 'bytes'> & {
+      kind: 'retained_artifact';
+      contentBase64: string;
+      sizeBytes: number;
+    });
 export interface CollaborationForwardPacket {
   version: 1;
   requestId: string;
@@ -94,13 +112,14 @@ export async function prepareCollaborationForward(
   raw: unknown,
   deps: {
     source: AuthorizedCollaborationContext;
+    retainedArtifacts?: RetainedCollaborationArtifactSource;
     authorizeTarget(target: CollaborationForwardTarget): Promise<void>;
   },
 ) {
   const input = CollaborationForwardSelectionSchema.parse(raw);
   bounded(input);
   unique(input.messages.map((m) => m.messageId));
-  unique(input.artifacts.map((a) => `${a.artifactId}:${a.revision}`));
+  unique(input.artifacts.map((a) => `${a.kind}:${a.artifactId}:${a.revision}`));
   for (const message of input.messages) unique(message.blocks.map((b) => b.blockId));
   const authorizeTarget = () => deps.authorizeTarget(structuredClone(input.target));
   await authorizeTarget();
@@ -164,8 +183,40 @@ export async function prepareCollaborationForward(
     messages: selected,
     artifacts: [],
   };
-  for (const ref of input.artifacts) {
-    const { kind, ...pin } = ref;
+  async function material(
+    ref: CollaborationForwardSelection['artifacts'][number],
+  ): Promise<Artifact> {
+    const pin = artifactPin.parse({
+      artifactId: ref.artifactId,
+      revision: ref.revision,
+      sha256: ref.sha256,
+    });
+    if (ref.kind === 'retained_artifact') {
+      if (!deps.retainedArtifacts) changed();
+      const saved = await deps.retainedArtifacts.read(pin);
+      if (
+        saved.artifactId !== pin.artifactId ||
+        saved.revision !== pin.revision ||
+        saved.sha256 !== pin.sha256 ||
+        saved.retention !== 'independent' ||
+        sha(saved.bytes) !== pin.sha256
+      )
+        changed();
+      if (saved.bytes.byteLength > 512 * 1024)
+        throw new CollaborationContractError('capacity_refused');
+      return {
+        ...pin,
+        kind: ref.kind,
+        retention: saved.retention,
+        itemId: saved.itemId,
+        filename: saved.filename,
+        title: saved.title,
+        mediaType: saved.mediaType,
+        provenance: structuredClone(saved.provenance),
+        sizeBytes: saved.bytes.byteLength,
+        contentBase64: Buffer.from(saved.bytes).toString('base64'),
+      };
+    }
     await deps.source.authorizeArtifact(pin);
     const artifact = await deps.source.readArtifact(pin);
     if (
@@ -178,35 +229,25 @@ export async function prepareCollaborationForward(
       changed();
     if (artifact.bytes.byteLength > 512 * 1024)
       throw new CollaborationContractError('capacity_refused');
-    packet.artifacts.push({
+    return {
       ...pin,
-      kind,
+      kind: ref.kind,
       retention: 'source_dependent',
       sourceConversationId: artifact.sourceConversationId,
       mediaType: artifact.mediaType,
       sizeBytes: artifact.bytes.byteLength,
       contentBase64: Buffer.from(artifact.bytes).toString('base64'),
-    });
+    };
+  }
+  for (const ref of input.artifacts) {
+    packet.artifacts.push(await material(ref));
     bounded(packet);
   }
   async function assertCurrent() {
     await authorizeTarget();
     await opened.assertCurrent();
-    for (const ref of input.artifacts) {
-      const pin = artifactPin.parse({
-        artifactId: ref.artifactId,
-        revision: ref.revision,
-        sha256: ref.sha256,
-      });
-      await deps.source.authorizeArtifact(pin);
-      const artifact = await deps.source.readArtifact(pin);
-      if (
-        artifact.artifactId !== pin.artifactId ||
-        artifact.revision !== pin.revision ||
-        artifact.sha256 !== pin.sha256 ||
-        sha(artifact.bytes) !== pin.sha256 ||
-        artifact.sourceConversationId !== input.sourceConversationId
-      )
+    for (let index = 0; index < input.artifacts.length; index++) {
+      if (!isDeepStrictEqual(await material(input.artifacts[index]), packet.artifacts[index]))
         changed();
     }
     await opened.assertCurrent();
