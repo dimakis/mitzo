@@ -21,6 +21,12 @@ During implementation, accepted #974 advanced main to
 that device-continuity change, including its ordinary approval and reconnect
 owners and complete shared source manifest. It is not a runtime deployment.
 
+The landing refresh also incorporates accepted #999, #1001, #998 and #1003 at
+`43183584408db87a11d6b33809af63eea55f837c`. It preserves sandbox lifecycle,
+Agent Library source delivery, the approved chat settings and design ledger,
+and isolated API-account bootstrap. Those sources do not qualify Symposium's
+native prepare/count/consume composition or authorize runtime adoption.
+
 Native references below are to OpenAI Codex `rust-v0.160.0`, commit
 `a956835d020762cb2b570053af06f643a11c0ecc`, the repository's OpenShell source pin.
 The retained investigation checkout is read-only and is not an installed runtime.
@@ -79,6 +85,13 @@ Its entry, admission and runtime owners retain ordinary native custody. The loca
 `FrozenHostCodexLogin` instead requires ChatGPT credentials; the separate local
 Responses SDK callback path creates queues and does not qualify silent native
 preparation. This source inspection selects no configured runtime or account.
+
+Accepted #1003 additionally provides `CodexAppServerClient.launchIsolatedApi`
+under the existing private-home, frozen-executable and credential authority.
+It bootstraps API authentication without enabling a chat route. It does not
+replace `FrozenHostCodexLogin` or establish silent preparation, authoritative
+capacity, cold continuation or prepared-request dispatch. Preserve that helper
+when composing the selected API route rather than implementing another login.
 
 ## Existing owners and the native addition
 

@@ -8,6 +8,15 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 
+// Isolate route authority and callback wiring from sheet navigation. Keep the
+// original editors directly accessible here, as in DesktopChatView.test.tsx.
+// QuickChatSettings unit tests and the offline settings/account/runtime journeys
+// exercise the actual retained editors, navigation and approved row layout.
+vi.mock('../../lib/quick-settings-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/quick-settings-context')>()),
+  useQuickSettings: () => null,
+}));
+
 function openAgentSettings() {
   const trigger = screen.getByRole('button', { name: /^Workspace controls,/ });
   if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
@@ -600,9 +609,7 @@ it('keeps account and permission controls in one top panel with no composer pick
   expect(within(panel).getByRole('combobox', { name: 'Model' })).toBeTruthy();
   expect(screen.getAllByRole('region', { name: 'Agent settings' })).toHaveLength(1);
   const advanced = screen.getByTestId('web-search-connection');
-  expect(advanced.closest('details')?.open).toBe(false);
-  fireEvent.click(screen.getByText('More settings'));
-  expect(advanced.closest('details')?.open).toBe(true);
+  expect(advanced.closest('[aria-label="Agent settings"]')).toBe(panel);
   expect(
     within(workspace.parentElement!.parentElement!).queryByRole('combobox', { name: 'Account' }),
   ).toBeTruthy();

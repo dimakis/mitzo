@@ -787,26 +787,43 @@ in dark/light appearance with Mint/Georgia. Inspected captures show the
 [fresh desktop chat](assets/fresh-chat-desktop-light.png), with briefing chrome
 restored only through the saved draft. No backend or model is used.
 
-## Agent creation advisor
+## Agent Builder entry from Library
 
-The Agent Library workbench stacks its advisor above the existing profile editor,
-including on mobile. New agent creation expands the panel; the labelled disclosure
-uses `useMotionPresence` to retain the conversation, question and picker on collapse.
-It reuses `AccountModelPicker` in adviser scope, `UiIcon`, the existing profile form,
-semantic colors, UI/mono fonts, spacing/radius scales and 44px control targets.
-The conversation has a bounded, keyboard-scrollable log. Proposed profiles expose
-review details and an explicit apply action before the ordinary Save draft and
-Publish revision actions. Stale proposals cannot replace newer form edits.
+Agent Library creation and refinement enter the existing ordinary Agent Builder
+chat. The Library keeps its manual profile editor, draft/publication lifecycle,
+version history and assigned tasks; it no longer stacks a separate advisor and
+adviser-only account setup above that editor. The shared ordinary settings own
+Agent, Account, Model, Thinking, Run on, derived Runs with and workspace controls.
+No alternate chat renderer, composer, account inventory or settings pattern is
+introduced.
 
-Offline Agent Library fixtures exercise advisor success/error, explicit selection,
-form application and draft recovery, keyboard focus, long content and scrolling,
-320px mobile and desktop layouts, light/dark themes and Teal/Georgia appearance.
-The ordinary Agent Builder chat profile retains its separate namespace fixture.
+A retained ordinary draft carries the exact profile/draft source snapshot through
+the existing source-context transport. Source context is disclosed in the ordinary
+chat and Resources; it stays separate from the editable short request. The normal
+conversation's profile proposal cards, approval controls and lifecycle remain
+available. Source content grants no runtime or publication authority. Setup never
+sends a model turn. Back navigation, repeated entry and acknowledgement retain
+the original draft/conversation rather than silently allocating another one.
 
-Inspected captures show [new agent creation on mobile](assets/agent-creation-mobile-dark.png)
-and [the desktop advisor above the profile form](assets/agent-creation-desktop-light.png).
-These are fully intercepted fixtures; no live model, backend or production service
-was used.
+Changes reuse existing shells, WorkspacePageHeading, UiIcon, shared source/context
+and resource controls, semantic tokens, motion and touch targets. Focused offline
+fixtures render the actual Library and responsive ordinary chat, with all traffic
+intercepted; broad application build and browser acceptance remain CI evidence.
+
+The focused Library/ordinary-chat fixture passes 17 checks across 320px mobile
+WebKit/Chromium and desktop Chromium in light/dark with Teal/Georgia. It covers
+exact source review, settings and draft retention, unavailable routes, accepted
+first command, proposal save failure/retry and acknowledged conversation reentry.
+Captures show [mobile source review](assets/agent-builder-mobile-source-dark.png),
+[shared mobile settings](assets/agent-builder-mobile-settings-light.png),
+[the saved proposal receipt](assets/agent-builder-mobile-saved-dark.png) and
+[ordinary desktop chat](assets/agent-builder-desktop-chat-light.png).
+These are intercepted fixtures, not live provider/device qualification. The saved
+receipt capture uses an intentionally first-command-only historical runtime to
+prove platform profile review remains available while unsupported sends stay
+blocked. Its inert event source leaves Stop visible. The shared narrow settings
+body retains an internal horizontal scrollbar; document bounds and 44px controls
+pass, and no Library-specific settings layout is introduced.
 
 ## Agent Library tasks and shared settings
 
@@ -818,7 +835,7 @@ Symposium selection stays inside a session.
 
 Task setup uses AgentSettingsPicker, controlled AccountModelPicker and
 ChatExecutionPicker with the ordinary runtime catalog. Its retained selection is
-separate from advisor and session defaults. The shared panel measures its own
+separate from Builder conversation and session defaults. The shared panel measures its own
 available space outside chat, keeps fields mounted when closed, scrolls internally,
 and restores trigger focus on Escape/Done. Library actions use quiet outlined or
 soft surfaces; type, spacing, radius, focus and touch heights use shared tokens.
@@ -1114,6 +1131,34 @@ reachable close/Done controls. Short-screen bounds are measured in rendered pixe
 Settings motion uses the shared popover presence and retains the mounted fields.
 The trigger’s accessible name includes its visible Settings label and selected context.
 
+The 17 October restoration brings back the earlier approved **Account & model**
+and **Agent & workspace** groups and accent-colored heading from
+[the retained approved design](assets/approved-chat-settings-teal.png).
+The compact popover geometry, full-width composer and primary Run on controls
+remain in place. Account defaults, clear-default and model refresh live in the
+closed **Account options** disclosure; required account confirmation and catalog
+warnings remain visible. This reuses `chat-settings-group`,
+`chat-settings-advanced`, `UiIcon` and the existing semantic/spacing/type tokens.
+Opening settings starts its scrolling body at Account while preserving mounted
+selections, confirmation state and composer drafts. Both mobile and desktop use
+the same field set.
+
+The restoration passes 107 design checks, 83 focused component/page regressions
+and 17 intercepted browser checks including browser startup. The browser fixture
+uses the real `AccountModelPicker` with synthetic catalog responses and covers
+saved defaults, refresh, account/model/thinking selection, dismissal/focus,
+retained drafts and reopening at Account. Inspected captures show
+[390px mobile dark](assets/restored-chat-settings-mobile-dark.png),
+[1280px desktop light](assets/restored-chat-settings-desktop-light.png),
+[320px mobile with larger text](assets/restored-chat-settings-short-mobile-light.png)
+and [300px-high desktop with larger text](assets/restored-chat-settings-short-desktop-dark.png).
+Constrained panels reduce header/footer padding using the shared spacing scale
+to keep a complete runtime row reachable while retaining 44px actions. Themes,
+Mint/Teal accents and Georgia/System fonts remain effective. Workspace builds and
+frontend TypeScript checks pass; `npm run test:ui` reaches Vite but exceeds the
+required local 1 GiB heap, so full production build acceptance remains with CI.
+These fixtures start no backend and make no model calls.
+
 New and existing composers use the full chat pane with the same shared gutters.
 Commands, image attachment, Terminal, Resources, collaboration, context, voice and
 send/queue/interrupt controls retain their original order and behavior. Resources
@@ -1312,6 +1357,26 @@ focus, retained edits, failure/retry, publication, 44px actions and scrolling.
 These checks use fake responses without backend, credentials or models. Full-app
 build/browser acceptance remains a separate CI gate. The application shell and
 advisor/editor placement are unchanged.
+
+## Approved interface contracts
+
+The [approved-design ledger](approved/README.md) records human approvals and pinned
+references separately from implementation captures. Read it before changing an
+existing surface or resolving a UI conflict. Feature work and rebases preserve the
+active design; intentional changes need a new explicit user approval and an appended
+revision. Tests and reference hashes are protections, not baselines to rewrite when
+an unrelated feature changes the screen.
+
+Chat settings uses the shared `QuickSettingsField` pattern: an ordered summary list
+opens one retained editor at a time. Back and Escape return through the sheet and
+restore focus. Account/model locks, explicit confirmation, repository preparation,
+existing action callbacks and unavailable choices retain their original authority.
+Summary rows are portaled into ordered slots so visual and keyboard order agree.
+The header and surfaces use neutral tokens; Done uses the selected action accent.
+`SettingsBrandMark` uses the existing OpenShell mask and vendored OpenAI/Claude SVG
+marks (LobeHub icon assets); unknown model identities remain unbranded. The 18px mark
+is icon geometry; controls still use the shared 44px minimum. Claude's brand role
+is defined for both themes in tokens.css and is independent of the user's accent.
 
 ## Device continuity
 

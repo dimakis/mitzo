@@ -1,3 +1,5 @@
+import { SourceSnapshotsSchema } from '@mitzo/protocol';
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { resolveChatAgentProfile } from './agent-library-binding.js';
 import {
@@ -42,6 +44,7 @@ import { hasPersistentRevocationAuthority } from './auth.js';
 
 const unavailable = () => new Error('Owned local Codex runtime unavailable');
 const RawPayload = z.strictObject({
+  sourceSnapshots: SourceSnapshotsSchema.optional(),
   text: z.string().min(1).max(1_000_000),
   intent: z.string().max(1_000_000).optional(),
   images: z
@@ -158,6 +161,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
       if (request.clientMsgId !== this.owners.commandId) throw unavailable();
       // Builtins remain code-owned; a matching user Library ID cannot change namespace.
       const rawPayload = RawPayload.parse(request.payload);
+      assembleSourceSnapshots(rawPayload.text, rawPayload.sourceSnapshots);
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
       const accountIdentity = (value: typeof binding) => ({
@@ -448,6 +452,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
         throw unavailable();
       const request = OrdinaryLocalCodexCommandRequestSchema.parse(raw);
       const rawPayload = RawPayload.parse(request.payload);
+      assembleSourceSnapshots(rawPayload.text, rawPayload.sourceSnapshots);
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
       profiles.validateModelSelection(binding, request.selection.model, request.selection.thinking);

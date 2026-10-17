@@ -1,0 +1,168 @@
+.quick-settings-field,
+.quick-settings-summaries,
+[data-settings-slot] {
+  display: contents;
+}
+.workspace-controls .workspace-controls-content--quick {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  /* Short viewports must be able to reveal a whole control above the footer. */
+  scroll-padding-block: 0;
+}
+.workspace-controls-content--quick
+  :is(
+    .agent-settings-picker,
+    .agent-settings-panel--embedded,
+    .agent-settings-body,
+    .agent-settings-account-model,
+    .agent-settings-agent,
+    .account-model-settings-account,
+    .account-model-settings-pair,
+    .account-model-settings-utilities
+  ) {
+  display: contents;
+}
+.workspace-controls--quick .quick-settings-row:not([hidden]) {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-3) var(--page-gutter);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+}
+.workspace-controls--quick .quick-settings-row::after {
+  content: '';
+  position: absolute;
+  inset-inline: var(--page-gutter);
+  bottom: 0;
+  border-bottom: 1px solid var(--color-border);
+  pointer-events: none;
+}
+.workspace-controls--quick .quick-settings-row:hover {
+  background: var(--color-panel);
+}
+.quick-settings-label {
+  color: var(--color-muted);
+  flex: none;
+}
+.quick-settings-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  gap: var(--space-2);
+}
+.quick-settings-value > span:not(.model-brand):not(.openshell-brand) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.quick-settings-value > .ui-icon:last-child {
+  color: var(--color-muted);
+}
+.quick-settings-row--add .quick-settings-value,
+.quick-settings-row--add .quick-settings-value > .ui-icon:last-child {
+  color: var(--color-accent);
+}
+.workspace-controls--quick .quick-settings-row[data-quick-setting='agent'] {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+.workspace-controls--quick .quick-settings-row[data-quick-setting='more'] {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+.workspace-controls--quick .quick-settings-row[data-quick-setting='defaults']::after {
+  display: none;
+}
+.quick-settings-editor {
+  flex: none;
+  padding: var(--space-4) var(--page-gutter);
+  min-width: 0;
+}
+.quick-settings-editor--exiting {
+  position: absolute;
+  inset-inline: 0;
+  pointer-events: none;
+}
+.quick-settings-supplement {
+  padding: 0 var(--page-gutter) var(--space-4);
+}
+.workspace-controls--quick .quick-settings-choices {
+  display: flex;
+  flex-direction: column;
+}
+.workspace-controls--quick .quick-settings-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-3) 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  gap: var(--space-3);
+}
+.workspace-controls--quick .quick-settings-choice > span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.workspace-controls--quick .quick-settings-choice[aria-pressed='true'] {
+  color: var(--color-accent);
+}
+.workspace-controls--quick .quick-settings-choice:disabled {
+  opacity: 0.6;
+}
+.quick-settings-note {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  margin-top: var(--space-3);
+}
+.workspace-controls.workspace-controls--quick .agent-settings-header > strong {
+  color: var(--color-text);
+  border: 0;
+  padding: 0;
+  font-size: var(--text-base);
+  font-weight: 500;
+  flex: 1;
+}
+.workspace-controls--quick .agent-settings-header {
+  justify-content: space-between;
+}
+.workspace-controls--quick .workspace-controls-footer {
+  justify-content: space-between;
+}
+.quick-settings-footer-note {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+.workspace-controls.workspace-controls--quick .workspace-controls-footer > button {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.workspace-controls--quick .quick-settings-editor .account-model-settings-utilities {
+  display: flex;
+}
+.quick-settings-editor .composer-session-details > summary {
+  display: none;
+}
+.quick-settings-editor .workspace-session-actions {
+  padding-inline: 0;
+}

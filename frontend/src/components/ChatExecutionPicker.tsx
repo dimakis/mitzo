@@ -6,7 +6,39 @@ import { UiIcon } from './UiIcon';
 import './AgentSettingsPicker.css';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
 import './ChatAgentProfilePicker.css';
-export function ChatExecutionPicker({
+import { useQuickSettings } from '../lib/quick-settings-context';
+import { QuickSettingsField } from './QuickChatSettings';
+import { RuntimeBrandMark } from './SettingsBrandMark';
+
+export function ChatExecutionPicker(props: Parameters<typeof ChatExecutionFields>[0]) {
+  const quick = useQuickSettings();
+  const runtime = props.runtime;
+  const fields = <ChatExecutionFields {...props} />;
+  if (!quick || props.presentation !== 'settings' || !runtime.visible) return fields;
+  const location = runtime.bound
+    ? runtime.binding?.execution.location
+    : runtime.intent.execution.location;
+  return (
+    <QuickSettingsField
+      page="execution"
+      title="Run on"
+      value={
+        runtime.metadataUnavailable
+          ? 'Unavailable'
+          : location === 'openshell'
+            ? 'OpenShell'
+            : location === 'local'
+              ? 'Local Mac'
+              : 'Choose'
+      }
+      mark={<RuntimeBrandMark location={location} />}
+    >
+      {fields}
+    </QuickSettingsField>
+  );
+}
+
+function ChatExecutionFields({
   runtime,
   disabled = false,
   executionLocked = false,

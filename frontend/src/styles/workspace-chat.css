@@ -2058,9 +2058,12 @@
   background: var(--color-surface);
 }
 .workspace-controls--compact .agent-settings-header > strong {
-  color: var(--color-text);
-  border: 0;
-  padding: 0;
+  color: var(--color-accent);
+}
+.workspace-controls--compact
+  .workspace-controls-settings[data-constrained]
+  > :is(.agent-settings-header, .workspace-controls-footer) {
+  padding-block: var(--space-1);
 }
 .workspace-controls--compact .workspace-controls-options > summary {
   display: flex;

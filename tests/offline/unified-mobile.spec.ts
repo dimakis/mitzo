@@ -1,3 +1,4 @@
+import { settingRow, openChatSetting } from '../support/chat-settings';
 import { HTML_PREVIEW_BOOTSTRAP, htmlPreviewPolicy } from '../../server/html-preview-shell';
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
@@ -2260,17 +2261,13 @@ async function exerciseBriefingReloadRecovery(
     await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
     if ((await workspace.getAttribute('aria-expanded')) === 'false') await workspace.click();
     await expect(workspace).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-      binding.model,
-    );
+    await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', binding.model);
   }
 
   await openWorkspace();
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-    binding.model,
-  );
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
-  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toBeDisabled();
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', binding.model);
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-readonly', 'true');
+  await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-readonly', 'true');
   await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
   expect(registrations).toEqual([binding]);
   // Confirm authoritative visibility before reusing a locally retained assignment.
@@ -2294,7 +2291,7 @@ async function exerciseBriefingReloadRecovery(
   await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
   await expect(retry).toBeVisible();
   await openWorkspace();
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-readonly', 'true');
   expect(sends).toHaveLength(2);
   expect(turns.size).toBe(1);
   acceptRegistration = true;
@@ -2310,7 +2307,7 @@ async function exerciseBriefingReloadRecovery(
     .click();
   await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
   await openWorkspace();
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-readonly', 'true');
   expect(sends).toHaveLength(2);
   expect(turns.size).toBe(1);
   if (nativeMode && nativeMode !== 'sse') {
@@ -2372,13 +2369,11 @@ test('reviewed launches let users dismiss Agent settings and reach Send at a sho
   await openAgentSettings(page);
   const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   await expect(settings).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-    'luna-fixture',
-  );
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'luna-fixture');
   await page.getByRole('button', { name: /^Workspace controls,/ }).click();
   await expect(settings).toHaveAttribute('aria-expanded', 'false');
   await expect(settings).toBeFocused();
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeHidden();
+  await expect(settingRow(page, 'Model')).toBeHidden();
   const send = page.getByRole('button', { name: 'Send launch prompt', exact: true });
   await send.scrollIntoViewIfNeeded();
   await expect(send).toBeInViewport();
@@ -2548,7 +2543,7 @@ test('failed briefing registration survives a completed turn and reload without 
   await expect(picker).toBeVisible();
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
   await openAgentSettings(page);
-  const profile = page.getByRole('combobox', { name: 'Agent', exact: true });
+  const profile = page.locator('select[aria-label="Agent"]');
   await expect(profile).toBeEnabled();
   await expect(profile).toHaveValue('');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
@@ -2606,12 +2601,10 @@ test('failed briefing registration survives a completed turn and reload without 
       page.viewportSize()!.width,
     );
     await openAgentSettings(page);
-    const model = page.getByRole('combobox', { name: 'Model', exact: true });
-    await expect(model).toHaveValue(binding.model);
-    await expect(model).toBeDisabled();
-    await expect(
-      page.getByRole('combobox', { name: 'Thinking level', exact: true }),
-    ).toBeDisabled();
+    const model = settingRow(page, 'Model');
+    await expect(model).toHaveAttribute('data-value', binding.model);
+    await expect(model).toHaveAttribute('data-readonly', 'true');
+    await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-readonly', 'true');
     await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
   }
   await retained();
@@ -2622,7 +2615,7 @@ test('failed briefing registration survives a completed turn and reload without 
   await page.reload();
   await expect(retry).toBeVisible();
   await retained();
-  await page.getByText('More settings', { exact: true }).click();
+  await openChatSetting(page, 'more');
   await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
   const alert = page.getByRole('alert').filter({ has: retry });
   const geometry = await alert.evaluate((element) => {
@@ -2795,13 +2788,13 @@ test('saved chat identity failures lock model controls until an explicit success
       const retry = page.getByRole('button', { name: 'Retry briefing lookup', exact: true });
       await expect(retry).toBeVisible();
       await openAgentSettings(page);
-      const model = page.getByRole('combobox', { name: 'Model', exact: true });
+      const model = settingRow(page, 'Model');
       await expect(model).toBeVisible();
-      await expect(model).toBeDisabled();
-      await expect(model).toHaveValue('luna-fixture');
+      await expect(model).toHaveAttribute('data-readonly', 'true');
+      await expect(model).toHaveAttribute('data-value', 'luna-fixture');
       await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
-      const thinking = page.getByRole('combobox', { name: 'Thinking level', exact: true });
-      await expect(thinking).toBeDisabled();
+      const thinking = settingRow(page, 'Thinking level');
+      await expect(thinking).toHaveAttribute('data-readonly', 'true');
       await expect(
         page.getByRole('button', { name: 'Change account or model', exact: true }),
       ).toHaveCount(0);
@@ -2848,14 +2841,14 @@ test('saved chat identity failures lock model controls until an explicit success
       if (recovered === 'briefing') {
         await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
         await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
-        await expect(model).toBeDisabled();
-        await expect(thinking).toBeDisabled();
+        await expect(model).toHaveAttribute('data-readonly', 'true');
+        await expect(thinking).toHaveAttribute('data-readonly', 'true');
         await expect(
           page.getByRole('button', { name: 'Change account or model', exact: true }),
         ).toBeVisible();
       } else {
-        await expect(model).toBeEnabled();
-        await expect(thinking).toBeEnabled();
+        await expect(model).not.toHaveAttribute('data-readonly', 'true');
+        await expect(thinking).not.toHaveAttribute('data-readonly', 'true');
         await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveCount(0);
       }
     }
@@ -2911,13 +2904,15 @@ test('chat builder selection distinguishes built-in guidance from a saved profil
     'Help me create an agent.',
   );
   await openAgentSettings(page);
-  const picker = page.getByRole('combobox', { name: 'Agent', exact: true });
+  await openChatSetting(page, 'agent');
+  const picker = page.locator('select[aria-label="Agent"]');
   await expect(picker).toHaveValue(JSON.stringify(['builtin', 'mitzo-profile-builder', 1]));
   await expect(picker.getByRole('option', { name: /My saved builder/ })).toHaveCount(1);
   await picker.selectOption(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));
   await expect(page).toHaveURL(/profileRevision=2/);
   expect(new URL(page.url()).searchParams.has('agentProfileKind')).toBe(false);
   await expect(picker).toHaveValue(JSON.stringify(['saved', 'mitzo-profile-builder', 2]));
+  await openChatSetting(page, 'agent');
   await picker.selectOption('');
   expect(new URL(page.url()).searchParams.has('agentProfile')).toBe(false);
 });
@@ -3019,7 +3014,7 @@ test('profile draft cards appear in conversation and save without opening Worksp
           'data-motion-active',
           'true',
         );
-        await page.getByText('More settings', { exact: true }).click();
+        await openChatSetting(page, 'more');
         await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
         if (next === 'empty')
           await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
@@ -4145,7 +4140,7 @@ test('ordinary collaboration opens selected work explicitly and preserves the qu
   });
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: /Workspace controls/ }).click();
-  await page.getByText('More settings', { exact: true }).click();
+  await openChatSetting(page, 'more');
   const action = page.getByRole('button', { name: 'Symposium collaboration', exact: true });
   const originalOverflow = await page.evaluate(() => document.body.style.overflow);
   await expect(action).toBeVisible();

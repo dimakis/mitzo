@@ -13,6 +13,14 @@ import {
   saveChatDraft,
 } from '../../lib/chat-drafts';
 
+// Exercise repository preparation and route authority through the original
+// editors directly. Real sheet navigation and mounted preparation/draft behavior
+// are covered by QuickChatSettings and the offline draft/runtime journeys.
+vi.mock('../../lib/quick-settings-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/quick-settings-context')>()),
+  useQuickSettings: () => null,
+}));
+
 vi.mock('../../components/ChatAgentProfilePicker', () => ({ ChatAgentProfilePicker: () => null }));
 vi.mock('../../components/SymposiumConversation', () => ({
   SymposiumConversation: ({ ordinaryComposer }: { ordinaryComposer: React.ReactNode }) => (
