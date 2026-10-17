@@ -138,10 +138,35 @@ describe('TodoView', () => {
     expect(screen.getByText('work')).toBeTruthy();
   });
 
-  it('filters by profile when pill clicked', () => {
+  it('retains legacy profile filtering when workspace records are unavailable', () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
-      items: [],
+      items: [
+        {
+          id: 'legacy',
+          summary: 'Legacy record',
+          profile: 'work',
+          urgency: 0.5,
+          starred: false,
+          status: 'active',
+          ageDays: 0,
+          parentId: null,
+          children: [],
+          childCount: 0,
+          completedChildCount: 0,
+          sources: [],
+          contextHints: {
+            repos: [],
+            paths: [],
+            issues: [],
+            docIds: [],
+            people: [],
+            jiraKeys: [],
+            keywords: [],
+            taskHint: '',
+          },
+        },
+      ],
       profiles: ['centaur', 'work'],
       ack: vi.fn(),
       done: vi.fn(),
@@ -215,7 +240,7 @@ describe('TodoView', () => {
     });
   });
 
-  it('presents Work as one clear heading and leaves branding to the shell', () => {
+  it('presents Telos outcomes as one clear heading and leaves branding to the shell', () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       items: [],
@@ -232,7 +257,7 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole('heading', { name: 'Work', level: 1 })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Telos outcomes', level: 1 })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Telos' })).toBeNull();
     expect(container.querySelector('.mitzo-logo')).toBeNull();
   });
@@ -380,7 +405,7 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByTitle('Add todo'));
+    fireEvent.click(screen.getByRole('button', { name: 'New item', exact: true }));
     fireEvent.change(screen.getByPlaceholderText('Short outcome title'), {
       target: { value: 'Ship durable outcomes' },
     });
