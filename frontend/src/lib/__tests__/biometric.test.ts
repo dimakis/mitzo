@@ -120,6 +120,25 @@ describe('deleteCredentials', () => {
 });
 
 describe('biometricLogin', () => {
+  it('shares one native identity prompt between overlapping unlock attempts', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    let finishIdentity!: () => void;
+    vi.mocked(NativeBiometric.verifyIdentity).mockReturnValue(new Promise<void>((resolve) => {
+      finishIdentity = resolve;
+    }) as never);
+    vi.mocked(NativeBiometric.getCredentials).mockResolvedValue({
+      username: 'mitzo-user', password: 'stored-jwt',
+    });
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+
+    const automatic = biometricLogin();
+    const manual = biometricLogin();
+    expect(NativeBiometric.verifyIdentity).toHaveBeenCalledOnce();
+    finishIdentity();
+    expect(await Promise.all([automatic, manual])).toEqual(['stored-jwt', 'stored-jwt']);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it('refuses retained native credentials while logout is pending', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     localStorage.setItem('mitzo_logout_pending', '1');

@@ -83,7 +83,21 @@ export async function deleteCredentials(): Promise<void> {
  * validate with server, store in localStorage for apiFetch, and return the token.
  * Returns null if biometric auth fails, no credentials stored, or token is expired.
  */
-export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
+let loginInFlight: { baseUrl: string; promise: Promise<string | null> } | undefined;
+
+export function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
+  if (loginInFlight) {
+    return loginInFlight.baseUrl === apiBaseUrl ? loginInFlight.promise : Promise.resolve(null);
+  }
+  const promise = performBiometricLogin(apiBaseUrl);
+  loginInFlight = { baseUrl: apiBaseUrl, promise };
+  void promise.finally(() => {
+    if (loginInFlight?.promise === promise) loginInFlight = undefined;
+  });
+  return promise;
+}
+
+async function performBiometricLogin(apiBaseUrl: string): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
   if (isLogoutPending()) {
     await deleteCredentials();
