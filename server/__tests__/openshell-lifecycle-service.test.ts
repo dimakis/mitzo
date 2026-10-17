@@ -145,6 +145,15 @@ it('binds deletion confirmation to the selected conversation', async () => {
   expect(adapters.delete).not.toHaveBeenCalled();
 });
 
+it('does not accept a stop-only review as authorization to delete a conversation', async () => {
+  const { service, adapters } = setup('retained');
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100), 'c')).rejects.toThrow(
+    'deletion',
+  );
+  expect(adapters.stop).not.toHaveBeenCalled();
+});
+
 it('refuses explicit deletion when a checkpoint fails or protected work appears after stopping', async () => {
   const { service, adapters } = setup('retained');
   adapters.stop.mockImplementationOnce(async () => {

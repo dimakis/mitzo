@@ -226,6 +226,8 @@ export class OpenShellLifecycleService {
     if (!preview) throw new Error('OpenShell lifecycle preview is expired or already used');
     if (expectedConversationId !== undefined && preview.conversationId !== expectedConversationId)
       throw new Error('OpenShell lifecycle preview belongs to another conversation');
+    if (expectedConversationId !== undefined && preview.intent !== 'delete')
+      throw new Error('Explicit sandbox deletion review is required');
     return sharedOpenShellLifecycleCoordinator.mutate(preview.conversationId, () =>
       this.confirmLocked(token, signal),
     );

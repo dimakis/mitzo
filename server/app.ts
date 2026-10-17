@@ -1,3 +1,4 @@
+import { createSessionRemovalRouter } from './session-removal.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
 import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
 import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
@@ -2841,13 +2842,20 @@ app.use(
   }),
 );
 
-app.delete('/api/sessions/:id', (req, res) => {
-  hideSession(req.params.id as string);
-  clearPublicationControllerSessionGrants(registry, req.params.id as string);
-  overviewEmitter?.scheduleBroadcast();
-  sseRegistry.broadcast('sessions_changed', {});
-  res.json({ ok: true });
-});
+app.use(
+  '/api/sessions',
+  operatorAuthMiddleware,
+  createSessionRemovalRouter({
+    lifecycle: () => openShellLifecycleService,
+    hasSandbox: (id) => eventStore.getSession(id)?.cwd?.startsWith('/sandbox/') === true,
+    hide: hideSession,
+    changed: (id) => {
+      clearPublicationControllerSessionGrants(registry, id);
+      overviewEmitter?.scheduleBroadcast();
+      sseRegistry.broadcast('sessions_changed', {});
+    },
+  }),
+);
 
 app.use(
   '/api/sessions/:id/access',
