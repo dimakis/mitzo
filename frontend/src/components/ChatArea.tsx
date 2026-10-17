@@ -1,3 +1,4 @@
+import { useTelosSourceNavigation } from '../hooks/useTelosSourceNavigation';
 import { SeatLabel } from './SeatLabel';
 import { UiIcon } from './UiIcon';
 import { CompactionMarker } from './CompactionMarker';
@@ -148,6 +149,50 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  const source = useTelosSourceNavigation();
+  const sourceAnchor = (message: FinishedMessage) => {
+    if (source?.status !== 'ready' || source.conversationId !== sessionId) return false;
+    const id = source.packet!.context.boundary.messageId;
+    if (!id) return false;
+    const attribution = source.packet!.attributions[id];
+    return (
+      message.messageId === id &&
+      !!attribution &&
+      (attribution.provenance === null
+        ? !message.symposiumProvenance
+        : message.symposiumProvenance?.seatId === attribution.provenance.seatId &&
+          message.symposiumProvenance?.membershipGeneration ===
+            attribution.provenance.membershipGeneration &&
+          message.symposiumProvenance?.configRevision === attribution.provenance.configRevision)
+    );
+  };
+  const restoredBoundary = messages.find(sourceAnchor);
+  // Only visible public text can anchor a finished assistant. Historical blank
+  // or activity-only boundaries retain their normal rendering without owning
+  // ordinary scrolling. A pending or not-yet-restored boundary still owns it.
+  const unanchorableBoundary =
+    restoredBoundary?.role === 'assistant' &&
+    !restoredBoundary.blocks.some((block) => block.blockType === 'text' && block.content?.trim());
+  const sourceKey =
+    source && source.status !== 'unavailable' && !unanchorableBoundary
+      ? JSON.stringify([source.conversationId, source.itemId, source.snapshotId])
+      : '';
+  const prevSourceKey = useRef(sourceKey);
+  const jumpedSource = useRef('');
+  useEffect(() => {
+    if (!sourceKey) {
+      jumpedSource.current = '';
+      return;
+    }
+    if (source?.status !== 'ready' || jumpedSource.current === sourceKey) return;
+    const anchor = scrollRef.current?.querySelector<HTMLElement>(
+      '[data-telos-source-anchor="true"]',
+    );
+    if (!anchor) return;
+    shouldFollowStreamRef.current = false;
+    anchor.scrollIntoView({ block: 'start' });
+    jumpedSource.current = sourceKey;
+  }, [sourceKey, source, messages, scrollRef]);
   // Keep the reader's intent independently of the DOM height. By the time an
   // effect runs for a streamed chunk, the new content is already in the DOM,
   // so measuring then can incorrectly decide that a reader who scrolled up is
@@ -197,22 +242,37 @@ export function ChatArea({
   // Scroll to bottom on session restore (messages jump from 0 to N)
   useEffect(() => {
     const wasEmpty = prevMessageCount.current === 0;
+    const releasedSource = !!prevSourceKey.current && !sourceKey;
     prevMessageCount.current = messages.length;
-    if (wasEmpty && messages.length > 0) {
+    prevSourceKey.current = sourceKey;
+    if (
+      messages.length > 0 &&
+      !sourceKey &&
+      (wasEmpty || (releasedSource && shouldFollowStreamRef.current))
+    ) {
       shouldFollowStreamRef.current = true;
-      requestAnimationFrame(() => {
+      let frame = requestAnimationFrame(() => {
+        if (!shouldFollowStreamRef.current) return;
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        // Restoring a deferred source can reveal the existing scroll controls.
+        // Settle their viewport change without overriding newer reader intent.
+        if (releasedSource)
+          frame = requestAnimationFrame(() => {
+            if (shouldFollowStreamRef.current)
+              scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+          });
       });
+      return () => cancelAnimationFrame(frame);
     }
-  }, [messages, scrollRef]);
+  }, [messages, scrollRef, sourceKey]);
 
   // Auto-scroll during streaming only while the reader has chosen to follow it.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && shouldFollowStreamRef.current) {
+    if (el && (!sourceKey || jumpedSource.current === sourceKey) && shouldFollowStreamRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, current, currentByMessage, scrollRef]);
+  }, [messages, current, currentByMessage, scrollRef, sourceKey]);
 
   const progressFor = useCallback(
     (messageId: string, provenance: SymposiumProvenance | undefined, toolId?: string) =>
@@ -309,6 +369,7 @@ export function ChatArea({
               value: (
                 <UserBubble
                   key={turnKey(msg.messageId, msg.symposiumProvenance)}
+                  sourceAnchor={sourceAnchor(msg)}
                   text={textBlock?.content}
                   images={msg.images}
                   contextBlocks={msg.contextBlocks}
@@ -349,6 +410,9 @@ export function ChatArea({
       ]);
       // Filter non-visible text before assigning first/last-row controls so
       // speaker attribution and sharing stay attached to retained content.
+      const firstVisibleText = blocks.find(
+        (block) => block.blockType === 'text' && block.content?.trim(),
+      );
       const rows = blocks
         .filter((block) => block.blockType !== 'text' || block.content?.trim())
         .map((block, index): ActivityRow<ReactNode> => {
@@ -378,6 +442,12 @@ export function ChatArea({
           } else {
             content = (
               <TextBubble
+                sourceAnchor={
+                  !streaming &&
+                  turn.kind === 'finished' &&
+                  block === firstVisibleText &&
+                  sourceAnchor(turn.value)
+                }
                 content={block.content ?? ''}
                 streaming={streaming}
                 timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
