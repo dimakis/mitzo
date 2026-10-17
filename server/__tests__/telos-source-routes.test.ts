@@ -118,7 +118,7 @@ function fixture() {
           res.status(403).json({ code: 'unauthorized' });
           return;
         }
-        res.locals.authSession = { id: 'host-verified-user' };
+        res.locals.authSession = { id: 'host-verified-user', expiresAt: Date.now() + 60_000 };
         next();
       },
     }),

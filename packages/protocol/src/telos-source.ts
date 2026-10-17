@@ -91,6 +91,40 @@ export const TelosSourcePermissionOperationSchema = z.discriminatedUnion('kind',
   z.strictObject({ kind: z.literal('create'), outcome: TelosOutcomeProposalSchema }),
   z.strictObject({ kind: z.literal('adopt'), itemId: TelosWorkIdSchema, expectedRevision: digest }),
 ]);
+/** Seek metadata only; this tuple is never source or operator authority. */
+export const TelosSourceMaterialCursorSchema = z.strictObject({
+  createdAt: z.string().min(1).max(100),
+  artifactId: z.string().min(1).max(200),
+  revision: z.number().int().positive().safe(),
+});
+export const TelosSourceMaterialMetadataSchema = z.strictObject({
+  artifactId: z.string().min(1).max(200),
+  revision: z.number().int().positive().safe(),
+  sha256: digest,
+  title: z.string(),
+  filename: z.string(),
+  sizeBytes: z.number().int().nonnegative().safe(),
+  createdAt: z.string(),
+  sessionId: z.string(),
+});
+export const TelosSourceMaterialPageRequestSchema = z.strictObject({
+  sessionId: TelosWorkIdSchema,
+  toolUseId: z.string().min(1).max(1000),
+  proposalSha256: digest,
+  after: TelosSourceMaterialCursorSchema.optional(),
+});
+export const TelosSourceMaterialPageSchema = z.strictObject({
+  permId: TelosWorkIdSchema,
+  sessionId: TelosWorkIdSchema,
+  toolUseId: z.string().min(1).max(1000),
+  proposalSha256: digest,
+  artifacts: z.array(TelosSourceMaterialMetadataSchema).max(100),
+  cursor: TelosSourceMaterialCursorSchema.nullable(),
+  hasMore: z.boolean(),
+});
+export type TelosSourceMaterialCursor = z.infer<typeof TelosSourceMaterialCursorSchema>;
+export type TelosSourceMaterialPageRequest = z.infer<typeof TelosSourceMaterialPageRequestSchema>;
+export type TelosSourceMaterialPage = z.infer<typeof TelosSourceMaterialPageSchema>;
 export const TelosSourcePermissionReviewSchema = z.strictObject({
   permId: TelosWorkIdSchema,
   sessionId: TelosWorkIdSchema,
@@ -111,20 +145,9 @@ export const TelosSourcePermissionReviewSchema = z.strictObject({
       }),
     )
     .max(50),
-  artifacts: z
-    .array(
-      z.strictObject({
-        artifactId: z.string().min(1),
-        revision: z.number().int().positive().safe(),
-        sha256: digest,
-        title: z.string(),
-        filename: z.string(),
-        sizeBytes: z.number().int().nonnegative().safe(),
-        createdAt: z.string(),
-        sessionId: z.string(),
-      }),
-    )
-    .max(100),
+  artifacts: z.array(TelosSourceMaterialMetadataSchema).max(100),
+  artifactCursor: TelosSourceMaterialCursorSchema.nullable().default(null),
+  artifactsHasMore: z.boolean().default(false),
   cursor: z.number().int().nonnegative().safe(),
   hasMore: z.boolean(),
   recovery: z
