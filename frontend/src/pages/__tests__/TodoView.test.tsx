@@ -43,7 +43,7 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Loading...')).toBeTruthy();
+    expect(screen.getByText('Loading outcomes…')).toBeTruthy();
   });
 
   it('shows empty state when no items', () => {
@@ -63,7 +63,7 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('No active items')).toBeTruthy();
+    expect(screen.getByText('No outcomes yet.')).toBeTruthy();
   });
 
   it('shows a load error instead of the empty state', () => {
@@ -86,7 +86,7 @@ describe('TodoView', () => {
     );
 
     expect(screen.getByText('Unable to load Telos items')).toBeTruthy();
-    expect(screen.queryByText('No active items')).toBeNull();
+    expect(screen.queryByText('No outcomes yet.')).toBeNull();
   });
 
   it('renders items and profile filters', () => {

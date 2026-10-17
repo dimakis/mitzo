@@ -47,3 +47,17 @@ it('restores category, query and expansion after remount and tolerates denied de
   render(<TelosOutcomesTree records={records} onOpen={vi.fn()} />);
   expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('studio');
 });
+
+it('keeps All outcomes first in loading, empty and unavailable states', () => {
+  const view = render(<TelosOutcomesTree records={[]} onOpen={vi.fn()} loading />);
+  expect(screen.getByRole('status').textContent).toBe('Loading outcomes…');
+  expect(screen.queryByText('No outcomes yet.')).toBeNull();
+  expect(screen.getAllByRole('button')[0].textContent).toBe('All outcomes');
+  view.rerender(
+    <TelosOutcomesTree records={[]} onOpen={vi.fn()} error="Unable to load outcomes" />,
+  );
+  expect(screen.getByRole('alert').textContent).toBe('Unable to load outcomes');
+  expect(screen.queryByText('No outcomes yet.')).toBeNull();
+  view.rerender(<TelosOutcomesTree records={[]} onOpen={vi.fn()} />);
+  expect(screen.getByText('No outcomes yet.')).toBeTruthy();
+});

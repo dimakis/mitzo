@@ -360,7 +360,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     setCreating({ parentId });
   }
 
-  if (canonical.records.length > 0)
+  if (canonical.records.length > 0 || items.length === 0)
     return (
       <div className="todo-page telos-canonical-page">
         <div className="todo-collection-heading">
@@ -401,7 +401,9 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             />
           )}
 
-          {error && <p role="alert">{error} Displayed records may be stale.</p>}
+          {error && canonical.records.length > 0 && (
+            <p role="alert">{error} Displayed records may be stale.</p>
+          )}
           {canonical.unavailable.length > 0 && (
             <p role="alert">
               Some outcomes are unavailable. Refresh to retry. ({canonical.unavailable.length})
@@ -409,6 +411,8 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
           )}
           <TelosOutcomesTree
             records={canonical.records}
+            loading={loading}
+            error={error && canonical.records.length === 0 ? error : undefined}
             selectedId={selectedId}
             onOpen={(id) =>
               navigate(`/todos/${encodeURIComponent(id)}`, {

@@ -51,12 +51,16 @@ export function TelosOutcomesTree({
   selectedId,
   storageKey = 'telos.outcomes.navigation.v1',
   compact = false,
+  loading = false,
+  error,
 }: {
   records: TelosWorkItem[];
   onOpen(id: string): void;
   selectedId?: string;
   storageKey?: string;
   compact?: boolean;
+  loading?: boolean;
+  error?: string;
 }) {
   const [state, setState] = useState(() => restore(storageKey));
   const [browse, setBrowse] = useState(false);
@@ -260,7 +264,11 @@ export function TelosOutcomesTree({
           <span>Coordinator → Outcome → Work item</span>
         </div>
       )}
-      {records.length === 0 ? (
+      {loading ? (
+        <p role="status">Loading outcomes…</p>
+      ) : error ? (
+        <p role="alert">{error}</p>
+      ) : records.length === 0 ? (
         <p>No outcomes yet.</p>
       ) : !children(null).some((r) => visible(r)) ? (
         <p role="status">No matching outcomes</p>
