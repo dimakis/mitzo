@@ -12,6 +12,7 @@ import {
   toolBuilderSourceDigest,
   type ToolBuilderDraft,
 } from './tool-builder.js';
+import { validateToolBuilderExamples } from './tool-builder-schema.js';
 
 const Id = z.string().trim().min(1).max(128);
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -26,6 +27,7 @@ const DraftSchema = CustomToolDraftInputSchema.safeExtend({
   tests: z.strictObject({
     passed: z.literal(true),
     complete: z.literal(true),
+    evidenceKind: z.enum(['candidate-report', 'trusted-executor']),
     summary: z.string().trim().min(1).max(500),
     sourceDigest: Digest,
     contractDigest: Digest,
@@ -52,10 +54,13 @@ export interface CustomToolPublication {
   reference: z.infer<typeof CustomToolReferenceSchema>;
   entry: AgentToolCatalogEntry;
   binding: CustomToolBinding;
+  qualification: Awaited<ReturnType<CustomToolRegistry['qualify']>>;
 }
 type Row = { data: string; session_id: string; status: Status; review: string | null };
 function testedDraft(raw: unknown): ToolBuilderDraft {
   const draft = DraftSchema.parse(raw);
+  const schema = validateToolBuilderExamples(draft);
+  for (const example of draft.tests.examples) schema.output.validate(example.actual);
   if (
     draft.sourceDigest !== toolBuilderSourceDigest(draft.files) ||
     draft.contractDigest !== toolBuilderContractDigest(draft) ||
@@ -76,6 +81,8 @@ function testedDraft(raw: unknown): ToolBuilderDraft {
 /** Owner-scoped private drafts. Only the operator route exposes review/publication. */
 export class ToolBuilderStore {
   private readonly db: Database.Database;
+  private readonly lifetime = new AbortController();
+  private readonly publishing = new Map<string, string>();
   constructor(
     path: string,
     readonly registry: CustomToolRegistry,
@@ -103,6 +110,7 @@ export class ToolBuilderStore {
         BEGIN SELECT RAISE(ABORT,'Tool publications are immutable'); END;`);
   }
   close() {
+    this.lifetime.abort();
     this.db.close();
   }
   private decode(row: Row): ToolBuilderRecord {
@@ -260,62 +268,93 @@ export class ToolBuilderStore {
       })
       .immediate();
   }
-  publish(
+  async publish(
     owner: string,
     id: string,
     version: number,
     contractDigest: string,
-  ): CustomToolPublication {
+    options: { signal: AbortSignal; assertCurrent(): void } = {
+      signal: new AbortController().signal,
+      assertCurrent() {},
+    },
+  ): Promise<CustomToolPublication> {
     Digest.parse(contractDigest);
-    return this.db
-      .transaction(() => {
-        const record = this.read(owner, id, version);
-        if (
-          !record ||
-          record.status !== 'accepted' ||
-          record.review?.decision !== 'accepted' ||
-          record.draft.contractDigest !== contractDigest
-        )
-          throw Error('Exact operator-accepted tool draft is required for publication');
-        const binding = this.registry.bind(record.draft);
-        const old = this.db
-          .prepare(
-            'SELECT receipt FROM custom_tool_publications WHERE owner=? AND id=? AND version=?',
-          )
-          .get(owner, binding.id, version) as { receipt: string } | undefined;
-        if (old) {
-          const receipt = JSON.parse(old.receipt) as CustomToolPublication;
-          this.registry.implementation(record.draft, receipt.binding);
+    const signal = AbortSignal.any([
+      options.signal,
+      this.lifetime.signal,
+      AbortSignal.timeout(30000),
+    ]);
+    const authority = () => {
+      signal.throwIfAborted();
+      options.assertCurrent();
+    };
+    const accepted = () => {
+      authority();
+      const record = this.read(owner, id, version);
+      if (
+        !record ||
+        record.status !== 'accepted' ||
+        record.review?.decision !== 'accepted' ||
+        record.draft.contractDigest !== contractDigest
+      )
+        throw Error('Exact operator-accepted tool draft is required for publication');
+      return record;
+    };
+    const record = accepted();
+    const binding = this.registry.bind(record.draft);
+    const old = this.db
+      .prepare('SELECT receipt FROM custom_tool_publications WHERE owner=? AND id=? AND version=?')
+      .get(owner, binding.id, version) as { receipt: string } | undefined;
+    if (old)
+      return this.resolve(owner, (JSON.parse(old.receipt) as CustomToolPublication).reference);
+    const key = canonicalJson([owner, id, version]);
+    const generation = randomUUID();
+    this.publishing.set(key, generation);
+    const check = () => {
+      accepted();
+      if (this.publishing.get(key) !== generation)
+        throw Error('Custom qualification was superseded');
+      this.registry.implementation(record.draft, binding);
+    };
+    try {
+      const qualification = await this.registry.qualify(record.draft, binding, {
+        signal,
+        assertCurrent: check,
+      });
+      return this.db
+        .transaction(() => {
+          check();
+          const reference = CustomToolReferenceSchema.parse({
+            id: binding.id,
+            version,
+            revision: randomUUID(),
+          });
+          const entry: AgentToolCatalogEntry = {
+            ...reference,
+            name: record.draft.name,
+            description: record.draft.description,
+            source: 'Reviewed custom implementation',
+            required: false,
+            behavior: 'read',
+            routes: ['local-api'],
+            requirement:
+              'Accepted and independently qualified installed implementation. Assignment is separate; start a new session for changes.',
+            implementation: {
+              template: binding.id,
+              source: 'Reviewed application source',
+              fingerprint: binding.registryDigest,
+            },
+          };
+          const receipt = { reference, entry, binding, qualification };
+          this.db
+            .prepare('INSERT INTO custom_tool_publications VALUES(?,?,?,?,?)')
+            .run(owner, binding.id, version, reference.revision, JSON.stringify(receipt));
           return receipt;
-        }
-        const reference = CustomToolReferenceSchema.parse({
-          id: binding.id,
-          version,
-          revision: randomUUID(),
-        });
-        const entry: AgentToolCatalogEntry = {
-          ...reference,
-          name: record.draft.name,
-          description: record.draft.description,
-          source: 'Reviewed custom implementation',
-          required: false,
-          behavior: 'read',
-          routes: ['local-api'],
-          requirement:
-            'Accepted statically installed read-only implementation. Assignment is separate; start a new session for changes.',
-          implementation: {
-            template: binding.id,
-            source: 'Reviewed application source',
-            fingerprint: binding.registryDigest,
-          },
-        };
-        const receipt = { reference, entry, binding };
-        this.db
-          .prepare('INSERT INTO custom_tool_publications VALUES(?,?,?,?,?)')
-          .run(owner, binding.id, version, reference.revision, JSON.stringify(receipt));
-        return receipt;
-      })
-      .immediate();
+        })
+        .immediate();
+    } finally {
+      if (this.publishing.get(key) === generation) this.publishing.delete(key);
+    }
   }
   listTools(owner: string): AgentToolCatalogEntry[] {
     Id.parse(owner);
@@ -357,6 +396,12 @@ export class ToolBuilderStore {
     const record = this.read(owner, reference.id.slice(7), reference.version);
     if (!record || record.status !== 'accepted')
       throw Error('Accepted custom version is unavailable');
+    if (
+      receipt.qualification?.kind !== 'installed-source' ||
+      receipt.qualification.registryDigest !== receipt.binding.registryDigest ||
+      receipt.qualification.contractDigest !== record.draft.contractDigest
+    )
+      throw Error('Independent installed-source qualification is unavailable');
     this.registry.implementation(record.draft, receipt.binding);
     return receipt;
   }

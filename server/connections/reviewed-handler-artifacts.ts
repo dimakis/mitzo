@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.283-tool-builder-review.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.284-tool-builder-review.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,10 +22,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../custom-tool-registry.ts': 'a878023c7eca0f3a61284aa3298b6605c9a9831a020b705d36be1946266a21f6',
-  '../tool-builder-router.ts': '18752545ab53fbe18ed0652b2b5ab3aa4769512abb7036f29dcaa7edb283791f',
-  '../tool-builder-store.ts': '687c537c24c58fa651fbe0b49985fd42b26f87b5ae4061aaa53f8aff2f130fb0',
-  '../tool-builder.ts': 'c6e9c1edcdfdc200b9a6e315026c51aaa8cacbfeb711da96d9e16ab1466d62e6',
+  '../tool-builder-schema.ts': 'b55fb292b80f3f1c5ad9376a27abaf62b901cdf07e5fb62ce07cf7fbc17a419f',
+  '../custom-tool-registry.ts': '62d628bc1e63ff8d7db23a5565dd7d4a4849f2c2401dbf9b56562af32838261f',
+  '../tool-builder-router.ts': '57498f503545f74a0ff59f01069589c51391a3ee86fdd33d83840e08d76a5d66',
+  '../tool-builder-store.ts': '26ec2fa2c3bccd7a2c1fd41dbf4a0b3f10116ff97a3f684a502445096da06e3d',
+  '../tool-builder.ts': '52b9545334918a55799948c6989e0cb72f1957fb622b17cb1698a91aec53b900',
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':

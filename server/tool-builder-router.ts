@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { isAuthSessionCurrent, type AuthSession } from './auth.js';
+import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
+import { custodianRequestSignal } from './symposium-custodian-authority.js';
 import { requireSameOriginJson } from './connections-router.js';
 import type { ToolBuilderRecord, ToolBuilderStore } from './tool-builder-store.js';
 
@@ -76,26 +77,47 @@ export function createToolBuilderRouter(current: () => ToolBuilderStore | undefi
         .parse(req.body);
       res.json(store().review(owner, id, version, body, owner));
     } catch {
-      res
-        .status(400)
-        .json({
-          error:
-            'Review requires the exact submitted version and contract. Reload before deciding.',
-        });
+      res.status(400).json({
+        error: 'Review requires the exact submitted version and contract. Reload before deciding.',
+      });
     }
   });
-  router.post('/drafts/:id/:version/publish', requireSameOriginJson, (req, res) => {
+  router.post('/drafts/:id/:version/publish', requireSameOriginJson, async (req, res) => {
+    const auth = res.locals.authSession as AuthSession;
+    const controller = new AbortController();
+    const unregister = registerAuthSession(auth, () => controller.abort());
+    const inherited = custodianRequestSignal(req);
+    const signal = AbortSignal.any([controller.signal, ...(inherited ? [inherited] : [])]);
+    const close = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.on('close', close);
     try {
       const { id, version } = identity.parse(req.params);
       const body = digest.parse(req.body);
-      res.json(store().publish(owner, id, version, body.contractDigest));
+      const selected = store();
+      const assertCurrent = () => {
+        signal.throwIfAborted();
+        if (!isAuthSessionCurrent(auth) || current() !== selected)
+          throw Error('Tool publication authority changed');
+      };
+      const receipt = await selected.publish(owner, id, version, body.contractDigest, {
+        signal,
+        assertCurrent,
+      });
+      assertCurrent();
+      res.json(receipt);
     } catch {
-      res
-        .status(400)
-        .json({
-          error:
-            'Publication requires operator acceptance and the exact implementation installed from reviewed source on a supported runtime.',
-        });
+      if (!res.destroyed)
+        res
+          .status(400)
+          .json({
+            error:
+              'Publication requires operator acceptance and the exact implementation installed and qualified from reviewed source on a supported runtime.',
+          });
+    } finally {
+      unregister();
+      res.off('close', close);
     }
   });
   router.post('/drafts/:id/:version/cancel', requireSameOriginJson, (req, res) => {
