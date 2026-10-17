@@ -1,0 +1,75 @@
+name: Prepared request native source
+
+on:
+  pull_request:
+    paths:
+      - 'docs/spikes/openshell-codex/prepared-request-native/**'
+      - '.github/workflows/prepared-request-native.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/spikes/openshell-codex/prepared-request-native/**'
+      - '.github/workflows/prepared-request-native.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepared-request-native-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  source:
+    name: Native offline fixtures (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    env:
+      CARGO_BUILD_JOBS: 1
+      NODE_OPTIONS: --max-old-space-size=1024
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/checkout@v7
+        with:
+          repository: openai/codex
+          ref: a956835d020762cb2b570053af06f643a11c0ecc
+          path: .native-prepared-source
+          persist-credentials: false
+      - name: Reconstruct and verify pinned public source
+        run: |
+          node docs/spikes/openshell-codex/prepared-request-native/qualify-source.mjs "$PWD/.native-prepared-source"
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { resolve } from 'node:path';
+          const base = 'docs/spikes/openshell-codex/prepared-request-native';
+          const proof = JSON.parse(readFileSync(`${base}/source-evidence.json`, 'utf8'));
+          for (const patch of proof.patches) {
+            execFileSync('git', ['apply', '--index', resolve(base, patch.file)], { cwd: '.native-prepared-source', stdio: 'inherit' });
+          }
+          JS
+      - name: Install pinned source test tools
+        working-directory: .native-prepared-source
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
+          cargo +1.95.0 install --locked just --version 1.59.0
+          cargo +1.95.0 install --locked cargo-nextest --version 0.9.148
+      - name: Fetch locked public dependencies
+        working-directory: .native-prepared-source/codex-rs
+        run: cargo fetch --locked
+      - name: Run native crate fixtures without provider credentials
+        working-directory: .native-prepared-source/codex-rs
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST just test -p codex-http-client -p codex-state -p codex-api --test-threads 1
+      - name: Check native source formatting
+        working-directory: .native-prepared-source/codex-rs
+        run: cargo fmt --check -p codex-http-client -p codex-state -p codex-api

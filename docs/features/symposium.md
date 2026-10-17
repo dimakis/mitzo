@@ -1,11 +1,31 @@
 # Symposium: current direction and source guide
 
-Updated 16 October 2026. Start here for Symposium product work.
+Updated 17 October 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
 ## Application integration boundary
+
+PRs #987 (ordinary preparation and exact context acknowledgements) and #990
+(authenticated silent joining and durable recovery) are source-accepted at
+`02196e5d8ad7ee0f253c23c831d3fc8540866336`, runtime source v1.0.274. Their
+acceptance does not establish complete application joining, configured runtime
+qualification, native UI acceptance, activation or deployment. The inherited
+source-save findings were repaired in accepted #997 and are not open blockers.
+
+The [native request preparation contract](symposium-native-request-contract.md)
+is the next implementation dependency: immutable expansion through final transport
+transformations, authoritative counting with enforced output reservation, and
+one-use consumption of the same request by ordinary dispatch. It records the
+review-context versus future-command boundary and the native distribution
+dependency. Initial immutable-request, count-transport, durable-consumption and
+private review-witness primitives are retained in the linked source bundle.
+Native pure expansion and actual ordinary dispatch integration remain incomplete;
+these primitives do not qualify a capacity adapter or install application joining.
+The user selected an OpenAI Responses API account as the first route on 17 October,
+with HTTP as the initial transport through the existing ordinary Codex owners.
+This does not select a concrete account or authorize live qualification.
 
 The 16 October source prerequisites landed in PRs #984 (frozen joining review),
 #982 (ordinary visible source/compiler adapter), and #983 (ordinary reply

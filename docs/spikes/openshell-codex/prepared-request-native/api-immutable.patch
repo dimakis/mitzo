@@ -1,0 +1,586 @@
+diff --git a/codex-rs/codex-api/src/lib.rs b/codex-rs/codex-api/src/lib.rs
+index b7511d9..d481ca7 100644
+--- a/codex-rs/codex-api/src/lib.rs
++++ b/codex-rs/codex-api/src/lib.rs
+@@ -88,6 +88,7 @@ pub use crate::provider::Provider;
+ pub use crate::provider::RetryConfig;
+ pub use crate::provider::is_azure_responses_provider;
+ pub use crate::requests::Compression;
++pub use crate::requests::FrozenResponsesRequest;
+ pub use crate::search::AllowedCaller;
+ pub use crate::search::ApproximateLocation;
+ pub use crate::search::ClickOperation;
+diff --git a/codex-rs/codex-api/src/requests/frozen_responses.rs b/codex-rs/codex-api/src/requests/frozen_responses.rs
+new file mode 100644
+index 0000000..00a3573
+--- /dev/null
++++ b/codex-rs/codex-api/src/requests/frozen_responses.rs
+@@ -0,0 +1,415 @@
++use crate::ApiError;
++use base64::Engine;
++use codex_client::EncodedJsonBody;
++use serde_json::Map;
++use serde_json::Value;
++
++const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
++const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
++// https://developers.openai.com/api/reference/python/resources/responses/subresources/input_tokens/methods/count
++// No generation-only or undocumented parameter is projected into that schema.
++const COUNT_FIELDS: &[&str] = &[
++    "model",
++    "input",
++    "instructions",
++    "parallel_tool_calls",
++    "personality",
++    "reasoning",
++    "text",
++    "tool_choice",
++    "tools",
++    "truncation",
++];
++
++/// Final public Responses HTTP body and its documented count projection.
++///
++/// This does not expand native context or confer account/dispatch authority. The
++/// caller supplies the selected model's authoritative output limit. Unsupported
++/// public/internal shapes refuse; neither construction nor restoration drops fields.
++#[derive(Clone)]
++pub struct FrozenResponsesRequest {
++    body: Value,
++    encoded: EncodedJsonBody,
++    count_body: Value,
++    count_encoded: EncodedJsonBody,
++    max_output_tokens: u64,
++}
++
++impl FrozenResponsesRequest {
++    pub fn new(body: Value, model_output_limit: u64) -> Result<Self, ApiError> {
++        validate_numbers(&body, 0)?;
++        let fields = object(
++            &body,
++            &[
++                "model",
++                "input",
++                "instructions",
++                "parallel_tool_calls",
++                "personality",
++                "reasoning",
++                "text",
++                "tool_choice",
++                "tools",
++                "truncation",
++                // These public create controls affect delivery/storage/cache or output
++                // reservation, not model-visible input. All other fields refuse.
++                "max_output_tokens",
++                "stream",
++                "store",
++                "include",
++                "service_tier",
++                "prompt_cache_key",
++                "metadata",
++                "stream_options",
++            ],
++        )?;
++        ensure(
++            fields
++                .get("model")
++                .and_then(Value::as_str)
++                .is_some_and(|s| !s.is_empty()),
++        )?;
++        let max_output_tokens = fields
++            .get("max_output_tokens")
++            .and_then(Value::as_u64)
++            .ok_or_else(unsupported)?;
++        // 16 is this implementation's conservative supported floor, not a claim
++        // that every provider/model documents the same minimum.
++        ensure(
++            (16..=MAX_SAFE_INTEGER).contains(&model_output_limit)
++                && (16..=model_output_limit).contains(&max_output_tokens),
++        )?;
++        ensure(fields.get("truncation").and_then(Value::as_str) == Some("disabled"))?;
++        ensure(fields.get("stream").and_then(Value::as_bool) == Some(true))?;
++        validate_input(fields.get("input").ok_or_else(unsupported)?)?;
++        validate_controls(fields)?;
++        let encoded = EncodedJsonBody::encode(&body).map_err(|_| unsupported())?;
++        ensure(encoded.as_bytes().len() <= MAX_BODY_BYTES)?;
++        let count_body = Value::Object(
++            fields
++                .iter()
++                .filter(|(key, _)| COUNT_FIELDS.contains(&key.as_str()))
++                .map(|(key, value)| (key.clone(), value.clone()))
++                .collect(),
++        );
++        let count_encoded = EncodedJsonBody::encode(&count_body).map_err(|_| unsupported())?;
++        Ok(Self {
++            body,
++            encoded,
++            count_body,
++            count_encoded,
++            max_output_tokens,
++        })
++    }
++
++    /// Restore only canonical bytes produced by this boundary. Never rebuild from
++    /// current source/configuration or normalize an old retained body on recovery.
++    pub fn from_encoded(encoded: &[u8], model_output_limit: u64) -> Result<Self, ApiError> {
++        ensure(encoded.len() <= MAX_BODY_BYTES)?;
++        let body = serde_json::from_slice(encoded).map_err(|_| unsupported())?;
++        let restored = Self::new(body, model_output_limit)?;
++        ensure(restored.encoded_body() == encoded)?;
++        Ok(restored)
++    }
++
++    pub fn body(&self) -> &Value {
++        &self.body
++    }
++    pub fn encoded_body(&self) -> &[u8] {
++        self.encoded.as_bytes()
++    }
++    pub fn count_body(&self) -> &Value {
++        &self.count_body
++    }
++    pub fn max_output_tokens(&self) -> u64 {
++        self.max_output_tokens
++    }
++    pub(crate) fn encoded(&self) -> EncodedJsonBody {
++        self.encoded.clone()
++    }
++    pub(crate) fn count_encoded(&self) -> EncodedJsonBody {
++        self.count_encoded.clone()
++    }
++}
++
++fn unsupported() -> ApiError {
++    ApiError::InvalidRequest {
++        message: "unsupported frozen Responses request or count contract".to_string(),
++    }
++}
++
++fn ensure(condition: bool) -> Result<(), ApiError> {
++    if condition {
++        Ok(())
++    } else {
++        Err(unsupported())
++    }
++}
++
++fn object<'a>(value: &'a Value, allowed: &[&str]) -> Result<&'a Map<String, Value>, ApiError> {
++    let fields = value.as_object().ok_or_else(unsupported)?;
++    ensure(fields.keys().all(|key| allowed.contains(&key.as_str())))?;
++    Ok(fields)
++}
++
++fn strings(fields: &Map<String, Value>, keys: &[&str]) -> Result<(), ApiError> {
++    ensure(
++        keys.iter()
++            .all(|key| fields.get(*key).is_none_or(Value::is_string)),
++    )
++}
++
++fn name(value: Option<&Value>) -> bool {
++    value.and_then(Value::as_str).is_some_and(|s| {
++        !s.is_empty()
++            && s.len() <= 64
++            && s.bytes()
++                .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
++    })
++}
++
++fn validate_numbers(value: &Value, depth: usize) -> Result<(), ApiError> {
++    ensure(depth <= 64)?;
++    match value {
++        Value::Number(number) => ensure(
++            number
++                .as_f64()
++                .is_some_and(|n| n.abs() <= MAX_SAFE_INTEGER as f64),
++        ),
++        Value::Array(items) => items
++            .iter()
++            .try_for_each(|item| validate_numbers(item, depth + 1)),
++        Value::Object(fields) => fields
++            .values()
++            .try_for_each(|item| validate_numbers(item, depth + 1)),
++        Value::Null | Value::Bool(_) | Value::String(_) => Ok(()),
++    }
++}
++
++fn validate_input(input: &Value) -> Result<(), ApiError> {
++    if input.is_string() {
++        return Ok(());
++    }
++    for item in input.as_array().ok_or_else(unsupported)? {
++        match item
++            .get("type")
++            .and_then(Value::as_str)
++            .unwrap_or("message")
++        {
++            "message" => {
++                let fields = object(item, &["type", "id", "status", "role", "content", "phase"])?;
++                strings(fields, &["type", "id", "status", "phase"])?;
++                ensure(
++                    fields.get("status").is_none_or(|v| {
++                        matches!(v.as_str(), Some("in_progress" | "completed" | "incomplete"))
++                    }) && fields
++                        .get("phase")
++                        .is_none_or(|v| matches!(v.as_str(), Some("commentary" | "final_answer"))),
++                )?;
++                ensure(matches!(
++                    fields.get("role").and_then(Value::as_str),
++                    Some("user" | "assistant" | "system" | "developer")
++                ))?;
++                let content = fields.get("content").ok_or_else(unsupported)?;
++                if !content.is_string() {
++                    for part in content.as_array().ok_or_else(unsupported)? {
++                        validate_content(part)?;
++                    }
++                }
++            }
++            "function_call" => {
++                let fields = object(
++                    item,
++                    &["type", "id", "status", "name", "call_id", "arguments"],
++                )?;
++                strings(fields, &["id", "status"])?;
++                ensure(
++                    ["name", "call_id", "arguments"]
++                        .iter()
++                        .all(|key| fields.get(*key).is_some_and(Value::is_string)),
++                )?;
++            }
++            "function_call_output" => {
++                let fields = object(item, &["type", "id", "status", "call_id", "output"])?;
++                strings(fields, &["id", "status"])?;
++                ensure(
++                    ["call_id", "output"]
++                        .iter()
++                        .all(|key| fields.get(*key).is_some_and(Value::is_string)),
++                )?;
++            }
++            // Reasoning history and hosted-tool records require separately
++            // qualified schemas; never replace them with a text approximation.
++            _ => return Err(unsupported()),
++        }
++    }
++    Ok(())
++}
++
++fn validate_content(part: &Value) -> Result<(), ApiError> {
++    match part.get("type").and_then(Value::as_str) {
++        Some("input_text") => {
++            object(part, &["type", "text"])?;
++            ensure(part.get("text").is_some_and(Value::is_string))
++        }
++        Some("output_text") => {
++            object(part, &["type", "text", "annotations", "logprobs"])?;
++            ensure(
++                part.get("text").is_some_and(Value::is_string)
++                    && ["annotations", "logprobs"].iter().all(|key| {
++                        part.get(*key)
++                            .is_none_or(|v| v.as_array().is_some_and(Vec::is_empty))
++                    }),
++            )
++        }
++        Some("input_image") => {
++            object(part, &["type", "image_url", "detail"])?;
++            ensure(
++                part.get("detail")
++                    .is_none_or(|v| matches!(v.as_str(), Some("auto" | "low" | "high"))),
++            )?;
++            let url = part
++                .get("image_url")
++                .and_then(Value::as_str)
++                .ok_or_else(unsupported)?;
++            retained_data(url, &["image/png", "image/jpeg", "image/webp", "image/gif"])
++        }
++        Some("input_file") => {
++            object(part, &["type", "filename", "file_data"])?;
++            ensure(part.get("filename").is_some_and(Value::is_string))?;
++            retained_data(
++                part.get("file_data")
++                    .and_then(Value::as_str)
++                    .ok_or_else(unsupported)?,
++                &["application/pdf"],
++            )
++        }
++        _ => Err(unsupported()),
++    }
++}
++
++fn retained_data(data: &str, media_types: &[&str]) -> Result<(), ApiError> {
++    let (prefix, payload) = data.split_once(";base64,").ok_or_else(unsupported)?;
++    ensure(payload.len() <= MAX_BODY_BYTES)?;
++    ensure(
++        media_types
++            .iter()
++            .any(|media| prefix.strip_prefix("data:") == Some(*media)),
++    )?;
++    let bytes = base64::engine::general_purpose::STANDARD
++        .decode(payload)
++        .map_err(|_| unsupported())?;
++    ensure(!bytes.is_empty())
++}
++
++fn validate_controls(fields: &Map<String, Value>) -> Result<(), ApiError> {
++    strings(fields, &["instructions", "personality", "prompt_cache_key"])?;
++    for key in ["store", "parallel_tool_calls"] {
++        ensure(fields.get(key).is_none_or(Value::is_boolean))?;
++    }
++    if let Some(include) = fields.get("include") {
++        ensure(include.as_array().is_some_and(|items| {
++            items.iter().all(|v| {
++                matches!(
++                    v.as_str(),
++                    Some("reasoning.encrypted_content" | "message.output_text.logprobs")
++                )
++            })
++        }))?;
++    }
++    if let Some(tier) = fields.get("service_tier") {
++        ensure(matches!(
++            tier.as_str(),
++            Some("auto" | "default" | "flex" | "priority")
++        ))?;
++    }
++    if let Some(metadata) = fields.get("metadata") {
++        let metadata = metadata.as_object().ok_or_else(unsupported)?;
++        ensure(
++            metadata.len() <= 16
++                && metadata.iter().all(|(key, value)| {
++                    key.len() <= 64 && value.as_str().is_some_and(|s| s.len() <= 512)
++                }),
++        )?;
++    }
++    if let Some(options) = fields.get("stream_options") {
++        let options = object(options, &["include_obfuscation"])?;
++        ensure(
++            options
++                .get("include_obfuscation")
++                .is_none_or(Value::is_boolean),
++        )?;
++    }
++    if let Some(reasoning) = fields.get("reasoning").filter(|v| !v.is_null()) {
++        let reasoning = object(reasoning, &["effort", "summary"])?;
++        ensure(reasoning.get("effort").is_none_or(|v| {
++            matches!(
++                v.as_str(),
++                Some("none" | "minimal" | "low" | "medium" | "high" | "xhigh")
++            )
++        }))?;
++        ensure(
++            reasoning
++                .get("summary")
++                .is_none_or(|v| matches!(v.as_str(), Some("auto" | "concise" | "detailed"))),
++        )?;
++    }
++    if let Some(text) = fields.get("text") {
++        let text = object(text, &["format", "verbosity"])?;
++        ensure(
++            text.get("verbosity")
++                .is_none_or(|v| matches!(v.as_str(), Some("low" | "medium" | "high"))),
++        )?;
++        if let Some(format) = text.get("format") {
++            match format.get("type").and_then(Value::as_str) {
++                Some("text" | "json_object") => {
++                    object(format, &["type"])?;
++                }
++                Some("json_schema") => {
++                    object(format, &["type", "name", "description", "schema", "strict"])?;
++                    ensure(
++                        name(format.get("name"))
++                            && format.get("schema").is_some_and(Value::is_object)
++                            && format.get("description").is_none_or(Value::is_string)
++                            && format.get("strict").is_none_or(Value::is_boolean),
++                    )?;
++                }
++                _ => return Err(unsupported()),
++            }
++        }
++    }
++    if let Some(choice) = fields.get("tool_choice") {
++        if choice.is_object() {
++            object(choice, &["type", "name"])?;
++            ensure(
++                choice.get("type").and_then(Value::as_str) == Some("function")
++                    && choice.get("name").is_some_and(Value::is_string),
++            )?;
++        } else {
++            ensure(matches!(
++                choice.as_str(),
++                Some("auto" | "none" | "required")
++            ))?;
++        }
++    }
++    if let Some(tools) = fields.get("tools") {
++        for tool in tools.as_array().ok_or_else(unsupported)? {
++            let tool = object(
++                tool,
++                &["type", "name", "description", "parameters", "strict"],
++            )?;
++            strings(tool, &["description"])?;
++            ensure(
++                tool.get("type").and_then(Value::as_str) == Some("function")
++                    && name(tool.get("name"))
++                    && tool.get("parameters").is_none_or(Value::is_object)
++                    && tool.get("strict").is_none_or(Value::is_boolean),
++            )?;
++        }
++    }
++    Ok(())
++}
++
++#[cfg(test)]
++#[path = "frozen_responses_tests.rs"]
++mod tests;
+diff --git a/codex-rs/codex-api/src/requests/frozen_responses_tests.rs b/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
+new file mode 100644
+index 0000000..a805a1e
+--- /dev/null
++++ b/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
+@@ -0,0 +1,136 @@
++use super::*;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++
++fn body() -> Value {
++    json!({
++        "model": "fixture-model", "instructions": "retained developer instructions",
++        "input": [{"role":"user", "content":[
++            {"type":"input_text", "text":"retained brief"},
++            {"type":"input_image", "image_url":"data:image/png;base64,aGVsbG8=", "detail":"high"}
++        ]}],
++        "tools":[{"type":"function", "name":"example", "parameters":{"type":"object"}, "strict":true}],
++        "tool_choice":"auto", "parallel_tool_calls":false,
++        "text":{"format":{"type":"json_schema", "name":"result", "schema":{"type":"object"}, "strict":true}},
++        "reasoning":{"effort":"low"}, "store":false, "stream":true,
++        "max_output_tokens":16, "truncation":"disabled"
++    })
++}
++
++#[test]
++fn frozen_retains_final_generation_body_and_exact_count_projection() {
++    let original = body();
++    let frozen = FrozenResponsesRequest::new(original.clone(), 16).unwrap();
++    let mut expected_count = original.clone();
++    for key in ["store", "stream", "max_output_tokens"] {
++        expected_count.as_object_mut().unwrap().remove(key);
++    }
++    assert_eq!(frozen.body(), &original);
++    assert_eq!(frozen.count_body(), &expected_count);
++    assert_eq!(
++        frozen.encoded_body(),
++        serde_json::to_vec(&original).unwrap()
++    );
++    assert_eq!(frozen.max_output_tokens(), 16);
++}
++
++#[test]
++fn frozen_refuses_unknown_internal_or_stateful_fields() {
++    for field in [
++        "client_metadata",
++        "access_programs",
++        "conversation",
++        "previous_response_id",
++        "future_framing",
++    ] {
++        let mut request = body();
++        request[field] = json!(null);
++        assert!(FrozenResponsesRequest::new(request, 16).is_err(), "{field}");
++    }
++}
++
++#[test]
++fn frozen_refuses_invalid_output_limits_and_truncation() {
++    for budget in [
++        json!(0),
++        json!(15),
++        json!(-1),
++        json!(1.5),
++        json!(17),
++        json!(null),
++        json!(9007199254740992_u64),
++    ] {
++        let mut request = body();
++        request["max_output_tokens"] = budget;
++        assert!(FrozenResponsesRequest::new(request, 16).is_err());
++    }
++    assert!(FrozenResponsesRequest::new(body(), 0).is_err());
++    let mut request = body();
++    request["truncation"] = json!("auto");
++    assert!(FrozenResponsesRequest::new(request, 16).is_err());
++}
++
++#[test]
++fn frozen_refuses_unretained_images_and_unsupported_shapes() {
++    for input in [
++        json!([{"role":"user", "content":[{"type":"input_image", "image_url":"https://example.com/image.png"}]}]),
++        json!([{"role":"user", "content":[{"type":"input_file", "file_id":"file-123"}]}]),
++        json!([{"type":"item_reference", "id":"mutable-item"}]),
++        json!([{"role":"user", "content":[{"type":"unknown", "text":"hidden"}]}]),
++    ] {
++        let mut request = body();
++        request["input"] = input;
++        assert!(FrozenResponsesRequest::new(request, 16).is_err());
++    }
++    let mut request = body();
++    request["tools"] = json!([{"type":"mcp", "server_url":"https://example.com"}]);
++    assert!(FrozenResponsesRequest::new(request, 16).is_err());
++}
++
++#[test]
++fn frozen_enforces_encoded_size_bound() {
++    let mut request = body();
++    request["input"] = json!("");
++    let overhead = serde_json::to_vec(&request).unwrap().len();
++    request["input"] = json!("x".repeat(4 * 1024 * 1024 - overhead));
++    let frozen = FrozenResponsesRequest::new(request.clone(), 16).unwrap();
++    assert_eq!(frozen.encoded_body().len(), 4 * 1024 * 1024);
++    request["input"] = json!(format!("{}x", request["input"].as_str().unwrap()));
++    assert!(FrozenResponsesRequest::new(request, 16).is_err());
++}
++
++#[test]
++fn frozen_refuses_unknown_nested_fields_and_unsafe_numbers() {
++    for (field, value) in [
++        (
++            "reasoning",
++            json!({"effort":"low", "internal_framing":"unsupported"}),
++        ),
++        ("text", json!({"unknown":"unsupported"})),
++        (
++            "input",
++            json!([{"role":"user", "content":"text", "unknown":"unsupported"}]),
++        ),
++        (
++            "tools",
++            json!([{"type":"function", "name":"f", "parameters":{"maximum":9007199254740992_u64}}]),
++        ),
++    ] {
++        let mut request = body();
++        request[field] = value;
++        assert!(FrozenResponsesRequest::new(request, 16).is_err(), "{field}");
++    }
++}
++
++#[test]
++fn frozen_restores_identical_encoded_body_and_count_projection() {
++    let frozen = FrozenResponsesRequest::new(body(), 16).unwrap();
++    let restored = FrozenResponsesRequest::from_encoded(frozen.encoded_body(), 16).unwrap();
++    assert_eq!(restored.encoded_body(), frozen.encoded_body());
++    assert_eq!(restored.body(), frozen.body());
++    assert_eq!(restored.count_body(), frozen.count_body());
++    assert!(FrozenResponsesRequest::from_encoded(b"corrupt", 16).is_err());
++    let whitespace = format!(" {}", String::from_utf8_lossy(frozen.encoded_body()));
++    assert!(FrozenResponsesRequest::from_encoded(whitespace.as_bytes(), 16).is_err());
++    assert!(FrozenResponsesRequest::from_encoded(frozen.encoded_body(), 15).is_err());
++}
+diff --git a/codex-rs/codex-api/src/requests/mod.rs b/codex-rs/codex-api/src/requests/mod.rs
+index abe57a8..f12d98a 100644
+--- a/codex-rs/codex-api/src/requests/mod.rs
++++ b/codex-rs/codex-api/src/requests/mod.rs
+@@ -1,4 +1,6 @@
++mod frozen_responses;
+ pub(crate) mod headers;
+ pub(crate) mod responses;
++pub use frozen_responses::FrozenResponsesRequest;
+ 
+ pub use responses::Compression;
