@@ -47,7 +47,15 @@ export function SandboxesView() {
   } | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [batch, setBatch] = useState<SandboxConversation[] | null>(null);
-  const refreshButton = useRef<HTMLButtonElement>(null);
+  const refreshButton = useRef<HTMLButtonElement>(null),
+    batchWasOpen = useRef(false);
+  useEffect(() => {
+    if (batch) batchWasOpen.current = true;
+    else if (batchWasOpen.current) {
+      batchWasOpen.current = false;
+      refreshButton.current?.focus();
+    }
+  }, [batch]);
   const mounted = useRef(false),
     inFlight = useRef(false),
     dirtyRef = useRef(false),
@@ -750,7 +758,6 @@ export function SandboxesView() {
           onClose={() => {
             setBatch(null);
             setSelection([]);
-            refreshButton.current?.focus();
           }}
           onChanged={() => refresh()}
         />

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.281-symposium-capacity.1-telos-s4.1-sandbox-review.1';
+  'v1.0.281-symposium-capacity.1-telos-s4.1-sandbox-review.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -183,7 +183,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-lifecycle-service.ts':
     '59ba987486c5cbab33029d6fc14321dca53031c6ae382b0128c3d54b01ace26a',
   '../../frontend/src/pages/SandboxesView.tsx':
-    '38ad8e1c48f4a5f64173d4de863423449ea2cd0fef694eba1ee114f1a77bcfe0',
+    'd9804cbbcf7e42c58f64a37f401101ed347ca8286c8776d82f8220dbd348b95e',
   '../../frontend/src/pages/SandboxesView.css':
     'a130773778bd77fcc144c1ce67d30088d65398a29fd1676906ce99b273bfdd9f',
   '../../frontend/src/types/sandboxes.ts':

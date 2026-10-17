@@ -167,6 +167,7 @@ for (const theme of ['dark', 'light'] as const)
     await expect(dialog.getByRole('button', { name: 'Delete reviewed sandboxes' })).toBeDisabled();
     expect(writes).toEqual([]);
     await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeFocused();
     // Cancel clears selection, so select only the eligible conversation for the next review.
     await page
       .getByRole('checkbox', { name: 'Select sandbox for Completed comparison report' })
@@ -188,6 +189,7 @@ for (const theme of ['dark', 'light'] as const)
     expect(writes).toEqual(['fresh-one']);
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(page.getByText('2 sandboxes on this gateway')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeFocused();
     await expect(
       page.getByRole('checkbox', { name: 'Select sandbox for Completed comparison report' }),
     ).toHaveCount(0);
