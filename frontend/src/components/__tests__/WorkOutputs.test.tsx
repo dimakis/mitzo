@@ -1,3 +1,4 @@
+import type { TodoOutput } from '../../types/todo';
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -29,7 +30,7 @@ const bundle = {
   revision: 1,
   url: '/api/telos/artifacts/' + 'c'.repeat(32) + '?revision=1',
 };
-const response = (artifacts = [notes, bundle]) =>
+const response = (artifacts: TodoOutput[] = [notes, bundle]) =>
   ({ ok: true, json: async () => ({ artifacts, limit: 100 }) }) as Response;
 beforeEach(() => {
   cleanup();
@@ -135,4 +136,14 @@ it('does not imply an empty count when saved files are unavailable', async () =>
   render(<WorkOutputs itemId="work" />);
   await screen.findByText('Saved files unavailable');
   expect(screen.queryByText('0 saved files')).toBeNull();
+});
+
+it('keeps retained source packets separate from produced outputs and their count', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response([notes, { ...bundle, sourceKind: 'source_capture', title: 'Reviewed origin packet' }]),
+  );
+  render(<WorkOutputs itemId="work" />);
+  await screen.findByText('1 saved file');
+  expect(screen.getByText('notes.md')).toBeTruthy();
+  expect(screen.queryByText('Reviewed origin packet')).toBeNull();
 });
