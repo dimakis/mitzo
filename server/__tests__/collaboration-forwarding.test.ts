@@ -444,3 +444,85 @@ it.each(
     retained.close();
   }
 });
+
+it('shares retained bytes without a live or fabricated source conversation', async () => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const retained = createCollaborationRetainedArtifactFixture();
+  try {
+    const old = retained.store.save({
+      itemId: retained.itemId,
+      filename: 'retained.md',
+      title: 'Retained',
+      bytes: Buffer.from('Survives the original chat.'),
+      sessionId: 'removed-original',
+    });
+    retained.store.save({
+      itemId: retained.itemId,
+      filename: 'retained.md',
+      title: 'Retained',
+      bytes: Buffer.from('Newer saved version'),
+      sessionId: 'other-session',
+    });
+    const selected = selection();
+    store.hideSession('source');
+    const input = {
+      ...selected,
+      sourceConversationId: null,
+      boundary: null,
+      messages: [],
+      artifacts: [
+        { kind: 'retained_artifact', artifactId: old.id, revision: 1, sha256: old.sha256 },
+      ],
+    };
+    const authorizeArtifact = vi.fn(async () => {});
+    const result = await prepareCollaborationForward(input, {
+      authorizeTarget,
+      retainedArtifacts: createRetainedCollaborationArtifactSource({
+        store: retained.store,
+        authorizeArtifact,
+      }),
+    });
+    expect(result.packet).toMatchObject({
+      sourceConversationId: null,
+      sourceIdentity: null,
+      boundary: null,
+      messages: [],
+      artifacts: [
+        expect.objectContaining({
+          revision: 1,
+          contentBase64: old.size
+            ? Buffer.from('Survives the original chat.').toString('base64')
+            : '',
+          provenance: expect.objectContaining({ sessionId: 'removed-original' }),
+        }),
+      ],
+    });
+    expect(authorizeSource).not.toHaveBeenCalled();
+    await result.assertCurrent();
+    authorizeArtifact.mockRejectedValueOnce(Error('Access changed'));
+    await expect(result.assertCurrent()).rejects.toThrow('Access changed');
+  } finally {
+    retained.close();
+  }
+});
+it('requires a real conversation boundary for messages and source-dependent references', async () => {
+  const input = selection();
+  for (const raw of [
+    { ...input, sourceConversationId: null, boundary: null },
+    { ...input, sourceConversationId: null },
+    { ...input, boundary: null },
+    {
+      ...input,
+      sourceConversationId: null,
+      boundary: null,
+      messages: [],
+      artifacts: [
+        { kind: 'transcript_reference', artifactId: 'linked', revision: 1, sha256: '0'.repeat(64) },
+      ],
+    },
+  ])
+    await expect(prepareCollaborationForward(raw, deps())).rejects.toThrow();
+});

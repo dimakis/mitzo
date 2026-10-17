@@ -32,8 +32,8 @@ export const CollaborationForwardSelectionSchema = z
   .strictObject({
     requestId: selection.requestId,
     target,
-    sourceConversationId: selection.sourceConversationId,
-    boundary: selection.boundary,
+    sourceConversationId: selection.sourceConversationId.nullable(),
+    boundary: selection.boundary.nullable(),
     messages: z
       .array(
         z.strictObject({
@@ -55,6 +55,16 @@ export const CollaborationForwardSelectionSchema = z
   .refine(
     (input) => input.messages.length + input.artifacts.length > 0,
     'Explicit content required',
+  )
+  .refine(
+    (input) =>
+      input.sourceConversationId !== null
+        ? input.boundary !== null
+        : input.boundary === null &&
+          input.messages.length === 0 &&
+          input.artifacts.length > 0 &&
+          input.artifacts.every((artifact) => artifact.kind === 'retained_artifact'),
+    'A source conversation and boundary are required for transcript content',
   );
 export type CollaborationForwardSelection = z.infer<typeof CollaborationForwardSelectionSchema>;
 export type CollaborationForwardTarget = z.infer<typeof target>;
@@ -80,8 +90,8 @@ export interface CollaborationForwardPacket {
   requestId: string;
   mode: 'context_only';
   target: CollaborationForwardTarget;
-  sourceConversationId: string;
-  sourceIdentity: string;
+  sourceConversationId: string | null;
+  sourceIdentity: string | null;
   boundary: CollaborationForwardSelection['boundary'];
   messages: Message[];
   artifacts: Artifact[];
@@ -111,7 +121,7 @@ export function collaborationForwardFingerprint(raw: unknown): string {
 export async function prepareCollaborationForward(
   raw: unknown,
   deps: {
-    source: AuthorizedCollaborationContext;
+    source?: AuthorizedCollaborationContext;
     retainedArtifacts?: RetainedCollaborationArtifactSource;
     authorizeTarget(target: CollaborationForwardTarget): Promise<void>;
   },
@@ -123,27 +133,34 @@ export async function prepareCollaborationForward(
   for (const message of input.messages) unique(message.blocks.map((b) => b.blockId));
   const authorizeTarget = () => deps.authorizeTarget(structuredClone(input.target));
   await authorizeTarget();
-  const opened = await deps.source.openConversation({
-    requestId: input.requestId,
-    expectedMembershipRevision: input.target.expectedMembershipRevision,
-    sourceConversationId: input.sourceConversationId,
-    boundary: structuredClone(input.boundary),
-    mode: 'selected',
-    messageIds: input.messages.map((m) => m.messageId),
-    artifacts: [],
-    purpose: 'Forward selected content',
-    joiningBrief: '',
-  });
+  const source = deps.source;
+  const boundary = input.boundary;
+  if (input.sourceConversationId !== null && (!source || !boundary)) changed();
+  const opened =
+    input.sourceConversationId !== null && source && boundary
+      ? await source.openConversation({
+          requestId: input.requestId,
+          expectedMembershipRevision: input.target.expectedMembershipRevision,
+          sourceConversationId: input.sourceConversationId,
+          boundary: structuredClone(input.boundary),
+          mode: 'selected',
+          messageIds: input.messages.map((m) => m.messageId),
+          artifacts: [],
+          purpose: 'Forward selected content',
+          joiningBrief: '',
+        })
+      : null;
   if (
-    !opened.sourceIdentity ||
-    opened.sourceConversationId !== input.sourceConversationId ||
-    !isDeepStrictEqual(opened.boundary, input.boundary)
+    opened &&
+    (!opened.sourceIdentity ||
+      opened.sourceConversationId !== input.sourceConversationId ||
+      !isDeepStrictEqual(opened.boundary, input.boundary))
   )
     changed();
   const messages = z
     .array(CollaborationSnapshotMessageSchema)
     .max(500)
-    .parse(await opened.readSelected(input.messages.map((m) => m.messageId)));
+    .parse(opened ? await opened.readSelected(input.messages.map((m) => m.messageId)) : []);
   unique(messages.map((m) => m.messageId));
   if (messages.length !== input.messages.length) changed();
   const selected = input.messages.map((pin) => {
@@ -152,7 +169,8 @@ export async function prepareCollaborationForward(
       !message ||
       message.conversationId !== input.sourceConversationId ||
       message.sequence !== pin.sequence ||
-      message.sequence > input.boundary.sequence ||
+      !boundary ||
+      message.sequence > boundary.sequence ||
       (message.source &&
         message.author !== 'operator' &&
         message.source.conversationId !== message.author.sessionId)
@@ -178,7 +196,7 @@ export async function prepareCollaborationForward(
     mode: 'context_only',
     target: structuredClone(input.target),
     sourceConversationId: input.sourceConversationId,
-    sourceIdentity: opened.sourceIdentity,
+    sourceIdentity: opened?.sourceIdentity ?? null,
     boundary: structuredClone(input.boundary),
     messages: selected,
     artifacts: [],
@@ -224,8 +242,9 @@ export async function prepareCollaborationForward(
         contentBase64: Buffer.from(saved.bytes).toString('base64'),
       };
     }
-    await deps.source.authorizeArtifact(pin);
-    const artifact = await deps.source.readArtifact(pin);
+    if (!source || !opened) changed();
+    await source.authorizeArtifact(pin);
+    const artifact = await source.readArtifact(pin);
     if (
       artifact.artifactId !== pin.artifactId ||
       artifact.revision !== pin.revision ||
@@ -252,15 +271,15 @@ export async function prepareCollaborationForward(
   }
   async function assertCurrent() {
     await authorizeTarget();
-    await opened.assertCurrent();
+    await opened?.assertCurrent();
     for (let index = 0; index < input.artifacts.length; index++) {
       if (!isDeepStrictEqual(await material(input.artifacts[index]), packet.artifacts[index]))
         changed();
     }
-    await opened.assertCurrent();
+    await opened?.assertCurrent();
     await authorizeTarget();
     // A target check may yield while finalized source storage changes.
-    await opened.assertCurrent();
+    await opened?.assertCurrent();
     assertRetainedCurrent();
   }
   bounded(packet);
