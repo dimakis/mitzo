@@ -1,5 +1,6 @@
 import { parse, defaultTreeAdapter as tree, type DefaultTreeAdapterTypes } from 'parse5';
 import { WebAccessError } from './request-web-access.js';
+import { githubReadSummary } from './github-read-summary.js';
 
 // Transport resource guard, distinct from model output or readable-article budgets.
 export const MAX_WEB_DOWNLOAD_BYTES = 2 * 1024 * 1024;
@@ -37,7 +38,15 @@ const blocks = new Set([
 type Node = DefaultTreeAdapterTypes.Node;
 
 /** Inert HTML parsing: no scripts, styles, external resources or secondary requests. */
-export function webPageContent(body: string, contentType: string, sourceUrl: string): string {
+export function webPageContent(
+  body: string,
+  contentType: string,
+  sourceUrl: string,
+  linkHeader?: string,
+  view?: 'summary' | 'full',
+): string {
+  if (view !== 'full' && /^application\/json(?:;|$)/i.test(contentType))
+    return githubReadSummary(body, sourceUrl, linkHeader);
   // XML, including XHTML, retains its original self-closing and namespace semantics.
   if (!/^text\/html(?:;|$)/i.test(contentType)) return body;
   const document = parse(body);

@@ -510,3 +510,16 @@ it('withholds a granted page when owned runtime authority changes during its rea
   expect(result).toMatchObject({ isError: true });
   expect(result?.content).not.toContain('stale owned-query page');
 });
+
+it('keeps the full-content view inside an existing exact-origin grant', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const signal = new AbortController().signal;
+  const url = 'https://api.github.com/repos/example/project/issues';
+  await f.tool.request({ operation: 'request_access', url, reason: 'Read evidence' }, signal);
+  await expect(f.tool.fetch(url, signal, 'full')).resolves.toMatchObject({ isError: false });
+  expect(f.fetch.mock.calls.at(-1)?.[4]).toBe('full');
+  const count = f.fetch.mock.calls.length;
+  await expect(f.tool.fetch('https://other.example/', signal, 'full')).resolves.toBeUndefined();
+  expect(f.fetch).toHaveBeenCalledTimes(count);
+});
