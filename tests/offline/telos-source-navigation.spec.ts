@@ -217,7 +217,7 @@ for (const { theme, sourceStatus } of sourceCases)
           data.source.packet.context.messages[0].blocks.every((block) => !block.content.trim()),
         ).toBe(true);
         await expect(page.getByRole('link', { name: 'Home studio', exact: true })).toBeVisible();
-        await expect(page.getByRole('button', { name: /Agents at work.*Read/ })).toBeAttached();
+        await expect(page.getByRole('button', { name: /Activity:.*Read/ })).toBeAttached();
       }
       await expect(page.locator('[data-telos-source-anchor="true"]')).toHaveCount(0);
       const distanceFromBottom = () =>
@@ -262,7 +262,7 @@ for (const { theme, sourceStatus } of sourceCases)
         .toBeGreaterThan(heightBefore);
       await expect.poll(distanceFromBottom).toBeLessThan(3);
       if (sourceStatus === 'historical-activity')
-        await expect(page.getByRole('button', { name: /Agents at work.*Read/ })).toBeAttached();
+        await expect(page.getByRole('button', { name: /Activity:.*Read/ })).toBeAttached();
       await expect(page).toHaveURL(new RegExp('/chat/planning\\?telosItem=studio&telosSource='));
       await page.screenshot({
         path: info.outputPath(`telos-source-${sourceStatus}-following-${theme}.png`),
