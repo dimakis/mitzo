@@ -2,6 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { UiIcon } from './UiIcon';
 import './AgentSettingsPicker.css';
+import { useQuickSettings } from '../lib/quick-settings-context';
+import { QuickSettingsField } from './QuickChatSettings';
 
 export function AgentSettingsPicker({
   summary,
@@ -289,14 +291,35 @@ export function AgentSettingsFields({
   details?: ReactNode;
   repository?: ReactNode;
 }) {
+  const quick = useQuickSettings();
+  if (quick)
+    return (
+      <div className="agent-settings-panel agent-settings-panel--embedded">
+        {accountModel}
+        {agent}
+        {execution}
+        {repository}
+        {details && (
+          <QuickSettingsField page="details" title="Session details" value="Review" parent="more">
+            {details}
+          </QuickSettingsField>
+        )}
+      </div>
+    );
   return (
     <div className="agent-settings-picker">
       <div className="agent-settings-panel agent-settings-panel--embedded">
         <div className="agent-settings-body agent-settings-scroll">
-          <div className="agent-settings-account-model">{accountModel}</div>
-          <div className="agent-settings-agent">{agent}</div>
+          <section className="chat-settings-group">
+            <h3>Account &amp; model</h3>
+            <div className="agent-settings-account-model">{accountModel}</div>
+          </section>
+          <section className="chat-settings-group">
+            <h3>Agent &amp; workspace</h3>
+            <div className="agent-settings-agent">{agent}</div>
+            {repository}
+          </section>
           {execution}
-          {repository}
           {details}
         </div>
       </div>

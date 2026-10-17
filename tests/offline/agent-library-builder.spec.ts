@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { chooseSetting, openChatSetting, settingRow, settingsHome } from '../support/chat-settings';
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -421,17 +422,16 @@ async function offline(
 }
 
 async function openSettings(page: Page) {
-  const trigger = page.getByRole('button', { name: /^Workspace controls,/ });
-  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
-  return page.getByRole('region', { name: 'Agent settings', exact: true });
+  return settingsHome(page);
 }
 
 async function prepareFirstCommand(page: Page, prompt: string) {
   const panel = await openSettings(page);
-  await panel.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
-  await panel.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await chooseSetting(page, 'Account', 'personal');
+  await chooseSetting(page, 'Thinking', 'high');
+  await openChatSetting(page, 'execution');
   await panel.getByRole('button', { name: 'Local Mac', exact: true }).click();
-  await panel.getByRole('button', { name: 'Add repository', exact: true }).click();
+  await openChatSetting(page, 'repository');
   await page
     .getByRole('combobox', { name: 'GitHub repository', exact: true })
     .selectOption('github:owner/repository');
@@ -511,23 +511,32 @@ for (const theme of ['light', 'dark'] as const) {
       expectedVersion: 0,
     });
     const panel = await openSettings(page);
+    await openChatSetting(page, 'agent');
     await expect(panel.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
       JSON.stringify(['builtin', 'mitzo-profile-builder', PROFILE_BUILDER_REVISION]),
     );
-    for (const label of ['Account', 'Model', 'Thinking level'])
-      await expect(panel.getByRole('combobox', { name: label, exact: true })).toBeVisible();
-    await expect(panel.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue('');
-    for (const control of await panel.getByRole('combobox').all())
-      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await panel.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
-    await panel.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+    await settingsHome(page);
+    for (const field of ['Account', 'Model', 'Thinking'] as const) {
+      const row = settingRow(panel, field);
+      await expect(row).toBeVisible();
+      // Allow only subpixel arithmetic noise; retain the 44px layout target.
+      expect(
+        await row.evaluate((element) => (element as HTMLElement).offsetHeight),
+      ).toBeGreaterThanOrEqual(44);
+      expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44 - 0.0001);
+    }
+    await expect(settingRow(panel, 'Account')).toHaveAttribute('data-value', '');
+    await chooseSetting(page, 'Account', 'personal');
+    await chooseSetting(page, 'Thinking', 'high');
+    await openChatSetting(page, 'execution');
     await expect(panel.getByRole('group', { name: 'Run on', exact: true })).toBeVisible();
     await expect(panel.getByText('Runs with Codex', { exact: true })).toBeVisible();
+    await settingsHome(page);
     await page.screenshot({
       path: info.outputPath(`ordinary-builder-settings-${theme}.png`),
       animations: 'disabled',
     });
-    await panel.getByRole('combobox', { name: 'Model', exact: true }).press('Escape');
+    await panel.press('Escape');
     await composer.fill('Keep the exact unsaved instructions and improve the acceptance criteria.');
     await composer.focus();
     await expect(composer).toBeFocused();
@@ -553,13 +562,9 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByRole('link', { name: 'Open Agent Library', exact: true })).toBeVisible();
     expect(await reviewSource(page, 'Working Bob')).toEqual(snapshot);
     const restoredSettings = await openSettings(page);
-    await expect(
-      restoredSettings.getByRole('combobox', { name: 'Account', exact: true }),
-    ).toHaveValue('personal');
-    await expect(
-      restoredSettings.getByRole('combobox', { name: 'Thinking level', exact: true }),
-    ).toHaveValue('high');
-    await restoredSettings.getByRole('combobox', { name: 'Model', exact: true }).press('Escape');
+    await expect(settingRow(restoredSettings, 'Account')).toHaveAttribute('data-value', 'personal');
+    await expect(settingRow(restoredSettings, 'Thinking')).toHaveAttribute('data-value', 'high');
+    await restoredSettings.press('Escape');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -585,6 +590,7 @@ test('Library creation keeps normal setup explicit when runtime choices are unav
   expect(source.definition.name).toBe('');
   expect(source.source).toMatchObject({ kind: 'draft', baseRevision: 0, draftVersion: null });
   const panel = await openSettings(page);
+  await openChatSetting(page, 'execution');
   await expect(panel.getByRole('alert')).toHaveText(
     'Execution choices are unavailable. Refresh to retry.',
   );
@@ -655,11 +661,12 @@ test('Library Builder sends one ordinary command with exact reviewed context and
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   const snapshot = await reviewSource(page, 'Working Bob');
   const panel = await openSettings(page);
-  await panel.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
-  await panel.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await chooseSetting(page, 'Account', 'personal');
+  await chooseSetting(page, 'Thinking', 'high');
+  await openChatSetting(page, 'execution');
   await panel.getByRole('button', { name: 'Local Mac', exact: true }).click();
   expect(fixture.commands).toEqual([]);
-  await panel.getByRole('button', { name: 'Add repository', exact: true }).click();
+  await openChatSetting(page, 'repository');
   await page
     .getByRole('combobox', { name: 'GitHub repository', exact: true })
     .selectOption('github:owner/repository');
@@ -853,12 +860,8 @@ test('Library recovers the original uncertain command after its ordinary draft i
   const originalDraft = new URL(page.url()).searchParams.get('draft');
   const source = await reviewSource(page, 'Working Bob');
   const settings = await openSettings(page);
-  await settings
-    .getByRole('combobox', { name: 'Account', exact: true })
-    .selectOption('legacy-account');
-  await settings
-    .getByRole('combobox', { name: 'Thinking level', exact: true })
-    .selectOption('high');
+  await chooseSetting(page, 'Account', 'legacy-account');
+  await chooseSetting(page, 'Thinking', 'high');
   await settings.getByRole('button', { name: 'Done', exact: true }).click();
   const originalPrompt = 'Recover this exact reviewed command after its response is lost.';
   await page.getByRole('textbox', { name: 'Message Mitzo', exact: true }).fill(originalPrompt);
@@ -895,12 +898,8 @@ test('Library recovers the original uncertain command after its ordinary draft i
   expect(new URL(page.url()).searchParams.get('draft')).toBe(originalDraft);
   expect(await reviewSource(page, 'Working Bob')).toEqual(source);
   const reopenedSettings = await openSettings(page);
-  await reopenedSettings
-    .getByRole('combobox', { name: 'Account', exact: true })
-    .selectOption('legacy-account');
-  await reopenedSettings
-    .getByRole('combobox', { name: 'Thinking level', exact: true })
-    .selectOption('high');
+  await chooseSetting(page, 'Account', 'legacy-account');
+  await chooseSetting(page, 'Thinking', 'high');
   await reopenedSettings.getByRole('button', { name: 'Done', exact: true }).click();
   await page
     .getByRole('textbox', { name: 'Message Mitzo', exact: true })
@@ -955,7 +954,7 @@ test('Library keeps fresh setup when a hidden conversation receives its delayed 
   expect(new URL(freshUrl).searchParams.get('draft')).not.toBe(oldDraft);
   fixture.lifecycle.commandState = 'consumed';
   const recoverySettings = await openSettings(page);
-  await recoverySettings.getByText('More settings', { exact: true }).click();
+  await openChatSetting(page, 'more');
   const recover = page.getByRole('button', { name: 'Recover original Local command', exact: true });
   await expect(recover).toBeEnabled();
   await recover.click();
@@ -1008,12 +1007,10 @@ for (const operation of ['create', 'edit'] as const) {
     expect(fixture.commands[0].selection.thinking).toBe('high');
     expect(fixture.task.definition.execution?.reasoningEffort).toBe('low');
     const builderSettings = await openSettings(page);
-    await builderSettings
-      .getByRole('combobox', { name: 'Thinking level', exact: true })
-      .selectOption('low');
-    await builderSettings
-      .getByRole('combobox', { name: 'Thinking level', exact: true })
-      .selectOption('high');
+    await chooseSetting(page, 'Thinking', 'low');
+    await expect(settingRow(builderSettings, 'Thinking')).toHaveAttribute('data-value', 'low');
+    await chooseSetting(page, 'Thinking', 'high');
+    await expect(settingRow(builderSettings, 'Thinking')).toHaveAttribute('data-value', 'high');
     await builderSettings.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(proposal.locator('pre')).toContainText('"reasoningEffort": "low"');
     await expect(proposal.locator('pre')).toContainText('task-only-account');

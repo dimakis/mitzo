@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   PROFILE_BUILDER_ID,
@@ -13,6 +13,8 @@ import {
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import './ChatAgentProfilePicker.css';
+import { useQuickSettings } from '../lib/quick-settings-context';
+import { QuickSettingsField } from './QuickChatSettings';
 
 type ProfileOption = Pick<AgentLibraryVersion, 'kind' | 'profileId' | 'revision' | 'definition'>;
 
@@ -30,16 +32,33 @@ export function ChatAgentProfilePicker(
     };
   },
 ) {
-  if (props.controlled)
-    return (
-      <ControlledAgentProfilePicker
-        {...props.controlled}
-        disabled={props.disabled}
-        label={props.label}
-        onLabelChange={props.onLabelChange}
-      />
-    );
-  return <LibraryChatAgentProfilePicker {...props} />;
+  const quick = useQuickSettings();
+  const reportLabel = props.onLabelChange;
+  const [quickLabel, setQuickLabel] = useState<string>();
+  const onLabelChange = useCallback(
+    (label: string | undefined) => {
+      setQuickLabel(label);
+      reportLabel?.(label);
+    },
+    [reportLabel],
+  );
+  const fields = props.controlled ? (
+    <ControlledAgentProfilePicker
+      {...props.controlled}
+      disabled={props.disabled}
+      label={props.label}
+      onLabelChange={onLabelChange}
+    />
+  ) : (
+    <LibraryChatAgentProfilePicker {...props} onLabelChange={onLabelChange} />
+  );
+  return quick && props.label === 'Agent' ? (
+    <QuickSettingsField page="agent" title="Agent" value={quickLabel ?? 'Loading…'}>
+      {fields}
+    </QuickSettingsField>
+  ) : (
+    fields
+  );
 }
 function LibraryChatAgentProfilePicker({
   sessionId,
