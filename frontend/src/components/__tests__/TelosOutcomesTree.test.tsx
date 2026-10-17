@@ -25,11 +25,11 @@ it('starts with All outcomes, discovers and persists pins, and searches nested c
   fireEvent.click(screen.getByRole('button', { name: 'Pin Research' }));
   view.unmount();
   render(<TelosOutcomesTree records={items} onOpen={onOpen} />);
-  expect(screen.getByRole('button', { name: 'Research', exact: true })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Research' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
   const target = items.find((item) => item.parentId !== null)!;
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: target.intent } });
-  fireEvent.click(screen.getByRole('button', { name: target.summary, exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: target.summary }));
   expect(onOpen).toHaveBeenCalledWith(target.itemId);
   expect(screen.getAllByText('Coordinator').length).toBeGreaterThan(0);
 });
@@ -61,4 +61,14 @@ it('keeps All outcomes first in loading, empty and unavailable states', () => {
   expect(screen.queryByText('No outcomes yet.')).toBeNull();
   view.rerender(<TelosOutcomesTree records={[]} onOpen={vi.fn()} />);
   expect(screen.getByText('No outcomes yet.')).toBeTruthy();
+});
+
+it('closes category discovery with Escape and restores its trigger focus', () => {
+  render(<TelosOutcomesTree records={records} onOpen={vi.fn()} />);
+  const trigger = screen.getByRole('button', { name: 'Browse categories' });
+  fireEvent.click(trigger);
+  const discovery = screen.getByLabelText('Discover categories');
+  fireEvent.keyDown(discovery, { key: 'Escape' });
+  expect(document.activeElement).toBe(trigger);
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
 });

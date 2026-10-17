@@ -405,7 +405,7 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'New item', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'New item' }));
     fireEvent.change(screen.getByPlaceholderText('Short outcome title'), {
       target: { value: 'Ship durable outcomes' },
     });

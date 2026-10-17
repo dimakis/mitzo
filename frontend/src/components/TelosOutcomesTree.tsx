@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import type { TelosWorkItem } from '@mitzo/protocol';
 import { UiIcon } from './UiIcon';
+import { MotionPresence } from './MotionPresence';
 import { TelosTreeConversationEntry } from './TelosTreeConversationEntry';
 import { telosKindLabel } from '../lib/telos-kind-label';
 import './TelosWorkspace.css';
@@ -58,6 +59,11 @@ export function TelosOutcomesTree({
 }) {
   const [state, setState] = useState(() => restore(storageKey));
   const [browse, setBrowse] = useState(false);
+  const browseTrigger = useRef<HTMLButtonElement>(null);
+  function closeBrowse() {
+    setBrowse(false);
+    browseTrigger.current?.focus();
+  }
   const [storageError, setStorageError] = useState(false);
   function update(patch: Partial<NavigationState>) {
     const next = { ...state, ...patch };
@@ -133,7 +139,7 @@ export function TelosOutcomesTree({
                             ? 'worktree'
                             : 'work'
                       }
-                      size={18}
+                      size={16}
                     />
                   </span>
                   <div className="telos-node-copy">
@@ -157,9 +163,11 @@ export function TelosOutcomesTree({
                     />
                   </div>
                 </div>
-                {kids.length > 0 &&
-                  expanded &&
-                  tree(record.itemId, new Set(visited).add(record.itemId))}
+                {kids.length > 0 && (
+                  <MotionPresence open={expanded} kind="disclosure">
+                    {tree(record.itemId, new Set(visited).add(record.itemId))}
+                  </MotionPresence>
+                )}
               </li>
             );
           })}
@@ -200,43 +208,52 @@ export function TelosOutcomesTree({
                 aria-pressed={state.category === category}
                 onClick={() => update({ category })}
               >
-                <UiIcon name="pin" size={14} />
+                <UiIcon name="pin" size={16} />
                 {category}
               </button>
             ))}
-            <button aria-expanded={browse} onClick={() => setBrowse(!browse)}>
+            <button ref={browseTrigger} aria-expanded={browse} onClick={() => setBrowse(!browse)}>
               Browse categories
             </button>
           </div>
-          {browse && (
-            <div className="telos-category-browser" aria-label="Discover categories">
-              {categories.length === 0 && <p>No categories available.</p>}
-              {[...new Set([...categories, ...state.pins])].map((category) => (
-                <div key={category}>
-                  <button
-                    onClick={() => {
-                      update({ category });
-                      setBrowse(false);
-                    }}
-                  >
-                    {category}
-                  </button>
-                  <button
-                    aria-label={`${state.pins.includes(category) ? 'Unpin' : 'Pin'} ${category}`}
-                    onClick={() =>
-                      update({
-                        pins: state.pins.includes(category)
-                          ? state.pins.filter((p) => p !== category)
-                          : [...state.pins, category],
-                      })
-                    }
-                  >
-                    {state.pins.includes(category) ? 'Unpin' : 'Pin'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <MotionPresence
+            open={browse}
+            kind="disclosure"
+            className="telos-category-browser"
+            aria-label="Discover categories"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.stopPropagation();
+                closeBrowse();
+              }
+            }}
+          >
+            {categories.length === 0 && <p>No categories available.</p>}
+            {[...new Set([...categories, ...state.pins])].map((category) => (
+              <div key={category}>
+                <button
+                  onClick={() => {
+                    update({ category });
+                    closeBrowse();
+                  }}
+                >
+                  {category}
+                </button>
+                <button
+                  aria-label={`${state.pins.includes(category) ? 'Unpin' : 'Pin'} ${category}`}
+                  onClick={() =>
+                    update({
+                      pins: state.pins.includes(category)
+                        ? state.pins.filter((p) => p !== category)
+                        : [...state.pins, category],
+                    })
+                  }
+                >
+                  {state.pins.includes(category) ? 'Unpin' : 'Pin'}
+                </button>
+              </div>
+            ))}
+          </MotionPresence>
         </>
       )}
       <div className="telos-tree-toolbar">

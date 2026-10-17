@@ -25,10 +25,10 @@ it('retains the brief, original fields, exact dates, context and parent-only Wor
     </MemoryRouter>,
   );
   expect(screen.getByText(records[0].rationale)).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Work', exact: true })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Work' })).toBeTruthy();
   expect(screen.getByText('Created')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Work', exact: true }));
-  fireEvent.click(screen.getByRole('button', { name: records[1].summary, exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Work' }));
+  fireEvent.click(screen.getByRole('button', { name: records[1].summary }));
   expect(onOpen).toHaveBeenCalledWith(records[1].itemId);
 });
 it('separates materials, source references and external links with unknown dates kept unknown', () => {
@@ -58,11 +58,11 @@ it('separates materials, source references and external links with unknown dates
       <TelosItemWorkspace record={record} records={[record]} onOpen={vi.fn()} onBack={vi.fn()} />
     </MemoryRouter>,
   );
-  expect(screen.queryByRole('button', { name: 'Work', exact: true })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Work' })).toBeNull();
   expect(screen.getAllByText('Unknown').length).toBeGreaterThan(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Materials', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Materials' }));
   expect(screen.getByText('Retained output revisions')).toBeTruthy();
-  expect(screen.getByRole('heading', { name: 'Links', exact: true })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Links' })).toBeTruthy();
   expect(screen.getByRole('link', { name: /External reference/ }).getAttribute('href')).toBe(
     'https://example.com',
   );
@@ -75,7 +75,7 @@ it('does not turn legacy session hints into assignments and preserves selected t
       <TelosItemWorkspace record={record} records={records} onOpen={vi.fn()} onBack={vi.fn()} />
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Chat', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
   expect(screen.getByText('Ordinary role entry')).toBeTruthy();
   view.unmount();
   render(
@@ -83,9 +83,7 @@ it('does not turn legacy session hints into assignments and preserves selected t
       <TelosItemWorkspace record={record} records={records} onOpen={vi.fn()} onBack={vi.fn()} />
     </MemoryRouter>,
   );
-  expect(
-    screen.getByRole('button', { name: 'Chat', exact: true }).getAttribute('aria-pressed'),
-  ).toBe('true');
+  expect(screen.getByRole('button', { name: 'Chat' }).getAttribute('aria-pressed')).toBe('true');
 });
 
 it('does not claim empty child work when the collection boundary is loading or unavailable', () => {
@@ -134,6 +132,6 @@ it('offers an explicit retry for unavailable child work', () => {
       />
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Try again', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   expect(refresh).toHaveBeenCalledOnce();
 });
