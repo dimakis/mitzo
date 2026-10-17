@@ -1260,7 +1260,12 @@ export class EventStore {
             .prepare('SELECT metadata FROM ordinary_session_preparations WHERE operation_id=?')
             .get(operationId) as { metadata: string };
           this.assertPreparedOrdinaryMetadata(prepared, JSON.parse(row.metadata));
-          return { sessionId: prepared.sessionId, settings: prepared.settings };
+          return {
+            kind: 'prepared',
+            sessionId: prepared.sessionId,
+            settings: prepared.settings,
+            firstCommandId: prepared.firstCommandId,
+          };
         }
         const command = this.getSendCommand(operationId);
         const admission = this.getOrdinaryCommandAdmission(operationId);
@@ -1272,6 +1277,7 @@ export class EventStore {
           .get(command.sessionId) as { client_msg_id: string } | undefined;
         if (first?.client_msg_id !== operationId) return undefined;
         return {
+          kind: 'first-command',
           sessionId: command.sessionId,
           settings: {
             binding: admission.binding,

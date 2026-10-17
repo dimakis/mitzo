@@ -23,6 +23,7 @@ import {
   CollaborationSnapshotSelectionSchema,
   CollaborationSnapshotSchema,
   CollaborationJoinInputSchema,
+  CollaborationJoinReconcileInputSchema,
   CollaborationJoinSchema,
   CollaborationAllocationSchema,
   CollaborationEventSchema,
@@ -56,10 +57,16 @@ interface Owners {
   beginMembership(id: string, sourceSessionId: string): SessionCollaboration;
   available(sessionId: string): boolean;
   settings(sessionId: string): CollaborationSettings | undefined;
-  /** The ordinary first-command ledger owns this proof; never a client-provided session ID. */
-  allocation(
-    operationId: string,
-  ): { sessionId: string; settings: CollaborationSettings } | undefined;
+  /** Existing ordinary preparation/first-command owners supply this proof, never the client. */
+  allocation(operationId: string):
+    | {
+        kind: 'prepared';
+        sessionId: string;
+        settings: CollaborationSettings;
+        firstCommandId: string | null;
+      }
+    | { kind: 'first-command'; sessionId: string; settings: CollaborationSettings }
+    | undefined;
 }
 type Row = { body: string };
 const ReviewCompilationInput = z.strictObject({
@@ -885,6 +892,38 @@ export class CollaborationConversationStore {
         return next;
       })
       .immediate();
+  }
+  /** Host-authorized explicit re-review only. Original review and allocation remain frozen.
+   * The existing request receipt is checked before new-link freshness predicates, so a lost
+   * response remains observational after the first command or subsequent membership changes.
+   */
+  reconcileJoin(group: string, joinId: string, raw: unknown) {
+    z.uuid().parse(joinId);
+    const input = CollaborationJoinReconcileInputSchema.parse(raw);
+    return this.mutation(
+      group,
+      input.requestId,
+      { kind: 'join-reconcile', joinId, input },
+      CollaborationJoinSchema,
+      () => {
+        const join = this.getJoin(group, joinId);
+        if (!join) throw new ContractError('not_found');
+        if (join.state !== 'allocated' || !join.sessionId)
+          throw new ContractError('invalid_transition');
+        if (sha(join.snapshot) !== sha(input.snapshot)) throw new ContractError('snapshot_changed');
+        this.reviewedSnapshot(group, join.snapshot, [join.settings]);
+        const proof = this.owners.allocation(join.allocationOperationId);
+        if (
+          !proof ||
+          proof.kind !== 'prepared' ||
+          proof.firstCommandId !== null ||
+          proof.sessionId !== join.sessionId ||
+          sha(proof.settings) !== sha(join.settings)
+        )
+          throw new ContractError('allocation_conflict');
+        return this.linkJoin(group, joinId, input.expectedMembershipRevision);
+      },
+    );
   }
   /** Allocation receipt is committed separately first. A link conflict never reallocates. */
   linkJoin(group: string, joinId: string, expectedMembershipRevision: number) {

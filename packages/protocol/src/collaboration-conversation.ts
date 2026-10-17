@@ -322,6 +322,11 @@ export const CollaborationJoinInputSchema = z.strictObject({
   settings: CollaborationSettingsSchema,
   snapshot: CollaborationSnapshotReferenceSchema,
 });
+/** Explicit membership-only approval of an existing allocation's original frozen review. */
+export const CollaborationJoinReconcileInputSchema = z.strictObject({
+  ...request,
+  snapshot: CollaborationSnapshotReferenceSchema,
+});
 export const CollaborationAllocationSchema = z.strictObject({
   operationId: z.uuid(),
   sessionId: id,
@@ -411,6 +416,7 @@ export type CollaborationMessageInput = z.infer<typeof CollaborationMessageInput
 export type CollaborationReplyInput = z.infer<typeof CollaborationReplyInputSchema>;
 export type CollaborationMessageSource = z.infer<typeof CollaborationMessageSourceSchema>;
 export type CollaborationJoinInput = z.infer<typeof CollaborationJoinInputSchema>;
+export type CollaborationJoinReconcileInput = z.infer<typeof CollaborationJoinReconcileInputSchema>;
 export type CollaborationSnapshotSelection = z.infer<typeof CollaborationSnapshotSelectionSchema>;
 export class CollaborationContractError extends Error {
   constructor(
