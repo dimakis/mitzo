@@ -55,10 +55,9 @@ jobs:
   browser:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
-    name: Connections browser regression
+    name: Browser interaction tests
     runs-on: ubuntu-latest
-    # A measured cold install took 22 minutes; both suites then passed in 12.
-    # Keep a bounded budget that includes installation and both required suites.
+    # Retain room for cold dependency installation and failure diagnostics.
     timeout-minutes: 45
     permissions:
       contents: read
@@ -83,15 +82,37 @@ jobs:
             playwright-report/browser/
           retention-days: 7
           if-no-files-found: warn
+
+  offline:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
+    name: Offline layouts (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      # Keep independent coverage and diagnostics even when another project fails.
+      fail-fast: false
+      matrix:
+        project: [mobile-webkit, mobile-chromium, desktop-chromium]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --global npm@11.18.0
+      - run: npm install --no-audit
+      - run: npx playwright install --with-deps webkit chromium
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
-        if: always()
-        run: npm run test:ui
+        run: npm run test:ui -- --project=${{ matrix.project }}
       - name: Retain offline layout failure evidence
         if: ${{ always() && steps.offline-tests.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-offline-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          name: playwright-offline-failure-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/
             playwright-report/offline/
@@ -102,7 +123,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: agent-tool-selection-visuals-${{ github.run_id }}-${{ github.run_attempt }}
+          name: agent-tool-selection-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/**/agent-tools-*.png
             test-results/offline/**/tool-library-*.png
@@ -113,7 +134,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: responsiveness-visuals-${{ github.run_id }}-${{ github.run_attempt }}
+          name: responsiveness-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/offline/**/responsiveness-*.png
           retention-days: 7
           if-no-files-found: warn
@@ -122,7 +143,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: local-first-command-visuals-${{ github.run_id }}-${{ github.run_attempt }}
+          name: local-first-command-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/offline/**/local-*.png
           retention-days: 7
           if-no-files-found: ignore
@@ -131,12 +152,26 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: artefact-sharing-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          name: artefact-sharing-acceptance-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/**/artefact-sharing.png
             test-results/offline/**/file-options.png
           retention-days: 7
           if-no-files-found: ignore
+
+  browser-validation:
+    name: Connections browser regression
+    needs: [changes, browser, offline]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require every selected browser suite
+        env:
+          CI_BROWSER_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-browser-gate.mjs
 
   native:
     needs: changes
