@@ -772,7 +772,9 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     definition: longDefinition,
     contentHash: createHash('sha256').update(JSON.stringify(longDefinition)).digest('hex'),
   });
-  await page.reload();
+  // Leave the retained task deep link before returning to profile layout checks.
+  await page.goto('/agent-library');
+  await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
   await page
     .getByRole('region', { name: 'Saved agents', exact: true })
     .getByRole('button')
@@ -802,18 +804,22 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   });
   catalog.versions = catalog.versions.filter((version) => version.profileId !== 'long-name-layout');
   await page.reload();
+  await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
   await expect(await editableProfileName(page)).toHaveValue('Robert');
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '';
   });
   catalogMode = 'empty';
   await page.reload();
+  await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
   await expect(page.getByText('Create your first agent with Agent Builder.')).toBeVisible();
   catalogMode = 'error';
   await page.reload();
+  await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Offline Library unavailable');
   catalogMode = 'loading';
   await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Loading Agent Library' })).toHaveText(
     'Loading Agent Library…',
   );
