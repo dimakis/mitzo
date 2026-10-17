@@ -6,6 +6,17 @@ import {
   TelosSourceConversationReferenceSchema,
 } from '@mitzo/protocol';
 import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
+import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
+import { requireSameOriginJson } from './connections-router.js';
+
+export interface TelosWorkRoleRequest {
+  actor: TelosWorkActor;
+  /** Middleware-verified authorization, never copied from JSON. */
+  authorization?: AuthSession;
+  raw: unknown;
+  signal: AbortSignal;
+  assertAuthorized(): void;
+}
 
 /** Operator mutations and scoped conversation reads share the same durable
  * store. Internal tokens are not operator authority. No route accepts a caller
@@ -18,6 +29,11 @@ export function createTelosWorkRouter(options: {
   sessionId(clientId: string): string | undefined;
   ordinaryConversation(id: string): boolean;
   sourceConversation?(id: string): boolean;
+  roleSetup?(request: TelosWorkRoleRequest): Promise<unknown>;
+  roleContext?(request: TelosWorkRoleRequest): Promise<unknown>;
+  advisorPreview?(request: TelosWorkRoleRequest): Promise<unknown>;
+  advisorSave?(request: TelosWorkRoleRequest): Promise<unknown>;
+  assertRoleAssignment?(itemId: string, role: 'lead' | 'worker', conversationId: string): void;
 }) {
   const router = Router();
   router.use(['/api/telos/work', '/api/internal/telos/work'], (_req, res, next) => {
@@ -95,8 +111,111 @@ export function createTelosWorkRouter(options: {
       res.status(400).json({ code: 'invalid', error: 'Invalid work command' });
       return;
     }
+    // A role setup commits only through its context-authorizing host owner.
+    if (input.data.operation === 'setup_role') {
+      res.status(400).json({ code: 'invalid', error: 'Use ordinary role setup' });
+      return;
+    }
+    if (input.data.operation === 'assign') {
+      const selected = input.data;
+      run(res, (store) => {
+        if (!options.assertRoleAssignment)
+          throw new TelosWorkError('unauthorized', 'Reviewed ordinary role context required');
+        return store.execute(selected, authority, () =>
+          options.assertRoleAssignment!(selected.itemId, selected.role, selected.conversationId),
+        );
+      });
+      return;
+    }
     run(res, (store) => store.execute(input.data, authority));
   });
+  for (const operation of [
+    { path: 'roles/setup', host: options.roleSetup },
+    { path: 'roles/context', host: options.roleContext },
+    { path: 'advisor/preview', host: options.advisorPreview },
+    { path: 'advisor/save', host: options.advisorSave },
+  ])
+    router.post(
+      `/api/telos/work/${operation.path}`,
+      options.operatorAuth,
+      requireSameOriginJson,
+      async (req, res) => {
+        const authority = actor(res);
+        if (!authority) return;
+        const host = operation.host;
+        if (!host) {
+          res.status(503).json({
+            code: 'unavailable',
+            error: 'Ordinary role setup is unavailable for this route',
+          });
+          return;
+        }
+        const auth = res.locals.authSession as AuthSession;
+        const retained = { id: auth.id, expiresAt: auth.expiresAt };
+        const controller = new AbortController();
+        const cancel = () => controller.abort();
+        const unregister = registerAuthSession(retained, cancel);
+        const close = () => {
+          if (!res.writableEnded) cancel();
+        };
+        req.once('aborted', cancel);
+        res.once('close', close);
+        const timer = setTimeout(
+          cancel,
+          Math.min(120000, Math.max(0, retained.expiresAt - Date.now())),
+        );
+        const assertAuthorized = () => {
+          if (!isAuthSessionCurrent(retained))
+            throw new TelosWorkError(
+              'unauthorized',
+              'Operator authorization expired or was revoked',
+            );
+          controller.signal.throwIfAborted();
+        };
+        try {
+          assertAuthorized();
+          const result = await host({
+            actor: authority,
+            authorization: retained,
+            raw: structuredClone(req.body),
+            signal: controller.signal,
+            assertAuthorized,
+          });
+          assertAuthorized();
+          res.json(result);
+        } catch (error) {
+          if (res.destroyed) return;
+          const known = error instanceof TelosWorkError;
+          const status = !isAuthSessionCurrent(retained)
+            ? 403
+            : known
+              ? { not_found: 404, unauthorized: 403, conflict: 409, invalid: 400 }[error.code]
+              : error instanceof z.ZodError
+                ? 400
+                : 503;
+          res.status(status).json({
+            code:
+              status === 403
+                ? 'unauthorized'
+                : known
+                  ? error.code
+                  : status === 400
+                    ? 'invalid'
+                    : 'unavailable',
+            error: known
+              ? error.message
+              : status === 403
+                ? 'Operator authorization expired or was revoked'
+                : 'Ordinary role setup unavailable',
+          });
+        } finally {
+          clearTimeout(timer);
+          unregister();
+          req.off('aborted', cancel);
+          res.off('close', close);
+        }
+      },
+    );
   router.post('/api/telos/work/links', options.operatorAuth, (req, res) => {
     const authority = actor(res);
     if (!authority) return;

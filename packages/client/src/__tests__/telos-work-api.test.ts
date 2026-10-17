@@ -12,6 +12,32 @@ const view = TelosWorkViewSchema.parse({
   attempts: [],
 });
 describe('typed Telos work client', () => {
+  it('reviews canonical role context through its dedicated authenticated endpoint without executing a command', async () => {
+    const context = {
+      version: 1,
+      itemId: 'item',
+      role: 'reviewer' as const,
+      brief: { revision: view.revision, sha256: 'b'.repeat(64), text: 'Reviewed work' },
+      parentCriteria: [],
+      overallGoal: { itemId: 'item', revision: view.revision, text: 'Goal' },
+      sources: [],
+      artifacts: [],
+    };
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(context)));
+    const api = new TelosWorkApiClient(fetch);
+    const input = {
+      itemId: 'item',
+      role: 'reviewer' as const,
+      sourceSnapshotIds: [],
+      artifactRefs: [],
+    };
+    expect(await api.roleContext(input)).toEqual(context);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]).toMatchObject([
+      '/api/telos/work/roles/context',
+      { method: 'POST', credentials: 'include', body: JSON.stringify(input) },
+    ]);
+  });
   it('reads and validates the canonical workspace record without starting a chat or retrying', async () => {
     const record = TelosWorkItemSchema.parse({
       version: 1,

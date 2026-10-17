@@ -1378,6 +1378,47 @@ marks (LobeHub icon assets); unknown model identities remain unbranded. The 18px
 is icon geometry; controls still use the shared 44px minimum. Claude's brand role
 is defined for both themes in tokens.css and is independent of the user's accent.
 
+## Telos ordinary role setup
+
+Telos role entry reuses the existing item detail actions and opens the full ordinary
+chat settings, renderer, composer and Resources. It adds no settings menu, reduced
+advisor form or alternate runtime. Item/lead return links use the shared chat context
+row; exact reviewed pins are available in its native details disclosure. The context
+region is bounded to 35vh as structural viewport geometry so the ordinary transcript
+and composer remain reachable at large text sizes.
+
+Advisor proposals reuse RepositoryChatPicker controls inside the ordinary transcript.
+Its transcript modifier prevents flex shrinking and delegates scrolling to the chat,
+so proposal fields and Save remain reachable rather than collapsing into an inner
+scroll strip. Existing semantic tokens, type, focus, control geometry and appearance
+preferences remain effective. The ordinary draft owner retains text/images/context
+through silent role binding and first-send consumption.
+
+The scoped offline role fixture checks source-only lead setup, full refinement/child
+advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
+expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,
+dark Mint and light Teal/Georgia, larger light-theme text and keyboard activation.
+Traffic is intercepted; real transaction/admission behavior has separate inert-driver
+regressions. See [S4 ownership and qualification](../features/telos-s4-role-bindings.md).
+
+The combined branch preserves the separately approved ordinary Quick sheet and its
+protected checks. Current captures: [320px mobile settings](assets/telos-role-settings-quick-sheet-mobile-dark.png)
+and [desktop settings with larger text](assets/telos-role-settings-quick-sheet-desktop-light.png).
+These are implementation evidence; all approved Telos and settings references remain unchanged.
+
+Initial S4 captures: [mobile ordinary settings](assets/telos-role-settings-mobile-dark.png),
+[desktop settings with larger text](assets/telos-role-settings-desktop-light.png),
+[mobile proposal fields](assets/telos-advisor-fields-mobile-dark.png),
+[mobile child Save](assets/telos-advisor-save-mobile-light.png), and
+[desktop refinement Save](assets/telos-advisor-save-desktop-light.png).
+Leaf work items retain Choose worker and Refine item; Add child is reserved for
+explicit parent kinds. This follows the frozen leaf Overview/Work distinction,
+using canonical kinds rather than inferring kind from a child count. Fresh captures:
+[320px dark leaf](assets/telos-leaf-mobile-dark.png) and
+[desktop light leaf](assets/telos-leaf-desktop-light.png).
+The expanded run passed 24 route scenarios plus two browser startup dependencies;
+the startup checks are not additional role journeys.
+
 ## Device continuity
 
 Phone and web remain subscribed to the same conversation when a new message

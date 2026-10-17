@@ -1,8 +1,9 @@
 import { TelosItemSources } from '../components/TelosItemSources';
+import { TelosItemRoleEntries } from '../components/TelosItemRoleEntries';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { TodoItem, TodoData } from '../types/todo';
 import { sourceIcon, buildPrompt, buildTodoContext } from '../lib/todo-utils';
 import { WorkOutputs } from '../components/WorkOutputs';
@@ -38,6 +39,10 @@ export function TodoDetailView() {
   const [fetchFailed, setFetchFailed] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
+  const [ordinaryRoleItem, setOrdinaryRoleItem] = useState<string | null>(null);
+  const onOrdinaryRoles = useCallback((itemId: string, available: boolean) => {
+    setOrdinaryRoleItem(available ? itemId : null);
+  }, []);
 
   useEffect(() => {
     if (stateItem || !id) return;
@@ -172,9 +177,11 @@ export function TodoDetailView() {
       <PageHeader title="Task" onBack={handleBack}>
         <div className="todo-detail-actions">
           <HomePinButton pin={{ kind: 'telos', id: item.id, title: recordTitle(item.summary) }} />
-          <button className="todo-detail-chat-btn" onClick={handleOpenChat}>
-            Open in Chat
-          </button>
+          {ordinaryRoleItem !== item.id && (
+            <button className="todo-detail-chat-btn" onClick={handleOpenChat}>
+              Open in Chat
+            </button>
+          )}
           {!item.goalId && (
             <button
               className="todo-detail-promote-btn"
@@ -210,6 +217,8 @@ export function TodoDetailView() {
             </span>
           )}
         </div>
+
+        <TelosItemRoleEntries key={item.id} itemId={item.id} onOrdinaryRoles={onOrdinaryRoles} />
 
         {item.intent && (
           <section className="todo-detail-contract todo-detail-outcome">

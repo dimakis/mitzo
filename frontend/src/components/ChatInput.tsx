@@ -42,6 +42,7 @@ export interface ChatInputDraftControl {
   clear: () => void;
   /** Read the current edited text without waiting for debounced persistence. */
   readText?: () => string;
+  flush?: () => boolean;
 }
 
 interface Props {
@@ -165,11 +166,7 @@ export function ChatInput({
     draftStorageKey,
     assignment,
   );
-  useImperativeHandle(
-    draftControl,
-    () => ({ storageKey: draftStorageKey, clear: clearDraft, readText: () => text }),
-    [draftStorageKey, clearDraft, text],
-  );
+
   const [images, setImages] = useState<ImageAttachment[]>(savedChatDraft?.images ?? []);
   const [preview, setPreview] = useState<{
     image: ImageAttachment;
@@ -212,6 +209,27 @@ export function ChatInput({
   const useExternal = externalContextBlocks !== undefined;
   const [respondersOpen, setRespondersOpen] = useState(false);
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
+  useImperativeHandle(
+    draftControl,
+    () => ({
+      storageKey: draftStorageKey,
+      clear: clearDraft,
+      readText: () => text,
+      flush: () => {
+        flushDraft();
+        if (!savedChatDraft) return true;
+        const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
+        return saveChatDraft({
+          ...current,
+          settings: savedChatDraft.settings,
+          text,
+          images,
+          contextBlocks: activeContextBlocks,
+        });
+      },
+    }),
+    [draftStorageKey, clearDraft, text, flushDraft, savedChatDraft, images, activeContextBlocks],
+  );
   const sendDisabledReason =
     suppliedSendDisabledReason ??
     (respondersOpen ? 'Choose who replies, or close the picker to keep your draft.' : undefined) ??

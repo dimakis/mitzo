@@ -1,3 +1,4 @@
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
@@ -1359,6 +1360,12 @@ async function _startChatInner(
         options.contributorGuidance,
       ),
     };
+    if (options.resume ?? options.initialSessionId)
+      resolveTelosWorkRoleContext(
+        eventStore,
+        (options.resume ?? options.initialSessionId)!,
+        accountBinding ?? undefined,
+      );
     const toolRoute =
       accountBinding?.provider === 'openai-codex'
         ? 'codex'
@@ -5100,6 +5107,8 @@ export interface RestoredMessage {
   role: string;
   timestamp?: number;
   startedSeq?: number;
+  /** Exact retained completion anchor; absent for interrupted/synthetic history. */
+  completedSeq?: number;
   images?: string[];
   contextBlocks?: string[];
   sourceSnapshots?: SourceSnapshot[];
@@ -5338,6 +5347,7 @@ function replaySingleEventsToTranscript(
       role: 'user',
       timestamp: typeof payload.ts === 'number' ? payload.ts : event.createdAt,
       startedSeq: event.seq,
+      completedSeq: event.seq,
       images: Array.isArray(payload.images) ? (payload.images as string[]) : undefined,
       sourceSnapshots: SourceSnapshotsSchema.safeParse(payload.sourceSnapshots).data,
       contextBlocks: Array.isArray(payload.contextBlocks)
@@ -5361,12 +5371,13 @@ function replaySingleEventsToTranscript(
         };
     messages.push({
       ...prompt,
-      ...(hoistedPrompt ? { startedSeq: undefined } : {}),
+      ...(hoistedPrompt ? { startedSeq: undefined, completedSeq: undefined } : {}),
       timestamp: events[0]?.createdAt,
     });
   } else if (legacyInitial) {
     const hoisted = userMessage(legacyInitial);
     delete hoisted.startedSeq;
+    delete hoisted.completedSeq;
     messages.push(hoisted);
   }
 
@@ -5387,7 +5398,7 @@ function replaySingleEventsToTranscript(
       return { ...block, ...attachSubagent(turn!.messageId, restored, active) };
     });
   };
-  const finishTurn = () => {
+  const finishTurn = (completedSeq?: number) => {
     if (!turn) return;
     const blocks = materializeBlocks(false).map(({ done: _done, ...block }) => block);
     if (blocks.length > 0)
@@ -5396,6 +5407,7 @@ function replaySingleEventsToTranscript(
         role: 'assistant',
         timestamp: turn.timestamp,
         startedSeq: turn.startedSeq,
+        ...(completedSeq === undefined ? {} : { completedSeq }),
         blocks,
       };
     else messages.splice(turn.index, 1);
@@ -5464,7 +5476,7 @@ function replaySingleEventsToTranscript(
         break;
       }
       case 'message_end':
-        if (turn && payload.messageId === turn.messageId) finishTurn();
+        if (turn && payload.messageId === turn.messageId) finishTurn(event.seq);
         break;
       case 'error': {
         const failure = replayError(event, acceptedSessions);
@@ -5475,6 +5487,7 @@ function replaySingleEventsToTranscript(
             role: 'assistant',
             timestamp: event.createdAt,
             startedSeq: event.seq,
+            completedSeq: event.seq,
             blocks: [
               {
                 blockId: `${failure.prefix}-text-${event.seq}`,

@@ -15,6 +15,11 @@
 .repository-chat-picker > * {
   flex-shrink: 0;
 }
+.repository-chat-picker--transcript {
+  /* Let the ordinary transcript own scrolling for a retained proposal. */
+  flex-shrink: 0;
+  overflow-y: visible;
+}
 .repository-chat-picker label {
   display: flex;
   flex-direction: column;

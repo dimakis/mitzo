@@ -355,3 +355,19 @@ it('drops completed command authority without hydrating terminal history or dele
     rmSync(root, { recursive: true, force: true });
   }
 });
+it('denies retained role corruption arriving during awaited final Local admission validation', async () => {
+  const f = fixture();
+  try {
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    const admission = OwnedLocalCodexChatAdmission.capture(f.input);
+    f.lease.assertCurrent = vi.fn(async () => {
+      f.store.append('session', 'telos_work_role_context', {
+        version: 1,
+        selection: { role: 'lead' },
+      });
+    });
+    await expect(admission.assertCurrent()).rejects.toThrow();
+  } finally {
+    f.store.close();
+  }
+});

@@ -296,3 +296,57 @@ it('refuses to navigate with text when saving the copied draft fails', () => {
     'Could not save the new chat draft. Retry.',
   );
 });
+
+import * as draftOwner from '../chat-drafts';
+it('binds one saved setup draft to the exact silent conversation without overwriting newer ordinary drafts', () => {
+  const bind = Reflect.get(draftOwner, 'bindChatDraftToSession') as
+    ((draftId: string, sessionId: string) => string) | undefined;
+  const read = Reflect.get(draftOwner, 'getSessionChatDraft') as
+    ((sessionId: string) => ReturnType<typeof getChatDraft>) | undefined;
+  expect(bind, 'existing draft owner must expose exact silent assignment').toBeDefined();
+  expect(read).toBeDefined();
+  const draft = {
+    ...createChatDraft(),
+    text: 'Unsent scoped text',
+    images: [{ data: 'bytes', preview: 'data:image/png;base64,bytes', mediaType: 'image/png' }],
+    contextBlocks: ['Reviewed resources'],
+  };
+  saveChatDraft(draft);
+  expect(bind?.(draft.id, 'worker')).toBe('bound');
+  expect(read?.('worker')).toMatchObject({
+    text: draft.text,
+    images: draft.images,
+    contextBlocks: draft.contextBlocks,
+    settings: draft.settings,
+  });
+  saveChatDraft({ ...getChatDraft(draft.id)!, text: 'Newer bound edit' });
+  expect(bind?.(draft.id, 'worker')).toBe('bound');
+  expect(read?.('worker')?.text).toBe('Newer bound edit');
+  localStorage.setItem('mitzo-draft-existing', 'Newer independent ordinary draft');
+  expect(bind?.(draft.id, 'existing')).toBe('existing');
+  expect(read?.('existing')).toBeNull();
+  expect(localStorage.getItem('mitzo-draft-existing')).toBe('Newer independent ordinary draft');
+  expect(getChatDraft(draft.id)?.text).toBe('Newer bound edit');
+});
+it('keeps a previously bound rich draft when a later setup receipt points at the same conversation', () => {
+  const bind = Reflect.get(draftOwner, 'bindChatDraftToSession') as (
+    draftId: string,
+    sessionId: string,
+  ) => string;
+  const read = Reflect.get(draftOwner, 'getSessionChatDraft') as (
+    sessionId: string,
+  ) => ReturnType<typeof getChatDraft>;
+  const target = {
+    ...createChatDraft(),
+    text: 'Newer bound text',
+    contextBlocks: ['Newer bound context'],
+  };
+  saveChatDraft(target);
+  expect(bind(target.id, 'existing-rich')).toBe('bound');
+  const source = { ...createChatDraft(), text: 'Retained setup text' };
+  saveChatDraft(source);
+  expect(bind(source.id, 'existing-rich')).toBe('existing');
+  expect(read('existing-rich')?.text).toBe('Newer bound text');
+  expect(read('existing-rich')?.contextBlocks).toEqual(['Newer bound context']);
+  expect(getChatDraft(source.id)?.text).toBe('Retained setup text');
+});

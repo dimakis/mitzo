@@ -21,6 +21,7 @@ vi.mock('../../components/WorkOutputs', () => ({
 }));
 import { TodoDetailView } from '../TodoDetailView';
 import type { TodoItem } from '../../types/todo';
+import { getChatDraft } from '../../lib/chat-drafts';
 
 const mockPendingSession = vi.fn();
 vi.mock('@mitzo/client/hooks', () => ({
@@ -95,6 +96,77 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockLocation.mockReturnValue({ state: { item: fullItem } });
   mockParams.mockReturnValue({ id: 'abc123' });
+});
+
+it('keeps a source-only outcome unassigned and chooses its lead through an empty ordinary chat draft', async () => {
+  localStorage.clear();
+  const work = {
+    itemId: 'abc123',
+    kind: 'outcome',
+    parentId: null,
+    revision: 'reviewed-r1',
+    links: [
+      {
+        version: 1,
+        linkId: 'origin',
+        itemId: 'abc123',
+        role: 'origin',
+        conversation: {
+          namespace: 'external_codex',
+          conversationId: 'original',
+          url: 'codex://threads/original',
+        },
+        linkedAt: null,
+        linkedBy: null,
+        availability: 'unknown',
+        attemptId: null,
+      },
+    ],
+    assignments: [],
+    sources: [],
+    attempts: [],
+  };
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue(work as never);
+  render(
+    <MemoryRouter>
+      <TodoDetailView />
+    </MemoryRouter>,
+  );
+  const choose = await screen.findByRole('button', { name: 'Choose lead collaborator' });
+  expect(mockPendingSession).not.toHaveBeenCalled();
+  fireEvent.click(choose);
+  const route = mockNavigate.mock.calls.at(-1)![0] as string;
+  const params = new URL(route, 'https://offline.test').searchParams;
+  expect(params.get('telosRoleItem')).toBe('abc123');
+  expect(params.get('telosRole')).toBe('lead');
+  expect(params.get('telosRoleMode')).toBe('assign');
+  const draft = getChatDraft(params.get('draft')!);
+  expect(draft?.text).toBe('');
+  expect(draft?.settings.search).toContain('telosRoleItem=abc123');
+  expect(draft?.settings.retainRuntimeIntent).toBe(true);
+  expect(work.assignments).toEqual([]);
+  expect(mockPendingSession).not.toHaveBeenCalled();
+  vi.restoreAllMocks();
+});
+
+it('does not invent an originating discussion when a new outcome has no recorded origin', async () => {
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue({
+    itemId: 'abc123',
+    kind: 'outcome',
+    revision: 'r1',
+    links: [],
+    assignments: [],
+    sources: [],
+    attempts: [],
+  } as never);
+  render(
+    <MemoryRouter>
+      <TodoDetailView />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'Choose lead collaborator' });
+  expect(screen.queryByText(/The originating conversation is linked/)).toBeNull();
+  vi.restoreAllMocks();
 });
 
 describe('TodoDetailView', () => {

@@ -14,6 +14,7 @@ import { TelosSourceCapture } from '../../server/telos-source-capture';
 export async function telosSourceBrowserData({
   assistantBoundary = false,
   historicalBlankActivity = false,
+  terminalBookkeeping = false,
 } = {}) {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'telos-browser-'));
   const path = join(root, 'telos.db');
@@ -89,9 +90,11 @@ export async function telosSourceBrowserData({
           text: message.blocks[0].content,
         });
       }
+      message.completedSeq = cursor;
       if (message.messageId === 'approved') boundary = cursor;
       if (message.messageId === 'message-29') precedingBoundary = cursor;
     }
+    if (terminalBookkeeping) cursor = events.append('planning', 'session_end', {});
     const capture = new TelosSourceCapture({
       events,
       artifacts,
