@@ -1,13 +1,15 @@
 # Configured tool selection, Phase 2
 
-Baseline: accepted main f995c9d5 (16 October 2026). Telos fe020c5eb8557e9a,
-parent a27aa207cce82024. PR 960 owns the catalog redesign and remains open.
+Implementation began from accepted main f995c9d5 (16 October 2026). Telos
+fe020c5eb8557e9a, parent a27aa207cce82024. The accepted compact catalog
+redesign from PR #960 is preserved.
 
 ## Route inventory
 
 Local OpenAI Responses and Gemini/Vertex share openResponsesChat, host tool
-permissions and private snapshots. Explicit selections currently expose static
-registrations plus required AskUserQuestion, and exclude configured MCP tools.
+permissions and private snapshots. Explicit selections expose only selected
+built-in and configured MCP definitions plus required AskUserQuestion. Configured
+references require matching private receipts and current source/runtime authority.
 Claude SDK, native Codex, OpenShell and native Symposium/reviewer/search routes
 refuse explicit selections. Their native surfaces remain unenrolled.
 

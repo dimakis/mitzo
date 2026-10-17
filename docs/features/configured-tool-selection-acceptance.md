@@ -25,10 +25,11 @@ Phase 1's separately authorized live qualification remains outstanding.
 
 ## Deterministic execution evidence
 
-All MCP peers are injected fakes with temporary databases/configuration. Runners
-are mocked at the model boundary; no real model, credentials, personal MCP files,
-server installation or production target is used. One local worker and a 1 GiB
-Node heap are retained. Browser launches use the approved unsandboxed execution
+Discovery and admission peers are injected fakes with temporary databases and
+configuration. One fixed offline child separately verifies the actual locked
+MCP SDK transport environment. Runners are mocked at the model boundary; no real
+model, credentials, personal MCP files, configured server or production target is
+used. One local worker and a 1 GiB Node heap are retained. Browser launches use the approved unsandboxed execution
 path on macOS; requests and WebSockets are fully intercepted.
 
 | Contract            | Evidence                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -55,7 +56,10 @@ After the design/compiler hold was released and the source-environment review fi
 were integrated, the combined run passed 327 checks in 31 files. Later review
 qualification covers canonical skill allowlists on both enrolled API providers,
 isolated configured/legacy grants in both approval orders, and policy revocation
-during pending and retained approvals. The combined
+during pending and retained approvals. The final combined focused run passes
+337 checks in 32 files at `0aa40faa`, including complete effective-environment
+binding and the actual SDK transport fixture. Focused/frontend types and formatting
+pass. The combined
 actual-page tool and session-library matrix passed 26 checks (24 page cases and two
 startup checks), including the
 existing Phase 1 journeys, configured-source unavailability, cancellation and focus
@@ -130,3 +134,14 @@ and revert before launch. Admission resolves receipts and launches from one clon
 source/environment snapshot; current-state checks remain separate. A substituted
 command cannot be captured from a later read and launched under an earlier receipt.
 The fake-peer case failed before this change and now refuses before any peer starts.
+
+`CEN-9669CFCCFE51` exposed SDK inheritance outside the explicit environment map.
+Three catalog cases and one approval-time drift case failed before correction.
+Discovery and admission now capture the SDK's safe inherited defaults, caller
+environment and source overrides in one effective snapshot. Absent inherited
+names remain unset even if the parent environment changes later. Current checks
+refuse drift before publication, receipt resolution and peer effects; explicit
+override precedence remains valid. Only the private binding digest is retained.
+A fixed offline child using the actual locked MCP SDK 1.32.1 transport verifies
+frozen PATH, absent-name preservation and source override precedence. It starts
+no configured server and makes no model or network calls.
