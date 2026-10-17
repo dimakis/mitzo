@@ -74,7 +74,7 @@ function groupIntoSections(items: TodoItem[], sort: TodoSort): TodoSection[] {
 
 // ─── Create form ───────────────────────────────────────────────────────────
 
-function TodoCreateForm({
+export function TodoCreateForm({
   parentId,
   profile,
   profiles,

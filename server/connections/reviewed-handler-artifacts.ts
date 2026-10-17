@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.291-telos-s7-artifact-consumer';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.292-telos-s7-approved-protection';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -37,7 +37,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/TodoWorkspace.tsx':
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/TodoView.tsx':
-    'e25187c833f167520b562afb2328c5a4103016bcf0fc10d46ae10735259da2dc',
+    'b42bba26843ae932d6691eae88fe5c9f1c6d596ccee3eaa62826ad3b86982997',
   '../../frontend/src/lib/saved-artifact-location.ts':
     'b884336c70dae85d63d955fb9d454f4a7cd28e8e9d2fca94e3839b7e6b6444a5',
   '../../frontend/src/components/SavedArtifactRouteDialog.tsx':
