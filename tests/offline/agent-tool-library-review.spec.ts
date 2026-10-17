@@ -167,10 +167,44 @@ for (const theme of ['dark', 'light'])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
-    await page.screenshot({
+    const captureGeometry = await page.evaluate(() => ({
+      viewportWidth: innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      documentHeight: document.documentElement.scrollHeight,
+      devicePixelRatio,
+      fontSize: getComputedStyle(document.documentElement).fontSize,
+      cards: Array.from(document.querySelectorAll('.tool-library-card'), (card) => ({
+        name: card.querySelector('h2')?.textContent,
+        height: card.getBoundingClientRect().height,
+      })),
+    }));
+    await info.attach('large-text-catalog-geometry', {
+      body: JSON.stringify(captureGeometry, null, 2),
+      contentType: 'application/json',
+    });
+    console.log(
+      'Large text catalog geometry',
+      JSON.stringify({
+        ...captureGeometry,
+        cards: captureGeometry.cards.length,
+        devicePixelHeight: captureGeometry.documentHeight * captureGeometry.devicePixelRatio,
+      }),
+    );
+    expect(
+      (await last.locator('.tool-library-details > summary').boundingBox())!.height,
+    ).toBeGreaterThanOrEqual(44);
+    await expect(last.locator('.tool-library-details > summary')).toBeInViewport();
+    const largeTextCapture = await page.screenshot({
       path: info.outputPath(`tool-library-large-text-${theme}.png`),
       fullPage: true,
+      // The catalog with 125% text exceeds WebKit's 32767 pixel image limit
+      // on DPR 3 phones. Capture every CSS pixel without clipping content.
+      scale: 'css',
     });
+    // PNG IHDR dimensions prove that the complete document was captured at CSS
+    // resolution, without changing the actual viewport, text or touch geometry.
+    expect(largeTextCapture.readUInt32BE(16)).toBe(captureGeometry.documentWidth);
+    expect(largeTextCapture.readUInt32BE(20)).toBe(captureGeometry.documentHeight);
     await search.fill('mitzo:Write');
     await page.getByRole('button', { name: 'Agent library', exact: true }).click();
     await expect(page.getByLabel('Agent name', { exact: true })).toHaveValue('Evidence reader');
