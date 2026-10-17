@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createBrowserId } from '../lib/browser-crypto';
 import {
   CollaborationJoinInputSchema,
@@ -20,11 +20,16 @@ import {
   type ConversationJoiningRecoveryRecord,
   type ConversationJoiningReviewFence,
 } from '../lib/conversation-joining-recovery';
-import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
+import {
+  AUTH_LOST_EVENT,
+  AUTH_RESTORED_EVENT,
+  currentVerifiedAuthSessionId,
+} from '../lib/api-fetch';
 
 type State = {
   review: ConversationJoiningReviewResult | null;
   setup: ConversationAgentSetup | null;
+  restoredSetup: ConversationAgentSetup | null;
   brief: string;
   pending: 'review' | 'confirm' | 'recover' | null;
   error: string | null;
@@ -35,6 +40,7 @@ type State = {
 const initial = (): State => ({
   review: null,
   setup: null,
+  restoredSetup: null,
   brief: '',
   pending: null,
   error: null,
@@ -49,6 +55,7 @@ function restoredState(record: ConversationJoiningRecoveryRecord | null): State 
   return {
     ...initial(),
     setup: structuredClone(record.reviewRequest.setup),
+    restoredSetup: structuredClone(record.reviewRequest.setup),
     brief: record.reviewRequest.joiningBrief ?? record.acceptedReview?.joiningBrief ?? '',
     submission: record.submission ? structuredClone(record.submission) : null,
     join: record.join ? structuredClone(record.join) : null,
@@ -147,7 +154,8 @@ function readJoin(
       (join.joinId !== previous.joinId ||
         join.allocationOperationId !== previous.allocationOperationId ||
         (previous.sessionId !== null && join.sessionId !== previous.sessionId) ||
-        (previous.state === 'linked' && join.state !== 'linked') ||
+        (previous.state === 'linked' &&
+          (join.state !== 'linked' || join.linkedFromRevision !== previous.linkedFromRevision)) ||
         (previous.state === 'allocated' && join.state === 'pending_preparation')))
   )
     throw new Error('Joining receipt changed');
@@ -163,11 +171,16 @@ export function useConversationJoiningReview(
   const journal = useRef<ReturnType<typeof conversationJoiningRecovery> | null>(null);
   const retained = useRef<ConversationJoiningRecoveryRecord | null>(null);
   const storageBlocked = useRef(false);
+  const loginInvalidated = useRef(false);
+  const currentOwner = useRef(owner);
+  currentOwner.current = owner;
   const [state, setState] = useState<State>(() => {
     if (owner) {
       try {
-        journal.current = conversationJoiningRecovery(owner.sourceConversationId);
-        retained.current = journal.current.read();
+        if (currentVerifiedAuthSessionId()) {
+          journal.current = conversationJoiningRecovery(owner.sourceConversationId);
+          retained.current = journal.current.read();
+        }
       } catch {
         storageBlocked.current = true;
       }
@@ -182,6 +195,7 @@ export function useConversationJoiningReview(
   const read = useRef<AbortController | null>(null);
   const alive = useRef(true);
   const boundSource = useRef<string | null>(owner?.sourceConversationId ?? null);
+  const previousOwnerSource = useRef(owner?.sourceConversationId);
   // A persisted linked receipt is correlation, not fresh server authorization.
   const restored = useRef(retained.current !== null);
   const lastReview = useRef<{
@@ -199,14 +213,52 @@ export function useConversationJoiningReview(
     current.current = { ...current.current, ...change };
     setState(current.current);
   };
+  const adoptJournal = useCallback(() => {
+    const available = currentOwner.current;
+    if (
+      !alive.current ||
+      !available ||
+      journal.current ||
+      storageBlocked.current ||
+      loginInvalidated.current ||
+      (boundSource.current !== null && boundSource.current !== available.sourceConversationId)
+    )
+      return;
+    try {
+      if (!currentVerifiedAuthSessionId()) return;
+      const selected = conversationJoiningRecovery(available.sourceConversationId);
+      const record = selected.read();
+      journal.current = selected;
+      retained.current = record;
+      boundSource.current = available.sourceConversationId;
+      if (record) {
+        restored.current = true;
+        lastReview.current = {
+          input: structuredClone(record.reviewRequest),
+          previous: record.previousReview,
+        };
+        current.current = restoredState(record);
+      } else current.current = { ...current.current };
+    } catch {
+      storageBlocked.current = true;
+      current.current = { ...current.current, error: recoveryError };
+    }
+    setState(current.current);
+  }, []);
   useEffect(() => {
     const sequence = generation;
     alive.current = true;
     const invalidate = () => {
-      if (!journal.current || journal.current.isCurrent()) return;
+      if (!journal.current) {
+        // Existing auth restoration dispatches before assigning its final verified
+        // identity. One local microtask can adopt it; there is no polling or I/O.
+        queueMicrotask(adoptJournal);
+        return;
+      }
+      if (journal.current.isCurrent()) return;
       sequence.current++;
       read.current?.abort();
-      storageBlocked.current = true;
+      loginInvalidated.current = true;
       current.current = { ...initial(), error: recoveryError };
       setState(current.current);
     };
@@ -219,26 +271,49 @@ export function useConversationJoiningReview(
       window.removeEventListener(AUTH_LOST_EVENT, invalidate);
       window.removeEventListener(AUTH_RESTORED_EVENT, invalidate);
     };
-  }, []);
+  }, [adoptJournal]);
+  const ownerSource = owner?.sourceConversationId;
+  useEffect(() => {
+    if (previousOwnerSource.current !== ownerSource) {
+      previousOwnerSource.current = ownerSource;
+      generation.current++;
+      read.current?.abort();
+      if (lastReview.current) {
+        restored.current = current.current.join !== null;
+        current.current = {
+          ...current.current,
+          pending: null,
+          uncertain: !!current.current.submission && !current.current.join,
+          error: 'Joining could not be checked. The original request is retained.',
+        };
+        setState(current.current);
+      }
+    }
+    adoptJournal();
+  }, [ownerSource, adoptJournal]);
   const ownerAvailable =
     !!owner &&
     (boundSource.current === null || boundSource.current === owner.sourceConversationId) &&
     !storageBlocked.current &&
-    (!journal.current || journal.current.isCurrent());
+    !loginInvalidated.current &&
+    !!journal.current?.isCurrent();
+  const canPublish = (operation: number, source: string) =>
+    alive.current &&
+    generation.current === operation &&
+    currentOwner.current?.sourceConversationId === source &&
+    boundSource.current === source &&
+    !storageBlocked.current &&
+    !loginInvalidated.current &&
+    !!journal.current?.isCurrent();
   const ensureRecovery = () => {
-    if (!owner || !ownerAvailable) throw new Error('Joining owner unavailable');
-    if (!journal.current) {
-      journal.current = conversationJoiningRecovery(owner.sourceConversationId);
-      retained.current = journal.current.read();
-      if (retained.current) {
-        restored.current = true;
-        lastReview.current = {
-          input: retained.current.reviewRequest,
-          previous: retained.current.previousReview,
-        };
-        update(restoredState(retained.current));
-      }
-    }
+    if (
+      !currentOwner.current ||
+      currentOwner.current.sourceConversationId !== boundSource.current ||
+      storageBlocked.current ||
+      loginInvalidated.current ||
+      !journal.current?.isCurrent()
+    )
+      throw new Error('Joining owner unavailable');
     return journal.current;
   };
   const save = (record: ConversationJoiningRecoveryRecord) => {
@@ -251,6 +326,7 @@ export function useConversationJoiningReview(
     retryInput?: Parameters<ConversationJoiningOwner['review']>[0],
   ) => {
     if (!owner || !ownerAvailable || current.current.submission) return;
+    const source = owner.sourceConversationId;
     boundSource.current = owner.sourceConversationId;
     const captured = structuredClone(setup);
     const input = retryInput
@@ -300,12 +376,12 @@ export function useConversationJoiningReview(
     }
     try {
       const result = await owner.review(structuredClone(input), controller.signal);
-      if (!alive.current || generation.current !== operation) return;
+      if (!canPublish(operation, source)) return;
       const accepted = readReview(result, owner, captured, brief, previous);
       save({ ...retained.current!, acceptedReview: joiningReviewFence(accepted) });
       update({ review: accepted, brief: accepted.snapshot.joiningBrief, pending: null });
     } catch {
-      if (!alive.current || generation.current !== operation) return;
+      if (!canPublish(operation, source)) return;
       update({
         pending: null,
         error: 'The joining brief could not be checked. Your setup and edits stay here.',
@@ -315,6 +391,7 @@ export function useConversationJoiningReview(
   const confirm = async () => {
     const state = current.current;
     if (!owner || !ownerAvailable || state.pending || state.join) return;
+    const source = owner.sourceConversationId;
     let input = state.submission;
     if (!input) {
       if (!ready(state) || !state.review || !state.setup) return;
@@ -341,7 +418,7 @@ export function useConversationJoiningReview(
     const operation = ++generation.current;
     try {
       const result = await owner.confirm(input);
-      if (!alive.current || generation.current !== operation) return;
+      if (!canPublish(operation, source)) return;
       const accepted = readJoin(result, current.current.submission!);
       save({ ...retained.current!, join: accepted });
       restored.current = false;
@@ -352,7 +429,7 @@ export function useConversationJoiningReview(
       });
       if (accepted.state === 'linked') onLinked?.(accepted);
     } catch {
-      if (!alive.current || generation.current !== operation) return;
+      if (!canPublish(operation, source)) return;
       update({
         pending: null,
         uncertain: true,
@@ -363,6 +440,7 @@ export function useConversationJoiningReview(
   const recover = async () => {
     const state = current.current;
     if (!owner || !ownerAvailable || !state.join || !state.submission || state.pending) return;
+    const source = owner.sourceConversationId;
     try {
       if (!equal(ensureRecovery().read(), retained.current))
         throw new Error('Joining recovery operation changed');
@@ -377,14 +455,14 @@ export function useConversationJoiningReview(
     update({ pending: 'recover', error: null });
     try {
       const result = await owner.recover(state.join.joinId, controller.signal);
-      if (!alive.current || generation.current !== operation) return;
+      if (!canPublish(operation, source)) return;
       const accepted = readJoin(result, state.submission, state.join);
       save({ ...retained.current!, join: accepted });
       restored.current = false;
       update({ join: accepted, pending: null });
       if (accepted.state === 'linked') onLinked?.(accepted);
     } catch {
-      if (!alive.current || generation.current !== operation) return;
+      if (!canPublish(operation, source)) return;
       update({
         pending: null,
         error: 'Joining could not be checked. The original request is retained.',
@@ -393,9 +471,14 @@ export function useConversationJoiningReview(
   };
   return {
     ...state,
+    review: ownerAvailable ? state.review : null,
     requiresRecovery: restored.current && state.join !== null,
     canConfirm: ownerAvailable && ready(state),
-    locked: state.submission !== null || storageBlocked.current,
+    locked:
+      state.submission !== null ||
+      storageBlocked.current ||
+      loginInvalidated.current ||
+      (!!owner && !journal.current),
     hasAttemptFor: (setup: ConversationAgentSetup) =>
       current.current.setup !== null && equal(current.current.setup, setup),
     prepare: (setup: ConversationAgentSetup) => {

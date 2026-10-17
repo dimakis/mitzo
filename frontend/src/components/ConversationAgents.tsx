@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { FinishedMessage } from '@mitzo/protocol';
 import type {
   ConversationAgentSetup,
@@ -92,6 +92,10 @@ function ConversationAgentsBody({
   const [setup, setSetup] = useState(() =>
     joining.setup ? structuredClone(joining.setup) : initial(),
   );
+  const restoredSetup = joining.restoredSetup;
+  useEffect(() => {
+    if (restoredSetup) setSetup(structuredClone(restoredSetup));
+  }, [restoredSetup]);
   const names = agents.map((a) => a.name).join(', ');
   const nameValid =
     /^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(setup.name) &&
