@@ -400,7 +400,50 @@
         "320px WebKit dark: saved-state explanation, actual read error and Refresh sharing remain readable; old confirmed checkbox disabled; body scroll and footer contained.",
         "1280px Chromium light: same recovery in existing Agents dialog with retained successful transcript reply."
       ],
-      "remaining": "Core still owns final page mounting and complete application journey; C independent inspection of the four new recovery captures requested. Full CI/trusted Centaur for the new head remain open."
+      "remaining": "Core retains final application mounting/journey. C completed independent static inspection of all four recovery captures; combined app/native iOS acceptance and exact-head CI/trusted review remain open.",
+      "independentInspection": {
+        "ownerSession": "01a14bdc-d152-7912-84d4-c0012e9d5206",
+        "source": "153fbe4da624c070da3e2d07494087f59f1eb23b",
+        "tree": "6a1f59a89e6b8df8d6e4667c4cec75afe3cef8a8",
+        "images": 4,
+        "publishedReceipt": "C signed draftPR1022 head2ce97499; ui-policy-recovery-independent receipt and single C map.",
+        "result": "All four retained/hash-verified images independently viewed; saved explanation, actual error, Refresh sharing, prior unchecked Reads/dimmed controls and visible footer in mobile/desktop, both themes.",
+        "bounds": "Static images do not prove GET-only behavior, disabled DOM, focus or request counts; producer browser assertions provide those scoped behaviors. No C browser rerun; full combined/native iOS acceptance remains open."
+      }
+    },
+    "acceptedBaseIntegration": {
+      "source": "163f74748e4c9e782e1f27db7179987fdcb903aa",
+      "base": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
+      "previousHead": "153fbe4da624c070da3e2d07494087f59f1eb23b",
+      "conflict": "Only server/connections/reviewed-handler-artifacts.ts generated runtime version conflicted; merged both accepted/A source entries and used v1.0.286-codex-agent-tools-sandbox-review.1-symposium-shared-ui.3.",
+      "sourcePins": 547,
+      "mismatches": 0,
+      "unit": {
+        "passed": 285,
+        "files": 24,
+        "failed": 0,
+        "unhandledErrors": 0,
+        "seconds": 20.03,
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx vitest run <prior23 files plus server/__tests__/sandbox-ownership-artifacts.test.ts> --maxWorkers=1",
+        "counts": "Includes earlier284 plus one accepted sandbox artifact assertion. Historical counts overlap."
+      },
+      "design": {
+        "passed": 108,
+        "existingCiBaseRefSkip": 1
+      },
+      "types": "Focused source/fixture TypeScript passed",
+      "lint": "Focused manifest and normal merged-source eslint/prettier/gitleaks hooks passed. First merge commit message failed conventional-commit validation; corrected message with normal hooks.",
+      "browser": {
+        "passedUiCases": 6,
+        "startupDependencies": 2,
+        "failed": 0,
+        "retries": 0,
+        "seconds": 16.0,
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx playwright test --config playwright.offline.config.ts tests/offline/symposium-shared-conversation.spec.ts --workers=1"
+      },
+      "captureClosure": "git diff153fbe4d..163f747 across all A UI/API/controller/draft/projection/fixture/spec files is empty. Every retained capture hash verified unchanged; existing captures retain their exact recorded source bounds.",
+      "gates": "Prior153fbe4d had no exact-head check/status and a cancelled status-writer workflow. Existing Centaur queue independently inspected read-only:153 job4760 and2ae job4753 queued, no published reviews; do not submit duplicate review or count old gate success as approval. Exact resulting-head CI/job scheduling must be verified after push, outside this commit.",
+      "remaining": "Draft; exact-head full CI and two qualifying trusted review rounds/final LGTM still required. Combined actual app and physical iOS acceptance remain open."
     }
   },
   "integrationHandoff": {
@@ -415,7 +458,7 @@
     "policy": "Confirmed server view drives checkboxes. In-memory pending request retains requestId, membership/revision fences and values on network/408/429/5xx ambiguity. retryPolicy reuses exact original body. Unchanged read cannot clear uncertainty; newer authoritative revision fences it. Known definite400/401/403/404/409/422 refusal clears pending but retains error until refresh. No optimistic success. Matching receipt confirmation recovery: pendingPolicy.receipt proves mutation committed; needsRefresh=true and uncertain=false expose failed view confirmation. Preserve original input/receipt and old confirmed projection. retryPolicy with receipt performs read-only refresh; core must render this state before unknown-outcome uncertainty.",
     "agentsSlots": "ConversationAgents adds optional policyFeedback:ReactNode and policyUnavailableReason:string; feedback appears once inside existing Agents dialog. Core wires pending/refusal/retry/refresh via these slots. No new joining lifecycle or auth owner.",
     "header": "Core df7aaa markup is integrated as93ab42f6 and extended by A container/count corrections a24bd063+844d5ddb. Consume final A once; do not independently reapply core header patch.",
-    "acceptanceMap": "Single combined map remains workstream C docs/evidence/symposium-integration-acceptance.md, PR1022 head9f69920e at latest refresh; A does not duplicate global acceptance. Full actual app review journey still503 pending core source/settings integration."
+    "acceptanceMap": "Single combined map remains C docs/evidence/symposium-integration-acceptance.md, PR1022; latest reported signed2ce97499 includes independent four-image recovery receipt. A does not duplicate global acceptance; full application journey remains core/C."
   },
   "remaining": [
     "Core must mount the final hook/slots in actual application pages and connect its existing verified auth getter and dispatch/reader owners.",
@@ -433,7 +476,7 @@
     "stagingOperations": 0
   },
   "latestAcceptedMain": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
-  "acceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
+  "acceptedMainMerge": "163f74748e4c9e782e1f27db7179987fdcb903aa",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -567,7 +610,8 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "fea33e215b0d1bcf29604aa13e793329588a2980",
-  "baseRefresh": "Remote main refreshed after source completion: #1010 sandbox ownership only; no overlapping A files. Core is integrating that accepted change. A retains fea33e21 integration base; final combined-source qualification remains core/C work.",
-  "latestValidation": "checks.policyConfirmationRecovery"
+  "integratedAcceptedBase": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
+  "baseRefresh": "Integrated accepted13669901 after GitHub reported the153fbe4d PR conflicting and omitted its normal pull_request CI. Sole conflict was generated runtime revision; preserved accepted sandbox pins and A pins, combined distinct suffix, no A UI/API/controller/fixture byte changes. No rebase or force push.",
+  "latestValidation": "checks.acceptedBaseIntegration",
+  "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f"
 }
