@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.282-codex-research';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.283-telos-priority';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -53,7 +53,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/ws-messages.ts':
     'cfbebddf79a141d8affbdae712178d0d15e16382c959b8d8c4a766073fe4976e',
   '../../frontend/src/styles/global.css':
-    'b7d58a6d48a82775c95eacf3965050e6a2ad9dc775eef37914b405b93d0fddd8',
+    '4b8b12f920c17326e2f7c4d163aba0bed49d91b7ff2143a59ce97c90127d73c2',
   '../../frontend/src/components/TelosSourceReview.tsx':
     'e501290f74a90903b94fdc3a3c0b81075e72be6ed3b30e60a68ed4f3d38479ee',
   '../../frontend/src/components/PermissionBanner.tsx':
@@ -63,9 +63,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b2a461e208923889e0286efdd3faa41705af58693de41446aa6021eaa4b73fd8',
   '../telos-outcome-handler.ts': 'fd01a401e79d08b8330aac5da419d11c49e07d767edf2bab34bea990cf04168f',
   '../../frontend/src/types/todo.ts':
-    '91a8e37caa5378df768537096bb03267cdc753c718ebfe3aa1b7b1732a14f35a',
+    '0bb70da730deb4cd25d7bb12181f593e795ef5b36d0d6f3915b6895ffe7a68ff',
   '../../frontend/src/pages/TodoDetailView.tsx':
-    'cd5c864626c0a3b791639334f606366490990a1ec10931e9d100be7c31a942ed',
+    'd166de33ea2f7e62e2cd46cfe6104cbc552173cee0c81d49957e530a04daa35a',
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
@@ -145,7 +145,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '29b0c05f64bc8555d35a759c7054a950cc70f57a7b49510262ae3b3b1e51f97a',
   '../../frontend/src/components/RetainedConversationComposer.tsx':
     '6be25f820dbf6770f063664ce19429fcfc986547cd8ef397f996a4294b8317d7',
-  '../api-schemas.ts': '3da308057740950c819f0338f7f00cc6ad69b923d067ee6098a41fc6c5b3f80c',
+  '../api-schemas.ts': '1f036d99280f706a1a0aa5bf9115bf748c57654afc16d9e1540a3f3b79374961',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent review compilation and metadata; execution remains disabled.
   '../collaboration-context-compiler.ts':
@@ -499,7 +499,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'b513d2462060247b531ef3f7e13082972e8ff921f22d74f72b2ca1cb73cfdb51',
+  '../app.ts': '6b3c8c7bc279793a0cff4ba8647ca2b810edb69eaed7c88adf52bb6da5c1c5f5',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -884,7 +884,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ProtectedRoute.tsx':
     '26e43aa23bf531d1a59408817019e9e43c6e12d6594a0bf6342ba63c4d494fd0',
   '../../frontend/src/components/TodoCard.tsx':
-    'ac794c67dce156ebede1aa75908600a228f7d571af23f6a43dca836ec729ddf3',
+    'b325fd32ed13963c3b2f2b15c9b11e234ccaa561b512b09c6223598323e8cfc5',
   '../../frontend/src/hooks/useAttentionFeed.ts':
     '8f10be65de76cf721b6533c336428e3144c324cec9129a6b437b054b07cd1a22',
   '../../frontend/src/hooks/useCalendarData.ts':
@@ -896,7 +896,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useSessionList.ts':
     '8da1fb05d820785afec8e7ab671b10ed83b84c67ffff1317d5fd5ce677f2a4c7',
   '../../frontend/src/hooks/useTodoData.ts':
-    '2fdf94ff9719384bfbd247218f68a99efa6e243a1560bf287088620a4f12b39d',
+    '8016429bbc0de98d30d41c93c4357fa31289ebf6244712b517a0a64961178577',
   '../../frontend/src/lib/api-fetch.ts':
     '39ae0be32bfda66e5135dbe287eecb5cb5bce0c74d3e823897d6363d040bf9ff',
   '../../frontend/src/lib/api-json-read.ts':
@@ -1010,4 +1010,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '89b884c09d8c7b6b4c236bc4cba6fb4b2a775823e55a893f56241b488f39d803',
   '../../packages/protocol/src/tool-summary.ts':
     '69f553304211b38f926b4f4fe81aeae04b177432ccc0002ab95d3258ef07f90b',
+
+  // Approved numeric priority control, derived badges and shared read/write ownership.
+  '../../frontend/src/components/TodoPrioritySelect.tsx':
+    'cf3f1fff13f0e7cbac2f475bbad1d3052f56c1479611b4d48605a2e2ae02dd61',
+  '../../frontend/src/lib/todo-utils.ts':
+    'ac071496fb4986ec4b4395384ed7777b96a01a2706ec31ef5766464362363bd4',
+  '../../frontend/src/lib/list-cache.ts':
+    'd84708623643d8fb7e0a2429fbb37b4340881a53192231182f066ce751d7cd04',
+  '../../frontend/src/pages/TodoView.tsx':
+    'b46a9a709821749c6e352bccc25e8527a158f9e8f26530d79dc7ba550bb4f8b6',
 });
