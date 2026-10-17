@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
+import {
+  reviewedHandlerSourceArtifacts,
+  reviewedConnectionsRuntimeImplementationRevision,
+} from './connections/reviewed-handler-artifacts.js';
 import type { ToolDefinition } from '@mitzo/harness';
 import { requestTarget, type CredentialConnections } from './credential-connections.js';
 
@@ -55,7 +58,11 @@ export function apiToolBinding(config: ApiToolConfiguration, service: Credential
       JSON.stringify({
         authority,
         template: apiToolTemplate,
-        implementation: reviewedHandlerSourceArtifacts['../api-tool-template.ts'],
+        // Conservatively pin the entire reviewed execution closure, including transitive helpers.
+        implementation: Object.entries(reviewedHandlerSourceArtifacts).sort(([a], [b]) =>
+          a < b ? -1 : a > b ? 1 : 0,
+        ),
+        implementationRevision: reviewedConnectionsRuntimeImplementationRevision,
       }),
     )
     .digest('hex');

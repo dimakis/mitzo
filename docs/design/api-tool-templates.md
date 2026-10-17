@@ -36,7 +36,7 @@ implementation tests inject fake HTTP and vault adapters. Page reads and draft
 saves cannot verify implicitly.
 
 Verification binds the exact draft, connection authority/transport inputs and
-reviewed adapter fingerprint. Cancellation, supersession, changed authority,
+the entire reviewed source closure and its deliberate runtime revision. Even an unrelated registered-source change requires an explicit re-save, verification and publication; this conservative boundary avoids missing transitive execution changes. Cancellation, supersession, changed authority,
 non-200 or malformed output prevents publication. Starting another verification
 invalidates its previous proof. A failed attempt cannot retain an older success.
 Verification stores no response, credential or session grant.
@@ -51,8 +51,7 @@ Portable profiles carry only `api:<UUID>`, positive version and opaque revision.
 Another installation cannot resolve that reference by label or template. Secrets,
 grants, connection IDs, endpoints and entity configuration remain private.
 Selection never grants access. Legacy missing selection and explicit empty
-selection retain their existing meanings. The foundation PR deliberately leaves
-API references unavailable on all routes until the admission slice is accepted.
+selection retain their existing meanings. Explicit API references are enrolled only on local OpenAI Responses and Gemini/Vertex API routes; the existing other-route refusals remain. RequestConnectionAccess must also be selected. Canonical policy/hook/display identities remain distinct from private approval keys.
 
 ## Delivery and tests
 

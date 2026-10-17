@@ -1,5 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { reviewedHandlerSourceArtifacts } from '../connections/reviewed-handler-artifacts.js';
+vi.mock('../connections/reviewed-handler-artifacts.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../connections/reviewed-handler-artifacts.js')>();
+  return {
+    ...actual,
+    reviewedHandlerSourceArtifacts: { ...actual.reviewedHandlerSourceArtifacts },
+  };
+});
 import { ApiToolCatalog } from '../api-tool-catalog.js';
 import { CredentialConnections, CredentialConnectionStore } from '../credential-connections.js';
 
@@ -152,3 +161,59 @@ it('fences concurrent edits, cancellation, connection drift and foreign receipts
   f.service.disable(f.connection.id, 1);
   expect(() => f.catalog.resolve(entry, f.service)).toThrow();
 });
+
+it('a changed execution helper cannot silently replace a verified implementation', async () => {
+  const f = await fixture();
+  const draft = f.catalog.save(f.input, f.service);
+  await f.catalog.verify(draft.id, 1, f.options);
+  const entry = f.catalog.publish(draft.id, 1, f.service);
+  // The test module substitutes a mutable copy of the production frozen manifest.
+  const artifacts = reviewedHandlerSourceArtifacts as Record<string, string>;
+  const original = artifacts['../credential-connections.ts'];
+  artifacts['../credential-connections.ts'] = 'a'.repeat(64);
+  try {
+    expect(() => f.catalog.resolve(entry, f.service)).toThrow(/changed/);
+    await expect(f.catalog.verify(draft.id, 1, f.options)).rejects.toThrow();
+    const rebound = f.catalog.save({ ...f.input, expectedVersion: 1 }, f.service);
+    await f.catalog.verify(draft.id, rebound.version, f.options);
+    const next = f.catalog.publish(draft.id, rebound.version, f.service);
+    expect(next.version).toBe(2);
+    expect(next.revision).not.toBe(entry.revision);
+    expect(() => f.catalog.resolve(entry, f.service)).toThrow();
+    expect(f.catalog.resolve(next, f.service).configuration).toEqual(f.input.configuration);
+  } finally {
+    artifacts['../credential-connections.ts'] = original;
+  }
+});
+it.each(['failed-newer-verification', 'cancellation'])(
+  'an awaited successful response cannot restore stale proof after %s',
+  async (kind) => {
+    const f = await fixture();
+    const draft = f.catalog.save(f.input, f.service);
+    await f.catalog.verify(draft.id, 1, f.options);
+    const published = f.catalog.publish(draft.id, 1, f.service);
+    let release!: () => void;
+    f.send.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return {
+        status: 200,
+        body: '{"entity_id":"sensor.office","state":"21","last_changed":"2026-10-17T00:00:00Z"}',
+      };
+    });
+    const controller = new AbortController();
+    const pending = f.catalog.verify(draft.id, 1, { ...f.options, signal: controller.signal });
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    if (kind === 'cancellation') controller.abort();
+    else {
+      f.send.mockResolvedValueOnce({ status: 403, body: '{}' });
+      await expect(f.catalog.verify(draft.id, 1, f.options)).rejects.toThrow();
+    }
+    release();
+    await expect(pending).rejects.toThrow();
+    expect(() => f.catalog.publish(draft.id, 1, f.service)).toThrow();
+    expect(() => f.catalog.resolve(published, f.service)).toThrow();
+    expect(f.service.sessions(f.connection.id)).toEqual([]);
+  },
+);

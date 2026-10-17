@@ -423,6 +423,21 @@ export class CredentialConnections {
   grant(session: string, id: string, revision: number) {
     this.store.grant(session, this.connection(id, revision));
   }
+  /** Track pending approval as well as dispatched requests under the same revocation boundary. */
+  observeSessionRevocation(session: string, id: string) {
+    const key = `${session}:${id}`;
+    const controller = new AbortController();
+    const controllers = this.active.get(key) ?? new Set();
+    controllers.add(controller);
+    this.active.set(key, controllers);
+    return {
+      signal: controller.signal,
+      close: () => {
+        controllers.delete(controller);
+        if (!controllers.size) this.active.delete(key);
+      },
+    };
+  }
   private cancel(id: string, session?: string) {
     for (const [key, controllers] of this.active)
       if (key === `${session}:${id}` || (!session && key.endsWith(`:${id}`)))

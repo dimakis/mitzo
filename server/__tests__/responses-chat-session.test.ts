@@ -2232,9 +2232,25 @@ it.each(['openai', 'google-vertex'] as const)(
       expect(JSON.stringify(exported)).not.toMatch(
         /sensor.office|ha.example.com|connectionId|fake-secret/,
       );
+      const imported = library.importDraft('user', {
+        profileId: 'imported-api-reader',
+        artifact: exported,
+        idempotencyKey: 'import-api',
+      });
+      expect(imported.definition.tools).toEqual(definition.tools);
+      const foreignCatalog = new ApiToolCatalog(':memory:');
+      try {
+        expect(() => foreignCatalog.resolve(imported.definition.tools![0], service)).toThrow(
+          /unresolved/,
+        );
+        expect(service.sessions(c.id)).toEqual([]);
+      } finally {
+        foreignCatalog.close();
+      }
       events.upsertSession({ sessionId: 'api-chat', agentProfile: published });
       const wire = catalog.resolve(entry, service).definition.name;
-      for (const resume of [false, true]) {
+      for (const attempt of [0, 1, 2]) {
+        const resume = attempt > 0;
         registry.register('api-client', {
           sessionId: 'api-chat',
           cwd: root,
@@ -2243,10 +2259,10 @@ it.each(['openai', 'google-vertex'] as const)(
           sessionAllowList: new Set(),
         } as never);
         const session = registry.get('api-client')!;
-        service.grant('api-chat', c.id, c.revision);
+        if (attempt < 2) service.grant('api-chat', c.id, c.revision);
         const input = new AsyncQueue<{ message: { content: string } }>();
         input.close();
-        const chat = await openResponsesChat({
+        const openOptions: Parameters<typeof openResponsesChat>[0] = {
           conversationId: 'api-chat',
           binding: {
             accountId: 'fixture',
@@ -2265,7 +2281,14 @@ it.each(['openai', 'google-vertex'] as const)(
           store: privateStore,
           resume,
           apiTools: { catalog },
-        });
+        };
+        if (attempt === 2) {
+          send.mockClear();
+          await expect(openResponsesChat(openOptions)).rejects.toThrow(/API tool/);
+          expect(send).not.toHaveBeenCalled();
+          continue;
+        }
+        const chat = await openResponsesChat(openOptions);
         const options = calls.options.at(-1)! as {
           tools: { name: string }[];
           executeTool(
@@ -2302,6 +2325,37 @@ it.each(['openai', 'google-vertex'] as const)(
           ).is_error,
         ).toBe(false);
         expect(send).toHaveBeenCalledOnce();
+        if (resume) {
+          const changed = catalog.save(
+            {
+              id: draft.id,
+              expectedVersion: 1,
+              configuration: { ...draft.configuration, entityId: 'sensor.other' },
+            },
+            service,
+          );
+          send.mockResolvedValueOnce({
+            status: 200,
+            body: '{"entity_id":"sensor.other","state":"22","last_changed":"2026-10-17T00:00:00Z"}',
+          });
+          await catalog.verify(draft.id, changed.version, {
+            service,
+            signal: new AbortController().signal,
+            assertCurrent: () => {},
+          });
+          const replacement = catalog.publish(draft.id, changed.version, service);
+          expect(replacement.version).toBe(2);
+          send.mockClear();
+          expect(
+            (
+              await options.executeTool(
+                { type: 'tool_use', id: 'stale', name: wire, input: {} },
+                session.abortController.signal,
+              )
+            ).is_error,
+          ).toBe(true);
+          expect(send).not.toHaveBeenCalled();
+        }
         chat.close();
         session.abortController.abort();
         if (!resume) {
@@ -2317,6 +2371,8 @@ it.each(['openai', 'google-vertex'] as const)(
             expectedVersion: next.version,
             idempotencyKey: 'next-publish',
           });
+        }
+        if (attempt < 2) {
           catalog.close();
           connections.close();
           privateStore.close();

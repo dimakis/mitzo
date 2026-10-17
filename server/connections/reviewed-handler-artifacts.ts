@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.263-api-tools.3';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.263-api-tools.5';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,9 +26,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '41474f869c7877422eddddd530d3c8a237424d937adef8f25f317ccc51ebbc66',
   '../api-tool-router.ts': '2b95fa7fa918be7ea1b59e04293d7fbbd80e55ef719d1b0a90e65ffb2e0b3eef',
   '../api-tool-runtime.ts': 'b81ed9f222e6b6aea47425b4fa33511c26235e02e5c548221522bd2cae43ed6c',
-  '../api-tool-execution.ts': '0c0fb1097dcec7e9fa8682aa3e19754f524350b70c64e962196f59cdc0d9357b',
+  '../api-tool-execution.ts': '4b2517a35fc4205667c4f974d080fe7e876756352a3a73d32fe405f1a56b21a8',
   '../api-tool-catalog.ts': '095ed32ba9d5f738194e954bd87a36605f3c4b4e555c19f8752dcb267e5230da',
-  '../api-tool-template.ts': '5057d248c596caf080bca26a4a1c27a8905aaca7ae404ec825febaf2d069ecbc',
+  '../api-tool-template.ts': '32908a45ddeacada75dfb4a1d0e8d2370b3fe441fabf8dad3d2fd3edb8eb8c51',
   '../mcp-launch-environment.ts':
     '97ac57133ca19edc39bc8b6ccf58bb4fdfab261ca71483d1c7ab937ffd03742a',
   '../telos-work-record.ts': '7a1da4212ae06394702807b31421c371fac600904fa526937544587cbff56d93',
@@ -541,7 +541,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../home-assistant-dashboard.ts':
     '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
-    'bc7316e8c8a5d9807e7afb9ae174360fccd790d1931c87cdc8edfb1dbdb8b173',
+    '7a20791d08265360c68bd6b94362669e722d06b5bb0d7c95474d0c3b7a702ccd',
   '../credential-connections-router.ts':
     '6d7b779ff5ba148b6aea43483f4003da0d9ed4908e551a273de5906140c7b96b',
   '../credential-connection-tools.ts':
