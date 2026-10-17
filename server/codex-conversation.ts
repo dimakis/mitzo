@@ -177,6 +177,8 @@ export interface CodexConversationOptions {
   runtimeCwd?: string;
   modelProvider?: string;
   runtimeConfig?: Record<string, unknown>;
+  /** Narrow selection ceiling; preserves the route's complete runtime policy. */
+  readonly disableWebSearch?: boolean;
   /** Independent document preference; suppress task-checkout AGENTS.md discovery. */
   readonly disableProjectDocuments?: boolean;
   webSearchBackend?: WebSearchBackend;
@@ -361,11 +363,13 @@ export class CodexConversation {
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   private appliedWebSearchAccess: WebSearchAccess = 'disabled';
   private webSearchDeploymentCeiling: WebSearchAccess = 'disabled';
+  private readonly disableWebSearch: boolean;
   private readonly disableProjectDocuments: boolean;
   private readonly agentContextSource?: string;
   constructor(private opts: CodexConversationOptions) {
     assertNativeCodexContextAdmission({ source: opts.agentContextSource });
     this.agentContextSource = opts.agentContextSource;
+    this.disableWebSearch = opts.disableWebSearch === true;
     this.disableProjectDocuments = opts.disableProjectDocuments === true;
     this.client = this.createClient();
   }
@@ -1284,8 +1288,10 @@ export class CodexConversation {
   }
 
   private runtimeConfiguration(configuration: unknown): Record<string, unknown> {
-    if (!this.opts.runtimeConfig)
-      return codexRuntimeOverrides(configuration, this.opts.profile.workspaceId);
+    if (!this.opts.runtimeConfig) {
+      const config = codexRuntimeOverrides(configuration, this.opts.profile.workspaceId);
+      return this.disableWebSearch ? { ...config, web_search: 'disabled' } : config;
+    }
     const inherited = z
       .object({
         // config/read returns null when the preference is unset.
@@ -1295,6 +1301,7 @@ export class CodexConversation {
     return {
       model_reasoning_summary: inherited.model_reasoning_summary ?? 'auto',
       ...this.opts.runtimeConfig,
+      ...(this.disableWebSearch ? { web_search: 'disabled' } : {}),
     };
   }
 
