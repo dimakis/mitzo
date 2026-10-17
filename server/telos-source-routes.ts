@@ -15,9 +15,12 @@ import type { EventStore } from './event-store.js';
 import { TelosSourceApproval, TelosSourceSaveUncertainError } from './telos-source-approval.js';
 import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
 import { z } from 'zod';
+import { isAuthSessionCurrent, type AuthSession } from './auth.js';
 import type { Request } from 'express';
 import {
   TelosSourcePermissionPreviewRequestSchema,
+  TelosSourceMaterialPageRequestSchema,
+  TelosSourceMaterialCursorSchema,
   TelosSourcePermissionApproveRequestSchema,
 } from '@mitzo/protocol';
 
@@ -56,7 +59,27 @@ export function createTelosSourceRouter(options: {
   ) => {
     let work: TelosWorkStore | undefined, artifacts: TelosArtifactStore | undefined;
     let approvalStore: TelosSourceApprovalStore | undefined;
+    // Retain the host-authenticated identity/deadline, never request JSON. The
+    // current revocation owner is consulted again across every async boundary.
+    const session = res.locals.authSession as AuthSession | undefined;
+    const authorization = session && { id: session.id, expiresAt: session.expiresAt };
+    const assertAuthorized =
+      actor.kind === 'operator'
+        ? () => {
+            if (
+              !authorization ||
+              authorization.id !== actor.id ||
+              !Number.isFinite(authorization.expiresAt) ||
+              !isAuthSessionCurrent(authorization)
+            )
+              throw new TelosWorkError(
+                'unauthorized',
+                'Interactive operator authentication expired or was revoked',
+              );
+          }
+        : undefined;
     try {
+      assertAuthorized?.();
       const path = options.dbPath();
       work = new TelosWorkStore(path, {
         ordinaryConversation: options.ordinaryConversation,
@@ -67,6 +90,7 @@ export function createTelosSourceRouter(options: {
         events: options.events,
         work,
         artifacts,
+        assertAuthorized,
         authorizeSource: (who, id) =>
           who.kind === 'operator' && who.id === actor.id && !!options.events.getSession(id),
         authorizeArtifact: (who, itemId) =>
@@ -77,13 +101,16 @@ export function createTelosSourceRouter(options: {
         events: options.events,
         work,
         artifacts,
+        assertAuthorized,
         store: approvalStore,
         createOutcome: async (input) => {
           if (!options.createOutcome) throw new Error('Canonical creator unavailable');
           return options.createOutcome(input);
         },
       });
-      res.json(await action(capture, approval));
+      const result = await action(capture, approval);
+      assertAuthorized?.();
+      res.json(result);
     } catch (error) {
       const known = error instanceof TelosWorkError;
       const uncertain = error instanceof TelosSourceSaveUncertainError;
@@ -123,6 +150,31 @@ export function createTelosSourceRouter(options: {
       await run(res, actor, (_capture, approval) =>
         approval.review(input.data.permId, input.data.sessionId, actor, input.data.afterSequence),
       );
+    },
+  );
+  router.get(
+    '/api/telos/work/source/permissions/:permId/materials',
+    options.operatorAuth,
+    async (req, res) => {
+      const actor = authority(res);
+      if (!actor) return;
+      const id = TelosWorkIdSchema.safeParse(req.params.permId);
+      const input = TelosSourceMaterialPageRequestSchema.extend({
+        after: z.preprocess((value) => {
+          if (typeof value !== 'string') return value;
+          if (value.length > 2000) return null;
+          try {
+            return JSON.parse(value);
+          } catch {
+            return null;
+          }
+        }, TelosSourceMaterialCursorSchema.optional()),
+      }).safeParse(req.query);
+      if (!id.success || !input.success) {
+        res.status(400).json({ code: 'invalid', error: 'Invalid source material cursor' });
+        return;
+      }
+      await run(res, actor, (_capture, approval) => approval.materials(id.data, input.data, actor));
     },
   );
   for (const operation of ['preview', 'approve'] as const)
