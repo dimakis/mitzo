@@ -172,3 +172,40 @@ it('accepts later authoritative priority changes once a confirmed write is recon
   act(() => updates.forEach((listener) => listener()));
   await waitFor(() => expect(view.result.current.records[0]?.priority).toBe(2));
 });
+
+for (const remount of [false, true])
+  it(`accepts an authoritative recovery read after another client changed priority${remount ? ' across navigation/remount' : ''}`, async () => {
+    const { setTodoPriority } = await import('../../lib/todo-priority');
+    vi.spyOn(await import('../../lib/api-fetch'), 'apiFetch').mockResolvedValue(
+      new Response('{"ok":true}'),
+    );
+    let current = {
+      ...createTelosWorkFixtures().homeStudio.items[0],
+      itemId: `later-client-${remount}`,
+      priority: 5,
+    };
+    let failed = false;
+    vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async () => {
+      if (failed) throw Error('temporary record outage');
+      return structuredClone(current);
+    });
+    let view = renderHook(() => useTelosRecords([current.itemId]));
+    await waitFor(() => expect(view.result.current.records[0]?.priority).toBe(5));
+    failed = true;
+    await act(async () => {
+      await setTodoPriority(current.itemId, 9);
+    });
+    await waitFor(() => expect(view.result.current.unavailable).toContain(current.itemId));
+    expect(view.result.current.records[0]?.priority).toBe(9);
+    // The action was acknowledged, but a different client saved 2 before recovery.
+    current = { ...current, priority: 2, updatedAt: '2026-10-17T23:59:00Z' };
+    failed = false;
+    if (remount) {
+      view.unmount();
+      view = renderHook(() => useTelosRecords([current.itemId]));
+    } else act(() => updates.forEach((listener) => listener()));
+    await waitFor(() => expect(view.result.current.unavailable).toEqual([]));
+    await waitFor(() => expect(view.result.current.records[0]?.priority).toBe(2));
+    act(() => updates.forEach((listener) => listener()));
+    await waitFor(() => expect(view.result.current.records[0]?.priority).toBe(2));
+  });

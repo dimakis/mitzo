@@ -63,15 +63,18 @@ export function useTelosRecords(ids: string[]) {
       while (cursor < queue.length && !controller.signal.aborted) {
         const id = queue[cursor++];
         try {
-          let record = await api.readRecord(id, controller.signal);
+          const record = await api.readRecord(id, controller.signal);
           if (controller.signal.aborted) return;
           if (record.itemId !== id) throw Error('Record identity mismatch');
           const confirmation = pending.current.get(id);
           if (confirmation) {
-            if (record.priority === confirmation.priority) {
-              pending.current.delete(id);
-              if (confirmations.get(id) === confirmation) confirmations.delete(id);
-            } else record = { ...record, priority: confirmation.priority };
+            // The record route is private/no-store and opens a fresh canonical
+            // transaction. Save notifications abort every earlier admitted read;
+            // this successful read was therefore admitted after acknowledgement.
+            // Another client may already have changed the priority again. Accept
+            // that authority even when it differs from our last confirmed value.
+            pending.current.delete(id);
+            if (confirmations.get(id) === confirmation) confirmations.delete(id);
           }
           records.push(record);
         } catch {

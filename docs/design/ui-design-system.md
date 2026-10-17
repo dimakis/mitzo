@@ -1508,6 +1508,8 @@ shared `UiIcon`, semantic tokens, spacing/type/radius scales, control height and
 keyboard focus. All outcomes stays first; category pins, discovery, query and
 expansion persist on this device. Categories come from canonical records, while
 legacy profile filtering remains available in the explicit original-record fallback.
+That fallback fills the desktop shell with one compact heading/action bar; it does
+not inherit the old fixed mobile page width after the focused-route migration.
 Kind labels never come from child counts or source profiles. Current-role links
 are read through the existing work client; the row enters the workspace Chat tab
 and the existing role owner performs setup. It never allocates from a tree read.
@@ -1525,8 +1527,18 @@ New item restores an unsent planning prompt in the full ordinary chat composer.
 Canonical record views invalidate on item events and visible resume. The published
 priority owner supplies the selector, numeric projection and ordered confirmed-save
 notifications; S7 consumes them in the header and P<n> tree badges, fences older
-reads and retains acknowledged values through failed record refresh. On phones the
+reads and retains acknowledged values through failed record refresh. The first
+successful read admitted after acknowledgement reconciles that value even when
+another client has since changed it. The existing work router promises private,
+no-store responses from a fresh canonical transaction; synchronous invalidation
+fences every earlier read. Numeric equality and timestamp guessing are not used as
+a convergence condition. On phones the
 priority control occupies a separate header row rather than collapsing beside long titles.
+The item itself is a query container: below 48rem of available reading width, the
+20rem brief stacks beneath the work area, including constrained desktop shells and
+enlarged text. The boundary leaves room for both reading columns plus gutters;
+viewport width alone cannot establish that room. Controls are checked against their
+main-column bounds so clipped overflow cannot hide an overlap.
 
 The brief's 20rem column is structural reading geometry. Search wraps before the
 actions at phone widths and uses five shared control heights as its preferred
@@ -1538,7 +1550,8 @@ Inspected all-intercept captures: [phone tree](assets/telos-s7-tree-mobile-dark.
 [desktop tree](assets/telos-s7-tree-desktop-light.png),
 [phone materials](assets/telos-s7-materials-mobile-light.png),
 [desktop materials](assets/telos-s7-materials-desktop-light.png) and
-[repository-backed brief](assets/telos-s7-software-desktop-dark.png).
+[repository-backed brief](assets/telos-s7-software-desktop-dark.png) and
+[900px shell with enlarged text](assets/telos-s7-workspace-narrow-enlarged-light.png).
 The focused fixture exercises actual pages/shells, schema-validated record/work
 DTOs and the accepted canonical projector, with an inert protocol transport.
 Checks cover 320px WebKit/Chromium, 1280px Chromium, light/dark, Mint/System and

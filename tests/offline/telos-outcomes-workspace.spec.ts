@@ -133,7 +133,7 @@ for (const theme of ['dark', 'light'])
       )
         return route.fulfill({
           contentType: 'text/html',
-          body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
+          body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html{font-size:${theme === 'light' ? '125%' : '100%'}}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
         });
       if (url.pathname === '/api/todos')
         return collectionMode === 'error'
@@ -309,10 +309,28 @@ for (const theme of ['dark', 'light'])
     if (!isMobile)
       expect((await page.locator('.telos-item-workspace').boundingBox())!.x).toBeGreaterThan(100);
     await expect(page.getByRole('button', { name: 'Work', exact: true })).toHaveCount(0);
+    await expect(page.locator('.telos-item-workspace')).toBeVisible();
     const priority = page.getByRole('combobox', { name: 'Priority', exact: true });
     const priorityBounds = (await priority.boundingBox())!;
     expect(priorityBounds.height).toBeGreaterThanOrEqual(44);
     expect(priorityBounds.width).toBeGreaterThanOrEqual(44);
+    const intrinsicWidth = await priority.evaluate((element) => {
+      const probe = element.cloneNode(true) as HTMLSelectElement;
+      Object.assign(probe.style, {
+        position: 'fixed',
+        width: 'max-content',
+        minWidth: '0',
+        maxWidth: 'none',
+        flex: 'none',
+        visibility: 'hidden',
+      });
+      element.parentElement!.appendChild(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return width;
+    });
+    expect(priorityBounds.width).toBeGreaterThanOrEqual(intrinsicWidth - 1);
+
     expect(priorityBounds.x + priorityBounds.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 
     for (let value = 1; value <= 10; value++) {
@@ -348,10 +366,31 @@ for (const theme of ['dark', 'light'])
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(priorityWrites.length).toBe(writesBeforeOverlap);
+    failRecords = true;
     releasePriority!();
     priorityGate = undefined;
     await expect(priority).toHaveValue('3');
     await expect(priority).toBeEnabled();
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Some related outcome records are unavailable' }),
+    ).toBeVisible();
+    // A second client saves 2 while this client's acknowledged 3 could not refresh.
+    records[1] = { ...records[1], priority: 2, updatedAt: '2026-10-17T23:59:00Z' };
+    failRecords = false;
+    await page.evaluate(() =>
+      window.fixtureTodoEvents.dispatchEvent(new MessageEvent('todo_update', { data: '{}' })),
+    );
+    await expect(priority).toHaveValue('2');
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    const recoveredRow = page
+      .locator('.telos-tree-row')
+      .filter({ has: page.getByRole('button', { name: 'Plan the recording setup', exact: true }) });
+    await expect(recoveredRow.getByLabel('Priority 2 out of 10')).toHaveText('P2');
+    await recoveredRow
+      .getByRole('button', { name: 'Plan the recording setup', exact: true })
+      .click();
+    await expect(priority).toHaveValue('2');
+
     expect(priorityWrites).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 2, 3]);
     const sharedAction = page.getByRole('button', { name: 'Choose worker', exact: true });
     await expect(sharedAction).toBeVisible();
@@ -379,7 +418,14 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Materials', exact: true }).click();
     await page.getByText('Provenance', { exact: true }).click();
     await expect(page.getByText('b'.repeat(64))).toBeVisible();
-    expect((await page.locator('.output-row-copy').boundingBox())!.width).toBeGreaterThan(160);
+    expect((await page.locator('.output-row-copy').boundingBox())!.width).toBeGreaterThanOrEqual(
+      160,
+    );
+    expect(
+      await page
+        .locator('.output-row-copy')
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
     await page.getByRole('link', { name: 'Saved studio plan', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Latest studio plan r4' })).toHaveCount(0);
@@ -416,6 +462,32 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByText('fixture/mitzo', { exact: true })).toBeVisible();
     await expect(page.getByText('frontend/src/pages/TodoView.tsx', { exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath('software-' + theme + '.png'), fullPage: true });
+    if (!isMobile && theme === 'light') {
+      await page.setViewportSize({ width: 900, height: 900 });
+      const geometry = await page.locator('.telos-dashboard').evaluate((dashboard) => {
+        const main = dashboard.firstElementChild!,
+          brief = dashboard.lastElementChild!;
+        const body = main.getBoundingClientRect(),
+          side = brief.getBoundingClientRect();
+        const controls = [...main.querySelectorAll('button')]
+          .map((button) => button.getBoundingClientRect())
+          .filter((rect) => rect.width > 0);
+        return {
+          contained: controls.every(
+            (rect) => rect.left >= body.left && rect.right <= body.right + 1,
+          ),
+          separated: body.right <= side.left || body.bottom <= side.top,
+        };
+      });
+      expect(geometry.contained).toBe(true);
+      expect(geometry.separated).toBe(true);
+      await page.screenshot({
+        path: info.outputPath('workspace-narrow-enlarged-light.png'),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(search).toHaveValue('frontend/src/pages/TodoView.tsx');
     failRecords = true;

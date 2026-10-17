@@ -447,7 +447,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     );
 
   return (
-    <div className="todo-page">
+    <div className="todo-page telos-legacy-page">
       <div className="todo-collection-heading">
         <WorkspacePageHeading
           title="Work"

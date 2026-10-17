@@ -1,3 +1,6 @@
+.telos-item-workspace {
+  container-type: inline-size;
+}
 .telos-outcomes,
 .telos-item-workspace {
   min-width: 0;
@@ -339,4 +342,44 @@
   cursor: pointer;
   font-size: var(--text-sm);
   font-weight: 600;
+}
+
+/* Keep the approved brief beside the work only while both retain reading room. */
+@container (max-width: 48rem) {
+  .telos-dashboard {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .telos-brief {
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+    padding: 0;
+  }
+  .telos-item-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .telos-item-heading > .todo-priority-control {
+    grid-column: 2;
+    min-width: 0;
+  }
+}
+
+@media (min-width: 768px) {
+  .desktop-shell .telos-legacy-page {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    padding-inline: var(--page-gutter);
+  }
+  .desktop-shell .telos-legacy-page .todo-collection-heading {
+    padding-block: var(--space-3);
+  }
+  .desktop-shell .telos-legacy-page .workspace-page-heading {
+    margin-bottom: 0;
+  }
+  .desktop-shell .telos-legacy-page .workspace-page-heading > p {
+    display: none;
+  }
 }
