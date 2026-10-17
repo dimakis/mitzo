@@ -27,6 +27,12 @@ vi.mock('../../hooks/useHomePreferences', () => ({
   useHomePreferences: () => ({ preferences: { revision: 1, pins: [] }, update: vi.fn() }),
 }));
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
   window.dispatchEvent(new Event('mitzo:auth-lost'));
   localStorage.clear();
   vi.mocked(apiFetch).mockReset();
@@ -55,6 +61,7 @@ function fixture(deletion: Promise<Response>) {
       return response;
     }
     if (url === '/api/sessions') return Response.json({ sessions, hasMore: false });
+    if (url.endsWith('/deletion-preview')) return Response.json({ sandbox: null });
     if (url.endsWith('/messages')) return Response.json([]);
     return Response.json({});
   });
@@ -73,7 +80,7 @@ it('removes a selected off-page preview after clearing history succeeds', async 
     }),
   );
   expect(within(preview()).getByRole('heading', { name: 'Older saved chat' })).toBeTruthy();
-  fireEvent.click(screen.getByText('Clear conversation history'));
+  fireEvent.click(screen.getByText('Archive all chats'));
   await waitFor(() =>
     expect(screen.queryByRole('button', { name: 'Preview First conversation' })).toBeNull(),
   );
@@ -93,6 +100,7 @@ it.each([true, false])(
     const first = await screen.findByRole('button', { name: 'Preview First conversation' });
     fireEvent.contextMenu(first);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete conversation' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete chat' }));
     await act(async () => {});
     expect(within(preview()).getByRole('heading', { name: 'First conversation' })).toBeTruthy();
     await act(async () => finish(Response.json({}, { status: ok ? 200 : 503 })));
@@ -114,7 +122,7 @@ it('preserves an off-page preview when clearing history fails', async () => {
       name: /^Older saved chat/,
     }),
   );
-  fireEvent.click(screen.getByText('Clear conversation history'));
+  fireEvent.click(screen.getByText('Archive all chats'));
   await act(async () => {});
   expect(within(preview()).getByRole('heading', { name: 'Older saved chat' })).toBeTruthy();
 });

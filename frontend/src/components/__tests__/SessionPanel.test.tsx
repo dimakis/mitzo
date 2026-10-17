@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
+vi.mock('../../lib/api-json-read', () => ({ readApiJson: vi.fn(async () => ({ sandbox: null })) }));
 
 // Mock useSessionList before importing SessionPanel
 vi.mock('../../hooks/useSessionList', () => ({
@@ -42,6 +43,12 @@ function makeDefaultReturn(overrides = {}) {
 }
 
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
   mockUseSessionList.mockReturnValue(makeDefaultReturn());
   // Default to "All" view so session list tests work (the "Active" view
   // renders ActiveSessionsList which is tested separately).
@@ -143,7 +150,7 @@ describe('SessionPanel', () => {
     expect(deleteBtn).toBeTruthy();
   });
 
-  it('calls dismissSession when delete clicked', () => {
+  it('calls dismissSession only after removal is reviewed', async () => {
     const dismiss = vi.fn();
     mockUseSessionList.mockReturnValue(
       makeDefaultReturn({
@@ -156,7 +163,11 @@ describe('SessionPanel', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Delete me' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete conversation' }));
-    expect(dismiss).toHaveBeenCalledWith('s1');
+    expect(dismiss).not.toHaveBeenCalled();
+    await act(async () =>
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete chat' })),
+    );
+    expect(dismiss).toHaveBeenCalledWith('s1', {});
   });
 
   describe('Load More button', () => {
@@ -220,7 +231,7 @@ describe('SessionPanel', () => {
   });
 });
 
-it('exposes a named conversation selector and keeps deletion separate', () => {
+it('exposes a named conversation selector and keeps deletion separate', async () => {
   const select = vi.fn();
   const dismiss = vi.fn();
   mockUseSessionList.mockReturnValue(
@@ -237,7 +248,11 @@ it('exposes a named conversation selector and keeps deletion separate', () => {
   expect(screen.queryByText(/24k session tokens/)).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Actions for Review PR' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Delete conversation' }));
-  expect(dismiss).toHaveBeenCalledWith('s1');
+  expect(dismiss).not.toHaveBeenCalled();
+  await act(async () =>
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete chat' })),
+  );
+  expect(dismiss).toHaveBeenCalledWith('s1', {});
   expect(select).toHaveBeenCalledTimes(1);
 });
 it('provides the existing transcript search from the conversation list', () => {
