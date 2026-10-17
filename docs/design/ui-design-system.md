@@ -1098,6 +1098,23 @@ Inspected captures: [desktop popover](assets/compact-chat-desktop-dark.png),
 
 The shared Symposium transcript always uses All independently of the legacy compact-seat selection. Expanding an anchor-only chat must retain every agent’s finished and streaming replies. Independent previews refresh after completed replies, delivery changes and a five-second fallback; closing cancels their read and removes their timer/listener. Refreshing retains the existing history while the next page is read.
 
+## Retained Telos source navigation
+
+`TelosItemSources` keeps originating exchanges in Sources and preserves unknown
+legacy selection, author and dates explicitly. The existing output list excludes
+`source_capture` packets. Opening a reviewed source resolves its retained proof
+and navigates to the full ordinary chat at its recorded exchange; it creates no
+session and changes no account, model or assignment. `TelosSourceWorkLink` reuses
+`SessionWorkLink` in one compact contextual row with shared gutter, control-height,
+spacing and text tokens. It adds no second back action or settings surface.
+Generic conversation associations remain available in Resources through
+`ConversationWorkLinks`, including every item sharing one original discussion.
+S8 composes this same association into the complete approved item/chats/work row.
+Source navigation fences late responses on chat/item changes and leaves the
+ordinary transcript, composer, Resources, settings and history intact. Offline
+source browser fixtures cover narrow mobile and desktop, light/dark appearance,
+alternate accent/font, source anchoring and the return link.
+
 ## Frozen Symposium joining review (16 October 2026)
 
 The owner-driven Before joining surface follows the approved

@@ -17,6 +17,7 @@ export function createTelosWorkRouter(options: {
   verifyInternal(req: Request): boolean;
   sessionId(clientId: string): string | undefined;
   ordinaryConversation(id: string): boolean;
+  sourceConversation?(id: string): boolean;
 }) {
   const router = Router();
   router.use(['/api/telos/work', '/api/internal/telos/work'], (_req, res, next) => {
@@ -28,6 +29,7 @@ export function createTelosWorkRouter(options: {
     try {
       store = new TelosWorkStore(options.dbPath(), {
         ordinaryConversation: options.ordinaryConversation,
+        sourceConversation: options.sourceConversation,
       });
       res.json(action(store));
     } catch (error) {
