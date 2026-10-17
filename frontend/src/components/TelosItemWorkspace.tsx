@@ -46,7 +46,8 @@ export function TelosItemWorkspace({
       if (r.parentId && descendants.has(r.parentId)) descendants.add(r.itemId);
   const children = records.filter((r) => r.itemId !== record.itemId && descendants.has(r.itemId));
   const parent = records.find((r) => r.itemId === record.parentId);
-  const parentKind = record.kind === 'outcome' || record.kind === 'coordinator';
+  const parentKind =
+    record.kind === 'outcome' || record.kind === 'coordinator' || children.length > 0;
   const tabs: Tab[] = parentKind
     ? ['Overview', 'Chat', 'Work', 'Materials']
     : ['Overview', 'Chat', 'Materials'];
@@ -190,7 +191,7 @@ export function TelosItemWorkspace({
                 work
               ) : (
                 <section>
-                  <h2>This work item</h2>
+                  <h2>{record.kind === 'work_item' ? 'This work item' : 'This item'}</h2>
                   <p>{record.intent}</p>
                 </section>
               )}

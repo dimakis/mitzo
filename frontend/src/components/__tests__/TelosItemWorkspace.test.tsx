@@ -162,3 +162,25 @@ it('keeps Context collapsed with readable populated labels from the approved bri
   expect(within(context).queryByText('Not recorded')).toBeNull();
   expect(within(context).queryByText('Issues')).toBeNull();
 });
+
+it('preserves real child work for an unclassified legacy parent without assigning its kind', () => {
+  const parent = { ...records[0], kind: null };
+  const open = vi.fn();
+  render(
+    <MemoryRouter>
+      <TelosItemWorkspace
+        record={parent}
+        records={[parent, records[1]]}
+        onOpen={open}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('Unclassified · active')).toBeTruthy();
+  expect(screen.queryByText('This work item')).toBeNull();
+  expect(screen.getByRole('button', { name: records[1].summary })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Work' }));
+  fireEvent.click(screen.getByRole('button', { name: records[1].summary }));
+  expect(open).toHaveBeenCalledWith(records[1].itemId);
+  expect(parent.kind).toBeNull();
+});
