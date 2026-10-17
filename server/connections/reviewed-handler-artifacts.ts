@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.285-tool-builder-development.1';
+  'v1.0.285-tool-builder-development.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../tool-builder-workspace.ts':
     'acd8c1b0df10b067f2ac5d9233f050c5795fa30178b5180c052986e4441ca995',
   '../tool-builder-schema.ts': 'b55fb292b80f3f1c5ad9376a27abaf62b901cdf07e5fb62ce07cf7fbc17a419f',
-  '../custom-tool-registry.ts': '62d628bc1e63ff8d7db23a5565dd7d4a4849f2c2401dbf9b56562af32838261f',
+  '../custom-tool-registry.ts': '700f948fa87df78c94879efe1a07ecc6402dff483550a3c2fbeec136183d81cb',
   '../tool-builder-router.ts': '57498f503545f74a0ff59f01069589c51391a3ee86fdd33d83840e08d76a5d66',
   '../tool-builder-store.ts': '26ec2fa2c3bccd7a2c1fd41dbf4a0b3f10116ff97a3f684a502445096da06e3d',
   '../tool-builder.ts': '52b9545334918a55799948c6989e0cb72f1957fb622b17cb1698a91aec53b900',
