@@ -83,12 +83,32 @@ export class TelosWorkAdvisorDraft {
   private capture() {
     return new TelosSourceCapture(this.deps);
   }
+  private assertMaterial(
+    packet: TelosSourcePreview['packet'],
+    actor: TelosWorkActor,
+    artifacts = this.deps.artifacts,
+  ) {
+    this.deps.assertAuthorized();
+    for (const pin of packet.context.artifacts) {
+      const artifact = artifacts.read(pin.artifactId, pin.revision);
+      if (
+        !this.deps.authorizeArtifact(actor, artifact.itemId) ||
+        !artifacts.userUploadAllowed(artifact.itemId) ||
+        artifact.sha256 !== pin.sha256 ||
+        createHash('sha256').update(artifact.bytes).digest('hex') !== pin.sha256 ||
+        (pin.contentBase64 !== undefined &&
+          !artifact.bytes.equals(Buffer.from(pin.contentBase64, 'base64')))
+      )
+        throw new TelosWorkError('unauthorized', 'Retained advisor material unavailable');
+    }
+  }
   async preview(raw: unknown, actorInput: TelosWorkActor): Promise<TelosSourcePreview> {
     const actor = structuredClone(actorInput);
     const input = TelosWorkAdvisorDraftPreviewRequestSchema.parse(structuredClone(raw));
     this.assertScope(input, actor);
     const result = await this.capture().previewAdvisorDraft(input, actor);
     this.assertScope(input, actor);
+    this.assertMaterial(result.packet, actor);
     return result;
   }
   async save(raw: unknown, actorInput: TelosWorkActor): Promise<TelosWorkCommandReceipt> {
@@ -115,15 +135,7 @@ export class TelosWorkAdvisorDraft {
         JSON.stringify(retained.packet.selection) !== JSON.stringify(input.selection)
       )
         throw new TelosWorkError('unauthorized', 'Retained advisor source unavailable');
-      for (const pin of retained.packet.context.artifacts) {
-        const artifact = this.deps.artifacts.read(pin.artifactId, pin.revision);
-        if (
-          !this.deps.authorizeArtifact(actor, artifact.itemId) ||
-          !this.deps.artifacts.userUploadAllowed(artifact.itemId) ||
-          createHash('sha256').update(artifact.bytes).digest('hex') !== pin.sha256
-        )
-          throw new TelosWorkError('unauthorized', 'Retained advisor material unavailable');
-      }
+      this.assertMaterial(retained.packet, actor);
       this.assertScope(input, actor, false);
       return previous;
     }
@@ -133,11 +145,16 @@ export class TelosWorkAdvisorDraft {
     this.assertScope(input, actor);
     if (preview.sha256 !== previewSha256)
       throw new TelosWorkError('conflict', 'Reviewed advisor draft changed');
+    this.assertMaterial(preview.packet, actor);
+    let materialReader = this.deps.artifacts;
     return this.deps.work.saveAdvisorDraft(
       input,
       actor,
       (database, itemId) => {
         const artifacts = TelosArtifactStore.borrowConnection(database);
+        // The second transaction fence must read the work owner's transaction,
+        // including any changes made while retaining the source artifact.
+        materialReader = artifacts;
         try {
           const artifact = artifacts.save({
             itemId,
@@ -158,7 +175,10 @@ export class TelosWorkAdvisorDraft {
           artifacts.close();
         }
       },
-      () => this.assertScope(input, actor),
+      () => {
+        this.assertScope(input, actor);
+        this.assertMaterial(preview.packet, actor, materialReader);
+      },
     );
   }
   private snapshotId(actor: TelosWorkActor, requestId: string) {

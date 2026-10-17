@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.281-api-codex.1-telos-s4.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.281-api-codex.1-telos-s4.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -986,7 +986,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '84167646de503e550876b9c57dc8666485cacedb27da957b2e988d1986583efd',
   '../telos-work-role-setup.ts': '130380c2fdecaba2ec3c7d7d8cc6c073e90a19a4ecad454ce9073ddb839f5a28',
   '../telos-work-advisor-draft.ts':
-    '8acd838b0002023b997fc22ca3cc6c8c7fc2791fe86a68adfd9d202308c71741',
+    'a572995682705f98c47fffbdb11aff5eb0621f08d826e8584db542f8d89a28bb',
   '../../packages/protocol/src/telos-work-role-context.ts':
     'ea9809b17a41366e3f272d39044a1564ac636db1c5016b2b964c118dcd71ae3e',
   '../../packages/protocol/src/telos-work-advisor.ts':

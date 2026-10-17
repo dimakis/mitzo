@@ -69,13 +69,14 @@ function fixture(purpose: 'child' | 'refine' = 'child') {
     text: 'Save this acoustic treatment draft; implementation remains a separate decision.',
   });
   const assertAuthorized = vi.fn(() => {});
+  const authorizeArtifact = vi.fn((_actor: unknown, _itemId: string) => true);
   const deps = () => ({
     events: f.events,
     artifacts: f.artifacts,
     work: f.work,
     assertAuthorized,
     authorizeSource: () => true,
-    authorizeArtifact: () => true,
+    authorizeArtifact,
   });
   const revision = f.work.read('studio', f.actor).revision;
   const input: TelosWorkAdvisorDraftPreviewRequest = {
@@ -108,10 +109,182 @@ function fixture(purpose: 'child' | 'refine' = 'child') {
     f,
     input,
     assertAuthorized,
+    authorizeArtifact,
     owner: () => new TelosWorkAdvisorDraft(deps()),
     capture: () => new TelosSourceCapture(deps()),
   };
 }
+
+it.each(['privacy', 'permission', 'bytes'] as const)(
+  'refuses unrelated material %s revocation after compilation without retaining any advisor save mutation',
+  async (revocation) => {
+    const r = fixture();
+    const db = new Database(r.f.dbPath);
+    db.prepare(
+      "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories) SELECT 'material-owner',NULL,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories FROM items WHERE id='studio'",
+    ).run();
+    const material = r.f.artifacts.save({
+      itemId: 'material-owner',
+      filename: 'reviewed.txt',
+      title: 'Explicit unrelated public material',
+      bytes: Buffer.from('Exact reviewed material'),
+      sessionId: 'planning',
+    });
+    r.input.selection.artifacts = [
+      { artifactId: material.id, revision: material.revision, sha256: material.sha256 },
+    ];
+    const preview = await r.owner().preview(r.input, r.f.actor);
+    expect(preview.packet.context.artifacts).toContainEqual(
+      expect.objectContaining(r.input.selection.artifacts[0]),
+    );
+    const input = { ...r.input, previewSha256: preview.sha256 };
+    const parent = r.f.work.read('studio', r.f.actor);
+    const counts = () =>
+      [
+        'items',
+        'telos_artifact_revisions',
+        'telos_artifact_save_requests',
+        'telos_work_links',
+        'telos_work_sources',
+        'telos_work_commands',
+      ].map((table) => db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get());
+    const before = counts();
+    const revoke = () => {
+      if (revocation === 'privacy')
+        db.prepare("UPDATE items SET profile='lifeops' WHERE id='material-owner'").run();
+      else if (revocation === 'permission')
+        r.authorizeArtifact.mockImplementation((_actor, itemId) => itemId !== 'material-owner');
+      else
+        db.prepare('UPDATE telos_artifact_revisions SET bytes=? WHERE id=? AND revision=?').run(
+          Buffer.from('Changed material bytes'),
+          material.id,
+          material.revision,
+        );
+    };
+    const restore = () => {
+      db.prepare("UPDATE items SET profile='personal' WHERE id='material-owner'").run();
+      r.authorizeArtifact.mockImplementation(() => true);
+      db.prepare('UPDATE telos_artifact_revisions SET bytes=? WHERE id=? AND revision=?').run(
+        Buffer.from('Exact reviewed material'),
+        material.id,
+        material.revision,
+      );
+    };
+    const compile = TelosSourceCapture.prototype.previewAdvisorDraft;
+    vi.spyOn(TelosSourceCapture.prototype, 'previewAdvisorDraft').mockImplementationOnce(
+      async function (this: TelosSourceCapture, raw, actor) {
+        const actual = await compile.call(this, raw, actor);
+        revoke();
+        return actual;
+      },
+    );
+    try {
+      await expect(r.owner().save(input, r.f.actor)).rejects.toThrow();
+      expect(counts()).toEqual(before);
+      expect(r.f.work.read('studio', r.f.actor)).toEqual(parent);
+      expect(r.f.work.advisorDraftReceipt(input, r.f.actor)).toBeUndefined();
+      restore();
+      const receipt = await r.owner().save(input, r.f.actor);
+      expect(receipt.work.sources).toHaveLength(1);
+      revoke();
+      await expect(r.owner().save(input, r.f.actor)).rejects.toThrow();
+      restore();
+      expect(await r.owner().save(input, r.f.actor)).toEqual(receipt);
+      expect(r.f.events.getOrdinaryInitialCommandId('planning')).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  },
+);
+it('refuses to return compiled preview bytes after an unrelated material owner becomes private during compilation', async () => {
+  const r = fixture();
+  const db = new Database(r.f.dbPath);
+  db.prepare(
+    "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories) SELECT 'preview-material-owner',NULL,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories FROM items WHERE id='studio'",
+  ).run();
+  const material = r.f.artifacts.save({
+    itemId: 'preview-material-owner',
+    filename: 'reviewed-preview.txt',
+    title: 'Explicit public preview material',
+    bytes: Buffer.from('Preview material that becomes private'),
+    sessionId: 'planning',
+  });
+  r.input.selection.artifacts = [
+    { artifactId: material.id, revision: material.revision, sha256: material.sha256 },
+  ];
+  const parent = r.f.work.read('studio', r.f.actor);
+  const compiled = vi.fn();
+  const compile = TelosSourceCapture.prototype.previewAdvisorDraft;
+  vi.spyOn(TelosSourceCapture.prototype, 'previewAdvisorDraft').mockImplementationOnce(
+    async function (this: TelosSourceCapture, raw, actor) {
+      const preview = await compile.call(this, raw, actor);
+      compiled(preview.packet.context.artifacts);
+      db.prepare("UPDATE items SET profile='lifeops' WHERE id='preview-material-owner'").run();
+      return preview;
+    },
+  );
+  try {
+    await expect(r.owner().preview(r.input, r.f.actor)).rejects.toThrow(
+      'advisor material unavailable',
+    );
+    expect(compiled).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining(r.input.selection.artifacts[0])]),
+    );
+    expect(r.f.work.read('studio', r.f.actor)).toEqual(parent);
+    expect(r.f.events.getOrdinaryInitialCommandId('planning')).toBeUndefined();
+  } finally {
+    db.close();
+  }
+});
+
+it('rechecks compiled material in the borrowed work transaction after source retention and rolls everything back', async () => {
+  const r = fixture();
+  const material = r.f.material;
+  const original = r.f.artifacts.read(material.id, material.revision);
+  r.input.selection.artifacts = [
+    { artifactId: material.id, revision: material.revision, sha256: material.sha256 },
+  ];
+  const preview = await r.owner().preview(r.input, r.f.actor);
+  const input = { ...r.input, previewSha256: preview.sha256 };
+  const parent = r.f.work.read('studio', r.f.actor);
+  const db = new Database(r.f.dbPath);
+  const counts = () =>
+    ['items', 'telos_artifact_revisions', 'telos_work_sources', 'telos_work_commands'].map(
+      (table) => db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get(),
+    );
+  const before = counts();
+  const borrow = TelosArtifactStore.borrowConnection.bind(TelosArtifactStore);
+  const retained = vi.fn();
+  vi.spyOn(TelosArtifactStore, 'borrowConnection').mockImplementationOnce((database) => {
+    const artifacts = borrow(database);
+    const save = artifacts.save.bind(artifacts);
+    vi.spyOn(artifacts, 'save').mockImplementationOnce((packet) => {
+      const result = save(packet);
+      retained();
+      database
+        .prepare('UPDATE telos_artifact_revisions SET bytes=? WHERE id=? AND revision=?')
+        .run(
+          Buffer.from('Corrupted inside the retaining transaction'),
+          material.id,
+          material.revision,
+        );
+      return result;
+    });
+    return artifacts;
+  });
+  try {
+    await expect(r.owner().save(input, r.f.actor)).rejects.toThrow('advisor material unavailable');
+    expect(retained).toHaveBeenCalledOnce();
+    expect(counts()).toEqual(before);
+    expect(r.f.work.read('studio', r.f.actor)).toEqual(parent);
+    expect(r.f.artifacts.read(material.id, material.revision).bytes).toEqual(original.bytes);
+    expect(r.f.work.advisorDraftReceipt(input, r.f.actor)).toBeUndefined();
+    expect((await r.owner().save(input, r.f.actor)).work.sources).toHaveLength(1);
+  } finally {
+    db.close();
+  }
+});
+
 it('atomically saves a reviewed child draft with proposed brief and exact planning provenance while leaving all execution unallocated', async () => {
   const r = fixture();
   const parent = r.f.work.read('studio', r.f.actor);
