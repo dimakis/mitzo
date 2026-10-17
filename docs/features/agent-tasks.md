@@ -84,20 +84,33 @@ Run/occurrence types reserve the boundary for later slices; no run endpoints exi
 
 ## Ordinary Builder task proposals
 
-Task authoring reuses the ordinary Agent Builder conversation and its existing
-proposal review area. `AgentReadTasks` reads the owner-scoped saved definitions;
+Task authoring reuses the ordinary Agent Builder conversation. Its native tool
+result opens the existing Library task editor for detailed review, and review links
+back to the same conversation. `AgentReadTasks` reads the owner-scoped saved definitions;
 `AgentProposeTask` creates a durable review proposal for a new task or an edit
 with the exact expected revision. The tool cannot save or run a task. Its proposed
 profile ID, revision and content hash stay explicit; Builder account, model,
 thinking and runtime settings do not replace the task's execution intent.
 
-The authenticated review action saves through `AgentTaskService` and the same
+The Library verifies the proposal's session, proposal ID, task ID and expected
+revision against the authenticated proposal owner before offering its editor.
+Navigation and tool-result JSON supply no write authority. Missing, mismatched or
+failed reads retain input and offer retry; they cannot fall back to generic task
+creation. Closing review retains its separate working copy and pending request.
+
+The authenticated review action uses the original proposal save route, through `AgentTaskService` and the same
 `AgentTaskStore` used by Library. Task and proposal receipt commit on the same
 SQLite connection. Exact retries return the original saved task record, even after
 later task edits or deletion. Changed input under that save identity returns 409.
 Saved proposal receipts survive chat reload and link to the exact Library task.
 The review preserves failed or uncertain input for retry and does not report a
 proposal as saved without validating its task identity, revision and definition.
+
+Library review can outlive a stopped Builder. Human Save requires current interactive
+operator and retained-owner authority, same-origin JSON and the durable source session;
+it does not require an active provider turn. A rejected or revoked request retains its
+original uncertain save for an authorized retry. Tool authoring separately requires the
+current session, skill and runtime guards below.
 
 Task tools require current interactive operator, session, skill, selected-tool and
 runtime authority, including after awaited work, and cancellation is checked before

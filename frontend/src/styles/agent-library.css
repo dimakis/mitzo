@@ -60,13 +60,10 @@
 .agent-library-layout {
   display: grid;
   grid-template-columns: minmax(185px, 1fr) minmax(0, 2.3fr);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-panel);
-  background: var(--color-surface);
+  gap: var(--space-5);
 }
 .agent-library-directory {
-  padding: var(--space-3);
-  border-right: 1px solid var(--color-border);
+  min-width: 0;
 }
 .agent-library-entry {
   display: grid;
@@ -76,11 +73,15 @@
   margin-bottom: var(--space-2);
   overflow-wrap: anywhere;
 }
+.agent-library-page .agent-library-entry {
+  border-color: transparent;
+  background: transparent;
+}
 .agent-library-entry span,
 .agent-library-entry small {
   color: var(--color-muted);
 }
-.agent-library-entry.selected {
+.agent-library-page .agent-library-entry.selected {
   background: var(--color-panel);
   border-color: var(--color-accent);
 }
@@ -95,6 +96,46 @@
 }
 .agent-library-workbench {
   min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+.agent-library-page .agent-library-heading-action {
+  padding: var(--space-2) var(--space-1);
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.agent-library-navigation {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.agent-library-navigation .agent-library-tabs {
+  flex: 1;
+  margin: 0;
+}
+.agent-library-discovery {
+  margin-bottom: var(--space-4);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.agent-library-discovery > summary {
+  min-height: var(--control-height);
+  padding: var(--space-3) 0;
+  cursor: pointer;
+}
+.agent-library-profile-guidance h3 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+.agent-library-profile-guidance p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .agent-creation-advisor {
   padding: var(--space-4) var(--space-5);
@@ -326,8 +367,6 @@
     grid-template-columns: 1fr;
   }
   .agent-library-directory {
-    border-right: 0;
-    border-bottom: 1px solid var(--color-border);
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--space-2);
@@ -384,6 +423,68 @@
   min-width: 0;
   display: grid;
   gap: var(--space-4);
+}
+
+/* Library task detail uses the same quiet semantic surface as profile detail. */
+.agent-task-editor {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  margin: var(--space-4) 0;
+}
+.agent-task-editor-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.agent-task-editor-heading h2,
+.agent-task-editor-heading p {
+  margin: 0;
+}
+.agent-task-editor-heading p,
+.agent-task-independent-note,
+.agent-task-editor-footer > span {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.agent-task-editor-heading p {
+  margin-top: var(--space-1);
+}
+.agent-task-editor .agent-task-fields {
+  margin: 0;
+}
+.agent-task-editor label {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.agent-task-editor .agent-task-independent-note {
+  margin: 0;
+}
+.agent-task-advanced > summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.agent-task-advanced > div {
+  display: grid;
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+}
+.agent-task-editor-footer {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.agent-task-editor-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 .agent-task-list {
   display: grid;

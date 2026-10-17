@@ -16,15 +16,13 @@ import {
 import { AgentTaskEditor } from './AgentTaskEditor';
 import '../styles/agent-library.css';
 
-export type TaskProposal = {
-  kind: 'task';
-  proposalId: string;
-  taskId: string;
-  expectedRevision: number;
-  definition: AgentTaskDefinition;
-  state: 'pending' | 'saved' | 'discarded';
-  savedTask?: AgentTaskRecord | null;
-};
+import {
+  loadAgentTaskProposal,
+  type AgentTaskProposalIdentity,
+  type TaskProposal,
+} from '../lib/agent-task-proposal-link';
+export type { TaskProposal } from '../lib/agent-task-proposal-link';
+
 type SaveRequest = {
   sessionId: string;
   kind: 'task';
@@ -106,24 +104,31 @@ function initialReview(proposal: TaskProposal, sessionId: string, key: string) {
     return { copy: fallback, pending: null };
   }
 }
-/** A review card in ordinary chat. The only mutation is its explicit Save/Discard action. */
+/** Existing Library task editor with the original proposal save/retry controller. */
 export function AgentTaskProposal({
   proposal,
   sessionId,
   disabled,
   onDiscard,
+  versions: suppliedVersions,
+  onClose,
+  onSaved,
 }: {
   proposal: TaskProposal;
   sessionId: string;
   disabled: boolean;
   onDiscard(): void;
+  versions?: AgentLibraryVersion[];
+  onClose?(): void;
+  onSaved?(record: AgentTaskRecord): void;
 }) {
   const key = `mitzo-task-proposal-review:${sessionId}:${proposal.proposalId}`;
   const [initial] = useState(() => initialReview(proposal, sessionId, key));
   const [copy, setCopy] = useState(initial.copy);
   const [pending, setPending] = useState<SaveRequest | null>(initial.pending);
   const [saved, setSaved] = useState<AgentTaskRecord | null>(null);
-  const [versions, setVersions] = useState<AgentLibraryVersion[]>([]);
+  const [loadedVersions, setVersions] = useState<AgentLibraryVersion[]>([]);
+  const versions = suppliedVersions ?? loadedVersions;
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const attempt = useRef(0);
@@ -136,6 +141,13 @@ export function AgentTaskProposal({
   }, []);
   useEffect(() => {
     live.current = true;
+    return () => {
+      live.current = false;
+      invalidateSave();
+    };
+  }, [invalidateSave]);
+  useEffect(() => {
+    if (suppliedVersions !== undefined) return;
     const abort = new AbortController();
     void apiFetch('/api/agent-library', { signal: abort.signal })
       .then((response) => (response.ok ? response.json() : null))
@@ -144,12 +156,8 @@ export function AgentTaskProposal({
           setVersions(catalog.versions);
       })
       .catch(() => {});
-    return () => {
-      live.current = false;
-      invalidateSave();
-      abort.abort();
-    };
-  }, [invalidateSave]);
+    return () => abort.abort();
+  }, [suppliedVersions]);
   useEffect(() => {
     if (!disabled || !controller.current) return;
     invalidateSave();
@@ -158,6 +166,32 @@ export function AgentTaskProposal({
       'Conversation authority changed. The original task save is retained for an authorized retry.',
     );
   }, [disabled, invalidateSave]);
+  useEffect(() => {
+    const protect = (event: BeforeUnloadEvent) => {
+      if ((copy.dirty || pending) && !saved && proposal.state !== 'saved') {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', protect);
+    return () => window.removeEventListener('beforeunload', protect);
+  }, [copy.dirty, pending, saved, proposal.state]);
+  const announcedReceipt = useRef<string | null>(null);
+  useEffect(() => {
+    let confirmed = saved;
+    if (!confirmed && proposal.state === 'saved') {
+      try {
+        confirmed = receipt(proposal.savedTask, proposal, pending);
+      } catch {
+        return;
+      }
+    }
+    if (!confirmed) return;
+    const identity = `${proposal.proposalId}:${confirmed.taskId}:${confirmed.revision}`;
+    if (announcedReceipt.current === identity) return;
+    announcedReceipt.current = identity;
+    onSaved?.(confirmed);
+  }, [saved, proposal, pending, onSaved]);
   const retain = (next: AgentTaskWorkingCopy, request: SaveRequest | null) => {
     try {
       sessionStorage.setItem(key, JSON.stringify({ copy: next, pending: request }));
@@ -168,7 +202,15 @@ export function AgentTaskProposal({
     }
   };
   const update = (next: AgentTaskWorkingCopy) => {
-    if (busy || disabled || pending || saved) return;
+    if (
+      busy ||
+      disabled ||
+      pending ||
+      saved ||
+      next.taskId !== proposal.taskId ||
+      next.expectedRevision !== proposal.expectedRevision
+    )
+      return;
     setCopy(next);
     retain(next, null);
   };
@@ -236,7 +278,10 @@ export function AgentTaskProposal({
     );
   };
   const discard = async () => {
-    if (disabled || busy || pending) return;
+    if (disabled || busy || pending || controller.current) return;
+    const abort = new AbortController();
+    controller.current = abort;
+    const generation = ++attempt.current;
     setBusy(true);
     setError('');
     try {
@@ -246,19 +291,22 @@ export function AgentTaskProposal({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId, kind: 'task' }),
+          signal: abort.signal,
         },
       );
       const body = await response.json();
+      if (!live.current || generation !== attempt.current || abort.signal.aborted) return;
       if (!response.ok) throw Error(body?.error || 'Task proposal discard failed');
-      if (live.current) {
-        sessionStorage.removeItem(key);
-        onDiscard();
-      }
+      sessionStorage.removeItem(key);
+      onDiscard();
     } catch (cause) {
-      if (live.current)
+      if (live.current && generation === attempt.current)
         setError(cause instanceof Error ? cause.message : 'Task proposal discard failed');
     } finally {
-      if (live.current) setBusy(false);
+      if (live.current && generation === attempt.current) {
+        controller.current = null;
+        setBusy(false);
+      }
     }
   };
   let confirmed = saved;
@@ -287,67 +335,139 @@ export function AgentTaskProposal({
       </p>
     );
   return (
-    <section
-      className="symposium-profile-picker symposium-profile-proposal"
-      aria-label="Agent task proposal"
-    >
+    <section aria-label="Task proposal review">
       <p>
         {proposal.expectedRevision
           ? `Review changes to task ${proposal.taskId} at revision ${proposal.expectedRevision}.`
           : 'Task draft for your review. Nothing is saved as a task yet.'}{' '}
         Saving does not start work.
       </p>
-      <p>
-        Profile {copy.profile.profileId} · revision {copy.profile.revision} · hash{' '}
-        {copy.profile.contentHash}
-      </p>
-      <details>
-        <summary>Review exact task definition</summary>
-        <pre className="agent-task-proposal-source">
-          {JSON.stringify(pending?.definition ?? taskDefinition(copy), null, 2)}
-        </pre>
-      </details>
       <AgentTaskEditor
         copy={copy}
+        onClose={onClose}
         versions={versions}
         update={update}
         save={() => void save()}
         busy={busy}
         disabled={disabled || !!pending}
+        footerActions={
+          <>
+            {pending && !busy && (
+              <button type="button" disabled={disabled} onClick={() => void save()}>
+                Retry task save
+              </button>
+            )}
+            {pending && (
+              <p>
+                The original reviewed save is retained until its receipt is confirmed. Task input
+                stays locked while its outcome is uncertain.
+              </p>
+            )}
+            {busy && pending && (
+              <button type="button" onClick={cancel}>
+                Cancel save wait
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={disabled || busy || !!pending}
+              onClick={() => void discard()}
+            >
+              Discard task proposal
+            </button>
+            {error && (
+              <p role="alert">
+                {error}
+                {!pending && (
+                  <>
+                    {' '}
+                    <a href={`/agent-library?task=${encodeURIComponent(proposal.taskId)}`}>
+                      Review current Library task
+                    </a>
+                    . Request a fresh proposal if the saved revision changed.
+                  </>
+                )}
+              </p>
+            )}
+          </>
+        }
       />
-      {pending && !busy && (
-        <button type="button" disabled={disabled} onClick={() => void save()}>
-          Retry task save
-        </button>
-      )}
-      {pending && (
-        <p>
-          The original reviewed save is retained until its receipt is confirmed. Task input stays
-          locked while its outcome is uncertain.
-        </p>
-      )}
-      {busy && pending && (
-        <button type="button" onClick={cancel}>
-          Cancel save wait
-        </button>
-      )}
-      <button type="button" disabled={disabled || busy || !!pending} onClick={() => void discard()}>
-        Discard task proposal
-      </button>
-      {error && (
-        <p role="alert">
-          {error}
-          {!pending && (
-            <>
-              {' '}
-              <a href={`/agent-library?task=${encodeURIComponent(proposal.taskId)}`}>
-                Review current Library task
-              </a>
-              . Request a fresh proposal if the saved revision changed.
-            </>
-          )}
-        </p>
-      )}
     </section>
+  );
+}
+
+function ProposalReviewLoader({
+  identity,
+  versions,
+  onClose,
+  onSaved,
+}: {
+  identity: AgentTaskProposalIdentity;
+  versions?: AgentLibraryVersion[];
+  onClose?(): void;
+  onSaved?(record: AgentTaskRecord): void;
+}) {
+  const [proposal, setProposal] = useState<TaskProposal | null>(null);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const [discarded, setDiscarded] = useState(false);
+  useEffect(() => {
+    const abort = new AbortController();
+    setError('');
+    void loadAgentTaskProposal(identity, abort.signal)
+      .then((value) => {
+        if (!abort.signal.aborted) setProposal(value);
+      })
+      .catch((cause: unknown) => {
+        if (!abort.signal.aborted)
+          setError(cause instanceof Error ? cause.message : 'Task review unavailable');
+      });
+    return () => abort.abort();
+  }, [identity, attempt]);
+  if (error)
+    return (
+      <div>
+        <p role="alert">{error}</p>
+        <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+          Retry task review
+        </button>
+      </div>
+    );
+  if (!proposal) return <p role="status">Loading task review…</p>;
+  if (discarded || proposal.state === 'discarded')
+    return <p role="status">Task proposal discarded. No task was saved.</p>;
+  return (
+    <AgentTaskProposal
+      key={`${proposal.sessionId}:${proposal.proposalId}`}
+      proposal={proposal}
+      sessionId={proposal.sessionId}
+      disabled={false}
+      versions={versions}
+      onClose={onClose}
+      onSaved={onSaved}
+      onDiscard={() => setDiscarded(true)}
+    />
+  );
+}
+/** Navigation reads canonical owner state; only the editor's explicit Save mutates it. */
+export function AgentTaskProposalReview({
+  identity,
+  versions,
+  onClose,
+  onSaved,
+}: {
+  identity: AgentTaskProposalIdentity;
+  versions?: AgentLibraryVersion[];
+  onClose?(): void;
+  onSaved?(record: AgentTaskRecord): void;
+}) {
+  return (
+    <ProposalReviewLoader
+      key={JSON.stringify(identity)}
+      identity={identity}
+      versions={versions}
+      onClose={onClose}
+      onSaved={onSaved}
+    />
   );
 }

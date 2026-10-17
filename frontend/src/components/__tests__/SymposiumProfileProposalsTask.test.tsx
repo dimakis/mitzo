@@ -3,7 +3,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { AgentTaskDefinition, AgentTaskRecord } from '@mitzo/protocol';
 import { apiFetch } from '../../lib/api-fetch';
-import { SymposiumProfileProposals } from '../SymposiumProfileProposals';
+import {
+  AgentTaskProposal,
+  AgentTaskProposalReview,
+  type TaskProposal,
+} from '../AgentTaskProposal';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../AgentTaskSettings', () => ({
@@ -24,13 +28,22 @@ const definition: AgentTaskDefinition = {
   notificationPolicy: 'results',
   outputPolicy: 'session',
 };
-const proposal = {
+const proposal: TaskProposal = {
+  sessionId: 'chat',
+  createdAt: 1,
+  savedTask: null,
   kind: 'task',
   proposalId: 'task-proposal',
   taskId: 'morning',
   expectedRevision: 0,
   definition,
   state: 'pending',
+};
+const identity = {
+  proposalId: 'task-proposal',
+  sessionId: 'chat',
+  taskId: 'morning',
+  expectedRevision: 0,
 };
 const record = (value = definition, revision = 1): AgentTaskRecord => ({
   taskId: 'morning',
@@ -61,7 +74,7 @@ function mock(
 }
 it('reviews task draft and exact profile pin before explicit save, then reports exact receipt', async () => {
   mock();
-  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  render(<AgentTaskProposalReview identity={identity} versions={[]} />);
   await screen.findByLabelText('Task name');
   expect(screen.getByText(/Profile r3/)).toBeTruthy();
   expect(screen.getByText(/Nothing is saved as a task yet/)).toBeTruthy();
@@ -84,7 +97,7 @@ it('reviews task draft and exact profile pin before explicit save, then reports 
 });
 it('retains invalid schedule input and shows validation without a save', async () => {
   mock();
-  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  render(<AgentTaskProposalReview identity={identity} versions={[]} />);
   fireEvent.change(await screen.findByLabelText('Schedule'), { target: { value: 'cron' } });
   fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: 'tomorrow' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
@@ -98,7 +111,7 @@ it('retains reviewed edits and identical retry input after a failed save', async
     if (++attempts === 1) throw Error('Owner unavailable');
     return record(input.definition as AgentTaskDefinition);
   });
-  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  render(<AgentTaskProposalReview identity={identity} versions={[]} />);
   fireEvent.change(await screen.findByLabelText('Objective'), {
     target: { value: 'Review the accepted report.' },
   });
@@ -122,20 +135,29 @@ it.each(['wrong task', 'wrong revision', 'wrong definition'])(
           ? { revision: 2 }
           : { definition: { ...definition, objective: 'Unreviewed change' } }),
     }));
-    render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+    render(<AgentTaskProposalReview identity={identity} versions={[]} />);
     await screen.findByLabelText('Task name');
     fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
     expect((await screen.findByRole('alert')).textContent).toMatch(/receipt/);
     expect(screen.queryByText(/Saved Morning review/)).toBeNull();
   },
 );
-it('keeps task review disabled while ordinary conversation authority is uncertain', async () => {
+it('keeps the controlled editor disabled when its supplied authority is uncertain', async () => {
   mock();
-  render(<SymposiumProfileProposals sessionId="chat" pendingOnly disabled />);
+  render(
+    <AgentTaskProposal
+      sessionId="chat"
+      proposal={proposal}
+      disabled
+      onDiscard={() => {}}
+      versions={[]}
+    />,
+  );
   await screen.findByLabelText('Task name');
-  expect(screen.getByRole('button', { name: 'Save task' }).closest('fieldset')!.disabled).toBe(
+  expect((screen.getByRole('button', { name: 'Save task' }) as HTMLButtonElement).disabled).toBe(
     true,
   );
+  expect(screen.getByLabelText('Task name').closest('fieldset')!.disabled).toBe(true);
   expect(
     (screen.getByRole('button', { name: 'Discard task proposal' }) as HTMLButtonElement).disabled,
   ).toBe(true);
@@ -143,17 +165,19 @@ it('keeps task review disabled while ordinary conversation authority is uncertai
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false),
   );
 });
-it('recovers the exact saved task receipt after reloading its conversation', async () => {
+it('recovers the exact saved task receipt after reloading its Library review', async () => {
   mock(undefined, [{ ...proposal, state: 'saved', savedTask: record() } as typeof proposal]);
-  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
-  expect((await screen.findByRole('status')).textContent).toContain('task morning · revision 1');
+  render(<AgentTaskProposalReview identity={identity} versions={[]} />);
+  expect((await screen.findByText(/task morning · revision 1/)).textContent).toContain(
+    'task morning · revision 1',
+  );
   expect(screen.queryByRole('button', { name: 'Save task' })).toBeNull();
 });
 it('recovers the original reviewed save input after reload following an uncertain failure', async () => {
   mock(() => {
     throw Error('Receipt unavailable');
   });
-  const first = render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  const first = render(<AgentTaskProposalReview identity={identity} versions={[]} />);
   fireEvent.change(await screen.findByLabelText('Objective'), {
     target: { value: 'Retain this reviewed edit' },
   });
@@ -163,7 +187,7 @@ it('recovers the original reviewed save input after reload following an uncertai
     .body;
   first.unmount();
   mock((input) => record(input.definition as AgentTaskDefinition));
-  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  render(<AgentTaskProposalReview identity={identity} versions={[]} />);
   expect(((await screen.findByLabelText('Objective')) as HTMLTextAreaElement).value).toBe(
     'Retain this reviewed edit',
   );
@@ -183,7 +207,7 @@ it('cancels waiting for a save and retains its exact retry identity without acce
         })
       : base(path, init),
   );
-  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  render(<AgentTaskProposalReview identity={identity} versions={[]} />);
   await screen.findByLabelText('Task name');
   fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel save wait' }));
@@ -204,7 +228,7 @@ it.each([400, 404, 409])(
           )
         : read(path, init),
     );
-    render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+    render(<AgentTaskProposalReview identity={identity} versions={[]} />);
     await screen.findByLabelText('Task name');
     fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
     await screen.findByText(/Owner rejected this save/);
@@ -215,14 +239,14 @@ it.each([400, 404, 409])(
     expect(screen.queryByRole('button', { name: 'Retry task save' })).toBeNull();
   },
 );
-it('retains partial task fields without throwing while the exact definition disclosure is mounted', async () => {
+it('retains partial task fields in the existing detailed editor without a duplicate raw definition form', async () => {
   mock();
-  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  render(<AgentTaskProposalReview identity={identity} versions={[]} />);
   fireEvent.change(await screen.findByLabelText('Task name'), { target: { value: '' } });
   fireEvent.change(screen.getByLabelText('Schedule'), { target: { value: 'cron' } });
   fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: '0 7 *' } });
   expect((screen.getByLabelText('Task name') as HTMLInputElement).value).toBe('');
-  expect(screen.getByText('Review exact task definition')).toBeTruthy();
+  expect(screen.queryByText('Review exact task definition')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   expect((await screen.findByRole('alert')).textContent).toMatch(/five-field cron/);
 });
@@ -239,7 +263,7 @@ it('retains the original reviewed save after403 because owner effects may alread
         )
       : read(path, init),
   );
-  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  render(<AgentTaskProposalReview identity={identity} versions={[]} />);
   await screen.findByLabelText('Task name');
   fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   expect((await screen.findByRole('alert')).textContent).toContain(

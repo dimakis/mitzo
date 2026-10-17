@@ -1,4 +1,4 @@
-import { AgentTaskProposal, type TaskProposal } from './AgentTaskProposal';
+import type { TaskProposal } from '../lib/agent-task-proposal-link';
 import { SymposiumProfileRecipeEditor } from './SymposiumProfileRecipeEditor';
 import './SymposiumProfilePicker.css';
 import { useEffect, useRef, useState } from 'react';
@@ -319,7 +319,7 @@ export function SymposiumProfileProposals({
   refreshKey?: unknown;
   disabled?: boolean;
 }) {
-  const [proposals, setProposals] = useState<(Proposal | TaskProposal)[] | null>(null);
+  const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
   const dismissed = useRef(new Set<string>());
@@ -332,7 +332,12 @@ export function SymposiumProfileProposals({
         .then((rows) => {
           if (!Array.isArray(rows)) throw new Error('Profile proposals response is invalid');
           if (live) {
-            setProposals(rows.filter((row) => !dismissed.current.has(row.proposalId)));
+            setProposals(
+              rows.filter(
+                (row): row is Proposal =>
+                  !('kind' in row && row.kind === 'task') && !dismissed.current.has(row.proposalId),
+              ),
+            );
             setError('');
           }
         })
@@ -386,25 +391,15 @@ export function SymposiumProfileProposals({
           onDone={() => onSeatSeedDone?.()}
         />
       )}
-      {proposals?.map((proposal) =>
-        'kind' in proposal && proposal.kind === 'task' ? (
-          <AgentTaskProposal
-            key={`${sessionId}:${proposal.proposalId}`}
-            sessionId={sessionId}
-            proposal={proposal}
-            disabled={disabled}
-            onDiscard={() => remove(proposal.proposalId)}
-          />
-        ) : (
-          <ProposalEditor
-            key={proposal.proposalId}
-            sessionId={sessionId}
-            proposal={proposal as Proposal}
-            disabled={disabled}
-            onDone={(name) => remove(proposal.proposalId, name)}
-          />
-        ),
-      )}
+      {proposals?.map((proposal) => (
+        <ProposalEditor
+          key={proposal.proposalId}
+          sessionId={sessionId}
+          proposal={proposal}
+          disabled={disabled}
+          onDone={(name) => remove(proposal.proposalId, name)}
+        />
+      ))}
     </aside>
   );
 }

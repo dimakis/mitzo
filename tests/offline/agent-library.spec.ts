@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { openChatSetting, settingRow, settingsHome } from '../support/chat-settings';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -11,6 +11,24 @@ import {
 } from '@mitzo/protocol';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
+async function editableProfileName(page: Page) {
+  const field = page.getByLabel('Agent name', { exact: true });
+  const edit = page.getByText('Edit profile', { exact: true });
+  await expect(field.or(edit).first()).toBeVisible();
+  if (!(await field.isVisible())) await edit.click();
+  return field;
+}
+async function libraryOptions(page: Page) {
+  const summary = page.getByText('Library options', { exact: true });
+  if (!(await summary.evaluate((element) => (element.parentElement as HTMLDetailsElement).open)))
+    await summary.click();
+}
+async function taskAdvanced(page: Page) {
+  const summary = page.getByText('Workspace and notifications', { exact: true });
+  if (!(await summary.evaluate((element) => (element.parentElement as HTMLDetailsElement).open)))
+    await summary.click();
+}
+
 test('edits and publishes named agents while preserving Agents navigation', async ({
   page,
   isMobile,
@@ -350,12 +368,13 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   });
   await page.goto('/agent-library');
   await expect(page.getByRole('heading', { name: 'Agent Library', exact: true })).toBeVisible();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The architect');
   await expect(page.getByRole('tab', { name: 'Profiles', exact: true })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Tasks & schedules', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Use in Symposium/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Assign task', exact: true }).click();
+  await taskAdvanced(page);
   for (const label of ['Agent profile', 'Schedule', 'Notifications']) {
     expect(
       await page
@@ -394,6 +413,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await taskPanel.getByLabel('Model', { exact: true }).focus();
   await page.keyboard.press('Escape');
   await expect(taskSettings).toBeFocused();
+  await taskAdvanced(page);
   await page.getByLabel('Workspace reference').fill('workspace-fixture');
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Task save unavailable');
@@ -410,11 +430,13 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByRole('region', { name: 'Task editor', exact: true })).toHaveCount(0);
   await page.goBack();
   await expect(page.getByLabel('Task name', { exact: true })).toHaveValue('Retained task');
+  await taskAdvanced(page);
   await page.getByLabel('Workspace reference').fill('workspace-after-return');
   releaseTaskSave!();
   await expect(
     page.getByText('Earlier task changes saved. Newer input is retained.'),
   ).toBeVisible();
+  await taskAdvanced(page);
   await expect(page.getByLabel('Workspace reference')).toHaveValue('workspace-after-return');
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await expect(page.getByText('Task saved. Execution is not available yet.')).toBeVisible();
@@ -494,15 +516,15 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.locator('.agent-library-prompt')).toHaveCount(0);
   previewError = false;
   await page.getByRole('tab', { name: 'Identity', exact: true }).click();
-  await page.getByLabel('Agent name').fill('Robert');
+  await (await editableProfileName(page)).fill('Robert');
   await page.getByLabel('Descriptor').fill('The systems architect');
   await expect(page.getByRole('link', { name: 'Use in session', exact: true })).toHaveCount(0);
   await page.getByRole('link', { name: isMobile ? 'More' : 'Today', exact: true }).click();
   await page.goBack();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+  await expect(await editableProfileName(page)).toHaveValue('Robert');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The systems architect');
   await page.reload();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+  await expect(await editableProfileName(page)).toHaveValue('Robert');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The systems architect');
   await page.getByRole('tab', { name: 'Tools', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Remove Read', exact: true })).toBeVisible();
@@ -513,17 +535,17 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     'href',
     '/chat?agentProfile=bob&profileRevision=4',
   );
-  await page.getByLabel('Agent name').fill('Working Robert');
+  await (await editableProfileName(page)).fill('Working Robert');
   catalog.versions.unshift({
     ...catalog.versions[0],
     revision: 5,
     definition: { ...catalog.versions[0].definition, name: 'Remote Robert' },
   });
   await page.reload();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Working Robert');
-  await expect(page.getByLabel('Agent name')).toBeEnabled();
+  await expect(await editableProfileName(page)).toHaveValue('Working Robert');
+  await expect(await editableProfileName(page)).toBeEnabled();
   await page.getByRole('button', { name: 'Discard unsaved edits', exact: true }).click();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Remote Robert');
+  await expect(await editableProfileName(page)).toHaveValue('Remote Robert');
   catalog.versions.shift();
   await page.reload();
   await page.getByRole('button', { name: 'Export profile', exact: true }).click();
@@ -570,7 +592,8 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         { theme, accent, font },
       );
       await page.goto('/agent-library');
-      await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+      await expect(await editableProfileName(page)).toHaveValue('Robert');
+      await libraryOptions(page);
       await page.getByRole('button', { name: 'Tool library', exact: true }).click();
       await page.getByRole('searchbox', { name: 'Search tool library', exact: true }).fill('Read');
       await page
@@ -640,10 +663,11 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         animations: 'disabled',
       });
       await page.getByRole('link', { name: 'Open Agent Library', exact: true }).click();
-      await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+      await expect(await editableProfileName(page)).toHaveValue('Robert');
       await expect(page.getByRole('region', { name: 'Agent advisor', exact: true })).toHaveCount(0);
       if (isMobile) {
         await expect(page.locator('.mobile-workspace-masthead')).toBeVisible();
+        await libraryOptions(page);
         expect(
           await page
             .getByLabel('Search agents')
@@ -753,7 +777,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     .getByRole('button')
     .filter({ hasText: 'B'.repeat(80) })
     .click();
-  await expect(page.getByLabel('Agent name')).toHaveValue('B'.repeat(80));
+  await expect(await editableProfileName(page)).toHaveValue('B'.repeat(80));
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '20px';
   });
@@ -777,7 +801,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   });
   catalog.versions = catalog.versions.filter((version) => version.profileId !== 'long-name-layout');
   await page.reload();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+  await expect(await editableProfileName(page)).toHaveValue('Robert');
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '';
   });
@@ -795,9 +819,9 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect.poll(() => typeof releaseCatalog).toBe('function');
   catalogMode = 'content';
   releaseCatalog!();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+  await expect(await editableProfileName(page)).toHaveValue('Robert');
   await page.getByRole('button', { name: 'New agent', exact: true }).click();
-  await expect(page.getByLabel('Agent name')).toHaveValue('');
+  await expect(await editableProfileName(page)).toHaveValue('');
   await expect(page.getByLabel('Ask agent advisor')).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }),

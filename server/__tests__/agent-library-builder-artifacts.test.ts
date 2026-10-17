@@ -8,6 +8,8 @@ import {
 it.each([
   '../session-agent-task-tools.ts',
   '../../frontend/src/components/AgentTaskProposal.tsx',
+  '../../frontend/src/lib/agent-task-proposal-link.ts',
+  '../../frontend/src/components/ToolPill.tsx',
   '../agent-task-store.ts',
   '../agent-task-service.ts',
   '../agent-task-router.ts',

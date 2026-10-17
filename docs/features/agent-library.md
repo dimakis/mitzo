@@ -146,12 +146,17 @@ Draft cards appear after the transcript in its existing scroll area while Worksp
 
 Task definitions can also be read and proposed through `AgentReadTasks` and
 `AgentProposeTask` on ordinary routes with verified turn/call identities. They
-create durable task review cards in this same proposal area. Review preserves
+create durable proposals. The ordinary tool result opens detailed review in the
+Library's existing task editor, with a return link to the originating conversation.
+The transcript does not contain another task form or editing dialog. Review preserves
 exact profile pins, independent task execution settings, the expected task revision
-and paused schedule intent. Explicit Save task uses the Library task owner and
+and paused schedule intent. Opening review performs no save or task creation.
+Explicit Save task uses the original proposal save route and Library task owner and
 shows its exact saved task/revision receipt with a Library link, including after
 reload. A proposal is not a save, and a save starts no run or scheduler. Failed or
-uncertain saves retain their original request for retry. Unsupported tool routes
+uncertain saves retain their original request for retry. Proposal review and manual
+Library drafts keep separate retained input; navigating between them cannot advance
+the proposal's expected revision. Unsupported tool routes
 stay unavailable. See [task contracts](agent-tasks.md#ordinary-builder-task-proposals).
 
 The built-in guidance revision is part of the application source. Change its revision when changing its behavior; resumed conversations retain their captured snapshot. It does not create or overwrite user catalog entries.
