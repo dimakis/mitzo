@@ -1,3 +1,4 @@
+import { recordAcceptedReplaySession, replayError } from './public-replay-error.js';
 import { telosMaterialDestinations } from './telos-source-materials.js';
 import { TelosWorkError } from './telos-work-store.js';
 import { createHash } from 'node:crypto';
@@ -87,6 +88,9 @@ export function createTelosConversationSource(options: {
           { messageId: string; snapshot: string; blockIds: Set<string> }
         >();
         const nativeCompleted = new Set<string>();
+        // Normal replay authorizes runtime feedback independently for ordinary
+        // history and each complete immutable native provenance snapshot.
+        const acceptedReplaySessions = new Map<string, Set<string>>();
         let ordinaryActive: string | undefined;
         let firstOrdinaryMessage: number | undefined;
         let initialPromptSequence: number | undefined;
@@ -230,6 +234,27 @@ export function createTelosConversationSource(options: {
                   refuse();
               }
             }
+            const replayPartition =
+              event.symposiumProvenance === undefined
+                ? 'ordinary'
+                : JSON.stringify(SymposiumProvenanceSchema.parse(event.symposiumProvenance));
+            let accepted = acceptedReplaySessions.get(replayPartition);
+            if (!accepted) {
+              accepted = new Set();
+              acceptedReplaySessions.set(replayPartition, accepted);
+            }
+            recordAcceptedReplaySession(event, accepted);
+            // Synthetic public error rows have no completed-message boundary in
+            // this source contract. Never claim a complete prefix that omits one.
+            if (
+              selection.mode === 'conversation_so_far' &&
+              event.type === 'error' &&
+              replayError(event, accepted)
+            )
+              throw new TelosWorkError(
+                'invalid',
+                'This conversation prefix contains public error feedback that cannot be retained. Choose a completed exchange before the error.',
+              );
             const id = event.payload.messageId;
             if (event.seq === boundary) {
               found =

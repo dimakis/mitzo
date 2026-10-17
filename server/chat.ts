@@ -39,7 +39,7 @@ import {
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
-import { publicProviderFailureMessage } from './provider-failure.js';
+import { recordAcceptedReplaySession, replayError } from './public-replay-error.js';
 import {
   getRepositoryWorkspaces,
   readRepositoryWorkspaceForConversation,
@@ -5215,42 +5215,6 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
     };
     return { ...block, subagent };
   };
-}
-
-/** Only an earlier durable user echo can authorize unclassified runtime feedback. */
-function recordAcceptedReplaySession(
-  event: import('./event-store.js').StoredEvent,
-  accepted: Set<string>,
-) {
-  const p = event.payload;
-  if (
-    event.type === 'user_message' &&
-    typeof p.messageId === 'string' &&
-    p.messageId.trim() &&
-    typeof p.text === 'string' &&
-    typeof event.sessionId === 'string' &&
-    event.sessionId.trim() &&
-    (p.sessionId === undefined || p.sessionId === event.sessionId)
-  )
-    accepted.add(event.sessionId);
-}
-
-function replayError(event: import('./event-store.js').StoredEvent, accepted: Set<string>) {
-  const p = event.payload;
-  if (p.providerFailure) {
-    return { prefix: 'provider-error', message: publicProviderFailureMessage(p.providerFailure) };
-  }
-  if (
-    p.v !== 2 ||
-    p.type !== 'error' ||
-    p.sessionId !== event.sessionId ||
-    !accepted.has(event.sessionId) ||
-    p.clientMsgId !== undefined ||
-    typeof p.error !== 'string' ||
-    !p.error.trim()
-  )
-    return null;
-  return { prefix: 'runtime-error', message: p.error };
 }
 
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.271';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.273';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../public-replay-error.ts': 'a74dbfac1901169ec1d797aa6c5d06bac6d718fef1f602963ed7a874e0fe79d6',
+  '../provider-failure.ts': '0655ed00d881906318380ec0c90d62f1457b5257747eb765d05658199443805f',
   '../telos-source-recovery.ts': '91d1921366236f855fa2283fb35aa64641d1a2b589e5b2dcb7c24250d94dbb91',
   '../telos-source-approval.ts': '4ad333423cd049bec9b2b2f3ec90b71fa53d9610521166e1b48a1db7a416b275',
   '../telos-source-approval-store.ts':
@@ -65,7 +67,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-artifact-store.ts': 'f518890b268357c1d928ad377e4b3b783d820a3ac95d3a12bb153104ba0cb269',
   '../telos-source-capture.ts': 'a00ad9939e8ffdefcf13606d3de76432c6c03be53b7dcf8132c0f067cb9dd315',
   '../telos-conversation-source.ts':
-    'a3c7904d83dcbf3d98e7c0c17d4f4ba9ad29fe1d65476c13aefd66dcf2a380f7',
+    '0217975022f987f5ad65876d53467417774e3f0f186ba4fc70bc6f30c9860308',
   '../telos-work-record.ts': '7a1da4212ae06394702807b31421c371fac600904fa526937544587cbff56d93',
   '../../packages/protocol/src/stored-event-wire.ts':
     '299edbeb86bab57c9f910b27cab5d6753ff026106916d58f4a9a2dd5deedafa8',
@@ -464,7 +466,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '22b8af7aa37707ddf59f64ac24c213e382012f80006fa50ce6c326dc964b8f39',
+  '../chat.ts': 'c4edeff964635c839b982cb30e12392501c787237cc864551a488ba0eb0d8591',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     '5598e9c45fcc2e24eb8def0237fc5e3c2f6c395038c9f9af876ca79372605aec',
