@@ -156,7 +156,7 @@
             },
             {
               "path": "tests/offline/telos-priority.spec.ts",
-              "sha256": "722db830a673276427b827b459c41aa97ff2151ef1aedd800da375bba3b6b947"
+              "sha256": "2d4627337c106756dfe92b98e5a7174cca1078d5ae8fd6e2806cfe118b83e893"
             }
           ]
         }

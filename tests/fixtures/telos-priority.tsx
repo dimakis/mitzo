@@ -2,8 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { createMitzoStore } from '@mitzo/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
-import { TodoView } from '../../frontend/src/pages/TodoView';
-import { TodoDetailView } from '../../frontend/src/pages/TodoDetailView';
+import { TodoWorkspace } from '../../frontend/src/pages/TodoWorkspace';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/desktop.css';
@@ -36,8 +35,8 @@ createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={store}>
     <BrowserRouter>
       <Routes>
-        <Route path="/todos" element={<TodoView />} />
-        <Route path="/todos/:id" element={<TodoDetailView />} />
+        <Route path="/todos" element={<TodoWorkspace />} />
+        <Route path="/todos/:id" element={<TodoWorkspace />} />
       </Routes>
     </BrowserRouter>
   </MitzoStoreProvider>,

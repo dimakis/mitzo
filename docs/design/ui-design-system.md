@@ -1457,10 +1457,12 @@ Pending saves disable the field; failures announce uncertainty beside the field
 and preserve the last confirmed value. Existing grouping, sorting and navigation
 remain unchanged. This is not the later S7/S8 workspace implementation.
 
-The intercepted `telos-priority.spec.ts` fixture covers the actual current pages
+The intercepted `telos-priority.spec.ts` fixture covers the actual responsive workspace
 on 320px WebKit/Chromium and desktop Chromium in dark Mint/System and light
 Teal/Georgia with larger text, keyboard focus, save/reject/reload and matching
-badges after navigation. See [the amendment](../features/telos-priority-scale.md)
+badges after navigation and immediately in the mounted desktop tree after saving.
+The list cache publishes confirmed changes to all consumers; per-item writes
+remain ordered across detail remounts. See [the amendment](../features/telos-priority-scale.md)
 for API/persistence ownership and its relationship to the frozen r1 design.
 
 Inspected implementation captures: [phone header](assets/telos-priority-mobile-dark.png),

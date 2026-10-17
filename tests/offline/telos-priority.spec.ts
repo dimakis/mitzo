@@ -146,6 +146,8 @@ for (const theme of ['dark', 'light'] as const)
     release();
     await expect(select).toHaveValue('7');
     await expect(select).toBeEnabled();
+    if (!info.project.name.startsWith('mobile'))
+      await expect(page.getByLabel('Priority 7 of 10')).toHaveText('P7');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );

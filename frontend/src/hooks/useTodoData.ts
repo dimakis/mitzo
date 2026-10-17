@@ -5,6 +5,8 @@ import { eventBus } from '../lib/event-bus-singleton';
 import { ListCache, SupersededListRequest } from '../lib/list-cache';
 
 const todoCache = new ListCache<TodoData>();
+// Keep writes ordered even when the detail view unmounts and another one opens.
+const priorityWrites = new Map<string, Promise<void>>();
 function invalidateTodos(): void {
   invalidateTodoReads();
   todoCache.invalidate();
@@ -79,6 +81,8 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   const urlRef = useRef(url);
   urlRef.current = url;
 
+  useEffect(() => todoCache.subscribe(url, () => setData(todoCache.get(url) ?? null)), [url]);
+
   useEffect(() => {
     let cancelled = false;
     const cached = todoCache.get(url);
@@ -152,7 +156,6 @@ export function useTodoData(profile?: string): UseTodoDataResult {
         );
       invalidateTodoReads();
       todoCache.update((data) => ({ ...data, items: removeFromTree(data.items, id) }));
-      setData((prev) => (prev ? { ...prev, items: removeFromTree(prev.items, id) } : prev));
     } catch {
       if (urlRef.current === actionUrl)
         setError('Couldn’t confirm this change. Refresh to check its status.');
@@ -180,10 +183,6 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     // Optimistically toggle
     invalidateTodoReads();
     todoCache.update((data) => ({ ...data, items: toggleStarInTree(data.items, id) }));
-    setData((prev) => {
-      if (!prev) return prev;
-      return { ...prev, items: toggleStarInTree(prev.items, id) };
-    });
 
     try {
       const response = await apiFetch(`/api/todos/${id}/action`, {
@@ -203,21 +202,30 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   const setPriority = useCallback(async (id: string, priority: number) => {
     if (!Number.isInteger(priority) || priority < 1 || priority > 10)
       throw new Error('Priority must be from 1 to 10');
-    const response = await apiFetch(`/api/todos/${encodeURIComponent(id)}/action`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'priority', priority }),
-    });
-    if (!response.ok || (await response.json()).ok !== true)
-      throw new Error('Priority change was not confirmed');
+    const write = async () => {
+      const response = await apiFetch(`/api/todos/${encodeURIComponent(id)}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'priority', priority }),
+      });
+      if (!response.ok || (await response.json()).ok !== true)
+        throw new Error('Priority change was not confirmed');
 
-    // Invalidate reads admitted before the write, then publish the confirmed value
-    // to every cached profile. No optimistic rollback can overwrite a newer edit.
-    invalidateTodoReads();
-    todoCache.update((data) => ({ ...data, items: setPriorityInTree(data.items, id, priority) }));
-    setData((data) =>
-      data ? { ...data, items: setPriorityInTree(data.items, id, priority) } : data,
-    );
+      // The cache publishes confirmed changes to every mounted list/detail consumer.
+      invalidateTodoReads();
+      todoCache.update((data) => ({
+        ...data,
+        items: setPriorityInTree(data.items, id, priority),
+      }));
+    };
+    const previous = priorityWrites.get(id);
+    const pending = previous ? previous.catch(() => {}).then(write) : write();
+    priorityWrites.set(id, pending);
+    try {
+      await pending;
+    } finally {
+      if (priorityWrites.get(id) === pending) priorityWrites.delete(id);
+    }
   }, []);
 
   const create = useCallback(

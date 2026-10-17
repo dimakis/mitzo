@@ -41,8 +41,12 @@ read; an unsupported or rejected write remains visible as a save error.
 shared control height and focus styling. It disables overlapping saves. The
 confirmed value remains visible while saving; failures preserve it and announce
 uncertainty without replaying a write. The existing list cache updates only after
-confirmation. Item detail uses that same data owner rather than a second list
-fetch. Reloads and navigation revalidate the persisted value.
+confirmation and publishes it to every mounted list/detail consumer, including
+the desktop split view. Writes to the same item are serialized across navigation
+and remounts, so a delayed older acknowledgment cannot replace a newer edit.
+A failed write does not prevent the next explicit edit. Item detail uses that
+same data owner rather than a second list fetch. Reloads and navigation
+revalidate the persisted value.
 
 The added database column participates in the existing item revision snapshots.
 Ordinary role/delegation owners retain their existing revision conflict checks;
@@ -59,7 +63,8 @@ this amendment adds no dispatcher, task-priority mapping or runtime behavior.
 | Saving, rejection and uncertain response     | Confirmed-only hook tests; selector serialization/error tests; intercepted browser failure                               |
 | Mobile and desktop usability                 | Offline WebKit/Chromium at 320px and Chromium at 1280px, light/dark, alternate fonts/accents and larger light-theme text |
 
-The browser fixture renders the actual current Telos pages with intercepted
+The browser fixture renders the actual responsive `TodoWorkspace`, including
+simultaneously mounted desktop list/detail panels, with intercepted
 HTTP and an inert transport. It omits the surrounding application shell. Full
 build, broader browser acceptance and review remain CI/review gates. It uses no
 backend, live account, credentials or model calls.
