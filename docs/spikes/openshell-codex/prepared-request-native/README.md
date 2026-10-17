@@ -19,6 +19,13 @@ The patches implement three boundaries:
   cross-process consumption succeeds once. Native turn admission and upstream
   response acceptance remain independent receipts. Consumed uncertainty never
   becomes a new dispatch.
+- The retained formatter candidate, which shares pure Responses formatting with
+  the ordinary ModelClient and preserves its HTTP/WebSocket normalization order.
+  It still refuses public freezing when ordinary internal metadata or required
+  output/truncation policy cannot be represented.
+- The retained attempt-closure candidate, which arbitrates first transport
+  attempt against durable closure with move-only live handoffs. Restart/read does
+  not recreate a handoff; late provider receipts remain evidence only.
 
 `source-evidence.json` pins the upstream tree, ordered patches, patch checksums
 and resulting source tree. To reconstruct the exact source without building or
@@ -31,7 +38,10 @@ node qualify-source.mjs /absolute/path/to/public-codex-source
 The verifier uses a temporary source-only checkout and removes it afterward. It
 never reads application configuration, selects credentials or invokes a model.
 The native CI workflow separately reconstructs and tests this source against
-fixture transports and temporary databases.
+fixture transports and temporary databases. It covers `codex-core` (including
+the formatter and real ordinary HTTP/WebSocket owners), `codex-api`,
+`codex-http-client` and `codex-state` together. The earlier three-crate workflow
+did not qualify the formatter or its ordinary request owners.
 
 The application changes in `server/collaboration-context-compiler.ts`,
 `server/collaboration-review-owner.ts` and the existing EventStore retain a
@@ -60,7 +70,9 @@ capacity ceilings still need an application authority owner.
 Until those owners are connected and offline composition tests pass, no account
 or runtime combination is qualified. Authenticated application joining, reader
 only delivery, frontend integration and target qualification remain subsequent
-dependencies. Live calls, activation and deployment require their separate user
+dependencies. Host revocation and native SQLite consumption still lack a shared
+ordering owner; consumable admission remains unavailable until that ordering is
+proved. Live calls, activation and deployment require their separate user
 authorizations described in the Symposium handover.
 
 Public body-schema handling of inline image/PDF bytes does not register artifact

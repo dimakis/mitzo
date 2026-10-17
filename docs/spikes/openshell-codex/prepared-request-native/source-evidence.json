@@ -36,10 +36,18 @@
     {
       "file": "socket-fixture.patch",
       "sha256": "a36c2aa01f0423dfa2f6aebc6e4bfbef7049948da481565497c3d00fe476cf47"
+    },
+    {
+      "file": "native-formatter.patch",
+      "sha256": "40813a6023112c521ac51160ea0b5e3eec512cc365c1b05af1e2b8906fc45dc2"
+    },
+    {
+      "file": "native-attempts-final.patch",
+      "sha256": "54ebf97da63bb8d017df71066fdc8e96b6a906a275f6b0b5ace00e7e04381f31"
     }
   ],
-  "sourceTree": "a4b143a63443ca6c757141d0632882fb0b64f7c4",
-  "localSourceCommit": "6f8bef6f4c13715b0a76eb00809d4f73da954e5a",
+  "sourceTree": "0f641b580e3f5ba2a86b80fcabb31a4f1929678a",
+  "localSourceCommit": "183bfbae4d64141384adf2e3ccef7d89e058eb4b",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -47,7 +55,10 @@
     "bf6bde246009a52b3b3c407ff2eb1ebdcd621979",
     "51c455a5334bf2487066b1ca65d8dfef42d56b22",
     "fdc16df27869da897d5f47b3817d5b07b9542d40",
-    "6f8bef6f4c13715b0a76eb00809d4f73da954e5a"
+    "6f8bef6f4c13715b0a76eb00809d4f73da954e5a",
+    "354e9cd97dc82b3d7c7c525b08122c37a8c1d2db",
+    "77bebb26df1776b8bc642178115a23320985b3b1",
+    "c37596cba1cdec5c2e29631967405f7772a73a40"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -111,5 +122,20 @@
     "actual ordinary turn/start consumption and same-body dispatch",
     "selected account/model ceiling and counter support qualification",
     "application joining authority and ordinary delivery/reader composition"
-  ]
+  ],
+  "integratedDependencies": {
+    "formatter": {
+      "branch": "feat/symposium-native-formatter",
+      "commit": "354e9cd97dc82b3d7c7c525b08122c37a8c1d2db",
+      "patchSha256": "40813a6023112c521ac51160ea0b5e3eec512cc365c1b05af1e2b8906fc45dc2",
+      "workingTreeClean": true
+    },
+    "attemptClosure": {
+      "branch": "feat/symposium-native-attempts",
+      "commit": "c37596cba1cdec5c2e29631967405f7772a73a40",
+      "base": "6f8bef6f4c13715b0a76eb00809d4f73da954e5a",
+      "patchSha256": "54ebf97da63bb8d017df71066fdc8e96b6a906a275f6b0b5ace00e7e04381f31",
+      "workingTreeClean": true
+    }
+  }
 }

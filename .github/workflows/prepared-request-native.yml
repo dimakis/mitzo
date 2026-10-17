@@ -72,7 +72,7 @@ jobs:
         working-directory: .native-prepared-source/codex-rs
         env:
           CARGO_NET_OFFLINE: 'true'
-        run: env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST just test -p codex-http-client -p codex-state -p codex-api --test-threads 1
+        run: env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST just test -p codex-core -p codex-http-client -p codex-state -p codex-api --test-threads 1
       - name: Check native source formatting
         working-directory: .native-prepared-source/codex-rs
-        run: cargo fmt --check -p codex-http-client -p codex-state -p codex-api
+        run: cargo fmt --check -p codex-core -p codex-http-client -p codex-state -p codex-api
