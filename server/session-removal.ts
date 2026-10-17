@@ -1,9 +1,11 @@
 import { Router } from 'express';
+import type { RequestHandler } from 'express';
 import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js';
 
 /** Session visibility changes only after physical release has been verified.
  * Archive is deliberately separate and never implies destructive consent. */
 export function createSessionRemovalRouter(deps: {
+  authorize: RequestHandler;
   lifecycle(): OpenShellLifecycleService | null;
   hasSandbox(id: string): boolean;
   hide(id: string): void;
@@ -17,7 +19,7 @@ export function createSessionRemovalRouter(deps: {
       .find((r) => r.conversationId === id);
   const unavailable =
     'Sandbox ownership is unavailable. Archive the chat or review it in Sandboxes.';
-  router.get('/:id/deletion-preview', async (req, res) => {
+  router.get('/:id/deletion-preview', deps.authorize, async (req, res) => {
     try {
       const id = req.params.id;
       const record = managed(id);
@@ -35,7 +37,7 @@ export function createSessionRemovalRouter(deps: {
         .json({ error: error instanceof Error ? error.message : 'Deletion review unavailable.' });
     }
   });
-  router.delete('/:id', async (req, res) => {
+  router.delete('/:id', deps.authorize, async (req, res) => {
     const id = req.params.id;
     try {
       if (req.query.archive !== '1') {
@@ -58,14 +60,12 @@ export function createSessionRemovalRouter(deps: {
       deps.changed(id);
       return res.json({ ok: true });
     } catch (error) {
-      return res
-        .status(409)
-        .json({
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Sandbox release could not be verified. The chat has been retained.',
-        });
+      return res.status(409).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Sandbox release could not be verified. The chat has been retained.',
+      });
     }
   });
   return router;

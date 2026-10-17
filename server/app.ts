@@ -2853,8 +2853,8 @@ app.use(
 
 app.use(
   '/api/sessions',
-  operatorAuthMiddleware,
   createSessionRemovalRouter({
+    authorize: operatorAuthMiddleware,
     lifecycle: () => openShellLifecycleService,
     hasSandbox: (id) => eventStore.getSession(id)?.cwd?.startsWith('/sandbox/') === true,
     hide: hideSession,
