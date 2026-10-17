@@ -2,7 +2,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { ApiToolCatalog } from '../api-tool-catalog.js';
 import { admitApiTools } from '../api-tool-execution.js';
-import { CredentialConnections, CredentialConnectionStore } from '../credential-connections.js';
+import {
+  CredentialConnections,
+  CredentialConnectionStore,
+  type ConnectionSender,
+} from '../credential-connections.js';
 const cleanup: Array<() => void> = [];
 afterEach(() => cleanup.splice(0).forEach((f) => f()));
 async function fixture() {
@@ -12,7 +16,7 @@ async function fixture() {
     () => store.close(),
     () => catalog.close(),
   );
-  const send = vi.fn(async () => ({
+  const send = vi.fn<ConnectionSender>(async () => ({
     status: 200,
     body: '{"entity_id":"sensor.office","state":"21","last_changed":"2026-10-17T00:00:00Z","attributes":{"private":"omit"}}',
   }));
