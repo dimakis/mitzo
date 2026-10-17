@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-retained-artifact-source.ts':
     '497e917dc538c7c181429652aae5f7a523bd67bcc56dc052f53ba37179eecc55',
   '../collaboration-forwarding.ts':
-    '7bcba00cb63799d46f4811ddf92776f04f1c2c46bf1b5612547742bd7ccd4a47',
+    '545f06ff2e6f267aeb3dde58324b4e2c6fde713362b91940091ce1247eebaf86',
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':

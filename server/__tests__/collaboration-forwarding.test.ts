@@ -367,3 +367,15 @@ it('keeps retained older bytes separate from transcript references and refuses a
     retained.close();
   }
 });
+
+it('keeps the serialized handoff identity immutable while callers inspect independent packet projections', async () => {
+  const result = await prepareCollaborationForward(selection(), deps());
+  const original = result.serialized;
+  const projected = result.packet;
+  projected.messages[0].blocks[0].content = 'Caller changed a projection';
+  expect(result.serialized).toBe(original);
+  expect(result.packet.messages[0].blocks[0].content).toBe('  Exact\r\nπ answer  ');
+  expect(Reflect.set(result, 'serialized', 'Replacement bytes')).toBe(false);
+  expect(Reflect.set(result, 'sha256', '0'.repeat(64))).toBe(false);
+  expect(result.sha256).toBe(sha(original));
+});

@@ -258,7 +258,7 @@ export async function prepareCollaborationForward(
   bounded(packet);
   await assertCurrent();
   const serialized = JSON.stringify(packet);
-  return {
+  return Object.freeze({
     // Fresh projections keep callers from mutating the retained closure's selection.
     get packet() {
       return structuredClone(packet);
@@ -267,5 +267,5 @@ export async function prepareCollaborationForward(
     sha256: sha(serialized),
     requestFingerprint: collaborationForwardFingerprint(input),
     assertCurrent,
-  };
+  });
 }
