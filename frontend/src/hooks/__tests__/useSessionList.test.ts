@@ -241,7 +241,11 @@ describe('useSessionList', () => {
 
     expect(result.current.sessions).toHaveLength(1);
     expect(result.current.sessions[0].id).toBe('b');
-    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/a', { method: 'DELETE' });
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/a', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
   });
 
   it('clearAll empties sessions and calls DELETE', async () => {

@@ -15,11 +15,17 @@ it('pins the full warm pool ownership, operator API, host and UI source closure'
     '../openshell-warm-pool-router.ts',
     '../openshell-warm-pool-host.ts',
     '../openshell-lifecycle-service.ts',
+    '../session-removal.ts',
+    '../sandbox-inventory.ts',
     '../app.ts',
     '../index.ts',
     '../../frontend/src/pages/SandboxesView.tsx',
     '../../frontend/src/pages/SandboxesView.css',
     '../../frontend/src/types/sandboxes.ts',
+    '../../frontend/src/components/SessionRemovalDialog.tsx',
+    '../../frontend/src/components/SessionPanel.tsx',
+    '../../frontend/src/pages/SessionList.tsx',
+    '../../frontend/src/hooks/useSessionList.ts',
   ]) {
     expect(artifacts[path], path).toBe(
       reviewedHandlerSourceFingerprint(
