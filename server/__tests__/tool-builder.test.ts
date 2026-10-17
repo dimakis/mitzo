@@ -44,6 +44,13 @@ const customRequest = {
   ],
   testProfile: 'unit',
 };
+const successfulTest = {
+  passed: true,
+  complete: true,
+  summary: '4 tests passed',
+  output: 'ok',
+  examples: [{ passed: true, actual: { count: 2 } }],
+};
 
 it('reuses an equivalent catalog entry without allocating a workspace or publishing a duplicate', async () => {
   const catalog: ToolBuilderCatalog = {
@@ -86,7 +93,7 @@ it('prepares a tested unpublished custom draft inside the authorized workspace',
   };
   const catalog: ToolBuilderCatalog = { search: vi.fn(async () => []) };
   const executor = {
-    run: vi.fn(async () => ({ passed: true, summary: '4 tests passed', output: 'ok' })),
+    run: vi.fn(async () => successfulTest),
   };
   const service = new ToolBuilderService({
     catalog,
@@ -124,11 +131,15 @@ it('prepares a tested unpublished custom draft inside the authorized workspace',
 it.each([
   [
     'failed test',
-    async (ws: ToolBuilderWorkspace) => ({ passed: false, summary: '1 test failed' }),
+    async (_ws: ToolBuilderWorkspace) => ({ passed: false, summary: '1 test failed' }),
   ],
   [
     'incomplete test run',
-    async (ws: ToolBuilderWorkspace) => ({ passed: true, complete: false, summary: 'interrupted' }),
+    async (_ws: ToolBuilderWorkspace) => ({
+      passed: true,
+      complete: false,
+      summary: 'interrupted',
+    }),
   ],
 ])('does not create a draft after a %s', async (_label, run) => {
   const ws = await workspace();
@@ -150,7 +161,7 @@ it('stops draft preparation when the user cancels the operation', async () => {
   const executor = {
     run: vi.fn(async () => {
       controller.abort();
-      return { passed: true, summary: 'completed' };
+      return successfulTest;
     }),
   };
   const service = new ToolBuilderService({
@@ -170,12 +181,48 @@ it('stops draft preparation when the user cancels the operation', async () => {
   expect(service.getDraft('missing')).toBeNull();
 });
 
+it('does not attach a passing test receipt when a declared example returns the wrong result', async () => {
+  const ws = await workspace();
+  const service = new ToolBuilderService({
+    catalog: { search: vi.fn(async () => []) },
+    allocateWorkspace: vi.fn(async () => ws),
+    executor: {
+      run: vi.fn(async () => ({
+        ...successfulTest,
+        examples: [{ passed: true, actual: { count: 3 } }],
+      })),
+    },
+  });
+
+  await expect(
+    service.propose({ request: 'Build a CSV row counter', custom: customRequest }),
+  ).rejects.toThrow('Tool draft tests did not complete successfully');
+});
+
+it('refuses a test receipt if source changes during the test run', async () => {
+  const ws = await workspace();
+  const service = new ToolBuilderService({
+    catalog: { search: vi.fn(async () => []) },
+    allocateWorkspace: vi.fn(async () => ws),
+    executor: {
+      run: vi.fn(async () => {
+        await writeFile(join(ws.root, 'src/index.ts'), 'changed during test run');
+        return successfulTest;
+      }),
+    },
+  });
+
+  await expect(
+    service.propose({ request: 'Build a CSV row counter', custom: customRequest }),
+  ).rejects.toThrow('Tool draft source changed during testing');
+});
+
 it('rejects parent traversal before writing outside the authorized workspace', async () => {
   const ws = await workspace();
   const service = new ToolBuilderService({
     catalog: { search: vi.fn(async () => []) },
     allocateWorkspace: vi.fn(async () => ws),
-    executor: { run: vi.fn() },
+    executor: { run: vi.fn(async () => successfulTest) },
   });
   const invalid = { ...customRequest, files: [{ path: '../escape.ts', content: 'unsafe' }] };
 
