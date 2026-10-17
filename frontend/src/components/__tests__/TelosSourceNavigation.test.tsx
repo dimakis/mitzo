@@ -223,7 +223,7 @@ it.each(['tool-only', 'activity-only', 'later-visible-text'] as const)(
       },
     ];
     surface.rerender(<Surface scrollRef={scrollRef} history={history} />);
-    expect(screen.getByRole('button', { name: /Agents at work/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Activity:/ })).toBeTruthy();
     if (kind === 'later-visible-text') {
       expect(el.scrollTop).toBe(0);
       await waitFor(() => expect(jump).toHaveBeenCalledTimes(1));
@@ -247,7 +247,7 @@ it.each(['tool-only', 'activity-only', 'later-visible-text'] as const)(
         />,
       );
       expect(el.scrollTop).toBe(300);
-      expect(screen.getByRole('button', { name: /Agents at work/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^Activity:/ })).toBeTruthy();
     }
   },
 );

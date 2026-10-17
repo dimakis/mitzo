@@ -13,6 +13,8 @@ export interface SkillMetadata {
   description: string;
   scope: SkillScope;
   allowedTools?: string[];
+  /** Instruction dependencies, resolved with normal scope precedence. Never grant tools. */
+  requiredSkills?: string[];
   /** Skill intentionally needs write access (Edit/Write in allowed-tools). */
   mutating?: boolean;
   collisions?: Array<{ scope: SkillScope; description: string }>;
@@ -33,6 +35,7 @@ interface SkillRegistryOptions {
 interface ParsedSkill {
   description: string;
   allowedTools?: string[];
+  requiredSkills?: string[];
   mutating?: boolean;
   body: string;
   filePath: string;
@@ -95,7 +98,13 @@ function parseFrontmatter(raw: string): { meta: Record<string, unknown>; body: s
     meta[currentKey] = currentList;
   }
 
-  const KNOWN_KEYS = new Set(['description', 'allowed-tools', 'mutating']);
+  const KNOWN_KEYS = new Set([
+    'name',
+    'description',
+    'allowed-tools',
+    'requires-skills',
+    'mutating',
+  ]);
   for (const key of Object.keys(meta)) {
     if (!KNOWN_KEYS.has(key)) {
       log.warn(`Unknown frontmatter key "${key}" — check for typos`);
@@ -172,10 +181,14 @@ function discoverScope(dir: string): Map<string, ParsedSkill> {
       : undefined;
 
     const mutating = meta['mutating'] === 'true' ? true : undefined;
+    const requiredSkills = Array.isArray(meta['requires-skills'])
+      ? (meta['requires-skills'] as unknown[]).filter((s): s is string => typeof s === 'string')
+      : undefined;
 
     skills.set(entry, {
       description: meta.description,
       allowedTools,
+      requiredSkills,
       mutating,
       body,
       filePath,
@@ -234,6 +247,7 @@ export class SkillRegistry {
             description: parsed.description,
             scope,
             allowedTools: parsed.allowedTools,
+            requiredSkills: parsed.requiredSkills,
             mutating: parsed.mutating,
             filePath: parsed.filePath,
           });
