@@ -45,6 +45,14 @@ The patches retain these source primitives:
   Physical reads use bounded 1 MiB chunks; skipped tail errors and whole-file size
   refusal no longer apply once overflow is observed. This is ordinary prefix
   loading, not immutable source capture or the application artifact byte fence.
+- Ordinary role descriptions now separate source loading from pure rendering,
+  while image-tool eligibility is retained at its original registration point.
+  Callback, consent, cache and tool registration ordering remains ordinary.
+  These narrow retained inputs do not establish a complete pure tool inventory.
+- The frozen public-body validator accepts supported deferred function, custom
+  text/grammar and namespace tool shapes without changing their JSON or order.
+  Conditional shapes outside that subset refuse. Actual ordinary populated
+  metadata still refuses, and tool shape support grants no model/account authority.
 
 `source-evidence.json` pins the upstream tree, ordered patches, patch checksums
 and resulting source tree. To reconstruct the exact source without building or
