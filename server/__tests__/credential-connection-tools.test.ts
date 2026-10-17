@@ -71,6 +71,10 @@ function setup(
       homeAssistantDashboards: 'read-write',
     })),
     grant: vi.fn(),
+    observeSessionRevocation: vi.fn(() => ({
+      signal: new AbortController().signal,
+      close: vi.fn(),
+    })),
     request: vi.fn(async () => ({ status: 200, body: 'ok' })),
     dashboardRequest: vi.fn(async () => '{"operation":"read","config":{},"configHash":"fixture"}'),
   };

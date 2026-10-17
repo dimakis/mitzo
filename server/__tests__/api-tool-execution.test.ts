@@ -124,13 +124,14 @@ it('invalid input and changed scope fail before approval or credential reads', a
   expect(f.send).not.toHaveBeenCalled();
   expect(f.vault.read).not.toHaveBeenCalled();
 });
-it.each(['permission', 'connection', 'configuration', 'cancellation'])(
+it.each(['permission', 'connection', 'configuration', 'cancellation', 'session-grant'])(
   'revocation during awaited approval blocks effects: %s',
   async (kind) => {
     const f = await fixture();
     const controller = new AbortController();
     f.approve.mockImplementationOnce(async (_name, input) => {
       if (kind === 'permission') f.revoke();
+      if (kind === 'session-grant') f.service.revokeSession('chat', f.c.id);
       if (kind === 'connection') f.service.disable(f.c.id, 1);
       if (kind === 'configuration')
         f.catalog.save(
@@ -156,3 +157,25 @@ it.each(['permission', 'connection', 'configuration', 'cancellation'])(
     expect(f.vault.read).not.toHaveBeenCalled();
   },
 );
+
+it('the separately selected access tool cannot regrant revoked pending approval', async () => {
+  const f = await fixture();
+  const { createCredentialConnectionTools } = await import('../credential-connection-tools.js');
+  const access = createCredentialConnectionTools(f.service, 'chat', f.approve as never, () => true);
+  f.approve.mockImplementationOnce(async (_name, input) => {
+    f.service.revokeSession('chat', f.c.id);
+    return { behavior: 'allow', updatedInput: input };
+  });
+  expect(
+    (
+      await access.execute(
+        'RequestConnectionAccess',
+        { connectionId: f.c.id },
+        new AbortController().signal,
+      )
+    )?.isError,
+  ).toBe(true);
+  expect(f.service.sessions(f.c.id)).toEqual([]);
+  expect(f.send).not.toHaveBeenCalled();
+  expect(f.vault.read).not.toHaveBeenCalled();
+});

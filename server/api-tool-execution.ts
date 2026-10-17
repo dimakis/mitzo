@@ -28,10 +28,15 @@ export function admitApiTools(options: {
     async execute(name: string, input: Record<string, unknown>, signal: AbortSignal) {
       const receipt = receipts.find((r) => r.definition.name === name);
       if (!receipt) return undefined;
+      const revocation = options.service.observeSessionRevocation(
+        options.sessionId,
+        receipt.configuration.connectionId,
+      );
+      const currentSignal = AbortSignal.any([signal, revocation.signal]);
       try {
         apiToolInputSchema.parse(input);
         const check = () => {
-          signal.throwIfAborted();
+          currentSignal.throwIfAborted();
           options.assertCurrent();
           options.catalog.resolve(options.catalog.reference(receipt.entry), options.service);
           if (!options.stillAllowed(name)) throw Error('API tool permission revoked');
@@ -53,7 +58,7 @@ export function admitApiTools(options: {
             connectionId: receipt.configuration.connectionId,
             ...apiToolRequest(receipt.configuration),
           },
-          signal,
+          currentSignal,
         );
         check();
         if (!result || result.isError)
@@ -66,11 +71,13 @@ export function admitApiTools(options: {
         };
       } catch {
         return {
-          content: signal.aborted
+          content: currentSignal.aborted
             ? 'API tool request cancelled'
             : 'API tool unavailable. Check its verification, connection access and current permissions.',
           isError: true,
         };
+      } finally {
+        revocation.close();
       }
     },
   };
