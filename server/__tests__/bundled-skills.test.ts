@@ -202,6 +202,8 @@ describe('bundled skills', () => {
       if (result.type !== 'skill') throw Error('Expected a compatibility skill');
       expect(result.renderedPrompt).toContain(args);
       expect(result.renderedPrompt).not.toContain('$ARGUMENTS');
+      expect(result.renderedPrompt).toContain('[Skill: /land-pr | source: bundled]');
+      expect(result.renderedPrompt).toContain('## Final gate and merge');
       expect(new Set(result.allowedTools)).toEqual(new Set(registry.get('land-pr')?.allowedTools));
       expect(registry.get(name)?.mutating).toBe(true);
       expect(result.allowedTools).not.toContain('Agent');
