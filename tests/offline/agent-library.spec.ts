@@ -806,9 +806,14 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   const profilePicker = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(profilePicker).toBeVisible();
   await expect(profilePicker).toBeEnabled();
-  expect(
-    await profilePicker.evaluate((element) => element.getBoundingClientRect().height),
-  ).toBeGreaterThanOrEqual(44);
+  const pickerGeometry = await profilePicker.evaluate((element) => ({
+    layout: (element as HTMLSelectElement).offsetHeight,
+    rendered: element.getBoundingClientRect().height,
+  }));
+  // Fractional motion offsets can yield 43.999969px for a 44px control in Chromium.
+  // Require the full layout target and agreement within floating-point precision.
+  expect(pickerGeometry.layout).toBeGreaterThanOrEqual(44);
+  expect(pickerGeometry.rendered).toBeCloseTo(pickerGeometry.layout, 3);
   await profilePicker.focus();
   await expect(profilePicker).toBeFocused();
   expect(errors).toEqual([]);
