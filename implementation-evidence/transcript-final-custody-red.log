@@ -1,0 +1,245 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts (29 tests | 4 failed) 533ms
+   × refuses transcript 'reference removal' during the final 'target' await without selected messages 27ms
+   × refuses transcript 'block edit' during the final 'target' await without selected messages 15ms
+   × refuses transcript 'reference removal' during the final 'source' await without selected messages 16ms
+   × refuses transcript 'block edit' during the final 'source' await without selected messages 16ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses transcript 'reference removal' during the final 'target' await without selected messages
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(4) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "packet": {
++     "artifacts": [
++       {
++         "artifactId": "276f8aad-edb8-40b9-93e2-56cedd09d860",
++         "contentBase64": "ICBFeGFjdA0Kz4AgYW5zd2VyICA=",
++         "kind": "transcript_reference",
++         "mediaType": "text/plain; charset=utf-8",
++         "retention": "source_dependent",
++         "revision": 1,
++         "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++         "sizeBytes": 20,
++         "sourceConversationId": "source",
++       },
++     ],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [],
++     "mode": "context_only",
++     "requestId": "6c4d6e73-f8e7-41bd-9226-4867e9426a55",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "8ba8a20a-833e-409e-af8d-be1fe9c370f7",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "23eef22d20c71beb167d26873bf420be14a02a1603896a6f1536514c5e722ea8",
++   "serialized": "{\"version\":1,\"requestId\":\"6c4d6e73-f8e7-41bd-9226-4867e9426a55\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"8ba8a20a-833e-409e-af8d-be1fe9c370f7\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[],\"artifacts\":[{\"artifactId\":\"276f8aad-edb8-40b9-93e2-56cedd09d860\",\"revision\":1,\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\",\"kind\":\"transcript_reference\",\"retention\":\"source_dependent\",\"sourceConversationId\":\"source\",\"mediaType\":\"text/plain; charset=utf-8\",\"sizeBytes\":20,\"contentBase64\":\"ICBFeGFjdA0Kz4AgYW5zd2VyICA=\"}]}",
++   "sha256": "9d2a30cb8a57ee037d7db081d9a40567fd9493fb9ccb4c8f130c7ebe4a6741b2",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:592:69
+    590|       };
+    591|     }
+    592|     await expect(prepareCollaborationForward(selected, dependencies)).…
+       |                                                                     ^
+    593|       code: 'snapshot_changed',
+    594|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses transcript 'block edit' during the final 'target' await without selected messages
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(4) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "packet": {
++     "artifacts": [
++       {
++         "artifactId": "6520e8cc-d432-4e31-af3d-893d088e8c47",
++         "contentBase64": "ICBFeGFjdA0Kz4AgYW5zd2VyICA=",
++         "kind": "transcript_reference",
++         "mediaType": "text/plain; charset=utf-8",
++         "retention": "source_dependent",
++         "revision": 1,
++         "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++         "sizeBytes": 20,
++         "sourceConversationId": "source",
++       },
++     ],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [],
++     "mode": "context_only",
++     "requestId": "903f79ef-12f6-4eb8-b432-881b00fe535e",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "f075f018-d3fc-408c-b8f2-9f88cd27114f",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "48656f739b617244e32140ccc911e5635fb1c210f653bfb237cf2a65a96815e2",
++   "serialized": "{\"version\":1,\"requestId\":\"903f79ef-12f6-4eb8-b432-881b00fe535e\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"f075f018-d3fc-408c-b8f2-9f88cd27114f\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[],\"artifacts\":[{\"artifactId\":\"6520e8cc-d432-4e31-af3d-893d088e8c47\",\"revision\":1,\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\",\"kind\":\"transcript_reference\",\"retention\":\"source_dependent\",\"sourceConversationId\":\"source\",\"mediaType\":\"text/plain; charset=utf-8\",\"sizeBytes\":20,\"contentBase64\":\"ICBFeGFjdA0Kz4AgYW5zd2VyICA=\"}]}",
++   "sha256": "4117fe158491de706558238f4f6cdbc85cb69e5b5a7043138629812c90937908",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:592:69
+    590|       };
+    591|     }
+    592|     await expect(prepareCollaborationForward(selected, dependencies)).…
+       |                                                                     ^
+    593|       code: 'snapshot_changed',
+    594|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses transcript 'reference removal' during the final 'source' await without selected messages
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(4) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "packet": {
++     "artifacts": [
++       {
++         "artifactId": "5c2d6920-71b3-45ea-ad1d-f09ff6a7d652",
++         "contentBase64": "ICBFeGFjdA0Kz4AgYW5zd2VyICA=",
++         "kind": "transcript_reference",
++         "mediaType": "text/plain; charset=utf-8",
++         "retention": "source_dependent",
++         "revision": 1,
++         "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++         "sizeBytes": 20,
++         "sourceConversationId": "source",
++       },
++     ],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [],
++     "mode": "context_only",
++     "requestId": "52a8bcac-8cdc-42c8-9f4f-50e1b4c9b39c",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "c843a37d-8c6e-4000-a6fd-306166bca272",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "13805883298c41ebf4bc3b3cfcbf7b9be3aa704b36dbd94009ed47aa67635c7c",
++   "serialized": "{\"version\":1,\"requestId\":\"52a8bcac-8cdc-42c8-9f4f-50e1b4c9b39c\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"c843a37d-8c6e-4000-a6fd-306166bca272\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[],\"artifacts\":[{\"artifactId\":\"5c2d6920-71b3-45ea-ad1d-f09ff6a7d652\",\"revision\":1,\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\",\"kind\":\"transcript_reference\",\"retention\":\"source_dependent\",\"sourceConversationId\":\"source\",\"mediaType\":\"text/plain; charset=utf-8\",\"sizeBytes\":20,\"contentBase64\":\"ICBFeGFjdA0Kz4AgYW5zd2VyICA=\"}]}",
++   "sha256": "da1826e32d1f2229c31a2a50218c13e59c99d2b7485dace5716e000e3bcc78aa",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:592:69
+    590|       };
+    591|     }
+    592|     await expect(prepareCollaborationForward(selected, dependencies)).…
+       |                                                                     ^
+    593|       code: 'snapshot_changed',
+    594|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses transcript 'block edit' during the final 'source' await without selected messages
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(4) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "packet": {
++     "artifacts": [
++       {
++         "artifactId": "dd540517-1505-4473-ad1d-8afe3e51449e",
++         "contentBase64": "ICBFeGFjdA0Kz4AgYW5zd2VyICA=",
++         "kind": "transcript_reference",
++         "mediaType": "text/plain; charset=utf-8",
++         "retention": "source_dependent",
++         "revision": 1,
++         "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++         "sizeBytes": 20,
++         "sourceConversationId": "source",
++       },
++     ],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [],
++     "mode": "context_only",
++     "requestId": "14d48e64-f862-4c89-ade5-4ddd6c610252",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "8b95978a-e94d-43e2-b181-1bdf65c9147e",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "48bdfe7ef8f59b60745f1e8ed70f0e332ae168f7fc2bd564181006422b7c43dc",
++   "serialized": "{\"version\":1,\"requestId\":\"14d48e64-f862-4c89-ade5-4ddd6c610252\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"8b95978a-e94d-43e2-b181-1bdf65c9147e\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[],\"artifacts\":[{\"artifactId\":\"dd540517-1505-4473-ad1d-8afe3e51449e\",\"revision\":1,\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\",\"kind\":\"transcript_reference\",\"retention\":\"source_dependent\",\"sourceConversationId\":\"source\",\"mediaType\":\"text/plain; charset=utf-8\",\"sizeBytes\":20,\"contentBase64\":\"ICBFeGFjdA0Kz4AgYW5zd2VyICA=\"}]}",
++   "sha256": "8f3021f498f443269e39d34671591b61295204ebd7dca2b8da20f06bf133dda9",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:592:69
+    590|       };
+    591|     }
+    592|     await expect(prepareCollaborationForward(selected, dependencies)).…
+       |                                                                     ^
+    593|       code: 'snapshot_changed',
+    594|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 25 passed (29)
+   Start at  23:55:53
+   Duration  1.10s (transform 315ms, setup 0ms, import 459ms, tests 533ms, environment 0ms)
+

@@ -1,0 +1,823 @@
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { EventStore } from '../event-store.js';
+import { createCollaborationContextSource } from '../collaboration-context-source.js';
+import {
+  prepareCollaborationForward,
+  collaborationForwardFingerprint,
+} from '../collaboration-forwarding.js';
+
+const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+let store: EventStore;
+let root: string;
+let path: string;
+let authorizeSource: ReturnType<typeof vi.fn<(id: string) => Promise<void>>>;
+let authorizeTarget: ReturnType<typeof vi.fn<() => Promise<void>>>;
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), 'forwarding-'));
+  path = join(root, 'events.db');
+  store = new EventStore(path);
+  store.upsertSession({ sessionId: 'source', conversationSource: 'mitzo' });
+  store.upsertSession({ sessionId: 'target', conversationSource: 'mitzo' });
+  authorizeSource = vi.fn(async () => {});
+  authorizeTarget = vi.fn(async () => {});
+});
+afterEach(() => {
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+  vi.restoreAllMocks();
+});
+function selection() {
+  store.append('source', 'user_message', { messageId: 'earlier', text: 'UNSELECTED PROMPT' });
+  store.append('source', 'message_start', {
+    messageId: 'answer',
+    privateHistory: 'PRIVATE HISTORY',
+  });
+  for (const [blockId, blockType, text] of [
+    ['reasoning', 'thinking', 'PRIVATE REASONING'],
+    ['chosen', 'text', '  Exact\r\nπ answer  '],
+    ['other', 'text', 'UNSELECTED BLOCK'],
+  ]) {
+    store.append('source', 'block_start', { messageId: 'answer', blockId, blockType });
+    store.append('source', 'block_delta', { messageId: 'answer', blockId, delta: text });
+    store.append('source', 'block_end', { messageId: 'answer', blockId, blockType });
+  }
+  const sequence = store.append('source', 'message_end', { messageId: 'answer' });
+  return {
+    requestId: randomUUID(),
+    target: {
+      collaborationId: randomUUID(),
+      expectedMembershipRevision: 1,
+      sessionIds: ['target'],
+    },
+    sourceConversationId: 'source',
+    boundary: { sequence, messageId: 'answer' },
+    messages: [
+      {
+        messageId: 'answer',
+        sequence,
+        blocks: [{ blockId: 'chosen', sha256: sha('  Exact\r\nπ answer  ') }],
+      },
+    ],
+    artifacts: [],
+  };
+}
+function deps() {
+  return {
+    source: createCollaborationContextSource({
+      store,
+      authorizeConversation: authorizeSource,
+      assertConversationCurrent(sessionId) {
+        if (sessionId !== 'source') throw Error('Wrong operator source');
+      },
+    }),
+    authorizeTarget,
+  };
+}
+it('hands off only exact selected public blocks with source identity and explicit target, without effects', async () => {
+  const input = selection();
+  const sessions = store.listSessions();
+  const result = await prepareCollaborationForward(input, deps());
+  expect(result.packet).toMatchObject({
+    version: 1,
+    requestId: input.requestId,
+    mode: 'context_only',
+    target: input.target,
+    sourceConversationId: 'source',
+    boundary: input.boundary,
+    messages: [
+      {
+        conversationId: 'source',
+        messageId: 'answer',
+        sequence: input.boundary.sequence,
+        author: { sessionId: 'source' },
+        blocks: [
+          {
+            blockId: 'chosen',
+            content: '  Exact\r\nπ answer  ',
+            sha256: sha('  Exact\r\nπ answer  '),
+          },
+        ],
+      },
+    ],
+    artifacts: [],
+  });
+  expect(result.serialized).toBe(JSON.stringify(result.packet));
+  expect(result.sha256).toBe(sha(result.serialized));
+  for (const secret of ['PRIVATE', 'UNSELECTED']) expect(result.serialized).not.toContain(secret);
+  expect(authorizeSource).toHaveBeenCalledWith('source');
+  expect(authorizeTarget).toHaveBeenCalledWith(input.target);
+  expect(store.listSessions()).toEqual(sessions);
+  expect(store.getOrdinaryInitialCommandId('target')).toBeUndefined();
+  await result.assertCurrent();
+});
+it('gives the existing receipt owner a canonical request fingerprint including source, target and selected hashes', async () => {
+  const input = selection();
+  const { target, ...rest } = input;
+  expect(collaborationForwardFingerprint({ ...rest, target })).toBe(
+    collaborationForwardFingerprint(input),
+  );
+  expect(
+    collaborationForwardFingerprint({ ...input, target: { ...target, sessionIds: ['different'] } }),
+  ).not.toBe(collaborationForwardFingerprint(input));
+  const first = await prepareCollaborationForward(input, deps());
+  store.append('source', 'user_message', { messageId: 'later', text: 'LATER MATERIAL' });
+  const retry = await prepareCollaborationForward(input, deps());
+  expect(retry.serialized).toBe(first.serialized);
+});
+it.each([
+  'private',
+  'wrong-hash',
+  'wrong-sequence',
+  'duplicate-block',
+  'duplicate-message',
+  'empty-blocks',
+  'implicit-target',
+  'reply-mode',
+  'unretained-link',
+])('refuses an invalid or unsupported %s selection', async (shape) => {
+  const input = selection();
+  const raw: {
+    messages: {
+      messageId: string;
+      sequence: number;
+      blocks: { blockId: string; sha256: string }[];
+    }[];
+    target: typeof input.target;
+    mode?: string;
+    artifacts: unknown[];
+  } & Omit<typeof input, 'artifacts'> = structuredClone(input);
+  if (shape === 'private')
+    raw.messages[0].blocks = [{ blockId: 'reasoning', sha256: sha('PRIVATE REASONING') }];
+  if (shape === 'wrong-hash') raw.messages[0].blocks[0].sha256 = '0'.repeat(64);
+  if (shape === 'wrong-sequence') raw.messages[0].sequence++;
+  if (shape === 'duplicate-block') raw.messages[0].blocks.push(raw.messages[0].blocks[0]);
+  if (shape === 'duplicate-message') raw.messages.push(raw.messages[0]);
+  if (shape === 'empty-blocks') raw.messages[0].blocks = [];
+  if (shape === 'implicit-target') raw.target.sessionIds = [];
+  if (shape === 'reply-mode') raw.mode = 'request_reply';
+  if (shape === 'unretained-link')
+    raw.artifacts = [
+      {
+        kind: 'retained_artifact',
+        url: 'https://example.invalid/file',
+        revision: 1,
+        sha256: '0'.repeat(64),
+      },
+    ];
+  await expect(prepareCollaborationForward(raw, deps())).rejects.toThrow();
+});
+it('refuses unavailable sources and changed source or target access at renewal', async () => {
+  const input = selection();
+  const result = await prepareCollaborationForward(input, deps());
+  authorizeSource.mockRejectedValueOnce(Error('Access revoked'));
+  await expect(result.assertCurrent()).rejects.toThrow('Access revoked');
+  authorizeTarget.mockRejectedValueOnce(Error('Target revoked'));
+  await expect(result.assertCurrent()).rejects.toThrow('Target revoked');
+  store.hideSession('source');
+  await expect(prepareCollaborationForward(input, deps())).rejects.toThrow();
+  await expect(result.assertCurrent()).rejects.toThrow();
+});
+it('checks source integrity after awaiting target authority and refuses a changed finalized block', async () => {
+  const input = selection();
+  const capability = createCollaborationContextSource({
+    store,
+    authorizeConversation: authorizeSource,
+  });
+  const open = capability.openConversation.bind(capability);
+  capability.openConversation = async (s) => {
+    const source = await open(s);
+    const read = source.readSelected.bind(source);
+    source.readSelected = async (ids) => {
+      const messages = await read(ids);
+      return messages.map((m) => ({
+        ...m,
+        blocks: m.blocks.map((b) => ({ ...b, content: b.content + 'changed' })),
+      }));
+    };
+    return source;
+  };
+  await expect(
+    prepareCollaborationForward(input, { source: capability, authorizeTarget }),
+  ).rejects.toThrow();
+});
+it('forwards explicit transcript references honestly without claiming independent retention', async () => {
+  const input = selection();
+  const output = store.registerSessionOutput('source', {
+    requestId: 'register',
+    title: 'Selected',
+    source: {
+      messageId: 'answer',
+      blockId: 'chosen',
+      messageEndSeq: input.boundary.sequence,
+      sha256: input.messages[0].blocks[0].sha256,
+    },
+  });
+  const raw = {
+    ...input,
+    artifacts: [
+      {
+        kind: 'transcript_reference',
+        artifactId: output.outputId,
+        revision: 1,
+        sha256: output.source.sha256,
+      },
+    ],
+  };
+  const result = await prepareCollaborationForward(raw, deps());
+  expect(result.packet.artifacts).toEqual([
+    expect.objectContaining({
+      kind: 'transcript_reference',
+      retention: 'source_dependent',
+      revision: 1,
+      contentBase64: Buffer.from('  Exact\r\nπ answer  ').toString('base64'),
+    }),
+  ]);
+  // Fault injection: remove retained source-reference metadata in the owner-created database.
+  const fault = new Database(path);
+  fault
+    .prepare('DELETE FROM session_output_references WHERE session_id=? AND output_id=?')
+    .run('source', output.outputId);
+  fault.close();
+  await expect(result.assertCurrent()).rejects.toThrow();
+});
+it('refuses an over-budget handoff without truncating selected content', async () => {
+  const input = selection();
+  const sequence = store.append('source', 'user_message', {
+    messageId: 'large',
+    text: 'a'.repeat(512 * 1024),
+  });
+  const raw = {
+    ...input,
+    boundary: { sequence, messageId: 'large' },
+    messages: [
+      {
+        messageId: 'large',
+        sequence,
+        blocks: [{ blockId: 'user-large', sha256: sha('a'.repeat(512 * 1024)) }],
+      },
+    ],
+  };
+  await expect(prepareCollaborationForward(raw, deps())).rejects.toMatchObject({
+    code: 'capacity_refused',
+  });
+});
+
+it('accepts exactly 512 KiB serialized content and refuses the next byte', async () => {
+  const input = selection();
+  const sequence = store.append('source', 'user_message', { messageId: 'budget', text: 'x' });
+  const raw = {
+    ...input,
+    boundary: { sequence, messageId: 'budget' },
+    messages: [
+      { messageId: 'budget', sequence, blocks: [{ blockId: 'user-budget', sha256: sha('x') }] },
+    ],
+  };
+  const sample = await prepareCollaborationForward(raw, deps());
+  const maximum = 512 * 1024 - Buffer.byteLength(sample.serialized) + 1;
+  const fault = new Database(path);
+  for (const length of [maximum, maximum + 1]) {
+    const text = 'π'.repeat(Math.floor(length / 2)) + (length % 2 ? 'x' : '');
+    fault
+      .prepare('UPDATE events SET payload=? WHERE session_id=? AND seq=?')
+      .run(JSON.stringify({ messageId: 'budget', text }), 'source', sequence);
+    const selected = {
+      ...raw,
+      messages: [{ ...raw.messages[0], blocks: [{ blockId: 'user-budget', sha256: sha(text) }] }],
+    };
+    if (length === maximum)
+      expect(
+        Buffer.byteLength((await prepareCollaborationForward(selected, deps())).serialized),
+      ).toBe(512 * 1024);
+    else
+      await expect(prepareCollaborationForward(selected, deps())).rejects.toMatchObject({
+        code: 'capacity_refused',
+      });
+  }
+  fault.close();
+});
+
+it('detects a finalized source edit during the final target authorization await', async () => {
+  const input = selection();
+  let calls = 0;
+  authorizeTarget.mockImplementation(async () => {
+    if (++calls !== 3) return;
+    const fault = new Database(path);
+    fault
+      .prepare(
+        "UPDATE events SET payload=json_set(payload,'$.delta',?) WHERE session_id=? AND type='block_delta' AND json_extract(payload,'$.blockId')=?",
+      )
+      .run('CHANGED WHILE AUTHORIZING TARGET', 'source', 'chosen');
+    fault.close();
+  });
+  await expect(prepareCollaborationForward(input, deps())).rejects.toMatchObject({
+    code: 'snapshot_changed',
+  });
+});
+
+it('keeps retained older bytes separate from transcript references and refuses absent retained capability', async () => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const retained = createCollaborationRetainedArtifactFixture();
+  try {
+    const old = retained.store.save({
+      itemId: retained.itemId,
+      filename: 'old.md',
+      title: 'Selected old version',
+      bytes: Buffer.from('OLDER SAVED'),
+      sessionId: 'missing-original-session',
+    });
+    retained.store.save({
+      itemId: retained.itemId,
+      filename: 'old.md',
+      title: 'Selected old version',
+      bytes: Buffer.from('LATEST MUST NOT LEAK'),
+      sessionId: 'other-editor',
+    });
+    const input = {
+      ...selection(),
+      messages: [],
+      artifacts: [
+        { kind: 'retained_artifact', artifactId: old.id, revision: 1, sha256: old.sha256 },
+      ],
+    };
+    await expect(prepareCollaborationForward(input, deps())).rejects.toThrow();
+    const authorizeArtifact = vi.fn(async () => {});
+    const retainedArtifacts = createRetainedCollaborationArtifactSource({
+      store: retained.store,
+      authorizeArtifact,
+    });
+    const result = await prepareCollaborationForward(input, { ...deps(), retainedArtifacts });
+    expect(result.packet.artifacts).toEqual([
+      expect.objectContaining({
+        kind: 'retained_artifact',
+        retention: 'independent',
+        itemId: retained.itemId,
+        artifactId: old.id,
+        revision: 1,
+        sha256: old.sha256,
+        contentBase64: Buffer.from('OLDER SAVED').toString('base64'),
+        provenance: expect.objectContaining({ sessionId: 'missing-original-session' }),
+      }),
+    ]);
+    expect(result.serialized).not.toContain('LATEST');
+    expect(result.packet.artifacts[0]).not.toHaveProperty('assertCurrent');
+    authorizeArtifact.mockRejectedValueOnce(Error('Artifact access revoked'));
+    await expect(result.assertCurrent()).rejects.toThrow('Artifact access revoked');
+  } finally {
+    retained.close();
+  }
+});
+
+it('keeps the serialized handoff identity immutable while callers inspect independent packet projections', async () => {
+  const result = await prepareCollaborationForward(selection(), deps());
+  const original = result.serialized;
+  const projected = result.packet;
+  projected.messages[0].blocks[0].content = 'Caller changed a projection';
+  expect(result.serialized).toBe(original);
+  expect(result.packet.messages[0].blocks[0].content).toBe('  Exact\r\nπ answer  ');
+  expect(Reflect.set(result, 'serialized', 'Replacement bytes')).toBe(false);
+  expect(Reflect.set(result, 'sha256', '0'.repeat(64))).toBe(false);
+  expect(result.sha256).toBe(sha(original));
+});
+
+it.each(
+  (['target', 'source'] as const).flatMap((last) =>
+    (['privacy', 'custody'] as const).map((change) => ({ last, change })),
+  ),
+)('renews retained $change after the last awaited $last check', async ({ last, change }) => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const retained = createCollaborationRetainedArtifactFixture();
+  try {
+    const old = retained.store.save({
+      itemId: retained.itemId,
+      filename: 'public.md',
+      title: 'Public at selection',
+      bytes: Buffer.from('EXACT SAVED MATERIAL'),
+      sessionId: 'missing-origin',
+    });
+    const input = {
+      ...selection(),
+      artifacts: [
+        { kind: 'retained_artifact', artifactId: old.id, revision: 1, sha256: old.sha256 },
+      ],
+    };
+    const retainedArtifacts = createRetainedCollaborationArtifactSource({
+      store: retained.store,
+      authorizeArtifact: async () => {},
+    });
+    let calls = 0;
+    const revoke = () => {
+      const fault = new Database(retained.path);
+      if (change === 'privacy')
+        fault.prepare('UPDATE items SET profile=? WHERE id=?').run('LifeOps', retained.itemId);
+      else
+        fault
+          .prepare('UPDATE telos_artifact_revisions SET bytes=? WHERE id=? AND revision=?')
+          .run(Buffer.alloc(old.size, '?'), old.id, 1);
+      fault.close();
+    };
+    const dependencies = deps();
+    if (last === 'target')
+      authorizeTarget.mockImplementation(async () => {
+        if (++calls === 3) revoke();
+      });
+    else {
+      const open = dependencies.source.openConversation.bind(dependencies.source);
+      dependencies.source.openConversation = async (selection) => {
+        const opened = await open(selection);
+        const check = opened.assertCurrent.bind(opened);
+        opened.assertCurrent = async () => {
+          await check();
+          if (++calls === 3) revoke();
+        };
+        return opened;
+      };
+    }
+    await expect(
+      prepareCollaborationForward(input, { ...dependencies, retainedArtifacts }),
+    ).rejects.toMatchObject({ code: 'snapshot_changed' });
+  } finally {
+    retained.close();
+  }
+});
+
+it('shares retained bytes without a live or fabricated source conversation', async () => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const retained = createCollaborationRetainedArtifactFixture();
+  try {
+    const old = retained.store.save({
+      itemId: retained.itemId,
+      filename: 'retained.md',
+      title: 'Retained',
+      bytes: Buffer.from('Survives the original chat.'),
+      sessionId: 'removed-original',
+    });
+    retained.store.save({
+      itemId: retained.itemId,
+      filename: 'retained.md',
+      title: 'Retained',
+      bytes: Buffer.from('Newer saved version'),
+      sessionId: 'other-session',
+    });
+    const selected = selection();
+    store.hideSession('source');
+    const input = {
+      ...selected,
+      sourceConversationId: null,
+      boundary: null,
+      messages: [],
+      artifacts: [
+        { kind: 'retained_artifact', artifactId: old.id, revision: 1, sha256: old.sha256 },
+      ],
+    };
+    const authorizeArtifact = vi.fn(async () => {});
+    const result = await prepareCollaborationForward(input, {
+      authorizeTarget,
+      retainedArtifacts: createRetainedCollaborationArtifactSource({
+        store: retained.store,
+        authorizeArtifact,
+      }),
+    });
+    expect(result.packet).toMatchObject({
+      sourceConversationId: null,
+      sourceIdentity: null,
+      boundary: null,
+      messages: [],
+      artifacts: [
+        expect.objectContaining({
+          revision: 1,
+          contentBase64: old.size
+            ? Buffer.from('Survives the original chat.').toString('base64')
+            : '',
+          provenance: expect.objectContaining({ sessionId: 'removed-original' }),
+        }),
+      ],
+    });
+    expect(authorizeSource).not.toHaveBeenCalled();
+    await result.assertCurrent();
+    authorizeArtifact.mockRejectedValueOnce(Error('Access changed'));
+    await expect(result.assertCurrent()).rejects.toThrow('Access changed');
+  } finally {
+    retained.close();
+  }
+});
+it('requires a real conversation boundary for messages and source-dependent references', async () => {
+  const input = selection();
+  for (const raw of [
+    { ...input, sourceConversationId: null, boundary: null },
+    { ...input, sourceConversationId: null },
+    { ...input, boundary: null },
+    {
+      ...input,
+      sourceConversationId: null,
+      boundary: null,
+      messages: [],
+      artifacts: [
+        { kind: 'transcript_reference', artifactId: 'linked', revision: 1, sha256: '0'.repeat(64) },
+      ],
+    },
+  ])
+    await expect(prepareCollaborationForward(raw, deps())).rejects.toThrow();
+});
+
+it.each(
+  (['target', 'source'] as const).flatMap((last) =>
+    (['reference removal', 'block edit'] as const).map((change) => ({ last, change })),
+  ),
+)(
+  'refuses transcript $change during the final $last await without selected messages',
+  async ({ last, change }) => {
+    const input = selection();
+    const output = store.registerSessionOutput('source', {
+      requestId: 'final-ref',
+      title: 'Selected',
+      source: {
+        messageId: 'answer',
+        blockId: 'chosen',
+        messageEndSeq: input.boundary.sequence,
+        sha256: input.messages[0].blocks[0].sha256,
+      },
+    });
+    const selected = {
+      ...input,
+      messages: [],
+      artifacts: [
+        {
+          kind: 'transcript_reference',
+          artifactId: output.outputId,
+          revision: 1,
+          sha256: output.source.sha256,
+        },
+      ],
+    };
+    let calls = 0;
+    function revoke() {
+      const fault = new Database(path);
+      if (change === 'reference removal')
+        fault
+          .prepare('DELETE FROM session_output_references WHERE session_id=? AND output_id=?')
+          .run('source', output.outputId);
+      else
+        fault
+          .prepare(
+            "UPDATE events SET payload=json_set(payload,'$.delta',?) WHERE session_id=? AND type='block_delta' AND json_extract(payload,'$.blockId')=?",
+          )
+          .run('CORRUPTED REFERENCE CONTENT', 'source', 'chosen');
+      fault.close();
+    }
+    const dependencies = deps();
+    if (last === 'target')
+      authorizeTarget.mockImplementation(async () => {
+        if (++calls === 3) revoke();
+      });
+    else {
+      const open = dependencies.source.openConversation.bind(dependencies.source);
+      dependencies.source.openConversation = async (selection) => {
+        const opened = await open(selection);
+        const check = opened.assertCurrent.bind(opened);
+        opened.assertCurrent = async () => {
+          await check();
+          if (++calls === 3) revoke();
+        };
+        return opened;
+      };
+    }
+    await expect(prepareCollaborationForward(selected, dependencies)).rejects.toMatchObject({
+      code: 'snapshot_changed',
+    });
+  },
+);
+
+it.each(['missing', 'promise', 'value'] as const)(
+  'refuses a %s transcript custody callback',
+  async (kind) => {
+    const input = selection();
+    const output = store.registerSessionOutput('source', {
+      requestId: 'callback-ref',
+      title: 'Selected',
+      source: {
+        messageId: 'answer',
+        blockId: 'chosen',
+        messageEndSeq: input.boundary.sequence,
+        sha256: input.messages[0].blocks[0].sha256,
+      },
+    });
+    const dependencies = deps();
+    const read = dependencies.source.readArtifact.bind(dependencies.source);
+    dependencies.source.readArtifact = async (pin) => {
+      const artifact = await read(pin);
+      return {
+        ...artifact,
+        assertCurrent:
+          kind === 'missing' ? undefined : kind === 'promise' ? async () => {} : () => true,
+      };
+    };
+    await expect(
+      prepareCollaborationForward(
+        {
+          ...input,
+          messages: [],
+          artifacts: [
+            {
+              kind: 'transcript_reference',
+              artifactId: output.outputId,
+              revision: 1,
+              sha256: output.source.sha256,
+            },
+          ],
+        },
+        dependencies,
+      ),
+    ).rejects.toMatchObject({ code: 'snapshot_changed' });
+  },
+);
+
+it('requires current synchronous operator authority and never replaces the original source witness', async () => {
+  const input = selection();
+  const output = store.registerSessionOutput('source', {
+    requestId: 'authority-ref',
+    title: 'Selected',
+    source: {
+      messageId: 'answer',
+      blockId: 'chosen',
+      messageEndSeq: input.boundary.sequence,
+      sha256: input.messages[0].blocks[0].sha256,
+    },
+  });
+  const original = vi.spyOn(store, 'openCollaborationVisibleSource');
+  let allowed = true;
+  let calls = 0;
+  const source = createCollaborationContextSource({
+    store,
+    authorizeConversation: authorizeSource,
+    assertConversationCurrent() {
+      if (!allowed) throw Error('Operator source access revoked');
+    },
+  });
+  authorizeTarget.mockImplementation(async () => {
+    if (++calls === 3) allowed = false;
+  });
+  await expect(
+    prepareCollaborationForward(
+      {
+        ...input,
+        messages: [],
+        artifacts: [
+          {
+            kind: 'transcript_reference',
+            artifactId: output.outputId,
+            revision: 1,
+            sha256: output.source.sha256,
+          },
+        ],
+      },
+      { source, authorizeTarget },
+    ),
+  ).rejects.toThrow('Operator source access revoked');
+  expect(original).toHaveBeenCalledTimes(1);
+});
+
+it('exposes a private synchronous material fence for the existing save owner without reopening sources', async () => {
+  const input = selection();
+  const output = store.registerSessionOutput('source', {
+    requestId: 'save-fence-ref',
+    title: 'Selected',
+    source: {
+      messageId: 'answer',
+      blockId: 'chosen',
+      messageEndSeq: input.boundary.sequence,
+      sha256: input.messages[0].blocks[0].sha256,
+    },
+  });
+  const open = vi.spyOn(store, 'openCollaborationVisibleSource');
+  const result = await prepareCollaborationForward(
+    {
+      ...input,
+      messages: [],
+      artifacts: [
+        {
+          kind: 'transcript_reference',
+          artifactId: output.outputId,
+          revision: 1,
+          sha256: output.source.sha256,
+        },
+      ],
+    },
+    deps(),
+  );
+  const before = authorizeSource.mock.calls.length;
+  expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+  expect(authorizeSource).toHaveBeenCalledTimes(before);
+  expect(result.packet).not.toHaveProperty('assertLocalMaterialCurrent');
+  const fault = new Database(path);
+  fault
+    .prepare('DELETE FROM session_output_references WHERE session_id=? AND output_id=?')
+    .run('source', output.outputId);
+  fault.close();
+  expect(() => result.assertLocalMaterialCurrent()).toThrow();
+  expect(open).toHaveBeenCalledTimes(1);
+});
+
+it('renews retained material privacy synchronously for the existing save owner', async () => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const f = createCollaborationRetainedArtifactFixture();
+  try {
+    const saved = f.store.save({
+      itemId: f.itemId,
+      filename: 'retained.md',
+      title: 'Retained',
+      bytes: Buffer.from('EXACT MATERIAL'),
+      sessionId: 'gone',
+    });
+    const input = {
+      ...selection(),
+      sourceConversationId: null,
+      boundary: null,
+      messages: [],
+      artifacts: [
+        { kind: 'retained_artifact', artifactId: saved.id, revision: 1, sha256: saved.sha256 },
+      ],
+    };
+    const result = await prepareCollaborationForward(input, {
+      authorizeTarget,
+      retainedArtifacts: createRetainedCollaborationArtifactSource({
+        store: f.store,
+        authorizeArtifact: async () => {},
+      }),
+    });
+    expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+    const fault = new Database(f.path);
+    fault.prepare('UPDATE items SET profile=? WHERE id=?').run('LifeOps', f.itemId);
+    fault.close();
+    expect(() => result.assertLocalMaterialCurrent()).toThrow();
+  } finally {
+    f.close();
+  }
+});
+
+it.each(['promise', 'value'] as const)(
+  'refuses a %s retained material custody callback',
+  async (kind) => {
+    const { createCollaborationRetainedArtifactFixture } =
+      await import('./fixtures/collaboration-retained-artifacts.js');
+    const { createRetainedCollaborationArtifactSource } =
+      await import('../collaboration-retained-artifact-source.js');
+    const f = createCollaborationRetainedArtifactFixture();
+    try {
+      const saved = f.store.save({
+        itemId: f.itemId,
+        filename: 'retained.md',
+        title: 'Retained',
+        bytes: Buffer.from('EXACT MATERIAL'),
+        sessionId: 'gone',
+      });
+      const original = createRetainedCollaborationArtifactSource({
+        store: f.store,
+        authorizeArtifact: async () => {},
+      });
+      const retainedArtifacts = {
+        read: async (pin: Parameters<typeof original.read>[0]) => ({
+          ...(await original.read(pin)),
+          assertCurrent: kind === 'promise' ? async () => {} : () => true,
+        }),
+      };
+      await expect(
+        prepareCollaborationForward(
+          {
+            ...selection(),
+            sourceConversationId: null,
+            boundary: null,
+            messages: [],
+            artifacts: [
+              {
+                kind: 'retained_artifact',
+                artifactId: saved.id,
+                revision: 1,
+                sha256: saved.sha256,
+              },
+            ],
+          },
+          { authorizeTarget, retainedArtifacts },
+        ),
+      ).rejects.toMatchObject({ code: 'snapshot_changed' });
+    } finally {
+      f.close();
+    }
+  },
+);
