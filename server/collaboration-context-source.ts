@@ -50,34 +50,35 @@ export function createCollaborationContextSource(deps: {
       throw new CollaborationContractError('snapshot_changed');
     return output;
   }
+  function assertCurrentAtSave() {
+    if (!openedSession || !openedSource || !deps.assertConversationCurrent)
+      throw new CollaborationContractError('snapshot_changed');
+    const asserted: unknown = deps.assertConversationCurrent(openedSession);
+    if (asserted !== undefined) {
+      // TypeScript's void callback type also accepts async functions. Drain
+      // accidental promises without treating completion as a save authority.
+      void Promise.resolve(asserted).catch(() => {});
+      throw new CollaborationContractError('snapshot_changed');
+    }
+    assertVisible(openedSession);
+    openedSource.assertCurrent();
+    // Check retained aggregate bounds before rereading any registered output.
+    // The output owner itself bounds each current source read to 256 KiB.
+    if (
+      artifacts.size > 100 ||
+      [...artifacts.values()].reduce((sum, item) => sum + item.bytes, 0) > 512 * 1024
+    )
+      throw new CollaborationContractError('capacity_refused');
+    for (const original of artifacts.values()) {
+      exactOutput(original.pin);
+      const { content } = deps.store.readSessionOutput(openedSession, original.pin.artifactId);
+      const bytes = Buffer.from(content, 'utf8');
+      if (bytes.length !== original.bytes || hash(bytes) !== original.digest)
+        throw new CollaborationContractError('snapshot_changed');
+    }
+  }
   return {
-    assertCurrentAtSave() {
-      if (!openedSession || !openedSource || !deps.assertConversationCurrent)
-        throw new CollaborationContractError('snapshot_changed');
-      const asserted: unknown = deps.assertConversationCurrent(openedSession);
-      if (asserted !== undefined) {
-        // TypeScript's void callback type also accepts async functions. Drain
-        // accidental promises without treating completion as a save authority.
-        void Promise.resolve(asserted).catch(() => {});
-        throw new CollaborationContractError('snapshot_changed');
-      }
-      assertVisible(openedSession);
-      openedSource.assertCurrent();
-      // Check retained aggregate bounds before rereading any registered output.
-      // The output owner itself bounds each current source read to 256 KiB.
-      if (
-        artifacts.size > 100 ||
-        [...artifacts.values()].reduce((sum, item) => sum + item.bytes, 0) > 512 * 1024
-      )
-        throw new CollaborationContractError('capacity_refused');
-      for (const original of artifacts.values()) {
-        exactOutput(original.pin);
-        const { content } = deps.store.readSessionOutput(openedSession, original.pin.artifactId);
-        const bytes = Buffer.from(content, 'utf8');
-        if (bytes.length !== original.bytes || hash(bytes) !== original.digest)
-          throw new CollaborationContractError('snapshot_changed');
-      }
-    },
+    assertCurrentAtSave,
     async openConversation(raw) {
       const selection = CollaborationSnapshotSelectionSchema.parse(raw);
       await authorize(selection.sourceConversationId);
@@ -141,6 +142,7 @@ export function createCollaborationContextSource(deps: {
         sourceConversationId: output.sessionId,
         mediaType: 'text/plain; charset=utf-8',
         bytes,
+        assertCurrent: assertCurrentAtSave,
       };
     },
   };

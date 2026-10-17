@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.287-symposium-forwarding-sandbox-review.1';
+  'v1.0.287-symposium-forwarding-sandbox-review.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -38,7 +38,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-retained-artifact-source.ts':
     'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
   '../collaboration-forwarding.ts':
-    '46aa4578a8d6657b14c08e3860791640d3a78e8dbdfda2b30929eda43a6717e5',
+    '291924b075f064ebd8bd913eb98df3b7aac0cb4473af04bc085392aa200c55bb',
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../../frontend/src/components/SandboxOwnershipReview.tsx':
@@ -121,7 +121,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
 
   // Authorized ordinary visible source and exact inline output access.
   '../collaboration-context-source.ts':
-    'a2bc5a5187042ce0c3c4975ff88cf4d0e9dece9af084ad3913086c40cba780f8',
+    '4315a579a1741c55d7c62b9b43fdde35967ad1b6e630eb1d1b5389221cac0995',
   '../../packages/protocol/src/collaboration-visible-source.ts':
     '689c1925f2ba21871adbda5d79201d786cd88a55ed0b383130aad668e005b4f1',
 
@@ -173,7 +173,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   // Fresh-agent review compilation and metadata; execution remains disabled.
   '../collaboration-context-compiler.ts':
-    '9a29ff1be1dbba5c9c0c46ab3e4e54de70304af0429adef44548a9fb149283bf',
+    'd52551cd2b7515c93b86acdcba09ca46118d6632c698831e2bc5540dd866e572',
   '../../packages/protocol/src/collaboration-conversation.ts':
     'ba36974dbb2d289d3568c159704f0751982071b48b6b32ee23656ec6a5464ea3',
   '../../packages/protocol/src/collaboration-conversation-store.ts':

@@ -202,8 +202,16 @@ export async function prepareCollaborationForward(
     artifacts: [],
   };
   const retainedChecks = new Map<string, () => void>();
-  function assertRetainedCurrent() {
+  const transcriptChecks = new Map<string, () => void>();
+  function assertLocalCustody() {
     for (const check of retainedChecks.values()) check();
+    for (const check of transcriptChecks.values()) {
+      const asserted: unknown = check();
+      if (asserted !== undefined) {
+        void Promise.resolve(asserted).catch(() => {});
+        changed();
+      }
+    }
   }
   async function material(
     ref: CollaborationForwardSelection['artifacts'][number],
@@ -253,6 +261,8 @@ export async function prepareCollaborationForward(
       artifact.sourceConversationId !== input.sourceConversationId
     )
       changed();
+    if (typeof artifact.assertCurrent !== 'function') changed();
+    transcriptChecks.set(`${pin.artifactId}:${pin.revision}`, artifact.assertCurrent);
     if (artifact.bytes.byteLength > 512 * 1024)
       throw new CollaborationContractError('capacity_refused');
     return {
@@ -280,12 +290,12 @@ export async function prepareCollaborationForward(
     await authorizeTarget();
     // A target check may yield while finalized source storage changes.
     await opened?.assertCurrent();
-    assertRetainedCurrent();
+    assertLocalCustody();
   }
   bounded(packet);
   await assertCurrent();
   // The await above is another continuation; no awaited work follows this final local fence.
-  assertRetainedCurrent();
+  assertLocalCustody();
   const serialized = JSON.stringify(packet);
   return Object.freeze({
     // Fresh projections keep callers from mutating the retained closure's selection.

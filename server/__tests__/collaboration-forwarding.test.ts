@@ -68,7 +68,13 @@ function selection() {
 }
 function deps() {
   return {
-    source: createCollaborationContextSource({ store, authorizeConversation: authorizeSource }),
+    source: createCollaborationContextSource({
+      store,
+      authorizeConversation: authorizeSource,
+      assertConversationCurrent(sessionId) {
+        if (sessionId !== 'source') throw Error('Wrong operator source');
+      },
+    }),
     authorizeTarget,
   };
 }
@@ -525,4 +531,161 @@ it('requires a real conversation boundary for messages and source-dependent refe
     },
   ])
     await expect(prepareCollaborationForward(raw, deps())).rejects.toThrow();
+});
+
+it.each(
+  (['target', 'source'] as const).flatMap((last) =>
+    (['reference removal', 'block edit'] as const).map((change) => ({ last, change })),
+  ),
+)(
+  'refuses transcript $change during the final $last await without selected messages',
+  async ({ last, change }) => {
+    const input = selection();
+    const output = store.registerSessionOutput('source', {
+      requestId: 'final-ref',
+      title: 'Selected',
+      source: {
+        messageId: 'answer',
+        blockId: 'chosen',
+        messageEndSeq: input.boundary.sequence,
+        sha256: input.messages[0].blocks[0].sha256,
+      },
+    });
+    const selected = {
+      ...input,
+      messages: [],
+      artifacts: [
+        {
+          kind: 'transcript_reference',
+          artifactId: output.outputId,
+          revision: 1,
+          sha256: output.source.sha256,
+        },
+      ],
+    };
+    let calls = 0;
+    function revoke() {
+      const fault = new Database(path);
+      if (change === 'reference removal')
+        fault
+          .prepare('DELETE FROM session_output_references WHERE session_id=? AND output_id=?')
+          .run('source', output.outputId);
+      else
+        fault
+          .prepare(
+            "UPDATE events SET payload=json_set(payload,'$.delta',?) WHERE session_id=? AND type='block_delta' AND json_extract(payload,'$.blockId')=?",
+          )
+          .run('CORRUPTED REFERENCE CONTENT', 'source', 'chosen');
+      fault.close();
+    }
+    const dependencies = deps();
+    if (last === 'target')
+      authorizeTarget.mockImplementation(async () => {
+        if (++calls === 3) revoke();
+      });
+    else {
+      const open = dependencies.source.openConversation.bind(dependencies.source);
+      dependencies.source.openConversation = async (selection) => {
+        const opened = await open(selection);
+        const check = opened.assertCurrent.bind(opened);
+        opened.assertCurrent = async () => {
+          await check();
+          if (++calls === 3) revoke();
+        };
+        return opened;
+      };
+    }
+    await expect(prepareCollaborationForward(selected, dependencies)).rejects.toMatchObject({
+      code: 'snapshot_changed',
+    });
+  },
+);
+
+it.each(['missing', 'promise', 'value'] as const)(
+  'refuses a %s transcript custody callback',
+  async (kind) => {
+    const input = selection();
+    const output = store.registerSessionOutput('source', {
+      requestId: 'callback-ref',
+      title: 'Selected',
+      source: {
+        messageId: 'answer',
+        blockId: 'chosen',
+        messageEndSeq: input.boundary.sequence,
+        sha256: input.messages[0].blocks[0].sha256,
+      },
+    });
+    const dependencies = deps();
+    const read = dependencies.source.readArtifact.bind(dependencies.source);
+    dependencies.source.readArtifact = async (pin) => {
+      const artifact = await read(pin);
+      return {
+        ...artifact,
+        assertCurrent:
+          kind === 'missing' ? undefined : kind === 'promise' ? async () => {} : () => true,
+      };
+    };
+    await expect(
+      prepareCollaborationForward(
+        {
+          ...input,
+          messages: [],
+          artifacts: [
+            {
+              kind: 'transcript_reference',
+              artifactId: output.outputId,
+              revision: 1,
+              sha256: output.source.sha256,
+            },
+          ],
+        },
+        dependencies,
+      ),
+    ).rejects.toMatchObject({ code: 'snapshot_changed' });
+  },
+);
+
+it('requires current synchronous operator authority and never replaces the original source witness', async () => {
+  const input = selection();
+  const output = store.registerSessionOutput('source', {
+    requestId: 'authority-ref',
+    title: 'Selected',
+    source: {
+      messageId: 'answer',
+      blockId: 'chosen',
+      messageEndSeq: input.boundary.sequence,
+      sha256: input.messages[0].blocks[0].sha256,
+    },
+  });
+  const original = vi.spyOn(store, 'openCollaborationVisibleSource');
+  let allowed = true;
+  let calls = 0;
+  const source = createCollaborationContextSource({
+    store,
+    authorizeConversation: authorizeSource,
+    assertConversationCurrent() {
+      if (!allowed) throw Error('Operator source access revoked');
+    },
+  });
+  authorizeTarget.mockImplementation(async () => {
+    if (++calls === 3) allowed = false;
+  });
+  await expect(
+    prepareCollaborationForward(
+      {
+        ...input,
+        messages: [],
+        artifacts: [
+          {
+            kind: 'transcript_reference',
+            artifactId: output.outputId,
+            revision: 1,
+            sha256: output.source.sha256,
+          },
+        ],
+      },
+      { source, authorizeTarget },
+    ),
+  ).rejects.toThrow('Operator source access revoked');
+  expect(original).toHaveBeenCalledTimes(1);
 });
