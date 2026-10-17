@@ -29,9 +29,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTelosRecords.ts':
     '22feb1cb2f94b53540d8ddcb2c55242cd7f74f0aff97f62f09b116025c156c17',
   '../../frontend/src/components/TelosWorkspace.css':
-    'e418aff5c94f60a80d95c5d7e1bbc224ddd312593c2de3d62a04630edfc4753a',
+    '66bb98303b4436a2f25863489966f3818adcea59795afac6e7ea7bc954421dff',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
-    '9d6e8047921df9db63089052543198334dc053cc9d6064d18e1eccea829536a9',
+    '2ae987835af5ad6070ea3eee1b7d1f9783254aa5cb6cff6de89b1735ed0dd865',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
     'ae733bfe7f96a99c8c4146d5dac494d19993155dbc8876e794ff3d2c16822496',
   '../../frontend/src/pages/TodoWorkspace.tsx':

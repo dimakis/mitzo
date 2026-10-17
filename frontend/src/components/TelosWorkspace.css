@@ -319,3 +319,13 @@
     justify-items: start;
   }
 }
+.telos-brief-context {
+  margin-top: var(--space-5);
+}
+.telos-brief-context summary {
+  min-height: var(--control-height);
+  align-content: center;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
 import { TelosItemWorkspace } from '../TelosItemWorkspace';
@@ -134,4 +134,31 @@ it('offers an explicit retry for unavailable child work', () => {
   );
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   expect(refresh).toHaveBeenCalledOnce();
+});
+
+it('keeps Context collapsed with readable populated labels from the approved brief', () => {
+  const record = {
+    ...records[0],
+    contextHints: {
+      ...records[0].contextHints,
+      repos: ['fixture/repo'],
+      paths: ['plan.md'],
+      people: ['Fixture partner'],
+      keywords: ['Audio'],
+    },
+  };
+  render(
+    <MemoryRouter>
+      <TelosItemWorkspace record={record} records={[record]} onOpen={vi.fn()} onBack={vi.fn()} />
+    </MemoryRouter>,
+  );
+  const summary = screen.getByText('Context', { selector: 'summary' });
+  const context = summary.closest('details')!;
+  expect(context.hasAttribute('open')).toBe(false);
+  expect(within(context).getByText('Repositories')).toBeTruthy();
+  expect(within(context).getByText('Files')).toBeTruthy();
+  expect(within(context).getByText('People')).toBeTruthy();
+  expect(within(context).queryByText('repos')).toBeNull();
+  expect(within(context).queryByText('Not recorded')).toBeNull();
+  expect(within(context).queryByText('Issues')).toBeNull();
 });

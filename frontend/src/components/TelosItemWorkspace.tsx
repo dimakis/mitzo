@@ -216,19 +216,30 @@ export function TelosItemWorkspace({
           )}
           <h2>Task Hint</h2>
           <p>{record.contextHints.taskHint || 'Not recorded'}</p>
-          <h2>Context</h2>
-          <dl>
-            {Object.entries(record.contextHints)
-              .filter(([name]) => name !== 'taskHint')
-              .map(([name, values]) => (
-                <div key={name}>
-                  <dt>{name === 'sessionIds' ? 'Session references (not assignments)' : name}</dt>
-                  <dd>
-                    {Array.isArray(values) && values.length ? values.join(' · ') : 'Not recorded'}
-                  </dd>
-                </div>
-              ))}
-          </dl>
+          <details className="telos-brief-context">
+            <summary>Context</summary>
+            <dl>
+              {(
+                [
+                  ['Repositories', record.contextHints.repos],
+                  ['Files', record.contextHints.paths],
+                  ['Issues', record.contextHints.issues],
+                  ['Documents', record.contextHints.docIds],
+                  ['People', record.contextHints.people],
+                  ['Jira issues', record.contextHints.jiraKeys],
+                  ['Keywords', record.contextHints.keywords],
+                  ['Session references', record.contextHints.sessionIds],
+                ] as const
+              )
+                .filter(([, values]) => values.length > 0)
+                .map(([label, values]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{values.join(' · ')}</dd>
+                  </div>
+                ))}
+            </dl>
+          </details>
           <h2>Origin & dates</h2>
           <dl>
             <dt>Profile</dt>

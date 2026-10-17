@@ -272,6 +272,12 @@ for (const theme of ['dark', 'light'])
     await search.fill('frontend/src/pages/TodoView.tsx');
     await page.getByRole('button', { name: 'Nested outcome', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Nested outcome', exact: true })).toBeVisible();
+    const context = page.locator('summary').filter({ hasText: /^Context$/ });
+    await expect(context.locator('..')).not.toHaveAttribute('open');
+    await context.focus();
+    await page.keyboard.press('Enter');
+    await expect(context.locator('..')).toHaveAttribute('open');
+    await expect(page.getByText('Repositories', { exact: true })).toBeVisible();
     await expect(page.getByText('fixture/mitzo', { exact: true })).toBeVisible();
     await expect(page.getByText('frontend/src/pages/TodoView.tsx', { exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath('software-' + theme + '.png'), fullPage: true });
