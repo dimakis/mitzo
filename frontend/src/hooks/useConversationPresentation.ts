@@ -165,7 +165,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
       pending.current = null;
   }, []);
   const read = useCallback(
-    async (events: boolean): Promise<void> => {
+    async (events: boolean): Promise<{ error: string } | undefined> => {
       if (!valid()) {
         clearPrivate();
         return;
@@ -204,25 +204,35 @@ export function useConversationPresentation(options: ConversationPresentationOpt
         }
         if (!fresh()) return;
         if (!projection.needsRefresh) reconcile(projection.view);
+        const error = projection.needsRefresh
+          ? 'Refresh this conversation before changing its policy.'
+          : null;
         publish({
           projection,
           loading: false,
           hasMoreEvents,
-          error: projection.needsRefresh
-            ? 'Refresh this conversation before changing its policy.'
-            : null,
+          error,
           pendingPolicy: pending.current,
           ...(pending.current ? {} : { policyError: null }),
         });
         readDraft();
+        if (error) return { error };
       } catch (cause) {
-        if (fresh()) publish({ loading: false, error: message(cause) });
+        if (fresh()) {
+          const error = message(cause);
+          publish({ loading: false, error });
+          return { error };
+        }
       }
     },
     [valid, clearPrivate, owner, api, collaborationId, publish, reconcile, readDraft],
   );
-  const refresh = useCallback(() => read(false), [read]);
-  const refreshEvents = useCallback(() => read(true), [read]);
+  const refresh = useCallback(async () => {
+    await read(false);
+  }, [read]);
+  const refreshEvents = useCallback(async () => {
+    await read(true);
+  }, [read]);
   useEffect(() => {
     mounted.current = true;
     blocked.current = false;
@@ -313,7 +323,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
           );
         original.receipt = receipt;
         original.uncertain = false;
-        await refresh();
+        const confirmation = await read(false);
         if (fresh()) {
           // read() retains confirmed state and reports its own failures. A matching
           // PUT receipt alone must not strand the dialog in its saving state.
@@ -321,7 +331,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
           publish({
             pendingPolicy: original,
             policyError:
-              latest.current.error ??
+              confirmation?.error ??
               'The saved policy is not confirmed by the current view. Refresh discussion sharing.',
           });
           return false;
@@ -339,7 +349,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
         return false;
       }
     },
-    [valid, clearPrivate, api, collaborationId, refresh, publish],
+    [valid, clearPrivate, api, collaborationId, read, publish],
   );
   const setPolicy = useCallback(
     async (sessionId: string, values: { reads: boolean; replies: boolean }): Promise<boolean> => {

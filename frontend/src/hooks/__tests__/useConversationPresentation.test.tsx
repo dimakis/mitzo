@@ -329,6 +329,7 @@ it.each(['network', 'malformed', 'foreign', 'unchanged'] as const)(
     expect(result.current.pendingPolicy?.needsRefresh).toBe(true);
     expect(result.current.pendingPolicy?.uncertain).toBe(false);
     expect(result.current.policyError).toBeTruthy();
+    if (failure === 'network') expect(result.current.policyError).toBe('Read offline');
     expect(result.current.policyDisabled).toBe(true);
     expect(result.current.projection?.view.policies).toEqual(before.policies);
     expect(result.current.projection?.view.messages).toEqual(before.messages);
