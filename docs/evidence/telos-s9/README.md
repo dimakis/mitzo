@@ -1,11 +1,13 @@
 # Telos S9 early offline acceptance evidence
 
-Latest landing refresh: [accepted-base integration and revalidation](landing.md).
-The original map/results below remain pinned to their original run; the refresh
+Latest independent review extension: [consolidated diagnostics and owning slices](audit-followup.md).
+
+Earlier landing refresh: [accepted-base integration and revalidation](landing.md).
+The initial map snapshots and original results below remain pinned to their original run; the refresh
 records the newer combined source and repeated offline checks separately.
 
 S9 `b896d14d79d52682`, parent `85e8444019a4ae4a`: **active**. CT17/CT18 are
-partially evidenced, CT19 and CT20 remain pending. This increment is a draft PR,
+partially evidenced, CT19 and CT20 remain pending. This increment is an evidence PR,
 not final acceptance. The [44-row map](requirements-evidence.md) and its
 [structured ledger](requirements-evidence.json) belong to S9. Other slices retain
 their implementation and evidence ownership. S1's planned fixture and all frozen
@@ -110,7 +112,7 @@ is counted as non-code evidence. S6 brief-adoption/replacement/hold authority an
 S7/S8 UI/priority/chooser/lifecycle contracts remain with their owners. Future
 interfaces are pending in the map, not guessed implementations or permanent skips.
 
-No new visual work was performed. Final desktop/mobile, narrow widths, light/dark,
+The initial run performed no visual work. Later diagnostic captures are recorded in [audit-followup.md](audit-followup.md); no visual acceptance is claimed. Final desktop/mobile, narrow widths, light/dark,
 resources/settings/navigation and approved-design comparison remain CT20 pending.
 The historical review's 80 passing checks and **three failing regressions** remain
 historical failures, never corrective success. F2/F3 and required child timestamps
@@ -121,4 +123,4 @@ live qualification, model calls, staging operations and production deployment we
 not run. Any later real-model test must explicitly select supported Luna and
 announce exact model/account under separate authorization. S9 and parent remain
 open. Merge requires explicit authority, green exact-head CI and Centaur final
-LGTM/`merge` with zero blockers; this draft does not authorize merging.
+LGTM/`merge` with zero blockers; the user subsequently authorized gated merging of PR1018. Feature acceptance remains open.

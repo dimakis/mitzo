@@ -16,6 +16,9 @@ import { createTelosSourceRouter } from '../../../server/telos-source-routes.js'
 import { createTelosWorkRoleHost } from '../../../server/telos-work-role-host.js';
 import { isAvailableTelosWorkConversation } from '../../../server/telos-work-conversation.js';
 import { TelosArtifactStore } from '../../../server/telos-artifact-store.js';
+import { TelosWorkStore } from '../../../server/telos-work-store.js';
+import { TelosWorkAdvisorDraft } from '../../../server/telos-work-advisor-draft.js';
+import type { TelosWorkRoleRequest } from '../../../server/telos-work-routes.js';
 
 const cleanups: (() => void)[] = [];
 export async function cleanupS9Fixtures() {
@@ -103,11 +106,32 @@ export async function createS9Fixture() {
         sessionId: () => undefined,
         roleContext: (input) => host().context(input),
         roleSetup: (input) => host().setup(input),
+        advisorPreview: (input) => advisor(input, 'preview'),
+        advisorSave: (input) => advisor(input, 'save'),
       }),
     );
     return application;
   };
   let loseResponse = false;
+  async function advisor(input: TelosWorkRoleRequest, operation: 'preview' | 'save') {
+    const work = new TelosWorkStore(dbPath, { ordinaryConversation: available });
+    const artifacts = new TelosArtifactStore(dbPath);
+    try {
+      const owner = new TelosWorkAdvisorDraft({
+        events: ordinary.store,
+        work,
+        artifacts,
+        assertAuthorized: input.assertAuthorized,
+        authorizeSource: (actor, id) => actor.kind === 'operator' && available(id),
+        authorizeArtifact: (actor, id) =>
+          actor.kind === 'operator' && artifacts.userUploadAllowed(id),
+      });
+      return await owner[operation](input.raw, input.actor);
+    } finally {
+      artifacts.close();
+      work.close();
+    }
+  }
   // Supertest crosses the actual Express middleware/router serialization boundary.
   // It does not call or proxy a live Mitzo backend. Only response-loss is injected.
   const api = new TelosWorkApiClient(async (url, init) => {

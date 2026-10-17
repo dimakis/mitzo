@@ -5,6 +5,74 @@ import { TelosWorkStore } from '../../../server/telos-work-store.js';
 
 afterEach(cleanupS9Fixtures);
 
+it.each(['refine', 'child'] as const)(
+  'CT01 full-route red: reviewed %s advisor saves through actual setup, capture, HTTP and typed client',
+  async (operation) => {
+    const f = await createS9Fixture();
+    await f.api.execute({
+      operation: 'classify',
+      itemId: 'outcome',
+      requestId: 'kind',
+      expectedRevision: (await f.api.read('outcome')).revision,
+      kind: 'outcome',
+    });
+    const contextSelection = await f.api.roleContext({
+      itemId: 'outcome',
+      role: 'advisor',
+      advisorPurpose: operation,
+      sourceSnapshotIds: [],
+      artifactRefs: [],
+    });
+    const prepared = await f.api.setupRole({
+      itemId: 'outcome',
+      role: 'advisor',
+      requestId: 'advisor',
+      expectedRevision: contextSelection.brief.revision,
+      expectedAssignmentRevision: null,
+      settings: f.ordinary.input.settings,
+      contextSelection,
+    });
+    const advisorConversationId = prepared.work.links.find((link) => link.role === 'advisor')!
+      .conversation.conversationId;
+    const sequence = f.events.append(advisorConversationId, 'user_message', {
+      messageId: 'reviewed-draft',
+      text: 'Save this exact reviewed advisor proposal.',
+    });
+    const expectedRevision = (await f.api.read('outcome')).revision;
+    const proposal = {
+      requestId: randomUUID(),
+      operation,
+      itemId: 'outcome',
+      advisorConversationId,
+      expectedRevision,
+      parentId: operation === 'child' ? 'outcome' : 'goal',
+      expectedParentRevision:
+        operation === 'child' ? expectedRevision : (await f.api.read('goal')).revision,
+      proposed: {
+        name: 'Reviewed proposal',
+        desiredOutcome: 'Retain this exact result',
+        type: operation === 'child' ? ('work_item' as const) : ('outcome' as const),
+        category: 'Job',
+      },
+      selection: {
+        requestId: randomUUID(),
+        expectedMembershipRevision: 0,
+        sourceConversationId: advisorConversationId,
+        mode: 'selected' as const,
+        boundary: { sequence, messageId: 'reviewed-draft' },
+        messageIds: ['reviewed-draft'],
+        artifacts: [],
+        purpose: 'Save reviewed proposal',
+        joiningBrief: '',
+      },
+    };
+    const preview = await f.api.previewAdvisorDraft(proposal);
+    await expect(
+      f.api.saveAdvisorDraft({ ...proposal, previewSha256: preview.sha256 }),
+    ).resolves.toMatchObject({ actorId: 'operator:s9-offline-operator' });
+  },
+);
+
 // Explicit executable red evidence, not skipped tests or a passing assertion of
 // broken behavior. Invoke the dedicated red config until the S5a fix is accepted.
 it.each(['refine', 'child'] as const)(

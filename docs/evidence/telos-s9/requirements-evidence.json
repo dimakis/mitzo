@@ -56,7 +56,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-UI-05"]
     },
     {
       "id": "UX02",
@@ -94,7 +95,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-UI-03"]
     },
     {
       "id": "UX03",
@@ -132,7 +134,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX04",
@@ -170,7 +173,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-UI-04", "T-UI-05"]
     },
     {
       "id": "UX05",
@@ -214,7 +218,8 @@
         "status": "pending"
       },
       "outstandingException": "HTTP role settings round-trip only; standard setup UI and non-code capability remain unaccepted.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX06",
@@ -258,7 +263,8 @@
         "status": "pending"
       },
       "outstandingException": "Source and lead identities are independent; repository-free Home studio admission remains S5b pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX07",
@@ -302,7 +308,8 @@
         "status": "pending"
       },
       "outstandingException": "Exact selected exchange/material and source readback verified; final UI return navigation remains pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX08",
@@ -340,7 +347,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-UI-01", "T-FOUNDATIONS"]
     },
     {
       "id": "UX09",
@@ -384,7 +392,8 @@
         "status": "pending"
       },
       "outstandingException": "Real dispatcher refuses execution in retained lead context. Exact child delegation awaits accepted S5.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-S5"]
     },
     {
       "id": "UX10",
@@ -422,7 +431,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-S5"]
     },
     {
       "id": "UX11",
@@ -466,7 +476,8 @@
         "status": "pending"
       },
       "outstandingException": "Lead source/parent/goal context only. Worker execution task and back-links await accepted S5.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-S5"]
     },
     {
       "id": "UX12",
@@ -504,7 +515,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX13",
@@ -542,7 +554,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX14",
@@ -580,7 +593,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX15",
@@ -629,7 +643,8 @@
         "status": "pending"
       },
       "outstandingException": "Independent durable session/settings/workspace/output identities; composer drafts/resources/navigation await S8.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX16",
@@ -667,7 +682,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX17",
@@ -705,7 +721,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX18",
@@ -743,7 +760,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX19",
@@ -792,7 +810,8 @@
         "status": "pending"
       },
       "outstandingException": "Pinned retained Telos bytes and separate conversation output references verified. Reference registration is not independent retention; final UI/provenance journey pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-UI-02"]
     },
     {
       "id": "UX20",
@@ -836,7 +855,8 @@
         "status": "pending"
       },
       "outstandingException": "Canonical synthetic record and hierarchy read; full legacy migration/backup/restore not rerun by S9.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-UI-03", "T-UI-04"]
     },
     {
       "id": "UX21",
@@ -885,7 +905,8 @@
         "status": "pending"
       },
       "outstandingException": "Role setup lost-response/restart and fresh Symposium retry verified. Exact child allocation/concurrency awaits S5/S5b.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-FOUNDATIONS"]
     },
     {
       "id": "UX22",
@@ -929,7 +950,8 @@
         "status": "pending"
       },
       "outstandingException": "Real native queue interrupt/terminal ownership with fake RPC only. Full ordinary UI/device parity pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": []
     },
     {
       "id": "UX23",
@@ -967,7 +989,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-UI-06"]
     },
     {
       "id": "UX24",
@@ -1005,7 +1028,8 @@
         "status": "pending"
       },
       "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
-      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)",
+      "reviewOverlayIds": ["T-UI-04", "T-UI-06"]
     }
   ],
   "corrective": [
@@ -1051,7 +1075,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Current canonical advisor refine/child saves reproduce missing categories failures. Fresh actual-owner schema exported; pre-change upgrade and required first_seen/history coverage belong to S5a. Historical timestamp regression is not evidence of a fix."
+      "outstandingException": "Current canonical advisor refine/child saves reproduce missing categories failures. Fresh actual-owner schema exported; pre-change upgrade and required first_seen/history coverage belong to S5a. Historical timestamp regression is not evidence of a fix.",
+      "reviewOverlayIds": ["T-FOUNDATIONS"]
     },
     {
       "id": "CT02",
@@ -1089,7 +1114,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Canonical save fails before successful item/source/receipt transaction. Await S5a atomicity contract and accepted fix; do not infer passing rollback/replay from role setup."
+      "outstandingException": "Canonical save fails before successful item/source/receipt transaction. Await S5a atomicity contract and accepted fix; do not infer passing rollback/replay from role setup.",
+      "reviewOverlayIds": ["T-FOUNDATIONS"]
     },
     {
       "id": "CT03",
@@ -1133,7 +1159,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Backend/client rejects stale reviewed context before preparation. Frontend draft/settings refresh/reload recovery remains S5a pending; historical stale-setup regression is still historical failure evidence."
+      "outstandingException": "Backend/client rejects stale reviewed context before preparation. Frontend draft/settings refresh/reload recovery remains S5a pending; historical stale-setup regression is still historical failure evidence.",
+      "reviewOverlayIds": ["T-FOUNDATIONS"]
     },
     {
       "id": "CT04",
@@ -1177,7 +1204,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Dropped response after durable role commit + restart exact replay verified. Drop after allocation before commit and frontend reload outcome semantics remain S5a pending."
+      "outstandingException": "Dropped response after durable role commit + restart exact replay verified. Drop after allocation before commit and frontend reload outcome semantics remain S5a pending.",
+      "reviewOverlayIds": ["T-FOUNDATIONS"]
     },
     {
       "id": "CT05",
@@ -1215,7 +1243,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Historical F3 visual mismatch retained. No new comparison or fix claimed; S5a owns correction and desktop/mobile light/dark evidence."
+      "outstandingException": "Historical F3 visual mismatch retained. No new comparison or fix claimed; S5a owns correction and desktop/mobile light/dark evidence.",
+      "reviewOverlayIds": ["T-FOUNDATIONS"]
     },
     {
       "id": "CT06",
@@ -1264,7 +1293,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Origin capture/adoption, retained material, HTTP/client role setup, task dispatch denial/review boundary verified separately. Full advisor -> lead -> exact worker -> retained result -> explicit outcome verification awaits accepted S5/S5a."
+      "outstandingException": "Origin capture/adoption, retained material, HTTP/client role setup, task dispatch denial/review boundary verified separately. Full advisor -> lead -> exact worker -> retained result -> explicit outcome verification awaits accepted S5/S5a.",
+      "reviewOverlayIds": ["T-UI-01", "T-S5", "T-FOUNDATIONS"]
     },
     {
       "id": "CT07",
@@ -1302,7 +1332,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Repository-free workspace identity/readiness/capability contract not accepted. S5b pending. Repository-backed fixtures do not qualify non-code journeys."
+      "outstandingException": "Repository-free workspace identity/readiness/capability contract not accepted. S5b pending. Repository-backed fixtures do not qualify non-code journeys.",
+      "reviewOverlayIds": ["T-FOUNDATIONS"]
     },
     {
       "id": "CT08",
@@ -1340,7 +1371,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Exact repository-free allocation/retry/concurrency/restart not available on accepted main. Await S5/S5a/S5b; no guessed adapter or skipped acceptance test."
+      "outstandingException": "Exact repository-free allocation/retry/concurrency/restart not available on accepted main. Await S5/S5a/S5b; no guessed adapter or skipped acceptance test.",
+      "reviewOverlayIds": ["T-FOUNDATIONS"]
     },
     {
       "id": "CT09",
@@ -1378,7 +1410,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Full non-code journey pending S5b and reviewed result/verification contract. No repository secretly substituted."
+      "outstandingException": "Full non-code journey pending S5b and reviewed result/verification contract. No repository secretly substituted.",
+      "reviewOverlayIds": ["T-FOUNDATIONS"]
     },
     {
       "id": "CT10",
@@ -1416,7 +1449,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "S6 must define adoption boundary. Immutable retained context/replay subset does not prove queued/running brief adoption."
+      "outstandingException": "S6 must define adoption boundary. Immutable retained context/replay subset does not prove queued/running brief adoption.",
+      "reviewOverlayIds": []
     },
     {
       "id": "CT11",
@@ -1454,7 +1488,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "S6 current-authority/replacement contract pending. Historical role attribution alone does not establish current control authority."
+      "outstandingException": "S6 current-authority/replacement contract pending. Historical role attribution alone does not establish current control authority.",
+      "reviewOverlayIds": []
     },
     {
       "id": "CT12",
@@ -1492,7 +1527,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "S6 scoped hold/release/acknowledgement contract pending. Native interrupt ownership is a different boundary."
+      "outstandingException": "S6 scoped hold/release/acknowledgement contract pending. Native interrupt ownership is a different boundary.",
+      "reviewOverlayIds": []
     },
     {
       "id": "CT13",
@@ -1530,7 +1566,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "S7 current canonical DTO/UI journey pending. No visual acceptance from backend record reads."
+      "outstandingException": "S7 current canonical DTO/UI journey pending. No visual acceptance from backend record reads.",
+      "reviewOverlayIds": ["T-UI-01", "T-UI-02", "T-UI-03", "T-UI-04", "T-UI-05"]
     },
     {
       "id": "CT14",
@@ -1568,7 +1605,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "MGMT priority PR348 is merged at b4ad94541af3ed19e1a2c6fd1049fd98418016d0. Mitzo PR1009 remains OPEN at f1ea61f2641eb1fbbe5d273a9511a9c24d44b2f8; accepted combined schema/API/client/UI round-trip awaits S7. The approved amendment does not rewrite the frozen mock."
+      "outstandingException": "MGMT priority PR348 is merged at b4ad94541af3ed19e1a2c6fd1049fd98418016d0. Mitzo PR1009 remains OPEN at f1ea61f2641eb1fbbe5d273a9511a9c24d44b2f8; accepted combined schema/API/client/UI round-trip awaits S7. The approved amendment does not rewrite the frozen mock.",
+      "reviewOverlayIds": ["T-PRIORITY"]
     },
     {
       "id": "CT15",
@@ -1606,7 +1644,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "S8 chooser/navigation/drafts/settings/resources UI contract pending; backend session independence is only a prerequisite."
+      "outstandingException": "S8 chooser/navigation/drafts/settings/resources UI contract pending; backend session independence is only a prerequisite.",
+      "reviewOverlayIds": []
     },
     {
       "id": "CT16",
@@ -1644,7 +1683,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "S8 status/priority projection and S5 result contract pending. Task pending_review and canonical active are tested separately, not whole-outcome verified completion."
+      "outstandingException": "S8 status/priority projection and S5 result contract pending. Task pending_review and canonical active are tested separately, not whole-outcome verified completion.",
+      "reviewOverlayIds": ["T-PRIORITY"]
     },
     {
       "id": "CT17",
@@ -1698,7 +1738,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Only available accepted boundaries verified. Full repository-backed and repository-free journeys, exact worker dispatch/recovery, reviewed outcome verification, final combined source and all UX evidence remain pending."
+      "outstandingException": "Only available accepted boundaries verified. Full repository-backed and repository-free journeys, exact worker dispatch/recovery, reviewed outcome verification, final combined source and all UX evidence remain pending.",
+      "reviewOverlayIds": ["T-S5"]
     },
     {
       "id": "CT18",
@@ -1752,7 +1793,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Synthetic cross-session workspace/context/command/receipt/output and native interruption isolation covered; shared task scope/review covered separately. Current native provider fake only; fresh Symposium production joining requires native capacity authority and final accepted shared-source reconciliation."
+      "outstandingException": "Synthetic cross-session workspace/context/command/receipt/output and native interruption isolation covered; shared task scope/review covered separately. Current native provider fake only; fresh Symposium production joining requires native capacity authority and final accepted shared-source reconciliation.",
+      "reviewOverlayIds": ["T-S5"]
     },
     {
       "id": "CT19",
@@ -1790,7 +1832,8 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Required selected and explicitly authorized single-runtime/window is absent. NOT AUTHORIZED / NOT RUN. Sequential Telos/Symposium live qualification remains pending; no staging or production fallback."
+      "outstandingException": "Required selected and explicitly authorized single-runtime/window is absent. NOT AUTHORIZED / NOT RUN. Sequential Telos/Symposium live qualification remains pending; no staging or production fallback.",
+      "reviewOverlayIds": []
     },
     {
       "id": "CT20",
@@ -1828,7 +1871,142 @@
         "mobile": null,
         "status": "pending"
       },
-      "outstandingException": "Final combined source + actual desktop/mobile light/dark/lifecycle comparison pending; no UX acceptance or live qualification claimed."
+      "outstandingException": "Final combined source + actual desktop/mobile light/dark/lifecycle comparison pending; no UX acceptance or live qualification claimed.",
+      "reviewOverlayIds": ["T-UI-04", "T-UI-06"]
     }
-  ]
+  ],
+  "reviewOverlay": {
+    "schemaVersion": 1,
+    "source": "TELOS-SYMPOSIUM-REVIEW-OWNERSHIP.txt (human-authorized consolidated checklist, 2026-10-17)",
+    "evidence": "docs/evidence/telos-s9/audit-followup.md",
+    "sourceManifest": "docs/evidence/telos-s9/audit-source.json",
+    "status": "independent_candidate_diagnostics_not_acceptance",
+    "rows": [
+      {
+        "id": "T-UI-01",
+        "requirements": ["UX08", "CT06", "CT13"],
+        "owner": "S7",
+        "sliceOwner": "57b0894e0379ab95",
+        "requirement": "New item launches ordinary advisor planning",
+        "testPattern": "New item enters ordinary advisor planning",
+        "result": "entry_fails_full_journey_pending",
+        "evidence": "docs/evidence/telos-s9/audit-results.json",
+        "productionRepairOwner": "S7"
+      },
+      {
+        "id": "T-UI-02",
+        "requirements": ["UX19", "CT13"],
+        "owner": "S7 consumer; Symposium artifacts producer",
+        "sliceOwner": "57b0894e0379ab95",
+        "requirement": "Inspect selected older retained material inside shared viewer",
+        "testPattern": "selected retained material opens in-app",
+        "result": "failed",
+        "evidence": "docs/evidence/telos-s9/audit-results.json",
+        "productionRepairOwner": "S7 consumer; Symposium artifacts producer"
+      },
+      {
+        "id": "T-UI-03",
+        "requirements": ["UX02", "UX20", "CT13"],
+        "owner": "S7",
+        "sliceOwner": "57b0894e0379ab95",
+        "requirement": "Actual legacy children remain navigable without inferred kind",
+        "testPattern": "unclassified legacy parent retains actual child navigation",
+        "result": "failed",
+        "evidence": "docs/evidence/telos-s9/audit-results.json",
+        "productionRepairOwner": "S7"
+      },
+      {
+        "id": "T-UI-04",
+        "requirements": ["UX04", "UX20", "UX24", "CT13", "CT20"],
+        "owner": "S7; foundations readable context producer",
+        "sliceOwner": "57b0894e0379ab95",
+        "requirement": "Collapsed accessible Context with readable original values",
+        "testPattern": "Context is collapsed and readable",
+        "result": "failed_at_disclosure_readability_pending",
+        "evidence": "docs/evidence/telos-s9/audit-results.json",
+        "productionRepairOwner": "S7; foundations readable context producer"
+      },
+      {
+        "id": "T-UI-05",
+        "requirements": ["UX01", "UX04", "CT13"],
+        "owner": "S7 canonical DTO consumer",
+        "sliceOwner": "57b0894e0379ab95",
+        "requirement": "Same-ID SSE refresh invalidates mounted tree and detail",
+        "testPattern": "same-ID canonical",
+        "result": "failed_races_pending",
+        "evidence": "docs/evidence/telos-s9/audit-results.json",
+        "productionRepairOwner": "S7 canonical DTO consumer"
+      },
+      {
+        "id": "T-UI-06",
+        "requirements": ["UX23", "UX24", "CT20"],
+        "owner": "S7 shared CSS consumer",
+        "sliceOwner": "57b0894e0379ab95",
+        "requirement": "Shared semantic accent foreground survives workspace CSS",
+        "testPattern": "shared action foreground preserves semantic contrast",
+        "result": "failed_native_controls_pending",
+        "evidence": "docs/evidence/telos-s9/audit-results.json",
+        "productionRepairOwner": "S7 shared CSS consumer"
+      },
+      {
+        "id": "T-PRIORITY",
+        "requirements": ["CT14", "CT16"],
+        "owner": "Priority producer; S7 consumer; S9 acceptance",
+        "sliceOwner": "57b0894e0379ab95",
+        "requirement": "Canonical 1\u201310 control and confirmed saves in actual replacement workspace/tree",
+        "testPattern": "priority is editable and persisted",
+        "result": "failed_missing_control_concurrency_pending",
+        "evidence": "docs/evidence/telos-s9/audit-results.json",
+        "productionRepairOwner": "Priority producer; S7 consumer; S9 acceptance"
+      },
+      {
+        "id": "T-S5",
+        "requirements": ["UX09", "UX10", "UX11", "CT06", "CT17", "CT18"],
+        "owner": "S5",
+        "sliceOwner": "cf8dc85a4b6afaad",
+        "requirement": "Accepted runtime compatibility and exact delegation/recovery",
+        "testPattern": "task-boundary.test.ts",
+        "result": "partial_compatibility_only_exact_delegation_pending",
+        "evidence": "docs/evidence/telos-s9/audit-results.json",
+        "productionRepairOwner": "S5"
+      },
+      {
+        "id": "T-FOUNDATIONS",
+        "requirements": [
+          "UX08",
+          "UX21",
+          "CT01",
+          "CT02",
+          "CT03",
+          "CT04",
+          "CT05",
+          "CT06",
+          "CT07",
+          "CT08",
+          "CT09"
+        ],
+        "owner": "S5a then S5b",
+        "sliceOwner": "9dab491c72f0494e",
+        "requirement": "Canonical advisor, positive preallocation proof, recovery/context, repository-free admission",
+        "testPattern": "canonical-advisor.red-contract.ts + typed-recovery.red-contract.tsx",
+        "result": "failed_5_passed_2_other_contracts_pending",
+        "evidence": "docs/evidence/telos-s9/audit-results.json",
+        "productionRepairOwner": "S5a then S5b"
+      }
+    ],
+    "pending": [
+      "Needs you",
+      "Canonical category persistence",
+      "Stale response races",
+      "Concurrent priority saves",
+      "Accepted S5 exact delegation and worker/replay/receipt navigation",
+      "Readable role context",
+      "Dropped recovery evidence",
+      "Repository-free admission and full non-code journey",
+      "S6 coordination",
+      "S8 full ordinary chat journeys",
+      "Final UX acceptance",
+      "CT19 separately authorized single-runtime qualification"
+    ]
+  }
 }

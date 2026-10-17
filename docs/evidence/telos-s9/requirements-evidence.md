@@ -54,3 +54,27 @@ Baseline: `189289da78d971497deaa9cc4ca29365ba9c6e56`. Canonical schema/source ha
 | CT20        | S9           | pending       | Final combined source + actual desktop/mobile light/dark/lifecycle comparison pending; no UX acceptance or live qualification claimed.                                                                                                                                                                             |
 
 All UX-accepted and live-runtime-qualified cells are pending. Desktop/mobile/light/dark captures are pending. CT19 has no authorized target/window; CT20 and parent acceptance stay open. See [README](README.md) for commands, exact scope and retained results.
+
+## Consolidated review overlay
+
+The original 44 rows above retain their original accepted-source snapshot. The
+[initial map](initial-requirements-evidence.json) is retained byte-for-byte. This
+additive overlay uses the two reviewers' deduplicated IDs and does not create a
+second phase tree. [Independent combined-candidate diagnostics](audit-followup.md)
+record exact source, failures, producer/consumer ownership and explicit limits.
+
+| Review ID     | Existing rows                                                    | Owner                                         | Independent evidence                                |
+| ------------- | ---------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
+| T-UI-01       | UX08, CT06, CT13                                                 | S7                                            | entry fails full journey pending                    |
+| T-UI-02       | UX19, CT13                                                       | S7 consumer; Symposium artifacts producer     | failed                                              |
+| T-UI-03       | UX02, UX20, CT13                                                 | S7                                            | failed                                              |
+| T-UI-04       | UX04, UX20, UX24, CT13, CT20                                     | S7; foundations readable context producer     | failed at disclosure readability pending            |
+| T-UI-05       | UX01, UX04, CT13                                                 | S7 canonical DTO consumer                     | failed races pending                                |
+| T-UI-06       | UX23, UX24, CT20                                                 | S7 shared CSS consumer                        | failed native controls pending                      |
+| T-PRIORITY    | CT14, CT16                                                       | Priority producer; S7 consumer; S9 acceptance | failed missing control concurrency pending          |
+| T-S5          | UX09, UX10, UX11, CT06, CT17, CT18                               | S5                                            | partial compatibility only exact delegation pending |
+| T-FOUNDATIONS | UX08, UX21, CT01, CT02, CT03, CT04, CT05, CT06, CT07, CT08, CT09 | S5a then S5b                                  | failed 5 passed 2 other contracts pending           |
+
+All captures are diagnostic candidate evidence. No UX or live acceptance state
+is upgraded. Needs you, canonical categories, S6/S8 and repository-free journeys
+remain pending, alongside the specific unexercised branches in the overlay.
