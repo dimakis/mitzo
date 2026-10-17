@@ -1,3 +1,4 @@
+import { waitForNewFixtureReads } from '../support/fixture-reads';
 import { settingRow, chooseSetting, openChatSetting } from '../support/chat-settings';
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
@@ -1369,12 +1370,16 @@ for (const theme of ['dark', 'light']) {
       'mitzo-font': 'georgia',
     });
     await page.route('**/api/home/briefing-chats*', (route) => route.fulfill({ json: [] }));
-    await page.goto('/chat?draft=unsent-launch');
+    // Finish the account-bound catalogue before the next document navigation.
+    // WebKit reports an intercepted fetch aborted by reload as a page error.
+    await waitForNewFixtureReads(page, ['/api/repository-workspaces/catalog'], () =>
+      page.goto('/chat?draft=unsent-launch'),
+    );
     await expect(
       page.getByRole('button', { name: 'Send launch prompt', exact: true }),
     ).toBeVisible();
     await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
-    await page.reload();
+    await waitForNewFixtureReads(page, ['/api/repository-workspaces/catalog'], () => page.reload());
     await expect(
       page.getByRole('button', { name: 'Send launch prompt', exact: true }),
     ).toBeVisible();
