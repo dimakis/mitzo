@@ -1,3 +1,5 @@
+import { SandboxBatchCleanup } from '../components/SandboxBatchCleanup';
+import { SandboxOwnershipReview } from '../components/SandboxOwnershipReview';
 import { createBrowserId } from '../lib/browser-crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -38,6 +40,22 @@ export function SandboxesView() {
     [conversation, setConversation] = useState<SandboxConversation | null>(null),
     [preview, setPreview] = useState<SandboxCleanupPreview | null>(null),
     [ack, setAck] = useState(false);
+  const [ownershipItem, setOwnershipItem] = useState<{
+    id: string;
+    name: string;
+    state: string;
+  } | null>(null);
+  const [selection, setSelection] = useState<string[]>([]);
+  const [batch, setBatch] = useState<SandboxConversation[] | null>(null);
+  const refreshButton = useRef<HTMLButtonElement>(null),
+    batchWasOpen = useRef(false);
+  useEffect(() => {
+    if (batch) batchWasOpen.current = true;
+    else if (batchWasOpen.current) {
+      batchWasOpen.current = false;
+      refreshButton.current?.focus();
+    }
+  }, [batch]);
   const mounted = useRef(false),
     inFlight = useRef(false),
     dirtyRef = useRef(false),
@@ -181,7 +199,11 @@ export function SandboxesView() {
         setConversation(null);
         setPreview(null);
         await refresh();
-        setMessage('Conversation lifecycle action confirmed.');
+        setMessage(
+          body.action === 'deleted'
+            ? 'Sandbox deleted; saved chat and recovery checkpoint retained.'
+            : 'Sandbox checkpointed and stopped.',
+        );
       }
     } catch (e) {
       if (mounted.current) {
@@ -193,6 +215,16 @@ export function SandboxesView() {
       if (mounted.current) setBusy(false);
     }
   };
+  const selectable = (item: SandboxConversation) =>
+    item.canReviewCleanup &&
+    !!item.physicalId &&
+    data?.physicalInventory?.available === true &&
+    data.physicalInventory.items?.some(
+      (physical) =>
+        physical.id === item.physicalId &&
+        physical.name === item.sandboxName &&
+        physical.management === 'conversation',
+    );
   const ready = data?.spares.filter((x) => stateLabel(x) === 'Ready').length ?? 0;
   return (
     <main className="workspace-page sandboxes-page">
@@ -202,6 +234,7 @@ export function SandboxesView() {
         actions={
           <>
             <button
+              ref={refreshButton}
               className="home-secondary"
               disabled={refreshing || busy}
               onClick={() => void refresh(undefined, false, true)}
@@ -261,6 +294,15 @@ export function SandboxesView() {
                           <h3>{item.name}</h3>
                           <p>{item.state} · Ownership needs review</p>
                         </div>
+                        <button
+                          className="home-secondary"
+                          onClick={(event) => {
+                            event.currentTarget.focus();
+                            setOwnershipItem(item);
+                          }}
+                        >
+                          Review ownership
+                        </button>
                       </div>
                     ))}
                 </div>
@@ -520,13 +562,62 @@ export function SandboxesView() {
             <h2 className="sandbox-group-title">
               Conversations <span className="workspace-muted">{data.conversations.length}</span>
             </h2>
+            <div className="sandbox-actions">
+              <button
+                className="home-secondary"
+                disabled={
+                  busy ||
+                  !selection.some((id) =>
+                    data.conversations.some(
+                      (item) => item.conversationId === id && selectable(item),
+                    ),
+                  )
+                }
+                onClick={(event) => {
+                  event.currentTarget.focus();
+                  setBatch(
+                    data.conversations.filter(
+                      (item) => selection.includes(item.conversationId) && selectable(item),
+                    ),
+                  );
+                }}
+              >
+                Review selected cleanup
+              </button>
+              {selection.length > 0 && (
+                <button className="home-secondary" onClick={() => setSelection([])}>
+                  Clear selection
+                </button>
+              )}
+            </div>
+            <p className="workspace-muted">
+              Select managed physical sandboxes for a fresh cleanup review. Active work and recovery
+              blockers are checked before any deletion.
+            </p>
             {data.conversations.length ? (
               <div className="access-row-group">
                 {data.conversations.map((item) => (
                   <div className="access-row" key={item.conversationId}>
-                    <span className="access-row-icon">
-                      <UiIcon name="chats" />
-                    </span>
+                    {selectable(item) ? (
+                      <label className="sandbox-check">
+                        <input
+                          type="checkbox"
+                          aria-label={'Select sandbox for ' + item.title}
+                          checked={selection.includes(item.conversationId)}
+                          onChange={(event) =>
+                            setSelection((current) =>
+                              event.target.checked
+                                ? [...current, item.conversationId]
+                                : current.filter((id) => id !== item.conversationId),
+                            )
+                          }
+                        />
+                      </label>
+                    ) : (
+                      <span className="access-row-icon">
+                        <UiIcon name="chats" />
+                      </span>
+                    )}
                     <div className="access-row-copy">
                       <h3>{item.title}</h3>
                       <p>
@@ -657,6 +748,19 @@ export function SandboxesView() {
             </>
           )}
         </HomeDialog>
+      )}
+      {ownershipItem && (
+        <SandboxOwnershipReview item={ownershipItem} onClose={() => setOwnershipItem(null)} />
+      )}
+      {batch && (
+        <SandboxBatchCleanup
+          items={batch}
+          onClose={() => {
+            setBatch(null);
+            setSelection([]);
+          }}
+          onChanged={() => refresh()}
+        />
       )}
       {conversation && (
         <HomeDialog

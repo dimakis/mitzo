@@ -100,3 +100,35 @@ it('does not accept an internal agent token as operator authorization', async ()
     .expect(403);
   expect(f.prepare).not.toHaveBeenCalled();
 });
+it('gates read-only ownership reviews behind operator authentication and preserves failures', async () => {
+  const review = vi.fn(async (_physicalId: string, _signal: AbortSignal) => ({
+    canDelete: false,
+    blockers: ['owner_unresolved'],
+  }));
+  const app = express();
+  app.use(
+    '/api/sandboxes',
+    createWarmPoolRouter({
+      pool: () => null,
+      conversations: () => [],
+      authorize: (req, res, next) =>
+        req.header('operator') === 'yes' ? next() : void res.sendStatus(403),
+      ownershipReview: review,
+    }),
+  );
+  await request(app).get('/api/sandboxes/physical/ownership').expect(403);
+  expect(review).not.toHaveBeenCalled();
+  const response = await request(app)
+    .get('/api/sandboxes/physical/ownership')
+    .set('operator', 'yes')
+    .expect(200);
+  expect(response.body.canDelete).toBe(false);
+  expect(review.mock.calls[0][0]).toBe('physical');
+  review.mockRejectedValueOnce(Error('private runtime details'));
+  const failed = await request(app)
+    .get('/api/sandboxes/physical/ownership')
+    .set('operator', 'yes')
+    .expect(409);
+  expect(failed.body.error).toContain('resources are retained');
+  expect(failed.text).not.toContain('private runtime details');
+});
