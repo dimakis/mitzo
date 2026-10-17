@@ -98,6 +98,19 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
             contentType: path.endsWith('.png') ? 'image/png' : 'image/svg+xml',
           });
         if (path === '/api/telos/work/items/studio/record') return route.fulfill({ json: record });
+        if (path === '/api/telos/work/items/advisor-child/record')
+          return route.fulfill({
+            json: {
+              ...record,
+              itemId: 'advisor-child',
+              parentId: 'studio',
+              kind: 'work_item',
+              summary: 'Reviewed studio slice',
+              intent: 'Record the reviewed first session',
+              rationale: '',
+              acceptanceCriteria: [],
+            },
+          });
         if (path === '/api/telos/work/items/advisor-child')
           return route.fulfill({ json: savedWork });
         if (path === '/api/telos/work/items/studio') return route.fulfill({ json: work });
