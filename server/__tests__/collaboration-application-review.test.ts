@@ -629,3 +629,29 @@ it('checks the originally observed visible bytes instead of reopening a changed 
   }
   expect(() => source.assertCurrentAtSave()).toThrow('snapshot_changed');
 });
+
+it.each(['promise', 'value'] as const)(
+  'refuses a %s-returning source save assertion',
+  async (mode) => {
+    const store = new EventStore(':memory:');
+    cleanups.push(() => store.close());
+    store.upsertSession({ sessionId: 'source', conversationSource: 'mitzo' });
+    const source = createCollaborationContextSource({
+      store,
+      authorizeConversation: async () => {},
+      assertConversationCurrent: mode === 'promise' ? () => Promise.resolve() : () => true,
+    });
+    await source.openConversation({
+      requestId: randomUUID(),
+      expectedMembershipRevision: 1,
+      sourceConversationId: 'source',
+      boundary: { sequence: 0, messageId: null },
+      mode: 'selected',
+      messageIds: [],
+      artifacts: [],
+      purpose: 'Review',
+      joiningBrief: '',
+    });
+    expect(() => source.assertCurrentAtSave()).toThrow('snapshot_changed');
+  },
+);

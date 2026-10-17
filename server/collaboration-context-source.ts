@@ -54,7 +54,13 @@ export function createCollaborationContextSource(deps: {
     assertCurrentAtSave() {
       if (!openedSession || !openedSource || !deps.assertConversationCurrent)
         throw new CollaborationContractError('snapshot_changed');
-      deps.assertConversationCurrent(openedSession);
+      const asserted: unknown = deps.assertConversationCurrent(openedSession);
+      if (asserted !== undefined) {
+        // TypeScript's void callback type also accepts async functions. Drain
+        // accidental promises without treating completion as a save authority.
+        void Promise.resolve(asserted).catch(() => {});
+        throw new CollaborationContractError('snapshot_changed');
+      }
       assertVisible(openedSession);
       openedSource.assertCurrent();
       // Check retained aggregate bounds before rereading any registered output.
