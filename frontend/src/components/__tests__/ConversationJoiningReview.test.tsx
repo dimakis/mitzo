@@ -305,7 +305,7 @@ it('restores the original editable setup and exact lost review when the actual d
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
   const review = screen.getByRole('dialog', { name: 'Before joining' });
   expect(owner.review).toHaveBeenCalledTimes(1);
   expect(owner.confirm).not.toHaveBeenCalled();
@@ -398,7 +398,7 @@ it('rechecks a restored linked receipt before retiring it for another fresh agen
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
   const review = screen.getByRole('dialog', { name: 'Before joining' });
   expect(owner.confirm).toHaveBeenCalledTimes(1);
   expect(owner.recover).not.toHaveBeenCalled();
@@ -406,7 +406,7 @@ it('rechecks a restored linked receipt before retiring it for another fresh agen
   fireEvent.click(within(review).getByRole('button', { name: 'Check again' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
   expect(screen.getByRole('dialog', { name: 'Add agent' })).toBeTruthy();
   expect(
     (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
@@ -470,7 +470,7 @@ it.each(['review', 'uncertain', 'linked'] as const)(
     expect(owner.review).toHaveBeenCalledTimes(1);
     expect(owner.confirm).toHaveBeenCalledTimes(kind === 'review' ? 0 : 1);
     fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
     expect(screen.getByRole('dialog', { name: 'Before joining' })).toBeTruthy();
     if (kind === 'review') {
       fireEvent.click(screen.getByRole('button', { name: /^Back$/ }));
@@ -484,7 +484,7 @@ it.each(['review', 'uncertain', 'linked'] as const)(
         target: { value: 'ExplicitlyEdited' },
       });
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
       expect(
         (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
       ).toBe('ExplicitlyEdited');
