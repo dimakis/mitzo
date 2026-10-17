@@ -233,7 +233,7 @@ export class OpenShellLifecycleService {
       this.confirmLocked(token, signal),
     );
   }
-  private async confirmLocked(token: string, signal: AbortSignal) {
+  private async confirmLocked(token: string, signal: AbortSignal): Promise<'stopped' | 'deleted'> {
     const preview = this.previews.get(token);
     if (!preview || preview.used || preview.expiresAt < this.now())
       throw new Error('OpenShell lifecycle preview is expired or already used');

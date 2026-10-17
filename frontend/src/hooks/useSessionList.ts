@@ -175,22 +175,32 @@ export function useSessionList(): UseSessionListReturn {
       .finally(() => setLoadingMore(false));
   }, [loadingMore, hasMore]);
 
-  const dismissSession = useCallback((id: string) => {
-    return apiFetch(`/api/sessions/${id}`, { method: 'DELETE' })
-      .then((response) => {
-        if (response.ok) {
-          removeConversationPins(id);
-          sessionCache.update((page) => ({
-            ...page,
-            sessions: page.sessions.filter((s) => s.id !== id),
-          }));
-          setSessions((prev) => prev.filter((s) => s.id !== id));
-          return true;
-        }
-        return false;
-      })
-      .catch(() => false);
-  }, []);
+  const dismissSession = useCallback(
+    (id: string, options: { archive?: boolean; cleanupToken?: string } = {}) => {
+      return apiFetch(
+        `/api/sessions/${encodeURIComponent(id)}${options.archive ? '?archive=1' : ''}`,
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(options.cleanupToken ? { cleanupToken: options.cleanupToken } : {}),
+        },
+      )
+        .then((response) => {
+          if (response.ok) {
+            removeConversationPins(id);
+            sessionCache.update((page) => ({
+              ...page,
+              sessions: page.sessions.filter((s) => s.id !== id),
+            }));
+            setSessions((prev) => prev.filter((s) => s.id !== id));
+            return true;
+          }
+          return false;
+        })
+        .catch(() => false);
+    },
+    [],
+  );
 
   const clearAll = useCallback(() => {
     return apiFetch('/api/sessions', { method: 'DELETE' })
