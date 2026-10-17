@@ -57,6 +57,60 @@ export function createTelosArtifactRouter(options: {
       res.status(403).json({ error: 'Interactive operator authentication is required' });
     return authorized;
   };
+  router.get(
+    '/api/telos/artifacts/:id/versions',
+    options.operatorAuth ??
+      ((_req, res) => {
+        res.status(403).json({ error: 'Interactive operator authentication is required' });
+      }),
+    (req, res) => {
+      if (typeof res.locals.authSession?.id !== 'string' || !res.locals.authSession.id.trim()) {
+        res.status(403).json({ error: 'Interactive operator authentication is required' });
+        return;
+      }
+      const id = documentId.safeParse(req.params.id);
+      const query = z
+        .strictObject({
+          beforeRevision: z
+            .string()
+            .regex(/^[1-9][0-9]*$/)
+            .transform(Number)
+            .pipe(documentRevision)
+            .optional(),
+          limit: z
+            .string()
+            .regex(/^[1-9][0-9]*$/)
+            .transform(Number)
+            .pipe(z.number().int().min(1).max(50))
+            .optional(),
+        })
+        .safeParse(req.query);
+      if (!id.success || !query.success) {
+        res.status(400).json({ error: 'Invalid artifact history reference' });
+        return;
+      }
+      let store: TelosArtifactStore | undefined;
+      try {
+        store = new TelosArtifactStore(options.dbPath());
+        const page = store.revisionPage(id.data, query.data);
+        // Authentication may have awaited; current item policy also remains a final local fence.
+        if (
+          page.artifacts.some(
+            (row) => row.sourceKind === 'source_capture' || !store!.userUploadAllowed(row.itemId),
+          )
+        ) {
+          res.status(403).json({ error: 'Saved artifact history unavailable' });
+          return;
+        }
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.json(page);
+      } catch (error) {
+        res.status(errorStatus(error)).json({ error: 'Saved artifact history unavailable' });
+      } finally {
+        store?.close();
+      }
+    },
+  );
   router.get('/api/telos/artifacts/:id/document', async (req, res) => {
     const id = documentId.safeParse(req.params.id);
     const revision =

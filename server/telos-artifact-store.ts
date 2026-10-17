@@ -339,6 +339,53 @@ export class TelosArtifactStore {
     )
       throw new Error('Artifact byte custody unavailable');
   }
+  /** Metadata-only history for an existing public artifact. Exact revision keyset
+   * paging does not hydrate bytes or turn origin identity into an access grant.
+   */
+  revisionPage(id: string, options: { beforeRevision?: number; limit?: number } = {}) {
+    z.string()
+      .regex(/^[a-f0-9]{32}$/)
+      .parse(id);
+    const before =
+      options.beforeRevision === undefined
+        ? null
+        : z.number().int().positive().safe().parse(options.beforeRevision);
+    const limit = z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .parse(options.limit ?? 50);
+    return this.db.transaction(() => {
+      const owner = this.db
+        .prepare(
+          'SELECT item_id,session_id FROM telos_artifact_revisions WHERE id=? ORDER BY revision DESC LIMIT 1',
+        )
+        .get(id) as { item_id: string; session_id: string } | undefined;
+      if (!owner) throw new Error('Artifact not found');
+      const assertPublic = () => {
+        if (
+          owner.session_id.startsWith('source-capture:') ||
+          !this.userUploadAllowed(owner.item_id)
+        )
+          throw Object.assign(new Error('Saved artifact history unavailable'), { status: 403 });
+      };
+      assertPublic();
+      const rows = this.db
+        .prepare(
+          `SELECT id,item_id,filename,title,revision,sha256,size,
+        session_id,source_path,created_at FROM telos_artifact_revisions
+        WHERE id=? AND item_id=? AND (? IS NULL OR revision<?)
+        AND instr(session_id,'source-capture:')<>1
+        ORDER BY revision DESC LIMIT ?`,
+        )
+        .all(id, owner.item_id, before, before, limit + 1) as ArtifactRow[];
+      const artifacts = rows.slice(0, limit).map(metadata);
+      assertPublic();
+      const hasMore = rows.length > limit;
+      return { artifacts, cursor: hasMore ? artifacts.at(-1)!.revision : null, hasMore };
+    })();
+  }
   /** Exact retained revision metadata, with current access filtering before
    * the bounded page. Never loads content bytes or substitutes latest revisions. */
   sourceMaterialPage(sessionId: string, after?: TelosSourceMaterialCursor) {

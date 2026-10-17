@@ -62,7 +62,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e501290f74a90903b94fdc3a3c0b81075e72be6ed3b30e60a68ed4f3d38479ee',
   '../../frontend/src/components/PermissionBanner.tsx':
     '4706f371b3cdf9f80ebe40b673d4ce326b3c09a4bc88f30954f5dc4a614f03d7',
-  '../telos-artifact-routes.ts': '1c08c382dd14fe90ada4d9fdea4224bf91b9b82143e15cd462f90132595089e8',
+  '../telos-artifact-routes.ts': 'c601907f3312720b47411fa5190f5d535a9bdf476f2919394a78d5439d1610ad',
   '../../frontend/src/hooks/useTelosSourceNavigation.ts':
     'b2a461e208923889e0286efdd3faa41705af58693de41446aa6021eaa4b73fd8',
   '../telos-outcome-handler.ts': 'fd01a401e79d08b8330aac5da419d11c49e07d767edf2bab34bea990cf04168f',
@@ -88,7 +88,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-source-routes.ts': '9fe592fae24c3ecb1a0915b0370b4e525facfa4b34a473981c5cc8e032187cad',
   '../../packages/protocol/src/telos-source.ts':
     '6ca8887c2d88f73eb14a5886e441da54c0036f0767392f4e72352f783d33eda7',
-  '../telos-artifact-store.ts': 'b2520f0b8d304a82274bddddc97988138cca83179168fbcd2d19234b78d9a0ab',
+  '../telos-artifact-store.ts': 'c2194c117e8971487b996c83c8088f6808c83723df2a33122731ad994e4bc8e8',
   '../telos-source-capture.ts': '474d585f84017422fbb707ec5e0212c79c4a04747979f78b55956a9e1f999526',
   '../telos-conversation-source.ts':
     '0217975022f987f5ad65876d53467417774e3f0f186ba4fc70bc6f30c9860308',
