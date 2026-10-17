@@ -712,3 +712,72 @@ it('links a fresh ordinary participant from a durable silent receipt without a f
   expect(store.getOrdinaryInitialCommandId('fresh-silent')).toBeUndefined();
   expect(store.getEventsAfter('fresh-silent', 0)).toEqual([]);
 });
+
+it('preserves the exact legacy 512 KiB review completion limit with no private witness', () => {
+  const original = snapshotDraft();
+  const draft = {
+    ...original,
+    artifacts: [],
+    messages: [
+      {
+        ...original.messages[0],
+        blocks: [
+          { blockId: 'first', content: 'x'.repeat(490_000), sha256: 'a'.repeat(64) },
+          { blockId: 'second', content: '', sha256: 'a'.repeat(64) },
+        ],
+      },
+    ],
+  };
+  draft.messages[0].blocks[1].content = 'x'.repeat(
+    512 * 1024 - Buffer.byteLength(JSON.stringify(draft)),
+  );
+  expect(Buffer.byteLength(JSON.stringify(draft))).toBe(512 * 1024);
+  store.collaborationConversation.reserveReviewCompilation(group, {
+    operatorId: 'operator',
+    settings: [settings],
+    selection: {
+      requestId: draft.requestId,
+      expectedMembershipRevision: 1,
+      sourceConversationId: draft.sourceConversationId,
+      boundary: draft.boundary,
+      mode: draft.mode,
+      messageIds: [],
+      artifacts: [],
+      purpose: draft.purpose,
+      joiningBrief: draft.joiningBrief,
+    },
+  });
+  const snapshot = store.collaborationConversation.completeReviewCompilation(
+    group,
+    draft.requestId,
+    draft,
+  );
+  expect(snapshot.messages[0].blocks[1].content).toBe(draft.messages[0].blocks[1].content);
+  expect(
+    store.collaborationConversation.getReviewCapacityWitnesses(group, snapshot.snapshotId),
+  ).toEqual([]);
+});
+
+it('rejects reused public native measurement IDs across different assessments', () => {
+  const assessment = {
+    kind: 'nativePreparedRequest',
+    scope: 'reviewContext',
+    settings,
+    measurementId: randomUUID(),
+    inputTokens: 20,
+    maxOutputTokens: 10,
+    contextWindowTokens: 30,
+  };
+  expect(() =>
+    store.collaborationConversation.saveSnapshot(group, {
+      ...snapshotDraft(),
+      capacity: {
+        status: 'ready',
+        assessments: [
+          assessment,
+          { ...assessment, settings: { ...settings, repositoryWorkspaceId: 'another' } },
+        ],
+      },
+    }),
+  ).toThrow();
+});
