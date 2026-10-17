@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { WebSearchAccess } from './web-search-policy.js';
+import { codexResearchInstructions } from './research-instructions.js';
 
 /** These are the ordinary owner's resolved host RPC parameters, not the expanded
  * native model prompt. Native instructions, discovered project documents, native
@@ -30,7 +31,7 @@ export function codexThreadOptions(input: {
     },
     approvalPolicy: 'never',
     sandbox: 'read-only',
-    developerInstructions: input.systemPrompt,
+    developerInstructions: input.systemPrompt + codexResearchInstructions(input.webSearch),
   };
 }
 
