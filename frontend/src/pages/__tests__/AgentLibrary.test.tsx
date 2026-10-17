@@ -71,7 +71,7 @@ it('shows named agents and descriptors in a separate library', async () => {
 });
 it('opens the Tool Builder through regular chat with a pinned builtin and no submission', async () => {
   setup();
-  fireEvent.click(screen.getByRole('button', { name: 'Tool library', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Tool library' }));
   const link = screen.getByRole('link', { name: 'Build a tool' });
   const url = new URL(link.getAttribute('href')!, 'https://mitzo.example');
   expect(url.pathname).toBe('/chat');
