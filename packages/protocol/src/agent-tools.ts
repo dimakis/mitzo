@@ -39,4 +39,5 @@ export type AgentToolCatalogEntry = AgentToolReference & {
   behavior: 'read' | 'write' | 'mixed' | 'interaction';
   routes: string[];
   requirement: string;
+  implementation?: { template: string; source: string; fingerprint: string };
 };

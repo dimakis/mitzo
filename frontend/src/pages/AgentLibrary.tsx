@@ -1,3 +1,4 @@
+import { ApiToolEditor } from '../components/ApiToolEditor';
 import { AgentToolsEditor } from '../components/AgentToolsEditor';
 import { ToolLibraryCatalog } from '../components/ToolLibraryCatalog';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -473,6 +474,9 @@ export function AgentLibrary() {
           {discoveryNotice && <p role="status">{discoveryNotice}</p>}
         </section>
       )}
+      <div hidden={view !== 'tools'}>
+        <ApiToolEditor onPublished={() => setToolAttempt((value) => value + 1)} />
+      </div>
       {view === 'tools' && (
         <section aria-label="Tool library">
           <p className="tool-library-intro">

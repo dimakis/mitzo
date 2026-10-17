@@ -1264,3 +1264,27 @@ pass. `npm run test:ui` reached the production Vite build and exhausted the requ
 This verifies frontend behavior, not a measured iPhone cold-start speedup. Physical
 Face ID/Keychain and device startup timings remain separately authorized device
 checks. Staging and production are untouched.
+
+## Reviewed API tool configuration
+
+Tool library retains its compact cards, filters and profile usage. Configure API
+tool opens an inline `MotionPresence` disclosure with the existing labelled
+fields, quiet actions and status/error patterns. The first template reads one
+Home Assistant entity. Connection selection reuses existing managed connections;
+there are no endpoint, method, code, header or credential editors. Implementation,
+input/output mapping and documentation are available on request. Published cards
+retain their reviewed template, source path and fingerprint in Details.
+
+Save draft, Verify API read and Publish tool remain separate actions. Verification
+explains its API read and reuses the existing app reauthorization. Failed saves
+and verification retain input. Editing invalidates local proof; Escape/Done
+returns focus and closing preserves the mounted draft. Cancel aborts verification through the retained-owner IPC boundary; owner drain waits for the actual request cleanup. Request cancellation and its deadline use AbortController with listener/timer cleanup so supported older WebKit does not require newer static AbortSignal helpers.
+Colors, fonts, spacing, focus, control height and motion use shared styles; no
+new CSS or palette is introduced.
+
+The all-intercept actual-page fixture covers 320px mobile WebKit/Chromium and
+1280px desktop Chromium in dark Lavender/System and light Teal/Georgia, keyboard
+focus, retained edits, failure/retry, publication, 44px actions and scrolling.
+These checks use fake responses without backend, credentials or models. Full-app
+build/browser acceptance remains a separate CI gate. The application shell and
+advisor/editor placement are unchanged.

@@ -1,3 +1,4 @@
+import { createApiToolRouter, type ApiToolOwner } from './api-tool-router.js';
 import type { ConfiguredToolCatalog, ConfiguredCatalogOptions } from './configured-tool-catalog.js';
 import { agentToolCatalog } from './agent-tool-catalog.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
@@ -28,6 +29,7 @@ function failure(res: Response, error: unknown) {
 export function createAgentLibraryRouter(
   store: AgentLibraryStore,
   options: {
+    apiTools?: () => ApiToolOwner | undefined;
     workspaceRoot?: string;
     contexginUrl?: string;
     contextPacks?: (signal: AbortSignal) => Promise<AuthorizedContextPacks>;
@@ -43,6 +45,7 @@ export function createAgentLibraryRouter(
       return res.status(403).json({ error: 'Interactive operator authentication is required' });
     next();
   });
+  router.use('/api-tools', createApiToolRouter(options.apiTools ?? (() => undefined)));
   router.get('/', (_req, res) => {
     try {
       res.json(store.list(OWNER));
@@ -88,7 +91,22 @@ export function createAgentLibraryRouter(
           };
         }
       }) ?? [];
-    return { tools: [...builtins, ...saved] };
+    const api = options.apiTools?.();
+    const published =
+      api?.catalog.list().map((tool) => {
+        try {
+          api.catalog.resolve(tool, api.service);
+          return tool;
+        } catch {
+          return {
+            ...tool,
+            routes: [],
+            requirement:
+              'API tool unavailable. Check its saved configuration, verification and connection access; publish again and start a new session.',
+          };
+        }
+      }) ?? [];
+    return { tools: [...builtins, ...saved, ...published] };
   }
   router.get('/tools', (_req, res) => {
     try {
