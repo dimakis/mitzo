@@ -649,7 +649,9 @@ const MODE_TO_SDK: Record<MitzoMode, string> = {
   auto: 'default',
 };
 
-export const registry = new SessionRegistry();
+export const registry = new SessionRegistry((sessionId) =>
+  (_connRegistry?.getConnectionsWatching(sessionId, true) ?? []).map(({ transport }) => transport),
+);
 
 /** Load repo config with short TTL cache — fresh enough for hot-reload, avoids redundant disk I/O. */
 let _cachedConfig: ReturnType<typeof loadRepoConfig> | null = null;

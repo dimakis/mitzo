@@ -1317,5 +1317,34 @@ Inspected S4 captures: [mobile ordinary settings](assets/telos-role-settings-mob
 [mobile proposal fields](assets/telos-advisor-fields-mobile-dark.png),
 [mobile child Save](assets/telos-advisor-save-mobile-light.png), and
 [desktop refinement Save](assets/telos-advisor-save-desktop-light.png).
-The final run passed18 route scenarios plus two browser startup dependencies;
+The final run passed 18 route scenarios plus two browser startup dependencies;
 the startup checks are not additional role journeys.
+
+## Device continuity
+
+Phone and web remain subscribed to the same conversation when a new message
+moves runtime control between them. Handoffs keep pending approvals, streaming
+content and the local composer draft. Legacy `session_takeover` notices produce
+no transcript card or local idle transition. Reconnect restores delivery without
+displacing a connected driver; exact command retries cannot displace a live newer
+driver. A disconnected driver can still be recovered.
+
+The isolated offline `device-continuity.spec.ts` fixture uses the actual protocol
+parser, message reducer, ChatArea, permission card and ChatInput. All six checks
+pass on 320px WebKit/Chromium phones and 1280px desktop Chromium in light/dark
+with Teal/Georgia. It verifies live and replayed notices, retained approvals,
+continued streaming, composer content and keyboard focus. Inspected captures show
+[phone continuity](assets/device-continuity-mobile-dark.png) and
+[desktop continuity](assets/device-continuity-desktop-light.png). These focused
+renders omit the shell. The full-app activity fixture also covers a legacy
+handoff during a reply; broad app builds and browser acceptance remain in CI
+under the host's 1 GiB local heap limit. No backend or model is used.
+
+Live approval requests, resolutions, expiry and abort events use the same current
+v2 subscriber list as both interfaces, alongside the owner and legacy observers.
+Physical attachment identity deduplicates decorated transports. Offline harness
+and real chat-registry fixtures resolve pending approvals after handoff, deliver
+later requests to both devices, and cover joining/unwatching subscribers, closed
+or failing sockets and expiry/cancellation. The browser continuity fixture also
+verifies resolved/expired cards disappear while the draft, focus and live reply
+remain intact. No approval scope or decision authority is added by subscription.
