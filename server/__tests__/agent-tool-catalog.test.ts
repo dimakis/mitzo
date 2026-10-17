@@ -44,9 +44,22 @@ it('denies wrappers and aliases by exact identity and captures selection once', 
 });
 it('keeps legacy behavior but blocks explicit selections on unsupported routes and unknown versions', () => {
   expect(() => assertAgentToolRoute(undefined, 'claude-sdk')).not.toThrow();
-  for (const route of ['claude-sdk', 'codex', 'openshell', 'symposium'])
+  for (const route of ['claude-sdk', 'openshell', 'symposium'])
     expect(() => assertAgentToolRoute({ tools: [] } as never, route)).toThrow(/not supported/i);
+  expect(() => assertAgentToolRoute({ tools: [] } as never, 'codex')).not.toThrow();
   expect(() => assertAgentToolRoute({ tools: [] } as never, 'local-api')).not.toThrow();
+  expect(() =>
+    assertAgentToolRoute(
+      { tools: [{ id: 'mitzo:GetConnectionGuide', version: 1 }] } as never,
+      'codex',
+    ),
+  ).not.toThrow();
+  expect(() =>
+    assertAgentToolRoute(
+      { tools: [{ id: 'mitzo:GetConnectionGuide', version: 1 }] } as never,
+      'codex-owned-local',
+    ),
+  ).toThrow(/unavailable/i);
   expect(() =>
     assertAgentToolRoute({ tools: [{ id: 'mitzo:Read', version: 2 }] } as never, 'local-api'),
   ).toThrow(/unavailable/i);
@@ -94,15 +107,22 @@ it('registers task proposals separately from execution with explicit selection c
   expect(agentToolCatalog().find((tool) => tool.name === 'AgentReadTasks')).toMatchObject({
     version: 1,
     behavior: 'read',
-    routes: ['local-api'],
+    routes: ['local-api', 'codex-owned-local'],
   });
   expect(agentToolCatalog().find((tool) => tool.name === 'AgentProposeTask')).toMatchObject({
     version: 1,
     behavior: 'write',
-    routes: ['local-api'],
+    routes: ['local-api', 'codex-owned-local'],
   });
   const session = {};
   bindAgentToolSelection(session, { tools: [] } as never);
   expect(agentToolAllowed(session, 'AgentReadTasks')).toBe(false);
   expect(agentToolAllowed(session, 'AgentProposeTask')).toBe(false);
+});
+
+it('does not qualify selected task tools on legacy host Codex or OpenShell', () => {
+  const definition = { tools: [{ id: 'mitzo:AgentProposeTask', version: 1 }] } as never;
+  expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
+  expect(() => assertAgentToolRoute(definition, 'codex')).toThrow(/unavailable/);
+  expect(() => assertAgentToolRoute(definition, 'openshell')).toThrow(/not supported/);
 });

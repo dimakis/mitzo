@@ -160,12 +160,12 @@ it('capabilities retain supported recipes and exclude native packs', () => {
   packs.contentHash = contextDigest(packs.definition);
   expect(
     ordinaryCodexAgentProfiles([workspace, packs]).map((profile) => profile.profileId),
-  ).toEqual([PROFILE_BUILDER_ID, PROFILE_BUILDER_ID, 'workspace']);
+  ).toEqual([PROFILE_BUILDER_ID, PROFILE_BUILDER_ID, PROFILE_BUILDER_ID, 'workspace']);
 });
 
 it('keeps historical Builder revision one eligible without replacing its captured definition', () => {
   const inventory = ordinaryCodexAgentProfiles([]);
-  expect(inventory.map(({ revision }) => revision)).toEqual([PROFILE_BUILDER_REVISION, 1]);
+  expect(inventory.map(({ revision }) => revision)).toEqual([PROFILE_BUILDER_REVISION, 2, 1]);
   const historical = inventory.find((profile) => profile.revision === 1)!;
   expect(historical.definition.instructions).not.toContain('AgentProposeTask');
   expect(
