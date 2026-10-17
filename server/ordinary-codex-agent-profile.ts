@@ -1,3 +1,4 @@
+import { resolveChatAgentProfile } from './agent-library-binding.js';
 import {
   AgentLibraryVersionSchema,
   PROFILE_BUILDER_ID,
@@ -97,4 +98,17 @@ export function ordinaryCodexAgentProfileRouteProjection(
     else agentProfiles.push(agent);
   }
   return { agentProfiles, agentProfileRejections };
+}
+
+/** Enrollment follows the authenticated execution target, independently of account provider. */
+export function resolveOrdinaryCodexAgentProfile(
+  input: Omit<Parameters<typeof resolveChatAgentProfile>[0], 'toolRoute'> & {
+    execution: { location: 'local' | 'openshell' };
+  },
+) {
+  const { execution, ...profile } = input;
+  return resolveChatAgentProfile({
+    ...profile,
+    toolRoute: execution.location === 'local' ? 'codex-owned-local' : 'openshell',
+  });
 }
