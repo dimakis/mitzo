@@ -72,3 +72,30 @@ it('removes optional references and keeps required platform tools visible', () =
   expect(screen.getByText(/required platform tools/i)).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Remove AskUserQuestion' })).toBeNull();
 });
+it('distinguishes configured sources and retains the exact opaque discovery revision', () => {
+  const change = vi.fn();
+  const configured = ['one', 'two'].map((source, i) => ({
+    ...tools[0],
+    id: `mcp:${i}`,
+    source,
+    name: 'search',
+    revision: '11111111-1111-4111-8111-111111111111',
+  }));
+  const { rerender } = render(
+    <AgentToolsEditor tools={configured} value={[]} onChange={change} disabled={false} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Add tools' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add search from one' }));
+  expect(change).toHaveBeenLastCalledWith([
+    { id: 'mcp:0', version: 1, revision: configured[0].revision },
+  ]);
+  rerender(
+    <AgentToolsEditor
+      tools={configured}
+      value={[{ id: 'mcp:0', version: 1, revision: '22222222-2222-4222-8222-222222222222' }]}
+      onChange={change}
+      disabled={false}
+    />,
+  );
+  expect(screen.getByText(/missing from the installed catalog/i)).toBeTruthy();
+});
