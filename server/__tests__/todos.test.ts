@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
-import { mkdirSync, writeFileSync, unlinkSync, readFileSync, realpathSync } from 'fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  unlinkSync,
+  readFileSync,
+  realpathSync,
+} from 'fs';
+import Database from 'better-sqlite3';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { INTERNAL_TOKEN } from '../internal-token.js';
@@ -9,6 +18,50 @@ import * as commands from '../protected-sdk-command.js';
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 const TODO_SCRIPT = join(TEST_REPO, 'command_center', 'todo_api.py');
+const sourceSessions = vi.hoisted(() => new Map<string, string>());
+
+function sourceFixture(useDefaultPath = false) {
+  const root = mkdtempSync(join(TEST_REPO, 'source-'));
+  const dbPath = useDefaultPath
+    ? join(TEST_REPO, 'command_center', 'data', 'smart_todo.db')
+    : join(root, 'selected-telos.db');
+  if (useDefaultPath) mkdirSync(join(TEST_REPO, 'command_center', 'data'), { recursive: true });
+  const db = new Database(dbPath);
+  db.exec(
+    `CREATE TABLE items(id TEXT PRIMARY KEY,parent_id TEXT,summary TEXT,updated_at TEXT,idempotency_key TEXT,context_hints TEXT)`,
+  );
+  db.close();
+  vi.stubEnv('TELOS_DB_PATH', useDefaultPath ? '' : dbPath);
+  sourceSessions.set('client-7', 'planning-7');
+  return {
+    dbPath,
+    persist(input: {
+      summary: string;
+      idempotencyKey: string;
+      contextHints?: { sessionIds?: string[] };
+    }) {
+      const db = new Database(dbPath);
+      try {
+        db.prepare('INSERT INTO items VALUES(?,NULL,?,?,?,?)').run(
+          'created-source',
+          input.summary,
+          'fixture-time',
+          input.idempotencyKey,
+          JSON.stringify({ session_ids: input.contextHints?.sessionIds ?? [] }),
+        );
+      } finally {
+        db.close();
+      }
+      return { id: 'created-source', ...input };
+    },
+    close() {
+      if (useDefaultPath) rmSync(dbPath, { force: true });
+      sourceSessions.clear();
+      vi.unstubAllEnvs();
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
 
 vi.mock('../chat.js', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -37,8 +90,19 @@ vi.mock('../chat.js', () => {
     })),
     getMcpServerNames: vi.fn().mockReturnValue([]),
     AVAILABLE_MODELS: [{ id: 'test-model', label: 'Test', desc: 'Test model' }],
-    registry: { get: vi.fn() },
-    eventStore: { getEventsAfter: vi.fn().mockReturnValue([]) },
+    registry: {
+      get: vi.fn((id: string) =>
+        sourceSessions.has(id) ? { sessionId: sourceSessions.get(id) } : undefined,
+      ),
+    },
+    eventStore: {
+      getEventsAfter: vi.fn().mockReturnValue([]),
+      getSession: vi.fn((id: string) =>
+        [...sourceSessions.values()].includes(id)
+          ? { sessionId: id, conversationSource: 'mitzo' }
+          : null,
+      ),
+    },
     setTaskStore: vi.fn(),
   };
 });
@@ -351,7 +415,12 @@ print(json.dumps({"ok": False, "error": "Item not found"}))
 });
 
 describe('structured outcome creation', () => {
+  let source: ReturnType<typeof sourceFixture>;
+  beforeEach(() => {
+    source = sourceFixture();
+  });
   afterEach(() => {
+    source.close();
     try {
       unlinkSync(TODO_SCRIPT);
     } catch {
@@ -386,9 +455,11 @@ print(json.dumps({"ok": True, "created": True, "item": payload}))
 
   it('gives the agent tool a server-derived idempotency key and session provenance', async () => {
     const successScript = `
-import json, sys
+import json, os, sqlite3, sys
 payload = json.loads(sys.argv[sys.argv.index('--create-outcome-json') + 1])
-print(json.dumps({"ok": True, "created": True, "item": payload}))
+with sqlite3.connect(os.environ['TELOS_DB_PATH']) as db:
+    db.execute('INSERT INTO items VALUES(?,NULL,?,?,?,?)', ('created-source', payload['summary'], 'fixture-time', payload['idempotencyKey'], json.dumps({'session_ids': payload['contextHints']['sessionIds']})))
+print(json.dumps({"ok": True, "created": True, "item": {"id": "created-source", **payload}}))
 `;
     writeFileSync(TODO_SCRIPT, successScript);
     const res = await request(app)
@@ -405,8 +476,18 @@ print(json.dumps({"ok": True, "created": True, "item": payload}))
       });
 
     expect(res.status).toBe(200);
-    expect(res.body.item.idempotencyKey).toMatch(/^client-7:[a-f0-9]{64}$/);
-    expect(res.body.item.contextHints.sessionIds).toEqual(['client-7']);
+    expect(res.body.item.idempotencyKey).toMatch(/^planning-7:[a-f0-9]{64}$/);
+    expect(res.body.item.contextHints.sessionIds).toEqual(['planning-7']);
+    const db = new Database(source.dbPath, { readonly: true });
+    try {
+      expect(db.prepare('SELECT role,conversation_id FROM telos_work_links').all()).toEqual([
+        { role: 'origin', conversation_id: 'planning-7' },
+      ]);
+      expect(db.prepare('SELECT kind FROM telos_work_kinds').all()).toEqual([{ kind: 'outcome' }]);
+      expect(db.prepare('SELECT * FROM telos_work_assignments').all()).toEqual([]);
+    } finally {
+      db.close();
+    }
   });
 });
 
@@ -423,9 +504,11 @@ describe('enrolled mutable controller commands', () => {
     profile: 'work',
     idempotencyKey: 'fixture-request',
   };
+  let source: ReturnType<typeof sourceFixture>;
   const runner = vi.fn<commands.ProtectedSdkCommandRunner>();
   let factory: import('vitest').MockInstance<typeof commands.createWorkspaceRuntimeCommandRunner>;
   beforeEach(() => {
+    source = sourceFixture();
     mkdirSync(operator, { recursive: true });
     writeFileSync(
       config,
@@ -443,14 +526,24 @@ describe('enrolled mutable controller commands', () => {
       { mode: 0o600 },
     );
     vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', realpathSync(enrollment));
-    runner.mockReset().mockImplementation(async (_command, args) => ({
-      stdout: JSON.stringify(
-        args.includes('--list') || args.includes('--refresh')
-          ? { profiles: ['work'], items: [] }
-          : { ok: true, created: true },
-      ),
-      stderr: '',
-    }));
+    runner.mockReset().mockImplementation(async (_command, args, options) => {
+      if (args.includes('--create-outcome-json')) {
+        expect(options.env.TELOS_DB_PATH).toBe(source.dbPath);
+        const input = JSON.parse(args[args.indexOf('--create-outcome-json') + 1]);
+        return {
+          stdout: JSON.stringify({ ok: true, created: true, item: source.persist(input) }),
+          stderr: '',
+        };
+      }
+      return {
+        stdout: JSON.stringify(
+          args.includes('--list') || args.includes('--refresh')
+            ? { profiles: ['work'], items: [] }
+            : { ok: true, created: true },
+        ),
+        stderr: '',
+      };
+    });
     factory = vi.spyOn(commands, 'createWorkspaceRuntimeCommandRunner').mockReturnValue(runner);
     writeFileSync(
       TODO_SCRIPT,
@@ -459,7 +552,7 @@ describe('enrolled mutable controller commands', () => {
   });
   afterEach(() => {
     factory.mockRestore();
-    vi.unstubAllEnvs();
+    source.close();
     unlinkSync(TODO_SCRIPT);
   });
 
@@ -508,7 +601,8 @@ describe('enrolled mutable controller commands', () => {
       const requestBuilder = request(app)
         [method](path)
         .set('Cookie', authCookie)
-        .set('x-internal-token', INTERNAL_TOKEN);
+        .set('x-internal-token', INTERNAL_TOKEN)
+        .set('x-client-id', 'client-7');
       const result = await (body ? requestBuilder.send(body) : requestBuilder);
       expect(runner).toHaveBeenCalledWith(
         'python3',
@@ -518,6 +612,25 @@ describe('enrolled mutable controller commands', () => {
       expect(result.status).toBe(status);
     },
   );
+
+  it('forwards the selected fallback Telos database through the protected command owner', async () => {
+    source.close();
+    source = sourceFixture(true);
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', realpathSync(enrollment));
+    const result = await request(app)
+      .post('/api/internal/telos/outcomes')
+      .set('x-internal-token', INTERNAL_TOKEN)
+      .set('x-client-id', 'client-7')
+      .send({ ...outcome, idempotencyKey: undefined });
+    expect(result.status).toBe(200);
+    expect(runner).toHaveBeenCalledWith(
+      'python3',
+      expect.any(Array),
+      expect.objectContaining({
+        env: expect.objectContaining({ TELOS_DB_PATH: source.dbPath }),
+      }),
+    );
+  });
 
   it('fails closed when runtime protection cannot initialize without executing the workspace script', async () => {
     factory.mockImplementation(() => {
