@@ -22,6 +22,10 @@ with the requested OpenShell mark. Implementation captures are separate evidence
   recovery, built-in versus saved agents, reusable profile drafts and collaboration.
   All selected scenarios passed across the three browsers, including targeted
   reruns after updating tests to navigate through the actual field editors.
+- A further 38 checks for Agent Library navigation, Access, account confirmation
+  and retained Telos sources passed across all three browser projects. These
+  journeys open each field editor and verify the approved consecutive summary rows,
+  selected choices and retained drafts rather than expecting the superseded form.
 - The OpenShell mock was inspected in dark/light and at 320px; switching to Local
   Mac removes the OpenShell mark. The approved reference and implementation images
   were inspected separately.
@@ -38,6 +42,12 @@ Local real-app browser fixtures used an esbuild bundle of the current applicatio
 into ignored `frontend/dist`, with every request intercepted. This does not establish
 Vite production-build acceptance. Full build, full-suite CI and exact-head Centaur
 review remain required before merge.
+
+CI run `39030037794` on `32f54df0` passed design/format/lint and both complete
+TypeScript checks, built the production Vite bundle, and passed browser interaction
+and native Swift/build acceptance. The initial offline run found older navigation
+assumptions in the three journeys above; their focused repaired matrix is green.
+The final combined commit must still pass the complete CI matrix.
 
 Main's existing protection requires up-to-date `ci`, `Connections browser regression`
 (the browser/offline aggregate), native checks and `Centaur final LGTM`, with admin

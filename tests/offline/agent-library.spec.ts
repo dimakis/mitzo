@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openChatSetting } from '../support/chat-settings';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import type { AgentLibraryCatalog, AgentLibraryDraft, AgentLibraryVersion } from '@mitzo/protocol';
@@ -801,6 +802,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   const settings = page.getByRole('button', { name: /^Workspace controls,/ });
   if ((await settings.getAttribute('aria-expanded')) !== 'true') await settings.click();
   await expect(page.getByRole('region', { name: 'Agent settings', exact: true })).toBeVisible();
+  await openChatSetting(page, 'agent');
   const profilePicker = page.getByRole('combobox', { name: 'Agent', exact: true });
   await expect(profilePicker).toBeVisible();
   await expect(profilePicker).toBeEnabled();
