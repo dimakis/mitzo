@@ -62,6 +62,7 @@ export function createToolBuilderCatalog(options: {
           // identity/description or an explicit agent recommendation after reading.
           const equivalent =
             entry.kind === 'tool' &&
+            entry.routes.includes('local-api') &&
             [entry.id, entry.name, entry.description].some((value) => normalize(value) === wanted);
           return { ...entry, equivalent, rank };
         })
