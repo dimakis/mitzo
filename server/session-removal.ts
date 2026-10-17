@@ -22,6 +22,8 @@ export function createSessionRemovalRouter(deps: {
   router.get('/:id/deletion-preview', deps.authorize, async (req, res) => {
     try {
       const id = req.params.id;
+      if (typeof id !== 'string' || !id)
+        return res.status(400).json({ error: 'A single conversation ID is required.' });
       const record = managed(id);
       if (record && record.state !== 'deleted')
         return res.json({
@@ -39,6 +41,8 @@ export function createSessionRemovalRouter(deps: {
   });
   router.delete('/:id', deps.authorize, async (req, res) => {
     const id = req.params.id;
+    if (typeof id !== 'string' || !id)
+      return res.status(400).json({ error: 'A single conversation ID is required.' });
     try {
       if (req.query.archive !== '1') {
         const record = managed(id);
