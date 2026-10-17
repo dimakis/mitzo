@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.273';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.274';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -188,7 +188,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1b56cfe7f6958a042ee1fa0858df1c4a638f90690180a9087f5ef4b0e38a1d5f',
   // Durable references between existing ordinary sessions, without execution authority.
   '../session-collaboration-router.ts':
-    'f9904e62fab0b1b50245896fb3a3674ac4949bbcb86c7f16b543b9cdd293fa4d',
+    '8502ebc05d4f36a4f1ee7994790c73f994cb41125e4dc11d9c5196b806920f29',
   '../../packages/protocol/src/session-collaboration.ts':
     'e8e47f2b79832f0288063745acbed93c7c5f8f4db71f5c8a71705b1b02a59198',
   '../../packages/protocol/src/session-collaboration-store.ts':
@@ -924,4 +924,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '80ff1b619e945d38883e2cabeb0c8c018c98e2231e5fff629bc742fab95beef3',
   '../collaboration-review-owner.ts':
     '3c76ab1873cf72a103d1b5def5cde2793e0cf7c1f85b239d1664e49214134fb1',
+
+  '../collaboration-joining-owner.ts':
+    '5bf3fb28f79159e8f124b1216366a9c98e6bc8e3d28d90c11ce3a4a0ed6c7934',
 });
