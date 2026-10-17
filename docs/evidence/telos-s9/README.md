@@ -1,5 +1,9 @@
 # Telos S9 early offline acceptance evidence
 
+Latest landing refresh: [accepted-base integration and revalidation](landing.md).
+The original map/results below remain pinned to their original run; the refresh
+records the newer combined source and repeated offline checks separately.
+
 S9 `b896d14d79d52682`, parent `85e8444019a4ae4a`: **active**. CT17/CT18 are
 partially evidenced, CT19 and CT20 remain pending. This increment is a draft PR,
 not final acceptance. The [44-row map](requirements-evidence.md) and its

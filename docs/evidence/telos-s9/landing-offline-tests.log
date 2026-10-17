@@ -1,0 +1,47 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9
+
+{"level":40,"time":1792275518172,"pid":40611,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792275518342,"pid":40611,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792275518514,"pid":40611,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+ ✓ server/__tests__/collaboration-ordinary-delivery.test.ts (24 tests) 1291ms
+ ✓ server/__tests__/ordinary-contributor-stop.test.ts (2 tests) 719ms
+{"level":30,"time":1792275520746,"pid":40698,"hostname":"Dimitris-MacBook-Pro","module":"ws-v2","connectionId":"browser","sessionId":"459944e5-0309-4146-a9ec-400ff4aa91fd","msg":"stop"}
+{"level":30,"time":1792275520747,"pid":40698,"hostname":"Dimitris-MacBook-Pro","module":"ws-v2","connectionId":"browser","sessionId":"unowned","msg":"stop"}
+ ✓ tests/integration/telos-s9/accepted-boundaries.test.ts (4 tests) 3070ms
+   ✓ CT17 partial: canonical source -> mounted HTTP -> typed client -> silent independent lead and immutable restart receipt  785ms
+   ✓ CT17 partial: definite stale context is rejected by actual HTTP/client before ordinary allocation  601ms
+   ✓ CT17 partial: lost committed HTTP response replays exactly after restart; changed input conflicts without allocation  814ms
+   ✓ CT18 partial: fresh Symposium allocation and Telos role setup share owners but retain separate workspaces, contexts and receipts  869ms
+ ✓ tests/integration/telos-s9/shared-effects.test.ts (2 tests) 1758ms
+   ✓ CT18 partial: ordinary admission, delivery ACKs, reply mappings and output references cannot cross Telos/Symposium sessions  850ms
+   ✓ CT18 partial: native queue interrupt and terminal callbacks affect only their owning Telos/Symposium conversation  907ms
+ ✓ server/__tests__/collaboration-joining-owner.test.ts (10 tests) 9223ms
+   ✓ confirms through real silent preparation and recovers linked joins without a command or second allocation  833ms
+   ✓ refuses unverified capacity and denied confirmation before any join or reservation  645ms
+   ✓ recovers crash after actual preparation before allocation recording from the original receipt  680ms
+   ✓ retains allocation when access changes during preparation and requires fresh recovery authority  741ms
+   ✓ preserves the allocated session when membership linking conflicts across restart  837ms
+   ✓ freezes caller and authority inputs across awaits  1425ms
+   ✓ serializes identity through existing owners across concurrent coordinators  1510ms
+   ✓ rejects settings absent from the retained assessment before recording a join  919ms
+   ✓ honors cancellation before authority and after resolver without preparing a session  803ms
+   ✓ reauthorizes after a host resolver await before reserving the ordinary session  827ms
+ ✓ server/__tests__/collaboration-ordinary-replies.test.ts (5 tests) 108ms
+{"level":30,"time":1792275538796,"pid":41421,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-2NqvfN/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792275538799,"pid":41421,"hostname":"Dimitris-MacBook-Pro","module":"task-orchestrator","goalId":"178ad7f4-1f2a-4fc9-8811-f5e941adf9db","title":"Unrelated Symposium outcome","specMode":false,"msg":"orchestrator started"}
+{"level":30,"time":1792275538801,"pid":41421,"hostname":"Dimitris-MacBook-Pro","module":"task-orchestrator","taskId":"36737190-6c35-4736-89d5-af4d8cdfd447","msg":"task completed, triggering tick"}
+{"level":30,"time":1792275538801,"pid":41421,"hostname":"Dimitris-MacBook-Pro","module":"task-orchestrator","goalId":"178ad7f4-1f2a-4fc9-8811-f5e941adf9db","msg":"no executable tasks found"}
+{"level":30,"time":1792275538801,"pid":41421,"hostname":"Dimitris-MacBook-Pro","module":"task-orchestrator","msg":"orchestrator stopped"}
+{"level":30,"time":1792275538802,"pid":41421,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-2NqvfN/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792275538803,"pid":41421,"hostname":"Dimitris-MacBook-Pro","module":"task-orchestrator","taskId":"36737190-6c35-4736-89d5-af4d8cdfd447","msg":"task approved"}
+ ✓ tests/integration/telos-s9/task-boundary.test.ts (1 test) 1204ms
+   ✓ CT17/CT18 partial: real task dispatcher enforces retained Telos role scope without blocking unrelated Symposium work; review stays explicit  1204ms
+ ✓ tests/integration/telos-s9/evidence-ledger.test.ts (1 test) 15ms
+
+ Test Files  8 passed (8)
+      Tests  49 passed (49)
+   Start at  23:18:35
+   Duration  23.21s (transform 2.10s, setup 0ms, import 4.98s, tests 17.39s, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/docs/evidence/telos-s9/landing-offline-tests.json
