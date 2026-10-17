@@ -29,14 +29,13 @@ export function ordinaryCodexAgentProfiles(
     profileId: PROFILE_BUILDER_ID,
     revision: PROFILE_BUILDER_REVISION,
   })!;
-  const toolBuilder = readBuiltinAgentLibraryProfile({
-    kind: 'builtin',
-    profileId: TOOL_BUILDER_ID,
-    revision: TOOL_BUILDER_REVISION,
-  })!;
   return [
     builtin,
-    toolBuilder,
+    readBuiltinAgentLibraryProfile({
+      kind: 'builtin',
+      profileId: TOOL_BUILDER_ID,
+      revision: TOOL_BUILDER_REVISION,
+    })!,
     ...versions.filter(
       (profile) =>
         AgentLibraryVersionSchema.safeParse(profile).success &&

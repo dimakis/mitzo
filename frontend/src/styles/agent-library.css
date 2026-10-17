@@ -29,6 +29,11 @@
   background: var(--color-panel);
   color: var(--color-accent);
 }
+.agent-library-page a.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .agent-library-page button:disabled {
   opacity: 0.5;
 }
@@ -242,6 +247,10 @@
   background: var(--color-bg);
   padding: var(--space-4);
   border-radius: var(--radius-control);
+}
+.agent-library-source {
+  max-block-size: calc(var(--control-height) * 8);
+  overflow: auto;
 }
 .agent-library-context-recipe {
   display: grid;

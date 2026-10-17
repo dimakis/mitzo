@@ -1447,3 +1447,30 @@ later requests to both devices, and cover joining/unwatching subscribers, closed
 or failing sockets and expiry/cancellation. The browser continuity fixture also
 verifies resolved/expired cards disappear while the draft, focus and live reply
 remain intact. No approval scope or decision authority is added by subscription.
+
+## Tool Builder draft review
+
+Tool library keeps its compact catalog and the existing advisor/editor placement.
+Build a tool opens the pinned Tool Builder in regular chat settings/composer.
+Review tool drafts is a retained inline MotionPresence disclosure using the
+existing labelled fields, quiet actions, error/status patterns and theme tokens.
+Source inspection is paged and keyboard-focusable. The shared
+`agent-library-source` modifier bounds a code viewer to eight control heights
+and allows keyboard scrolling; this is structural geometry, not a new spacing
+scale. Primary action links use inline flex so the existing minimum control
+height applies to anchors as well as buttons.
+
+Independent Accept review, Request changes and Publish accepted tool actions
+retain exact versions and visible failures. Missing installed source remains an
+error; publication never assigns a tool. Escape cancels an awaited request,
+closes the disclosure and restores its opener. Reopening retains the draft and
+feedback. No endpoint, credential, shell or runtime-code editor is added.
+
+All-intercept actual-page checks cover 320px mobile WebKit/Chromium and 1280px
+desktop Chromium, dark Mint/System and light Teal/Georgia, 44px actions, keyboard
+source scrolling, review-bundle download, immutable feedback revision,
+acceptance/publication failure and retry, focus/restoration and no horizontal
+overflow. Inspected captures: [mobile draft review](assets/tool-builder-mobile-dark.png)
+and [desktop draft review](assets/tool-builder-desktop-light.png). Unit/design
+checks are offline; broad application and approved settings contracts remain CI
+gates. No live target or model is exercised.

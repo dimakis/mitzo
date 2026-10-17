@@ -135,21 +135,30 @@ function LibraryChatAgentProfilePicker({
         }
         const catalog = body as AgentLibraryCatalog;
         if (!Array.isArray(catalog.versions)) throw Error('Agent Library response is invalid');
-        const available = [
-          ...catalog.versions,
-          {
-            kind: 'builtin' as const,
-            profileId: PROFILE_BUILDER_ID,
-            revision: PROFILE_BUILDER_REVISION,
-            definition: profileBuilderDefinition,
-          },
-          {
-            kind: 'builtin' as const,
-            profileId: TOOL_BUILDER_ID,
-            revision: TOOL_BUILDER_REVISION,
-            definition: toolBuilderDefinition,
-          },
-        ];
+        const builtin =
+          requested?.profileId === PROFILE_BUILDER_ID
+            ? {
+                profileId: PROFILE_BUILDER_ID,
+                revision: PROFILE_BUILDER_REVISION,
+                definition: profileBuilderDefinition,
+              }
+            : requested?.profileId === TOOL_BUILDER_ID
+              ? {
+                  profileId: TOOL_BUILDER_ID,
+                  revision: TOOL_BUILDER_REVISION,
+                  definition: toolBuilderDefinition,
+                }
+              : undefined;
+        const available =
+          requested?.kind === 'builtin' && builtin
+            ? [
+                ...catalog.versions,
+                {
+                  kind: 'builtin' as const,
+                  ...builtin,
+                },
+              ]
+            : catalog.versions;
         setVersions(available);
         if (
           requested &&
