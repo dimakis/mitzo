@@ -110,7 +110,7 @@ it('opens the existing Markdown preview through its author session API scope', a
   );
   vi.stubGlobal('fetch', fetch);
   const view = sharedConversationView();
-  view.messages[1].text = '[Plan](plan.md)';
+  view.messages[1].text = '[Plan](/workspace/plan.md)';
   render(
     <MemoryRouter>
       <CollaborationTranscript projection={createCollaborationProjection(view)} names={names} />
