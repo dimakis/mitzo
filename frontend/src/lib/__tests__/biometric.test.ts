@@ -241,6 +241,31 @@ describe('biometricLogin', () => {
     expect(NativeBiometric.deleteData).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])(
+    'fences a native prompt after completed logout, even if re-enrolled: %s',
+    async (reenroll) => {
+      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+      let finishUnlock!: (value: { value: string }) => void;
+      vi.mocked(NativeBiometric.getSecureData).mockReturnValue(
+        new Promise((resolve) => {
+          finishUnlock = resolve;
+        }),
+      );
+      const fetchMock = vi
+        .spyOn(global, 'fetch')
+        .mockResolvedValue({ ok: true, json: async () => ({ token: 'late-token' }) } as Response);
+      const pending = biometricLogin();
+      localStorage.setItem('mitzo_logout_pending', '1');
+      await deleteCredentials();
+      localStorage.removeItem('mitzo_logout_pending');
+      if (reenroll) await saveBiometricPassphrase('new-enrollment');
+      finishUnlock({ value: 'old-secret' });
+      expect(await pending).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    },
+  );
+
   it('does not send the protected passphrase if logout occurs during the native prompt', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     let finishUnlock!: (value: { value: string }) => void;

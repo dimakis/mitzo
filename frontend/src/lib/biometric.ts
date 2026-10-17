@@ -15,6 +15,7 @@ function passphraseKey(apiBaseUrl: string): string {
   return apiBaseUrl ? `${PASSPHRASE_KEY}:${encodeURIComponent(apiBaseUrl)}` : PASSPHRASE_KEY;
 }
 let credentialMutation = Promise.resolve();
+let credentialGeneration = 0;
 
 function enqueueCredentialMutation(operation: () => Promise<void>): Promise<void> {
   const next = credentialMutation.then(operation, operation);
@@ -102,6 +103,7 @@ export async function saveBiometricPassphrase(
 /** Remove stored credentials (logout). */
 export async function deleteCredentials(apiBaseUrl = getApiBaseUrl()): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
+  credentialGeneration++;
   // An opted-in passphrase can create new sessions even after server logout.
   // Persist refusal before native deletion, which can fail while the device locks.
   const disabledKey = `${passphraseKey(apiBaseUrl)}.disabled`;
@@ -148,8 +150,12 @@ async function performBiometricLogin(apiBaseUrl: string): Promise<string | null>
     return null;
   }
   const authTokenAtStart = getStoredAuthToken();
+  const credentialGenerationAtStart = credentialGeneration;
+  const credentialContextIsCurrent = () =>
+    credentialGeneration === credentialGenerationAtStart &&
+    localStorage.getItem(`${passphraseKey(apiBaseUrl)}.disabled`) !== '1';
   const authContextIsCurrent = () =>
-    !isLogoutPending() && getStoredAuthToken() === authTokenAtStart;
+    credentialContextIsCurrent() && !isLogoutPending() && getStoredAuthToken() === authTokenAtStart;
 
   try {
     let passphrase: string | undefined;
@@ -237,7 +243,10 @@ async function performBiometricLogin(apiBaseUrl: string): Promise<string | null>
     const restoredToken = token;
     void saveTokenToWatch(
       restoredToken,
-      () => !isLogoutPending() && getStoredAuthToken() === restoredToken,
+      () =>
+        credentialContextIsCurrent() &&
+        !isLogoutPending() &&
+        getStoredAuthToken() === restoredToken,
     ).catch(() => undefined);
     return token;
   } catch {
