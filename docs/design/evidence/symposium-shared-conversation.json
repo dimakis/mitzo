@@ -133,7 +133,9 @@
       "New policy-dialog unit tests first needed the normal jsdom native dialog polyfill; genuine feature RED was then reproduced with the props absent.",
       "Auth restoration regression exposed the existing owner publishing its event before verified-cookie assignment; one microtask checks the same owner after synchronous publication.",
       "HTTP408 originally cleared pending policy identity; genuine RED now passes with408/429/5xx retaining the original request.",
-      "The initial final batch was pushed before inspecting completed ancestor CI; its stale manifest failures required a second narrow pin-only push. Normal hooks and required gates were retained."
+      "The initial final batch was pushed before inspecting completed ancestor CI; its stale manifest failures required a second narrow pin-only push. Normal hooks and required gates were retained.",
+      "Core source audit found successful policy PUT followed by failed GET could strand Saving. Four real-hook regression cases reproduced it; final suite includes six cases with superseded reads.",
+      "Intermediate recovery browser matrix6failed/2startup passed because deferred React state publication replaced the actual read diagnostic with generic copy. Internal read now returns the error directly; final matrix6UI+2startup passes without weakening assertions."
     ],
     "retainedComposerRegression": {
       "files": 5,
@@ -321,6 +323,84 @@
         ],
         "bounds": "These Agent Library cases were outside the scoped A browser matrix; no passing rerun or baseline reproduction is claimed. Exact-head full CI must resolve them."
       }
+    },
+    "policyConfirmationRecovery": {
+      "source": "6bfbe8d5a5df1ca154df1437e0c5cd9ea11b3a35",
+      "reportedBy": "Core independent source audit; successful policy PUT followed by failed confirmation GET could leave pending uncertain=false and no recovery control.",
+      "red": {
+        "hook": "Four newly added actual-hook cases failed against2ae799a: successful mutation then network/malformed/foreign/unchanged view; matching receipt/recovery state missing.",
+        "browser": "One desktop case then reproduced Saving\u2026 with no recovery control in the old consumer fixture; retained trace/screenshot in task policy-refresh-regression-red.",
+        "intermediate": "Receipt/recovery tests passed at e7ac2208, but all6 browser cases then exposed generic diagnostic text replacing the actual GET error; startup2 passed. React deferred publication made latest.current.error stale. Retained representative trace in task policy-refresh-diagnostic-red."
+      },
+      "implementation": "PendingPolicy retains original input, matching typed receipt and needsRefresh separately from uncertain. A matching receipt proves mutation committed; failed/malformed/foreign/unchanged confirmation retains old view and disables edits with needsRefresh=true, uncertain=false. Internal read returns failure directly instead of depending on React publication order. Public refresh/refreshEvents remain Promise<void>. retryPolicy with retained receipt performs GET only; request-outcome uncertainty without receipt still retries the exact original PUT body. No timers, polling, sends or new durable store.",
+      "consumer": "Core must check pendingPolicy.needsRefresh before uncertain, render saved-but-needs-confirmation feedback plus policyError and an explicit Refresh sharing action. retryPolicy is a read-only recovery once pendingPolicy.receipt exists. Keep checkboxes bound to projection.view until authoritative reconciliation.",
+      "unit": {
+        "passed": 284,
+        "files": 23,
+        "failed": 0,
+        "unhandledErrors": 0,
+        "seconds": 19.86,
+        "newCases": 6,
+        "cases": [
+          "network confirmation failure",
+          "malformed confirmation response",
+          "foreign conversation response",
+          "unchanged view cannot establish saved current state",
+          "superseding read fails; late original read cannot publish",
+          "superseding authoritative read succeeds; late original read cannot restore pending state"
+        ],
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx vitest run <prior21 testFiles plus collaboration-conversation-artifacts and connection-template-registry> --maxWorkers=1",
+        "counts": "284 includes earlier258+new6 and20 artifact/registry assertions; counts overlap historical runs and must not be added."
+      },
+      "browser": {
+        "passedUiCases": 6,
+        "startupDependencies": 2,
+        "failed": 0,
+        "retries": 0,
+        "seconds": 15.2,
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx playwright test --config playwright.offline.config.ts tests/offline/symposium-shared-conversation.spec.ts --workers=1",
+        "transport": "Synthetic intercepted typed API; successful PUT\u2192503GET\u2192explicit read-only refresh\u2192confirmed checkbox; exactly2 PUTs total including later409 refusal; zero sends.",
+        "projects": ["mobile-webkit", "mobile-chromium", "desktop-chromium"],
+        "appearance": ["dark Mint/System", "light Teal/Georgia"]
+      },
+      "types": "Focused source/fixtures TypeScript passed; public refresh Promise<void> contract retained.",
+      "lint": "Changed hook, tests, fixture, browser spec and manifest pass ESLint and normal commit hooks.",
+      "runtimeManifest": {
+        "file": "server/connections/reviewed-handler-artifacts.ts",
+        "runtimeRevision": "v1.0.286-codex-agent-tools.2-symposium-shared-ui.3",
+        "changedEntry": "../../frontend/src/hooks/useConversationPresentation.ts",
+        "sha256": "bb3f8e3f54479d60d0306849f63665654f15fb9256310a1b381fd865a64a728c",
+        "sourcePins": 544,
+        "mismatches": 0,
+        "bounds": "Only this owned hook pin and distinct suffix changed since2ae799a; unrelated owner pins retained."
+      },
+      "captures": [
+        {
+          "path": "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-dark.png",
+          "sha256": "46278e66902411672522ce4eea31af7a943b18b5d7b2931a3a5d21a73385ff77",
+          "kind": "actual typed API/hook/Agents recovery fixture; successful PUT then failed GET, original confirmed checkbox retained until explicit read-only recovery"
+        },
+        {
+          "path": "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-light.png",
+          "sha256": "827c3f3d8b80ab611726a95ecdcfe376b5ea210d2b1ab115d1770f6d7faffadc",
+          "kind": "actual typed API/hook/Agents recovery fixture; successful PUT then failed GET, original confirmed checkbox retained until explicit read-only recovery"
+        },
+        {
+          "path": "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-dark.png",
+          "sha256": "585a66cc7bcda22b711b8e661e5883364bb0b7d1a06f456e03e0ac06c48f94ec",
+          "kind": "actual typed API/hook/Agents recovery fixture; successful PUT then failed GET, original confirmed checkbox retained until explicit read-only recovery"
+        },
+        {
+          "path": "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-light.png",
+          "sha256": "b1d84d521fae0bd36071f599d100fd8c0f145be9e0ef6f2d566f4be1e35f83d4",
+          "kind": "actual typed API/hook/Agents recovery fixture; successful PUT then failed GET, original confirmed checkbox retained until explicit read-only recovery"
+        }
+      ],
+      "visualInspection": [
+        "320px WebKit dark: saved-state explanation, actual read error and Refresh sharing remain readable; old confirmed checkbox disabled; body scroll and footer contained.",
+        "1280px Chromium light: same recovery in existing Agents dialog with retained successful transcript reply."
+      ],
+      "remaining": "Core still owns final page mounting and complete application journey; C independent inspection of the four new recovery captures requested. Full CI/trusted Centaur for the new head remain open."
     }
   },
   "integrationHandoff": {
@@ -332,7 +412,7 @@
     "history": "The protocol retains at most 50 messages in a view. Earlier-message availability is disclosed; no invented older-page endpoint.",
     "messageActions": "ChatArea display ID is projectionId; share/action owners must resolve it to the actual CollaborationMessage messageId/source before forwarding. B and core notified.",
     "controller": "useConversationPresentation({collaborationId,api,authScope,getVerifiedAuthScope,draftId,names}) reuses existing real typed view/events/setPolicy, projection and ordinary draft owner. Core supplies its existing currentVerifiedAuthSessionId getter; missing or mismatched current proof fails closed. AUTH_LOST clears private state and fences late results; restore checks after existing auth owner synchronous publication.",
-    "policy": "Confirmed server view drives checkboxes. In-memory pending request retains requestId, membership/revision fences and values on network/408/429/5xx ambiguity. retryPolicy reuses exact original body. Unchanged read cannot clear uncertainty; newer authoritative revision fences it. Known definite400/401/403/404/409/422 refusal clears pending but retains error until refresh. No optimistic success.",
+    "policy": "Confirmed server view drives checkboxes. In-memory pending request retains requestId, membership/revision fences and values on network/408/429/5xx ambiguity. retryPolicy reuses exact original body. Unchanged read cannot clear uncertainty; newer authoritative revision fences it. Known definite400/401/403/404/409/422 refusal clears pending but retains error until refresh. No optimistic success. Matching receipt confirmation recovery: pendingPolicy.receipt proves mutation committed; needsRefresh=true and uncertain=false expose failed view confirmation. Preserve original input/receipt and old confirmed projection. retryPolicy with receipt performs read-only refresh; core must render this state before unknown-outcome uncertainty.",
     "agentsSlots": "ConversationAgents adds optional policyFeedback:ReactNode and policyUnavailableReason:string; feedback appears once inside existing Agents dialog. Core wires pending/refusal/retry/refresh via these slots. No new joining lifecycle or auth owner.",
     "header": "Core df7aaa markup is integrated as93ab42f6 and extended by A container/count corrections a24bd063+844d5ddb. Consume final A once; do not independently reapply core header patch.",
     "acceptanceMap": "Single combined map remains workstream C docs/evidence/symposium-integration-acceptance.md, PR1022 head9f69920e at latest refresh; A does not duplicate global acceptance. Full actual app review journey still503 pending core source/settings integration."
@@ -475,9 +555,19 @@
       "1280px Chromium with 320px conversation: first name +2 and shared discussion subtitle, no double count.",
       "320px WebKit light pending / dark refusal: actual Agents dialog feedback readable; confirmed checkboxes retained and disabled; body scroll and footer contained.",
       "1280px Chromium light full conversation / dark refusal: existing controls and successful reply retained, in-dialog Refresh sharing recovery."
-    ]
+    ],
+    "independentInspection": {
+      "ownerSession": "01a14bdc-d152-7912-84d4-c0012e9d5206",
+      "source": "d127103bdb9c9de2215d27b643959168b7300813",
+      "tree": "e205b262791b0163b1670baae8a5790380d3f09f",
+      "inspectedImages": 7,
+      "result": "C retained copies, verified exact byte hashes and independently confirmed320px mobile/desktop-column Architect+2 and390px Architect\u00b7Reviewer+1, readable pending/refusal footer and successful reply retained beside partial outcomes. Visible-name defect fixed in those exact fixture renders.",
+      "publication": "C reported that the single C map will publish its receipt with its next harness update.",
+      "bounds": "Full combined application/native iOS acceptance remains open. All original4 and corrected18 files remain byte-identical after the recovery follow-up."
+    }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
   "integratedAcceptedBase": "fea33e215b0d1bcf29604aa13e793329588a2980",
-  "baseRefresh": "Remote main refreshed after source completion: #1010 sandbox ownership only; no overlapping A files. Core is integrating that accepted change. A retains fea33e21 integration base; final combined-source qualification remains core/C work."
+  "baseRefresh": "Remote main refreshed after source completion: #1010 sandbox ownership only; no overlapping A files. Core is integrating that accepted change. A retains fea33e21 integration base; final combined-source qualification remains core/C work.",
+  "latestValidation": "checks.policyConfirmationRecovery"
 }
