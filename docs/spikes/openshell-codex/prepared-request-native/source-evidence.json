@@ -44,10 +44,30 @@
     {
       "file": "native-attempts-final.patch",
       "sha256": "54ebf97da63bb8d017df71066fdc8e96b6a906a275f6b0b5ace00e7e04381f31"
+    },
+    {
+      "file": "native-finalized-capture.patch",
+      "sha256": "3ce7b560e9fbfcb861073432123cb82655970d07dec8e5fdeaf661e6a1889d67"
+    },
+    {
+      "file": "native-capacity-regressions.patch",
+      "sha256": "e354ef3f507f0fddd3761146f0cf0ed74abfd341d4070c0914812e3847a60184"
+    },
+    {
+      "file": "native-attempt-custody.patch",
+      "sha256": "c7390dc83d377f3983262013461b031dc109914d82fe476713dd210fdeb70c16"
+    },
+    {
+      "file": "native-sampling-chain.patch",
+      "sha256": "e007d6457b43425551354d3a14d6b18196d83e075fc05ba3c2baa96b6d304f2b"
+    },
+    {
+      "file": "native-project-doc-prefix.patch",
+      "sha256": "11faea11d7fee68dac599925b6e937fa6612f1d615b829fa355bf9b37f7742ed"
     }
   ],
-  "sourceTree": "0f641b580e3f5ba2a86b80fcabb31a4f1929678a",
-  "localSourceCommit": "183bfbae4d64141384adf2e3ccef7d89e058eb4b",
+  "sourceTree": "cf8cc1682d2edf2906bc537f270bfdda77fde3db",
+  "localSourceCommit": "4f639ef745dc93cdb5e5ddfff27798fbd05f0146",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -58,7 +78,15 @@
     "6f8bef6f4c13715b0a76eb00809d4f73da954e5a",
     "354e9cd97dc82b3d7c7c525b08122c37a8c1d2db",
     "77bebb26df1776b8bc642178115a23320985b3b1",
-    "c37596cba1cdec5c2e29631967405f7772a73a40"
+    "c37596cba1cdec5c2e29631967405f7772a73a40",
+    "183bfbae4d64141384adf2e3ccef7d89e058eb4b",
+    "e1fa131b192e75fd8236026e9a5c4cd942d8cebd",
+    "51886de820e8066a7de48951fd490ef6268700e1",
+    "18cd0da6e021d921ae104f052275a8c540f4262b",
+    "75575a9926885f6804051388289169c8f0f6b711",
+    "e159db0b1d937e774e2cb926de2b23445c0079c6",
+    "1e70807e9b5efdae0b0ed716526be17227b69510",
+    "4f639ef745dc93cdb5e5ddfff27798fbd05f0146"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -68,48 +96,32 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "codexHttpClient": {
-      "focusedPassed": 10,
-      "cratePassed": 136,
-      "crateSkipped": 0,
-      "clippyWarnings": 0,
-      "format": "passed",
-      "beforeCiFixCratePassed": 135,
-      "tlsFocusedPassed": 10,
-      "controlledCustomCaFocusedPassed": 10,
-      "tlsClassificationRed": "Nested boxed IO errors failed before fix; non-TLS lookalike text remains non-TLS",
-      "nativeFixtureRed": "Prior native-dependent fixtures reproduced five failures with retained public test CA; explicit native fixture backend fixes them",
-      "socketFixtureRed": "Full suite reproduced WouldBlock before accepted socket restored blocking mode; exact one-request assertions retained",
-      "bazelLockUpdate": "passed after test-only reqwest native-tls selector; MODULE.bazel.lock and Cargo.lock unchanged"
+    "scope": "Current composed source; historical foundation counts do not qualify this tree.",
+    "localFocused": {
+      "status": "passed",
+      "sourceCommit": "4f639ef745dc93cdb5e5ddfff27798fbd05f0146",
+      "sourceTree": "cf8cc1682d2edf2906bc537f270bfdda77fde3db",
+      "packages": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
+      "kind": "selected library regressions with recording transports and temporary databases, including ordinary project-document owners",
+      "automaticTestRetries": 0,
+      "buildJobs": 1,
+      "testThreads": 1,
+      "taskPackageArtifactsCleanedBeforeBuild": true,
+      "guardedHttpWebsocketSuites": "CI only; do not count sandbox early returns as executed fixtures",
+      "runId": "462c94f1-edab-46c0-bf6b-2b51c7266ee8",
+      "passed": 123,
+      "failed": 0,
+      "filteredOut": 3137,
+      "localPlatform": "macOS",
+      "scopedFormat": "passed"
     },
-    "codexState": {
-      "focusedPassed": 11,
-      "cratePassed": 218,
-      "crateSkipped": 0,
-      "finalSqliteShimFixtureCleanup": "11 focused tests rerun after cleanup; production code unchanged since crate suite",
-      "clippyWarnings": 0,
-      "format": "passed"
+    "ci": {
+      "status": "external_PR_gate",
+      "workflow": ".github/workflows/prepared-request-native.yml",
+      "scope": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
+      "platforms": ["ubuntu-24.04", "macos-26"]
     },
-    "codexApi": {
-      "focusedPassed": 19,
-      "cratePassed": 219,
-      "crateSkipped": 0,
-      "clippyWarnings": 0,
-      "format": "passed"
-    },
-    "combinedSourceFormat": "passed",
-    "redEvidence": [
-      "native HTTP:8 intended missing-interface errors; 2 hidden header/trace failures; implicit Accept failure; URL-userinfo failure",
-      "native state:9 intended owner TODO failures; independent-account provider receipt uniqueness failure",
-      "native API:23 intended missing-interface errors; 7 header/count regressions failed before fixes"
-    ],
-    "testCountsOverlap": true,
-    "localBuildJobs": 1,
-    "localTestThreads": 1,
-    "nativeWholeWorkspaceSuite": "CI only; not run locally",
-    "pinnedJustFixRecipe": "Uses literal {args} and fails to forward package selection; exact scoped cargo clippy --fix --tests --allow-dirty -p CRATE used without changing upstream justfile",
-    "localPlatform": "macOS",
-    "unchangedApiAndStateSlices": "API/state suite records predate the independent HTTP classification/fixture fixes; CI reruns all three crates on reconstructed final source."
+    "testCountsOverlap": true
   },
   "runtimeQualified": false,
   "installed": false,
@@ -117,11 +129,15 @@
   "concreteAccountSelected": false,
   "modelCalls": 0,
   "remaining": [
-    "pure native capture/expansion without thread allocation or context effects",
-    "existing app-server preparation/measure/read RPCs and authority fencing",
-    "actual ordinary turn/start consumption and same-body dispatch",
-    "selected account/model ceiling and counter support qualification",
-    "application joining authority and ordinary delivery/reader composition"
+    "pure native capture/expansion without thread allocation or effectful source/tool discovery",
+    "semantic-preserving public policy for actual ordinary metadata and late contributors",
+    "trusted selected account/credential/route/model context and output-limit authority",
+    "app-server prepare/measure/read and current non-Stop authority ordering",
+    "stale pre-consumption database-copy/custody replacement refusal through actual selected admission owner",
+    "move-only exact selected-client transport dispatch; current raw frozen transport API is not a one-use admission owner",
+    "actual ordinary turn/start consumption, exact-body dispatch, context ACK and finalized attribution",
+    "reviewed reproducible binary delivery and feature negotiation for each consumer",
+    "application joining and independent silent reader/default/@ delivery composition"
   ],
   "integratedDependencies": {
     "formatter": {
@@ -135,7 +151,131 @@
       "commit": "c37596cba1cdec5c2e29631967405f7772a73a40",
       "base": "6f8bef6f4c13715b0a76eb00809d4f73da954e5a",
       "patchSha256": "54ebf97da63bb8d017df71066fdc8e96b6a906a275f6b0b5ace00e7e04381f31",
-      "workingTreeClean": true
+      "workingTreeClean": true,
+      "cumulativePatchAppliedOnce": true
+    },
+    "finalizedCapture": {
+      "sourceCommit": "14cd720fa66d0dde3e082324e540991f9baaa7d9",
+      "integratedCommit": "e1fa131b192e75fd8236026e9a5c4cd942d8cebd",
+      "productionCaller": false,
+      "scope": "Freeze supported finalized bodies only; no pre-session source inventory or authority."
+    },
+    "capacityRegressions": {
+      "sourceCommit": "1858860bb6c9dbc4b1594c89042a70ecf6479453",
+      "integratedCommit": "51886de820e8066a7de48951fd490ef6268700e1",
+      "capacityAuthorityInstalled": false
+    },
+    "runtimeCustody": {
+      "sourceCommit": "72b257282fd9bcdd1cd6a2b1312fcceae2eadd8c",
+      "integratedCommit": "75575a9926885f6804051388289169c8f0f6b711",
+      "red": "Two wrong-runtime/copied-database tests returned successful attempts before the fix.",
+      "fix": "Live consumption binds privately to the originating runtime pool; independent close/read remains supported."
+    },
+    "samplingChain": {
+      "sourceCommit": "80779b64e7615be856ca8b187b62dd9f2501c37d",
+      "integratedCommit": "4f639ef745dc93cdb5e5ddfff27798fbd05f0146",
+      "legacyBindingBytesPreserved": true,
+      "rootTurnReceiptUnique": true,
+      "scope": "Per-request chain records only; no completion/current-source/transport authority.",
+      "red": "Second same-command sampling refused by consumed-command index. Model/settings drift separately accepted by Rust and SQL before fix.",
+      "branchFocusedPassed": 31,
+      "branchRunId": "c3bba36b-6f00-4b49-94fd-d9931640331d"
+    },
+    "ordinaryProjectDocPrefix": {
+      "sourceCommit": "3f26e8263eaebb746a7907912c5e2b04df80a901",
+      "integratedCommit": "1e70807e9b5efdae0b0ed716526be17227b69510",
+      "productionCaller": "load_project_instructions -> read_agents_md",
+      "sourceVersionOrCompletenessAuthority": false,
+      "physicalChunkBoundBytes": 1048576,
+      "branchFocusedPassed": 48,
+      "branchFilteredOut": 2643,
+      "branchRunId": "4fe56601-ec17-488f-857b-edaccd20f7ee",
+      "behaviorChange": "Unread tail errors/full-file size refusal no longer apply after observed overflow; configured raw prefix/ordinary rendering retained."
     }
+  },
+  "historicalFoundation": {
+    "acceptedApplicationPr": 1000,
+    "sourceCommit": "6f8bef6f4c13715b0a76eb00809d4f73da954e5a",
+    "sourceTree": "a4b143a63443ca6c757141d0632882fb0b64f7c4",
+    "checks": {
+      "codexHttpClient": {
+        "focusedPassed": 10,
+        "cratePassed": 136,
+        "crateSkipped": 0,
+        "clippyWarnings": 0,
+        "format": "passed",
+        "beforeCiFixCratePassed": 135,
+        "tlsFocusedPassed": 10,
+        "controlledCustomCaFocusedPassed": 10,
+        "tlsClassificationRed": "Nested boxed IO errors failed before fix; non-TLS lookalike text remains non-TLS",
+        "nativeFixtureRed": "Prior native-dependent fixtures reproduced five failures with retained public test CA; explicit native fixture backend fixes them",
+        "socketFixtureRed": "Full suite reproduced WouldBlock before accepted socket restored blocking mode; exact one-request assertions retained",
+        "bazelLockUpdate": "passed after test-only reqwest native-tls selector; MODULE.bazel.lock and Cargo.lock unchanged"
+      },
+      "codexState": {
+        "focusedPassed": 11,
+        "cratePassed": 218,
+        "crateSkipped": 0,
+        "finalSqliteShimFixtureCleanup": "11 focused tests rerun after cleanup; production code unchanged since crate suite",
+        "clippyWarnings": 0,
+        "format": "passed"
+      },
+      "codexApi": {
+        "focusedPassed": 19,
+        "cratePassed": 219,
+        "crateSkipped": 0,
+        "clippyWarnings": 0,
+        "format": "passed"
+      },
+      "combinedSourceFormat": "passed",
+      "redEvidence": [
+        "native HTTP:8 intended missing-interface errors; 2 hidden header/trace failures; implicit Accept failure; URL-userinfo failure",
+        "native state:9 intended owner TODO failures; independent-account provider receipt uniqueness failure",
+        "native API:23 intended missing-interface errors; 7 header/count regressions failed before fixes"
+      ],
+      "testCountsOverlap": true,
+      "localBuildJobs": 1,
+      "localTestThreads": 1,
+      "nativeWholeWorkspaceSuite": "CI only; not run locally",
+      "pinnedJustFixRecipe": "Uses literal {args} and fails to forward package selection; exact scoped cargo clippy --fix --tests --allow-dirty -p CRATE used without changing upstream justfile",
+      "localPlatform": "macOS",
+      "unchangedApiAndStateSlices": "API/state suite records predate the independent HTTP classification/fixture fixes; CI reruns all three crates on reconstructed final source."
+    }
+  },
+  "sourceDelivery": {
+    "kind": "reconstructible source patches",
+    "binaryPin": null,
+    "featureNegotiationInstalled": false,
+    "localMacQualified": false,
+    "openShellQualified": false
+  },
+  "priorComposition": {
+    "sourceCommit": "75575a9926885f6804051388289169c8f0f6b711",
+    "sourceTree": "344dcaeb004a6cea5c37931748be93dcf0e9fb12",
+    "localFocused": {
+      "status": "passed",
+      "sourceCommit": "75575a9926885f6804051388289169c8f0f6b711",
+      "sourceTree": "344dcaeb004a6cea5c37931748be93dcf0e9fb12",
+      "packages": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
+      "kind": "library regressions with recording transports and temporary databases",
+      "automaticTestRetries": 0,
+      "buildJobs": 1,
+      "testThreads": 1,
+      "guardedHttpWebsocketSuites": "CI only; do not count sandbox early returns as executed fixtures",
+      "runId": "07243472-0217-4fd1-9890-ccff9e64ac18",
+      "passed": 68,
+      "failed": 0,
+      "filteredOut": 3179,
+      "localPlatform": "macOS",
+      "taskPackageArtifactsCleanedBeforeBuild": true
+    }
+  },
+  "applicationCredentialCustody": {
+    "sourceCommit": "e2d7e2bbc986bdb36d72750d698efc9e4b51ca42",
+    "integratedCommit": "80ff40f0",
+    "focusedFiles": 5,
+    "passed": 44,
+    "failed": 0,
+    "scope": "Private versioned observations and renewal through existing enrolled credential owner; not native admission authority."
   }
 }

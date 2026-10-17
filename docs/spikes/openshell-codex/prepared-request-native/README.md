@@ -6,10 +6,12 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-The patches implement three boundaries:
+The patches retain these source primitives:
 
 - A private immutable public Responses HTTP body with a documented input-count
-  projection and an enforced output reservation. Unsupported internal/stateful
+  projection and an explicit output reservation. The caller-supplied numeric
+  output bound and a raw token count do not establish selected-account capacity.
+  Unsupported internal/stateful
   bodies, mutable remote artifacts and model-affecting headers refuse.
 - Explicit single-attempt HTTP execution retaining the existing destination and
   outbound route policy. Redirects, protocol retries, TLS fallback and hidden
@@ -25,7 +27,24 @@ The patches implement three boundaries:
   output/truncation policy cannot be represented.
 - The retained attempt-closure candidate, which arbitrates first transport
   attempt against durable closure with move-only live handoffs. Restart/read does
-  not recreate a handoff; late provider receipts remain evidence only.
+  not recreate a handoff; late provider receipts remain evidence only. The live
+  consumption handle is bound to its originating StateRuntime pool, so an
+  independently opened runtime cannot use that handle.
+- A private helper that freezes the supported public subset of an already-finalized
+  ordinary body. It refuses populated native metadata and unresolved request
+  contributors without invoking them. Its successful fixtures are a supported-body
+  subset; the actual ordinary client currently supplies metadata that refuses.
+  The helper has no production caller and does not capture pre-session sources.
+- Distinct sampling records within one ordinary command, with one consumed root,
+  one successor per predecessor and one original native turn acknowledgement.
+  Legacy command tombstones retain their original conservative behavior.
+  Continuations retain independent bytes/counts/receipts and cannot change the
+  command model or settings. Acceptance and acknowledgement do not prove completion.
+- The actual ordinary project-document reader now streams configured instruction
+  prefixes. Its existing hierarchy, trust, symlink and rendering rules remain.
+  Physical reads use bounded 1 MiB chunks; skipped tail errors and whole-file size
+  refusal no longer apply once overflow is observed. This is ordinary prefix
+  loading, not immutable source capture or the application artifact byte fence.
 
 `source-evidence.json` pins the upstream tree, ordered patches, patch checksums
 and resulting source tree. To reconstruct the exact source without building or
@@ -37,11 +56,14 @@ node qualify-source.mjs /absolute/path/to/public-codex-source
 
 The verifier uses a temporary source-only checkout and removes it afterward. It
 never reads application configuration, selects credentials or invokes a model.
-The native CI workflow separately reconstructs and tests this source against
-fixture transports and temporary databases. It covers `codex-core` (including
+The native CI workflow is configured to reconstruct and test this source against
+fixture transports and temporary databases. It includes `codex-core` (including
 the formatter and real ordinary HTTP/WebSocket owners), `codex-api`,
 `codex-http-client` and `codex-state` together. The earlier three-crate workflow
-did not qualify the formatter or its ordinary request owners.
+did not qualify the formatter or its ordinary request owners. Historical foundation
+results and current composed-source results are recorded separately; an older
+pass count cannot qualify a newer tree. Full fixture logs and JUnit results retain
+skipped/filtered counts and run without automatic test retries.
 
 The application changes in `server/collaboration-context-compiler.ts`,
 `server/collaboration-review-owner.ts` and the existing EventStore retain a
@@ -50,6 +72,12 @@ original review operation across incomplete retries, concurrency and restart.
 Public snapshots and replay carry no native preparation or provider identities.
 Historical additive assessments remain readable; they confer no native dispatch
 authority. Production `app.ts` still does not install the optional joining port.
+
+The existing enrolled OpenAI account owner now provides a private immutable
+credential observation and renews existing credential resolution. It retains the
+original account IDs, managed credential custody and Connections gate. Callback
+renewal detects drift; it does not order native consumption, supply model limits
+or establish a selected dispatch client. This evidence must remain server-private.
 
 ## Remaining integration
 
@@ -70,10 +98,23 @@ capacity ceilings still need an application authority owner.
 Until those owners are connected and offline composition tests pass, no account
 or runtime combination is qualified. Authenticated application joining, reader
 only delivery, frontend integration and target qualification remain subsequent
-dependencies. Host revocation and native SQLite consumption still lack a shared
-ordering owner; consumable admission remains unavailable until that ordering is
-proved. Live calls, activation and deployment require their separate user
-authorizations described in the Symposium handover.
+dependencies. The selected Stop contract is best-effort after the native attempt
+commits: a winning pre-attempt close prevents send; a committed attempt may already
+have reached the provider, remains uncertain if acceptance is unknown, and cannot
+be replayed. The state primitive supports that decision; ordinary Stop wiring is
+still part of the pending dispatch integration.
+The sampling chain provides retained request identity for tool continuations; the
+actual ordinary tool loop must still authorize and prepare each request. Pool
+binding prevents transferring a live handle; it does not establish custody of a
+stale database copy made before consumption. The actual selected admission owner must refuse lost/replaced storage.
+Likewise, the raw frozen transport API does not itself consume an attempt or bind
+the selected account/client. These source primitives cannot be used as a complete
+ordinary dispatch protocol.
+
+Other source/access/account/route authority changes still need ordering against
+native consumption; consumable admission remains unavailable for those changes
+until that ordering is proved. Live calls, activation and deployment require their
+separate user authorizations described in the Symposium handover.
 
 Public body-schema handling of inline image/PDF bytes does not register artifact
 sources or qualify saved files. The existing source reader and artifact-kind

@@ -22,13 +22,17 @@ jobs:
   source:
     name: Native offline fixtures (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-26]
     env:
       CARGO_BUILD_JOBS: 1
+      # Keep the broader Core fixture build within hosted-runner disk limits.
+      # This changes debug information only; test/debug assertions remain enabled.
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
       NODE_OPTIONS: --max-old-space-size=1024
     steps:
       - uses: actions/checkout@v7
@@ -72,7 +76,20 @@ jobs:
         working-directory: .native-prepared-source/codex-rs
         env:
           CARGO_NET_OFFLINE: 'true'
-        run: env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST just test -p codex-core -p codex-http-client -p codex-state -p codex-api --test-threads 1
+        run: |
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            just test -p codex-core -p codex-http-client -p codex-state -p codex-api \
+            --test-threads 1 --retries 0 2>&1 | tee native-fixtures.log
       - name: Check native source formatting
         working-directory: .native-prepared-source/codex-rs
         run: cargo fmt --check -p codex-core -p codex-http-client -p codex-state -p codex-api
+      - name: Retain exact-source fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-fixtures-${{ matrix.os }}
+          path: |
+            .native-prepared-source/codex-rs/native-fixtures.log
+            .native-prepared-source/codex-rs/target/nextest/local/junit.xml
+            docs/spikes/openshell-codex/prepared-request-native/source-evidence.json
+          if-no-files-found: warn
