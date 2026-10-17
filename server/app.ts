@@ -2856,7 +2856,14 @@ app.use(
   createSessionRemovalRouter({
     authorize: operatorAuthMiddleware,
     lifecycle: () => openShellLifecycleService,
-    hasSandbox: (id) => eventStore.getSession(id)?.cwd?.startsWith('/sandbox/') === true,
+    hasSandbox: (id) => {
+      const meta = eventStore.getSession(id);
+      return (
+        meta?.sessionType === 'symposium' ||
+        !!meta?.symposiumConfig ||
+        meta?.cwd?.startsWith('/sandbox/') === true
+      );
+    },
     hide: hideSession,
     changed: (id) => {
       clearPublicationControllerSessionGrants(registry, id);
