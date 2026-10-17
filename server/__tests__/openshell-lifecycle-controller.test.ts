@@ -207,7 +207,7 @@ it('keeps a newly ensured sandbox durably fenced until its provider thread is re
       {
         registry: { findBySessionId: () => undefined, entries: function* () {} },
         eventStore: { getSession: () => ({}) },
-        taskStore: { getTree: () => [] },
+        taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
         queue: () => ({ queued: 0, running: 0, recovery: false }),
       },
     )!;
@@ -291,7 +291,7 @@ it('keeps a failed same-sandbox stop fenced until checkpoint and ownership recov
     {
       registry: { findBySessionId: () => undefined, entries: function* () {} },
       eventStore: { getSession: () => ({}) },
-      taskStore: { getTree: () => [] },
+      taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
       queue: () => ({ queued: 0, running: 0, recovery: false }),
     },
   )!;
@@ -409,7 +409,7 @@ it('restores repeated replacements from the immutable checkpoint origin and reje
     {
       registry: { findBySessionId: () => undefined, entries: function* () {} },
       eventStore: { getSession: () => ({}) },
-      taskStore: { getTree: () => [] },
+      taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
       queue: () => ({ queued: 0, running: 0, recovery: false }),
     },
   )!;
@@ -546,7 +546,7 @@ it('counts configured recordless providers once while retaining partial inventor
     {
       registry: { findBySessionId: () => undefined, entries: function* () {} },
       eventStore: { getSession: () => ({}) },
-      taskStore: { getTree: () => [] },
+      taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
       queue: () => ({ queued: 0, running: 0, recovery: false }),
       accountProviders: () => ['legacy-provider', 'legacy-provider', 'unavailable-provider'],
     } as Parameters<typeof initializeOpenShellLifecycle>[1] & {
@@ -592,7 +592,7 @@ it('repairs a committed migration once and preserves later ordinary thread and p
     {
       registry: { findBySessionId: () => undefined, entries: function* () {} },
       eventStore: { getSession: () => ({}) },
-      taskStore: { getTree: () => [] },
+      taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
       queue: () => ({ queued: 0, running: 0, recovery: false }),
     },
   )!;
@@ -699,7 +699,7 @@ it('reopens retained and deleted lifecycle runtimes after same-account model sel
     {
       registry: { findBySessionId: () => undefined, entries: function* () {} },
       eventStore: { getSession: () => ({}) },
-      taskStore: { getTree: () => [] },
+      taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
       queue: () => ({ queued: 0, running: 0, recovery: false }),
     },
   )!;
@@ -834,7 +834,14 @@ it.each(['', '0'])(
       ).toBeUndefined();
       const signal = AbortSignal.timeout(1000);
       expect(await readOpenShellSandboxInventory(signal)).toEqual([
-        { id: 'physical', name: 'legacy', phase: 'Stopped' },
+        {
+          id: 'physical',
+          name: 'legacy',
+          phase: 'Stopped',
+          workspace: 'default',
+          gateway: 'openshell',
+          gatewayEndpoint: null,
+        },
       ]);
       expect(inventory).toHaveBeenCalledWith(signal, true);
       initializeOpenShellLifecycle(

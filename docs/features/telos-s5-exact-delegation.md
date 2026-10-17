@@ -7,6 +7,8 @@ Dimitri explicitly separated S4 qualification from starting S5; this implementat
 and its offline checks do not close S4's interactive mock qualification.
 The combined source also preserves accepted tools/context main
 `fea33e215b0d1bcf29604aa13e793329588a2980` and its target-derived profile admission.
+It includes accepted sandbox ownership/cleanup main
+`136699011e63ae154f6a6bb8b7e46225fbb3dd29` through the existing lifecycle owners.
 
 ## Exact request and ordinary worker
 
@@ -60,6 +62,12 @@ renew the durable scope through the existing ordinary owners. Incomplete or mism
 linkage fails before execution. Only the proved worker receives its mapped task context;
 TaskStatus and task mutations recheck that exact scope. Native OpenShell task tools and Local task MCP callbacks pin their original worker and task in HTTP headers; the route checks both before mutation so client rebinding cannot redirect a delayed request. Legacy unbound task MCP retains its dynamic task progression. Legacy loop start rejects mapped
 Telos tasks. The worker cannot create task children or broaden the mapped brief.
+
+Lifecycle cleanup also reads this durable worker/task binding. A nonterminal mapped
+task protects its worker even after disconnect or restart while the legacy task
+`sessionId` remains null. An unavailable mapping reader blocks cleanup. Existing
+terminal-task and legacy client ownership rules remain in force; protection neither
+claims a task nor submits a command.
 
 | Fact                          | Evidence owner                                                                    |
 | ----------------------------- | --------------------------------------------------------------------------------- |

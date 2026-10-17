@@ -12,7 +12,8 @@ export interface LifecycleProductionDependencies {
     ): { symposiumConfig?: string | null; sessionType?: string } | undefined | null;
   };
   taskStore: {
-    getTree(): Array<{ sessionId: string | null; status: string; children: unknown[] }>;
+    getTree(): Array<{ id: string; sessionId: string | null; status: string; children: unknown[] }>;
+    getTelosExecutionBinding(taskId: string): { workerConversationId: string } | null;
   };
   queue: (record: OpenShellLifecycleRecord) => {
     queued: number;
@@ -49,7 +50,7 @@ export interface LifecycleProductionDependencies {
 }
 const terminal = new Set(['done', 'skipped', 'failed']);
 function flatten(
-  tasks: Array<{ sessionId: string | null; status: string; children: unknown[] }>,
+  tasks: Array<{ id: string; sessionId: string | null; status: string; children: unknown[] }>,
 ): typeof tasks {
   return tasks.flatMap((task) => [task, ...flatten(task.children as typeof tasks)]);
 }
@@ -83,6 +84,13 @@ export function createOpenShellLifecycleProductionAdapter(
         if (
           flatten(deps.taskStore.getTree()).some((task) => {
             if (terminal.has(task.status)) return false;
+            // Delegation retains custody without claiming the legacy session
+            // field or dispatching work. That immutable owner also protects cleanup.
+            if (
+              deps.taskStore.getTelosExecutionBinding(task.id)?.workerConversationId ===
+              record.conversationId
+            )
+              return true;
             const owner = task.sessionId;
             if (!owner) return false;
             const isConversation = owner === record.conversationId;

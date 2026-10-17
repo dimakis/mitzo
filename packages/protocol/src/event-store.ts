@@ -3872,6 +3872,19 @@ export class EventStore {
     return row ? this.rowToSymposiumSeatSandbox(row) : undefined;
   }
 
+  /** Retained physical custody, including stopped/archived parents; no provider credentials. */
+  listRetainedSymposiumSandboxOwners(physicalId: string, sandboxName: string, workspace: string) {
+    return this.db!.prepare(
+      `SELECT session_id AS conversationId, provider_name AS accountId
+       FROM symposium_seat_sandboxes
+       WHERE physical_id=? AND sandbox_name=? AND workspace=?
+       ORDER BY session_id,seat_id,generation`,
+    ).all(physicalId, sandboxName, workspace) as Array<{
+      conversationId: string;
+      accountId: string;
+    }>;
+  }
+
   listSymposiumSessionSandboxes(sessionId: string): SymposiumSeatSandboxRecord[] {
     const rows = this.db!.prepare(
       'SELECT * FROM symposium_seat_sandboxes WHERE session_id=? ORDER BY seat_id,generation',
