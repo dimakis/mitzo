@@ -3391,7 +3391,7 @@ for (const appearance of [
     await page.goto(`/chat/${sessionId}`);
     await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Keep as output', exact: true })).toHaveCount(0);
-    const toggle = page.getByRole('button', { name: /Agents? at work/ });
+    const toggle = page.getByRole('button', { name: /^(?:Activity|Agents? at work):/ });
     await expect(toggle).toHaveCount(1);
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await expect(toggle).toContainText('Read');
@@ -3419,7 +3419,11 @@ for (const appearance of [
     await toggle.focus();
     await page.keyboard.press('Enter');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByRole('button', { name: /^Thought/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Thought/ })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    await page.getByRole('button', { name: /^Thought/ }).click();
     await expect(
       page.getByText('Checking the latest records and their status.', { exact: true }),
     ).toBeVisible();
@@ -3458,6 +3462,7 @@ for (const appearance of [
     await page.reload();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('button', { name: /^Read/ })).toBeVisible();
+    await page.getByRole('button', { name: /^Thought/ }).click();
     await expect(
       page.getByText('Checking the latest records and their status.', { exact: true }),
     ).toBeVisible();
@@ -3527,8 +3532,10 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
       return route.fallback();
     });
     await page.goto(`/chat/${sessionId}`);
-    const toggle = page.getByRole('button', { name: /Agents? at work/ }).first();
-    await expect(page.getByRole('button', { name: /Agents? at work/ })).toHaveCount(1);
+    const toggle = page.getByRole('button', { name: /^(?:Activity|Agents? at work):/ }).first();
+    await expect(page.getByRole('button', { name: /^(?:Activity|Agents? at work):/ })).toHaveCount(
+      1,
+    );
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     const read = page.getByRole('button', { name: /^Read/ });
     await read.focus();
@@ -3570,8 +3577,10 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
       blockType: 'thinking',
       delta: 'Checking the next records',
     });
-    const next = page.getByRole('button', { name: /Agents? at work/ }).last();
-    await expect(page.getByRole('button', { name: /Agents? at work/ })).toHaveCount(2);
+    const next = page.getByRole('button', { name: /^(?:Activity|Agents? at work):/ }).last();
+    await expect(page.getByRole('button', { name: /^(?:Activity|Agents? at work):/ })).toHaveCount(
+      2,
+    );
     await expect(next).toHaveAttribute('aria-expanded', 'true');
     const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     await composer.focus();

@@ -9,6 +9,7 @@ import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 import { AgentActivity } from './AgentActivity';
+import { completedWebsiteRead } from '../lib/web-access-outcome';
 import { PermissionBanner } from './PermissionBanner';
 import { ProgressWidget } from './ProgressWidget';
 import { groupActivityRows, type ActivityRow } from '../lib/groupActivityRows';
@@ -419,9 +420,10 @@ export function ChatArea({
           const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
           const keepVisible =
             Boolean(progress) ||
-            ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
-              block.toolName ?? '',
-            );
+            (!completedWebsiteRead(block) &&
+              ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
+                block.toolName ?? '',
+              ));
           const bid = block.blockId || `text-${index}`;
           let content: ReactNode;
           if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
@@ -429,7 +431,7 @@ export function ChatArea({
               <ThinkingBlock
                 block={block}
                 streaming={streaming}
-                defaultExpanded
+                defaultExpanded={false}
                 autoCollapse={false}
               />
             );
