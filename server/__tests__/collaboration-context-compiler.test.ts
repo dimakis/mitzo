@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
 import {
   compileCollaborationContext,
+  compileCollaborationSourceContext,
   type AuthorizedCollaborationContext,
   type CollaborationCapacityAdapter,
 } from '../collaboration-context-compiler.js';
@@ -107,6 +108,17 @@ beforeEach(() => {
   store = new EventStore(':memory:');
 });
 afterEach(() => store.close());
+
+it('retains reviewed source context without fabricating recipient settings or admitting execution', async () => {
+  const selected = { ...selection('selected'), messageIds: ['m2', 'm1'], artifacts: [pin] };
+  const draft = await compileCollaborationSourceContext(selected, source);
+  expect(draft.messages.map((message) => message.messageId)).toEqual(['m1', 'm2']);
+  expect(draft.artifacts[0].contentBase64).toBe(Buffer.from('revision two').toString('base64'));
+  expect(draft.capacity.status).toBe('unverified');
+  expect(adapter.measure).not.toHaveBeenCalled();
+  expect(store.listSessions()).toEqual([]);
+  await expect(compileCollaborationContext(selected, [], source, adapter)).rejects.toThrow();
+});
 
 it('compiles all pages, authorized older artifact bytes and measured overhead into an immutable review', async () => {
   const draft = await compileCollaborationContext(selection(), [settings], source, adapter);

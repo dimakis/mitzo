@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  TelosOutcomeContextHintsSchema,
+  TelosOutcomeLinkSchema,
+  TelosOutcomeCreateBodySchema,
+} from '@mitzo/protocol';
 
 export const LoginBody = z.object({
   passphrase: z.string().min(1),
@@ -128,24 +133,8 @@ const TodoSourceSchema = z.object({
   snippet: z.string().optional().default(''),
 });
 
-const TodoContextHintsSchema = z.object({
-  repos: z.array(z.string()).optional().default([]),
-  paths: z.array(z.string()).optional().default([]),
-  issues: z.array(z.string()).optional().default([]),
-  docIds: z.array(z.string()).optional().default([]),
-  people: z.array(z.string()).optional().default([]),
-  jiraKeys: z.array(z.string()).optional().default([]),
-  keywords: z.array(z.string()).optional().default([]),
-  taskHint: z.string().optional().default(''),
-  sessionIds: z.array(z.string()).optional().default([]),
-});
-
-const TodoLinkSchema = z.object({
-  type: z.string(),
-  url: z.string(),
-  title: z.string(),
-  description: z.string().optional().default(''),
-});
+const TodoContextHintsSchema = TelosOutcomeContextHintsSchema;
+const TodoLinkSchema = TelosOutcomeLinkSchema;
 
 const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
   z.object({
@@ -184,17 +173,7 @@ export const TodoCreateBody = z.object({
   parentId: z.string().optional(),
 });
 
-export const TodoOutcomeCreateBody = z.object({
-  summary: z.string().trim().min(1).max(160),
-  intent: z.string().trim().min(1).max(2000),
-  rationale: z.string().trim().min(1).max(2000),
-  acceptanceCriteria: z.array(z.string().trim().min(1).max(500)).min(1).max(12),
-  milestones: z.array(z.string().trim().min(1).max(500)).min(1).max(24),
-  profile: z.string().trim().min(1).max(100),
-  idempotencyKey: z.string().trim().min(1).max(300),
-  contextHints: TodoContextHintsSchema.partial().optional(),
-  links: z.array(TodoLinkSchema).max(24).optional(),
-});
+export const TodoOutcomeCreateBody = TelosOutcomeCreateBodySchema;
 
 export const TodoActionBody = z.object({
   action: z.enum(['ack', 'snooze', 'done', 'star', 'unstar']),
