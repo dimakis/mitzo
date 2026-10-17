@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { isDeepStrictEqual } from 'node:util';
 import { CustomToolReferenceSchema } from '@mitzo/protocol';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
 import { reviewedHandlerSourceFingerprint } from './connections/reviewed-handler-artifacts.js';
@@ -8,6 +9,7 @@ import {
   toolBuilderSourceDigest,
   type ToolBuilderDraft,
 } from './tool-builder.js';
+import { compileToolBuilderSchema, validateToolBuilderExamples } from './tool-builder-schema.js';
 
 /** Code-owned registration, added only by a reviewed source change. Never HTTP/draft input. */
 export interface InstalledCustomTool {
@@ -16,6 +18,9 @@ export interface InstalledCustomTool {
   contractDigest: string;
   sourceFiles: Readonly<Record<string, string>>;
   executorSource: string;
+  qualifierSource: string;
+  /** Trusted checks installed from accepted source, never a candidate report. */
+  qualify(signal: AbortSignal): Promise<void>;
   input: z.ZodType<Record<string, unknown>>;
   output: z.ZodType<Record<string, unknown>>;
   execute(input: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
@@ -62,10 +67,14 @@ export class CustomToolRegistry {
     )
       throw Error('Custom implementation contract or runtime support is unavailable');
     if (
-      canonicalJson(z.toJSONSchema(entry.input)) !== canonicalJson(draft.inputSchema) ||
-      canonicalJson(z.toJSONSchema(entry.output)) !== canonicalJson(draft.outputSchema) ||
+      canonicalJson(compileToolBuilderSchema(z.toJSONSchema(entry.input)).schema) !==
+        canonicalJson(compileToolBuilderSchema(draft.inputSchema).schema) ||
+      canonicalJson(compileToolBuilderSchema(z.toJSONSchema(entry.output)).schema) !==
+        canonicalJson(compileToolBuilderSchema(draft.outputSchema).schema) ||
       Object.keys(entry.sourceFiles).length !== draft.files.length ||
       !Object.values(entry.sourceFiles).includes(entry.executorSource) ||
+      !Object.values(entry.sourceFiles).includes(entry.qualifierSource) ||
+      typeof entry.qualify !== 'function' ||
       new Set(Object.values(entry.sourceFiles)).size !== draft.files.length ||
       draft.files.some(
         (file) =>
@@ -87,6 +96,7 @@ export class CustomToolRegistry {
         contractDigest: entry.contractDigest,
         sourceFiles: entry.sourceFiles,
         executorSource: entry.executorSource,
+        qualifierSource: entry.qualifierSource,
       }),
       definition: {
         name: `CustomTool_${draft.id.replaceAll('-', '')}_v${draft.version}`,
@@ -103,5 +113,42 @@ export class CustomToolRegistry {
     return state.entries.find(
       (entry) => entry.id === binding.id && entry.version === binding.version,
     )!;
+  }
+
+  async qualify(
+    draft: ToolBuilderDraft,
+    binding: CustomToolBinding,
+    options: { signal: AbortSignal; assertCurrent(): void },
+  ) {
+    const check = () => {
+      options.signal.throwIfAborted();
+      options.assertCurrent();
+      this.implementation(draft, binding);
+    };
+    check();
+    const installed = this.implementation(draft, binding);
+    const schema = validateToolBuilderExamples(draft);
+    // The oracle and completion control live in this trusted process. Only
+    // statically installed accepted code is invoked here; no draft is imported.
+    await installed.qualify(options.signal);
+    check();
+    for (const example of draft.examples) {
+      const input = installed.input.parse(structuredClone(example.input));
+      check();
+      const actual = await installed.execute(input, options.signal);
+      check();
+      schema.output.validate(actual);
+      installed.output.parse(actual);
+      if (!isDeepStrictEqual(actual, example.expected))
+        throw Error('Installed implementation failed independent example qualification');
+    }
+    check();
+    return {
+      kind: 'installed-source' as const,
+      registryDigest: binding.registryDigest,
+      sourceDigest: binding.sourceDigest,
+      contractDigest: binding.contractDigest,
+      examples: draft.examples.length,
+    };
   }
 }

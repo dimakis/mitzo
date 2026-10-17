@@ -52,11 +52,13 @@ function fixture() {
       passed: true as const,
       complete: true as const,
       summary: 'Unit tests and examples passed',
+      evidenceKind: 'trusted-executor' as const,
       sourceDigest,
       contractDigest,
       examples: [{ ...contract.examples[0], actual: { length: 3 } }],
     },
   };
+  const qualify = vi.fn(async (_signal: AbortSignal) => {});
   const execute = vi.fn(async (value: Record<string, unknown>) => ({
     length: String(value.text).length,
   }));
@@ -69,6 +71,8 @@ function fixture() {
     contractDigest,
     sourceFiles,
     executorSource: sourceFiles['src/index.mjs'],
+    qualifierSource: sourceFiles['test/index.test.mjs'],
+    qualify,
     input,
     output,
     execute,
@@ -91,20 +95,21 @@ function fixture() {
     registry,
     store,
     execute,
+    qualify,
     drift: () => {
       state = { ...state, revision: 'fixture-v2' };
     },
   };
 }
 
-it('keeps a reviewed draft private until explicit publication creates an exact catalog reference', () => {
+it('keeps a reviewed draft private until explicit publication creates an exact catalog reference', async () => {
   const f = fixture();
   try {
     f.store.save('user', 'builder-session', 'call-1', f.draft, 0);
     expect(f.store.listTools('user')).toEqual([]);
-    expect(() => f.store.publish('user', id, 1, f.draft.contractDigest)).toThrow();
+    await expect(f.store.publish('user', id, 1, f.draft.contractDigest)).rejects.toThrow();
     f.store.submit('user', 'builder-session', id, 1, f.draft.contractDigest);
-    expect(() => f.store.publish('user', id, 1, f.draft.contractDigest)).toThrow();
+    await expect(f.store.publish('user', id, 1, f.draft.contractDigest)).rejects.toThrow();
     f.store.review(
       'user',
       id,
@@ -113,14 +118,14 @@ it('keeps a reviewed draft private until explicit publication creates an exact c
       'authenticated-operator',
     );
     expect(f.store.listTools('user')).toEqual([]);
-    const published = f.store.publish('user', id, 1, f.draft.contractDigest);
-    expect(f.store.publish('user', id, 1, f.draft.contractDigest)).toEqual(published);
+    const published = await f.store.publish('user', id, 1, f.draft.contractDigest);
+    expect(await f.store.publish('user', id, 1, f.draft.contractDigest)).toEqual(published);
     expect(f.store.listTools('user')).toEqual([published.entry]);
     expect(f.store.resolve('user', published.reference)).toEqual(published);
     f.store.save('user', 'builder-session', 'new-version', { ...f.draft, version: 2 }, 1);
     expect(f.store.read('user', id, 1)?.status).toBe('accepted');
     expect(f.store.resolve('user', published.reference)).toEqual(published);
-    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.execute).toHaveBeenCalledOnce();
     expect(() => f.store.resolve('other-owner', published.reference)).toThrow();
     expect(() =>
       f.store.resolve('user', {
@@ -133,7 +138,7 @@ it('keeps a reviewed draft private until explicit publication creates an exact c
   }
 });
 
-it('preserves rejected feedback and accepted versions across revisions and exact retries', () => {
+it('preserves rejected feedback and accepted versions across revisions and exact retries', async () => {
   const f = fixture();
   try {
     const first = f.store.save('user', 'builder-session', 'call-1', f.draft, 0);
@@ -146,7 +151,7 @@ it('preserves rejected feedback and accepted versions across revisions and exact
       { decision: 'rejected', feedback: 'Cover Unicode', contractDigest: f.draft.contractDigest },
       'operator',
     );
-    expect(() => f.store.publish('user', id, 1, f.draft.contractDigest)).toThrow();
+    await expect(f.store.publish('user', id, 1, f.draft.contractDigest)).rejects.toThrow();
     const next = { ...f.draft, version: 2 };
     f.store.save('user', 'builder-session', 'call-2', next, 1);
     expect(f.store.read('user', id, 1)?.review?.feedback).toBe('Cover Unicode');
@@ -163,7 +168,7 @@ it('preserves rejected feedback and accepted versions across revisions and exact
   }
 });
 
-it('blocks forged evidence, cancellation, unavailable source, write grants and source closure drift', () => {
+it('blocks forged evidence, cancellation, unavailable source, write grants and source closure drift', async () => {
   const f = fixture();
   try {
     expect(() =>
@@ -202,11 +207,11 @@ it('blocks forged evidence, cancellation, unavailable source, write grants and s
       { decision: 'accepted', feedback: '', contractDigest: f.draft.contractDigest },
       'operator',
     );
-    const publication = f.store.publish('user', id, 1, f.draft.contractDigest);
+    const publication = await f.store.publish('user', id, 1, f.draft.contractDigest);
     f.drift();
     expect(() => f.store.resolve('user', publication.reference)).toThrow('changed');
     expect(f.store.listTools('user')[0].routes).toEqual([]);
-    expect(() => f.store.publish('user', id, 1, f.draft.contractDigest)).toThrow();
+    await expect(f.store.publish('user', id, 1, f.draft.contractDigest)).rejects.toThrow();
     const empty = new CustomToolRegistry(() => ({ entries: [], artifacts: {}, revision: 'empty' }));
     expect(() => empty.bind(f.draft)).toThrow('installed');
     expect(() =>
@@ -222,13 +227,15 @@ it('blocks forged evidence, cancellation, unavailable source, write grants and s
     expect(() =>
       cancelled.store.submit('user', 'builder-session', id, 1, cancelled.draft.contractDigest),
     ).toThrow();
-    expect(() => cancelled.store.publish('user', id, 1, cancelled.draft.contractDigest)).toThrow();
+    await expect(
+      cancelled.store.publish('user', id, 1, cancelled.draft.contractDigest),
+    ).rejects.toThrow();
   } finally {
     cancelled.store.close();
   }
 });
 
-it('captures one registry source snapshot when selecting an implementation', () => {
+it('captures one registry source snapshot when selecting an implementation', async () => {
   const f = fixture();
   try {
     const binding = f.registry.bind(f.draft);
@@ -249,7 +256,7 @@ it('captures one registry source snapshot when selecting an implementation', () 
   }
 });
 
-it('requires every draft source file and the executing module to belong to the reviewed closure', () => {
+it('requires every draft source file and the executing module to belong to the reviewed closure', async () => {
   const f = fixture();
   try {
     for (const changes of [
@@ -264,6 +271,175 @@ it('requires every draft source file and the executing module to belong to the r
       }));
       expect(() => registry.bind(f.draft)).toThrow();
     }
+  } finally {
+    f.store.close();
+  }
+});
+
+it('requires independent installed-source qualification even when candidate code reported success', async () => {
+  const f = fixture();
+  try {
+    const draft = { ...f.draft, tests: { ...f.draft.tests, evidenceKind: 'candidate-report' } };
+    f.store.save('user', 'builder-session', 'candidate-report', draft, 0);
+    f.store.submit('user', 'builder-session', id, 1, f.draft.contractDigest);
+    f.store.review(
+      'user',
+      id,
+      1,
+      { decision: 'accepted', feedback: '', contractDigest: f.draft.contractDigest },
+      'operator',
+    );
+    f.execute.mockImplementation(async () => {
+      throw Error('Real implementation fails');
+    });
+    await expect(f.store.publish('user', id, 1, f.draft.contractDigest)).rejects.toThrow();
+    expect(f.store.listTools('user')).toEqual([]);
+    expect(f.qualify).toHaveBeenCalledOnce();
+  } finally {
+    f.store.close();
+  }
+});
+
+it('revalidates schemas in persisted evidence independently of the development executor', () => {
+  const f = fixture();
+  try {
+    const contract = {
+      ...f.draft,
+      examples: [{ input: { text: 42 }, expected: { length: 'three' } }],
+    };
+    const contractDigest = toolBuilderContractDigest(contract);
+    const forged = {
+      ...contract,
+      contractDigest,
+      tests: {
+        ...f.draft.tests,
+        contractDigest,
+        examples: [{ ...contract.examples[0], actual: { length: 'three' } }],
+      },
+    };
+    expect(() => f.store.save('user', 'builder-session', 'forged', forged, 0)).toThrow(/schema/);
+  } finally {
+    f.store.close();
+  }
+});
+
+it('cannot publish after approval authority or cancellation changes during trusted qualification', async () => {
+  const f = fixture();
+  const controller = new AbortController();
+  try {
+    f.store.save('user', 'builder-session', 'call', f.draft, 0);
+    f.store.submit('user', 'builder-session', id, 1, f.draft.contractDigest);
+    f.store.review(
+      'user',
+      id,
+      1,
+      { decision: 'accepted', feedback: '', contractDigest: f.draft.contractDigest },
+      'operator',
+    );
+    f.qualify.mockImplementationOnce(async () => {
+      controller.abort();
+    });
+    await expect(
+      f.store.publish('user', id, 1, f.draft.contractDigest, {
+        signal: controller.signal,
+        assertCurrent: () => controller.signal.throwIfAborted(),
+      }),
+    ).rejects.toThrow();
+    expect(f.store.listTools('user')).toEqual([]);
+    expect(f.execute).not.toHaveBeenCalled();
+  } finally {
+    f.store.close();
+  }
+});
+
+it('prevents an older qualification from publishing after a newer attempt fails', async () => {
+  const f = fixture();
+  let finish!: () => void;
+  try {
+    f.store.save('user', 'builder-session', 'call', f.draft, 0);
+    f.store.submit('user', 'builder-session', id, 1, f.draft.contractDigest);
+    f.store.review(
+      'user',
+      id,
+      1,
+      { decision: 'accepted', feedback: '', contractDigest: f.draft.contractDigest },
+      'operator',
+    );
+    f.qualify.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    f.qualify.mockImplementationOnce(async () => {
+      throw Error('Trusted tests failed');
+    });
+    const older = f.store.publish('user', id, 1, f.draft.contractDigest).catch((error) => error);
+    await expect(f.store.publish('user', id, 1, f.draft.contractDigest)).rejects.toThrow(
+      'Trusted tests failed',
+    );
+    finish();
+    expect(await older).toBeInstanceOf(Error);
+    expect(f.store.listTools('user')).toEqual([]);
+  } finally {
+    f.store.close();
+  }
+});
+
+it('blocks publication when source changes during independent qualification', async () => {
+  const f = fixture();
+  try {
+    f.store.save('user', 'builder-session', 'call', f.draft, 0);
+    f.store.submit('user', 'builder-session', id, 1, f.draft.contractDigest);
+    f.store.review(
+      'user',
+      id,
+      1,
+      { decision: 'accepted', feedback: '', contractDigest: f.draft.contractDigest },
+      'operator',
+    );
+    f.qualify.mockImplementationOnce(async () => {
+      f.drift();
+    });
+    await expect(f.store.publish('user', id, 1, f.draft.contractDigest)).rejects.toThrow('changed');
+    expect(f.store.listTools('user')).toEqual([]);
+  } finally {
+    f.store.close();
+  }
+});
+
+it('revokes awaited operator publication without creating a receipt', async () => {
+  const f = fixture();
+  const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+  const app = express();
+  app.use(express.json());
+  app.use((_req, res, next) => {
+    res.locals.authSession = auth;
+    next();
+  });
+  app.use(
+    '/builder',
+    createToolBuilderRouter(() => f.store),
+  );
+  try {
+    f.store.save('user', 'builder-session', 'call', f.draft, 0);
+    f.store.submit('user', 'builder-session', id, 1, f.draft.contractDigest);
+    f.store.review(
+      'user',
+      id,
+      1,
+      { decision: 'accepted', feedback: '', contractDigest: f.draft.contractDigest },
+      'operator',
+    );
+    f.qualify.mockImplementationOnce(async () => {
+      revokeAuthSession(auth);
+    });
+    await request(app)
+      .post(`/builder/drafts/${id}/1/publish`)
+      .send({ contractDigest: f.draft.contractDigest })
+      .expect(400);
+    expect(f.store.listTools('user')).toEqual([]);
+    expect(f.execute).not.toHaveBeenCalled();
   } finally {
     f.store.close();
   }
@@ -313,7 +489,7 @@ it('reviews only through an authenticated same-origin operator action and keeps 
       .expect(200);
     revokeAuthSession(auth);
     await request(app).get('/builder').expect(403);
-    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.execute).toHaveBeenCalledOnce();
   } finally {
     f.store.close();
   }
