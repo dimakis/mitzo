@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { isAbsolute, normalize, relative, sep } from 'node:path';
+import { isAbsolute } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 
 const RelativeFile = z
@@ -7,13 +8,11 @@ const RelativeFile = z
   .min(1)
   .max(240)
   .refine((path) => {
-    const normalized = normalize(path);
     return (
       !isAbsolute(path) &&
-      normalized !== '..' &&
-      !normalized.startsWith(`..${sep}`) &&
+      !path.split('/').some((part) => part === '..' || part === '.' || part.length === 0) &&
       !path.includes('\\') &&
-      relative('.', normalized) !== '..'
+      !path.includes('\0')
     );
   }, 'File path must stay inside the authorized workspace');
 
@@ -56,9 +55,10 @@ export type ToolBuilderExecutor = {
     signal: AbortSignal;
   }): Promise<{
     passed: boolean;
+    complete: boolean;
     summary: string;
     output?: string;
-    complete?: boolean;
+    examples: Array<{ actual: Record<string, unknown>; passed: boolean }>;
   }>;
 };
 type CustomInput = z.infer<typeof CustomToolDraftInputSchema>;
@@ -68,7 +68,16 @@ export type ToolBuilderDraft = CustomInput & {
   status: 'unpublished';
   workspaceId: string;
   sourceDigest: string;
-  tests: { passed: true; summary: string; sourceDigest: string };
+  tests: {
+    passed: true;
+    summary: string;
+    sourceDigest: string;
+    examples: Array<{
+      input: Record<string, unknown>;
+      expected: Record<string, unknown>;
+      actual: Record<string, unknown>;
+    }>;
+  };
 };
 
 export class ToolBuilderService {
@@ -110,7 +119,15 @@ export class ToolBuilderService {
       signal,
     });
     signal.throwIfAborted();
-    if (!test.passed || test.complete === false)
+    if (
+      !test.passed ||
+      !test.complete ||
+      test.examples.length !== custom.examples.length ||
+      test.examples.some(
+        (result, index) =>
+          !result.passed || !isDeepStrictEqual(result.actual, custom.examples[index].expected),
+      )
+    )
       throw new Error('Tool draft tests did not complete successfully');
     if (
       (await this.digest(
@@ -126,7 +143,15 @@ export class ToolBuilderService {
       status: 'unpublished',
       workspaceId: workspace.id,
       sourceDigest,
-      tests: { passed: true, summary: test.summary.slice(0, 500), sourceDigest },
+      tests: {
+        passed: true,
+        summary: test.summary.slice(0, 500),
+        sourceDigest,
+        examples: custom.examples.map((example, index) => ({
+          ...example,
+          actual: test.examples[index].actual,
+        })),
+      },
     };
     this.drafts.set(draft.id, draft);
     return { kind: 'draft' as const, draft };
