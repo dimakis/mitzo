@@ -43,7 +43,10 @@ Centaur review cover the actual final head.
    profiles, compiled context, configured tool selection, MCP and approvals through
    Codex. Replace the assumption that configured tools require the Responses loop
    with actual supported route capabilities. Cover images and supported future
-   model/thinking changes.
+   model/thinking changes. User image serialization is independent of MCP results:
+   non-text blocks returned by configured MCP tools currently become unavailable
+   placeholders, so user-image coverage does not establish multimodal tool-result
+   parity.
 3. **New local API dispatch**, milestone `04e660858b274b27`. Extend
    `ordinary-session-runtime.ts`, account capability projection and existing local
    admission/dispatch owners. Reuse existing credential authority and durable
