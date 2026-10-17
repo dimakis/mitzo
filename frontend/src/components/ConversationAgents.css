@@ -1,3 +1,9 @@
+.conversation-participants-container {
+  container-type: inline-size;
+  container-name: conversation-participants;
+  flex: none;
+  min-width: 0;
+}
 .conversation-participants,
 .conversation-agents-entry,
 .conversation-participants-trigger,
@@ -344,6 +350,21 @@
   flex-wrap: wrap;
 }
 
+.conversation-participants-trigger strong {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.conversation-participant-names {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conversation-participant-wide-count {
+  flex: none;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
 .conversation-participant-count {
   display: none;
 }
@@ -416,15 +437,13 @@
   .conversation-participants-trigger small {
     display: none;
   }
-  .conversation-participants-trigger strong {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-  }
-  .conversation-participant-names {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+}
+
+/* The frozen reference collapses names at 360px of conversation width. */
+@container conversation-participants (max-width: 360px) {
+  .conversation-participant-additional-name,
+  .conversation-participant-wide-count {
+    display: none;
   }
   .conversation-participant-count {
     display: inline;
