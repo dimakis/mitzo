@@ -121,7 +121,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
 
   // Authorized ordinary visible source and exact inline output access.
   '../collaboration-context-source.ts':
-    '5feb8135ccfd6d578ec5f9ac873bd7c260322d49f30d831147be29df3f084262',
+    'a2bc5a5187042ce0c3c4975ff88cf4d0e9dece9af084ad3913086c40cba780f8',
   '../../packages/protocol/src/collaboration-visible-source.ts':
     '689c1925f2ba21871adbda5d79201d786cd88a55ed0b383130aad668e005b4f1',
 
