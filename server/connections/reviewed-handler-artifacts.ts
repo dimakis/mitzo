@@ -37,7 +37,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/TodoWorkspace.tsx':
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/TodoView.tsx':
-    'a4d74db693c379bf6338174809e7b6db772b8f779048073f8c5138fcd4d4a7f7',
+    '364b9283d030733b498db7bc0bd678e48dbf18757a624769a518d3753c6790b1',
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':

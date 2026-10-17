@@ -1,3 +1,4 @@
+import { ResponsiveChatView } from '../../frontend/src/components/ResponsiveChatView';
 import type { ReactNode } from 'react';
 import { FileViewer } from '../../frontend/src/pages/FileViewer';
 import { createRoot } from 'react-dom/client';
@@ -14,6 +15,8 @@ import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/desktop.css';
 import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/workspace-work.css';
+import '../../frontend/src/styles/workspace-chat.css';
+import '../../frontend/src/styles/session-library.css';
 import '../../frontend/src/styles/mobile-workspace.css';
 import '../../frontend/src/styles/motion.css';
 declare global {
@@ -50,7 +53,7 @@ const store = createMitzoStore({
         close: () => {},
         send: (raw) => {
           const { type } = JSON.parse(raw);
-          if (!['hello', 'ping'].includes(type)) throw Error('Unexpected fixture command ' + type);
+          if (!['hello', 'ping', 'switch_session'].includes(type)) throw Error('Unexpected fixture command ' + type);
         },
       };
       queueMicrotask(() => {
@@ -73,6 +76,7 @@ createRoot(document.getElementById('root')!).render(
       <MobileShell>
         <Routes>
           <Route path="/todos/:id?" element={<Page />} />
+          <Route path="/chat" element={<ResponsiveChatView />} />
           <Route
             path="/files"
             element={

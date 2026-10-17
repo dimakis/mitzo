@@ -1,3 +1,5 @@
+import { useMitzoStore } from '@mitzo/client/hooks';
+import { newChatPathWithDraft } from '../lib/chat-drafts';
 import { TelosOutcomesTree } from '../components/TelosOutcomesTree';
 import { useTelosRecords } from '../hooks/useTelosRecords';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
@@ -72,7 +74,7 @@ function groupIntoSections(items: TodoItem[], sort: TodoSort): TodoSection[] {
 
 // ─── Create form ───────────────────────────────────────────────────────────
 
-function TodoCreateForm({
+export function TodoCreateForm({
   parentId,
   profile,
   profiles,
@@ -269,6 +271,21 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<TodoSort>('priority');
   const setPendingSession = useStageChatLaunch();
+  const newSession = useMitzoStore((state) => state.newSession);
+  const [planningError, setPlanningError] = useState('');
+  function startPlanning() {
+    try {
+      const path = newChatPathWithDraft(
+        'Help me plan a new Telos outcome. Ask questions before proposing its outcome, why it matters and done-when criteria. Save a draft only after I review it, retaining this planning conversation and agreed exchange as its source. Do not start work.',
+      );
+      newSession();
+      navigate(path);
+    } catch (error) {
+      setPlanningError(
+        error instanceof Error ? error.message : 'Planning conversation unavailable.',
+      );
+    }
+  }
   const scrollRef = useRef<HTMLDivElement>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     done: true,
@@ -369,10 +386,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             description="Your outcomes, their child work and the coordinators connecting them."
             actions={
               <div className="todo-collection-actions">
-                <button
-                  className="todo-add-btn"
-                  onClick={() => setCreating({ parentId: undefined })}
-                >
+                <button className="todo-add-btn" onClick={startPlanning}>
                   New item
                 </button>
                 <button
@@ -390,6 +404,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
           />
         </div>
         <div className="todo-scroll" ref={scrollRef}>
+          {planningError && <p role="alert">{planningError}</p>}
           {creating && (
             <TodoCreateForm
               parentId={creating.parentId}
@@ -441,7 +456,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             <div className="todo-collection-actions">
               <button
                 className="todo-add-btn"
-                onClick={() => setCreating({ parentId: undefined })}
+                onClick={startPlanning}
                 aria-label="Add outcome"
                 title="Add todo"
               >
@@ -463,6 +478,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
       </div>
 
       <div className="todo-scroll" ref={scrollRef}>
+        {planningError && <p role="alert">{planningError}</p>}
         {canonical.unavailable.length > 0 && (
           <p role="alert">
             Outcome workspace records unavailable. Original Telos fields remain available below.

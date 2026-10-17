@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { TodoView } from '../TodoView';
+import { TodoView, TodoCreateForm } from '../TodoView';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -401,11 +401,15 @@ describe('TodoView', () => {
     });
     render(
       <MemoryRouter>
-        <TodoView />
+        <TodoCreateForm
+          profiles={['work']}
+          onCreate={vi.fn()}
+          onCreateOutcome={createOutcome}
+          onCancel={vi.fn()}
+        />
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'New item' }));
     fireEvent.change(screen.getByPlaceholderText('Short outcome title'), {
       target: { value: 'Ship durable outcomes' },
     });

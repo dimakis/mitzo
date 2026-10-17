@@ -1,3 +1,4 @@
+import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -13,6 +14,7 @@ const bundle = build({
   outfile: '/tmp/telos-workspace.js',
   jsx: 'automatic',
   minify: true,
+  external: ['/*.png', '/*.svg'],
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
   alias: {
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
@@ -83,6 +85,10 @@ for (const theme of ['dark', 'light'])
     const files = (await bundle).outputFiles;
     const unexpected: string[] = [];
     const errors: string[] = [];
+    async function navigate(path: string) {
+      await page.waitForLoadState('networkidle');
+      await page.goto(path);
+    }
     const documentReads: number[] = [];
     let failRecords = false;
     let collectionMode: 'ready' | 'empty' | 'error' = 'ready';
@@ -107,7 +113,11 @@ for (const theme of ['dark', 'light'])
           body: asset.text,
           contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
         });
-      if (url.pathname.startsWith('/todos') || url.pathname === '/files')
+      if (
+        url.pathname.startsWith('/todos') ||
+        url.pathname === '/files' ||
+        url.pathname === '/chat'
+      )
         return route.fulfill({
           contentType: 'text/html',
           body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
@@ -177,6 +187,34 @@ for (const theme of ['dark', 'light'])
           },
         });
       }
+      if (url.pathname === '/api/chat/runtime/capabilities')
+        return route.fulfill({ json: localInventoryFixture() });
+      if (url.pathname === '/api/accounts')
+        return route.fulfill({
+          json: [
+            {
+              id: 'personal',
+              label: 'Offline personal account',
+              models: [{ id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['high'] }],
+            },
+          ],
+        });
+      if (url.pathname === '/api/agent-library')
+        return route.fulfill({
+          json: { drafts: [], versions: localInventoryFixture().agentProfiles },
+        });
+      if (
+        ['/api/home/briefing-chats', '/api/skills', '/api/symposium/profile-proposals'].includes(
+          url.pathname,
+        )
+      )
+        return route.fulfill({ json: [] });
+      if (['/api/config', '/api/version'].includes(url.pathname))
+        return route.fulfill({ json: {} });
+      if (url.pathname === '/api/sessions')
+        return route.fulfill({ json: { sessions: [], hasMore: false } });
+      if (url.pathname === '/api/repository-workspaces/catalog')
+        return route.fulfill({ json: { available: true, repositories: [] } });
       if (url.pathname === '/api/home/preferences')
         return route.fulfill({
           json: { revision: 0, names: { briefing: 'Minion', terminal: 'Minion' }, pins: [] },
@@ -193,7 +231,7 @@ for (const theme of ['dark', 'light'])
       unexpected.push(url.pathname);
       return route.abort();
     });
-    await page.goto('/todos');
+    await navigate('/todos');
     await expect(page.getByRole('button', { name: 'All outcomes', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Browse categories' }).click();
     await page.getByRole('button', { name: 'Pin Recording' }).click();
@@ -330,7 +368,7 @@ for (const theme of ['dark', 'light'])
       page.getByRole('alert').filter({ hasText: 'Unable to load Telos items' }),
     ).toBeVisible();
     await expect(page.getByText('No outcomes yet.')).toHaveCount(0);
-    await page.goto('/todos/fixture-studio');
+    await navigate('/todos/fixture-studio');
     await expect(
       page.getByText('Child work unavailable. Refresh to check its current state.'),
     ).toBeVisible();
@@ -341,7 +379,7 @@ for (const theme of ['dark', 'light'])
       page.getByRole('button', { name: 'Plan the recording setup', exact: true }),
     ).toBeVisible();
     records[0] = { ...records[0], kind: null };
-    await page.goto('/todos/fixture-studio');
+    await navigate('/todos/fixture-studio');
     await expect(page.getByText('Unclassified · active', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Work', exact: true }).click();
     await page.getByRole('button', { name: 'Plan the recording setup', exact: true }).click();
@@ -349,6 +387,20 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(page.getByText('Unclassified · active', { exact: true })).toBeVisible();
     expect(records[0].kind).toBeNull();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.getByRole('button', { name: 'New item', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+      /Help me plan a new Telos outcome/,
+    );
+    await expect(page.getByRole('button', { name: /Workspace controls/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: isMobile ? 'More composer actions' : 'Attach image', exact: true })).toBeVisible();
+    await expect(page.getByPlaceholder('Milestones — first line is the next action')).toHaveCount(
+      0,
+    );
+    await page.screenshot({
+      path: info.outputPath('new-item-ordinary-chat-' + theme + '.png'),
+      fullPage: true,
+    });
     expect(unexpected).toEqual([]);
     expect(errors).toEqual([]);
   });

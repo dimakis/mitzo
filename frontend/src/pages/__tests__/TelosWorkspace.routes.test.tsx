@@ -1,13 +1,15 @@
+import { useNewChatDraft } from '../../hooks/useNewChatDraft';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import { TodoWorkspace } from '../TodoWorkspace';
 import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
 const records = createTelosWorkFixtures().homeStudio.items;
 vi.mock('../../hooks/useMediaQuery', () => ({ useIsDesktop: () => true }));
 vi.mock('@mitzo/client/hooks', () => ({
-  useMitzoStore: (s: (v: unknown) => unknown) => s({ setPendingSession: vi.fn() }),
+  useMitzoStore: (s: (v: unknown) => unknown) =>
+    s({ setPendingSession: vi.fn(), newSession: vi.fn() }),
 }));
 vi.mock('../../components/TelosItemRoleEntries', () => ({
   TelosItemRoleEntries: () => <p>Ordinary conversations</p>,
@@ -95,4 +97,34 @@ it('opens actual record workspace from All outcomes, navigates child and returns
   await waitFor(() =>
     expect((within(list).getByRole('searchbox') as HTMLInputElement).value).toBe('recording'),
   );
+});
+
+function OrdinaryPlanningOwner() {
+  const [params] = useSearchParams();
+  const owner = useNewChatDraft(params.get('draft'), 0, true);
+  return (
+    <>
+      <h1>Ordinary planning conversation</h1>
+      <output>{owner.draft.text}</output>
+      <output aria-label="Retained launch">
+        {owner.draft.settings.launch ? 'Launch' : 'Unsent composer'}
+      </output>
+    </>
+  );
+}
+it('hands New item to the real ordinary draft owner with a retained planning prompt and no mandatory form', async () => {
+  render(
+    <MemoryRouter initialEntries={['/todos']}>
+      <Routes>
+        <Route path="/todos/:id?" element={<TodoWorkspace />} />
+        <Route path="/chat" element={<OrdinaryPlanningOwner />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'All outcomes' });
+  fireEvent.click(screen.getByRole('button', { name: 'New item' }));
+  await screen.findByRole('heading', { name: 'Ordinary planning conversation' });
+  expect(screen.getByText(/Help me plan a new Telos outcome/)).toBeTruthy();
+  expect(screen.getByLabelText('Retained launch').textContent).toBe('Unsent composer');
+  expect(screen.queryByPlaceholderText('Milestones — first line is the next action')).toBeNull();
 });
