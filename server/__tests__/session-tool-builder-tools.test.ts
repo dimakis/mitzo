@@ -137,6 +137,17 @@ it('pages large contract results within the provider tool-result bound without l
     )?.isError,
   ).toBe(true);
 });
+it('bounds executor and catalog error reports as well as successful results', async () => {
+  const f = await sessionFixture();
+  f.catalog.readContract.mockRejectedValueOnce(Error('x'.repeat(45000)));
+  const response = await f.tools.execute(
+    'ToolBuilderReadContract',
+    { reference: { id: 'mitzo:Read', version: 1 } },
+    new AbortController().signal,
+  );
+  expect(response?.isError).toBe(true);
+  expect(Buffer.byteLength(response!.content)).toBeLessThanOrEqual(32000);
+});
 
 it('proposes actual catalog reuse before any development approval, workspace or implementation', async () => {
   const f = await sessionFixture();

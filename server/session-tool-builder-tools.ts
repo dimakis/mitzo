@@ -468,7 +468,8 @@ export function sessionToolBuilderTools(
         };
       } catch (error) {
         return {
-          content: error instanceof Error ? error.message : 'Tool Builder request failed',
+          content:
+            error instanceof Error ? error.message.slice(0, 4000) : 'Tool Builder request failed',
           isError: true,
         };
       } finally {
