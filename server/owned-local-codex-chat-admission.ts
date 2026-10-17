@@ -1,3 +1,4 @@
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { SourceSnapshotsSchema } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
@@ -157,6 +158,7 @@ export class OwnedLocalCodexChatAdmission {
     }
   }
   private assertReceipt(initial = false): void {
+    resolveTelosWorkRoleContext(this.owner.eventStore, this.owner.sessionId, this.#binding);
     const receipt = this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId);
     const send = this.owner.eventStore.getSendCommand(this.owner.commandId);
     const session = this.owner.eventStore.getSession(this.owner.sessionId);

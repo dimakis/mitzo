@@ -130,6 +130,7 @@ import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
+import { assertTelosWorkTaskExecutionScope } from './telos-work-role-context.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
 import { IncomingWsMessage } from './ws-schemas.js';
@@ -448,6 +449,16 @@ setSignalProcessor(signalProc);
 // --- Task Orchestrator ---
 const orchestrator = new TaskOrchestrator({
   store: taskStore,
+  assertTaskExecutionScope: (clientId, taskId) => {
+    const id = registry.get(clientId)?.sessionId;
+    if (id)
+      assertTelosWorkTaskExecutionScope(
+        eventStore,
+        id,
+        eventStore.getSession(id)?.accountBinding ?? undefined,
+        taskId,
+      );
+  },
   workloadStore,
   watchSignal: (taskId, gateConfig) => signalProc.watch(taskId, gateConfig),
   getClientId: () => {

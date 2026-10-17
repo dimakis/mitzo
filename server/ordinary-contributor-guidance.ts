@@ -44,6 +44,19 @@ export function resolveOrdinaryContributorGuidance(
   const records = sessionId
     ? store.getSessionEvents(sessionId).filter((event) => event.type === 'contributor_guidance')
     : [];
+  const roleRecords = sessionId
+    ? store.getSessionEvents(sessionId).filter((event) => event.type === 'telos_work_role_context')
+    : [];
+  if (
+    roleRecords.length &&
+    (!records.length ||
+      roleRecords.some(
+        (event) =>
+          typeof event.payload.guidance !== 'string' ||
+          event.payload.guidance !== records[0]?.payload.guidance,
+      ))
+  )
+    throw new Error('Retained Telos role context requires its immutable ordinary guidance');
   if (!records.length) return requested;
   if (!binding)
     throw new Error('Retained contributor guidance requires its original account binding');
@@ -68,7 +81,23 @@ export function saveOrdinaryContributorGuidance(
   guidance: string,
 ): void {
   if (!binding) throw new Error('Contributor guidance requires an explicit account binding');
-  resolveOrdinaryContributorGuidance(store, sessionId, binding, guidance);
+  const events = store.getSessionEvents(sessionId);
+  if (
+    events.some(
+      (event) => event.type === 'telos_work_role_context' && event.payload.guidance !== guidance,
+    )
+  )
+    throw new Error('Retained Telos role context cannot change its ordinary guidance');
+  // A trusted retry can finish guidance after the role marker was retained.
+  // Public admission continues to reject this incomplete state.
+  resolveOrdinaryContributorGuidance(
+    {
+      getSessionEvents: () => events.filter((event) => event.type !== 'telos_work_role_context'),
+    },
+    sessionId,
+    binding,
+    guidance,
+  );
   if (store.getSessionEvents(sessionId).some((event) => event.type === 'contributor_guidance'))
     return;
   store.append(

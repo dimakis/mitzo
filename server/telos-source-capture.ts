@@ -15,6 +15,9 @@ import {
   type TelosWorkCommandReceipt,
   type TelosSourcePacket,
   type TelosOutcomeProposal,
+  TelosWorkAdvisorDraftPreviewRequestSchema,
+  type TelosWorkAdvisorDraftPreviewRequest,
+  type TelosWorkSourceSnapshot,
 } from '@mitzo/protocol';
 import { compileCollaborationSourceContext } from './collaboration-context-compiler.js';
 import { createTelosConversationSource } from './telos-conversation-source.js';
@@ -29,6 +32,48 @@ import {
 const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const requestKey = (operation: string, actorId: string, requestId: string) =>
   hash(JSON.stringify([operation, actorId, requestId]));
+export function advisorDraftTargetId(
+  input: TelosWorkAdvisorDraftPreviewRequest,
+  actorId: string,
+): string {
+  return input.operation === 'refine'
+    ? input.itemId
+    : hash(JSON.stringify(['advisor-child', actorId, input.requestId])).slice(0, 16);
+}
+/** Shape projection only; capture and work owners retain authority and custody. */
+export function telosSourceSnapshot(
+  packet: TelosSourcePacket,
+  artifact: TelosArtifactMetadata,
+  itemId: string,
+  snapshotId: string,
+): TelosWorkSourceSnapshot {
+  return {
+    version: 1,
+    snapshotId,
+    itemId,
+    source: { namespace: 'mitzo', conversationId: packet.context.sourceConversationId },
+    selection: {
+      kind: 'selected',
+      messageIds: packet.context.messages.map((message) => message.messageId),
+      blockIds: packet.context.messages
+        .filter((message) => message.author !== 'operator')
+        .flatMap((message) => message.blocks.map((block) => block.blockId)),
+      throughSequence: packet.context.boundary.sequence,
+    },
+    adoptedBrief: { revision: packet.brief.sha256, sha256: packet.brief.sha256 },
+    artifacts: [
+      ...packet.context.artifacts.map(({ artifactId, revision, sha256 }) => ({
+        artifactId,
+        revision,
+        sha256,
+      })),
+      { artifactId: artifact.id, revision: artifact.revision, sha256: artifact.sha256 },
+    ],
+    author: null,
+    sourceCreatedAt: packet.sourceCreatedAt,
+    adoptedAt: artifact.createdAt,
+  };
+}
 function operator(actor: TelosWorkActor) {
   if (actor.kind !== 'operator' || !actor.id.trim())
     throw new TelosWorkError('unauthorized', 'Interactive operator authority required');
@@ -62,6 +107,49 @@ export class TelosSourceCapture {
   private operator(actor: TelosWorkActor) {
     this.options.assertAuthorized?.();
     return operator(actor);
+  }
+
+  /** Trusted advisor owner only. Reuses the original public-source compiler;
+   * the proposed brief and selected parent revisions are part of its digest. */
+  async previewAdvisorDraft(raw: unknown, actor: TelosWorkActor): Promise<TelosSourcePreview> {
+    const actorId = this.operator(actor);
+    const input = TelosWorkAdvisorDraftPreviewRequestSchema.parse(structuredClone(raw));
+    const assertCurrent = () => {
+      this.operator(actor);
+      const target = this.options.work.readSourceTarget(input.itemId, actor);
+      if (input.operation === 'refine' && target.work.kind !== input.proposed.type)
+        throw new TelosWorkError('invalid', 'Refinement cannot change item type');
+      if (!this.options.artifacts.userUploadAllowed(input.itemId))
+        throw new TelosWorkError('invalid', 'This item requires private case storage');
+      if (
+        target.work.revision !== input.expectedRevision ||
+        (input.operation === 'refine' && target.record.parentId !== input.parentId)
+      )
+        conflict();
+      if (input.parentId !== null) {
+        if (!this.options.artifacts.userUploadAllowed(input.parentId))
+          throw new TelosWorkError('invalid', 'This parent requires private case storage');
+        if (this.options.work.read(input.parentId, actor).revision !== input.expectedParentRevision)
+          conflict();
+      }
+    };
+    assertCurrent();
+    const briefText = JSON.stringify({
+      operation: input.operation,
+      itemId: advisorDraftTargetId(input, actorId),
+      anchorItemId: input.itemId,
+      parentId: input.parentId,
+      expectedRevision: input.expectedRevision,
+      expectedParentRevision: input.expectedParentRevision,
+      proposed: input.proposed,
+    });
+    const preview = await this.compilePreview(input.selection, actor, {
+      itemId: advisorDraftTargetId(input, actorId),
+      workRevision: input.expectedRevision,
+      briefText,
+    });
+    assertCurrent();
+    return preview;
   }
 
   async preview(raw: unknown, actor: TelosWorkActor): Promise<TelosSourcePreview> {
@@ -430,32 +518,7 @@ export class TelosSourceCapture {
         itemId: input.itemId,
         requestId: 'source:' + requestId,
         expectedRevision: input.expectedRevision,
-        snapshot: {
-          version: 1,
-          snapshotId: requestId,
-          itemId: input.itemId,
-          source: { namespace: 'mitzo', conversationId: packet.context.sourceConversationId },
-          selection: {
-            kind: 'selected',
-            messageIds: packet.context.messages.map((message) => message.messageId),
-            blockIds: packet.context.messages
-              .filter((message) => message.author !== 'operator')
-              .flatMap((message) => message.blocks.map((block) => block.blockId)),
-            throughSequence: packet.context.boundary.sequence,
-          },
-          adoptedBrief: { revision: packet.brief.sha256, sha256: packet.brief.sha256 },
-          artifacts: [
-            ...packet.context.artifacts.map(({ artifactId, revision, sha256 }) => ({
-              artifactId,
-              revision,
-              sha256,
-            })),
-            { artifactId: artifact.id, revision: artifact.revision, sha256: artifact.sha256 },
-          ],
-          author: null,
-          sourceCreatedAt: packet.sourceCreatedAt,
-          adoptedAt: artifact.createdAt,
-        },
+        snapshot: telosSourceSnapshot(packet, artifact, input.itemId, requestId),
       },
       actor,
       assertBeforeApply,

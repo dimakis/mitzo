@@ -28,6 +28,16 @@ import {
   type TelosSourceCreateRequest,
   type TelosWorkCommand,
   type TelosWorkSessionLink,
+  type TelosWorkRoleSetupInput,
+  type TelosWorkCommandReceipt,
+  TelosWorkRoleContextRequestSchema,
+  TelosWorkRoleContextSelectionSchema,
+  TelosWorkRoleSetupInputSchema,
+  type TelosWorkRoleContextRequest,
+  TelosWorkAdvisorDraftPreviewRequestSchema,
+  TelosWorkAdvisorDraftSaveRequestSchema,
+  type TelosWorkAdvisorDraftPreviewRequest,
+  type TelosWorkAdvisorDraftSaveRequest,
 } from '@mitzo/protocol';
 import type { ApiFetch } from './api-client.js';
 
@@ -45,6 +55,40 @@ export class TelosWorkApiError extends Error {
  */
 export class TelosWorkApiClient {
   constructor(private readonly fetch: ApiFetch) {}
+  previewAdvisorDraft(input: TelosWorkAdvisorDraftPreviewRequest, signal?: AbortSignal) {
+    return this.request(
+      'advisor/preview',
+      TelosSourcePreviewSchema,
+      TelosWorkAdvisorDraftPreviewRequestSchema.parse(input),
+      signal,
+    );
+  }
+  saveAdvisorDraft(input: TelosWorkAdvisorDraftSaveRequest) {
+    return this.request(
+      'advisor/save',
+      TelosWorkCommandReceiptSchema,
+      TelosWorkAdvisorDraftSaveRequestSchema.parse(input),
+    );
+  }
+  roleContext(input: TelosWorkRoleContextRequest, signal?: AbortSignal) {
+    return this.request(
+      'roles/context',
+      TelosWorkRoleContextSelectionSchema,
+      TelosWorkRoleContextRequestSchema.parse(input),
+      signal,
+    );
+  }
+  setupRole(
+    input: TelosWorkRoleSetupInput,
+    signal?: AbortSignal,
+  ): Promise<TelosWorkCommandReceipt> {
+    return this.request(
+      'roles/setup',
+      TelosWorkCommandReceiptSchema,
+      TelosWorkRoleSetupInputSchema.parse(input),
+      signal,
+    );
+  }
   getSourcePermission(permId: string, sessionId: string, signal?: AbortSignal, afterSequence = 0) {
     return this.request(
       'source/permissions/' +

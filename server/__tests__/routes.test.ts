@@ -101,6 +101,7 @@ vi.mock('../chat.js', async () => {
       append: vi.fn(),
       getLatestEvent: vi.fn().mockReturnValue(null),
       getEventsAfter: vi.fn().mockReturnValue([]),
+      getSessionEvents: vi.fn().mockReturnValue([]),
       getEventsOfType: vi.fn().mockReturnValue([]),
       getLatestWorktreePath: vi.fn().mockReturnValue(null),
       searchSessions: vi.fn().mockReturnValue([
@@ -863,6 +864,20 @@ describe('session routes', () => {
       totalCostUsd: 0.05,
       numTurns: 3,
     });
+  });
+
+  it('GET /api/sessions/:id/meta — role context read unavailable returns an explicit refusal', async () => {
+    const { eventStore } = await import('../chat.js');
+    vi.mocked(eventStore.getSessionEvents).mockImplementationOnce(() => {
+      throw new Error('Private retained context read failed');
+    });
+    const res = await request(app)
+      .get('/api/sessions/s1/meta')
+      .set('Cookie', authCookie)
+      .timeout({ response: 1000, deadline: 2000 });
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'Work conversation context unavailable' });
+    expect(JSON.stringify(res.body)).not.toContain('Private');
   });
 
   it('GET /api/sessions/:id/meta — unknown session returns 404', async () => {

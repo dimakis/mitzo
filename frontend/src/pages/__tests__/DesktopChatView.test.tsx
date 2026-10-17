@@ -1089,3 +1089,16 @@ vi.mock('../../hooks/useExplicitLocalChat', async () => {
   const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
   return { useExplicitLocalChat: disabledLocalChat };
 });
+it('keeps a Telos lead draft in the ordinary desktop setup with an explicit silent binding action', () => {
+  const store = createTestStore();
+  render(
+    <MemoryRouter initialEntries={['/chat?telosRoleItem=item&telosRole=lead&telosRoleMode=assign']}>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Assign lead & open chat' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});
