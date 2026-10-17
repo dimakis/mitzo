@@ -173,8 +173,8 @@ import { AccountAliases } from './account-aliases.js';
 import { SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 import { authorizeSymposiumSeat } from './symposium-seat-authorization.js';
-import { getAgentLibrary } from './agent-library-runtime.js';
-import { getAgentTasks } from './agent-task-runtime.js';
+import { closeAgentLibrary, getAgentLibrary } from './agent-library-runtime.js';
+import { closeAgentTasks, getAgentTasks } from './agent-task-runtime.js';
 import { createAgentTaskRouter } from './agent-task-router.js';
 import { createAgentLibraryRouter } from './agent-library-router.js';
 import { createContextPackRouter } from './context-pack-router.js';
@@ -450,11 +450,30 @@ export function invalidateSkillRegistries(): void {
 }
 
 const app = express();
+let idleApplicationClosing = false;
+let idleApplicationClose: Promise<void> | undefined;
+let activeApplicationRequests = 0;
 app.use(requestPerformance((message, fields) => log.warn(message, fields)));
 
 const codexReattachments = new Map<string, Promise<void>>();
 
 app.use(createAppSecurityHeaders());
+app.use((_req, res, next) => {
+  if (idleApplicationClosing) {
+    res.status(503).json({ error: 'Application resources are unavailable' });
+    return;
+  }
+  activeApplicationRequests++;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeApplicationRequests--;
+  };
+  res.once('finish', release);
+  res.once('close', release);
+  next();
+});
 
 // --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
 // Mounted before yapper proxy so cross-origin voice requests get CORS headers.
@@ -4850,5 +4869,55 @@ app.get('*', (_req, res, next) => {
     if (err) next();
   });
 });
+
+/** Release an idle, unbootstrapped application without starting or draining work.
+ * A configured host or active owner requires its existing shutdown protocol.
+ * Once release begins, HTTP admission stays fenced even if an owner refuses;
+ * this is not a general server shutdown or a runtime cleanup fallback.
+ */
+export function closeIdleApplicationResources(): Promise<void> {
+  if (idleApplicationClose) return idleApplicationClose;
+  if (
+    activeApplicationRequests ||
+    !registry.entries(true).next().done ||
+    codexReattachments.size ||
+    symposiumSessionRuntimes.size ||
+    symposiumProductionHost ||
+    custodianControllerClient ||
+    connectionsRouter ||
+    capabilityOperationsRouter ||
+    credentialConnectionsRouter ||
+    getCredentialConnectionsRuntime() ||
+    getConnectionRegistry() ||
+    orchestrator ||
+    templateStore ||
+    signalProcessor ||
+    overviewEmitter ||
+    healthMonitor ||
+    openShellLifecycleService ||
+    skillWatcher
+  )
+    return Promise.reject(new Error('Application resource owners are active'));
+  idleApplicationClosing = true;
+  idleApplicationClose = (async () => {
+    await terminalService.closeIdle();
+    notificationCenter.closeIdle();
+    symposiumAccessRequests.closeIdle();
+    sseRegistry.destroy();
+    chatSseRegistry.destroy();
+    registry.dispose();
+    closeAgentTasks();
+    closeAgentLibrary();
+    symposiumProfileStore.close();
+    symposiumAgentContextStore.close();
+    symposiumProfileProposalStore.close();
+    symposiumHostGrants.close();
+    symposiumReviewStore.close();
+    notificationCenter.store.close();
+    taskStore.close();
+    eventStore.close();
+  })();
+  return idleApplicationClose;
+}
 
 export { app };
