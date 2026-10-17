@@ -13,6 +13,8 @@ import './styles/code-block.css';
 import './styles/calendar.css';
 import './styles/desktop.css';
 import './styles/workspace.css';
+// Home controls/dialogs are shared by independently loaded routes.
+import './styles/home.css';
 import './styles/connections-setup.css';
 import './styles/connection-setup-card.css';
 import './styles/workspace-chat.css';
