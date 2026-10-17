@@ -23,6 +23,7 @@
     "./symposium-shared-conversation.tsx",
     "./symposium-shared-conversation-data.ts",
     "../../packages/client/src/__tests__/collaboration-projection-replay.test.ts",
-    "../../tests/offline/symposium-shared-conversation.spec.ts"
+    "../../tests/offline/symposium-shared-conversation.spec.ts",
+    "../../frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx"
   ]
 }

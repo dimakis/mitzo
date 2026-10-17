@@ -53,6 +53,36 @@ for (const theme of ['dark', 'light'])
     await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
+    const header = page.getByRole('button', {
+      name: 'Agents, Architect, Reviewer, Reader',
+      exact: true,
+    });
+    // The frozen reference uses the conversation container, not the device viewport.
+    for (const width of [320, 360, 361, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(header.locator('.conversation-participant-additional-name'))[
+        width <= 360 ? 'toBeHidden' : 'toBeVisible'
+      ]();
+      await expect(header.locator('.conversation-participant-count'))[
+        width <= 360 ? 'toBeVisible' : 'toBeHidden'
+      ]();
+      await expect(header).toHaveAccessibleName('Agents, Architect, Reviewer, Reader');
+      if (width === 390)
+        await header.screenshot({ path: info.outputPath(`header-390-${theme}.png`) });
+    }
+    if (!isMobile) {
+      await page.setViewportSize({ width: 1280, height: 844 });
+      await page.locator('main').evaluate((el) => {
+        el.style.width = '320px';
+      });
+      await expect(header.locator('.conversation-participant-additional-name')).toBeHidden();
+      await expect(header.locator('.conversation-participant-count')).toBeVisible();
+      await header.screenshot({ path: info.outputPath(`header-desktop-column-320-${theme}.png`) });
+      await page.locator('main').evaluate((el) => {
+        el.style.removeProperty('width');
+      });
+    }
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
     const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     const trigger = page.getByRole('button', { name: 'Choose who replies' });
     await input.fill('Keep this shared draft');

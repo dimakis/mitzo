@@ -60,6 +60,10 @@ export function ConversationAgents(props: {
   // A route change synchronously retires the dialog, callbacks and private setup.
   return <ConversationAgentsBody key={props.scope} {...props} />;
 }
+/** The query box is the available conversation width, before the header's own gutter. */
+function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; children: ReactNode }) {
+  return compact ? children : <div className="conversation-participants-container">{children}</div>;
+}
 function ConversationAgentsBody({
   agents,
   messages,
@@ -117,59 +121,61 @@ function ConversationAgentsBody({
     'Fresh agents are not available in this conversation yet. Your setup stays here.';
   return (
     <>
-      <div
-        className={
-          compact
-            ? 'conversation-agents-entry'
-            : `conversation-participants${leading ? ' workspace-controls--navigation' : ''}`
-        }
-      >
-        {leading}
-        <button
-          type="button"
-          className="conversation-participants-trigger"
-          aria-label={`Agents${names ? ', ' + names : ''}`}
-          aria-expanded={open}
-          onClick={(event) => {
-            event.currentTarget.focus();
-            setView('agents');
-            setOpen(true);
-          }}
+      <ParticipantHeaderFrame compact={compact}>
+        <div
+          className={
+            compact
+              ? 'conversation-agents-entry'
+              : `conversation-participants${leading ? ' workspace-controls--navigation' : ''}`
+          }
         >
-          <UiIcon name={agents.length > 1 ? 'agents' : 'bot'} />
-          {!compact && (
-            <span>
-              <strong>
-                <span className="conversation-participant-names">
-                  {headerAgents.map((a) => a.name).join(' · ')
-                    ? headerAgents.map((agent, index) => (
-                        <span
-                          key={agent.id}
-                          className={
-                            index === 1 ? 'conversation-participant-additional-name' : undefined
-                          }
-                        >
-                          {index === 1 ? ' · ' : ''}
-                          {agent.name}
-                        </span>
-                      ))
-                    : 'Agents'}
-                </span>
-                {agents.length > 1 && (
-                  <span className="conversation-participant-count">+{agents.length - 1}</span>
-                )}
-              </strong>
-              <small>
-                {agents.length > 2 ? `+${agents.length - 2} · ` : ''}
-                {agents.length > 1 ? 'Shared discussion' : 'Agent chat'}
-              </small>
-            </span>
-          )}
-          {compact && <span>Agents</span>}
-          <UiIcon name="down" />
-        </button>
-        {actions}
-      </div>
+          {leading}
+          <button
+            type="button"
+            className="conversation-participants-trigger"
+            aria-label={`Agents${names ? ', ' + names : ''}`}
+            aria-expanded={open}
+            onClick={(event) => {
+              event.currentTarget.focus();
+              setView('agents');
+              setOpen(true);
+            }}
+          >
+            <UiIcon name={agents.length > 1 ? 'agents' : 'bot'} />
+            {!compact && (
+              <span>
+                <strong>
+                  <span className="conversation-participant-names">
+                    {headerAgents.map((a) => a.name).join(' · ')
+                      ? headerAgents.map((agent, index) => (
+                          <span
+                            key={agent.id}
+                            className={
+                              index === 1 ? 'conversation-participant-additional-name' : undefined
+                            }
+                          >
+                            {index === 1 ? ' · ' : ''}
+                            {agent.name}
+                          </span>
+                        ))
+                      : 'Agents'}
+                  </span>
+                  {agents.length > 1 && (
+                    <span className="conversation-participant-count">+{agents.length - 1}</span>
+                  )}
+                </strong>
+                <small>
+                  {agents.length > 2 ? `+${agents.length - 2} · ` : ''}
+                  {agents.length > 1 ? 'Shared discussion' : 'Agent chat'}
+                </small>
+              </span>
+            )}
+            {compact && <span>Agents</span>}
+            <UiIcon name="down" />
+          </button>
+          {actions}
+        </div>
+      </ParticipantHeaderFrame>
       {present && (
         <HomeDialog
           title={title}

@@ -63,11 +63,12 @@ it('keeps the second participant and separator in one independently hideable nam
   expect(trigger.querySelector('.conversation-participant-count')?.textContent).toBe('+2');
 });
 
-it('hides the additional name where the existing mobile count is displayed, preserving desktop rules', () => {
+it('hides the additional name in the approved 360px conversation container, preserving wider rules', () => {
   const trigger = mount(3);
   const names = trigger.querySelector('.conversation-participant-names')!;
   const first = names.firstElementChild;
   const additional = names.querySelector('.conversation-participant-additional-name');
+  expect(trigger.closest('.conversation-participants-container')).not.toBeNull();
 
   // JSDOM does not lay out media queries. Inspect the actual stylesheet's CSSOM
   // and its selectors against the rendered component; rendered viewport proof
@@ -77,10 +78,8 @@ it('hides the additional name where the existing mobile count is displayed, pres
   document.head.append(style);
   try {
     const rules = Array.from(style.sheet!.cssRules);
-    const mobile = rules.find(
-      (rule): rule is CSSMediaRule =>
-        rule.type === CSSRule.MEDIA_RULE &&
-        (rule as CSSMediaRule).conditionText === '(max-width: 480px)',
+    const mobile = rules.find((rule): rule is CSSContainerRule =>
+      rule.cssText.startsWith('@container conversation-participants (max-width: 360px)'),
     );
     expect(mobile).toBeDefined();
     const mobileRules = Array.from(mobile!.cssRules).filter(

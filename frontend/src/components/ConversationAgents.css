@@ -1,3 +1,9 @@
+.conversation-participants-container {
+  container-type: inline-size;
+  container-name: conversation-participants;
+  flex: none;
+  min-width: 0;
+}
 .conversation-participants,
 .conversation-agents-entry,
 .conversation-participants-trigger,
@@ -407,7 +413,13 @@
     padding-inline: 0;
   }
   .conversation-participants-trigger > svg:first-child,
-  .conversation-participants-trigger small,
+  .conversation-participants-trigger small {
+    display: none;
+  }
+}
+
+/* The frozen reference collapses names at 360px of conversation width. */
+@container conversation-participants (max-width: 360px) {
   .conversation-participant-additional-name {
     display: none;
   }
