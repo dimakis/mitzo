@@ -433,7 +433,7 @@ test('keeps the shared masthead and gives the terminal most of the mobile viewpo
   const before = await brand.boundingBox();
   await page.getByRole('link', { name: 'Terminal', exact: true }).last().click();
   await expect(page.getByRole('heading', { name: 'Terminal', exact: true })).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   expect(await brand.boundingBox()).toEqual(before);
   expect(
     await page
@@ -466,7 +466,7 @@ test('reviews adviser output and stages commands before explicit execution', asy
   page,
 }, testInfo) => {
   await page.goto('/terminal?sessionId=chat-a&returnTo=%2Fchat%2Fchat-a');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   await expect(page.getByRole('link', { name: 'Back to chat' })).toHaveAttribute(
     'href',
     '/chat/chat-a',
@@ -503,7 +503,7 @@ test('keeps command and adviser input reachable when the phone keyboard reduces 
 }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith('mobile'), 'Phone keyboard layout');
   await page.goto('/terminal');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   const original = page.viewportSize()!;
   await page.getByLabel('Command', { exact: true }).focus();
   await page.setViewportSize({ ...original, height: 420 });
@@ -559,7 +559,7 @@ test('scrolls long tmux output with touch and wheel while keeping controls compa
     (window as unknown as { terminalLongOutput: boolean }).terminalLongOutput = true;
   });
   await page.goto('/terminal');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   await expect(page.locator('.xterm-rows')).toContainText('Retained row 081');
   const output = page.getByLabel('Interactive terminal');
   await output.dispatchEvent('wheel', { ctrlKey: true, deltaY: 100, deltaMode: 0 });
@@ -617,7 +617,7 @@ test('returns to live output after navigating away from retained history', async
     (window as unknown as { terminalLongOutput: boolean }).terminalLongOutput = true;
   });
   await page.goto('/terminal');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   await page
     .getByLabel('Interactive terminal')
     .dispatchEvent('wheel', { deltaY: -160, deltaMode: 0 });
@@ -626,7 +626,7 @@ test('returns to live output after navigating away from retained history', async
   // Exercise a fresh attachment, including a new window's transient component state.
   await page.goto('/more');
   await page.goto('/terminal');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   await expect(page.locator('.xterm-rows')).not.toContainText('Retained row 100');
   await page.getByRole('button', { name: 'Terminal options' }).click();
   await page.getByRole('button', { name: 'Return to live output' }).click();
