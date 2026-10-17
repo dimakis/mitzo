@@ -103,13 +103,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/home.css':
     'aa3da55b033e5e580ba3dec2822cab53f6c90610b26af28af172aab5e928e702',
   '../../frontend/src/styles/tokens.css':
-    '0144504755cb94a23c12c9ec16c95e93465165da53a5a17c2e961c614cd87654',
+    '1286a09206e1630e8f8d1d7315a2df2208538117dc08f2248b68f00339fd07d7',
   '../../frontend/src/hooks/useMotionPresence.ts':
     'ace66416845a7e8a85ce17c07c8310b4b7089e89f09ce6e8cb7919907d035838',
   '../../frontend/src/hooks/useReducedMotion.ts':
     'bac83b87d2170b27345c415117c7ec3af58071633433e58c0ac57b4cfe8318b0',
   '../../frontend/src/lib/motion.ts':
-    'b4824511e9ab83fa7d84cff518bbf8b88f725a4ddb07c87c7e6a81729ca55e37',
+    'ad00f4a8c52926e6b4527c84d9abd38935b538c9452566395a5bb8b998540589',
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   // Approved Agents presentation and retained native composer adaptation.
@@ -860,7 +860,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/NotificationProvider.tsx':
     '5c8e900478b657b157119b52ae8f4325668a8bf96ace930f47de515a068f569f',
   '../../frontend/src/components/ProtectedRoute.tsx':
-    '0217ccae0e21246237605d9b047b2f5695ba3cd7c87a98266cd50473828128c7',
+    '26e43aa23bf531d1a59408817019e9e43c6e12d6594a0bf6342ba63c4d494fd0',
   '../../frontend/src/components/TodoCard.tsx':
     'ac794c67dce156ebede1aa75908600a228f7d571af23f6a43dca836ec729ddf3',
   '../../frontend/src/hooks/useAttentionFeed.ts':
@@ -882,7 +882,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/auth-check-tracing.ts':
     '7ce7949ea77d373206b90e9cbe59254f4e76df03624eb7c2f0db2936ca79b012',
   '../../frontend/src/lib/biometric.ts':
-    '7b107f137a143c9d30f9baeb6b685abe813d7a5b01eac33020014f1f1db33173',
+    'e7689889b995006d0d5f99f757f481fdaf10f70822518d0c46f91c662d45a304',
   '../../packages/client/src/api-client.ts':
     'a19575a8f5cba037f6aee6ac8c8e475131a3d2a0c7236d8ea8e0b5048f3a0181',
   '../../packages/client/src/applied-delivery.ts':
