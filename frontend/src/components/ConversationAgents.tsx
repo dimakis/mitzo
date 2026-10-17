@@ -91,6 +91,7 @@ function ConversationAgentsBody({
     setProfileReason(undefined);
   });
   const names = agents.map((a) => a.name).join(', ');
+  const headerAgents = agents.slice(0, 2);
   const nameValid =
     /^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(setup.name) &&
     setup.name.toLowerCase() !== 'all' &&
@@ -140,10 +141,19 @@ function ConversationAgentsBody({
             <span>
               <strong>
                 <span className="conversation-participant-names">
-                  {agents
-                    .slice(0, 2)
-                    .map((a) => a.name)
-                    .join(' · ') || 'Agents'}
+                  {headerAgents.map((a) => a.name).join(' · ')
+                    ? headerAgents.map((agent, index) => (
+                        <span
+                          key={agent.id}
+                          className={
+                            index === 1 ? 'conversation-participant-additional-name' : undefined
+                          }
+                        >
+                          {index === 1 ? ' · ' : ''}
+                          {agent.name}
+                        </span>
+                      ))
+                    : 'Agents'}
                 </span>
                 {agents.length > 1 && (
                   <span className="conversation-participant-count">+{agents.length - 1}</span>

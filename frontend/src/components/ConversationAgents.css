@@ -407,7 +407,8 @@
     padding-inline: 0;
   }
   .conversation-participants-trigger > svg:first-child,
-  .conversation-participants-trigger small {
+  .conversation-participants-trigger small,
+  .conversation-participant-additional-name {
     display: none;
   }
   .conversation-participants-trigger strong {
