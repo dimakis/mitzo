@@ -54,3 +54,31 @@ it('offers only the installed reviewed API template and no unpublished custom im
     f.store.close();
   }
 });
+it('does not recommend an unavailable published version as automatic equivalent reuse', async () => {
+  const f = toolBuilderFixture();
+  try {
+    const draft = f.draft;
+    f.store.save('user', 'builder', 'call', draft, 0);
+    f.store.submit('user', 'builder', draft.id, 1, draft.contractDigest);
+    f.store.review(
+      'user',
+      draft.id,
+      1,
+      { decision: 'accepted', feedback: '', contractDigest: draft.contractDigest },
+      'user',
+    );
+    await f.store.publish('user', draft.id, 1, draft.contractDigest);
+    const catalog = createToolBuilderCatalog({ store: f.store });
+    expect(
+      (await catalog.search('Text length')).find((match) => match.id === `custom:${draft.id}`)
+        ?.equivalent,
+    ).toBe(true);
+    f.drift();
+    expect(
+      (await catalog.search('Text length')).find((match) => match.id === `custom:${draft.id}`)
+        ?.equivalent,
+    ).toBe(false);
+  } finally {
+    f.store.close();
+  }
+});
