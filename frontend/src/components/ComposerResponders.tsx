@@ -8,7 +8,7 @@ export interface ComposerResponderSelection {
   selectedIds: string[];
   /** Ordinary callers retain this exact protocol intent independently of resolved IDs. */
   responders?: CollaborationMessageInput['responders'];
-  onChange(ids: string[], responders?: CollaborationMessageInput['responders']): void;
+  onChange(ids: string[], responders?: CollaborationMessageInput['responders']): boolean | void;
   /** Retained adapters may have narrower delivery support than ordinary collaboration. */
   maximum?: number;
   /** Keep the submitting composer mounted until its receipt settles. */
@@ -97,7 +97,11 @@ export function ComposerResponders({
   };
   const choose = (ids: string[], kind: 'default' | 'all' | 'selected' = 'selected') => {
     if (selection.disabled) return;
-    selection.onChange(ids, kind === 'selected' ? { kind, sessionIds: ids } : { kind });
+    const retained = selection.onChange(
+      ids,
+      kind === 'selected' ? { kind, sessionIds: ids } : { kind },
+    );
+    if (retained === false) return;
     if (mention) onTextChange(text.slice(0, text.lastIndexOf('@')));
     if (selection.maximum === 1) close();
   };

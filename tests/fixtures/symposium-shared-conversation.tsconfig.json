@@ -24,6 +24,9 @@
     "./symposium-shared-conversation-data.ts",
     "../../packages/client/src/__tests__/collaboration-projection-replay.test.ts",
     "../../tests/offline/symposium-shared-conversation.spec.ts",
-    "../../frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx"
+    "../../frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx",
+    "../../frontend/src/hooks/useConversationPresentation.ts",
+    "../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx",
+    "../../frontend/src/lib/__tests__/conversation-draft-intent.test.ts"
   ]
 }

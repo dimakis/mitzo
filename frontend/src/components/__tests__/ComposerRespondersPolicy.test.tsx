@@ -138,3 +138,19 @@ it('allows an unavailable selected recipient to be removed without silently choo
   fireEvent.click(unavailable);
   expect(onChange).toHaveBeenCalledWith([], { kind: 'selected', sessionIds: [] });
 });
+
+it('keeps the selector text and picker when the ordinary draft owner refuses the change', () => {
+  const onTextChange = vi.fn();
+  render(
+    <ComposerResponders
+      input={{ current: null }}
+      text="Keep this @rev"
+      onTextChange={onTextChange}
+      onOpenChange={vi.fn()}
+      selection={{ members, selectedIds: [], onChange: () => false }}
+    />,
+  );
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer · on-one' }));
+  expect(onTextChange).not.toHaveBeenCalled();
+  expect(screen.getByRole('group', { name: 'Who replies to this prompt' })).toBeTruthy();
+});
