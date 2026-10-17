@@ -74,7 +74,7 @@ export function createWebAccessTool(
     }
     const parsed = WebAccessInput.safeParse(input);
     if (parsed.success && parsed.data.operation === 'fetch') {
-      const granted = await urlAccess.fetch(parsed.data.url, signal);
+      const granted = await urlAccess.fetch(parsed.data.url, signal, parsed.data.view);
       if (granted) return granted;
     }
     const operationId = randomUUID();
@@ -170,9 +170,9 @@ export function createWebAccessTool(
         return search(query, signal, { parentSessionId: conversationId, operationId });
       },
 
-      fetchPage: async (url, signal) => {
+      fetchPage: async (url, signal, view) => {
         await assertRuntimeCurrent?.();
-        return fetchPublicPage(url, signal, undefined, assertRuntimeCurrent);
+        return fetchPublicPage(url, signal, undefined, assertRuntimeCurrent, view);
       },
     });
   };
