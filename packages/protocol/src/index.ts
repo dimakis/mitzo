@@ -284,6 +284,9 @@ export type {
 export {
   SourceSnapshotSchema,
   SourceSnapshotsSchema,
+  AgentLibrarySourceSnapshotSchema,
+  AgentLibrarySourceContentSchema,
+  type AgentLibrarySourceContent,
   type SourceSnapshot,
 } from './source-snapshot.js';
 
@@ -366,3 +369,4 @@ export * from './telos-source.js';
 export * from './telos-outcome.js';
 
 export * from './telos-work-role-context.js';
+export { AgentLibraryEditableDefinitionSchema } from './agent-library-editable.js';

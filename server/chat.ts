@@ -2668,6 +2668,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                     repositoryChatContext(repositoryWorkspace) + frozenPayload.text,
                     cwd,
                     frozenPayload.images,
+                    undefined,
+                    frozenPayload.sourceSnapshots,
                   );
             session.model = _admission.selection.model;
             storeAndEchoIfNew(
@@ -2679,7 +2681,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               session.observers,
               imagePreviews(frozenPayload.images),
               undefined,
-              undefined,
+              frozenPayload.sourceSnapshots,
               'user',
               false,
             );
@@ -3064,8 +3066,11 @@ export async function startOwnedLocalCodexCommand(
         await native.admitExplicitSend(
           {
             id: dispatch.commandId,
-            prompt: dispatch.payload.text,
-            intent: dispatch.payload.intent,
+            prompt: assembleSourceSnapshots(
+              dispatch.payload.text,
+              dispatch.payload.sourceSnapshots,
+            ),
+            intent: dispatch.payload.intent ?? dispatch.payload.text,
             images: dispatch.payload.images,
             model: dispatch.expected.selection.model,
             reasoningEffort: dispatch.expected.selection.thinking,
@@ -3084,7 +3089,7 @@ export async function startOwnedLocalCodexCommand(
           session.observers,
           imagePreviews(dispatch.payload.images),
           undefined,
-          undefined,
+          dispatch.payload.sourceSnapshots,
           'user',
           false,
         );
@@ -3239,7 +3244,8 @@ export async function prepareOwnedCodexChat(
       throw unavailable();
     input.admission.assertPreparedOptions({
       ...selected.payload,
-      prompt: selected.payload.text,
+      intent: selected.payload.intent ?? selected.payload.text,
+      prompt: assembleSourceSnapshots(selected.payload.text, selected.payload.sourceSnapshots),
       conversationId: input.sessionId,
       messageId: input.commandId,
       resume,
@@ -3352,7 +3358,7 @@ export async function prepareOwnedCodexChat(
       session.observers,
       imagePreviews(payload.images),
       undefined,
-      undefined,
+      payload.sourceSnapshots,
       'user',
       false,
     );
@@ -3403,8 +3409,8 @@ export async function prepareOwnedCodexChat(
         });
         send(transport, { ...context, sessionId });
       },
-      prompt: payload.text,
-      intent: payload.intent,
+      prompt: assembleSourceSnapshots(payload.text, payload.sourceSnapshots),
+      intent: payload.intent ?? payload.text,
       systemPrompt: payload.systemPrompt,
       model: expected.selection.model,
       reasoningEffort: expected.selection.thinking,
@@ -3500,6 +3506,7 @@ export function echoOwnedCodexCommand(
   commandId: string,
   payload: {
     text: string;
+    sourceSnapshots?: SourceSnapshot[];
     images?: Array<{ data: string; mediaType: string }>;
   },
 ): void {
@@ -3514,7 +3521,7 @@ export function echoOwnedCodexCommand(
     current.session.observers,
     imagePreviews(payload.images),
     undefined,
-    undefined,
+    payload.sourceSnapshots,
     'user',
     false,
   );
@@ -6415,7 +6422,7 @@ export async function startOwnedLocalResponsesCommand(
       session!.observers,
       imagePreviews(selected.payload.images),
       undefined,
-      undefined,
+      selected.payload.sourceSnapshots,
       'user',
       false,
     );
@@ -6433,16 +6440,17 @@ export async function startOwnedLocalResponsesCommand(
       const commandId = await owner.claimNextCommand();
       if (!commandId || closed) return;
       const selected = owner.snapshot(commandId);
+      const providerPrompt = assembleSourceSnapshots(
+        selected.payload.text,
+        selected.payload.sourceSnapshots,
+      );
       const provider = admitProviderDispatch({
         store: eventStore,
         request: {
           sessionId,
           clientMsgId: commandId,
-          effectivePrompt: selected.payload.text,
-          fingerprintSource: providerFingerprintSource(
-            selected.payload.text,
-            selected.payload.images,
-          ),
+          effectivePrompt: providerPrompt,
+          fingerprintSource: providerFingerprintSource(providerPrompt, selected.payload.images),
           model: selected.expected.selection.model,
           reasoningEffort: selected.expected.selection.thinking,
           accountBinding: options.reservation.binding,
@@ -6450,7 +6458,7 @@ export async function startOwnedLocalResponsesCommand(
         prepare: () =>
           getResponsesRuntime(session!)!.prepare(
             commandId,
-            responsesUserContent(selected.payload.text, selected.payload.images),
+            responsesUserContent(providerPrompt, selected.payload.images),
             {
               model: selected.expected.selection.model,
               reasoningEffort: selected.expected.selection.thinking,
@@ -6461,7 +6469,7 @@ export async function startOwnedLocalResponsesCommand(
       trackResponsesProviderAdmission(session!, provider, eventStore);
       session!.model = selected.expected.selection.model;
       input.push({
-        message: { content: selected.payload.text },
+        message: { content: providerPrompt },
         mitzoMessageId: commandId,
         mitzoImages: selected.payload.images,
         providerAdmission: provider,

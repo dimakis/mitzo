@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
 import { existsSync, writeFileSync } from 'node:fs';
 
@@ -49,6 +50,20 @@ const fixture = (options?: {
   silentPreparation?: boolean;
   builtinPreparation?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
+
+it('rejects altered reviewed Library source bytes before native startup effects', async () => {
+  const f = await fixture();
+  const request = {
+    ...f.request,
+    payload: {
+      ...f.request.payload,
+      sourceSnapshots: [{ ...agentLibrarySource, content: agentLibrarySource.content + ' ' }],
+    },
+  };
+  await expect(f.create().admit(request)).rejects.toThrow();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(f.rpc.request).not.toHaveBeenCalled();
+});
 
 it('adopts the exact builtin namespace through the ordinary Local owner', async () => {
   const f = await fixture();

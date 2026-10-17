@@ -122,12 +122,15 @@ vi.mock('../../components/ChatArea', () => ({
   ChatArea: ({
     messages,
     currentByMessage,
+    afterMessages,
   }: {
+    afterMessages?: React.ReactNode;
     messages: unknown[];
     currentByMessage?: Record<string, unknown>;
   }) => (
     <div>
       <span data-testid="chat-message-count">Messages: {messages.length}</span>
+      {afterMessages}
       <span data-testid="active-seats">
         Active seats: {Object.keys(currentByMessage ?? {}).length}
       </span>
@@ -969,5 +972,48 @@ for (const [name, Screen] of [
       expect.anything(),
     );
     expect(legacySend).not.toHaveBeenCalled();
+  });
+}
+
+for (const Screen of [ChatView, DesktopChatView]) {
+  it(`${Screen.name}: reviews platform proposals in first-command-only history while runtime send stays blocked`, async () => {
+    const { localSend, legacySend, store } = setup(Screen, false, false, true, false, false);
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    const proposal = {
+      proposalId: 'first-only-proposal',
+      suggestedProfileId: 'reviewed-agent',
+      state: 'pending',
+      definition: {
+        name: 'Reviewed Agent',
+        role: 'agent',
+        instructions: 'Review first-command history',
+        expectedOutput: 'Report',
+        acceptanceCriteria: ['Cite evidence'],
+        modelPolicyRole: 'agent',
+      },
+    };
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).includes('/profile-proposals') && !init?.method)
+        return new Response(JSON.stringify([proposal]));
+      if (String(url) === '/api/symposium/profiles') return new Response('[]');
+      if (String(url).endsWith('/first-only-proposal/save') && init?.method === 'POST')
+        return new Response(JSON.stringify({ profileId: 'reviewed-agent', revision: 1 }));
+      return original(url, init);
+    });
+    await screen.findByDisplayValue('Reviewed Agent');
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    const save = screen.getByRole('button', { name: 'Save reusable profile' });
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await screen.findByText('Saved Reviewed Agent to your Agent Library.');
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    act(() =>
+      store.setState({ sessions: { ...store.getState().sessions, active: 'other-session' } }),
+    );
+    // The old review remains available to read but loses write authorization.
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
   });
 }

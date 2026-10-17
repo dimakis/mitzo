@@ -94,7 +94,7 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Tool library', exact: true }).click();
     await expect(page.getByRole('button', { name: 'New agent', exact: true })).toHaveCount(0);
     await expect(
-      page.getByRole('button', { name: 'Create with advisor', exact: true }),
+      page.getByRole('button', { name: 'Create with Agent Builder', exact: true }),
     ).toHaveCount(0);
     const library = page.getByRole('region', { name: 'Tool library', exact: true });
     await expect(library.getByRole('status')).toHaveText('Loading profile usage…');

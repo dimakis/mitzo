@@ -24,6 +24,7 @@ export const ChatDraftSchema = z.object({
   contextBlocks: z.array(z.string()),
   updatedAt: z.number(),
   settings: z.object({
+    sourceSnapshots: SourceSnapshotsSchema.optional(),
     launch: z
       .object({
         prompt: z.string(),
@@ -126,6 +127,7 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.contextBlocks.length &&
       !draft.settings.repositoryWorkspaceId &&
       !draft.settings.launch &&
+      !draft.settings.sourceSnapshots?.length &&
       !draft.settings.retainRuntimeIntent
     )
       localStorage.removeItem(PREFIX + draft.id);

@@ -1004,6 +1004,7 @@ export function ChatInput({
             />
             {(!useExternal || onExternalContextBlockToggle) && (
               <SessionResourcesDialog
+                sourceSnapshots={savedChatDraft?.settings.sourceSnapshots}
                 sessionId={sessionId}
                 compactions={compactions}
                 compactionError={compactionError}

@@ -2,6 +2,7 @@ import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
 } from './telos-work-role-context.js';
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { isDeepStrictEqual } from 'node:util';
 import { OrdinaryCodexFirstCommandSchema } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
@@ -209,8 +210,11 @@ export async function startOwnedOpenShellCodexCommand(
         await native.admitExplicitSend(
           {
             id: dispatch.commandId,
-            prompt: dispatch.payload.text,
-            intent: dispatch.payload.intent,
+            prompt: assembleSourceSnapshots(
+              dispatch.payload.text,
+              dispatch.payload.sourceSnapshots,
+            ),
+            intent: dispatch.payload.intent ?? dispatch.payload.text,
             images: dispatch.payload.images,
             model: dispatch.expected.selection.model,
             reasoningEffort: dispatch.expected.selection.thinking,
