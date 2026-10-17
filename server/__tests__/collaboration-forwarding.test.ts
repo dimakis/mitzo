@@ -689,3 +689,84 @@ it('requires current synchronous operator authority and never replaces the origi
   ).rejects.toThrow('Operator source access revoked');
   expect(original).toHaveBeenCalledTimes(1);
 });
+
+it('exposes a private synchronous material fence for the existing save owner without reopening sources', async () => {
+  const input = selection();
+  const output = store.registerSessionOutput('source', {
+    requestId: 'save-fence-ref',
+    title: 'Selected',
+    source: {
+      messageId: 'answer',
+      blockId: 'chosen',
+      messageEndSeq: input.boundary.sequence,
+      sha256: input.messages[0].blocks[0].sha256,
+    },
+  });
+  const open = vi.spyOn(store, 'openCollaborationVisibleSource');
+  const result = await prepareCollaborationForward(
+    {
+      ...input,
+      messages: [],
+      artifacts: [
+        {
+          kind: 'transcript_reference',
+          artifactId: output.outputId,
+          revision: 1,
+          sha256: output.source.sha256,
+        },
+      ],
+    },
+    deps(),
+  );
+  const before = authorizeSource.mock.calls.length;
+  expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+  expect(authorizeSource).toHaveBeenCalledTimes(before);
+  expect(result.packet).not.toHaveProperty('assertLocalMaterialCurrent');
+  const fault = new Database(path);
+  fault
+    .prepare('DELETE FROM session_output_references WHERE session_id=? AND output_id=?')
+    .run('source', output.outputId);
+  fault.close();
+  expect(() => result.assertLocalMaterialCurrent()).toThrow();
+  expect(open).toHaveBeenCalledTimes(1);
+});
+
+it('renews retained material privacy synchronously for the existing save owner', async () => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const f = createCollaborationRetainedArtifactFixture();
+  try {
+    const saved = f.store.save({
+      itemId: f.itemId,
+      filename: 'retained.md',
+      title: 'Retained',
+      bytes: Buffer.from('EXACT MATERIAL'),
+      sessionId: 'gone',
+    });
+    const input = {
+      ...selection(),
+      sourceConversationId: null,
+      boundary: null,
+      messages: [],
+      artifacts: [
+        { kind: 'retained_artifact', artifactId: saved.id, revision: 1, sha256: saved.sha256 },
+      ],
+    };
+    const result = await prepareCollaborationForward(input, {
+      authorizeTarget,
+      retainedArtifacts: createRetainedCollaborationArtifactSource({
+        store: f.store,
+        authorizeArtifact: async () => {},
+      }),
+    });
+    expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+    const fault = new Database(f.path);
+    fault.prepare('UPDATE items SET profile=? WHERE id=?').run('LifeOps', f.itemId);
+    fault.close();
+    expect(() => result.assertLocalMaterialCurrent()).toThrow();
+  } finally {
+    f.close();
+  }
+});

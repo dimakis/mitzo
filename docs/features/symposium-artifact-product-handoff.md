@@ -100,3 +100,36 @@ this newer UI source or close application, capacity, runtime or mixed-recipient 
 C should consume this source and rerun the matching actual-owner cases. Core owns
 final integration; the Symposium reviewer routes the S7 consumer reconciliation.
 No merge, parent closure, accepted UX, live runtime or deployment is claimed here.
+
+## Core contract follow-up, 18 October
+
+Core has selected these existing-owner endpoints for implementation; the types,
+receipts and handlers are still pending a committed source handoff. Participant
+controls stay unavailable until then. These are proposal details, not implemented
+B endpoints:
+
+- `POST /:group/forwards/prepare`: exact B selection plus a bounded note. Middleware
+  supplies actor identity; the target group must match the route. Reserve the original
+  actor/request fingerprint before async reads. Exact retries recover retained bytes.
+- `POST /:group/forwards/:forwardId/confirm`: separate retained confirmation request ID,
+  selection fingerprint, packet hash, original membership revision and `requestReply:false`.
+  First confirmation atomically creates selected recipients' context-only pending receipts.
+- `GET /:group/forwards/:forwardId`: original preparation reference and independent
+  recipient outcomes. Read/retry is observational; lost-response retries keep the original
+  request/body and cannot upgrade saved content or create another delivery.
+
+Preparation/confirmation performs no allocation, model call or automatic turn/queue.
+The next independently admitted explicit command may receive supported text through
+ordinary context owners. Unsupported binary/media and `requestReply:true` remain
+unavailable. B's strict selection parser does not accept an arbitrary note field;
+core owns its envelope, note retention/bounds and combined request fingerprint.
+
+B additionally exposes private `assertLocalMaterialCurrent():void` on the prepared
+result. It reuses the held artifact checks synchronously without re-opening sources,
+awaiting, changing selected bytes or creating a receipt. Core must combine it with
+genuine synchronous target/membership, original source/operator and retained-access
+checks inside its existing save transaction. The artifact-only callback is not
+complete authorization, including for message-only packets, and grants no dispatch
+permit. Two actual-owner red/green tests cover post-preparation transcript-reference
+removal and retained-item privacy changes; missing/async/value transcript callbacks
+continue to refuse through the earlier regressions.

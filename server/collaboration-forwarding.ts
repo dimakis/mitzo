@@ -305,6 +305,11 @@ export async function prepareCollaborationForward(
     serialized,
     sha256: sha(serialized),
     requestFingerprint: collaborationForwardFingerprint(input),
+    /** Private local artifact custody only. The existing save owner must compose
+     * genuine synchronous target/membership, source witness/operator and retained
+     * access checks in its transaction. This does not run async authorization,
+     * reserve a receipt or authorize dispatch, including for message-only packets. */
+    assertLocalMaterialCurrent: assertLocalCustody,
     assertCurrent,
   });
 }
