@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.287-telos-priority-sandbox-review';
+  'v1.0.288-telos-priority-remount';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -73,7 +73,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/todo.ts':
     '0bb70da730deb4cd25d7bb12181f593e795ef5b36d0d6f3915b6895ffe7a68ff',
   '../../frontend/src/pages/TodoDetailView.tsx':
-    'd8e3e50bb3dc3547d0cb8ff3d18575e2d5d646558233c1587013a914dd561ea6',
+    '59f1571f2465741e023745ebf7563b6b70bb3b99bf4b74e3d4870ec5247fb211',
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
@@ -904,7 +904,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useSessionList.ts':
     '8da1fb05d820785afec8e7ab671b10ed83b84c67ffff1317d5fd5ce677f2a4c7',
   '../../frontend/src/hooks/useTodoData.ts':
-    '95a394b311128f7ffb9862cf628f69cc9931b094b200e868d12a44677c3c73f1',
+    '214f049b45aa0a9ea516aa5a0d42c621bef4b606fdacb8b24faf5610cdecabfe',
   '../../frontend/src/lib/api-fetch.ts':
     '39ae0be32bfda66e5135dbe287eecb5cb5bce0c74d3e823897d6363d040bf9ff',
   '../../frontend/src/lib/api-json-read.ts':
@@ -1025,9 +1025,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/todo-utils.ts':
     'ac071496fb4986ec4b4395384ed7777b96a01a2706ec31ef5766464362363bd4',
   '../../frontend/src/lib/list-cache.ts':
-    'd84708623643d8fb7e0a2429fbb37b4340881a53192231182f066ce751d7cd04',
+    'aab8fb64d2ba643e5dc69eb53b9fddadc7680589ad2e7b5b05e3cc71672e0037',
   '../../frontend/src/pages/TodoView.tsx':
     'b46a9a709821749c6e352bccc25e8527a158f9e8f26530d79dc7ba550bb4f8b6',
   '../../frontend/src/lib/todo-priority.ts':
-    '7727912851c8c0a47492e77fef3b8ab1bfababda7cc241335a4746e08529cd1b',
+    '0d94d14b2ebef076eef35811513afcde789c6f9f95f0f18d14515200ba439ad9',
 });

@@ -100,3 +100,25 @@ it('updates retained snapshots after a mutation and rejects older reads', async 
   await rejected;
   expect(cache.get('all')).toEqual(['retained']);
 });
+
+it('records derived memory only when a current read is admitted, before publication', async () => {
+  const cache = new ListCache<string>();
+  const accepted = vi.fn();
+  cache.subscribe('all', () => expect(accepted).toHaveBeenLastCalledWith('current'));
+  let finish!: (value: string) => void;
+  const stale = cache.load(
+    'all',
+    () =>
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+    accepted,
+  );
+  const rejected = expect(stale).rejects.toBeInstanceOf(SupersededListRequest);
+  cache.invalidate();
+  finish('stale');
+  await rejected;
+  expect(accepted).not.toHaveBeenCalled();
+  await cache.load('all', async () => 'current', accepted);
+  expect(accepted).toHaveBeenCalledExactlyOnceWith('current');
+});

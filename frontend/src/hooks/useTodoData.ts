@@ -1,12 +1,39 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import type { TodoItem, TodoData, TodoOutcomeDraft } from '../types/todo';
 import { apiFetch, invalidateTodoReads } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import { ListCache, SupersededListRequest } from '../lib/list-cache';
 import { setTodoPriority, subscribeTodoPriorityUpdates } from '../lib/todo-priority';
+import { todoPriority } from '../lib/todo-utils';
 
 const todoCache = new ListCache<TodoData>();
+// Same authentication lifetime as list snapshots. Keep only the latest known
+// priority so navigation fallbacks survive responsive remounts without freezing
+// a confirmed write over a later authoritative read.
+const prioritySnapshots = new ListCache<number>();
+function rememberPriorities(data: TodoData): void {
+  function visit(items: TodoItem[]) {
+    for (const item of items) {
+      prioritySnapshots.set(item.id, todoPriority(item));
+      visit(item.children);
+    }
+  }
+  visit(data.items);
+}
+export function useLatestTodoPriority(item: TodoItem | undefined): TodoItem | undefined {
+  const id = item?.id;
+  const subscribe = useCallback(
+    (listener: () => void) => (id ? prioritySnapshots.subscribe(id, listener) : () => {}),
+    [id],
+  );
+  const read = useCallback(() => (id ? prioritySnapshots.get(id) : undefined), [id]);
+  const priority = useSyncExternalStore(subscribe, read, read);
+  return !item || priority === undefined || priority === item.priority
+    ? item
+    : { ...item, priority };
+}
 subscribeTodoPriorityUpdates(({ id, priority }) => {
+  prioritySnapshots.set(id, priority);
   todoCache.update((data) => ({ ...data, items: setPriorityInTree(data.items, id, priority) }));
 });
 function invalidateTodos(): void {
@@ -99,11 +126,15 @@ export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDa
     setError(null);
 
     todoCache
-      .load(url, async () => {
-        const response = await apiFetch(url);
-        if (!response.ok) throw new Error(`Todo API returned ${response.status}`);
-        return response.json();
-      })
+      .load(
+        url,
+        async () => {
+          const response = await apiFetch(url);
+          if (!response.ok) throw new Error(`Todo API returned ${response.status}`);
+          return response.json();
+        },
+        rememberPriorities,
+      )
       .then((result: TodoData) => {
         if (!cancelled) {
           setData(result);
