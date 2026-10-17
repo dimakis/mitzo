@@ -180,7 +180,7 @@ export class ApiToolCatalog {
           },
           required: false,
           behavior: 'read',
-          routes: ['local-api'],
+          routes: ['local-api', 'codex'],
           requirement:
             'Reviewed read-only API template. Select RequestConnectionAccess too; current connection approval is required. New session required for changes.',
         };
