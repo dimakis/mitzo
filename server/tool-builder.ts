@@ -204,7 +204,7 @@ export class ToolBuilderService {
         throw new AggregateError(
           [error, cleanup],
           'Tool draft failed and workspace cleanup failed',
-          { cause: error },
+          { cause: cleanup },
         );
       }
       throw error;
