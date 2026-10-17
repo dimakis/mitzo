@@ -1,3 +1,6 @@
+import { TodoPrioritySelect } from './TodoPrioritySelect';
+import { todoPriority } from '../lib/todo-utils';
+import { setTodoPriority } from '../lib/todo-priority';
 import { useState } from 'react';
 import type { TelosWorkItem } from '@mitzo/protocol';
 import { UiIcon } from './UiIcon';
@@ -164,6 +167,10 @@ export function TelosItemWorkspace({
             {telosKindLabel(record.kind)} · {record.status}
           </span>
         </div>
+        <TodoPrioritySelect
+          priority={todoPriority(record)}
+          onChange={(priority) => setTodoPriority(record.itemId, priority)}
+        />
       </header>
       <nav className="telos-tabs" aria-label="Item views">
         {tabs.map((value) => (

@@ -18,7 +18,8 @@ vi.mock('../../components/TelosItemSources', () => ({
   TelosItemSources: () => <p>Source references</p>,
 }));
 vi.mock('../../components/WorkOutputs', () => ({ WorkOutputs: () => <p>Saved outputs</p> }));
-vi.mock('../../hooks/useTodoData', () => ({
+vi.mock('../../hooks/useTodoData', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../hooks/useTodoData')>()),
   useTodoData: () => ({
     loading: false,
     error: null,

@@ -6,6 +6,7 @@ export class SupersededListRequest extends Error {}
 export class ListCache<T> {
   private snapshots = new Map<string, T>();
   private pending = new Map<string, Promise<T>>();
+  private listeners = new Map<string, Set<() => void>>();
   private generation = 0;
 
   constructor() {
@@ -21,6 +22,17 @@ export class ListCache<T> {
 
   set(key: string, data: T): void {
     this.snapshots.set(key, data);
+    this.listeners.get(key)?.forEach((listener) => listener());
+  }
+
+  subscribe(key: string, listener: () => void): () => void {
+    const listeners = this.listeners.get(key) ?? new Set();
+    this.listeners.set(key, listeners);
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      if (!listeners.size) this.listeners.delete(key);
+    };
   }
 
   invalidate(): void {
@@ -36,6 +48,7 @@ export class ListCache<T> {
   clear(): void {
     this.invalidate();
     this.snapshots.clear();
+    this.listeners.forEach((listeners) => listeners.forEach((listener) => listener()));
   }
 
   load(key: string, loader: () => Promise<T>): Promise<T> {

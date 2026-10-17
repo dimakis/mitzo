@@ -117,3 +117,39 @@ it('ignores a stale same-ID response after update invalidation even when abort i
   });
   expect(result.current.records[0]?.summary).toBe(revised.summary);
 });
+
+it('publishes confirmed priority to mounted records, fences earlier reads and retains it through failed refresh', async () => {
+  const { setTodoPriority } = await import('../../lib/todo-priority');
+  vi.spyOn(await import('../../lib/api-fetch'), 'apiFetch').mockResolvedValue(
+    new Response('{"ok":true}'),
+  );
+  const original = { ...createTelosWorkFixtures().homeStudio.items[0], priority: 5 };
+  let release!: (value: typeof original) => void;
+  let mode: 'ready' | 'pending' | 'failed' = 'ready';
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(() => {
+    if (mode === 'pending')
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    if (mode === 'failed') return Promise.reject(Error('record refresh unavailable'));
+    return Promise.resolve(original);
+  });
+  const tree = renderHook(() => useTelosRecords([original.itemId]));
+  const detail = renderHook(() => useTelosRecords([original.itemId]));
+  await waitFor(() => expect(tree.result.current.records[0]?.priority).toBe(5));
+  await waitFor(() => expect(detail.result.current.records[0]?.priority).toBe(5));
+  mode = 'pending';
+  act(() => updates.forEach((listener) => listener()));
+  mode = 'failed';
+  await act(async () => {
+    await setTodoPriority(original.itemId, 9);
+  });
+  await waitFor(() => expect(tree.result.current.records[0]?.priority).toBe(9));
+  await waitFor(() => expect(detail.result.current.records[0]?.priority).toBe(9));
+  await act(async () => {
+    release(original);
+    await Promise.resolve();
+  });
+  expect(detail.result.current.records[0]?.priority).toBe(9);
+  expect(detail.result.current.unavailable).toContain(original.itemId);
+});

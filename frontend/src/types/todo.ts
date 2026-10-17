@@ -33,6 +33,7 @@ export interface TodoItem {
   acceptanceCriteria?: string[];
   profile: string;
   urgency: number;
+  priority?: number;
   starred: boolean;
   status: 'active' | 'acknowledged' | 'snoozed' | 'completed';
   ageDays: number;

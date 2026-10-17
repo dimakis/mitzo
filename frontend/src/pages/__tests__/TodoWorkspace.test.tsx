@@ -35,7 +35,8 @@ const item: TodoItem = {
     taskHint: 'Inspect current pages',
   },
 };
-vi.mock('../../hooks/useTodoData', () => ({
+vi.mock('../../hooks/useTodoData', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../hooks/useTodoData')>()),
   useTodoData: () => ({
     loading: false,
     items: [item, { ...item, id: 'second', summary: 'Review desktop work' }],
@@ -43,6 +44,7 @@ vi.mock('../../hooks/useTodoData', () => ({
     ack: vi.fn(),
     done: vi.fn(),
     star: vi.fn(),
+    setPriority: vi.fn(),
     create: vi.fn(),
     refresh: vi.fn(),
   }),

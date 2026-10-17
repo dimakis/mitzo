@@ -60,7 +60,11 @@ for (const theme of ['dark', 'light'])
     const records = scenarios
       .flatMap((s) => s.items)
       .map((r, i) =>
-        TelosWorkItemSchema.parse({ ...r, categories: i === 0 ? ['Recording'] : r.categories }),
+        TelosWorkItemSchema.parse({
+          ...r,
+          priority: 5,
+          categories: i === 0 ? ['Recording'] : r.categories,
+        }),
       );
     const todos = records.filter((r) => !r.parentId).map((r) => legacy(r));
     function legacy(record: (typeof records)[number]): unknown {
@@ -70,6 +74,7 @@ for (const theme of ['dark', 'light'])
         profile: record.profile,
         urgency: 1,
         starred: record.starred,
+        priority: record.priority,
         status: record.status,
         ageDays: 0,
         parentId: record.parentId,
@@ -85,16 +90,24 @@ for (const theme of ['dark', 'light'])
     const files = (await bundle).outputFiles;
     const unexpected: string[] = [];
     const errors: string[] = [];
+    async function reload() {
+      await page.waitForLoadState('networkidle');
+      await page.reload();
+    }
     async function navigate(path: string) {
       await page.waitForLoadState('networkidle');
       await page.goto(path);
     }
     const documentReads: number[] = [];
     let failRecords = false;
+    let rejectPriority = false;
+    let releasePriority: (() => void) | undefined;
+    let priorityGate: Promise<void> | undefined;
+    const priorityWrites: number[] = [];
     let collectionMode: 'ready' | 'empty' | 'error' = 'ready';
     page.on('pageerror', (e) => {
       errors.push(e.message);
-      console.error('Fixture page error:', e.message);
+      console.error('Fixture page error:', e.name, e.message, e.stack, page.url());
     });
     await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme as 'dark' | 'light' });
@@ -128,6 +141,17 @@ for (const theme of ['dark', 'light'])
           : route.fulfill({
               json: { profiles: ['manual'], items: collectionMode === 'empty' ? [] : todos },
             });
+      const action = url.pathname.match(/^\/api\/todos\/([^/]+)\/action$/);
+      if (action && route.request().method() === 'POST') {
+        const body = route.request().postDataJSON();
+        if (body.action !== 'priority') throw Error('Unexpected mutation');
+        priorityWrites.push(body.priority);
+        if (priorityGate) await priorityGate;
+        if (rejectPriority) return route.fulfill({ status: 503, json: { ok: false } });
+        const record = records.find((r) => r.itemId === action[1])!;
+        record.priority = body.priority;
+        return route.fulfill({ json: { ok: true } });
+      }
       const match = url.pathname.match(/^\/api\/telos\/work\/items\/([^/]+)(\/record)?$/);
       if (match) {
         const record = records.find((r) => r.itemId === match[1])!;
@@ -285,6 +309,47 @@ for (const theme of ['dark', 'light'])
     if (!isMobile)
       expect((await page.locator('.telos-item-workspace').boundingBox())!.x).toBeGreaterThan(100);
     await expect(page.getByRole('button', { name: 'Work', exact: true })).toHaveCount(0);
+    const priority = page.getByRole('combobox', { name: 'Priority', exact: true });
+    for (let value = 1; value <= 10; value++) {
+      await priority.selectOption(String(value));
+      await expect(priority).toHaveValue(String(value));
+      await expect(priority).toBeEnabled();
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
+      const row = page
+        .locator('.telos-tree-row')
+        .filter({
+          has: page.getByRole('button', { name: 'Plan the recording setup', exact: true }),
+        });
+      await expect(row.getByLabel(`Priority ${value} out of 10`)).toHaveText(`P${value}`);
+      await row.getByRole('button', { name: 'Plan the recording setup', exact: true }).click();
+      await expect(priority).toHaveValue(String(value));
+    }
+    await reload();
+    await expect(priority).toHaveValue('10');
+    rejectPriority = true;
+    await priority.selectOption('2');
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Couldn’t confirm this priority' }),
+    ).toBeVisible();
+    await expect(priority).toHaveValue('10');
+    rejectPriority = false;
+    priorityGate = new Promise((resolve) => {
+      releasePriority = resolve;
+    });
+    await priority.selectOption('3');
+    await expect(priority).toBeDisabled();
+    await expect(priority).toHaveValue('10');
+    const writesBeforeOverlap = priorityWrites.length;
+    await priority.evaluate((select) => {
+      (select as HTMLSelectElement).value = '4';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(priorityWrites.length).toBe(writesBeforeOverlap);
+    releasePriority!();
+    priorityGate = undefined;
+    await expect(priority).toHaveValue('3');
+    await expect(priority).toBeEnabled();
+    expect(priorityWrites).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 2, 3]);
     const sharedAction = page.getByRole('button', { name: 'Choose worker', exact: true });
     await expect(sharedAction).toBeVisible();
     const actionColors = await sharedAction.evaluate((element) => {
@@ -315,7 +380,7 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('link', { name: 'Saved studio plan', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Latest studio plan r4' })).toHaveCount(0);
-    await page.reload();
+    await reload();
     await expect(page.getByRole('heading', { name: 'Retained studio plan r3' })).toBeVisible();
     expect(documentReads.every((revision) => revision === 3)).toBe(true);
     await page.screenshot({
@@ -323,7 +388,7 @@ for (const theme of ['dark', 'light'])
       fullPage: true,
     });
     await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await page.reload();
+    await reload();
     await expect(page.getByRole('button', { name: 'Materials', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -351,7 +416,7 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(search).toHaveValue('frontend/src/pages/TodoView.tsx');
     failRecords = true;
-    await page.reload();
+    await reload();
     await expect(
       page.getByRole('alert').filter({ hasText: 'Outcome workspace records unavailable' }),
     ).toBeVisible();
@@ -359,11 +424,11 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Refresh Telos' }).click();
     await expect(page.getByRole('button', { name: 'All outcomes', exact: true })).toBeVisible();
     collectionMode = 'empty';
-    await page.reload();
+    await reload();
     await expect(page.getByText('No outcomes yet.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'All outcomes', exact: true })).toBeVisible();
     collectionMode = 'error';
-    await page.reload();
+    await reload();
     await expect(
       page.getByRole('alert').filter({ hasText: 'Unable to load Telos items' }),
     ).toBeVisible();
@@ -393,7 +458,12 @@ for (const theme of ['dark', 'light'])
       /Help me plan a new Telos outcome/,
     );
     await expect(page.getByRole('button', { name: /Workspace controls/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: isMobile ? 'More composer actions' : 'Attach image', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', {
+        name: isMobile ? 'More composer actions' : 'Attach image',
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect(page.getByPlaceholder('Milestones — first line is the next action')).toHaveCount(
       0,
     );

@@ -74,7 +74,7 @@ function groupIntoSections(items: TodoItem[], sort: TodoSort): TodoSection[] {
 
 // ─── Create form ───────────────────────────────────────────────────────────
 
-export function TodoCreateForm({
+function TodoCreateForm({
   parentId,
   profile,
   profiles,
@@ -265,7 +265,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const location = useLocation();
   const restoredProfile = (location.state as { activeProfile?: string } | null)?.activeProfile;
   const [activeProfile, setActiveProfile] = useState<string | undefined>(restoredProfile);
-  const { loading, error, items, profiles, ack, done, star, create, createOutcome, refresh } =
+  const { loading, error, items, profiles, ack, done, create, createOutcome, refresh } =
     useTodoData(activeProfile);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [query, setQuery] = useState('');
@@ -456,7 +456,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             <div className="todo-collection-actions">
               <button
                 className="todo-add-btn"
-                onClick={startPlanning}
+                onClick={() => setCreating({ parentId: undefined })}
                 aria-label="Add outcome"
                 title="Add todo"
               >
@@ -591,7 +591,6 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
                       selectedId={selectedId}
                       onAck={ack}
                       onDone={done}
-                      onStar={star}
                       onTap={handleTap}
                       onAddChild={handleAddChild}
                       onStartSession={handleStartSession}

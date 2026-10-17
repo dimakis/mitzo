@@ -6,8 +6,10 @@ import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
-import type { TodoItem, TodoData } from '../types/todo';
-import { sourceIcon, buildPrompt, buildTodoContext } from '../lib/todo-utils';
+import { findInTree, useTodoData } from '../hooks/useTodoData';
+import { TodoPrioritySelect } from '../components/TodoPrioritySelect';
+import type { TodoItem } from '../types/todo';
+import { sourceIcon, buildPrompt, buildTodoContext, todoPriority } from '../lib/todo-utils';
 import { WorkOutputs } from '../components/WorkOutputs';
 import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
@@ -22,24 +24,22 @@ function urgencyLabel(urgency: number): string {
   return 'minimal';
 }
 
-function findInTree(items: TodoItem[], id: string): TodoItem | undefined {
-  for (const item of items) {
-    if (item.id === id) return item;
-    const found = findInTree(item.children, id);
-    if (found) return found;
-  }
-  return undefined;
-}
-
 export function TodoDetailView() {
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const {
+    items,
+    loading,
+    refreshing,
+    error,
+    refresh,
+    setPriority: updatePriority,
+  } = useTodoData(undefined, id);
   const setPendingSession = useStageChatLaunch();
   const location = useLocation();
-  const { id } = useParams<{ id: string }>();
-  const stateItem = (location.state as { item?: TodoItem } | null)?.item;
-  const [fetchedItem, setFetchedItem] = useState<TodoItem | null>(null);
-  const [fetchFailed, setFetchFailed] = useState(false);
-  const [fetchAttempt, setFetchAttempt] = useState(0);
+  const navigationItem = (location.state as { item?: TodoItem } | null)?.item;
+  const [stateItem, setStateItem] = useState(navigationItem);
+  useEffect(() => setStateItem(navigationItem), [navigationItem]);
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [ordinaryRoleItem, setOrdinaryRoleItem] = useState<string | null>(null);
@@ -47,33 +47,8 @@ export function TodoDetailView() {
     setOrdinaryRoleItem(available ? itemId : null);
   }, []);
 
-  useEffect(() => {
-    if ((stateItem && fetchAttempt === 0) || !id) return;
-
-    const controller = new AbortController();
-
-    apiFetch('/api/todos', { signal: controller.signal })
-      .then((r) => {
-        if (!r.ok) throw new Error(`${r.status}`);
-        return r.json();
-      })
-      .then((data: TodoData) => {
-        const found = findInTree(data.items, id);
-        if (found) {
-          setFetchedItem(found);
-        } else {
-          setFetchFailed(true);
-        }
-      })
-      .catch((err) => {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        setFetchFailed(true);
-      });
-
-    return () => controller.abort();
-  }, [stateItem, id, fetchAttempt]);
-
-  const item = stateItem ?? fetchedItem;
+  const item =
+    (id ? findInTree(items, id) : undefined) ?? (stateItem?.id === id ? stateItem : undefined);
 
   const recordIds = id ? [id] : [];
   function collectRecordIds(value: TodoItem) {
@@ -90,10 +65,9 @@ export function TodoDetailView() {
   const record = canonical.records.find((value) => value.itemId === id);
 
   useEffect(() => {
-    if (fetchFailed && !canonical.loading && !record) {
+    if (!loading && !refreshing && !error && !item && !canonical.loading && !record)
       navigate('/todos', { replace: true });
-    }
-  }, [fetchFailed, navigate, canonical.loading, record]);
+  }, [loading, refreshing, error, item, navigate, canonical.loading, record]);
 
   if (record)
     return (
@@ -109,7 +83,7 @@ export function TodoDetailView() {
             key={record.itemId}
             record={record}
             relatedState={
-              fetchFailed
+              error
                 ? 'unavailable'
                 : !item
                   ? 'loading'
@@ -120,8 +94,7 @@ export function TodoDetailView() {
                     : 'ready'
             }
             onRefresh={() => {
-              setFetchFailed(false);
-              setFetchAttempt((value) => value + 1);
+              refresh();
               canonical.refresh();
             }}
             records={canonical.records}
@@ -160,12 +133,25 @@ export function TodoDetailView() {
     );
 
   if (!item) {
-    if (fetchFailed) return null;
+    if (error)
+      return (
+        <div className="todo-detail-page" role="alert">
+          {error} <button onClick={refresh}>Retry</button>
+        </div>
+      );
     return <div className="todo-detail-page">Loading...</div>;
   }
 
   // Capture narrowed item for use in nested functions (TS doesn't narrow across closures)
   const currentItem: TodoItem = item;
+  async function handlePriority(priority: number) {
+    await updatePriority(currentItem.id, priority);
+    // The navigation snapshot can still be displayed after a failed list read.
+    // Retain acknowledged edits there until canonical list data is available.
+    setStateItem((previous) =>
+      previous?.id === currentItem.id ? { ...previous, priority } : previous,
+    );
+  }
   const hints = currentItem.contextHints;
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
   const hasContext =
@@ -257,6 +243,11 @@ export function TodoDetailView() {
     <div className="todo-detail-page">
       <PageHeader title="Task" onBack={handleBack}>
         <div className="todo-detail-actions">
+          <TodoPrioritySelect
+            key={item.id}
+            priority={todoPriority(item)}
+            onChange={handlePriority}
+          />
           <HomePinButton pin={{ kind: 'telos', id: item.id, title: recordTitle(item.summary) }} />
           {ordinaryRoleItem !== item.id && (
             <button className="todo-detail-chat-btn" onClick={handleOpenChat}>

@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import {
+  render,
+  renderHook,
+  screen,
+  fireEvent,
+  cleanup,
+  waitFor,
+  act,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
 import { shareTelosArtifact } from '../../lib/share-file';
@@ -22,6 +30,7 @@ vi.mock('../../components/WorkOutputs', () => ({
 import { TodoDetailView } from '../TodoDetailView';
 import type { TodoItem } from '../../types/todo';
 import { getChatDraft } from '../../lib/chat-drafts';
+import { useTodoData } from '../../hooks/useTodoData';
 
 const mockPendingSession = vi.fn();
 vi.mock('@mitzo/client/hooks', () => ({
@@ -93,6 +102,7 @@ const fullItem: TodoItem = {
 
 beforeEach(() => {
   cleanup();
+  window.dispatchEvent(new Event('mitzo:auth-lost'));
   vi.clearAllMocks();
   mockLocation.mockReturnValue({ state: { item: fullItem } });
   mockParams.mockReturnValue({ id: 'abc123' });
@@ -535,10 +545,11 @@ describe('TodoDetailView', () => {
     mockLocation.mockReturnValue({ state: null });
     mockParams.mockReturnValue({ id: 'abc123' });
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ profiles: ['centaur'], items: [fullItem] }),
-    } as Response);
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(
+        async () => new Response(JSON.stringify({ profiles: ['centaur'], items: [fullItem] })),
+      );
 
     render(
       <MemoryRouter>
@@ -551,19 +562,66 @@ describe('TodoDetailView', () => {
     });
     expect(fetchSpy).toHaveBeenCalledWith(
       '/api/todos',
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.objectContaining({ credentials: 'include' }),
     );
     fetchSpy.mockRestore();
   });
+
+  it.each(['missing', 'failed'])(
+    'retains confirmed priority in the navigation fallback after a %s canonical read',
+    async (outcome) => {
+      let canonical = false;
+      const navigationItem = { ...fullItem, priority: 5 };
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        if (url === '/api/todos/abc123/action') {
+          const { priority } = JSON.parse(init!.body as string);
+          return Response.json({ ok: priority === 7 }, { status: priority === 7 ? 200 : 503 });
+        }
+        if (url === '/api/todos?profile=centaur')
+          return Response.json({ profiles: ['centaur'], items: [navigationItem] });
+        if (url === '/api/todos') {
+          if (!canonical && outcome === 'failed') return new Response('{}', { status: 503 });
+          return Response.json({
+            profiles: ['centaur'],
+            items: canonical ? [{ ...fullItem, priority: 3 }] : [],
+          });
+        }
+        return Response.json({ artifacts: [], limit: 100 });
+      });
+      const filteredList = renderHook(() => useTodoData('centaur'));
+      await waitFor(() => expect(filteredList.result.current.loading).toBe(false));
+      mockLocation.mockReturnValue({ state: { item: navigationItem } });
+      render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      const select = screen.getByRole('combobox', { name: 'Priority' }) as HTMLSelectElement;
+      fireEvent.change(select, { target: { value: '7' } });
+      await waitFor(() => expect(select.value).toBe('7'));
+      expect(filteredList.result.current.items[0].priority).toBe(7);
+      expect(navigationItem.priority).toBe(5);
+      fireEvent.change(select, { target: { value: '9' } });
+      expect(
+        await screen.findByText('Couldn’t confirm this priority. Refresh to check its status.'),
+      ).toBeTruthy();
+      expect(select.value).toBe('7');
+      canonical = true;
+      const currentRead = renderHook(() => useTodoData());
+      await waitFor(() => expect(select.value).toBe('3'));
+      currentRead.unmount();
+      filteredList.unmount();
+      fetchSpy.mockRestore();
+    },
+  );
 
   it('navigates to /todos when fetch fallback finds no matching item', async () => {
     mockLocation.mockReturnValue({ state: null });
     mockParams.mockReturnValue({ id: 'nonexistent' });
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ profiles: [], items: [] }),
-    } as Response);
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(JSON.stringify({ profiles: [], items: [] })));
 
     render(
       <MemoryRouter>
@@ -574,6 +632,88 @@ describe('TodoDetailView', () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/todos', { replace: true });
     });
+    fetchSpy.mockRestore();
+  });
+
+  it.each(['found', 'missing', 'failed'])(
+    'revalidates a retained snapshot before resolving a direct item route (%s)',
+    async (outcome) => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async () => Response.json({ profiles: ['centaur'], items: [] }));
+      const previous = renderHook(() => useTodoData());
+      await waitFor(() => expect(previous.result.current.refreshing).toBe(false));
+      previous.unmount();
+      mockLocation.mockReturnValue({ state: null });
+      mockParams.mockReturnValue({ id: 'abc123' });
+      let finish!: (response: Response) => void;
+      fetchSpy.mockImplementation((url) =>
+        url === '/api/todos'
+          ? new Promise<Response>((resolve) => (finish = resolve))
+          : Promise.resolve(Response.json({ artifacts: [], limit: 100 })),
+      );
+      render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('Loading...')).toBeTruthy();
+      expect(mockNavigate).not.toHaveBeenCalled();
+      await act(async () => {
+        finish(
+          outcome === 'failed'
+            ? new Response('{}', { status: 503 })
+            : Response.json({
+                profiles: ['centaur'],
+                items: outcome === 'found' ? [fullItem] : [],
+              }),
+        );
+      });
+      if (outcome === 'found') {
+        expect(await screen.findByText(fullItem.summary)).toBeTruthy();
+        expect(mockNavigate).not.toHaveBeenCalled();
+      } else if (outcome === 'missing') {
+        await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/todos', { replace: true }));
+      } else {
+        expect((await screen.findByRole('alert')).textContent).toContain(
+          'Unable to load Telos items',
+        );
+        expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+        expect(mockNavigate).not.toHaveBeenCalled();
+      }
+      fetchSpy.mockRestore();
+    },
+  );
+
+  it('does not resolve a new direct item route from a list read admitted before navigation', async () => {
+    let finishOld!: (response: Response) => void;
+    let finishCurrent!: (response: Response) => void;
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => (finishOld = resolve)))
+      .mockImplementation((url) =>
+        url === '/api/todos'
+          ? new Promise<Response>((resolve) => (finishCurrent = resolve))
+          : Promise.resolve(Response.json({ artifacts: [], limit: 100 })),
+      );
+    const previous = renderHook(() => useTodoData());
+    mockLocation.mockReturnValue({ state: null });
+    mockParams.mockReturnValue({ id: 'abc123' });
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(finishCurrent).toBeTypeOf('function'));
+    await act(async () => finishOld(Response.json({ profiles: [], items: [] })));
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByText('Loading...')).toBeTruthy();
+    await act(async () =>
+      finishCurrent(Response.json({ profiles: ['centaur'], items: [fullItem] })),
+    );
+    expect(await screen.findByText(fullItem.summary)).toBeTruthy();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    previous.unmount();
     fetchSpy.mockRestore();
   });
 

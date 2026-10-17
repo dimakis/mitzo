@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
+import { renderHook, waitFor, act, cleanup } from '@testing-library/react';
 
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
@@ -70,10 +70,106 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   vi.restoreAllMocks();
 });
 
 describe('useTodoData', () => {
+  it('publishes confirmed priority to simultaneously mounted list and detail consumers', async () => {
+    const list = renderHook(() => useTodoData('work'));
+    const detail = renderHook(() => useTodoData());
+    await waitFor(() => expect(list.result.current.loading).toBe(false));
+    await waitFor(() => expect(detail.result.current.loading).toBe(false));
+    vi.mocked(apiFetch).mockResolvedValueOnce(Response.json({ ok: true }));
+    await act(async () => detail.result.current.setPriority('abc123', 7));
+    expect(detail.result.current.items[0].priority).toBe(7);
+    expect(list.result.current.items[0].priority).toBe(7);
+  });
+
+  it.each([true, false])(
+    'orders priority writes across navigation when the first save succeeds=%s',
+    async (firstSucceeds) => {
+      const first = renderHook(() => useTodoData());
+      await waitFor(() => expect(first.result.current.loading).toBe(false));
+      let finishFirst!: (response: Response) => void;
+      vi.mocked(apiFetch).mockImplementationOnce(
+        () => new Promise<Response>((resolve) => (finishFirst = resolve)),
+      );
+      let older!: Promise<void>;
+      act(() => {
+        older = first.result.current.setPriority('abc123', 7);
+      });
+      // Handle rejection before intentionally holding the request across a remount.
+      const olderResult = older.catch(() => {});
+      first.unmount();
+      const second = renderHook(() => useTodoData());
+      await waitFor(() => expect(second.result.current.loading).toBe(false));
+      vi.mocked(apiFetch).mockResolvedValueOnce(Response.json({ ok: true }));
+      let newer!: Promise<void>;
+      act(() => {
+        newer = second.result.current.setPriority('abc123', 9);
+      });
+      expect(
+        vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST'),
+      ).toHaveLength(1);
+      await act(async () => {
+        finishFirst(Response.json({ ok: firstSucceeds }));
+        await olderResult;
+        await newer;
+      });
+      expect(second.result.current.items[0].priority).toBe(9);
+      expect(
+        vi
+          .mocked(apiFetch)
+          .mock.calls.filter(([, init]) => init?.method === 'POST')
+          .map(([, init]) => JSON.parse(init!.body as string).priority),
+      ).toEqual([7, 9]);
+      const third = renderHook(() => useTodoData());
+      expect(third.result.current.items[0].priority).toBe(9);
+    },
+  );
+
+  it('publishes confirmed numeric priority and keeps it when a later save fails', async () => {
+    const { result } = renderHook(() => useTodoData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    vi.mocked(apiFetch).mockResolvedValueOnce(new Response('{"ok":true}'));
+    await act(async () => result.current.setPriority('abc123', 7));
+    expect(result.current.items[0].priority).toBe(7);
+    expect(apiFetch).toHaveBeenLastCalledWith(
+      '/api/todos/abc123/action',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ action: 'priority', priority: 7 }),
+      }),
+    );
+    vi.mocked(apiFetch).mockRejectedValueOnce(Error('lost response'));
+    await act(async () => {
+      await expect(result.current.setPriority('abc123', 9)).rejects.toThrow();
+    });
+    expect(result.current.items[0].priority).toBe(7);
+  });
+
+  it('does not publish an unconfirmed priority while the request is pending or returns ok false', async () => {
+    const { result } = renderHook(() => useTodoData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let finish!: (response: Response) => void;
+    vi.mocked(apiFetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    let request!: Promise<void>;
+    act(() => {
+      request = result.current.setPriority('abc123', 8);
+    });
+    expect(result.current.items[0].priority).toBeUndefined();
+    await act(async () => {
+      finish(new Response('{"ok":false}'));
+      await expect(request).rejects.toThrow();
+    });
+    expect(result.current.items[0].priority).toBeUndefined();
+  });
   it.each(['rejected', 'network'])(
     'reports an unconfirmed star after %s without retrying the mutation',
     async (failure) => {

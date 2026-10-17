@@ -1,3 +1,4 @@
+import { todoPriority } from '../lib/todo-utils';
 import { useMemo, useState, useRef } from 'react';
 import type { TelosWorkItem } from '@mitzo/protocol';
 import { UiIcon } from './UiIcon';
@@ -156,6 +157,12 @@ export function TelosOutcomesTree({
                     </div>
                   </div>
                   <div className="telos-tree-row-end">
+                    <span
+                      className="todo-priority-badge"
+                      aria-label={`Priority ${todoPriority(record)} out of 10`}
+                    >
+                      P{todoPriority(record)}
+                    </span>
                     <span className="telos-node-status">{record.status}</span>
                     <TelosTreeConversationEntry
                       itemId={record.itemId}
