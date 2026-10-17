@@ -22,6 +22,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/types/retained-artifact.ts':
+    'd9e05f6976b3f955decc8de56497e89170ec9befd1d09472fadf3c2217ef733c',
+  '../../frontend/src/lib/retained-artifact-api.ts':
+    '5895046d254291bf71f51e42f34a62b6dcfc97bdbc32a1692b6ac7d399938d85',
+  '../../frontend/src/components/SavedArtifactDialog.css':
+    'd48e56c5250e8bae064dea341eea5204441908497e4a0df107be560e0b5ae961',
+  '../../frontend/src/components/SavedArtifactDialog.tsx':
+    'e6f024f89529719909642b93a0d1bdeebcd3869e7896fff2410062322d42bd4c',
   '../collaboration-retained-artifact-source.ts':
     'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
   '../collaboration-forwarding.ts':
@@ -73,7 +81,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
-    'a4e0b7c2734cd59774d9b89fe52db5be5d3d2014ef0c03a5cc909009363305ff',
+    '987ff7cbc267aac2c7e1303e0d9792cafe8f6a83adccfc3c2b93dd5b64775c10',
   '../../frontend/src/components/TelosSourceWorkLink.tsx':
     '46de398745ec3f05f613ec1d16fecab5d22a844a67179e47eb35d3e56b21d647',
   '../../frontend/src/components/TelosItemSources.tsx':

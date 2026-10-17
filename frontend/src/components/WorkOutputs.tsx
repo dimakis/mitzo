@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { apiFetch } from '../lib/api-fetch';
 import { downloadFile, shareTelosArtifact } from '../lib/share-file';
+import { SavedArtifactDialog } from './SavedArtifactDialog';
 import { UserOutputUpload } from './UserOutputUpload';
 import type { TodoOutput } from '../types/todo';
 
@@ -14,6 +15,8 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
     limit: number;
     error?: string;
   } | null>(null);
+  const [selected, setSelected] = useState<TodoOutput | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -22,6 +25,8 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
     const controller = new AbortController();
     setResult(null);
     setActionError(null);
+    setSelected(null);
+    setDialogOpen(false);
     apiFetch(`/api/telos/items/${encodeURIComponent(itemId)}/artifacts`, {
       signal: controller.signal,
     })
@@ -108,7 +113,19 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
                   <UiIcon name="file" size={16} />
                 </span>
                 <div className="output-row-copy">
-                  <strong>{output.title}</strong>
+                  <strong>
+                    <button
+                      type="button"
+                      className="output-open"
+                      aria-label={`Open ${output.title}`}
+                      onClick={() => {
+                        setSelected(output);
+                        setDialogOpen(true);
+                      }}
+                    >
+                      {output.title}
+                    </button>
+                  </strong>
                   <span className="todo-detail-output-filename">{output.filename}</span>
                   <span className="todo-detail-output-meta">
                     Revision {output.revision} · {output.size.toLocaleString()} bytes
@@ -149,6 +166,13 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
         </>
       )}
       {actionError && <p role="alert">{actionError}</p>}
+      {selected && (
+        <SavedArtifactDialog
+          artifact={selected}
+          open={dialogOpen}
+          onClose={() => setDialogOpen(false)}
+        />
+      )}
     </section>
   );
 }

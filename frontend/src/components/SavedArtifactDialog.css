@@ -66,3 +66,19 @@
 .saved-artifact-dialog h2 {
   overflow-wrap: anywhere;
 }
+
+.todo-detail-outputs .output-open {
+  min-height: var(--control-height);
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.todo-detail-outputs .output-open:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-1);
+}

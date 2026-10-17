@@ -17,16 +17,20 @@ import {
 import { HomeDialog } from './HomeDialog';
 import { ShareButton } from './ShareButton';
 import { HtmlPreview } from './HtmlPreview';
+import { useMotionPresence } from '../hooks/useMotionPresence';
 import './SavedArtifactDialog.css';
 
 /** The caller supplies an explicit retained revision; newer history never retargets it. */
 export function SavedArtifactDialog({
   artifact,
   onClose,
+  open = true,
 }: {
   artifact: TodoOutput;
   onClose(): void;
+  open?: boolean;
 }) {
+  const { ref: motionRef, present } = useMotionPresence(open, 'popover', false);
   const [versions, setVersions] = useState<SavedArtifactVersion[]>([artifact]);
   const [selected, setSelected] = useState(artifact.revision);
   const [history, setHistory] = useState<{
@@ -47,7 +51,9 @@ export function SavedArtifactDialog({
   const version = versions.find((row) => row.revision === selected)!;
   const url = savedArtifactUrl(version);
   useEffect(() => {
+    if (!open) return;
     const controller = new AbortController();
+    setHistory((previous) => ({ ...previous, loaded: false, error: null }));
     readSavedArtifactVersions(artifact, controller.signal, pageBefore)
       .then((page) => {
         if (controller.signal.aborted) return;
@@ -67,9 +73,9 @@ export function SavedArtifactDialog({
           });
       });
     return () => controller.abort();
-  }, [artifact, pageBefore, historyRetry]);
+  }, [artifact, pageBefore, historyRetry, open]);
   useEffect(() => {
-    if (!history.loaded) return;
+    if (!history.loaded || !open) return;
     const controller = new AbortController();
     setDocument(null);
     readSavedArtifactDocument(version, controller.signal)
@@ -86,13 +92,24 @@ export function SavedArtifactDialog({
           });
       });
     return () => controller.abort();
-  }, [version, selected, history.loaded, previewRetry]);
+  }, [version, selected, history.loaded, previewRetry, open]);
   const current = document?.revision === selected ? document : null;
-  const preview = current?.document;
+  const preview = history.loaded && !history.error ? current?.document : null;
   const provenance = version as SavedArtifactVersion;
+  if (!present) return null;
   return (
-    <HomeDialog title={artifact.title} onClose={onClose} className="saved-artifact-dialog">
-      <div className="saved-artifact-body">
+    <HomeDialog
+      title={artifact.title}
+      onClose={onClose}
+      className="saved-artifact-dialog"
+      inactive={!open}
+    >
+      <div
+        ref={motionRef}
+        className="saved-artifact-body"
+        inert={!open}
+        aria-hidden={!open || undefined}
+      >
         <p className="saved-artifact-kind">Saved document · Saved under Work</p>
         <label className="saved-artifact-version">
           <span>Version</span>

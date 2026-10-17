@@ -147,3 +147,39 @@ it('keeps retained source packets separate from produced outputs and their count
   expect(screen.getByText('notes.md')).toBeTruthy();
   expect(screen.queryByText('Reviewed origin packet')).toBeNull();
 });
+
+it('opens the real saved-version preview from the Work output without dispatching', async () => {
+  const { installDialogStub } = await import('./dialog-stub');
+  installDialogStub();
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).includes('/versions'))
+      return {
+        ok: true,
+        json: async () => ({ artifacts: [notes], cursor: null, hasMore: false }),
+      } as Response;
+    if (String(url).includes('/document'))
+      return {
+        ok: true,
+        json: async () => ({
+          path: notes.url,
+          name: 'notes.md',
+          ext: '.md',
+          revision: 2,
+          content: '# Saved research\n\nRetained bytes.',
+          previewUnavailable: false,
+        }),
+      } as Response;
+    return response();
+  });
+  const { MemoryRouter } = await import('react-router-dom');
+  render(
+    <MemoryRouter>
+      <WorkOutputs itemId="work" />
+    </MemoryRouter>,
+  );
+  await screen.findByText('notes.md');
+  fireEvent.click(screen.getByRole('button', { name: 'Open Research notes' }));
+  await screen.findByRole('heading', { name: 'Saved research' });
+  expect(shareTelosArtifact).not.toHaveBeenCalled();
+  expect(downloadFile).not.toHaveBeenCalled();
+});
