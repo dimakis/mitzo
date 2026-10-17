@@ -1,8 +1,9 @@
 import { ApiToolEditor } from '../components/ApiToolEditor';
 import { AgentToolsEditor } from '../components/AgentToolsEditor';
 import { ToolLibraryCatalog } from '../components/ToolLibraryCatalog';
+import { ToolBuilderReview } from '../components/ToolBuilderReview';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   agentProfileLabel,
   type AgentToolCatalogEntry,
@@ -14,7 +15,12 @@ import {
   type CompiledAgentContext,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
-import { agentChatHref, agentLibraryTemplates, newAgentDefinition } from '../lib/agent-library';
+import {
+  agentChatHref,
+  agentLibraryTemplates,
+  newAgentDefinition,
+  toolBuilderHref,
+} from '../lib/agent-library';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { AgentProfileEditor } from '../components/AgentProfileEditor';
 import { openAgentBuilderChat } from '../lib/agent-builder-chat';
@@ -115,6 +121,7 @@ function navigateTabs(event: KeyboardEvent<HTMLDivElement>) {
 }
 export function AgentLibrary() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const taskState = useAgentTasks();
   const [collection, setCollection] = useState<'profiles' | 'tasks'>(() =>
     loadAgentTaskWorkingCopy() ? 'tasks' : 'profiles',
@@ -126,7 +133,9 @@ export function AgentLibrary() {
   const [editor, setEditor] = useState<Editor | null>(recovered?.editor ?? null);
   const [tab, setTab] = useState<Tab>('identity');
   const [query, setQuery] = useState('');
-  const [view, setView] = useState<'agents' | 'tools'>('agents');
+  const [view, setView] = useState<'agents' | 'tools'>(() =>
+    searchParams.get('library') === 'tools' || searchParams.has('toolDraft') ? 'tools' : 'agents',
+  );
   const [toolFilters, setToolFilters] = useState({ query: '', source: '' });
   const [tools, setTools] = useState<AgentToolCatalogEntry[]>([]);
   const [toolError, setToolError] = useState('');
@@ -440,7 +449,7 @@ export function AgentLibrary() {
           view === 'agents' ? 'Give an agent a job. Use it wherever you work.' : undefined
         }
         actions={
-          view === 'agents' && (
+          view === 'agents' ? (
             <>
               <button
                 type="button"
@@ -453,6 +462,10 @@ export function AgentLibrary() {
                 New agent
               </button>
             </>
+          ) : (
+            <Link className="btn-primary" to={toolBuilderHref}>
+              Build a tool
+            </Link>
           )
         }
       />
@@ -506,6 +519,7 @@ export function AgentLibrary() {
       )}
       <div hidden={view !== 'tools'}>
         <ApiToolEditor onPublished={() => setToolAttempt((value) => value + 1)} />
+        <ToolBuilderReview tools={tools} onPublished={() => setToolAttempt((value) => value + 1)} />
       </div>
       {view === 'tools' && (
         <section aria-label="Tool library">

@@ -24,6 +24,24 @@ const version = {
   },
 };
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+it('selects the separate pinned Tool Builder in the ordinary profile picker', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [] }));
+  const change = vi.fn();
+  render(
+    <MemoryRouter>
+      <ChatAgentProfilePicker
+        sessionId={null}
+        search="?agentProfile=mitzo-tool-builder&profileRevision=1&agentProfileKind=builtin"
+        onChange={change}
+      />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('option', { name: 'Tool Builder · Creates reusable tools · r1' });
+  expect(change).toHaveBeenLastCalledWith(
+    { profileId: 'mitzo-tool-builder', revision: 1, kind: 'builtin' },
+    undefined,
+  );
+});
 it('settings exposes the trusted selected label and clears it when the selected revision is unavailable', async () => {
   vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [version] }));
   const label = vi.fn();
