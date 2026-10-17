@@ -1,0 +1,36 @@
+{
+  "source": {
+    "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+    "tree": "306dd2afe89b468c5f33feb3696e071cd25d7e98",
+    "status": "?? scripts/run-symposium-acceptance.mjs\n?? server/__tests__/fixtures/symposium-acceptance.ts\n?? server/__tests__/symposium-acceptance-coexistence.test.ts\n?? server/__tests__/symposium-acceptance-policies.test.ts\n?? tests/acceptance/\n?? vitest.symposium-acceptance.config.ts",
+    "trackedDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untrackedSourceSha256": {
+      "scripts/run-symposium-acceptance.mjs": "e372b513deed8e9f235a6fd6ff99fb8f35dc6e4c5a58c9cd782959c6d14687d4",
+      "server/__tests__/fixtures/symposium-acceptance.ts": "cea0b01f6937b729a6c652514bc2008513e5cd5ad4fe43dc039418d3b265d652",
+      "server/__tests__/symposium-acceptance-coexistence.test.ts": "6af09347ce43e998822b4583036ba2d19b1fe241b7f1d2d1b0425fe611c6d9e0",
+      "server/__tests__/symposium-acceptance-policies.test.ts": "123af1379b65ea4f8fc6c1e6c6ddcc2c02960ad6efe0196f471e6d34b9ba0806",
+      "tests/acceptance/symposium-reader-reply.repro.ts": "fd91087d17a2724c0042c5fc6da0fdaaf30e3d7d972a10450d493bf07489a844",
+      "vitest.symposium-acceptance.config.ts": "c6479649392eca88afad4c4e6ede3a01b32bbc5ef91ca6efd84390718354bbd6"
+    }
+  },
+  "startedAt": "2026-10-17T22:01:33.223Z",
+  "finishedAt": "2026-10-17T22:02:38.339Z",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.symposium-acceptance.config.ts"
+  ],
+  "requiredJourneys": false,
+  "reusedOwnerContracts": true,
+  "heapMiB": 1024,
+  "maxWorkers": 1,
+  "node": "v24.10.0",
+  "vitest": "4.1.11",
+  "exitCode": 1,
+  "signal": null,
+  "result": "failed",
+  "outputSha256": "4ea672c54b4e5240c2e00224408760676e53097da28a27138f9e078cb031c93e",
+  "modelCalls": 0
+}
