@@ -54,6 +54,7 @@ it('discovers duplicate names as distinct portable contracts and closes every fa
   try {
     const rows = await catalog.refresh(f.options);
     expect(rows).toHaveLength(2);
+    expect(rows[0].routes).toEqual(['local-api', 'codex', 'codex-owned-local']);
     expect(rows[0].id).not.toBe(rows[1].id);
     expect(rows.map((r) => r.name)).toEqual(['search', 'search']);
     for (const row of rows)
