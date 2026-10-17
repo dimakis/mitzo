@@ -82,3 +82,26 @@
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-1);
 }
+
+.saved-artifact-surface {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+section.todo-detail-outputs .output-action {
+  min-height: var(--control-height);
+}
+.todo-detail-outputs .output-open {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.output-provenance summary {
+  min-height: var(--control-height);
+  cursor: pointer;
+}
+.output-provenance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

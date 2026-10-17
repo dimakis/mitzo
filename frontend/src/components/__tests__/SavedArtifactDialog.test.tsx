@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import {
   act,
@@ -126,16 +126,26 @@ it('refreshes the newest history page on reopen without changing the selected ol
       doc(Number(new URL(String(url), 'http://fixture').searchParams.get('revision'))),
     );
   });
-  const artifact = version(2);
   const close = vi.fn();
-  const view = render(<SavedArtifactDialog artifact={artifact} onClose={close} open />);
+  function Controlled({ open }: { open: boolean }) {
+    const [artifact, setArtifact] = useState(version(2));
+    return (
+      <SavedArtifactDialog
+        artifact={artifact}
+        onVersionChange={setArtifact}
+        onClose={close}
+        open={open}
+      />
+    );
+  }
+  const view = render(<Controlled open />);
   await screen.findByRole('button', { name: 'Earlier versions' });
   fireEvent.click(screen.getByRole('button', { name: 'Earlier versions' }));
   await screen.findByRole('option', { name: /Saved version 1/ });
   fireEvent.change(screen.getByRole('combobox', { name: 'Version' }), { target: { value: '1' } });
   await screen.findByRole('heading', { name: 'Version 1' });
-  view.rerender(<SavedArtifactDialog artifact={artifact} onClose={close} open={false} />);
-  view.rerender(<SavedArtifactDialog artifact={artifact} onClose={close} open />);
+  view.rerender(<Controlled open={false} />);
+  view.rerender(<Controlled open />);
   await waitFor(() => {
     const historyCalls = vi
       .mocked(apiFetch)

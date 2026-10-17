@@ -18,19 +18,87 @@ import { HomeDialog } from './HomeDialog';
 import { ShareButton } from './ShareButton';
 import { HtmlPreview } from './HtmlPreview';
 import { useMotionPresence } from '../hooks/useMotionPresence';
+import { artifactViewerUrl } from '../lib/file-paths';
 import './SavedArtifactDialog.css';
 
-/** The caller supplies an explicit retained revision; newer history never retargets it. */
+/** One modal owns loading, selected revision inspection and return focus. Files
+ * remains the full editing surface, reached at this exact revision via File options.
+ */
 export function SavedArtifactDialog({
   artifact,
   onClose,
   open = true,
+  error,
+  onRetry,
+  onVersionChange,
+}: {
+  artifact?: TodoOutput;
+  onClose(): void;
+  open?: boolean;
+  error?: string;
+  onRetry?(): void;
+  onVersionChange?(artifact: SavedArtifactVersion): void;
+}) {
+  const { ref, present } = useMotionPresence(open, 'popover', false);
+  if (!present) return null;
+  return (
+    <HomeDialog
+      title={artifact?.title ?? 'Saved artifact'}
+      onClose={onClose}
+      className="saved-artifact-dialog"
+      inactive={!open}
+    >
+      <div
+        ref={ref}
+        className="saved-artifact-surface"
+        inert={!open}
+        aria-hidden={!open || undefined}
+      >
+        {artifact ? (
+          <SavedArtifactDetails
+            artifact={artifact}
+            open={open}
+            onClose={onClose}
+            onVersionChange={onVersionChange}
+          />
+        ) : (
+          <>
+            <div className="saved-artifact-body">
+              {error ? (
+                <div role="alert">
+                  <p>{error}</p>
+                  {onRetry && (
+                    <button type="button" className="home-secondary" onClick={onRetry}>
+                      Retry saved version
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p role="status">Loading saved version…</p>
+              )}
+            </div>
+            <footer>
+              <button type="button" className="home-secondary" onClick={onClose}>
+                Done
+              </button>
+            </footer>
+          </>
+        )}
+      </div>
+    </HomeDialog>
+  );
+}
+function SavedArtifactDetails({
+  artifact,
+  onClose,
+  open,
+  onVersionChange,
 }: {
   artifact: TodoOutput;
   onClose(): void;
-  open?: boolean;
+  open: boolean;
+  onVersionChange?(artifact: SavedArtifactVersion): void;
 }) {
-  const { ref: motionRef, present } = useMotionPresence(open, 'popover', false);
   const [versions, setVersions] = useState<SavedArtifactVersion[]>([artifact]);
   const [selected, setSelected] = useState(artifact.revision);
   const [history, setHistory] = useState<{
@@ -99,27 +167,22 @@ export function SavedArtifactDialog({
   const current = document?.revision === selected ? document : null;
   const preview = history.loaded && !history.error ? current?.document : null;
   const provenance = version as SavedArtifactVersion;
-  if (!present) return null;
   return (
-    <HomeDialog
-      title={artifact.title}
-      onClose={onClose}
-      className="saved-artifact-dialog"
-      inactive={!open}
-    >
-      <div
-        ref={motionRef}
-        className="saved-artifact-body"
-        inert={!open}
-        aria-hidden={!open || undefined}
-      >
+    <>
+      <div className="saved-artifact-body">
         <p className="saved-artifact-kind">Saved artifact · Saved under Work</p>
         <label className="saved-artifact-version">
           <span>Version</span>
           <select
             aria-label="Version"
             value={selected}
-            onChange={(event) => setSelected(Number(event.target.value))}
+            onChange={(event) => {
+              const chosen = versions.find((row) => row.revision === Number(event.target.value));
+              if (chosen) {
+                setSelected(chosen.revision);
+                onVersionChange?.(chosen);
+              }
+            }}
           >
             {versions.map((row) => (
               <option key={row.revision} value={row.revision}>
@@ -226,11 +289,17 @@ export function SavedArtifactDialog({
         </details>
       </div>
       <footer>
-        {preview && <ShareButton key={url} filePath={url} />}
+        {preview && (
+          <ShareButton
+            key={url}
+            filePath={url}
+            onOpen={() => navigate(artifactViewerUrl(url, location.pathname + location.search))}
+          />
+        )}
         <button className="home-secondary" type="button" onClick={onClose}>
           Done
         </button>
       </footer>
-    </HomeDialog>
+    </>
   );
 }

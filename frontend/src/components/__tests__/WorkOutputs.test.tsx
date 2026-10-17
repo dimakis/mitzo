@@ -1,7 +1,16 @@
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactElement } from 'react';
 import type { TodoOutput } from '../../types/todo';
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderComponent,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { Capacitor } from '@capacitor/core';
 import { WorkOutputs } from '../WorkOutputs';
 import { apiFetch } from '../../lib/api-fetch';
@@ -12,6 +21,9 @@ vi.mock('../../lib/share-file', () => ({
   shareTelosArtifact: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => false } }));
+function render(element: ReactElement) {
+  return renderComponent(element, { wrapper: MemoryRouter });
+}
 const notes = {
   id: 'a'.repeat(32),
   itemId: 'work',
@@ -171,14 +183,9 @@ it('opens the real saved-version preview from the Work output without dispatchin
       } as Response;
     return response();
   });
-  const { MemoryRouter } = await import('react-router-dom');
-  render(
-    <MemoryRouter>
-      <WorkOutputs itemId="work" />
-    </MemoryRouter>,
-  );
+  render(<WorkOutputs itemId="work" />);
   await screen.findByText('notes.md');
-  fireEvent.click(screen.getByRole('button', { name: 'Open Research notes' }));
+  fireEvent.click(screen.getByRole('link', { name: 'Research notes' }));
   await screen.findByRole('heading', { name: 'Saved research' });
   expect(shareTelosArtifact).not.toHaveBeenCalled();
   expect(downloadFile).not.toHaveBeenCalled();

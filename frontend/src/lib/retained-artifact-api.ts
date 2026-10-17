@@ -44,7 +44,7 @@ async function readJson(url: string, signal: AbortSignal) {
   return response.json() as Promise<unknown>;
 }
 export async function readSavedArtifactVersions(
-  artifact: SavedArtifactVersion,
+  artifact: Pick<SavedArtifactVersion, 'id' | 'itemId'>,
   signal: AbortSignal,
   beforeRevision?: number,
 ): Promise<SavedArtifactVersionPage> {
@@ -93,6 +93,7 @@ export async function readSavedArtifactDocument(
       revision,
       content: z.string(),
       previewUnavailable: z.boolean(),
+      editable: z.boolean().default(false),
     })
     .parse(
       await readJson(
@@ -103,4 +104,21 @@ export async function readSavedArtifactDocument(
   if (data.revision !== artifact.revision || data.path !== url || data.name !== artifact.filename)
     throw Error('The preview does not match the selected saved version. Retry this version.');
   return data;
+}
+
+export async function readSavedArtifactVersion(
+  artifact: Pick<SavedArtifactVersion, 'id' | 'itemId'>,
+  pin: { revision: number; sha256: string },
+  signal: AbortSignal,
+): Promise<SavedArtifactVersion> {
+  const selected = revision.parse(pin.revision);
+  const page = await readSavedArtifactVersions(
+    artifact,
+    signal,
+    selected === Number.MAX_SAFE_INTEGER ? undefined : selected + 1,
+  );
+  const exact = page.artifacts.find((row) => row.revision === selected);
+  if (!exact || exact.sha256 !== pin.sha256)
+    throw Error('The selected saved version is unavailable or changed.');
+  return exact;
 }
