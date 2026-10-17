@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.302-tool-builder-ui.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.302-tool-builder-ui.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -598,7 +598,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '71fa6b5d798815b452b26f7df5c58733abb793222bfa21ec71926b8bba2d8e74',
   '../agent-library-binding.ts': 'e917cecf1c86505c8c420590b2e38e10fb2c8808449f70055e979f9588dc5c87',
   '../agent-library-transport.ts':
-    '6839ce0a1d3af7869b22b487ff59819b3348da906f1ffc170fa3c949230bb4ac',
+    'a311807d580b66df883a7bb591527fbc956c8afadec466e420fd6f2d0685910c',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
   '../agent-library-router.ts': '7905a02837dce7008992136f07b5e92aaec1818ff787e345f4f9febeaa56f520',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',

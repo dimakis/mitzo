@@ -1,11 +1,37 @@
 import { expect, it } from 'vitest';
 import { contextDigest } from '../agent-context-compiler.js';
+import { resolveChatAgentProfile } from '../agent-library-binding.js';
 import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
 import {
   readOrdinaryCodexAgentProfile,
   ordinaryCodexAgentProfiles,
   ordinaryCodexAgentProfileRouteProjection,
 } from '../ordinary-codex-agent-profile.js';
+
+it.each(['openai', 'google-vertex'])(
+  'admits the real pinned Tool Builder through %s profile resolution',
+  async (provider) => {
+    const selection = { kind: 'builtin' as const, profileId: 'mitzo-tool-builder', revision: 1 };
+    const profile = readOrdinaryCodexAgentProfile({ version: () => null }, selection)!;
+    const admitted = await resolveChatAgentProfile({
+      requested: selection,
+      provider,
+      toolRoute: 'local-api',
+      lookup: async () => profile,
+    });
+    expect(admitted?.definition.name).toBe('Tool Builder');
+    expect(admitted?.definition.tools).toHaveLength(6);
+    expect(
+      await resolveChatAgentProfile({
+        stored: admitted,
+        resume: true,
+        provider,
+        toolRoute: 'local-api',
+        lookup: async () => null,
+      }),
+    ).toEqual(admitted);
+  },
+);
 
 it('allows Local ContexGin and only explicitly configured OpenShell preset combinations', () => {
   const builtin = readOrdinaryCodexAgentProfile(
