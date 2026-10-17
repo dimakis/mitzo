@@ -344,6 +344,21 @@
   flex-wrap: wrap;
 }
 
+.conversation-participants-trigger strong {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.conversation-participant-names {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conversation-participant-wide-count {
+  flex: none;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
 .conversation-participant-count {
   display: none;
 }
@@ -420,18 +435,9 @@
 
 /* The frozen reference collapses names at 360px of conversation width. */
 @container conversation-participants (max-width: 360px) {
-  .conversation-participant-additional-name {
+  .conversation-participant-additional-name,
+  .conversation-participant-wide-count {
     display: none;
-  }
-  .conversation-participants-trigger strong {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-  }
-  .conversation-participant-names {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .conversation-participant-count {
     display: inline;

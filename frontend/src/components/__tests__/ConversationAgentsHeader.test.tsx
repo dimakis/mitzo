@@ -45,8 +45,11 @@ it.each([0, 1, 2, 3, 4])(
     expect(trigger.querySelector('.conversation-participant-count')?.textContent ?? '').toBe(
       count > 1 ? `+${count - 1}` : '',
     );
+    expect(trigger.querySelector('.conversation-participant-wide-count')?.textContent ?? '').toBe(
+      count > 2 ? `+${count - 2}` : '',
+    );
     expect(trigger.querySelector('small')?.textContent).toBe(
-      `${count > 2 ? `+${count - 2} · ` : ''}${count > 1 ? 'Shared discussion' : 'Agent chat'}`,
+      count > 1 ? 'Shared discussion' : 'Agent chat',
     );
   },
 );
@@ -61,6 +64,14 @@ it('keeps the second participant and separator in one independently hideable nam
   expect(names.children).toHaveLength(2);
   expect(first).not.toBe(additional);
   expect(trigger.querySelector('.conversation-participant-count')?.textContent).toBe('+2');
+});
+
+it('keeps the wider remaining-participant count beside the displayed names', () => {
+  const trigger = mount(3);
+  expect(trigger.querySelector('strong .conversation-participant-wide-count')?.textContent).toBe(
+    '+1',
+  );
+  expect(trigger.querySelector('small')?.textContent).toBe('Shared discussion');
 });
 
 it('hides the additional name in the approved 360px conversation container, preserving wider rules', () => {

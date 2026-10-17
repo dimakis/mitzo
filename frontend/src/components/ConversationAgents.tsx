@@ -160,14 +160,16 @@ function ConversationAgentsBody({
                         ))
                       : 'Agents'}
                   </span>
+                  {agents.length > 2 && (
+                    <span className="conversation-participant-wide-count">
+                      +{agents.length - 2}
+                    </span>
+                  )}
                   {agents.length > 1 && (
                     <span className="conversation-participant-count">+{agents.length - 1}</span>
                   )}
                 </strong>
-                <small>
-                  {agents.length > 2 ? `+${agents.length - 2} · ` : ''}
-                  {agents.length > 1 ? 'Shared discussion' : 'Agent chat'}
-                </small>
+                <small>{agents.length > 1 ? 'Shared discussion' : 'Agent chat'}</small>
               </span>
             )}
             {compact && <span>Agents</span>}

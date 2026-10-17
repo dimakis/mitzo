@@ -66,6 +66,11 @@ for (const theme of ['dark', 'light'])
       await expect(header.locator('.conversation-participant-count'))[
         width <= 360 ? 'toBeVisible' : 'toBeHidden'
       ]();
+      await expect(header.locator('.conversation-participant-wide-count'))[
+        width <= 360 ? 'toBeHidden' : 'toBeVisible'
+      ]();
+      await expect(header.locator('.conversation-participant-wide-count')).toHaveText('+1');
+      await expect(header.locator('.conversation-participant-count')).toHaveText('+2');
       await expect(header).toHaveAccessibleName('Agents, Architect, Reviewer, Reader');
       if (width === 390)
         await header.screenshot({ path: info.outputPath(`header-390-${theme}.png`) });
