@@ -116,7 +116,7 @@ import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
 import { TelosWorkAdvisorDraft } from './telos-work-advisor-draft.js';
 import { TelosArtifactStore } from './telos-artifact-store.js';
-import { resolveChatAgentProfile } from './agent-library-binding.js';
+import { resolveOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { OrdinarySilentPreparationSelectionSchema } from './ordinary-repository-preparation.js';
 import { assertOrdinarySilentPreparationAuthority } from './ordinary-repository-preparation-authority.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
@@ -2050,10 +2050,10 @@ function telosRoleHost(operatorConnectionId?: string) {
       settings.selection.model,
       settings.selection.thinking,
     );
-    const agentProfile = await resolveChatAgentProfile({
+    const agentProfile = await resolveOrdinaryCodexAgentProfile({
       requested: settings.selection.agent,
       provider: binding.provider,
-      toolRoute: 'codex',
+      execution: resolved.binding.execution,
       lookup: (selection) => readAgentLibraryProfile(selection, operatorConnectionId),
     });
     signal.throwIfAborted();

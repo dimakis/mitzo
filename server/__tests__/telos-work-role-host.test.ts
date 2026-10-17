@@ -384,3 +384,53 @@ it('retains explicit advisor purpose in the bound chat across a plain conversati
   expect(f.workspaces).not.toHaveBeenCalled();
   expect(f.ordinary.store.listSessions()).toHaveLength(2);
 });
+
+it.each([
+  { location: 'local' as const, tools: [{ id: 'mitzo:SymposiumReadProfiles', version: 1 }] },
+  { location: 'openshell' as const, tools: [] },
+])(
+  'uses the authenticated execution route for selected Telos role preparation: %j',
+  async ({ location, tools }) => {
+    const { resolveOrdinaryCodexAgentProfile } = await import('../ordinary-codex-agent-profile.js');
+    const { contextDigest } = await import('../agent-context-compiler.js');
+    const f = await fixture();
+    const input = await setupInput(f);
+    input.settings = structuredClone(input.settings);
+    input.settings.binding.execution = { ...input.settings.binding.execution, location };
+    const resolved = await f.ordinary.resolvePreparation();
+    const definition = { ...resolved.agentProfile.definition, tools };
+    const published = {
+      ...resolved.agentProfile,
+      definition,
+      contentHash: contextDigest(definition),
+    };
+    f.ordinary.resolvePreparation.mockImplementation(async (...args: unknown[]) => {
+      const [scope] = args as [import('../telos-work-role-setup.js').TelosWorkRoleSetupScope];
+      const agentProfile = await resolveOrdinaryCodexAgentProfile({
+        requested: scope.setup.input.settings.selection.agent,
+        execution: scope.setup.input.settings.binding.execution,
+        provider: resolved.binding.provider,
+        lookup: async () => published,
+      });
+      if (!agentProfile) throw Error('Published profile unavailable');
+      expect(agentProfile).toEqual(published);
+      return { ...resolved, agentProfile: published };
+    });
+    const reserveSandbox = vi.spyOn(f.ordinary.workspaces, 'reserveOrdinarySandboxTask');
+    const prepare = vi.spyOn(f.ordinary.workspaces, 'prepareOrdinarySession');
+    const sessions = f.ordinary.store.listSessions();
+    if (location === 'local') {
+      const receipt = await f.host().setup(f.request(input));
+      expect(prepare).toHaveBeenCalledOnce();
+      const id = receipt.work.assignments[0].conversation.conversationId;
+      expect(f.ordinary.store.getSession(id)?.agentProfile).toEqual(published);
+    } else {
+      await expect(f.host().setup(f.request(input))).rejects.toThrow(
+        /tool selection is not supported/,
+      );
+      expect(reserveSandbox).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+      expect(f.ordinary.store.listSessions()).toEqual(sessions);
+    }
+  },
+);
