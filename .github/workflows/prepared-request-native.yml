@@ -55,6 +55,9 @@ jobs:
           for (const patch of proof.patches) {
             execFileSync('git', ['apply', '--index', resolve(base, patch.file)], { cwd: '.native-prepared-source', stdio: 'inherit' });
           }
+          const tree = execFileSync('git', ['write-tree'], { cwd: '.native-prepared-source', encoding: 'utf8' }).trim();
+          if (tree !== proof.sourceTree) throw new Error('Tested native source tree mismatch');
+          execFileSync('git', ['diff', '--exit-code'], { cwd: '.native-prepared-source', stdio: 'inherit' });
           JS
       - name: Install pinned source test tools
         working-directory: .native-prepared-source
