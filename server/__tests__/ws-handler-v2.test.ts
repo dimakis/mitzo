@@ -3481,7 +3481,6 @@ describe('handleSendV2 connection ownership', () => {
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
-    ctx.connRegistry.register('other-conn', oldTransport);
 
     await handleSendV2(
       'c1',
@@ -3494,6 +3493,82 @@ describe('handleSendV2 connection ownership', () => {
     expect(ctx.connRegistry.get('c1')?.watchedSessions.has('sess-1')).toBe(true);
     expect(ctx.connRegistry.get('c1')?.activeSession).toBe('sess-1');
     expect(sendToChat).not.toHaveBeenCalled();
+  });
+
+  it.each(['send', 'interrupt'] as const)(
+    'ignores delayed duplicate %s ownership after a newer device message',
+    async (type) => {
+      vi.mocked(reattachChat).mockClear();
+      vi.mocked(sendToChat).mockClear();
+      vi.mocked(interruptChat).mockClear();
+      vi.mocked(isActive).mockReturnValueOnce(true);
+      vi.mocked(preflightChatCommand).mockReturnValueOnce(true);
+      const sessionReg = mockSessionRegistry();
+      const phone = mockTransport();
+      sessionReg.findBySessionId.mockReturnValue({
+        clientId: 'web:sess-1',
+        session: { ownerConnectionId: 'phone', transport: phone },
+      });
+      const ctx = createContext({
+        sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      });
+      const web = mockTransport();
+      ctx.connRegistry.register('phone', phone);
+      ctx.connRegistry.register('web', web);
+      ctx.connRegistry.setActive('phone', 'sess-1');
+      const message = { type, sessionId: 'sess-1', prompt: 'old retry', clientMsgId: 'old' };
+      if (type === 'send') await handleSendV2('web', web, { ...message, type }, ctx);
+      else await handleInterruptV2('web', web, { ...message, type }, ctx);
+      expect(sessionReg.findBySessionId('sess-1')?.session.ownerConnectionId).toBe('phone');
+      expect(reattachChat).not.toHaveBeenCalled();
+      expect(sendToChat).not.toHaveBeenCalled();
+      expect(interruptChat).not.toHaveBeenCalled();
+      expect(ctx.connRegistry.get('phone')?.activeSession).toBe('sess-1');
+    },
+  );
+
+  it('continues web to phone to web with one runtime and broadcasts to both', async () => {
+    vi.mocked(sendToChat).mockClear();
+    vi.mocked(denyPendingBySession).mockClear();
+    const sessionReg = mockSessionRegistry();
+    const web = mockTransport();
+    const phone = mockTransport();
+    const session = { ownerConnectionId: 'web', transport: web };
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'web:sess-1', session });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    ctx.connRegistry.register('web', web);
+    ctx.connRegistry.register('phone', phone);
+    ctx.connRegistry.setActive('web', 'sess-1');
+    ctx.connRegistry.setActive('phone', 'sess-1');
+    for (const [index, connectionId] of ['phone', 'web', 'phone'].entries()) {
+      vi.mocked(isActive).mockReturnValueOnce(true);
+      const transport = connectionId === 'web' ? web : phone;
+      await handleSendV2(
+        connectionId,
+        transport,
+        {
+          type: 'send',
+          sessionId: 'sess-1',
+          prompt: `continue ${index}`,
+          clientMsgId: `new-${index}`,
+        },
+        ctx,
+      );
+      expect(session.ownerConnectionId).toBe(connectionId);
+      expect(ctx.connRegistry.get('web')?.activeSession).toBe('sess-1');
+      expect(ctx.connRegistry.get('phone')?.activeSession).toBe('sess-1');
+      const event = { type: 'block_delta', sessionId: 'sess-1', delta: `reply ${index}` };
+      ctx.connRegistry.broadcast('sess-1', event);
+      expect(web.sent).toContainEqual(event);
+      expect(phone.sent).toContainEqual(event);
+    }
+    expect(sendToChat).toHaveBeenCalledTimes(3);
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    expect([...web.sent, ...phone.sent]).not.toContainEqual(
+      expect.objectContaining({ type: 'session_takeover' }),
+    );
   });
 
   it('takes over session from another connection on send', () => {
@@ -3527,15 +3602,13 @@ describe('handleSendV2 connection ownership', () => {
       ctx,
     );
 
-    // Old transport receives session_takeover
-    expect(oldTransport.sent).toContainEqual(
+    // Both interfaces remain on the shared conversation without an error notice.
+    expect(oldTransport.sent).not.toContainEqual(
       expect.objectContaining({ type: 'session_takeover', sessionId: 'sess-1' }),
     );
-    // Old connection unwatched
-    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(false);
-    // Pending permissions denied
-    expect(denyPendingBySession).toHaveBeenCalledWith('sess-1');
-    // Session rekeyed and send proceeds
+    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    // The existing runtime is reattached and send proceeds
     expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
     expect(rekeyChat).not.toHaveBeenCalled();
     expect(sendToChat).toHaveBeenCalled();
@@ -3925,7 +3998,9 @@ describe('handleSendV2 state-based routing', () => {
       ctx,
     );
 
-    expect(oldTransport.sent).toContainEqual(expect.objectContaining({ type: 'session_takeover' }));
+    expect(oldTransport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'session_takeover' }),
+    );
     expect(sendToChat).toHaveBeenCalled();
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
@@ -4765,7 +4840,6 @@ describe('handleInterruptV2 connection ownership', () => {
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
-    ctx.connRegistry.register('other-conn', oldTransport);
 
     await handleInterruptV2(
       'c1',
@@ -4810,15 +4884,13 @@ describe('handleInterruptV2 connection ownership', () => {
       ctx,
     );
 
-    // Old transport receives session_takeover
-    expect(oldTransport.sent).toContainEqual(
+    // Both interfaces remain on the shared conversation without an error notice.
+    expect(oldTransport.sent).not.toContainEqual(
       expect.objectContaining({ type: 'session_takeover', sessionId: 'sess-1' }),
     );
-    // Old connection unwatched
-    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(false);
-    // Pending permissions denied
-    expect(denyPendingBySession).toHaveBeenCalledWith('sess-1');
-    // Session rekeyed and interrupt proceeds
+    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    // The existing runtime is reattached and interrupt proceeds
     expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
     expect(rekeyChat).not.toHaveBeenCalled();
     expect(interruptChat).toHaveBeenCalled();
@@ -5330,7 +5402,8 @@ describe('handleReconnect suspend resume', () => {
     );
   });
 
-  it('takes over, reconciles, and resumes a real suspended session before durable replay', () => {
+  it('resumes and replays a suspended session without displacing its connected driver', () => {
+    vi.mocked(reattachChat).mockClear();
     const sessionReg = new SessionRegistry();
     const oldTransport = mockTransport();
     sessionReg.register('old-conn:sess-1', {
@@ -5360,20 +5433,16 @@ describe('handleReconnect suspend resume', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('old-conn', oldTransport);
     ctx.connRegistry.register('new-conn', transport);
-    (reattachChat as ReturnType<typeof vi.fn>).mockImplementationOnce((clientId, nextTransport) =>
-      sessionReg.reattach(clientId, nextTransport as SessionTransport),
-    );
-
     handleReconnect(
       'new-conn',
       { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
       ctx,
     );
 
-    expect(reattachChat).toHaveBeenCalledWith('old-conn:sess-1', transport);
-    expect(sessionReg.get('old-conn:sess-1')?.ownerConnectionId).toBe('new-conn');
+    expect(reattachChat).not.toHaveBeenCalled();
+    expect(sessionReg.get('old-conn:sess-1')?.ownerConnectionId).toBe('old-conn');
     expect(sessionReg.isSuspended('old-conn:sess-1')).toBe(false);
-    expect(oldTransport.sent).toContainEqual({ type: 'session_takeover', sessionId: 'sess-1' });
+    expect(oldTransport.sent).not.toContainEqual({ type: 'session_takeover', sessionId: 'sess-1' });
     expect(
       transport.sent.filter(
         (message) => message.type === 'block_delta' && message.delta === 'durable-text',
