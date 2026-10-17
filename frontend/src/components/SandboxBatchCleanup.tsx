@@ -114,14 +114,33 @@ export function SandboxBatchCleanup({
         submitted = true;
         attempted = true;
         update(index, 'Deleting…');
-        const response = await apiFetch('/api/openshell/lifecycle/confirm', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: fresh.token }),
+        const abort = new AbortController();
+        let timeout!: ReturnType<typeof setTimeout>;
+        const deadline = new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            reject(Error('Confirmation timed out.'));
+            abort.abort();
+          }, 30_000);
         });
-        const body = await response.json();
-        if (!response.ok || body.action !== 'deleted')
-          throw Error(body.error || 'Deletion was not confirmed.');
+        try {
+          // Bound headers and body, even when the transport ignores abort. Never replay a write.
+          await Promise.race([
+            (async () => {
+              const response = await apiFetch('/api/openshell/lifecycle/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: fresh.token }),
+                signal: abort.signal,
+              });
+              const body = await response.json();
+              if (!response.ok || body.action !== 'deleted')
+                throw Error(body.error || 'Deletion was not confirmed.');
+            })(),
+            deadline,
+          ]);
+        } finally {
+          clearTimeout(timeout);
+        }
         update(index, 'Deleted; chat and checkpoint retained');
       } catch (error) {
         update(

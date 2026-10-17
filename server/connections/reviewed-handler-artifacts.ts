@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.283-codex-research-sandbox-review.1';
+  'v1.0.283-codex-research-sandbox-review.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,11 +24,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../sandbox-ownership-review.ts':
-    'fda3d8ee7c202cb5d8adaa16afa762d10692fe501f84c32d708a1d5bf546b6e0',
+    '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../../frontend/src/components/SandboxOwnershipReview.tsx':
-    'da4bb5ff0417eb19e2f74c02f42cff5f784031e8c359096164fcd1e2a5410144',
+    '64e5c10201281d54c61e62bf06b1260aff990939f38cb1b4052ba6335d001e0b',
   '../../frontend/src/components/SandboxBatchCleanup.tsx':
-    '1aa0f7ce0c7bd1be6ccd0c351305711d9ec0b4f690ace49e71c6eb37aeb30a80',
+    'af232871b17f95cfe1cee1bcd7031236cad69ba7db51645af07e084823e247c3',
 
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
@@ -507,7 +507,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '1c873fefc226f8975dede95312f6a5487a64ef98d4f18bac8492b835220b8504',
+  '../app.ts': '7a5af41e48ab04c360e608aa523980d7c9c89a4121879427d2ebe32983525135',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -685,7 +685,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    '2e1899a35d876b578a15886a43d0db4d08687c31934e1201030deece55cba1db',
+    'fdbde593270e896b680763fe8de9d131ea08fc9b2250e4cd8a8e8a277ce053ac',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':

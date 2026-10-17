@@ -1,4 +1,4 @@
-import { reviewSandboxOwnership } from './sandbox-ownership-review.js';
+import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
 import { summarizeSandboxInventory } from './sandbox-inventory.js';
 import { readOpenShellSandboxInventory } from './openshell-lifecycle-controller.js';
@@ -1696,21 +1696,7 @@ app.use(
       ).items[0];
       if (managed?.management !== 'needs_review')
         throw new Error('Resource is now managed; refresh inventory');
-      const review = reviewSandboxOwnership(
-        physical,
-        getCodexConversationStore().listSandboxOwnership(),
-      );
-      return {
-        ...review,
-        owners: review.owners.map((owner) => {
-          const session = eventStore.getSession(owner.conversationId);
-          return {
-            ...owner,
-            title: session?.summary ?? 'Saved conversation',
-            accountLabel: session?.accountBinding?.accountLabel ?? owner.accountId,
-          };
-        }),
-      };
+      return readSandboxOwnershipReview(physical, getCodexConversationStore(), eventStore);
     },
     physicalInventory: async (signal) =>
       summarizeSandboxInventory(

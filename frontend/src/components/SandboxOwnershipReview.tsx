@@ -11,6 +11,8 @@ const explanations: Record<string, string> = {
     'No exact saved physical owner was found. A resource name or age does not establish ownership.',
   ownership_conflict:
     'More than one saved conversation refers to this resource. Resolve ownership before cleanup.',
+  gateway_scope_unverified:
+    'The saved seat record does not establish the gateway. Verify its scope before any changes.',
   symposium: 'This resource has Symposium custody. Preserve it for the Symposium owner.',
   migration:
     'This resource is retained as a migration source or candidate. Preserve its migration evidence.',

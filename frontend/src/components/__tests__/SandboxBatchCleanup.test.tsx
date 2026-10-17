@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactNode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { SandboxBatchCleanup } from '../SandboxBatchCleanup';
 import { readApiJson } from '../../lib/api-json-read';
 import { apiFetch } from '../../lib/api-fetch';
@@ -31,6 +31,7 @@ const preview = {
 };
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.resetAllMocks();
 });
 function mount(items = [item]) {
@@ -106,3 +107,41 @@ it('stops after an uncertain deletion and does not submit the remaining batch', 
   expect(apiFetch).toHaveBeenCalledTimes(1);
   expect(changed).toHaveBeenCalledTimes(1);
 });
+
+it.each(['headers', 'body'])(
+  'bounds a stalled confirmation %s, refreshes and unlocks without replaying',
+  async (stage) => {
+    const second = {
+      ...item,
+      conversationId: 'second',
+      sandboxName: 'second',
+      physicalId: 'second',
+    };
+    vi.mocked(readApiJson).mockImplementation(async (path) => ({
+      ...preview,
+      record: path.includes('second')
+        ? { conversationId: 'second', sandboxName: 'second', physicalSandboxId: 'second' }
+        : preview.record,
+    }));
+    const never = new Promise<never>(() => {});
+    const response = new Response('{}');
+    vi.spyOn(response, 'json').mockReturnValue(never);
+    vi.mocked(apiFetch).mockImplementation(() =>
+      stage === 'headers' ? never : Promise.resolve(response),
+    );
+    const changed = mount([item, second]);
+    await screen.findAllByText('Ready to delete');
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete reviewed sandboxes' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(screen.getByText(/Outcome unverified/)).toBeTruthy();
+    expect(screen.getByText(/Not attempted/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Done' }).hasAttribute('disabled')).toBe(false);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(apiFetch).mock.calls[0][1]?.signal?.aborted).toBe(true);
+  },
+);

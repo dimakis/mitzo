@@ -89,7 +89,11 @@ Needs ownership review opens an operator-authenticated read-only review at
 `GET /api/sandboxes/:physicalId/ownership`. It refreshes the physical inventory
 and matches retained native runtime and migration records by physical ID, name,
 workspace, gateway and endpoint. Archived conversations remain in this provenance
-index. Responses contain only account ID, conversation ID, owner kind and relation;
+index. Retained Symposium seat records are also matched by physical ID, name and
+workspace, including stopped resources and hidden parent chats. These historical
+records did not save gateway scope: the review shows their saved parent and
+Symposium custody while explicitly blocking on unverified gateway scope.
+Responses contain only account ID, conversation ID, owner kind and relation;
 provider grants, route credentials, CLI environment and private paths are omitted.
 A name/hash match alone is not an owner. Missing/invalid evidence fails closed.
 
@@ -108,4 +112,7 @@ the existing lifecycle service. That service still owns checkpoint, protection,
 stop and deletion checks. There is no new batch deletion API or retention consent.
 An identity change, blocker, refused operation or uncertain response stops the
 remaining batch. Completed results remain visible; inventory refresh follows a
-submitted request even on failure. Further attempts require a new review.
+submitted request even on failure. Confirmation has a 30-second deadline covering
+both headers and response body. An expiry leaves the outcome unverified, stops
+the batch and refreshes inventory without replaying the mutation. Further attempts
+require a new review.
