@@ -1,9 +1,19 @@
 import { Capacitor } from '@capacitor/core';
-import { NativeBiometric, BiometryType } from '@capgo/capacitor-native-biometric';
+import { NativeBiometric, BiometryType, AccessControl } from '@capgo/capacitor-native-biometric';
 import { saveTokenToWatch } from './watch-auth';
-import { getStoredAuthToken, isLogoutPending, loginSucceeded, markAuthLost } from './api-fetch';
+import {
+  getApiBaseUrl,
+  getStoredAuthToken,
+  isLogoutPending,
+  loginSucceeded,
+  markAuthLost,
+} from './api-fetch';
 
 const SERVER = 'com.mitzo.app';
+const PASSPHRASE_KEY = `${SERVER}.biometric-passphrase`;
+function passphraseKey(apiBaseUrl: string): string {
+  return apiBaseUrl ? `${PASSPHRASE_KEY}:${encodeURIComponent(apiBaseUrl)}` : PASSPHRASE_KEY;
+}
 let credentialMutation = Promise.resolve();
 
 function enqueueCredentialMutation(operation: () => Promise<void>): Promise<void> {
@@ -66,22 +76,49 @@ export async function saveCredentials(token: string): Promise<void> {
   });
 }
 
+/** Explicit opt-in only: iOS Keychain requires the enrolled biometrics at read time. */
+export async function saveBiometricPassphrase(
+  passphrase: string,
+  apiBaseUrl = getApiBaseUrl(),
+): Promise<boolean> {
+  if (!Capacitor.isNativePlatform() || !passphrase) return false;
+  let saved = false;
+  await enqueueCredentialMutation(async () => {
+    try {
+      await NativeBiometric.setData({
+        key: passphraseKey(apiBaseUrl),
+        value: passphrase,
+        accessControl: AccessControl.BIOMETRY_CURRENT_SET,
+      });
+      saved = true;
+    } catch {
+      // Never fall back to unprotected storage for the passphrase.
+    }
+  });
+  return saved;
+}
+
 /** Remove stored credentials (logout). */
-export async function deleteCredentials(): Promise<void> {
+export async function deleteCredentials(apiBaseUrl = getApiBaseUrl()): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   await enqueueCredentialMutation(async () => {
     try {
       await NativeBiometric.deleteCredentials({ server: SERVER });
     } catch {
-      // No credentials to delete
+      // No legacy credentials to delete
+    }
+    try {
+      await NativeBiometric.deleteData({ key: passphraseKey(apiBaseUrl) });
+    } catch {
+      // No protected credential to delete
     }
   });
 }
 
 /**
- * Attempt biometric login: prompt Face ID / Touch ID, retrieve JWT from Keychain,
- * validate with server, store in localStorage for apiFetch, and return the token.
- * Returns null if biometric auth fails, no credentials stored, or token is expired.
+ * Unlock an explicitly enrolled passphrase through native Keychain biometrics and
+ * obtain a fresh ordinary server session. Legacy saved JWTs remain usable until
+ * expiry; one passphrase login with opt-in enrolls the durable unlock credential.
  */
 let loginInFlight: { baseUrl: string; promise: Promise<string | null> } | undefined;
 
@@ -100,7 +137,7 @@ export function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
 async function performBiometricLogin(apiBaseUrl: string): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
   if (isLogoutPending()) {
-    await deleteCredentials();
+    await deleteCredentials(apiBaseUrl);
     return null;
   }
   const authTokenAtStart = getStoredAuthToken();
@@ -108,20 +145,33 @@ async function performBiometricLogin(apiBaseUrl: string): Promise<string | null>
     !isLogoutPending() && getStoredAuthToken() === authTokenAtStart;
 
   try {
-    await NativeBiometric.verifyIdentity({
-      reason: 'Unlock Mitzo',
-      title: 'Mitzo',
-      subtitle: 'Authenticate to continue',
-      useFallback: true,
-    });
-
-    const credentials = await NativeBiometric.getCredentials({
-      server: SERVER,
-    });
-    const token = credentials.password;
-
-    if (!token) return null;
+    let passphrase: string | undefined;
+    try {
+      const protectedData = await NativeBiometric.getSecureData({
+        key: passphraseKey(apiBaseUrl),
+        reason: 'Unlock Mitzo',
+      });
+      passphrase = protectedData.value;
+      if (!passphrase) return null;
+    } catch (error) {
+      // Missing enrollment can use the old JWT. Cancellation, lockout and other
+      // Keychain failures must not cause another native prompt.
+      if (String((error as { code?: unknown })?.code) !== '21') return null;
+    }
     if (!authContextIsCurrent()) return null;
+
+    let token: string | undefined;
+    if (!passphrase) {
+      await NativeBiometric.verifyIdentity({
+        reason: 'Unlock Mitzo',
+        title: 'Mitzo',
+        subtitle: 'Authenticate to continue',
+        useFallback: true,
+      });
+      const credentials = await NativeBiometric.getCredentials({ server: SERVER });
+      token = credentials.password;
+      if (!token || !authContextIsCurrent()) return null;
+    }
 
     // Authorization checks must not load every provider's session catalog.
     const controller = new AbortController();
@@ -129,8 +179,14 @@ async function performBiometricLogin(apiBaseUrl: string): Promise<string | null>
     let res: Response;
     try {
       res = await Promise.race([
-        fetch(`${apiBaseUrl}/api/auth/check`, {
-          headers: { Authorization: `Bearer ${token}` },
+        fetch(`${apiBaseUrl}/api/auth/${passphrase ? 'login' : 'check'}`, {
+          ...(passphrase
+            ? {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ passphrase }),
+              }
+            : { headers: { Authorization: `Bearer ${token}` } }),
           credentials: 'include',
           signal: controller.signal,
         }),
@@ -148,13 +204,22 @@ async function performBiometricLogin(apiBaseUrl: string): Promise<string | null>
     if (!res.ok) {
       if (
         (res.status === 401 || res.status === 403) &&
-        (authTokenAtStart === null || authTokenAtStart === token)
+        (passphrase
+          ? authTokenAtStart === null
+          : authTokenAtStart === null || authTokenAtStart === token)
       ) {
         markAuthLost();
-        await deleteCredentials();
+        await deleteCredentials(apiBaseUrl);
       }
       return null;
     }
+
+    if (passphrase) {
+      const data = (await res.json()) as { token?: unknown };
+      if (typeof data.token !== 'string' || !data.token || !authContextIsCurrent()) return null;
+      token = data.token;
+    }
+    if (!token) return null;
 
     // Also save to native shared Keychain for Apple Watch
     await saveTokenToWatch(token);
