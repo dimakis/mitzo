@@ -71,6 +71,12 @@ interface Owners {
 type Row = { body: string };
 const ReviewCompilationInput = z.strictObject({
   operatorId: z.string().min(1).max(200),
+  // Private normalized application intent. Recovery observes retained settings;
+  // mutable account/profile resolution must not replace an existing request.
+  applicationInputSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   selection: CollaborationSnapshotSelectionSchema,
   settings: z.array(CollaborationSettingsSchema).min(1).max(16),
 });
@@ -651,11 +657,18 @@ export class CollaborationConversationStore {
       reservation
     );
   }
+  /** Host-private observation of the existing request record; never a readiness grant. */
+  getReviewCompilation(group: string, requestId: string) {
+    this.group(group);
+    z.uuid().parse(requestId);
+    return this.current(group, 'review-compilation', requestId, ReviewCompilation);
+  }
   completeReviewCompilation(
     group: string,
     requestId: string,
     raw: unknown,
     rawWitnesses: unknown = [],
+    assertBeforeCommit?: () => void,
   ) {
     z.uuid().parse(requestId);
     return this.db
@@ -693,6 +706,14 @@ export class CollaborationConversationStore {
           draft.joiningBrief !== selection.joiningBrief
         )
           throw new ContractError('snapshot_changed');
+        // Renew the original source/material witnesses under this owner's write
+        // fence, after identity validation and before any new retained bytes.
+        // A promise cannot extend a synchronous SQLite transaction.
+        const assertionResult: unknown = assertBeforeCommit?.();
+        if (assertionResult !== undefined) {
+          if (assertionResult instanceof Promise) void assertionResult.catch(() => {});
+          throw new ContractError('snapshot_changed');
+        }
         const snapshot = this.saveSnapshot(group, {
           ...draft,
           requestId: record.snapshotRequestId,
