@@ -9,6 +9,13 @@ export const ToolBuilderContractReferenceSchema = z.union([
 ]);
 export type ToolBuilderContractReference = z.infer<typeof ToolBuilderContractReferenceSchema>;
 const request = z.string().trim().min(1).max(2000);
+const resultPage = {
+  resultOffset: z.number().int().nonnegative().default(0),
+  resultDigest: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+};
 const custom = CustomToolDraftInputSchema.safeExtend({
   testProfile: z.literal('unit'),
 }).superRefine((value, ctx) => {
@@ -23,8 +30,11 @@ const custom = CustomToolDraftInputSchema.safeExtend({
     });
 });
 export const toolBuilderToolSchemas = {
-  ToolBuilderSearchCatalog: z.strictObject({ query: request }),
-  ToolBuilderReadContract: z.strictObject({ reference: ToolBuilderContractReferenceSchema }),
+  ToolBuilderSearchCatalog: z.strictObject({ query: request, ...resultPage }),
+  ToolBuilderReadContract: z.strictObject({
+    reference: ToolBuilderContractReferenceSchema,
+    ...resultPage,
+  }),
   ToolBuilderPrepareDraft: z
     .strictObject({
       request,
@@ -43,6 +53,7 @@ export const toolBuilderToolSchemas = {
     custom,
   }),
   ToolBuilderInspectDraft: z.strictObject({
+    ...resultPage,
     id: z.uuid(),
     version: z.number().int().positive().optional(),
     path: z.string().min(1).max(240).optional(),

@@ -73,7 +73,18 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
             : mixed.has(tool.name)
               ? ('mixed' as const)
               : ('write' as const),
-      routes: source === 'Telos' ? [] : ['local-api'],
+      routes:
+        source === 'Telos'
+          ? []
+          : source === 'Agent Library'
+            ? ['local-api', 'codex-owned-local']
+            : source === 'GitHub publishing'
+              ? ['local-api', 'codex', 'codex-owned-local']
+              : source === 'Workspace'
+                ? ['local-api', 'codex', 'codex-owned-local']
+                : source === 'Connections' || source === 'Web'
+                  ? ['local-api', 'codex']
+                  : ['local-api'],
       requirement:
         source === 'Telos'
           ? 'Explicit profile selection is not supported on this native OpenShell route.'

@@ -100,6 +100,54 @@ it('uses nonrecursive provider schemas while retaining strict server-side draft 
   for (const definition of toolBuilderToolDefinitions)
     expect(JSON.stringify(definition.input_schema)).not.toContain('"$ref"');
 });
+it('pages large contract results within the provider tool-result bound without losing data', async () => {
+  const f = await sessionFixture();
+  const contract = { description: 'x'.repeat(45000) };
+  f.catalog.readContract.mockResolvedValue(contract);
+  const signal = new AbortController().signal;
+  let offset = 0;
+  let encoded = '';
+  let digest: string | undefined;
+  do {
+    const response = await f.tools.execute(
+      'ToolBuilderReadContract',
+      {
+        reference: { id: 'mitzo:Read', version: 1 },
+        ...(offset ? { resultOffset: offset, resultDigest: digest } : {}),
+      },
+      signal,
+    );
+    expect(response?.isError).toBe(false);
+    expect(Buffer.byteLength(response!.content)).toBeLessThanOrEqual(32000);
+    const page = JSON.parse(response!.content);
+    expect(page.partial).toBe(true);
+    encoded += page.json;
+    offset = page.nextResultOffset;
+    digest = page.resultDigest;
+  } while (offset !== null);
+  expect(JSON.parse(encoded)).toEqual(contract);
+  f.catalog.readContract.mockResolvedValue({ changed: true });
+  expect(
+    (
+      await f.tools.execute(
+        'ToolBuilderReadContract',
+        { reference: { id: 'mitzo:Read', version: 1 }, resultOffset: 4000, resultDigest: digest },
+        signal,
+      )
+    )?.isError,
+  ).toBe(true);
+});
+it('bounds executor and catalog error reports as well as successful results', async () => {
+  const f = await sessionFixture();
+  f.catalog.readContract.mockRejectedValueOnce(Error('x'.repeat(45000)));
+  const response = await f.tools.execute(
+    'ToolBuilderReadContract',
+    { reference: { id: 'mitzo:Read', version: 1 } },
+    new AbortController().signal,
+  );
+  expect(response?.isError).toBe(true);
+  expect(Buffer.byteLength(response!.content)).toBeLessThanOrEqual(32000);
+});
 
 it('proposes actual catalog reuse before any development approval, workspace or implementation', async () => {
   const f = await sessionFixture();

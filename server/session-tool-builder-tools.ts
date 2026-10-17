@@ -67,8 +67,15 @@ function summary(record: ToolBuilderRecord) {
     name: record.draft.name,
     contractDigest: record.draft.contractDigest,
     sourceDigest: record.draft.sourceDigest,
-    tests: record.draft.tests,
-    files: record.draft.files.map((file) => ({
+    tests: {
+      passed: record.draft.tests.passed,
+      complete: record.draft.tests.complete,
+      evidenceKind: record.draft.tests.evidenceKind,
+      summary: record.draft.tests.summary,
+      examples: record.draft.tests.examples.length,
+    },
+    fileCount: record.draft.files.length,
+    files: record.draft.files.slice(0, 10).map((file) => ({
       path: file.path,
       bytes: Buffer.byteLength(file.content),
     })),
@@ -266,14 +273,30 @@ export function sessionToolBuilderTools(
                   return {
                     kind: request.reuse.id.startsWith('template:') ? 'configure_template' : 'reuse',
                     reference: request.reuse,
-                    contract,
+                    contractDigest: hash(contract),
+                    readWith: 'ToolBuilderReadContract',
                   };
                 }
                 const equivalent = matches.find(
                   (match) => match.equivalent && match.id !== `custom:${prior?.draft.id}`,
                 );
-                if (equivalent) return { kind: 'reuse', tool: equivalent };
-                if (!request.custom) return { kind: 'needs_specification', matches };
+                if (equivalent)
+                  return {
+                    kind: 'reuse',
+                    tool: {
+                      id: equivalent.id,
+                      version: equivalent.version,
+                      name: equivalent.name.slice(0, 80),
+                      description: equivalent.description.slice(0, 500),
+                      ...('reference' in equivalent ? { reference: equivalent.reference } : {}),
+                    },
+                  };
+                if (!request.custom)
+                  return {
+                    kind: 'needs_specification',
+                    matchCount: matches.length,
+                    readWith: 'ToolBuilderSearchCatalog',
+                  };
                 const primary = session.worktreePaths.get('primary')?.path;
                 if (!primary) throw Error('An authorized isolated session worktree is required');
                 const privateRoots =
@@ -419,10 +442,34 @@ export function sessionToolBuilderTools(
         check();
         await options.assertRuntimeCurrent?.();
         check();
-        return { content: JSON.stringify(value), isError: false };
+        const serialized = JSON.stringify(value);
+        const resultOffset = 'resultOffset' in parsed ? parsed.resultOffset : 0;
+        const resultDigest = createHash('sha256').update(serialized).digest('hex');
+        if (
+          resultOffset > 0 &&
+          (!('resultDigest' in parsed) || parsed.resultDigest !== resultDigest)
+        )
+          throw Error(
+            'Paged result changed or its continuation digest is missing; restart this read',
+          );
+        return {
+          content:
+            resultOffset > 0 || Buffer.byteLength(serialized) > 32000
+              ? JSON.stringify({
+                  partial: true,
+                  encoding: 'json',
+                  resultDigest,
+                  json: serialized.slice(resultOffset, resultOffset + 4000),
+                  nextResultOffset:
+                    resultOffset + 4000 < serialized.length ? resultOffset + 4000 : null,
+                })
+              : serialized,
+          isError: false,
+        };
       } catch (error) {
         return {
-          content: error instanceof Error ? error.message : 'Tool Builder request failed',
+          content:
+            error instanceof Error ? error.message.slice(0, 4000) : 'Tool Builder request failed',
           isError: true,
         };
       } finally {

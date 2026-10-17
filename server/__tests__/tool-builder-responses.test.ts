@@ -5,7 +5,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { bindAgentLibraryTransport, readAgentLibraryProfile } from '../agent-library-transport.js';
+import { resolveChatAgentProfile } from '../agent-library-binding.js';
 import { revokeAuthSession } from '../auth.js';
 import { toolBuilderToolDefinitions } from '../tool-builder-tool-definitions.js';
 import { CustomToolDraftInputSchema, type ToolBuilderExecutor } from '../tool-builder.js';
@@ -74,29 +75,13 @@ it.each(['openai', 'google-vertex'] as const)(
       expiresAt: Date.now() + 60000,
     });
     try {
-      const draft = library.saveDraft('user', {
-        profileId: 'builder',
-        expectedVersion: 0,
-        expectedRevision: 0,
-        idempotencyKey: 'draft',
-        definition: {
-          name: 'Builder',
-          role: 'agent',
-          instructions: 'Prepare a reviewed draft',
-          expectedOutput: 'Draft',
-          acceptanceCriteria: ['Tested'],
-          modelPolicyRole: 'agent',
-          tools: toolBuilderToolDefinitions.map((tool) => ({
-            id: `mitzo:${tool.name}`,
-            version: 1,
-          })),
-        },
+      const published = await resolveChatAgentProfile({
+        requested: { kind: 'builtin', profileId: 'mitzo-tool-builder', revision: 1 },
+        provider,
+        toolRoute: 'local-api',
+        lookup: (selection) => readAgentLibraryProfile(selection, 'client'),
       });
-      const published = library.publish('user', {
-        profileId: 'builder',
-        expectedVersion: draft.version,
-        idempotencyKey: 'publish',
-      });
+      expect(library.list('user')).toMatchObject({ drafts: [], versions: [] });
       registry.register('client', {
         transport: { send() {}, isOpen: () => true },
         abortController: new AbortController(),

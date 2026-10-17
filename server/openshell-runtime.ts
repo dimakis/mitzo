@@ -706,7 +706,9 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     throw new Error(
       `OpenShell service provider cannot be both automatic and grantable: ${overlappingProvider}`,
     );
-  const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'disabled';
+  // This is an availability ceiling. Conversation consent and mode still decide
+  // the effective capability at each thread boundary; no new chat starts live.
+  const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'live';
   if (webSearch !== 'disabled' && webSearch !== 'live')
     throw new Error('Invalid OpenShell web search mode');
   const gatewayEndpoint = env.MITZO_OPENSHELL_GATEWAY_ENDPOINT;

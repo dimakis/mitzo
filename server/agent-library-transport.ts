@@ -12,6 +12,7 @@ import {
 import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
+import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
 
 const operators = new Map<string, AuthSession>();
 export function captureAgentLibraryAuthorization(connectionId?: string) {
@@ -86,12 +87,13 @@ export function readBuiltinAgentLibraryProfile(selection: AgentProfileSelection)
             }
           : undefined;
     if (!builtin || selection.revision !== builtin.revision) return null;
+    const definition = PortableProfileDefinitionSchema.parse(builtin.definition);
     return {
       kind: 'builtin' as const,
       profileId: builtin.id,
       revision: builtin.revision,
-      definition: structuredClone(builtin.definition),
-      contentHash: createHash('sha256').update(JSON.stringify(builtin.definition)).digest('hex'),
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
     };
   }
   return null;

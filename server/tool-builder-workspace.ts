@@ -128,7 +128,9 @@ async function operation(input: Record<string, unknown>, signal: AbortSignal): P
         env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin' },
         signal,
         timeout: 30000,
-        maxBuffer: 4_000_000,
+        // At most 2 MB source plus 100 bounded paths. JSON escaping can
+        // expand each source byte sixfold, independently of the source limit.
+        maxBuffer: 12_200_000,
       },
       (error, stdout) => {
         if (error) {

@@ -30,6 +30,16 @@ it('creates a private isolated workspace, supports root files and snapshots the 
   await ws.discard();
   await expect(ws.snapshot()).rejects.toThrow();
 });
+it('snapshots and reads valid Unicode near the complete workspace byte limit', async () => {
+  const base = await root();
+  const ws = await createToolBuilderWorkspace(base, new AbortController().signal);
+  const content = '//' + 'é'.repeat(119999) + '\n';
+  expect(Buffer.byteLength(content) * 8).toBeLessThan(2_000_000);
+  for (let index = 0; index < 8; index++) await ws.write(`source-${index}.mts`, content);
+  expect(await ws.snapshot()).toHaveLength(8);
+  expect(await ws.read('source-7.mts')).toBe(content);
+  await ws.discard();
+}, 20000);
 
 it('rejects symlink and hardlink sources without following them during cleanup', async () => {
   const base = await root();
