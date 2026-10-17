@@ -59,11 +59,17 @@ export function AgentToolsEditor({
             </button>
           </div>
           {selected.map((ref) => {
-            const entry = tools.find((tool) => tool.id === ref.id && tool.version === ref.version);
+            const entry = tools.find(
+              (tool) =>
+                tool.id === ref.id &&
+                tool.version === ref.version &&
+                (!('revision' in ref) || ('revision' in tool && tool.revision === ref.revision)),
+            );
             return (
               <article className="agent-tool-row" key={ref.id}>
                 <div>
                   <strong>{entry?.name ?? ref.id}</strong>
+                  {entry && 'revision' in entry && <small>Configured source: {entry.source}</small>}
                   <p>
                     {entry?.description ??
                       'Tool version is missing from the installed catalog. New sessions will refuse admission.'}
@@ -126,10 +132,17 @@ export function AgentToolsEditor({
                     </div>
                     <button
                       type="button"
-                      aria-label={`Add ${tool.name}`}
+                      aria-label={`Add ${tool.name}${'revision' in tool ? ` from ${tool.source}` : ''}`}
                       disabled={!tool.routes.includes('local-api') || selected.length >= 100}
                       onClick={() =>
-                        onChange([...selected, { id: tool.id, version: tool.version }])
+                        onChange([
+                          ...selected,
+                          {
+                            id: tool.id,
+                            version: tool.version,
+                            ...('revision' in tool ? { revision: tool.revision } : {}),
+                          },
+                        ])
                       }
                     >
                       Add

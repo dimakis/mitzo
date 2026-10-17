@@ -35,12 +35,13 @@ import '../styles/agent-library.css';
 
 type Editor = AgentLibraryEditor;
 type Tab = 'tools' | 'identity' | 'instructions' | 'context' | 'preview' | 'versions' | 'tasks';
-async function read<T>(path: string, body?: unknown): Promise<T> {
+async function read<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await apiFetch(
     path,
     body === undefined
-      ? undefined
+      ? { signal }
       : {
+          signal,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -132,23 +133,74 @@ export function AgentLibrary() {
   const [toolError, setToolError] = useState('');
   const [toolLoaded, setToolLoaded] = useState(false);
   const [toolAttempt, setToolAttempt] = useState(0);
+  const toolReads = useRef(0);
+  const discovery = useRef<AbortController | null>(null);
+  const refreshControl = useRef<HTMLButtonElement>(null);
+  const restoreDiscoveryFocus = useRef(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState('');
+  const [discoveryNotice, setDiscoveryNotice] = useState('');
+  useEffect(() => {
+    if (!discovering && restoreDiscoveryFocus.current) {
+      restoreDiscoveryFocus.current = false;
+      refreshControl.current?.focus();
+    }
+  }, [discovering]);
   useEffect(() => {
     let live = true;
+    const generation = ++toolReads.current;
     setToolError('');
     read<{ tools: AgentToolCatalogEntry[] }>('/api/agent-library/tools')
       .then((result) => {
-        if (!live) return;
+        if (!live || generation !== toolReads.current) return;
         if (!Array.isArray(result.tools)) throw Error('Tool library response is invalid');
         setTools(result.tools);
         setToolLoaded(true);
       })
       .catch((error) => {
-        if (live) setToolError(error instanceof Error ? error.message : 'Tool library unavailable');
+        if (live && generation === toolReads.current)
+          setToolError(error instanceof Error ? error.message : 'Tool library unavailable');
       });
     return () => {
       live = false;
     };
   }, [toolAttempt]);
+  async function refreshConfiguredTools() {
+    if (discovery.current) return;
+    const controller = new AbortController();
+    discovery.current = controller;
+    setDiscovering(true);
+    setDiscoveryError('');
+    setDiscoveryNotice('');
+    try {
+      const result = await read<{ tools: AgentToolCatalogEntry[] }>(
+        '/api/agent-library/tools/refresh',
+        {},
+        controller.signal,
+      );
+      controller.signal.throwIfAborted();
+      if (!Array.isArray(result.tools)) throw Error('Tool library response is invalid');
+      if (mounted.current) {
+        ++toolReads.current;
+        setTools(result.tools);
+        setToolLoaded(true);
+        setToolError('');
+        setDiscoveryNotice(
+          'Configured tools refreshed. Start a new chat to use selection changes.',
+        );
+      }
+    } catch (error) {
+      if (mounted.current) {
+        if (controller.signal.aborted)
+          setDiscoveryNotice('Discovery cancelled. Refresh again to confirm the saved catalog.');
+        else
+          setDiscoveryError(error instanceof Error ? error.message : 'Configured discovery failed');
+      }
+    } finally {
+      if (discovery.current === controller) discovery.current = null;
+      if (mounted.current) setDiscovering(false);
+    }
+  }
   const [dirty, setDirty] = useState(!!recovered);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -166,6 +218,7 @@ export function AgentLibrary() {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      discovery.current?.abort();
     };
   }, []);
   useEffect(() => {
@@ -380,6 +433,46 @@ export function AgentLibrary() {
           Tool library
         </button>
       </div>
+      {(view === 'tools' || tab === 'tools') && (
+        <section aria-label="Configured tool discovery">
+          <div className="agent-library-actions">
+            <button
+              type="button"
+              ref={refreshControl}
+              disabled={discovering}
+              aria-busy={discovering}
+              onClick={() => void refreshConfiguredTools()}
+            >
+              Refresh configured servers
+            </button>
+            {discovering && (
+              <button
+                type="button"
+                onClick={() => {
+                  restoreDiscoveryFocus.current = true;
+                  discovery.current?.abort();
+                }}
+              >
+                Cancel discovery
+              </button>
+            )}
+          </div>
+          <p className="tool-library-intro">
+            Discover tools from authorized configured servers. Refresh may start their configured
+            processes. Existing chats keep their admitted tools.
+          </p>
+          {discovering && <p role="status">Refreshing configured servers…</p>}
+          {discoveryError && (
+            <p role="alert" className="agent-library-error">
+              {discoveryError}{' '}
+              <button type="button" onClick={() => void refreshConfiguredTools()}>
+                Retry discovery
+              </button>
+            </p>
+          )}
+          {discoveryNotice && <p role="status">{discoveryNotice}</p>}
+        </section>
+      )}
       {view === 'tools' && (
         <section aria-label="Tool library">
           <p className="tool-library-intro">
