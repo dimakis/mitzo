@@ -1,3 +1,4 @@
+import { reviewSandboxOwnership } from './sandbox-ownership-review.js';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
 import { summarizeSandboxInventory } from './sandbox-inventory.js';
 import { readOpenShellSandboxInventory } from './openshell-lifecycle-controller.js';
@@ -1683,6 +1684,34 @@ app.use(
   createWarmPoolRouter({
     pool: getOpenShellWarmPool,
     authorize: operatorAuthMiddleware,
+    ownershipReview: async (physicalId, signal) => {
+      const physical = (await readOpenShellSandboxInventory(signal)).find(
+        (item) => item.id === physicalId,
+      );
+      if (!physical) throw new Error('Physical sandbox is no longer present');
+      const managed = summarizeSandboxInventory(
+        [physical],
+        openShellLifecycleService?.inventory() ?? [],
+        getOpenShellWarmPool()?.snapshot().spares ?? [],
+      ).items[0];
+      if (managed?.management !== 'needs_review')
+        throw new Error('Resource is now managed; refresh inventory');
+      const review = reviewSandboxOwnership(
+        physical,
+        getCodexConversationStore().listSandboxOwnership(),
+      );
+      return {
+        ...review,
+        owners: review.owners.map((owner) => {
+          const session = eventStore.getSession(owner.conversationId);
+          return {
+            ...owner,
+            title: session?.summary ?? 'Saved conversation',
+            accountLabel: session?.accountBinding?.accountLabel ?? owner.accountId,
+          };
+        }),
+      };
+    },
     physicalInventory: async (signal) =>
       summarizeSandboxInventory(
         await readOpenShellSandboxInventory(signal),

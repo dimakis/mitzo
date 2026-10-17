@@ -1077,3 +1077,25 @@ it.each(['dispatch', 'ownership', 'repaired'] as const)(
     }
   },
 );
+it('lists minimal saved sandbox provenance without exposing route credentials or requiring visible chats', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('legacy', binding, '/sandbox/workspaces/project');
+  s.setArtifactRuntime('legacy', binding, artifactRuntime);
+  const rows = s.listSandboxOwnership();
+  expect(rows).toEqual([
+    {
+      conversationId: 'legacy',
+      physicalId: 'resource-one',
+      sandboxName: 'sandbox-one',
+      workspace: 'tenant-workspace',
+      gateway: 'gateway',
+      gatewayEndpoint: null,
+      accountId: 'personal',
+      ownerKind: 'ordinary',
+      relation: 'runtime',
+    },
+  ]);
+  expect(JSON.stringify(rows)).not.toContain('cliEnvironment');
+  s.close();
+});

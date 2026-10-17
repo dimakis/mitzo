@@ -24,6 +24,7 @@ export interface SandboxSpare {
   observedAt?: number;
 }
 export interface SandboxConversation {
+  physicalId?: string | null;
   conversationId: string;
   sandboxName: string;
   state: string;
@@ -52,8 +53,24 @@ export interface SandboxesInventory {
 }
 export interface SandboxCleanupPreview {
   token: string;
+  record?: { conversationId: string; sandboxName: string; physicalSandboxId: string | null };
   action: 'stop' | 'stop_and_delete' | 'delete' | 'none';
   blockers: string[];
   expiresAt: number;
   retention?: { enabled: boolean; deleteAfter: number | null; days: number };
+}
+
+export interface SandboxOwnershipReview {
+  physical: { id: string; name: string; state: string };
+  owners: Array<{
+    conversationId: string;
+    accountId: string;
+    accountLabel?: string;
+    title?: string;
+    ownerKind: string | null;
+    relation: string;
+  }>;
+  blockers: string[];
+  canDelete: false;
+  observedAt: number;
 }
