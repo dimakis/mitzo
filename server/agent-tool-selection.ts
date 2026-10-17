@@ -73,11 +73,11 @@ export function hasAgentToolSelection(session: object): boolean {
   return selections.get(session) !== undefined;
 }
 /** Explicit profiles start only tool sources whose receipt admission was implemented. */
-export function configuredMcpSourcesForAgentSelection<T extends Record<string, unknown>>(
+export function configuredMcpSourcesForAgentSelection<T>(
   session: object,
-  configs: T,
-): T {
-  return hasAgentToolSelection(session) ? ({} as T) : configs;
+  configs: Record<string, T>,
+): Record<string, T> {
+  return hasAgentToolSelection(session) ? {} : configs;
 }
 export function agentToolAllowed(session: object, name: string): boolean {
   const selection = selections.get(session);

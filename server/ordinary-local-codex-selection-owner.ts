@@ -60,7 +60,11 @@ export class OrdinaryLocalCodexSelectionOwner {
       if (this.#snapshot && !isDeepStrictEqual(identity, this.#snapshot)) throw unavailable();
       assertAgentToolRoute(
         expected.agentProfile?.definition,
-        this.owners.responses ? 'local-api' : this.owners.vertex ? 'claude-sdk' : 'codex',
+        this.owners.responses
+          ? 'local-api'
+          : this.owners.vertex
+            ? 'claude-sdk'
+            : 'codex-owned-local',
       );
       assertOrdinaryCodexContextIdentity(
         expected.agentProfile,

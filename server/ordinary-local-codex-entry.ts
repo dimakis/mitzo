@@ -357,9 +357,9 @@ export function createOwnedLocalCodexEntryRouter(
               route.account.provider,
               target.location,
               presets,
-              ['responses', 'gemini', 'claude-sdk'].includes(route.harness)
+              ['responses', 'gemini', 'claude-sdk', 'codex'].includes(route.harness)
                 ? {
-                    contextRecipes: 'none',
+                    contextRecipes: route.harness === 'codex' ? 'supported' : 'none',
                     toolSelection:
                       ['responses', 'gemini', 'codex'].includes(route.harness) &&
                       target.location === 'local',

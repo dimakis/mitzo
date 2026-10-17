@@ -1369,7 +1369,9 @@ async function _startChatInner(
       );
     toolRoute =
       accountBinding?.provider === 'openai-codex'
-        ? 'codex'
+        ? openShellAvailable
+          ? 'openshell'
+          : 'codex'
         : accountBinding?.provider === 'openai' &&
             openShellAvailable &&
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'
