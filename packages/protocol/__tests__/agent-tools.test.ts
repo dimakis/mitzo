@@ -51,3 +51,18 @@ it('requires an opaque configured receipt and excludes private launch inputs fro
     expect(AgentToolReferencesSchema.safeParse([input]).success).toBe(false);
   expect(AgentToolReferencesSchema.safeParse([ref, { ...ref, version: 2 }]).success).toBe(false);
 });
+it('accepts only opaque API publication references and rejects private configuration', () => {
+  const ref = {
+    id: 'api:11111111-1111-4111-8111-111111111111',
+    version: 1,
+    revision: '22222222-2222-4222-8222-222222222222',
+  };
+  expect(AgentToolReferencesSchema.parse([ref])).toEqual([ref]);
+  for (const invalid of [
+    { ...ref, connectionId: 'private' },
+    { ...ref, entityId: 'sensor.office' },
+    { ...ref, endpoint: 'https://private.test' },
+    { ...ref, revision: undefined },
+  ])
+    expect(AgentToolReferencesSchema.safeParse([invalid]).success).toBe(false);
+});
