@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { createCollaborationProjection, applyCollaborationEvents } from '@mitzo/client';
@@ -11,8 +11,14 @@ import {
   uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 
+// jsdom does not implement the browser scrollTo method used by the real ChatArea.
+const originalScrollTo = Element.prototype.scrollTo;
+beforeEach(() => {
+  Element.prototype.scrollTo = vi.fn();
+});
 afterEach(() => {
   cleanup();
+  Element.prototype.scrollTo = originalScrollTo;
   vi.unstubAllGlobals();
 });
 const names = { architect: 'Architect', reviewer: 'Reviewer', reader: 'Reader' };

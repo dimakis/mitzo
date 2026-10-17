@@ -75,7 +75,7 @@
     "limits": [
       "This is structural scoped inspection, not pixel-equivalence or final combined UX approval.",
       "C owns independent reference-to-render inspection on combined source.",
-      "Existing three-member participant count ambiguity was reported to core without editing ConversationAgents."
+      "C independently confirmed mobile header violates approved <=360px one-visible-name rule: captures show Architect \u00b7 Reviewer +2 instead of Architect +2. Core owns correction and final combined capture; original approved HTML/CSS remains unchanged."
     ]
   },
   "checks": {
@@ -125,7 +125,8 @@
       "Initial matrix: five UI cases plus two startup checks passed; desktop light focus failed because test pressed ArrowDown before the picker appeared.",
       "Final matrix waits for the visible picker, keeping the same keyboard-focus assertion; all six cases pass.",
       "One optional preview fixture initially used a relative link (ordinary link, not an inline preview); corrected to a supported absolute local Markdown path.",
-      "A command addressed nonexistent ChatInput.test.tsx and ran no tests; focused existing composer suites were selected instead."
+      "A command addressed nonexistent ChatInput.test.tsx and ran no tests; focused existing composer suites were selected instead.",
+      "After accepted-main refresh, 195 assertions passed but the new async preview fixture exposed jsdom missing scrollTo. Added the normal browser-method polyfill only to that test suite; result with zero unhandled errors is recorded separately."
     ],
     "retainedComposerRegression": {
       "files": 5,
@@ -139,6 +140,32 @@
         "ChatInputSendReceipt",
         "ChatInputVoiceOwnership"
       ]
+    },
+    "finalFocusedTests": {
+      "files": 15,
+      "passed": 195,
+      "failed": 0,
+      "unhandledErrors": 0,
+      "seconds": 19.24,
+      "acceptedMain": "fea33e215b0d1bcf29604aa13e793329588a2980",
+      "testFiles": [
+        "packages/client/src/__tests__/collaboration-projection-replay.test.ts",
+        "packages/client/src/__tests__/collaboration-conversation.test.ts",
+        "frontend/src/lib/__tests__/conversation-presentation.test.ts",
+        "frontend/src/components/__tests__/ComposerRespondersPolicy.test.tsx",
+        "frontend/src/components/__tests__/ComposerResponders.test.tsx",
+        "frontend/src/components/__tests__/ChatInputResponders.test.tsx",
+        "frontend/src/components/__tests__/ChatAreaMetadata.test.tsx",
+        "frontend/src/components/__tests__/ChatArea.test.tsx",
+        "frontend/src/components/__tests__/CollaborationTranscript.test.tsx",
+        "frontend/src/components/__tests__/SymposiumConversation.test.tsx",
+        "frontend/src/components/__tests__/ChatInputFocus.test.tsx",
+        "frontend/src/components/__tests__/ChatInputCommandStrip.test.tsx",
+        "frontend/src/components/__tests__/ChatInputContextBlocks.test.tsx",
+        "frontend/src/components/__tests__/ChatInputSendReceipt.test.tsx",
+        "frontend/src/components/__tests__/ChatInputVoiceOwnership.test.tsx"
+      ],
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 npx vitest run <testFiles in listed order> --maxWorkers=1"
     }
   },
   "integrationHandoff": {
@@ -147,7 +174,8 @@
     "sourcePrivacy": "No invented legacy SymposiumProvenance, provider identity, timestamp, completed cursor, execution capability or send receipt.",
     "coreCallSites": "Core owns actual authenticated projection reads, policy mutation, queue/Stop/send, responsive pages and final composition.",
     "drafts": "Text uses existing ordinary draft owner. Full route/reload persistence of explicit responder intent needs core draft integration; it is not fabricated here.",
-    "history": "The protocol retains at most 50 messages in a view. Earlier-message availability is disclosed; no invented older-page endpoint."
+    "history": "The protocol retains at most 50 messages in a view. Earlier-message availability is disclosed; no invented older-page endpoint.",
+    "messageActions": "ChatArea display ID is projectionId; share/action owners must resolve it to the actual CollaborationMessage messageId/source before forwarding. B and core notified."
   },
   "remaining": [
     "Actual application joining/readers/dispatch/reply integration and recording-transport journey remain core/C work.",
@@ -163,5 +191,8 @@
     "deployed": false,
     "modelCalls": 0,
     "stagingOperations": 0
-  }
+  },
+  "latestAcceptedMain": "fea33e215b0d1bcf29604aa13e793329588a2980",
+  "acceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
+  "captureClosureUnchangedAfterMainMerge": true
 }
