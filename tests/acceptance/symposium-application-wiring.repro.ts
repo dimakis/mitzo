@@ -175,10 +175,6 @@ afterAll(async () => {
 it('reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity', async () => {
   await loadApplication();
   events.upsertSession({ sessionId: 'existing-chat', conversationSource: 'mitzo' });
-  events.collaborationConversation.begin(group, {
-    requestId: crypto.randomUUID(),
-    sessionId: 'existing-chat',
-  });
   const sourceBoundary = events.append('existing-chat', 'user_message', {
     messageId: 'selected-source',
     text: 'Synthetic design requirement',
@@ -186,14 +182,61 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
   });
   const path = `/api/session-collaborations/${group}`;
   expect((await http!.request('GET', path + '/conversation')).status).toBe(401);
+  const beginInput = { requestId: crypto.randomUUID(), sessionId: 'existing-chat' };
+  expect((await http!.request('POST', path + '/begin', { body: beginInput })).status).toBe(401);
+  expect(
+    (
+      await http!.request('POST', path + '/begin', {
+        headers: { cookie, origin: 'https://untrusted.invalid' },
+        body: beginInput,
+      })
+    ).status,
+  ).toBe(403);
+  expect(events.getSessionCollaboration(group)).toBeNull();
+  const sessionsBeforeBegin = events
+    .listSessions()
+    .map((row) => row.sessionId)
+    .sort();
+  let lostBeginResponses = 0;
   api = new CollaborationApiClient(async (url, init) => {
     const result = await http!.request(init?.method ?? 'GET', url, {
       headers: { cookie },
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
     });
+    // Lose only the first successful begin response after the actual server
+    // commits. No route, store, authorization or receipt is substituted.
+    if (url === path + '/begin' && result.status === 200 && lostBeginResponses === 0) {
+      lostBeginResponses++;
+      throw Error('Simulated committed begin response loss');
+    }
     return new Response(JSON.stringify(result.body), { status: result.status });
   });
+  // Keep compilation valid on accepted source without this new client method;
+  // missing actual source/route/client dependencies remain required failures.
+  const beginMethod = Reflect.get(api, 'begin');
+  expect(typeof beginMethod).toBe('function');
+  const begin = () => Reflect.apply(beginMethod, api, [group, beginInput]);
+  await expect(begin()).rejects.toThrow('Simulated committed begin response loss');
+  expect(lostBeginResponses).toBe(1);
+  const [beginReceipt, concurrentRetry] = await Promise.all([begin(), begin()]);
+  expect(beginReceipt).toEqual({
+    version: 1,
+    collaborationId: group,
+    revision: 1,
+    participantSessionIds: ['existing-chat'],
+  });
+  expect(concurrentRetry).toEqual(beginReceipt);
+  expect(events.getSessionCollaboration(group)).toEqual(beginReceipt);
+  expect(
+    events
+      .listSessions()
+      .map((row) => row.sessionId)
+      .sort(),
+  ).toEqual(sessionsBeforeBegin);
+  expect(events.getOrdinaryInitialCommandId('existing-chat')).toBeUndefined();
   const view = await api.view(group);
+  expect(view.joins).toEqual([]);
+  expect(view.messages).toEqual([]);
   expect(view.participantSessionIds).toEqual(['existing-chat']);
   await api.setPolicy(group, {
     requestId: crypto.randomUUID(),
@@ -211,6 +254,8 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
   const commandBefore = events.getOrdinaryInitialCommandId('existing-chat');
   const sessionsBefore = events.listSessions().length;
   await restartApplication();
+  expect(await begin()).toEqual(beginReceipt);
+  expect(lostBeginResponses).toBe(1);
   expect(await api.view(group)).toEqual(retained);
   expect(await (await import('../../server/auth.js')).authenticateToken(token)).toEqual(identity);
   expect(readFileSync(join(root!, 'internal-token'), 'utf8')).toBe(internalToken);

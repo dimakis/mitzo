@@ -12,6 +12,9 @@ export default mergeConfig(base, {
             'tests/acceptance/*.candidate.ts',
             'server/__tests__/collaboration-forwarding.test.ts',
             'server/__tests__/collaboration-retained-artifact-source.test.ts',
+            'packages/protocol/__tests__/collaboration-forward-storage.test.ts',
+            'server/__tests__/collaboration-forward-contract.test.ts',
+            'server/__tests__/collaboration-forward-ordinary-delivery.test.ts',
           ]
         : []),
       ...(process.env.SYMPOSIUM_OWNER_CONTRACTS === '1'

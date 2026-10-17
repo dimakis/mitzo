@@ -1,0 +1,48 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+{"level":30,"time":1792280507346,"pid":88680,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+{"level":30,"time":1792280507728,"pid":88680,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (2 tests | 2 failed) 3259ms
+   × reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity 3246ms
+   × requires actual joining and finalized reply owners after the observational review 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+AssertionError: {"code":"execution_unavailable","error":"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.","execution":{"enabled":false,"reason":"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started."}}: expected 503 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 503
+
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:369:58
+    367|     body: input,
+    368|   });
+    369|   expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(200);
+       |                                                          ^
+    370|   const result = z
+    371|     .object({ snapshot: CollaborationSnapshotSchema, settings: Collabo…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires actual joining and finalized reply owners after the observational review
+Error: BLOCKED: actual app review prerequisite failed
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:421:11
+    419| it('requires actual joining and finalized reply owners after the obser…
+    420|   if (!reviewedSnapshot || !reviewedSettings)
+    421|     throw Error('BLOCKED: actual app review prerequisite failed');
+       |           ^
+    422|   const snapshot = reviewedSnapshot;
+    423|   const view = await api.view(group);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 8 passed (9)
+      Tests  2 failed | 60 passed (62)
+   Start at  00:41:43
+   Duration  7.15s (transform 1.89s, setup 0ms, import 2.15s, tests 4.16s, environment 0ms)
+
