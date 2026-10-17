@@ -2224,7 +2224,7 @@ it('preserves first launch and valid restore while failing closed for a replacem
     {
       registry: { findBySessionId: () => undefined, entries: function* () {} },
       eventStore: { getSession: () => ({}) },
-      taskStore: { getTree: () => [] },
+      taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
       queue: () => ({ queued: 0, running: 0, recovery: false }),
     },
   )!;
@@ -3581,7 +3581,7 @@ function ownedOpenShellAdapterFixture(resume = false) {
   const lifecycle = lifecycleController.initializeOpenShellLifecycle(config, {
     registry: { findBySessionId: () => undefined, entries: function* () {} },
     eventStore: { getSession: () => ({}) },
-    taskStore: { getTree: () => [] },
+    taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
     queue: () => ({ queued: 0, running: 0, recovery: false }),
   })!;
   if (resume)
