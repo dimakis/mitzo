@@ -6,7 +6,7 @@ const api = new TelosWorkApiClient(apiFetch);
 /** Join the current collection to accepted record DTOs. Per-record reads are
  * bounded to four requests; a collection projection remains an upstream API gap. */
 export function useTelosRecords(ids: string[]) {
-  const key = JSON.stringify([...new Set(ids)].sort());
+  const key = JSON.stringify([...new Set(ids)]);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<{
     key: string;
