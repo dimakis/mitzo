@@ -69,6 +69,7 @@ export function CollaborationTranscript({
     <ChatArea
       {...chat}
       sessionId={view.collaborationId}
+      messageSessionId={(id) => messages.get(id)?.source?.conversationId}
       messages={conversationMessages(view)}
       current={current}
       running={running}
@@ -147,7 +148,7 @@ export function CollaborationTranscript({
                 Refresh this conversation to check its latest state. Retained replies stay here.
               </p>
               {onRefresh && (
-                <button type="button" className="home-btn home-btn-secondary" onClick={onRefresh}>
+                <button type="button" className="home-secondary" onClick={onRefresh}>
                   Refresh conversation
                 </button>
               )}

@@ -6,7 +6,9 @@ import type { FinishedMessage } from '@mitzo/protocol';
 
 vi.mock('../MessageBubble', () => ({
   UserBubble: ({ text }: { text: string }) => <p>{text}</p>,
-  TextBubble: ({ content }: { content: string }) => <p>{content}</p>,
+  TextBubble: ({ content, artifactSessionId }: { content: string; artifactSessionId?: string }) => (
+    <p data-artifact-session={artifactSessionId}>{content}</p>
+  ),
 }));
 afterEach(cleanup);
 it('keeps independent per-message metadata with the existing transcript bodies through replay', () => {
@@ -39,4 +41,32 @@ it('keeps independent per-message metadata with the existing transcript bodies t
   expect(receipt.open).toBe(true);
   expect(screen.getByText('Retained body 0')).toBeTruthy();
   expect(screen.getByText('Retained body 1')).toBeTruthy();
+});
+
+it('binds source previews to the actual message conversation and preserves the default ordinary session', () => {
+  const messages: FinishedMessage[] = [
+    {
+      messageId: 'projection',
+      role: 'assistant',
+      blocks: [{ blockId: 'text', blockType: 'text', content: 'Source preview' }],
+    },
+  ];
+  const props = {
+    messages,
+    sessionId: 'ordinary-chat',
+    current: null,
+    running: false,
+    permission: null,
+    onPermissionRespond: vi.fn(),
+  };
+  const { rerender } = render(
+    <ChatArea {...props} messageSessionId={() => 'actual-author-session'} />,
+  );
+  expect(screen.getByText('Source preview').getAttribute('data-artifact-session')).toBe(
+    'actual-author-session',
+  );
+  rerender(<ChatArea {...props} />);
+  expect(screen.getByText('Source preview').getAttribute('data-artifact-session')).toBe(
+    'ordinary-chat',
+  );
 });

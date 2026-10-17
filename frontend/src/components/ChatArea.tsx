@@ -47,6 +47,8 @@ export interface ChatAreaProps {
   /** Presentation-only metadata keyed by the displayed message identity. */
   renderMessageAttribution?(messageId: string): ReactNode;
   renderMessageOutcome?(messageId: string): ReactNode;
+  /** Source-bound previews for shared messages; ordinary callers use sessionId. */
+  messageSessionId?(messageId: string): string | undefined;
   /** Additional transcript cards inside the same scroll area. */
   afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
@@ -140,6 +142,7 @@ export function ChatArea({
   afterMessages,
   renderMessageAttribution,
   renderMessageOutcome,
+  messageSessionId,
   onShareMessage,
   canShareMessage,
   shareInActions = false,
@@ -468,7 +471,9 @@ export function ChatArea({
                 content={block.content ?? ''}
                 streaming={streaming}
                 timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
-                artifactSessionId={sessionId}
+                artifactSessionId={
+                  !streaming && messageSessionId ? messageSessionId(msg.messageId) : sessionId
+                }
                 readAloud={
                   !streaming && voice?.ttsAvailable
                     ? {
