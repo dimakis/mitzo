@@ -1,3 +1,4 @@
+import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
@@ -1232,6 +1233,8 @@ export function DesktopChatView() {
             lookupLoading={briefingChat.loading}
           />
           {!isSymposium && workspaceControls}
+
+          <TelosSourceWorkLink />
 
           {(sendError || sendStatus) && (
             <div role={sendError ? 'alert' : 'status'}>{sendError || sendStatus}</div>

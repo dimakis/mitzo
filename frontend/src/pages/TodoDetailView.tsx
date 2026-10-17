@@ -1,3 +1,4 @@
+import { TelosItemSources } from '../components/TelosItemSources';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
@@ -276,27 +277,11 @@ export function TodoDetailView() {
           </section>
         )}
 
-        {item.sources.length > 0 && (
-          <section className="todo-detail-sources">
-            <h2>Sources</h2>
-            {item.sources.map((source, i) => (
-              <div
-                key={i}
-                className={`todo-detail-source-row${source.url ? '' : ' todo-detail-source-row--no-link'}`}
-                onClick={() => source.url && handleSourceClick(source.url)}
-              >
-                <span className="todo-detail-source-badge">{sourceIcon(source.type)}</span>
-                <div className="todo-detail-source-content">
-                  <div className="todo-detail-source-title">{source.title}</div>
-                  <div className="todo-detail-source-author">{source.author}</div>
-                  {source.snippet && (
-                    <div className="todo-detail-source-snippet">{source.snippet}</div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </section>
-        )}
+        <TelosItemSources
+          itemId={item.id}
+          legacySources={item.sources}
+          onOpenExternal={handleSourceClick}
+        />
 
         {(item.links?.length ?? 0) > 0 && (
           <section className="todo-detail-links">

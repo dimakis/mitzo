@@ -26,7 +26,8 @@ export interface TelosArtifactMetadata {
   sha256: string;
   size: number;
   sessionId: string;
-  sourceKind: 'user_upload' | 'user_edit' | 'session_artifact' | 'external_codex_report';
+  sourceKind:
+    'user_upload' | 'user_edit' | 'session_artifact' | 'external_codex_report' | 'source_capture';
   sourcePath: string | null;
   createdAt: string;
   url: string;
@@ -54,13 +55,15 @@ function metadata(row: ArtifactRow): TelosArtifactMetadata {
     sha256: row.sha256,
     size: row.size,
     sessionId: row.session_id,
-    sourceKind: row.session_id.startsWith('user-upload:')
-      ? 'user_upload'
-      : row.session_id.startsWith('user-edit:')
-        ? 'user_edit'
-        : row.session_id.startsWith('external-codex:')
-          ? 'external_codex_report'
-          : 'session_artifact',
+    sourceKind: row.session_id.startsWith('source-capture:')
+      ? 'source_capture'
+      : row.session_id.startsWith('user-upload:')
+        ? 'user_upload'
+        : row.session_id.startsWith('user-edit:')
+          ? 'user_edit'
+          : row.session_id.startsWith('external-codex:')
+            ? 'external_codex_report'
+            : 'session_artifact',
     sourcePath: row.source_path,
     createdAt: row.created_at,
     url: `/api/telos/artifacts/${row.id}?revision=${row.revision}`,
@@ -237,20 +240,23 @@ export class TelosArtifactStore {
             input.sourcePath ?? null,
             now,
           );
-        this.db
-          .prepare(
-            `INSERT OR REPLACE INTO links (id,item_id,type,url,title,description,created_at)
+        // Reviewed source packets are retained evidence. Their pinned source
+        // relationship is owned by TelosWorkStore, not a produced file/link.
+        if (!input.sessionId.startsWith('source-capture:'))
+          this.db
+            .prepare(
+              `INSERT OR REPLACE INTO links (id,item_id,type,url,title,description,created_at)
         VALUES (?,?,?,?,?,?,?)`,
-          )
-          .run(
-            `artifact-${id}`,
-            input.itemId,
-            'artifact',
-            `/api/telos/artifacts/${id}`,
-            input.title,
-            `Versioned Telos document: ${input.filename}`,
-            now,
-          );
+            )
+            .run(
+              `artifact-${id}`,
+              input.itemId,
+              'artifact',
+              `/api/telos/artifacts/${id}`,
+              input.title,
+              `Versioned Telos document: ${input.filename}`,
+              now,
+            );
         return remember(metadata(this.row(id, revision)));
       })
       .immediate();
@@ -305,6 +311,7 @@ export class TelosArtifactStore {
       ext,
       revision: artifact.revision,
       editable:
+        artifact.sourceKind !== 'source_capture' &&
         text &&
         this.userUploadAllowed(artifact.itemId) &&
         (['.md', '.mdx'].includes(ext) ||
@@ -363,7 +370,12 @@ export class TelosArtifactStore {
       })
       .immediate();
   }
-  list(filter: { itemId?: string; query?: string; limit?: number }): TelosArtifactMetadata[] {
+  list(filter: {
+    itemId?: string;
+    query?: string;
+    limit?: number;
+    excludeSourceCaptures?: boolean;
+  }): TelosArtifactMetadata[] {
     const limit = Math.min(100, Math.max(1, filter.limit ?? 20));
     // instr treats the search text literally, including SQL wildcard characters.
     const rows = this.db
@@ -372,6 +384,7 @@ export class TelosArtifactStore {
       WHERE a.revision=(SELECT MAX(b.revision) FROM telos_artifact_revisions b WHERE b.id=a.id)
       AND (? IS NULL OR a.item_id=?)
       AND (?='' OR instr(lower(a.title || ' ' || a.filename || ' ' || i.summary),lower(?))>0)
+      AND (?=0 OR instr(a.session_id,'source-capture:')<>1)
       ORDER BY a.created_at DESC,a.id LIMIT ?`,
       )
       .all(
@@ -379,6 +392,7 @@ export class TelosArtifactStore {
         filter.itemId ?? null,
         filter.query ?? '',
         filter.query ?? '',
+        filter.excludeSourceCaptures ? 1 : 0,
         limit,
       ) as ArtifactRow[];
     return rows.map(metadata);

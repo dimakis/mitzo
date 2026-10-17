@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TelosWorkStore, type TelosWorkActor } from '../telos-work-store.js';
 import { EventStore } from '../event-store.js';
-import { isAvailableTelosWorkConversation } from '../telos-work-conversation.js';
+import {
+  isAvailableTelosWorkConversation,
+  isAvailableTelosSourceConversation,
+} from '../telos-work-conversation.js';
 import { SessionService, childInputHash } from '../session-service.js';
 import { TaskStore } from '../task-store.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
@@ -49,6 +52,7 @@ function fixture() {
     });
   }
   const policy = {
+    sourceConversation: (id: string) => isAvailableTelosSourceConversation(events.getSession(id)),
     ordinaryConversation: (id: string) => isAvailableTelosWorkConversation(events.getSession(id)),
   };
   const stores: TelosWorkStore[] = [];
@@ -80,6 +84,51 @@ function fixture() {
 }
 
 describe('durable Telos work relationships (offline, existing SQLite owners)', () => {
+  it('keeps a native Symposium origin available without granting worker or conversation read authority', () => {
+    const f = fixture();
+    f.events.upsertSession({ sessionId: 'symposium', conversationSource: 'mitzo' });
+    f.events.setSymposiumConfig('symposium', {
+      version: 1,
+      revision: 1,
+      state: 'draft',
+      seats: [
+        {
+          id: 'builder',
+          name: 'Builder',
+          role: 'primary',
+          model: 'offline',
+          systemPrompt: 'Build.',
+          color: '#8040cc',
+        },
+        {
+          id: 'reviewer',
+          name: 'Reviewer',
+          role: 'reviewer',
+          model: 'offline',
+          systemPrompt: 'Review.',
+          color: '#008888',
+        },
+      ],
+      turnRules: { mode: 'directed', maxTurns: 4 },
+      interceptMode: 'manual',
+    });
+    f.link('slice', 'origin', 'symposium');
+    expect(f.store.read('slice', operator).links[0].availability).toBe('available');
+    expect(() => f.link('slice', 'worker', 'symposium')).toThrow(/ordinary/);
+    expect(() => f.store.read('slice', { kind: 'conversation', id: 'symposium' })).toThrow(
+      /authorized/,
+    );
+    f.events.hideSession('symposium');
+    expect(f.store.read('slice', operator).links[0].availability).toBe('unavailable');
+    expect(
+      isAvailableTelosSourceConversation({
+        isHidden: false,
+        conversationSource: 'external_import',
+        sessionType: 'symposium',
+      }),
+    ).toBe(false);
+  });
+
   it('adopts the origin backlink atomically with source references without assigning or allocating a collaborator', () => {
     const f = fixture();
     const before = f.events.getSession('lead');
