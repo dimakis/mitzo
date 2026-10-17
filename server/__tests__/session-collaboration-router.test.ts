@@ -286,6 +286,33 @@ it('keeps absent joining unavailable including recovery and keeps messages and s
     expect(response.body.code).toBe('execution_unavailable');
   }
 });
+it('reports absent joining before parsing its body while validating collaboration identity', async () => {
+  installJoining();
+  for (const suffix of ['joins', `joins/${randomUUID()}/recover`]) {
+    const response = await request(app)
+      .post(`${path}/${suffix}`)
+      .set('x-operator', 'yes')
+      .send({ unexpected: 'unsupported' });
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('execution_unavailable');
+  }
+  expect(
+    (
+      await request(app)
+        .post(`/api/session-collaborations/${randomUUID()}/joins`)
+        .set('x-operator', 'yes')
+        .send({})
+    ).status,
+  ).toBe(404);
+  expect(
+    (
+      await request(app)
+        .post('/api/session-collaborations/invalid/joins')
+        .set('x-operator', 'yes')
+        .send({})
+    ).status,
+  ).toBe(400);
+});
 it('conceals provider errors and rejects private or malformed owner results', async () => {
   const { mounted, joining, input, result } = installJoining();
   joining.confirm.mockRejectedValueOnce(new Error('private-provider-thread-secret'));

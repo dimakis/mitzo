@@ -9,12 +9,12 @@ import {
   CollaborationCursorSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
-  type CollaborationJoin,
   COLLABORATION_EXECUTION_DISABLED,
 } from '@mitzo/protocol';
 import { z } from 'zod';
 import { registerAuthSession, isAuthSessionCurrent } from './auth.js';
 import { custodianRequestSignal } from './symposium-custodian-authority.js';
+import type { OrdinaryCollaborationJoiningPort } from './collaboration-joining-owner.js';
 import type { EventStore } from './event-store.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
 
@@ -44,20 +44,7 @@ export function createSessionCollaborationRouter({
   joining,
 }: {
   store: EventStore;
-  joining?: {
-    confirm(
-      operatorId: string,
-      group: string,
-      raw: unknown,
-      signal: AbortSignal,
-    ): Promise<CollaborationJoin>;
-    recover(
-      operatorId: string,
-      group: string,
-      joinId: string,
-      signal: AbortSignal,
-    ): Promise<CollaborationJoin>;
-  };
+  joining?: OrdinaryCollaborationJoiningPort;
 }) {
   const router = Router();
   router.use((_req, res, next) => {
@@ -125,12 +112,7 @@ export function createSessionCollaborationRouter({
     const auth = recentAuthorizationSession(res);
     if (!auth) return;
     const id = SessionCollaborationIdSchema.safeParse(req.params.id);
-    const input = recovery
-      ? z.strictObject({}).safeParse(req.body)
-      : CollaborationJoinInputSchema.safeParse(req.body);
-    const joinId = recovery ? z.uuid().safeParse(req.params.joinId) : undefined;
-    if (!id.success || !input.success || (recovery && !joinId?.success))
-      return res.status(400).json({ error: 'Invalid collaboration join' });
+    if (!id.success) return res.status(400).json({ error: 'Invalid collaboration join' });
     try {
       if (!store.getSessionCollaboration(id.data))
         throw new CollaborationContractError('not_found');
@@ -138,6 +120,12 @@ export function createSessionCollaborationRouter({
       return failure(res, error);
     }
     if (!joining) return unavailable(res);
+    const input = recovery
+      ? z.strictObject({}).safeParse(req.body)
+      : CollaborationJoinInputSchema.safeParse(req.body);
+    const joinId = recovery ? z.uuid().safeParse(req.params.joinId) : undefined;
+    if (!input.success || (recovery && !joinId?.success))
+      return res.status(400).json({ error: 'Invalid collaboration join' });
     const controller = new AbortController();
     const cancel = () => controller.abort();
     const unregister = registerAuthSession(auth, cancel);
