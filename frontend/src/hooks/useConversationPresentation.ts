@@ -10,6 +10,7 @@ import {
   CollaborationMessageInputSchema,
   SessionCollaborationIdSchema,
   type CollaborationMessageInput,
+  type CollaborationPolicy,
   type CollaborationPolicyUpdate,
   type CollaborationView,
 } from '@mitzo/protocol';
@@ -37,6 +38,9 @@ export interface ConversationPresentationOptions {
 interface PendingPolicy {
   input: CollaborationPolicyUpdate;
   uncertain: boolean;
+  /** Matching mutation receipt; checkbox authority still comes from the view. */
+  receipt?: CollaborationPolicy;
+  needsRefresh: boolean;
 }
 interface ViewState {
   owner: object;
@@ -295,7 +299,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
       const fresh = () => valid() && generation === epoch.current && pending.current === original;
       publish({ pendingPolicy: original, policyError: null });
       try {
-        const receipt = await api.setPolicy(collaborationId!, original.input);
+        const receipt = original.receipt ?? (await api.setPolicy(collaborationId!, original.input));
         if (!fresh()) return false;
         if (
           receipt.sessionId !== original.input.sessionId ||
@@ -307,14 +311,29 @@ export function useConversationPresentation(options: ConversationPresentationOpt
           throw new Error(
             'The policy receipt does not match this request. Refresh before continuing.',
           );
+        original.receipt = receipt;
+        original.uncertain = false;
         await refresh();
+        if (fresh()) {
+          // read() retains confirmed state and reports its own failures. A matching
+          // PUT receipt alone must not strand the dialog in its saving state.
+          original.needsRefresh = true;
+          publish({
+            pendingPolicy: original,
+            policyError:
+              latest.current.error ??
+              'The saved policy is not confirmed by the current view. Refresh discussion sharing.',
+          });
+          return false;
+        }
         return valid() && generation === epoch.current && pending.current === null;
       } catch (cause) {
         if (!fresh()) return false;
         const definite =
           cause instanceof CollaborationApiError &&
           [400, 401, 403, 404, 409, 422].includes(cause.status);
-        if (definite) pending.current = null;
+        if (original.receipt) original.needsRefresh = true;
+        else if (definite) pending.current = null;
         else original.uncertain = true;
         publish({ pendingPolicy: pending.current, policyError: message(cause) });
         return false;
@@ -353,6 +372,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
       }
       const original: PendingPolicy = {
         uncertain: false,
+        needsRefresh: false,
         input: {
           requestId: createBrowserId(),
           expectedMembershipRevision: view.membershipRevision,

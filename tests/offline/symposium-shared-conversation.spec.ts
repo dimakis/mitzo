@@ -41,6 +41,7 @@ for (const theme of ['dark', 'light'])
     const files = (await bundle).outputFiles!;
     let view = sharedConversationView();
     let refuseNextPolicy = false;
+    let failNextView = false;
     let releasePolicy!: () => void;
     const policyBarrier = new Promise<void>((resolve) => {
       releasePolicy = resolve;
@@ -49,8 +50,16 @@ for (const theme of ['dark', 'light'])
     await page.route('**/*', async (route) => {
       const path = new URL(route.request().url()).pathname;
       if (route.request().method() !== 'GET') mutations.push(path);
-      if (path === `/api/session-collaborations/${view.collaborationId}/conversation`)
+      if (path === `/api/session-collaborations/${view.collaborationId}/conversation`) {
+        if (failNextView) {
+          failNextView = false;
+          return route.fulfill({
+            status: 503,
+            json: { code: 'unavailable', error: 'Confirmation read unavailable' },
+          });
+        }
         return route.fulfill({ json: view });
+      }
       if (path === `/api/session-collaborations/${view.collaborationId}/policy`) {
         const input = CollaborationPolicyUpdateSchema.parse(route.request().postDataJSON());
         if (refuseNextPolicy) {
@@ -63,6 +72,7 @@ for (const theme of ['dark', 'light'])
         if (holdFirstPolicy) {
           holdFirstPolicy = false;
           await policyBarrier;
+          failNextView = true;
         }
         const current = view.policies.find((policy) => policy.sessionId === input.sessionId)!;
         expect(input.expectedMembershipRevision).toBe(view.membershipRevision);
@@ -179,6 +189,23 @@ for (const theme of ['dark', 'light'])
     } finally {
       releasePolicy();
     }
+    await expect(dialog.getByRole('status')).toHaveText(
+      'Discussion sharing was saved. Refresh to confirm its current choices.',
+    );
+    await expect(dialog.getByRole('alert')).toHaveText('Confirmation read unavailable');
+    await expect(
+      dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first(),
+    ).not.toBeChecked();
+    await expect(
+      dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first(),
+    ).toBeDisabled();
+    await page.screenshot({
+      path: info.outputPath(`policy-refresh-needed-${theme}.png`),
+      style: '[data-fixture-control]{visibility:hidden}',
+    });
+    await dialog.getByRole('button', { name: 'Refresh sharing', exact: true }).click();
+    await expect(dialog.getByRole('status')).toHaveCount(0);
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
     await expect(
       dialog.getByRole('checkbox', { name: 'Reads future discussion' }).first(),
     ).toBeChecked();

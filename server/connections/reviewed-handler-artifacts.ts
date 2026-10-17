@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.286-codex-agent-tools.2-symposium-shared-ui.1';
+  'v1.0.286-codex-agent-tools.2-symposium-shared-ui.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -167,7 +167,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CollaborationTranscript.css':
     'e617da58d37e75e41c4f165ff976675017d4bd650c8949a6b0f2f4fe1634c392',
   '../../frontend/src/hooks/useConversationPresentation.ts':
-    '9b78018eeced7f11c7092b7da4e6a26a0736a2df339994a4460c7d2a2d564ddc',
+    '3f16be5b162a4865b92271264a37abf789b0f4a9ba5a9ea5d4ae468fd20b3e11',
   '../../frontend/src/lib/conversation-presentation.ts':
     'cc15c8961398998acff1315699feb77cd614278d9109804b5f1495d796a5d9bd',
   // Configurable neutral spares: durable claims, protected controls and explicit host enrollment.

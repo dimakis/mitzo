@@ -296,6 +296,104 @@ it('keeps the original uncertain policy request and retries its exact body', asy
   expect(result.current.pendingPolicy).toBeNull();
   expect(result.current.projection?.view.policies[0].revision).toBe(1);
 });
+it.each(['network', 'malformed', 'foreign', 'unchanged'] as const)(
+  'retains a matching policy receipt and exposes explicit recovery after a %s confirmation read',
+  async (failure) => {
+    const h = harness();
+    const { result } = await loaded(h);
+    const before = h.view;
+    const transport = h.fetch.getMockImplementation()!;
+    h.fetch.mockImplementationOnce(async (url, init) => {
+      const response = await transport(url, init);
+      if (failure === 'network') h.fetch.mockRejectedValueOnce(new TypeError('Read offline'));
+      else
+        h.fetch.mockResolvedValueOnce(
+          json(
+            failure === 'malformed'
+              ? {}
+              : failure === 'foreign'
+                ? { ...h.view, collaborationId: uuid(999) }
+                : before,
+          ),
+        );
+      return response;
+    });
+    await act(async () => {
+      expect(await result.current.setPolicy('architect', { reads: true, replies: false })).toBe(
+        false,
+      );
+    });
+    const original = h.fetch.mock.calls.find(([, init]) => init?.method === 'PUT')![1]?.body;
+    expect(result.current.pendingPolicy?.input).toEqual(JSON.parse(String(original)));
+    expect(result.current.pendingPolicy?.receipt).toEqual(h.view.policies[0]);
+    expect(result.current.pendingPolicy?.needsRefresh).toBe(true);
+    expect(result.current.pendingPolicy?.uncertain).toBe(false);
+    expect(result.current.policyError).toBeTruthy();
+    expect(result.current.policyDisabled).toBe(true);
+    expect(result.current.projection?.view.policies).toEqual(before.policies);
+    expect(result.current.projection?.view.messages).toEqual(before.messages);
+    h.fetch.mockRejectedValueOnce(new TypeError('Still offline'));
+    await act(async () => {
+      expect(await result.current.retryPolicy()).toBe(false);
+    });
+    expect(result.current.pendingPolicy?.receipt).toEqual(h.view.policies[0]);
+    expect(result.current.pendingPolicy?.needsRefresh).toBe(true);
+    await act(async () => {
+      expect(await result.current.retryPolicy()).toBe(true);
+    });
+    expect(result.current.pendingPolicy).toBeNull();
+    expect(result.current.policyError).toBeNull();
+    expect(result.current.policyDisabled).toBe(false);
+    expect(result.current.projection?.view.policies).toEqual(h.view.policies);
+    // A retained matching receipt requires only an authoritative GET, never another PUT.
+    expect(h.fetch.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(1);
+  },
+);
+it.each([false, true])(
+  'preserves policy recovery authority when a newer read supersedes confirmation (new read succeeds: %s)',
+  async (succeeds) => {
+    const h = harness();
+    const { result } = await loaded(h);
+    const before = h.view;
+    const transport = h.fetch.getMockImplementation()!;
+    let release: ((response: Response) => void) | undefined;
+    h.fetch.mockImplementationOnce(async (url, init) => {
+      const receipt = await transport(url, init);
+      h.fetch.mockImplementationOnce(
+        () =>
+          new Promise<Response>((done) => {
+            release = done;
+          }),
+      );
+      return receipt;
+    });
+    let changing!: Promise<boolean>;
+    act(() => {
+      changing = result.current.setPolicy('architect', { reads: true, replies: false });
+    });
+    await waitFor(() => expect(release).toBeTypeOf('function'));
+    if (!succeeds) h.fetch.mockRejectedValueOnce(new TypeError('Newer read offline'));
+    await act(async () => {
+      await result.current.refresh();
+    });
+    await act(async () => {
+      release!(json(h.view));
+      expect(await changing).toBe(succeeds);
+    });
+    if (!succeeds) {
+      expect(result.current.pendingPolicy?.needsRefresh).toBe(true);
+      expect(result.current.pendingPolicy?.receipt).toEqual(h.view.policies[0]);
+      expect(result.current.pendingPolicy?.uncertain).toBe(false);
+      expect(result.current.projection?.view.policies).toEqual(before.policies);
+      await act(async () => {
+        expect(await result.current.retryPolicy()).toBe(true);
+      });
+    }
+    expect(result.current.pendingPolicy).toBeNull();
+    expect(result.current.projection?.view.policies).toEqual(h.view.policies);
+    expect(h.fetch.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(1);
+  },
+);
 it('reconciles an uncertain policy only after a newer authoritative revision fences its old request', async () => {
   const h = harness();
   const { result } = await loaded(h);

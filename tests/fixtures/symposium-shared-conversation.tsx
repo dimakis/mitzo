@@ -65,18 +65,27 @@ function Conversation() {
           presentation.pendingPolicy ? (
             <>
               <p role="status">
-                {presentation.pendingPolicy.uncertain
-                  ? 'The policy outcome is uncertain. Check the original request.'
-                  : 'Saving discussion sharing choices…'}
+                {presentation.pendingPolicy.needsRefresh
+                  ? 'Discussion sharing was saved. Refresh to confirm its current choices.'
+                  : presentation.pendingPolicy.uncertain
+                    ? 'The policy outcome is uncertain. Check the original request.'
+                    : 'Saving discussion sharing choices…'}
               </p>
-              {presentation.pendingPolicy.uncertain && (
+              {presentation.pendingPolicy.needsRefresh && presentation.policyError && (
+                <p role="alert">{presentation.policyError}</p>
+              )}
+              {(presentation.pendingPolicy.needsRefresh ||
+                presentation.pendingPolicy.uncertain) && (
                 <button
                   className="home-secondary"
+                  disabled={presentation.loading}
                   onClick={() => {
                     void presentation.retryPolicy();
                   }}
                 >
-                  Check original policy request
+                  {presentation.pendingPolicy.needsRefresh
+                    ? 'Refresh sharing'
+                    : 'Check original policy request'}
                 </button>
               )}
             </>
@@ -95,11 +104,13 @@ function Conversation() {
           ) : undefined
         }
         policyUnavailableReason={
-          presentation.pendingPolicy
-            ? 'Waiting for the original policy request.'
-            : presentation.policyError
-              ? 'Refresh discussion sharing before changing it.'
-              : undefined
+          presentation.pendingPolicy?.needsRefresh
+            ? 'Refresh discussion sharing to confirm the saved policy.'
+            : presentation.pendingPolicy
+              ? 'Waiting for the original policy request.'
+              : presentation.policyError
+                ? 'Refresh discussion sharing before changing it.'
+                : undefined
         }
         onPolicyChange={
           presentation.policyDisabled
