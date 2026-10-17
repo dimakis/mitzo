@@ -6,7 +6,7 @@ import {
   AgentLibraryVersionSchema,
   type AgentProfileSelection,
 } from '@mitzo/protocol';
-import { registerAuthSession, type AuthSession } from './auth.js';
+import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 
@@ -20,6 +20,21 @@ export function captureAgentLibraryAuthorization(connectionId?: string) {
     assertCurrent() {
       if (operators.get(connectionId!) !== auth || auth.expiresAt <= Date.now())
         throw Error('Agent profile authorization expired or revoked');
+    },
+  };
+}
+/** A single awaited operation keeps its exact operator, including across reconnect/logout. */
+export function captureAgentLibraryOperation(connectionId: string) {
+  const authorization = captureAgentLibraryAuthorization(connectionId);
+  const controller = new AbortController();
+  const dispose = registerAuthSession(authorization.auth, () => controller.abort());
+  return {
+    signal: controller.signal,
+    dispose,
+    assertCurrent() {
+      controller.signal.throwIfAborted();
+      authorization.assertCurrent();
+      if (!isAuthSessionCurrent(authorization.auth)) throw Error('Operator authorization revoked');
     },
   };
 }

@@ -1,5 +1,9 @@
 import { admitApiTools } from './api-tool-execution.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
+import { getToolBuilderStore } from './tool-builder-runtime.js';
+import { admitCustomTools } from './custom-tool-admission.js';
+import { captureAgentLibraryOperation } from './agent-library-transport.js';
+import type { ToolBuilderStore } from './tool-builder-store.js';
 import type { ApiToolCatalog } from './api-tool-catalog.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import { checkSkillPolicy } from '@mitzo/harness';
@@ -128,6 +132,8 @@ interface Options {
   agentProfile?: AgentLibraryVersion;
   /** Trusted offline seam, never client input. */
   apiTools?: { catalog: ApiToolCatalog };
+  /** Trusted owner/test seam; never supplied through session or tool input. */
+  toolBuilder?: { store: ToolBuilderStore };
   configuredTools?: Pick<
     ConfiguredCatalogOptions,
     'readSources' | 'connect' | 'assertRuntimeCurrent'
@@ -273,6 +279,7 @@ export async function openResponsesChat(options: Options) {
     throw error;
   });
   let apiTools: ReturnType<typeof admitApiTools> | undefined;
+  let customTools: ReturnType<typeof admitCustomTools> | undefined;
   try {
     const apiRefs =
       agentProfile?.definition.tools?.filter((ref) => ref.id.startsWith('api:')) ?? [];
@@ -316,10 +323,65 @@ export async function openResponsesChat(options: Options) {
         },
       });
     }
-    if (configuredAdmissions.length || apiTools?.admitted.length)
+    const customRefs =
+      agentProfile?.definition.tools?.filter((ref) => ref.id.startsWith('custom:')) ?? [];
+    if (customRefs.length) {
+      const assertCurrent = () => {
+        signal.throwIfAborted();
+        assertMcpCurrent?.();
+        if (options.registry.findBySessionId(options.conversationId)?.session !== options.session)
+          throw Error('Custom tool session ownership changed');
+      };
+      customTools = admitCustomTools({
+        store: options.toolBuilder?.store ?? getToolBuilderStore(),
+        refs: customRefs,
+        assertCurrent,
+        assertRuntimeCurrent,
+        captureAuthority: () => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner) throw Error('Custom tool session owner unavailable');
+          const connectionId = options.session.ownerConnectionId ?? owner.clientId.split(':')[0];
+          const operation = captureAgentLibraryOperation(connectionId);
+          return {
+            ...operation,
+            assertCurrent() {
+              operation.assertCurrent();
+              const current = options.registry.findBySessionId(options.conversationId);
+              if (
+                !current ||
+                (options.session.ownerConnectionId ?? current.clientId.split(':')[0]) !==
+                  connectionId
+              )
+                throw Error('Custom invocation owner changed');
+            },
+          };
+        },
+        stillAllowed: (name) => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          return (
+            !!owner &&
+            agentToolAllowed(options.session, name) &&
+            checkSkillPolicy(options.registry, owner.clientId, name) !== 'deny'
+          );
+        },
+        approve: async (name, input, opts) => {
+          assertCurrent();
+          const owner = options.registry.findBySessionId(options.conversationId)!;
+          const result = await buildPermissionHandler(owner.clientId, options.registry)(
+            name,
+            input,
+            opts,
+          );
+          assertCurrent();
+          return result;
+        },
+      });
+    }
+    if (configuredAdmissions.length || apiTools?.admitted.length || customTools?.admitted.length)
       bindConfiguredAgentTools(options.session, [
         ...configuredAdmissions,
         ...(apiTools?.admitted ?? []),
+        ...(customTools?.admitted ?? []),
       ]);
   } catch (error) {
     dispose();
@@ -351,6 +413,7 @@ export async function openResponsesChat(options: Options) {
       ...nativeToolDefinitions,
       ...mcp.definitions,
       ...(apiTools?.definitions ?? []),
+      ...(customTools?.definitions ?? []),
       webAccessDefinition,
       githubPublishingDefinition,
     ]),
@@ -365,6 +428,7 @@ export async function openResponsesChat(options: Options) {
           tools: definitions,
           ...(configuredAdmissions.length ? { configuredTools: configuredAdmissions } : {}),
           ...(apiTools?.admitted.length ? { apiTools: apiTools.admitted } : {}),
+          ...(customTools?.admitted.length ? { customTools: customTools.admitted } : {}),
         },
         !!options.resume,
       );
@@ -410,6 +474,13 @@ export async function openResponsesChat(options: Options) {
         async (input, forcePrompt) => {
           if (options.commandAuthority)
             await options.commandAuthority.assertEffect(publishingTurnId);
+          const customResult = await customTools?.execute(
+            block.name,
+            input,
+            AbortSignal.any([signal, options.session.abortController.signal]),
+            { callId: block.id, forcePrompt },
+          );
+          if (customResult) return customResult;
           const apiResult = await apiTools?.execute(
             block.name,
             input,
