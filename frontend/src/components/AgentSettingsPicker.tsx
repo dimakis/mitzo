@@ -293,10 +293,16 @@ export function AgentSettingsFields({
     <div className="agent-settings-picker">
       <div className="agent-settings-panel agent-settings-panel--embedded">
         <div className="agent-settings-body agent-settings-scroll">
-          <div className="agent-settings-account-model">{accountModel}</div>
-          <div className="agent-settings-agent">{agent}</div>
+          <section className="chat-settings-group">
+            <h3>Account &amp; model</h3>
+            <div className="agent-settings-account-model">{accountModel}</div>
+          </section>
+          <section className="chat-settings-group">
+            <h3>Agent &amp; workspace</h3>
+            <div className="agent-settings-agent">{agent}</div>
+            {repository}
+          </section>
           {execution}
-          {repository}
           {details}
         </div>
       </div>

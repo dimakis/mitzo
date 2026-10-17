@@ -1,6 +1,7 @@
 import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { AdviserSubscriptions } from './AdviserSubscriptions';
+import { UiIcon } from './UiIcon';
 import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
@@ -67,6 +68,20 @@ function PickerField({
       <span>{label}</span>
       {children}
     </label>
+  ) : (
+    <>{children}</>
+  );
+}
+
+function PickerOptions({ collapsible, children }: { collapsible: boolean; children: ReactNode }) {
+  return collapsible ? (
+    <details className="chat-settings-advanced">
+      <summary>
+        <span>Account options</span>
+        <UiIcon name="down" size={16} />
+      </summary>
+      <div className="account-model-settings-utilities">{children}</div>
+    </details>
   ) : (
     <>{children}</>
   );
@@ -702,46 +717,43 @@ function SessionAccountModelPicker({
           {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
         </button>
       )}
-      {scope === 'chat' &&
-        !sessionId &&
-        !legacy &&
-        !requiredSelection &&
-        !lockAccountModel &&
-        !draftOnly && (
-          <>
-            <button
-              disabled={disabled || draftUnavailable}
-              onClick={() => {
-                setDefaultAccountModel(selection);
-                setSavedDefault(selection);
-              }}
-            >
-              Make default for new chats
-            </button>
-            {savedDefault && (
+      {scope === 'chat' && !legacy && (
+        <PickerOptions collapsible={presentation === 'settings'}>
+          {!sessionId && !requiredSelection && !lockAccountModel && !draftOnly && (
+            <>
               <button
-                disabled={disabled}
+                disabled={disabled || draftUnavailable}
                 onClick={() => {
-                  setDefaultAccountModel(null);
-                  setSavedDefault(null);
-                  setNeedsConfirmation(true);
-                  onChange(null);
+                  setDefaultAccountModel(selection);
+                  setSavedDefault(selection);
                 }}
               >
-                Clear new-chat default
+                Make default for new chats
               </button>
-            )}
-            <span>
-              {savedDefault
-                ? 'Saved default for new chats on this browser.'
-                : 'No saved account default. Review the account before sending.'}
-            </span>
-          </>
-        )}
-      {scope === 'chat' && !legacy && (
-        <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
-          Refresh models
-        </button>
+              {savedDefault && (
+                <button
+                  disabled={disabled}
+                  onClick={() => {
+                    setDefaultAccountModel(null);
+                    setSavedDefault(null);
+                    setNeedsConfirmation(true);
+                    onChange(null);
+                  }}
+                >
+                  Clear new-chat default
+                </button>
+              )}
+              <span>
+                {savedDefault
+                  ? 'Saved default for new chats on this browser.'
+                  : 'No saved account default. Review the account before sending.'}
+              </span>
+            </>
+          )}
+          <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
+            Refresh models
+          </button>
+        </PickerOptions>
       )}
     </>
   );

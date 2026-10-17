@@ -61,6 +61,11 @@ export function WorkspaceControls({
     };
   }, [open, ref]);
   useLayoutEffect(() => {
+    if (!open || !hasSettings) return;
+    const content = ref.current?.querySelector<HTMLElement>('.workspace-controls-content');
+    if (content) content.scrollTop = 0;
+  }, [open, hasSettings, ref]);
+  useLayoutEffect(() => {
     const panel = ref.current;
     const owner = panel?.parentElement;
     const chat = owner?.closest('.workspace-chat');

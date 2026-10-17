@@ -113,6 +113,25 @@ it('groups secondary controls behind More settings in the single top panel', () 
   expect(screen.getByRole('button', { name: 'Collaborate' })).toBeTruthy();
 });
 
+it('reopens settings at the account fields while retaining the selected values', () => {
+  const view = render(
+    <WorkspaceControls {...props} settings={<input aria-label="Account" defaultValue="Work" />}>
+      <button>Permissions</button>
+    </WorkspaceControls>,
+  );
+  const trigger = screen.getByRole('button', { name: /^Workspace controls/ });
+  fireEvent.click(trigger);
+  const body = view.container.querySelector<HTMLElement>('.workspace-controls-content')!;
+  const account = screen.getByRole('textbox', { name: 'Account' });
+  fireEvent.change(account, { target: { value: 'Personal' } });
+  body.scrollTop = 240;
+  fireEvent.click(screen.getByRole('button', { name: 'Close agent settings' }));
+  fireEvent.click(trigger);
+  expect(body.scrollTop).toBe(0);
+  expect(screen.getByRole('textbox', { name: 'Account' })).toBe(account);
+  expect((account as HTMLInputElement).value).toBe('Personal');
+});
+
 it('shows conversation context separately from the compact settings trigger', () => {
   const view = render(
     <WorkspaceControls

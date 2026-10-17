@@ -29,6 +29,14 @@ for (const appearance of ['dark', 'light'] as const) {
     const files = (await output).outputFiles!;
     await page.route('**/*', (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (path === '/api/accounts')
+        return route.fulfill({
+          json: ['Personal ChatGPT', 'Work'].map((id) => ({
+            id,
+            label: id,
+            models: [{ id: 'luna', label: 'Luna', reasoningEfforts: ['High', 'Medium', 'Low'] }],
+          })),
+        });
       const file = files.find((file) => path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'));
       if (file)
         return route.fulfill({
@@ -49,10 +57,20 @@ for (const appearance of ['dark', 'light'] as const) {
       if (path !== '/') return route.abort();
       return route.fulfill({
         contentType: 'text/html',
-        body: `<!doctype html><html data-theme="${appearance}" data-accent="mint" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body{margin:0;height:100%;overflow:hidden}.workspace-tabs{position:fixed;bottom:0;inset-inline:0;min-height:64px;display:flex;align-items:center;justify-content:center}.workspace-controls-heading>button{min-height:44px;padding:8px}.chat-messages{justify-content:center}.agent-settings-panel--embedded label{display:flex;flex-direction:column}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
+        body: `<!doctype html><html data-theme="${appearance}" data-accent="${appearance === 'dark' ? 'mint' : 'teal'}" data-font="${appearance === 'dark' ? 'georgia' : 'system'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body{margin:0;height:100%;overflow:hidden}.workspace-tabs{position:fixed;bottom:0;inset-inline:0;min-height:64px;display:flex;align-items:center;justify-content:center}.workspace-controls-heading>button{min-height:44px;padding:8px}.chat-messages{justify-content:center}.agent-settings-panel--embedded label{display:flex;flex-direction:column}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
       });
     });
     const mobile = testInfo.project.name.startsWith('mobile');
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'mitzo-default-account-model',
+        JSON.stringify({
+          accountId: 'Personal ChatGPT',
+          model: 'luna',
+          reasoningEffort: 'High',
+        }),
+      );
+    });
     await page.setViewportSize({ width: mobile ? 390 : 1280, height: mobile ? 844 : 900 });
     await page.goto('/');
     const trigger = page.getByRole('button', { name: /^Workspace controls/ });
@@ -73,14 +91,30 @@ for (const appearance of ['dark', 'light'] as const) {
     await trigger.click();
     await expect(panel).toBeVisible();
     await expect(panel.getByRole('combobox')).toHaveCount(4);
+    await expect(panel.getByRole('heading', { name: 'Account & model' })).toBeVisible();
+    await expect(panel.getByRole('heading', { name: 'Agent & workspace' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Make default for new chats' })).toBeHidden();
+    await page.screenshot({
+      path: testInfo.outputPath(`restored-chat-settings-${appearance}.png`),
+    });
+    await panel.getByText('Account options', { exact: true }).click();
+    await panel.getByRole('button', { name: 'Make default for new chats' }).click();
+    await expect(panel.getByRole('button', { name: 'Clear new-chat default' })).toBeVisible();
+    await panel.getByRole('button', { name: 'Refresh models' }).click();
+    await expect(panel.getByRole('combobox', { name: 'Account', exact: true })).toBeVisible();
+    const options = panel.locator('details', {
+      has: page.getByText('Account options', { exact: true }),
+    });
+    if ((await options.getAttribute('open')) !== null)
+      await panel.getByText('Account options', { exact: true }).click();
     for (const control of await panel.getByRole('combobox').all())
       expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect(page.getByRole('button', { name: 'Collaborate' })).toBeHidden();
     const model = panel.getByRole('combobox', { name: 'Thinking level' });
-    await model.selectOption('Low');
     await page.getByText('More settings', { exact: true }).click();
     await expect(page.getByRole('button', { name: 'Collaborate' })).toBeVisible();
     await panel.getByRole('combobox', { name: 'Account', exact: true }).selectOption('Work');
+    await model.selectOption('Low');
     await panel.getByRole('button', { name: 'Local Mac', exact: true }).click();
     await expect(panel.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
       'aria-pressed',
@@ -108,6 +142,10 @@ for (const appearance of ['dark', 'light'] as const) {
     await expect(panel).toBeHidden();
     await trigger.click();
     await expect(model).toHaveValue('Low');
+    await expect(panel.getByRole('combobox', { name: 'Account', exact: true })).toBeInViewport();
+    expect(await panel.locator('.workspace-controls-content').evaluate((el) => el.scrollTop)).toBe(
+      0,
+    );
     await model.focus();
     await page.keyboard.press('Escape');
     await expect(panel).toBeHidden();
@@ -139,6 +177,9 @@ for (const appearance of ['dark', 'light'] as const) {
       await expect(page.getByRole('navigation')).toBeVisible();
     }
     await page.setViewportSize({ width: mobile ? 320 : 1280, height: mobile ? 500 : 300 });
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '20px';
+    });
     await input.evaluate((element) => {
       element.style.height = '210px';
     });

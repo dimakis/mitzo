@@ -80,7 +80,7 @@ for (const theme of ['dark', 'light'] as const)
       expect(
         await heading.evaluate((element) => {
           const probe = document.createElement('span');
-          probe.style.color = 'var(--color-text)';
+          probe.style.color = 'var(--color-accent)';
           document.body.append(probe);
           const matches = getComputedStyle(probe).color === getComputedStyle(element).color;
           probe.remove();

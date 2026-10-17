@@ -6,6 +6,8 @@ import { ChatInput } from '../../frontend/src/components/ChatInput';
 import { UiIcon } from '../../frontend/src/components/UiIcon';
 import { WorkspaceControls } from '../../frontend/src/components/WorkspaceControls';
 import { AgentSettingsFields } from '../../frontend/src/components/AgentSettingsPicker';
+import { AccountModelPicker } from '../../frontend/src/components/AccountModelPicker';
+import type { WorkspaceSummary } from '../../frontend/src/types/workspace';
 import { HomeDialog } from '../../frontend/src/components/HomeDialog';
 import { DesktopShell } from '../../frontend/src/components/DesktopShell';
 import { StatusBar } from '../../frontend/src/components/StatusBar';
@@ -33,6 +35,7 @@ function Surface() {
   const [sends, setSends] = useState(0);
   const [location, setLocation] = useState('openshell');
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
   const desktop = window.matchMedia('(min-width: 768px)').matches;
   useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
   const center = profileMode ? (
@@ -71,7 +74,7 @@ function Surface() {
         title={sends ? 'Conversation' : 'New chat'}
         agent="Default Mitzo"
         status="Ready"
-        summary={{ profile: 'Personal ChatGPT', model: 'GPT-6.1-Sol', thinking: 'High' }}
+        summary={summary}
         actions={
           <button type="button" className="home-secondary">
             Access
@@ -81,11 +84,13 @@ function Surface() {
           <AgentSettingsFields
             agent={field('Agent', ['Default Mitzo', 'Repository helper'])}
             accountModel={
-              <>
-                {field('Account', ['Personal ChatGPT', 'Work'])}
-                {field('Model', ['GPT-6.1-Sol', 'Luna'])}
-                {field('Thinking level', ['High', 'Medium', 'Low'])}
-              </>
+              <AccountModelPicker
+                sessionId={null}
+                preferredModel="luna"
+                presentation="settings"
+                onChange={() => {}}
+                onSummaryChange={setSummary}
+              />
             }
             execution={
               <div className="agent-execution-settings">
