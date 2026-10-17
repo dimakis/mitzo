@@ -144,7 +144,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: local-first-command-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: test-results/offline/**/local-*.png
+          path: |
+            test-results/offline/**/local-*.png
+            test-results/offline/**/quick-chat-settings-*.png
+            test-results/offline/**/quick-sheet-*.png
           retention-days: 7
           if-no-files-found: ignore
 

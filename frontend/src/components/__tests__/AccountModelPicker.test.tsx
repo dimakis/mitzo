@@ -1295,3 +1295,32 @@ it('settings keeps Model and Thinking paired and leaves shared account renaming 
   expect(screen.queryByRole('button', { name: 'Edit account alias' })).toBeNull();
   expect(model.closest('.account-model-settings-pair')).toBe(pair);
 });
+
+it('keeps confirmation visible and new-chat defaults on request in settings', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify(profiles)));
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="sonnet"
+      presentation="settings"
+      requireExplicitSelection
+      onChange={onChange}
+    />,
+  );
+  const confirm = await screen.findByRole('button', { name: 'Use Work Vertex · Sonnet' });
+  expect(confirm.closest('details')).toBeNull();
+  const options = screen.getByText('Account options', { exact: true }).closest('details')!;
+  expect(options.open).toBe(false);
+  expect(screen.getByText('Make default for new chats').closest('details')).toBe(options);
+  fireEvent.click(screen.getByText('Account options', { exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Make default for new chats' }));
+  expect(localStorage.getItem('mitzo-default-account-model')).toContain('work');
+  expect(screen.getByRole('button', { name: 'Clear new-chat default' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Refresh models' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear new-chat default' }));
+  expect(localStorage.getItem('mitzo-default-account-model')).toBeNull();
+  expect(onChange).toHaveBeenLastCalledWith(null);
+  fireEvent.click(confirm);
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});

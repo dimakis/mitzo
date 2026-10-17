@@ -168,6 +168,7 @@ export function DesktopChatView() {
     activeSessionId,
     !launch && !repositoryHandoff.present,
     searchParams.toString(),
+    newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
   const localBound =
@@ -857,6 +858,7 @@ export function DesktopChatView() {
             ? {
                 accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
+                onRefresh: localRuntime.refresh,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
                   localRuntime.update(
@@ -982,6 +984,7 @@ export function DesktopChatView() {
         repositoryAccountSelection.accountId === repositoryHandoff.preparation.accountId &&
         repositoryAccountSelection.model === repositoryHandoff.preparation.model)) && (
       <RepositoryChatPicker
+        presentation="settings"
         key={repositoryScope}
         accountId={repositoryAccountSelection.accountId}
         model={repositoryAccountSelection.model}
@@ -1022,7 +1025,7 @@ export function DesktopChatView() {
       execution={executionControl}
       details={
         activeSessionId ? (
-          <details className="composer-session-details">
+          <details className="composer-session-details" open>
             <summary>Session details</summary>
             <dl>
               <dt>Account</dt>

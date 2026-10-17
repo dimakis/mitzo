@@ -24,7 +24,7 @@ const sessions = Array.from({ length: 12 }, (_, index) => ({
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/session-library.tsx')],
   bundle: true,
-  external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
+  external: ['/*.png', '/*.svg'],
   write: false,
   outfile: '/tmp/session-library-fixture.js',
   jsx: 'automatic',

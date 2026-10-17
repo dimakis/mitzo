@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { settingsHome, openChatSetting } from '../support/chat-settings';
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -484,14 +485,17 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       await page.reload();
       const assign = page.getByRole('button', { name: actionLabel });
       await expect(assign).toBeEnabled();
-      await page
-        .getByRole('button', { name: /Settings/ })
-        .first()
-        .click();
-      await expect(page.getByText('Run on', { exact: true })).toBeVisible();
-      await expect(page.getByText('Runs with Codex', { exact: true })).toBeVisible();
+      const settingsPanel = await settingsHome(page);
+      await expect(settingsPanel.locator('[data-quick-setting="execution"]')).toBeVisible();
+      await expect(settingsPanel.locator('[data-quick-setting="execution"]')).toContainText(
+        'Run on',
+      );
+      await expect(settingsPanel.getByRole('combobox')).toHaveCount(0);
+      const executionPanel = await openChatSetting(page, 'execution');
+      await expect(executionPanel.getByText('Runs with Codex', { exact: true })).toBeVisible();
+      await settingsHome(page);
       await page.screenshot({ path: info.outputPath(`role-settings-${theme}.png`) });
-      await page.getByRole('button', { name: 'Done', exact: true }).click();
+      await settingsPanel.getByRole('button', { name: 'Done', exact: true }).click();
       setupUnavailable = true;
       await assign.focus();
       await expect(assign).toBeFocused();
