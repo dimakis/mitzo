@@ -29,7 +29,7 @@ describe('ordinary Codex host packet serialization', () => {
       },
       approvalPolicy: 'never',
       sandbox: 'read-only',
-      developerInstructions: 'Frozen profile and actual ordinary guidance',
+      developerInstructions: expect.stringContaining('Frozen profile and actual ordinary guidance'),
     });
     expect(
       codexThreadOptions({
@@ -153,3 +153,31 @@ describe('ordinary Codex host packet serialization', () => {
     expect(() => codexApplicationContextFragments('x'.repeat(1048577))).toThrow('delivery bound');
   });
 });
+
+it.each(['live', 'disabled'] as const)(
+  'gives the main Codex thread research guidance matching %s access',
+  (webSearch) => {
+    const options = codexThreadOptions({
+      model: 'offline',
+      modelProvider: 'openai',
+      cwd: '/workspace',
+      runtimeConfig: { web_search: 'live' },
+      webSearch,
+      systemPrompt: 'Original guidance',
+    });
+    expect(options.developerInstructions).toContain('Original guidance');
+    expect(options.developerInstructions).toContain('Reuse sources already read');
+    expect(options.developerInstructions).toContain('filter fields and paginate');
+    expect(options.developerInstructions).toContain('concrete evidence gap');
+    if (webSearch === 'live') {
+      expect(options.developerInstructions).toContain('Native web search is enabled');
+      expect(options.developerInstructions).toContain('Prefer native search, open and find');
+      expect(options.developerInstructions).not.toContain('Native web search is disabled');
+    } else {
+      expect(options.developerInstructions).toContain('Native web search is disabled');
+      expect(options.developerInstructions).toContain('between turns');
+      expect(options.developerInstructions).not.toContain('Native web search is enabled');
+    }
+    expect(options.config.web_search).toBe(webSearch);
+  },
+);
