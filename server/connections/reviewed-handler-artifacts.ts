@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.282-codex-research';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.283-symposium-forwarding.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../collaboration-retained-artifact-source.ts':
+    '497e917dc538c7c181429652aae5f7a523bd67bcc56dc052f53ba37179eecc55',
+  '../collaboration-forwarding.ts':
+    '7bcba00cb63799d46f4811ddf92776f04f1c2c46bf1b5612547742bd7ccd4a47',
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':
@@ -84,7 +88,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-source-routes.ts': '9fe592fae24c3ecb1a0915b0370b4e525facfa4b34a473981c5cc8e032187cad',
   '../../packages/protocol/src/telos-source.ts':
     '6ca8887c2d88f73eb14a5886e441da54c0036f0767392f4e72352f783d33eda7',
-  '../telos-artifact-store.ts': '1d7e2c5e2b6627b4eff7860b2497fe97dc808fe87d1f89ca28cd36b85e04bd50',
+  '../telos-artifact-store.ts': 'b2520f0b8d304a82274bddddc97988138cca83179168fbcd2d19234b78d9a0ab',
   '../telos-source-capture.ts': '474d585f84017422fbb707ec5e0212c79c4a04747979f78b55956a9e1f999526',
   '../telos-conversation-source.ts':
     '0217975022f987f5ad65876d53467417774e3f0f186ba4fc70bc6f30c9860308',
