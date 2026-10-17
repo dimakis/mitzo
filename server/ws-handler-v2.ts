@@ -73,7 +73,6 @@ import { withSpan, withSpanAsync } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
 import {
   resolvePending,
-  denyPendingBySession,
   getPendingSessionId,
   getPendingRequestsBySession,
   dismissTelosSourcePermissionRecovery,
@@ -144,14 +143,6 @@ export function isHelloHandshake(msg: unknown): boolean {
 export function getOwnerConnection(clientId: string): string {
   const colonIdx = clientId.indexOf(':');
   return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
-}
-
-function notifyPreviousOwner(ctx: V2HandlerContext, connectionId: string, sessionId: string): void {
-  // The session transport may be a REST wrapper that stays "open" to persist
-  // events after its SSE connection closes. A takeover notice is connection-
-  // local and must never pass through that durable session transport.
-  const transport = ctx.connRegistry.get(connectionId)?.transport;
-  if (transport?.isOpen()) transport.send({ type: 'session_takeover', sessionId });
 }
 
 // ─── State mismatch detection (Phase 2) ─────────────────────────────────────
@@ -353,12 +344,8 @@ export function handleReconnect(
           ctx.connRegistry.enableAppliedCursor(connectionId, entry.sessionId, entry.lastSeq);
         else ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
 
-        // Resolve ownership before replay. A suspended session deliberately
-        // remains in memory through the grace period, and its old transport
-        // can still look attached while the browser creates a new connection.
-        // Replaying to that new connection without taking it over leaves the
-        // old transport as the driver until the next user send, which can
-        // interleave an old error with the new input.
+        // Reconnect restores delivery. Keep a connected driver in place;
+        // only a new user command should move control between live devices.
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         const storeState = ctx.eventStore.getSessionState(entry.sessionId);
         let running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
@@ -378,32 +365,9 @@ export function handleReconnect(
         // report it, while EventStore remains the single delivery source.
         let reconciledSuspendEvents = 0;
         if (wasSuspended) {
-          const ownerConnection =
-            found!.session?.ownerConnectionId ?? getOwnerConnection(found!.clientId);
-          if (ownerConnection !== connectionId) {
-            notifyPreviousOwner(ctx, ownerConnection, entry.sessionId);
-            ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
-          }
-
-          // The durable event replay below covers the same events buffered
-          // during suspension. Do not send this transient buffer again.
+          // Durable replay covers the suspension buffer for each subscriber.
           reconciledSuspendEvents = ctx.sessionRegistry.resume(found!.clientId).length;
-
-          if (ownerConnection !== connectionId) {
-            const conn = ctx.connRegistry.get(connectionId);
-            if (conn) {
-              reattachChat(found!.clientId, conn.transport);
-              if (found!.session) found!.session.ownerConnectionId = connectionId;
-              log.info('took over suspended session on reconnect', {
-                connectionId,
-                sessionId: entry.sessionId,
-                oldOwner: ownerConnection,
-                clientId: found!.clientId,
-              });
-            }
-          } else if (storeState === 'SUSPENDED') {
-            // resume() keeps the already-attached owner transport, so it does
-            // not pass through reattachChat's durable ACTIVE transition.
+          if (storeState === 'SUSPENDED') {
             ctx.eventStore.setSessionState(entry.sessionId, 'ACTIVE', {
               clientId: found!.clientId,
               reason: 'resume',
@@ -417,7 +381,7 @@ export function handleReconnect(
         if (found && running) {
           const ownerConnection =
             found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
-          const ownerGone = !ctx.connRegistry.get(ownerConnection);
+          const ownerGone = ctx.connRegistry.get(ownerConnection)?.transport.isOpen() !== true;
           const isOwner = ownerConnection === connectionId;
           if ((isOwner && !ctx.sessionRegistry.isAttached(found.clientId)) || ownerGone) {
             const conn = ctx.connRegistry.get(connectionId);
@@ -661,7 +625,6 @@ export async function handleSwitchSession(
           const transport = ctx.connRegistry.get(connectionId)?.transport;
           if (transport && reattachChat(found.clientId, transport)) {
             found.session.ownerConnectionId = connectionId;
-            if (owner !== connectionId) ctx.connRegistry.unwatch(owner, msg.sessionId);
           }
         }
       }
@@ -1114,11 +1077,10 @@ export function handleSendV2(
             const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
             const activeClientId = found.clientId;
-            if (!isOwner) {
-              notifyPreviousOwner(ctx, ownerConnection, sessionId);
-              ctx.connRegistry.unwatch(ownerConnection, sessionId);
-              denyPendingBySession(sessionId);
-
+            // A delayed retry is delivery recovery, not a new control claim.
+            // Keep every subscriber and pending approval on the same session.
+            const ownerOpen = ctx.connRegistry.get(ownerConnection)?.transport.isOpen() === true;
+            if (!isOwner && (!duplicate || !ownerOpen)) {
               reattachChat(found.clientId, transport);
               if (found.session) found.session.ownerConnectionId = connectionId;
               log.info('takeover on send', {
@@ -1128,7 +1090,7 @@ export function handleSendV2(
                 newClientId: activeClientId,
                 storeState,
               });
-            } else if (isDetached) {
+            } else if (isOwner && isDetached) {
               reattachChat(found.clientId, transport);
               if (found.session) found.session.ownerConnectionId = connectionId;
               log.info('reattached own detached session on send', {
@@ -1453,11 +1415,8 @@ export function handleInterruptV2(
         const isOwner = ownerConnection === connectionId;
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
-        if (!isOwner) {
-          notifyPreviousOwner(ctx, ownerConnection, msg.sessionId);
-          ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
-          denyPendingBySession(msg.sessionId);
-
+        const ownerOpen = ctx.connRegistry.get(ownerConnection)?.transport.isOpen() === true;
+        if (!isOwner && (!duplicate || !ownerOpen)) {
           reattachChat(found.clientId, transport);
           if (found.session) found.session.ownerConnectionId = connectionId;
           log.info('takeover on interrupt', {
@@ -1467,7 +1426,7 @@ export function handleInterruptV2(
             newClientId: activeClientId,
             storeState,
           });
-        } else if (isDetached) {
+        } else if (isOwner && isDetached) {
           reattachChat(found.clientId, transport);
           if (found.session) found.session.ownerConnectionId = connectionId;
         }

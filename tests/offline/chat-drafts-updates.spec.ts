@@ -1050,6 +1050,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await page.getByRole('link', { name: /Untitled draft/ }).click();
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -1062,6 +1063,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
     .toBe(preparationId);
   await page.reload();
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
