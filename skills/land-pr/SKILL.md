@@ -21,7 +21,7 @@ Resolve `$ARGUMENTS` as a PR URL, repository plus number, or the current branch'
 - `--prepare-only` fixes and verifies, but never marks a draft ready, enables auto-merge or merges. Existing `autopilot` calls retain this mode unless the user explicitly changes it.
 - Work only the selected PRs. No-argument invocation resolves the current branch; `--all` is a read-only inventory unless the user has selected a batch for action. Do not create goal trees, scheduled jobs or additional shepherd sessions implicitly.
 - Keep one owner per PR. Check available session/task/queue state before taking over; if another owner is active, coordinate instead of pushing or requesting a duplicate review. State ownership and the next blocker in this session. This convention is not a distributed lock.
-- With several features in flight, prepare independent PRs concurrently but use one final integration/merge slot per repository. Order dependencies first. A useful starting limit is 2–3 PRs in review/preparation while the remaining features stay in development; adapt to measured capacity.
+- Independent coding, branch refreshes, offline tests, CI, reviews and PR preparation may proceed concurrently within each task's resource limits, authority and dependencies. Coordinate only actual merges, one at a time per repository, and verify the previous merge before the next. Do not pause whole sessions, require a global test lane or impose a central preparation slot.
 
 ## Work the blockers together
 
