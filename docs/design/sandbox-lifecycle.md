@@ -82,3 +82,37 @@ keyboard focus, dialog dismissal/restoration, failure/Archive, layout bounds and
 existing pool controls. They make no backend or model calls. Full frontend
 type/build and complete application acceptance run in CI when the local 1 GiB
 heap is insufficient. Production and stood-down staging remain unchanged.
+
+## Ownership review and selected cleanup
+
+Needs ownership review opens an operator-authenticated read-only review at
+`GET /api/sandboxes/:physicalId/ownership`. It refreshes the physical inventory
+and matches retained native runtime and migration records by physical ID, name,
+workspace, gateway and endpoint. Archived conversations remain in this provenance
+index. Retained Symposium seat records are also matched by physical ID, name and
+workspace, including stopped resources and hidden parent chats. These historical
+records did not save gateway scope: the review shows their saved parent and
+Symposium custody while explicitly blocking on unverified gateway scope.
+Responses contain only account ID, conversation ID, owner kind and relation;
+provider grants, route credentials, CLI environment and private paths are omitted.
+A name/hash match alone is not an owner. Missing/invalid evidence fails closed.
+
+This review links the saved chat and explains unresolved ownership, conflicts,
+Symposium custody, migration retention, Error state and missing lifecycle/recovery
+proof. It never adopts a resource, invents an owner, starts a sandbox or grants
+cleanup authority. Establishing a managed fence and verified recovery for an
+unsupported historical resource remains a prerequisite to deletion.
+
+Managed physical resources can be individually selected for Review selected
+cleanup. The dialog reviews every selected item and allows confirmation only
+when every item passes. It states the exact physical IDs and retained history.
+Each confirmation obtains another fresh explicit deletion preview and verifies
+its conversation, name and physical ID before submitting its one-use token to
+the existing lifecycle service. That service still owns checkpoint, protection,
+stop and deletion checks. There is no new batch deletion API or retention consent.
+An identity change, blocker, refused operation or uncertain response stops the
+remaining batch. Completed results remain visible; inventory refresh follows a
+submitted request even on failure. Confirmation has a 30-second deadline covering
+both headers and response body. An expiry leaves the outcome unverified, stops
+the batch and refreshes inventory without replaying the mutation. Further attempts
+require a new review.
