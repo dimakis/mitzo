@@ -23,6 +23,7 @@ import {
 } from './conversation-replay-store.js';
 export type { ConversationTextEvent, ReconnectState } from './conversation-replay-store.js';
 import {
+  createOrdinaryFreshPermission,
   OrdinaryLocalCommandAdmissionSchema,
   OrdinaryLocalResponsesCommandAdmissionSchema,
   type OrdinaryLocalCommandAdmission,
@@ -510,6 +511,13 @@ export class EventStore {
         this.assertPreparedOrdinaryMetadata(previous, meta);
         return previous;
       }
+      if (
+        !isDeepStrictEqual(
+          receipt.settings.selection.permission,
+          createOrdinaryFreshPermission(receipt.settings.selection.permission.mode),
+        )
+      )
+        throw Error('Prepared ordinary allocation requires fresh permission');
       if (this.getSession(meta.sessionId) || this.getSendCommand(input.allocationOperationId))
         throw Error('Prepared ordinary allocation requires a new identity');
       this.createSessionWithRuntimeBinding(meta, receipt.settings.binding);
