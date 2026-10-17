@@ -218,7 +218,7 @@ it('explicitly prepares an independent reviewer chat while preserving the curren
     resolveTelosWorkRoleContext(
       f.ordinary.store,
       reviewerSession.sessionId,
-      reviewerSession.accountBinding,
+      reviewerSession.accountBinding ?? undefined,
     )?.role,
   ).toBe('reviewer');
   expect(f.ordinary.store.getOrdinaryInitialCommandId(reviewerSession.sessionId)).toBeUndefined();
@@ -280,7 +280,7 @@ it('retains explicit advisor purpose in the bound chat across a plain conversati
   f.ordinary.reopen();
   const session = f.ordinary.store.getSession(advisorId)!;
   expect(
-    resolveTelosWorkRoleContext(f.ordinary.store, advisorId, session.accountBinding),
+    resolveTelosWorkRoleContext(f.ordinary.store, advisorId, session.accountBinding ?? undefined),
   ).toMatchObject({ itemId: 'item', role: 'advisor', advisorPurpose: 'child' });
   expect(f.ordinary.store.getOrdinaryInitialCommandId(advisorId)).toBeUndefined();
 });

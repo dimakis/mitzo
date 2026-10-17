@@ -3149,7 +3149,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   const telosWorkRoleContext = resolveTelosWorkRoleContext(
     eventStore,
     meta.sessionId,
-    meta.accountBinding,
+    meta.accountBinding ?? undefined,
   );
   res.json({
     sessionId: meta.sessionId,

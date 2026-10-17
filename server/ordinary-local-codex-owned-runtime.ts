@@ -610,7 +610,8 @@ export class OrdinaryLocalCodexOwnedRuntime {
     resolveTelosWorkRoleContext(
       this.owners.eventStore,
       this.#reservation.conversationId,
-      this.owners.eventStore.getSession(this.#reservation.conversationId)?.accountBinding,
+      this.owners.eventStore.getSession(this.#reservation.conversationId)?.accountBinding ??
+        undefined,
     );
   }
 

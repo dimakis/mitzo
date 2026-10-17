@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.276-telos-s4.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.276-telos-s4.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -388,7 +388,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-selection-owner.ts':
     '0923bd922660b52502352f3a31ebc841034383053991ac21ec74b808e36090d6',
   '../ordinary-local-codex-owned-runtime.ts':
-    '307af34ea8b479355991e7926973d88889fd64adf0a525a4ceaff66a64163c54',
+    '45d6ad16ab364d5945dc26fa793c859f7fb0687a209390d9a65b16c33027ccf3',
   '../frozen-host-codex-login.ts':
     'eba897dd3a1d86f6e2567d737980fb74a963a610aade76862222542bd2f81805',
   '../frozen-host-codex-executable.ts':
@@ -488,7 +488,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '1bcccc8da0b887cba06ba3bc98a5d464cfa39f30b2495077dc24d345df4ee4b6',
+  '../app.ts': 'f782352487f942842ebdaff0564faa51d1d0f09d2239311d18b9e35ba6c94ff5',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
