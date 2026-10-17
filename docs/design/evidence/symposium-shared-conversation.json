@@ -132,7 +132,8 @@
       "Node-side Playwright fixture initially resolved an unbuilt workspace protocol package; imports now resolve the same real protocol source directly.",
       "New policy-dialog unit tests first needed the normal jsdom native dialog polyfill; genuine feature RED was then reproduced with the props absent.",
       "Auth restoration regression exposed the existing owner publishing its event before verified-cookie assignment; one microtask checks the same owner after synchronous publication.",
-      "HTTP408 originally cleared pending policy identity; genuine RED now passes with408/429/5xx retaining the original request."
+      "HTTP408 originally cleared pending policy identity; genuine RED now passes with408/429/5xx retaining the original request.",
+      "The initial final batch was pushed before inspecting completed ancestor CI; its stale manifest failures required a second narrow pin-only push. Normal hooks and required gates were retained."
     ],
     "retainedComposerRegression": {
       "files": 5,
@@ -241,6 +242,85 @@
         ]
       },
       "counts": "Final 258 includes earlier 195 and later affected suites; do not add overlapping historical totals."
+    },
+    "runtimeManifestFollowup": {
+      "authorization": "Core released A-owned manifest entries/runtime suffix only; core will reconcile final combined manifest with accepted13669901.",
+      "file": "server/connections/reviewed-handler-artifacts.ts",
+      "runtimeRevision": "v1.0.286-codex-agent-tools.2-symposium-shared-ui.1",
+      "sourcePins": 544,
+      "mismatches": 0,
+      "entries": [
+        {
+          "path": "../../frontend/src/components/ConversationAgents.tsx",
+          "previous": "48696180754aca127bb0224121302a9453f262ff7cb85b78762bd2ed33d7ffe1",
+          "sha256": "a6eb4cf5cc612e4ea64c0ca231fb96d4031e7039d5099c92856635929236c0e8"
+        },
+        {
+          "path": "../../frontend/src/components/ConversationAgents.css",
+          "previous": "67b0a7dfde19ce25f31fc5ff2571fa111f20ca323bf8220d86906899ca5eae16",
+          "sha256": "69a9d424e9deb834dec78da7317df2acda6dc3eee1f175d20f9ba178bed650f9"
+        },
+        {
+          "path": "../../frontend/src/components/ComposerResponders.tsx",
+          "previous": "947179a55df150bc220a2b3d8434504c9e9668220155db5d2fd863440faba06d",
+          "sha256": "1d9d03fc824c8903172bc7216dfcdd7bf0275092315b824f583d96410b900c76"
+        },
+        {
+          "path": "../../packages/client/src/collaboration-projection.ts",
+          "previous": "21028cd31c292b11f9e70e2cac476d478f90d2b278c28b07d942aa153f09060a",
+          "sha256": "c1c4ba9954434950444389c70be7c1f31460e5fcddc4d99d6edfd74fd113890e"
+        },
+        {
+          "path": "../../frontend/src/components/ChatArea.tsx",
+          "previous": "0ae0e3288b1d0bea88a1abde8c84b5f782136a0d246743b8bc56ebbddfba7851",
+          "sha256": "444ab324c12ff4280424eca328458c638d6705964abc7fae67f3d2cbb508ddff"
+        },
+        {
+          "path": "../../frontend/src/components/ChatInput.tsx",
+          "previous": "cb2bc49b70f1092be38f9125e312b3968ccd8e2190c9d5d80215d3654673f56a",
+          "sha256": "d566ba30d00cd3292b7d46e983afd107489488da1a73dcc4471f3c32299f6b30"
+        },
+        {
+          "path": "../../frontend/src/lib/chat-drafts.ts",
+          "previous": "a20c28f87a89d43b1bdff59ba0bf89e8f129c73a24644aba6c3589f16eeaff2c",
+          "sha256": "0d497a601cc88f92c3d6ef28fd2f05dba28d9beb86f7c7398800c713f28a193a"
+        },
+        {
+          "path": "../../frontend/src/components/CollaborationTranscript.tsx",
+          "previous": null,
+          "sha256": "b5e8ce8cfb9b27a572a81976652364f9fb6e9b4dd25f08d30dfe99d177c7f683"
+        },
+        {
+          "path": "../../frontend/src/components/CollaborationTranscript.css",
+          "previous": null,
+          "sha256": "e617da58d37e75e41c4f165ff976675017d4bd650c8949a6b0f2f4fe1634c392"
+        },
+        {
+          "path": "../../frontend/src/hooks/useConversationPresentation.ts",
+          "previous": null,
+          "sha256": "9b78018eeced7f11c7092b7da4e6a26a0736a2df339994a4460c7d2a2d564ddc"
+        },
+        {
+          "path": "../../frontend/src/lib/conversation-presentation.ts",
+          "previous": null,
+          "sha256": "cc15c8961398998acff1315699feb77cd614278d9109804b5f1495d796a5d9bd"
+        }
+      ],
+      "red": "Both existing artifact/registry assertions failed against d127103b because A source pins were stale (18 unrelated assertions filtered).",
+      "green": "Both complete affected suites:20 passing assertions /2 files; focused manifest ESLint passes.",
+      "captureImpact": "Only runtime manifest/evidence changed after9365d41d; all captured UI/API/controller source and fixture bytes remain identical.",
+      "priorCi": {
+        "head": "d0a8d23b1ae2c60012cd480c57a743f7b4a69eac",
+        "run": "https://github.com/dimakis/mitzo/actions/runs/39074348800",
+        "result": "failure",
+        "ownedFailure": "Stale projection/composer manifest fingerprints; corrected by this scoped manifest update.",
+        "otherFailures": [
+          "WebKit agent-library-builder:751 retained-uncertain-command case captured a service-health access-control pageerror.",
+          "WebKit agent-library:9 final Agent combobox remained disabled.",
+          "Connections browser aggregate failed because its selected WebKit suite failed."
+        ],
+        "bounds": "These Agent Library cases were outside the scoped A browser matrix; no passing rerun or baseline reproduction is claimed. Exact-head full CI must resolve them."
+      }
     }
   },
   "integrationHandoff": {
