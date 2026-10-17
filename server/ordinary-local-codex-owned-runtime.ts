@@ -235,7 +235,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
         provider: binding.provider,
         lookup: async (selected) => readOrdinaryCodexAgentProfile(this.owners.library, selected),
       });
-      assertAgentToolRoute(agentProfile?.definition, 'codex');
+      assertAgentToolRoute(agentProfile?.definition, 'codex-owned-local');
       this.assertCurrent();
       if (!agentProfile || request.selection.permission.revision !== 0) throw unavailable();
       const retainedContext = resume

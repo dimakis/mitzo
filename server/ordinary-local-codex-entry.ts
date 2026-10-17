@@ -361,8 +361,9 @@ export function createOwnedLocalCodexEntryRouter(
                 ? {
                     contextRecipes: 'none',
                     toolSelection:
-                      ['responses', 'gemini'].includes(route.harness) &&
+                      ['responses', 'gemini', 'codex'].includes(route.harness) &&
                       target.location === 'local',
+                    toolRoute: route.harness === 'codex' ? 'codex-owned-local' : 'local-api',
                   }
                 : undefined,
             ),
@@ -570,7 +571,9 @@ export function createOwnedLocalCodexEntryRouter(
             {
               contextRecipes: 'supported',
               toolSelection:
-                input.runOn === 'local' && ['responses', 'gemini'].includes(input.runtime.harness),
+                input.runOn === 'local' &&
+                ['responses', 'gemini', 'codex'].includes(input.runtime.harness),
+              toolRoute: input.runtime.harness === 'codex' ? 'codex-owned-local' : 'local-api',
             },
           ).agentProfileRejections.length
         )

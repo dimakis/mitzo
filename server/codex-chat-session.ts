@@ -1,4 +1,16 @@
-import { assertAgentToolRoute } from './agent-tool-selection.js';
+import {
+  assertAgentToolRoute,
+  assertAgentToolSelected,
+  agentToolAllowed,
+  bindAgentToolSelection,
+  bindConfiguredAgentTools,
+  assertAgentToolAvailability,
+  configuredMcpSourcesForAgentSelection,
+  filterAgentTools,
+} from './agent-tool-selection.js';
+import { admitApiTools } from './api-tool-execution.js';
+import { getApiToolCatalog } from './api-tool-runtime.js';
+import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import { recordOrdinaryReplySource } from './collaboration-ordinary-replies.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
@@ -48,7 +60,12 @@ import {
   sandboxAgentContextAdmissionFailure,
 } from './agent-context-sandbox.js';
 import { contextDigest } from './agent-context-compiler.js';
-import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
+import {
+  buildPermissionHandler,
+  checkSkillPolicy,
+  type ManagedSession,
+  type SessionRegistry,
+} from '@mitzo/harness';
 import {
   webAccessDefinition,
   REQUEST_WEB_ACCESS,
@@ -57,6 +74,9 @@ import {
 import { sessionProfileTools, profileToolDefinitions } from './session-profile-tools.js';
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
+import { admitConfiguredTools } from './configured-tool-admission.js';
+import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
+import type { ConfiguredCatalogOptions } from './configured-tool-catalog.js';
 import { AsyncQueue } from './async-queue.js';
 import {
   CodexAppServerClient,
@@ -549,6 +569,8 @@ interface Options {
   messageId: string;
   systemPrompt: string;
   env: Record<string, string>;
+  /** Server-owned launch environment captured independently from the chat process. */
+  configuredSourceEnv?: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
   eventStore: EventStore;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
@@ -604,11 +626,18 @@ export function managedJiraConnectionEnv(connection: Connection) {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
-  assertAgentToolRoute(
-    (options.agentProfile ?? options.eventStore.getSession(options.conversationId)?.agentProfile)
-      ?.definition,
-    'native-codex',
-  );
+  const selectedProfile =
+    options.agentProfile ?? options.eventStore.getSession(options.conversationId)?.agentProfile;
+  const toolRoute = options.ownedLocal
+    ? 'codex-owned-local'
+    : options.ownedOpenShell
+      ? 'codex-openshell'
+      : options.binding?.provider === 'openai-codex'
+        ? 'codex'
+        : 'openshell';
+  assertAgentToolRoute(selectedProfile?.definition, toolRoute);
+  assertAgentToolAvailability(selectedProfile?.definition, options.conversationId);
+  bindAgentToolSelection(options.session, selectedProfile?.definition, toolRoute);
   const admittedOptions =
     options.ownedLocal || options.ownedOpenShell
       ? {
@@ -623,6 +652,9 @@ export async function openCodexChat(options: Options) {
           images: options.images ? structuredClone(options.images) : undefined,
           mcpServers: structuredClone(options.mcpServers),
           env: { ...options.env },
+          configuredSourceEnv: options.configuredSourceEnv
+            ? { ...options.configuredSourceEnv }
+            : undefined,
         }
       : options;
   return duringCodexStartup('runtime_admission', () => openCodexChatAdmitted(admittedOptions));
@@ -889,6 +921,8 @@ async function openCodexChatBound(
     throw error;
   }
   const signal = options.session.abortController.signal;
+  const selectedProfile =
+    options.agentProfile ?? options.eventStore.getSession(options.conversationId)?.agentProfile;
   try {
     if (
       !options.ownedOpenShell &&
@@ -1254,6 +1288,24 @@ async function openCodexChatBound(
     );
   }
   await options.ownedLocal?.assertCurrent();
+  const assertMcpCurrent = () => {
+    signal.throwIfAborted();
+    options.ownedLocal?.assertCurrentSync();
+    if (options.registry.findBySessionId(options.conversationId)?.session !== options.session)
+      throw Error('Configured tool session ownership changed');
+  };
+  const configuredRefs =
+    selectedProfile?.definition.tools?.filter((ref) => ref.id.startsWith('mcp:')) ?? [];
+  if (configuredRefs.length && !options.configuredSourceEnv)
+    throw Error('Configured source launch environment is unavailable');
+  const configuredOptions: ConfiguredCatalogOptions = {
+    cwd: options.session.cwd!,
+    env: options.configuredSourceEnv ?? options.env,
+    signal,
+    readSources: () => options.mcpServers,
+    assertRuntimeCurrent: assertMcpCurrent,
+  };
+  let configuredAdmissions: Awaited<ReturnType<typeof admitConfiguredTools>>['admitted'] = [];
   const mcp = connectedOpenShell
     ? {
         definitions: [],
@@ -1263,18 +1315,86 @@ async function openCodexChatBound(
           throw new Error('Host MCP tools are unavailable inside OpenShell');
         },
       }
-    : await connectCodexMcpTools(options.mcpServers, {
-        assertRuntimeCurrent: options.ownedLocal
-          ? () => options.ownedLocal!.assertCurrentSync()
-          : undefined,
-        cwd: options.session.cwd!,
-        env: options.env,
-        signal: options.session.abortController.signal,
-      }).catch((error) => {
+    : await (
+        configuredRefs.length
+          ? admitConfiguredTools(
+              getConfiguredToolCatalog(),
+              configuredRefs,
+              configuredOptions,
+            ).then((result) => {
+              configuredAdmissions = result.admitted;
+              return result;
+            })
+          : connectCodexMcpTools(
+              configuredMcpSourcesForAgentSelection(options.session, options.mcpServers),
+              {
+                assertRuntimeCurrent: assertMcpCurrent,
+                cwd: options.session.cwd!,
+                env: options.env,
+                signal,
+              },
+            )
+      ).catch((error) => {
         dispose();
         startupReservation?.();
         throw error;
       });
+  let apiTools: ReturnType<typeof admitApiTools> | undefined;
+  try {
+    const apiRefs =
+      selectedProfile?.definition.tools?.filter((ref) => ref.id.startsWith('api:')) ?? [];
+    if (apiRefs.length) {
+      const service = getCredentialConnectionsRuntime();
+      if (!service) throw Error('API tools require the existing connection runtime');
+      const assertCurrent = () => {
+        signal.throwIfAborted();
+        if (
+          getCredentialConnectionsRuntime() !== service ||
+          options.registry.findBySessionId(options.conversationId)?.session !== options.session
+        )
+          throw Error('API tool session ownership changed');
+      };
+      apiTools = admitApiTools({
+        catalog: getApiToolCatalog(),
+        service,
+        sessionId: options.conversationId,
+        refs: apiRefs,
+        assertCurrent,
+        assertRuntimeCurrent: async () => {
+          await options.ownedLocal?.assertCurrent();
+          await options.ownedOpenShell?.assertCurrent();
+        },
+        stillAllowed: (name) => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          return (
+            !!owner &&
+            (name === 'ConnectionRequest' || agentToolAllowed(options.session, name)) &&
+            checkSkillPolicy(options.registry, owner.clientId, name) !== 'deny'
+          );
+        },
+        approve: async (name, input, approveOptions) => {
+          assertCurrent();
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner) throw Error('Codex session unavailable');
+          const decision = await buildPermissionHandler(owner.clientId, options.registry, {
+            onDemandCreate: options.onDemandCreate,
+          })(name, input, approveOptions);
+          assertCurrent();
+          return decision;
+        },
+      });
+    }
+    if (configuredAdmissions.length || apiTools?.admitted.length)
+      bindConfiguredAgentTools(options.session, [
+        ...configuredAdmissions,
+        ...(apiTools?.admitted ?? []),
+      ]);
+  } catch (error) {
+    await mcp.close();
+    dispose();
+    startupReservation?.();
+    throw error;
+  }
   const localProfileTools = options.ownedLocal
     ? sessionProfileTools(
         options.conversationId,
@@ -1456,6 +1576,33 @@ async function openCodexChatBound(
         ),
     );
   };
+  const selectedToolDefinitions = filterAgentTools(
+    options.session,
+    options.ownedLocal
+      ? [
+          ...nativeToolDefinitions,
+          ...mcp.definitions,
+          ...profileToolDefinitions,
+          githubPublishingDefinition,
+        ]
+      : connectedOpenShell
+        ? [
+            ...connectionTools.definitions,
+            ...openShellHostTools,
+            ...capabilityTools.definitions,
+            webAccessDefinition,
+            githubPublishingDefinition,
+          ]
+        : [
+            ...connectionTools.definitions,
+            ...nativeToolDefinitions,
+            ...mcp.definitions,
+            ...(apiTools?.definitions ?? []),
+            ...capabilityTools.definitions,
+            webAccessDefinition,
+            githubPublishingDefinition,
+          ],
+  );
   const runtimeOptions: CodexConversationOptions = {
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
@@ -1752,29 +1899,7 @@ async function openCodexChatBound(
         return options.ownedOpenShell.assertModelSelection(model, reasoningEffort);
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
-    tools: options.ownedLocal
-      ? [
-          ...nativeToolDefinitions,
-          ...mcp.definitions,
-          ...profileToolDefinitions,
-          githubPublishingDefinition,
-        ]
-      : connectedOpenShell
-        ? [
-            ...connectionTools.definitions,
-            ...openShellHostTools,
-            ...capabilityTools.definitions,
-            webAccessDefinition,
-            githubPublishingDefinition,
-          ]
-        : [
-            ...connectionTools.definitions,
-            ...nativeToolDefinitions,
-            ...mcp.definitions,
-            ...capabilityTools.definitions,
-            webAccessDefinition,
-            githubPublishingDefinition,
-          ],
+    tools: selectedToolDefinitions,
     displayToolName: mcp.displayName,
     createClient: (callbacks) => {
       try {
@@ -1890,10 +2015,13 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      assertAgentToolSelected(options.session, name);
       // Refuse an unqualified helper before any owner await, approval or effect.
       if (ownedToolNames && !ownedToolNames.has(name))
         throw Error('Tool unavailable for owned local Codex chat');
       await assertHostCurrent();
+      const apiResult = await apiTools?.execute(name, input, signal);
+      if (apiResult) return apiResult;
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
       if (profileResult) return profileResult;
       const keychainResult = options.ownedLocal
