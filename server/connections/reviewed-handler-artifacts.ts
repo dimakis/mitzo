@@ -706,7 +706,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Batched knowledge admission preserves verification and retention under the lifecycle fence.
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
   '../openshell-runtime.ts': '173341b247547170c356b73ea41951086c2f03ae69d3755b58e377c1a7890f71',
-  '../codex-chat-session.ts': '9b92a01d554177fea52a9463bac081cff70460d80c8b55ff866ae58d63012329',
+  '../codex-chat-session.ts': 'b5fca6c0f8fb923ed2e5b56860c0584c974e2d3eeaa5aceae43fafc4efd6bcff',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

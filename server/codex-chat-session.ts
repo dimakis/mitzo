@@ -1316,6 +1316,7 @@ async function openCodexChatBound(
         ? await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal)
         : {};
     }
+    await options.ownedLocal?.assertCurrent();
   } catch (error) {
     dispose();
     startupReservation?.();
@@ -1324,7 +1325,6 @@ async function openCodexChatBound(
       admittingSandboxContext ? sandboxAgentContextAdmissionFailure(error, signal.aborted) : error,
     );
   }
-  await options.ownedLocal?.assertCurrent();
   const assertMcpCurrent = () => {
     signal.throwIfAborted();
     options.ownedLocal?.assertCurrentSync();

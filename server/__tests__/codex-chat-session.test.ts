@@ -3927,3 +3927,33 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
   }
   expect(peerClose).toHaveBeenCalledOnce();
 });
+
+it('disposes acquired hooks when the owned admission is revoked before configured source launch', async () => {
+  vi.clearAllMocks();
+  const nativeHooks = await import('../native-hooks.js');
+  const root = mkdtempSync(join(tmpdir(), 'owned-revoked-hooks-'));
+  const f = ownedLocalOptions(root);
+  const dispose = vi.fn();
+  const originalFactory = nativeHooks.createNativeHooks;
+  const factory = vi.spyOn(nativeHooks, 'createNativeHooks').mockImplementationOnce((...args) => {
+    const acquired = originalFactory(...args);
+    vi.mocked(f.lease.assertCurrent).mockRejectedValue(Error('Owned admission revoked'));
+    return {
+      ...acquired,
+      dispose: () => {
+        dispose();
+        acquired.dispose();
+      },
+    };
+  });
+  try {
+    await expect(openCodexChat(f.opts)).rejects.toThrow('Owned local Codex chat unavailable');
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  } finally {
+    factory.mockRestore();
+    f.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
