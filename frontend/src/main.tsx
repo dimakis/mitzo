@@ -2,6 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { App } from './App';
+import { startAuthentication } from './lib/startup-auth';
+import { preloadLandingPage } from './route-pages';
 import { clientStore } from './client-store';
 import { initTheme } from './hooks/useTheme';
 import 'highlight.js/styles/github-dark-dimmed.min.css';
@@ -24,6 +26,8 @@ import './pages/TerminalView.css';
 import './styles/motion.css';
 
 initTheme();
+void startAuthentication(location.pathname);
+preloadLandingPage(location.pathname);
 
 // Unregister any previously installed service workers — the SW was causing
 // WS disconnects (code 1001) via clients.claim() on activate. For a tool
