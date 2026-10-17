@@ -1,5 +1,43 @@
 # Request web access
 
+## Main-thread Codex research
+
+Ordinary Codex chats can use native provider-hosted web search in their own thread
+after the user allows it under Chat settings > More > Web search permission.
+The OpenShell deployment availability default is `live`; an explicit
+`MITZO_OPENSHELL_WEB_SEARCH=disabled` remains an operator kill switch. Availability
+alone grants no access: new conversations remain unresolved/disabled, Ask stays
+disabled, and consent changes are revision-checked and applied only between turns.
+Existing deployments with an explicit off setting require a separate operator
+configuration change. Native search does not enable shell networking.
+
+Thread start, resume and fork instructions reflect the effective consent policy.
+When enabled, the agent prefers native search, open and find in the current thread.
+When disabled, it can use the existing separately approved exact-query tool where
+available. URL reads keep their independent approval paths. This change does not
+alter the stored approval decision or silently replace an account/model.
+
+Research guidance asks the agent to establish the comparison target early, reuse
+sources, batch independent lookups, prefer authorized GitHub integrations with
+field filtering/pagination, and stop when supported claims answer the request.
+Instructions guide behaviour; they do not impose a hard fetch count or establish
+that a report's conclusions are correct.
+
+Credential-free GitHub API list reads now return a structured summary of selected
+fields for up to 100 records, retaining individual record URLs, page metadata,
+provider total counts where present, issue/PR counts for that page, and real Link
+pagination destinations. Bodies and verbose metadata are explicitly omitted;
+individual detail endpoints retain full JSON. Oversized trees report omitted
+records and upstream truncation. Other hosts, unknown endpoints, invalid JSON and
+plain text remain unchanged. Formatting happens after the same URL/DNS/approval
+checks in both public and granted readers; pagination links grant no permission
+and are never followed automatically.
+
+Validation uses mocked provider/transport tests, consent lifecycle regressions,
+and intercepted offline browser fixtures. It makes no live provider compatibility,
+latency, cost or production-adoption claim. Production activation remains a
+separate explicit action; canonical staging stays stood down.
+
 Ordinary Mitzo chats expose `RequestWebAccess` on ChatGPT/Codex (host or OpenShell), direct OpenAI API, Gemini on Vertex, and Claude SDK routes. The agent can ask Mitzo to perform a concrete web operation instead of telling the user no request tool exists.
 
 ```json

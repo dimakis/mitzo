@@ -279,11 +279,30 @@ export class CodexSessionEvents {
       commandItem.type === 'webSearch' &&
       typeof commandItem.id === 'string'
     ) {
+      const action = object(commandItem.action);
+      const page = action.type === 'openPage' || action.type === 'findInPage';
+      const queries = Array.isArray(action.queries)
+        ? action.queries.filter((query): query is string => typeof query === 'string').join('; ')
+        : undefined;
       this.runtimeTools.set(
         commandItem.id,
-        this.toolStart(commandItem.id, 'WebSearch', {
-          ...(typeof commandItem.query === 'string' ? { search_term: commandItem.query } : {}),
-        }),
+        this.toolStart(
+          commandItem.id,
+          page ? 'WebFetch' : 'WebSearch',
+          page
+            ? {
+                url: typeof action.url === 'string' ? action.url : '',
+                ...(typeof action.pattern === 'string' ? { pattern: action.pattern } : {}),
+              }
+            : {
+                search_term:
+                  typeof commandItem.query === 'string'
+                    ? commandItem.query
+                    : typeof action.query === 'string'
+                      ? action.query
+                      : (queries ?? ''),
+              },
+        ),
       );
       return;
     }
