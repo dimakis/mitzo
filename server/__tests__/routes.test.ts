@@ -382,6 +382,17 @@ describe('auth routes', () => {
 
   it('GET /api/auth/check — authenticated returns 200', async () => {
     const res = await request(app).get('/api/auth/check').set('Cookie', authCookie);
+    const { authenticateToken } = await import('../auth.js');
+    const session = await authenticateToken(authCookie.slice('cc_auth='.length));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, authSessionId: session!.id });
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    expect(JSON.stringify(res.body)).not.toContain(authCookie.slice('cc_auth='.length));
+  });
+
+  it('GET /api/auth/check — internal callers receive no interactive recovery identity', async () => {
+    const { INTERNAL_TOKEN } = await import('../internal-token.js');
+    const res = await request(app).get('/api/auth/check').set('x-internal-token', INTERNAL_TOKEN);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
   });
@@ -408,7 +419,10 @@ describe('bearer token auth', () => {
       .get('/api/auth/check')
       .set('Authorization', `Bearer ${bearerToken}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    const { authenticateToken } = await import('../auth.js');
+    const session = await authenticateToken(bearerToken);
+    expect(res.body).toEqual({ ok: true, authSessionId: session!.id });
+    expect(JSON.stringify(res.body)).not.toContain(bearerToken);
   });
 
   it('GET /api/sessions — works with Bearer token instead of cookie', async () => {

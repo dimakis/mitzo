@@ -9,6 +9,7 @@ import {
   joiningSetupFixture,
 } from '../../preview/conversation-joining-fixture';
 import type { ConversationJoiningOwner } from '../../lib/conversation-joining-review';
+import { markAuthLost, restoreCookieAuthentication } from '../../lib/api-fetch';
 
 vi.mock('../AccountModelPicker', () => ({
   AccountModelPicker: ({
@@ -24,7 +25,13 @@ vi.mock('../AccountModelPicker', () => ({
 vi.mock('../ChatAgentProfilePicker', () => ({
   ChatAgentProfilePicker: () => <span>Default Mitzo</span>,
 }));
-beforeEach(() => {
+beforeEach(async () => {
+  markAuthLost();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ ok: true, authSessionId: 'offline-login' })),
+  );
+  await restoreCookieAuthentication();
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
   };
@@ -32,7 +39,11 @@ beforeEach(() => {
     this.open = false;
   };
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  sessionStorage.clear();
+  vi.unstubAllGlobals();
+});
 function mount() {
   let revision = 1;
   const owner: ConversationJoiningOwner = {

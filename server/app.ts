@@ -2625,7 +2625,12 @@ app.post(
   ),
 );
 
-app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
+app.get('/api/auth/check', (_req, res) => {
+  // Public correlation only: authentication and revocation retain the actual token.
+  const session = res.locals.authSession as import('./auth.js').AuthSession | undefined;
+  res.set('Cache-Control', 'private, no-store');
+  res.json({ ok: true, ...(session ? { authSessionId: session.id } : {}) });
+});
 
 const accountAliases = new AccountAliases(join(BASE_REPO || '.', '.mitzo', 'account-aliases.json'));
 

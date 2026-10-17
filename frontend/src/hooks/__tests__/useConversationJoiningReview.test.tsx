@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { COLLABORATION_EXECUTION_DISABLED, type CollaborationJoin } from '@mitzo/protocol';
 import { useConversationJoiningReview } from '../useConversationJoiningReview';
 import {
@@ -8,10 +8,21 @@ import {
   joiningSetupFixture,
 } from '../../preview/conversation-joining-fixture';
 import type { ConversationJoiningOwner } from '../../lib/conversation-joining-review';
+import { markAuthLost, restoreCookieAuthentication } from '../../lib/api-fetch';
+
+beforeEach(async () => {
+  markAuthLost();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ ok: true, authSessionId: 'offline-login' })),
+  );
+  await restoreCookieAuthentication();
+});
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  sessionStorage.clear();
 });
 function owner() {
   const review = vi.fn<ConversationJoiningOwner['review']>(async () => joiningReviewFixture());
