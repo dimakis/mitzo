@@ -66,7 +66,7 @@ it('reviews task draft and exact profile pin before explicit save, then reports 
   expect(screen.getByText(/Profile r3/)).toBeTruthy();
   expect(screen.getByText(/Nothing is saved as a task yet/)).toBeTruthy();
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
-  fireEvent.click(screen.getByRole('button', { name: 'Save task', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   const status = await screen.findByRole('status');
   expect(status.textContent).toContain('Saved Morning review · task morning · revision 1');
   expect(within(status).getByRole('link', { name: 'Open Library task' }).getAttribute('href')).toBe(
@@ -87,7 +87,7 @@ it('retains invalid schedule input and shows validation without a save', async (
   render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
   fireEvent.change(await screen.findByLabelText('Schedule'), { target: { value: 'cron' } });
   fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: 'tomorrow' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save task', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   expect((await screen.findByRole('alert')).textContent).toMatch(/five-field cron/);
   expect((screen.getByLabelText('Cron expression') as HTMLInputElement).value).toBe('tomorrow');
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
@@ -102,7 +102,7 @@ it('retains reviewed edits and identical retry input after a failed save', async
   fireEvent.change(await screen.findByLabelText('Objective'), {
     target: { value: 'Review the accepted report.' },
   });
-  const save = screen.getByRole('button', { name: 'Save task', exact: true });
+  const save = screen.getByRole('button', { name: 'Save task' });
   fireEvent.click(save);
   await screen.findByText('Owner unavailable');
   expect(screen.queryByText(/Saved Morning review/)).toBeNull();
@@ -124,7 +124,7 @@ it.each(['wrong task', 'wrong revision', 'wrong definition'])(
     }));
     render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
     await screen.findByLabelText('Task name');
-    fireEvent.click(screen.getByRole('button', { name: 'Save task', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
     expect((await screen.findByRole('alert')).textContent).toMatch(/receipt/);
     expect(screen.queryByText(/Saved Morning review/)).toBeNull();
   },
@@ -133,9 +133,9 @@ it('keeps task review disabled while ordinary conversation authority is uncertai
   mock();
   render(<SymposiumProfileProposals sessionId="chat" pendingOnly disabled />);
   await screen.findByLabelText('Task name');
-  expect(
-    screen.getByRole('button', { name: 'Save task', exact: true }).closest('fieldset')!.disabled,
-  ).toBe(true);
+  expect(screen.getByRole('button', { name: 'Save task' }).closest('fieldset')!.disabled).toBe(
+    true,
+  );
   expect(
     (screen.getByRole('button', { name: 'Discard task proposal' }) as HTMLButtonElement).disabled,
   ).toBe(true);
@@ -147,7 +147,7 @@ it('recovers the exact saved task receipt after reloading its conversation', asy
   mock(undefined, [{ ...proposal, state: 'saved', savedTask: record() } as typeof proposal]);
   render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
   expect((await screen.findByRole('status')).textContent).toContain('task morning · revision 1');
-  expect(screen.queryByRole('button', { name: 'Save task', exact: true })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Save task' })).toBeNull();
 });
 it('recovers the original reviewed save input after reload following an uncertain failure', async () => {
   mock(() => {
@@ -157,7 +157,7 @@ it('recovers the original reviewed save input after reload following an uncertai
   fireEvent.change(await screen.findByLabelText('Objective'), {
     target: { value: 'Retain this reviewed edit' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save task', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   await screen.findByText('Receipt unavailable');
   const original = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')![1]!
     .body;
@@ -185,7 +185,7 @@ it('cancels waiting for a save and retains its exact retry identity without acce
   );
   render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
   await screen.findByLabelText('Task name');
-  fireEvent.click(screen.getByRole('button', { name: 'Save task', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel save wait' }));
   resolve(new Response(JSON.stringify(record())));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Retry task save' })).toBeTruthy());
@@ -206,7 +206,7 @@ it.each([400, 404, 409])(
     );
     render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
     await screen.findByLabelText('Task name');
-    fireEvent.click(screen.getByRole('button', { name: 'Save task', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
     await screen.findByText(/Owner rejected this save/);
     expect(screen.getByLabelText('Objective').closest('fieldset')!.disabled).toBe(false);
     expect(
@@ -223,7 +223,7 @@ it('retains partial task fields without throwing while the exact definition disc
   fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: '0 7 *' } });
   expect((screen.getByLabelText('Task name') as HTMLInputElement).value).toBe('');
   expect(screen.getByText('Review exact task definition')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Save task', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   expect((await screen.findByRole('alert')).textContent).toMatch(/five-field cron/);
 });
 
@@ -241,7 +241,7 @@ it('retains the original reviewed save after403 because owner effects may alread
   );
   render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
   await screen.findByLabelText('Task name');
-  fireEvent.click(screen.getByRole('button', { name: 'Save task', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save task' }));
   expect((await screen.findByRole('alert')).textContent).toContain(
     'Authority expired after owner response',
   );

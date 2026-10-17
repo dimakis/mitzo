@@ -114,7 +114,7 @@ it('lists reviewable task proposals and accepts only exact explicit task saves',
       outputPolicy: 'session',
     },
   };
-  const post = (path: string, body: unknown) =>
+  const post = (path: string, body: object) =>
     request(app).post(path).set('Authorization', 'Bearer interactive').send(body);
   const draft = await post('/proposals', {
     kind: 'task',
