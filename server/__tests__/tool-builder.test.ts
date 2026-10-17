@@ -120,6 +120,26 @@ const successfulTest = {
   output: 'ok',
   examples: [{ passed: true, actual: { count: 2 } }],
 };
+it('rejects a file exceeding the UTF-8 byte limit before allocating development authority', async () => {
+  const allocateWorkspace = vi.fn(workspace);
+  const run = vi.fn(async () => successfulTest);
+  const service = new ToolBuilderService({
+    catalog: { search: async () => [] },
+    allocateWorkspace,
+    executor: { run },
+  });
+  await expect(
+    service.propose({
+      request: 'CSV counter',
+      custom: {
+        ...customRequest,
+        files: [{ path: 'src/index.mts', content: '//' + 'é'.repeat(128000) }],
+      },
+    }),
+  ).rejects.toThrow(/byte|source/i);
+  expect(allocateWorkspace).not.toHaveBeenCalled();
+  expect(run).not.toHaveBeenCalled();
+});
 
 it('reuses an equivalent catalog entry without allocating a workspace or publishing a duplicate', async () => {
   const catalog: ToolBuilderCatalog = {
