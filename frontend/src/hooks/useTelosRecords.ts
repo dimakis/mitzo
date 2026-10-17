@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosWorkItem } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
+import { eventBus } from '../lib/event-bus-singleton';
 const api = new TelosWorkApiClient(apiFetch);
 /** Join the current collection to accepted record DTOs. Per-record reads are
  * bounded to four requests; a collection projection remains an upstream API gap. */
@@ -13,6 +14,18 @@ export function useTelosRecords(ids: string[]) {
     records: TelosWorkItem[];
     unavailable: string[];
   }>();
+  useEffect(() => {
+    const invalidate = () => setRetry((value) => value + 1);
+    const onResume = () => {
+      if (document.visibilityState === 'visible') invalidate();
+    };
+    const unsubscribe = eventBus.on('todo_update', invalidate);
+    document.addEventListener('visibilitychange', onResume);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('visibilitychange', onResume);
+    };
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     const queue = JSON.parse(key) as string[];

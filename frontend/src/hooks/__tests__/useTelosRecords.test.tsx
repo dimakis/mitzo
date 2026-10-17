@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { cleanup, renderHook, waitFor, act } from '@testing-library/react';
 import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
 import { TelosWorkApiClient } from '@mitzo/client';
 import { useTelosRecords } from '../useTelosRecords';
+const updates = vi.hoisted(() => new Set<() => void>());
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: {
+    on: (event: string, listener: () => void) => {
+      if (event === 'todo_update') updates.add(listener);
+      return () => updates.delete(listener);
+    },
+  },
+}));
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -56,4 +65,55 @@ it('ignores an older navigation read even when its transport resolves after abor
   release(records[0]);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(result.current.records).toEqual([records[1]]);
+});
+
+it('refreshes every mounted same-ID consumer on item updates and visible resume', async () => {
+  const original = createTelosWorkFixtures().homeStudio.items[0];
+  let current = original;
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async () =>
+    structuredClone(current),
+  );
+  const tree = renderHook(() => useTelosRecords([original.itemId]));
+  const detail = renderHook(() => useTelosRecords([original.itemId]));
+  await waitFor(() => expect(tree.result.current.records[0]?.summary).toBe(original.summary));
+  await waitFor(() => expect(detail.result.current.records[0]?.summary).toBe(original.summary));
+  current = {
+    ...original,
+    summary: 'Same-ID revised outcome',
+    status: 'completed',
+    categories: ['Reviewed category'],
+  };
+  act(() => updates.forEach((listener) => listener()));
+  await waitFor(() => expect(tree.result.current.records[0]).toEqual(current));
+  await waitFor(() => expect(detail.result.current.records[0]).toEqual(current));
+  current = { ...current, summary: 'Changed while away' };
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await waitFor(() => expect(tree.result.current.records[0]?.summary).toBe('Changed while away'));
+  await waitFor(() => expect(detail.result.current.records[0]?.summary).toBe('Changed while away'));
+  tree.unmount();
+  detail.unmount();
+  expect(updates.size).toBe(0);
+});
+
+it('ignores a stale same-ID response after update invalidation even when abort is ignored', async () => {
+  const original = createTelosWorkFixtures().homeStudio.items[0];
+  const revised = { ...original, summary: 'Current revision' };
+  let release!: (record: typeof original) => void;
+  let calls = 0;
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(() =>
+    ++calls === 1
+      ? new Promise((resolve) => {
+          release = resolve;
+        })
+      : Promise.resolve(revised),
+  );
+  const { result } = renderHook(() => useTelosRecords([original.itemId]));
+  act(() => updates.forEach((listener) => listener()));
+  await waitFor(() => expect(result.current.records[0]?.summary).toBe(revised.summary));
+  await act(async () => {
+    release(original);
+    await Promise.resolve();
+  });
+  expect(result.current.records[0]?.summary).toBe(revised.summary);
 });
