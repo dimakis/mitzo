@@ -1,13 +1,15 @@
 # Configured tool selection, Phase 2
 
-Baseline: accepted main f995c9d5 (16 October 2026). Telos fe020c5eb8557e9a,
-parent a27aa207cce82024. PR 960 owns the catalog redesign and remains open.
+Implementation began from accepted main f995c9d5 (16 October 2026). Telos
+fe020c5eb8557e9a, parent a27aa207cce82024. The accepted compact catalog
+redesign from PR #960 is preserved.
 
 ## Route inventory
 
 Local OpenAI Responses and Gemini/Vertex share openResponsesChat, host tool
-permissions and private snapshots. Explicit selections currently expose static
-registrations plus required AskUserQuestion, and exclude configured MCP tools.
+permissions and private snapshots. Explicit selections expose only selected
+built-in and configured MCP definitions plus required AskUserQuestion. Configured
+references require matching private receipts and current source/runtime authority.
 Claude SDK, native Codex, OpenShell and native Symposium/reviewer/search routes
 refuse explicit selections. Their native surfaces remain unenrolled.
 
@@ -69,13 +71,17 @@ tuples determine discovery wires as well as portable identity, so labels contain
 delimiters cannot collide. Cancellation retains and awaits one shared peer shutdown
 promise; the refresh and retained owner cannot settle ahead of real peer cleanup.
 
-Configured-source permission names use a distinct `configured-mcp:` namespace with
+Configured-source approval grant keys use a distinct `configured-mcp:` namespace with
 a JSON source/tool tuple. Session grants are exact-tool grants. Legacy `mcp__`
 server-wide grants keep their existing scope and cannot authorize an opted-in
 source, even when the legacy server label equals a source UUID. Neither namespace
 grants source access or bypasses mode, skill, workspace or current-runtime checks.
 
-Permission grant keys remain separate from hook/display identities. Opting a source
-into discovery preserves its existing `mcp__<server>__<tool>` project-hook matcher,
-including denial and input-validation hooks, while approval lookup uses the isolated
-source/tool grant namespace.
+Permission grant keys remain separate from policy, hook and display identities.
+Opting a source into discovery preserves its existing `mcp__<server>__<tool>` skill
+allowlist and project-hook matcher, including denial and input-validation hooks.
+Both chat adapters pass the isolated source/tool identity as the server-owned
+`sessionGrantKey` to the common permission handler. Skill policy still applies
+before retained grants and after awaited approval.
+Configured approval cards receive an exact tool/source scope explanation instead
+of the default server-wide legacy allowance description.
