@@ -283,3 +283,35 @@
     min-height: 0;
   }
 }
+.telos-tree-row-end {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-1);
+}
+.telos-tree-conversation {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-1);
+}
+.telos-tree-conversation button {
+  border: 0;
+  background: transparent;
+  padding: 0 var(--space-2);
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+}
+@media (max-width: 767px) {
+  .telos-tree-row {
+    flex-wrap: wrap;
+  }
+  .telos-tree-row-end {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding-left: var(--control-height);
+  }
+  .telos-tree-conversation {
+    justify-items: start;
+  }
+}

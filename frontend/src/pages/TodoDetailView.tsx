@@ -118,7 +118,14 @@ export function TodoDetailView() {
                 { state: { ...location.state, telosHistory: history.slice(0, -1) } },
               );
             }}
-            onOpen={(itemId) =>
+            onOpen={(itemId, view) => {
+              if (view) {
+                try {
+                  sessionStorage.setItem('telos.item.tab.' + itemId, view);
+                } catch {
+                  /* Preferences are optional. */
+                }
+              }
               navigate(`/todos/${encodeURIComponent(itemId)}`, {
                 state: {
                   ...location.state,
@@ -128,8 +135,8 @@ export function TodoDetailView() {
                     record.itemId,
                   ],
                 },
-              })
-            }
+              });
+            }}
           />
         </div>
       </div>

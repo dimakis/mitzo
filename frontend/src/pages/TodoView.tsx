@@ -414,11 +414,18 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             loading={loading}
             error={error && canonical.records.length === 0 ? error : undefined}
             selectedId={selectedId}
-            onOpen={(id) =>
+            onOpen={(id, view) => {
+              if (view) {
+                try {
+                  sessionStorage.setItem('telos.item.tab.' + id, view);
+                } catch {
+                  /* Entry remains navigable without device preferences. */
+                }
+              }
               navigate(`/todos/${encodeURIComponent(id)}`, {
                 state: { activeProfile, scrollTop: saveScrollPosition() },
-              })
-            }
+              });
+            }}
           />
         </div>
       </div>

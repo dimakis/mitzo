@@ -30,7 +30,7 @@ export function TelosItemWorkspace({
 }: {
   record: TelosWorkItem;
   records: TelosWorkItem[];
-  onOpen(id: string): void;
+  onOpen(id: string, view?: 'Chat'): void;
   onBack(): void;
 }) {
   const key = 'telos.item.tab.' + record.itemId;

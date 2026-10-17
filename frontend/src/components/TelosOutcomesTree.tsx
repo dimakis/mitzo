@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { TelosWorkItem } from '@mitzo/protocol';
 import { UiIcon } from './UiIcon';
+import { TelosTreeConversationEntry } from './TelosTreeConversationEntry';
 import { telosKindLabel } from '../lib/telos-kind-label';
 import './TelosWorkspace.css';
 
@@ -48,7 +49,7 @@ export function TelosOutcomesTree({
   error,
 }: {
   records: TelosWorkItem[];
-  onOpen(id: string): void;
+  onOpen(id: string, view?: 'Chat'): void;
   selectedId?: string;
   storageKey?: string;
   compact?: boolean;
@@ -148,7 +149,13 @@ export function TelosOutcomesTree({
                       )}
                     </div>
                   </div>
-                  <span className="telos-node-status">{record.status}</span>
+                  <div className="telos-tree-row-end">
+                    <span className="telos-node-status">{record.status}</span>
+                    <TelosTreeConversationEntry
+                      itemId={record.itemId}
+                      onOpenChat={() => onOpen(record.itemId, 'Chat')}
+                    />
+                  </div>
                 </div>
                 {kids.length > 0 &&
                   expanded &&

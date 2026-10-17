@@ -5,6 +5,7 @@ import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
 import { TelosOutcomesTree } from '../TelosOutcomesTree';
 import type { TelosWorkItem } from '@mitzo/protocol';
 
+vi.mock('../TelosTreeConversationEntry', () => ({ TelosTreeConversationEntry: () => null }));
 const fixtures = createTelosWorkFixtures();
 const records: TelosWorkItem[] = [
   ...fixtures.nestedCoordinator.items,

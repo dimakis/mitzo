@@ -22,20 +22,22 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/TelosTreeConversationEntry.tsx':
+    'a563dbba334e0e4ec2ad57f475162db8336aee38afd643332668e21274ea9543',
   '../../frontend/src/lib/telos-kind-label.ts':
     'a89a6bff28e8ac2fed83ac9bd19305185f6ee6d7a4f7efad196e3e5571a114b8',
   '../../frontend/src/hooks/useTelosRecords.ts':
     '901f8a8a3ebae99f375cc15fb5773f784eb4d1c57fe7a313e20a9b5c79a87ae3',
   '../../frontend/src/components/TelosWorkspace.css':
-    '0f4f158e21ec1a4b1de6f074ef493f5e60a486bcc3286b415702258d7eec3f38',
+    '452fc9f3066224ba203ae0e50afdc0ebf7c7bac043c98f4fc1c9b21c9be9f3f8',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
-    'a59c493ccc0094a781428c9c7e935eca3b73b7543697b17775d22b449a1f004d',
+    '1070a2527fb5e9b59a3b991e42ffd2d7ffd93c803af1c49acf5adcc31f826c59',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
-    'd4e4632323ecee7f742b2bdf76bc431fa65aa461556282b8e6e64822812b0e61',
+    'cd93f4316105b4ef058a475286519824f8fb659ebad24bbef7d4a7d34457a63f',
   '../../frontend/src/pages/TodoWorkspace.tsx':
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/TodoView.tsx':
-    '258fbe3a3f12be43ac73af138f0e7effac562ddaddc2a9bd4b8db19fcb6c9509',
+    'a4d74db693c379bf6338174809e7b6db772b8f779048073f8c5138fcd4d4a7f7',
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':
@@ -79,7 +81,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/todo.ts':
     'c6055f6039956f1c2d11bd80c1f242d21ce1ea0042f68a2527a5ad38716dafac',
   '../../frontend/src/pages/TodoDetailView.tsx':
-    '6123d289865e6185d9ced6aae75f14bd8c4f8e9a07f84add25c9310c108a5b58',
+    '7bc3d55ef20a454af7ba780dc93dcc2391ad4ccdbf5e8568d79d906cc59fadb8',
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
