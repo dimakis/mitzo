@@ -412,6 +412,25 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (!request) return;
             // Only a validated202 acknowledges this submitted request; a retained409
             // session is an observation and must not consume its launch identity.
+            if (
+              sessionId &&
+              event.acknowledged === true &&
+              state === 'consumed' &&
+              ordinaryDelivery?.phase === 'first' &&
+              'sessionId' in request &&
+              sessionId === request.sessionId
+            ) {
+              const source = request.payload.sourceSnapshots?.find(
+                (source) => source.kind === 'agent-library',
+              );
+              // This conversation already exists. Finalize only its durable source
+              // handoff; launch drafts and foreground navigation keep their owners.
+              if (source)
+                options.sendHandoff?.assign(request.clientMsgId, sessionId, {
+                  kind: 'agent-library',
+                  revision: source.revision,
+                });
+            }
             if (sessionId && event.acknowledged === true && !('sessionId' in request)) {
               const source = request.payload.sourceSnapshots?.find(
                 (source) => source.kind === 'agent-library',
