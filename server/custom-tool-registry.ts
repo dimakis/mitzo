@@ -182,4 +182,36 @@ export class CustomToolRegistry {
       examples: draft.examples.length,
     };
   }
+
+  async invoke(
+    draft: ToolBuilderDraft,
+    binding: CustomToolBinding,
+    input: Record<string, unknown>,
+    options: { signal: AbortSignal; assertCurrent(): void },
+  ) {
+    const check = () => {
+      options.signal.throwIfAborted();
+      options.assertCurrent();
+      this.implementation(draft, binding);
+    };
+    check();
+    if (Buffer.byteLength(JSON.stringify(input)) > 8000)
+      throw Error('Custom tool input exceeds its approval limit');
+    const schemas = validateToolBuilderExamples(draft);
+    schemas.input.validate(input);
+    const installed = this.implementation(draft, binding);
+    const parsed = installed.input.parse(structuredClone(input));
+    check();
+    const actual = await withSignal(
+      () => installed.execute(parsed, options.signal),
+      options.signal,
+    );
+    check();
+    schemas.output.validate(actual);
+    installed.output.parse(actual);
+    const content = JSON.stringify(actual);
+    if (Buffer.byteLength(content) > 32000)
+      throw Error('Custom tool output exceeds its runtime limit');
+    return { content, isError: false };
+  }
 }
