@@ -2,6 +2,9 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { createMitzoStore } from '@mitzo/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
+import { DesktopShell } from '../../frontend/src/components/DesktopShell';
+import { MobileShell } from '../../frontend/src/components/MobileShell';
+import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
 import { TodoWorkspace } from '../../frontend/src/pages/TodoWorkspace';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
@@ -31,13 +34,19 @@ const store = createMitzoStore({
     }),
   },
 });
+// Mirrors App.tsx PageRoute with the actual shell components and breakpoint.
+function PriorityPageRoute() {
+  return useIsDesktop() ? <DesktopShell center={<TodoWorkspace />} /> : <TodoWorkspace />;
+}
 createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={store}>
     <BrowserRouter>
-      <Routes>
-        <Route path="/todos" element={<TodoWorkspace />} />
-        <Route path="/todos/:id" element={<TodoWorkspace />} />
-      </Routes>
+      <MobileShell>
+        <Routes>
+          <Route path="/todos" element={<PriorityPageRoute />} />
+          <Route path="/todos/:id" element={<PriorityPageRoute />} />
+        </Routes>
+      </MobileShell>
     </BrowserRouter>
   </MitzoStoreProvider>,
 );

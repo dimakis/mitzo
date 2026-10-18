@@ -1,0 +1,21 @@
+{
+  "coreCommit": "c534f3d717a34198fbd0639643b027d2c67879b4",
+  "coreTree": "a8d853be3c212b96e61b4217f9b6511d5862edd4",
+  "overlayCommit": "b580e7f46ecc368dca213645afc8de28f9b1ab4e",
+  "overlayTree": "6f793776857def8215d6e2b9b07e0d05445b5077",
+  "overlayBranch": "test/symposium-acceptance-core-c534",
+  "candidateStatus": "?? node_modules",
+  "changesAreOnlyScopedTestsAndEvidence": true,
+  "productionChanges": [],
+  "beginAndReviewWiringBytesUnchangedFromCb32": true,
+  "negativeControlsAttribution": "Preserved cb32 controls; not rerun because exact app/router/test bytes are unchanged. Their original source/count bounds remain.",
+  "ownHarnessMatchesTestedOverlay": true,
+  "nodeOutputSha256": "f22271c4fbfeaf17eb7b2a8864bfc75274e3a0e79cc23b3c95221fa358dc4738",
+  "browserReportSha256": "4a9659ac5f964a3edbc071f9eaff951c3b25c5ce54e618bee7565d4d22b4ec04",
+  "scope": "Current actual owner and separate intercepted browser fixture envelopes; no full app or native qualification",
+  "browserReportRawFile": "../c534-browser-independent/raw/report.json.raw",
+  "browserReportSha256Scope": "Original independent execution stdout bytes, not the formatted JSON derivative.",
+  "formattedBrowserReportFile": "../c534-browser-independent/report.json",
+  "formattedBrowserReportSha256": "bc1667d0d1ff8c1c456206c6318294526728feffffcd549ac6c4e7cc1e23bb31",
+  "artifactFormattingProvenance": "../c534-json-formatting-provenance.json"
+}

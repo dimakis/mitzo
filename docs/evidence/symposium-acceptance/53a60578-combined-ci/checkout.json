@@ -1,0 +1,40 @@
+{
+  "sha": "2a53a5d9c05d2344e55b410a5574069dd1a81ecc",
+  "node_id": "C_kwDOR2Rn9toAKDJhNTNhNWQ5YzA1ZDIzNDRlNTViNDEwYTU1NzQwNjlkZDFhODFlY2M",
+  "url": "https://api.github.com/repos/dimakis/mitzo/git/commits/2a53a5d9c05d2344e55b410a5574069dd1a81ecc",
+  "html_url": "https://github.com/dimakis/mitzo/commit/2a53a5d9c05d2344e55b410a5574069dd1a81ecc",
+  "author": {
+    "name": "Dimitri Saridakis",
+    "email": "dimitri.saridakis@gmail.com",
+    "date": "2026-10-18T06:41:47Z"
+  },
+  "committer": {
+    "name": "GitHub",
+    "email": "noreply@github.com",
+    "date": "2026-10-18T06:41:47Z"
+  },
+  "tree": {
+    "sha": "0331928678d93fef64d51ffcf4736fa95c14304e",
+    "url": "https://api.github.com/repos/dimakis/mitzo/git/trees/0331928678d93fef64d51ffcf4736fa95c14304e"
+  },
+  "message": "Merge 53a6057879493734cba507a234a4f3d28eac31fa into d5d3aa0322b55e9e2c8589efc568c7330f0530a8",
+  "parents": [
+    {
+      "sha": "d5d3aa0322b55e9e2c8589efc568c7330f0530a8",
+      "url": "https://api.github.com/repos/dimakis/mitzo/git/commits/d5d3aa0322b55e9e2c8589efc568c7330f0530a8",
+      "html_url": "https://github.com/dimakis/mitzo/commit/d5d3aa0322b55e9e2c8589efc568c7330f0530a8"
+    },
+    {
+      "sha": "53a6057879493734cba507a234a4f3d28eac31fa",
+      "url": "https://api.github.com/repos/dimakis/mitzo/git/commits/53a6057879493734cba507a234a4f3d28eac31fa",
+      "html_url": "https://github.com/dimakis/mitzo/commit/53a6057879493734cba507a234a4f3d28eac31fa"
+    }
+  ],
+  "verification": {
+    "verified": true,
+    "reason": "valid",
+    "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq1GorCRC1aQ7uu5UhlAAAA0EQAIe4wAW/NxIzai5nowkoqsZP\nFmgHv0cQFnio0IXyw/Xa5hQJQA55N5Lt1OSMS2SpH7Hl3wxo/vS41q2VnGyDz5dB\nqijswbYKGlnbZBgNzjLpQAboD9X+o3or9nBnXxtOi8w6JSTSEg7oKm+ArjObJKMd\nu8NAsEozaL4tmSxXypkpdZ5yXNf8yzVDFcK4KCBwr45JWIdcbZ5pzzxpp7g2Esxd\n5cLMzTrXLgpcFjGphpDlDDGgkLAB2V5plT7/T3mg3cIfIrs7iOdrmjJwp/GszHel\n836FYSTEHFqqB2PVtrgwyD+tR+RmLrC5qUVjpoovp97+7Gkhr7eyRHKkKyWznl3s\n9jGIzqM773RIBoC5HV9PbQqUW03ShpZKj1PAMlNiyoXiVw8DXNi48OkNG0dl017L\nKadCLYM2CvWZSTT5FXFXgral3x9tHl/cncxazWetTJMmYv62KOWvGRkDDy4tvBKt\nXnDYB+YuyBXrSVWcBdkLXkziW0/PyFD/LMLjrs4OkpSx1Jdvmc5G2t6SpbbLHrPw\nrUSJR6B6mvvFXtHPzK9vu0Refzj2uVg2CoiwYfWCjT9xkP8DsFKU2AmhOpuR8SKG\ndByLn0yCnrVdOwt2Z77hH1TPge5OT2lFY9A4bRaerVAj+tb39QJt7yYhI+W3RKdW\nR2BlMOCw7GlmOD+nkAqt\n=RLfF\n-----END PGP SIGNATURE-----\n",
+    "payload": "tree 0331928678d93fef64d51ffcf4736fa95c14304e\nparent d5d3aa0322b55e9e2c8589efc568c7330f0530a8\nparent 53a6057879493734cba507a234a4f3d28eac31fa\nauthor Dimitri Saridakis <dimitri.saridakis@gmail.com> 1792305707 +0000\ncommitter GitHub <noreply@github.com> 1792305707 +0000\n\nMerge 53a6057879493734cba507a234a4f3d28eac31fa into d5d3aa0322b55e9e2c8589efc568c7330f0530a8\n",
+    "verified_at": "2026-10-18T06:41:48Z"
+  }
+}

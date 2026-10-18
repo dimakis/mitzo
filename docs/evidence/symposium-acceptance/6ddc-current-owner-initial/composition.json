@@ -1,0 +1,140 @@
+{
+  "coreCommit": "6ddc2607e36d4d4a90f06f173bb840678d5c8b4c",
+  "coreTree": "d4fa91befaeed24934acf3766498f72e9daa9fa7",
+  "testedOverlayCommit": "365eb55b7ce4c0948018803bb322539259111e77",
+  "testedOverlayTree": "2a42999f92d791cf897f09e0874e50a60192ff50",
+  "overlayBranch": "test/symposium-acceptance-core-6ddc",
+  "candidateStatus": "?? node_modules",
+  "productionChanges": [],
+  "fixtureAndConfigMatchTestedOverlay": true,
+  "originalApplicationJourneyAndBootstrapRetained": true,
+  "newCase": "Separate actual app auth/production durable-reader injection/typed client positive source assertion, exact completed visible bytes/digests (BOM/CRLF/Unicode), privacy omission, no replay/source events/session/command effects, same-root restart and hidden source refusal. NOT EXERCISED: prerequisite timeout.",
+  "runs": [
+    {
+      "directory": "../6ddc-current-owner-initial",
+      "source": {
+        "commit": "365eb55b7ce4c0948018803bb322539259111e77",
+        "tree": "2a42999f92d791cf897f09e0874e50a60192ff50",
+        "status": "?? node_modules",
+        "trackedDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untrackedSourceSha256": {}
+      },
+      "passed": 438,
+      "failed": 4,
+      "skipped": 0,
+      "cases": 442,
+      "files": 28,
+      "seconds": 124.2,
+      "classification": "UNQUALIFIED application prerequisite; do not count as current app/durable/join acceptance"
+    },
+    {
+      "directory": "../6ddc-actual-app-narrowed",
+      "source": {
+        "commit": "365eb55b7ce4c0948018803bb322539259111e77",
+        "tree": "2a42999f92d791cf897f09e0874e50a60192ff50",
+        "status": "?? node_modules",
+        "trackedDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untrackedSourceSha256": {}
+      },
+      "passed": 8,
+      "failed": 3,
+      "skipped": 0,
+      "cases": 11,
+      "files": 6,
+      "seconds": 92.8,
+      "classification": "UNQUALIFIED application prerequisite; do not count as current app/durable/join acceptance"
+    },
+    {
+      "directory": "../6ddc-app-phase-diagnostic",
+      "source": {
+        "commit": "365eb55b7ce4c0948018803bb322539259111e77",
+        "tree": "2a42999f92d791cf897f09e0874e50a60192ff50",
+        "status": "M tests/acceptance/symposium-application-wiring.repro.ts\n?? node_modules",
+        "trackedDiffSha256": "c09e4f5314fa0ea51b4c314d93914b372ae9a2eef34881497d87bab093e5e817",
+        "untrackedSourceSha256": {}
+      },
+      "passed": 8,
+      "failed": 3,
+      "skipped": 0,
+      "cases": 11,
+      "files": 6,
+      "seconds": 80.38,
+      "classification": "UNQUALIFIED application prerequisite; do not count as current app/durable/join acceptance"
+    },
+    {
+      "directory": "../6ddc-comparator-420d-required",
+      "source": {
+        "commit": "0c9a4704cbe2b4aa74c6cc3ac98b6788f6b6f64f",
+        "tree": "f2e6f146a834179950fee6b67d173c86264d21d9",
+        "status": "?? node_modules",
+        "trackedDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untrackedSourceSha256": {}
+      },
+      "passed": 8,
+      "failed": 2,
+      "skipped": 0,
+      "cases": 10,
+      "files": 6,
+      "seconds": 84.47,
+      "classification": "UNQUALIFIED application prerequisite; do not count as current app/durable/join acceptance"
+    }
+  ],
+  "diagnosticPhases": [
+    {
+      "acceptanceAppPhase": "guard",
+      "load": 1,
+      "elapsedMs": 0,
+      "at": "2026-10-18T04:22:16.140Z"
+    },
+    {
+      "acceptanceAppPhase": "target-import",
+      "load": 1,
+      "elapsedMs": 25,
+      "at": "2026-10-18T04:22:16.165Z"
+    },
+    {
+      "acceptanceAppPhase": "target-configure",
+      "load": 1,
+      "elapsedMs": 35,
+      "at": "2026-10-18T04:22:16.175Z"
+    },
+    {
+      "acceptanceAppPhase": "app-import",
+      "load": 1,
+      "elapsedMs": 5694,
+      "at": "2026-10-18T04:22:21.834Z"
+    }
+  ],
+  "lastReachedOperation": "First load awaited actual server/app.js import after target configure5694ms; no app-imported marker before original20s timeout. Includes transformation/import; cause unproved.",
+  "historicalComparator": "The original420d/0c9 required path also times out now on same Mac/dependencies. Failure is not unique to6ddc; this does not establish source or host-load cause. Earlier296pass/1join503 result retains its original source/time bounds.",
+  "noTimeoutAssertionOrProductionChanges": true,
+  "sourcePinResult": "../6ddc-source-pins/result.json",
+  "validation": {
+    "typecheck": {
+      "exitCode": 0,
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/typescript/bin/tsc --noEmit --incremental false -p /tmp/symposium-artifact-typecheck.json"
+    },
+    "eslintFixtureAndConfig": {
+      "exitCode": 0,
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/eslint/bin/eslint.js tests/acceptance/symposium-application-wiring.repro.ts vitest.symposium-acceptance.config.ts"
+    },
+    "controlRunner": {
+      "nodeSyntaxCheckExitCode": 0,
+      "eslintExitCode": 0,
+      "scriptSha256": "10135eb3a6da17e85754a84fed9efbd90f7e3057b5af425ad0ddd51f2974b180",
+      "guardReceipt": "../6ddc-omission-guard/feature-result.json",
+      "actualOmission": "NOT RUN; refuses unqualified baseline before source mutation/execution. Requires same clean tracked/untracked source and a positive actual durable read."
+    },
+    "format": {
+      "fullRepositoryCheckExitCode": 0,
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/prettier/bin/prettier.cjs --check .",
+      "subsequentEdits": "Map and receipt metadata formatted and checked separately; no formatter exclusions changed."
+    }
+  },
+  "browserScope": "No new C browser execution/capture inspection. Frontend dependencies changed since420, so c534 captured fixtures remain historical source-specific evidence, not6ddc rendering acceptance. Initial browser bundle timeout stays unqualified.",
+  "ownerReported177": "Core handler/store/auth/client fixture177pass; read as narrower owner evidence, not independent production app injection proof.",
+  "actualDurableSourceAcceptance": false,
+  "fullJoiningAcceptance": false,
+  "liveQualification": "not performed",
+  "modelCalls": 0
+}

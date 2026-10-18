@@ -1,0 +1,12 @@
+876: 2026-10-18T14:27:30.9694353Z ##[group]Run npm run format:check
+877: 2026-10-18T14:27:30.9694675Z npm run format:check
+878: 2026-10-18T14:27:30.9730062Z shell: /usr/bin/bash -e {0}
+879: 2026-10-18T14:27:30.9730336Z ##[endgroup]
+880: 2026-10-18T14:27:31.0643666Z 
+881: 2026-10-18T14:27:31.0644576Z > mitzo@1.0.0 format:check
+882: 2026-10-18T14:27:31.0645132Z > prettier --check .
+883: 2026-10-18T14:27:31.0645329Z 
+884: 2026-10-18T14:27:31.1495694Z Checking formatting...
+885: 2026-10-18T14:27:35.7028361Z [warn] docs/evidence/symposium-integration-acceptance.md
+886: 2026-10-18T14:28:20.3616028Z [warn] Code style issues found in the above file. Run Prettier with --write to fix.
+887: 2026-10-18T14:28:20.4023342Z ##[error]Process completed with exit code 1.

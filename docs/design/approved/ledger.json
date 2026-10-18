@@ -101,7 +101,7 @@
     },
     {
       "id": "telos-priority-scale",
-      "activeRevision": "priority-scale-2026-10-17",
+      "activeRevision": "priority-scale-focused-contract-2026-10-18",
       "revisions": [
         {
           "id": "priority-scale-2026-10-17",
@@ -159,6 +159,68 @@
               "sha256": "2d4627337c106756dfe92b98e5a7174cca1078d5ae8fd6e2806cfe118b83e893"
             }
           ]
+        },
+        {
+          "id": "priority-scale-focused-contract-2026-10-18",
+          "approvedBy": "Dimitri (explicit approval in review thread)",
+          "approvedOn": "2026-10-18",
+          "approval": {
+            "thread": "01a14bab-fcdb-7ab3-bfbc-ebfc74e42d59",
+            "quote": "Yea. I approve.",
+            "scope": "Isolate the verbatim priority grouping/urgency invariant in a dedicated protected test; apply shown S7 legacy expectation adaptations with draft/error assertions preserved; adapt protected browser coverage to the approved focused Back/P7/reopen navigation using the real shells and canonical records, preserving save/failure/reload/accessibility checks. Original SVG, selector protection and prior revision history remain unchanged.",
+            "turn": "01a14c29-d6d1-7fa2-8586-50692aae94ca",
+            "message": "01a14c2a-2235-77d3-9f61-e6eb82360675",
+            "proposalSha256": "1d4f869897f0f69028f0ee4b82e630bbd1da4f56893595d58cf48d2813232b91",
+            "checksumManifestSha256": "83198c980e034646e45a664071ab60d245dc2ffa3d118cb9660431571bf50a09"
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+              "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1"
+            }
+          ],
+          "invariants": [
+            "Priority is an integer from 1 to 10, with larger numbers displayed as higher priority.",
+            "The item header contains one labelled Priority selector showing the selected value out of 10.",
+            "The existing Work tree shows the same value as a compact P<n> badge.",
+            "The surrounding Telos layout, navigation, content and controls remain unchanged.",
+            "The priority amendment preserves existing grouping, urgency sorting and navigation."
+          ],
+          "sources": [
+            "frontend/src/pages/TodoDetailView.tsx",
+            "frontend/src/components/TodoCard.tsx",
+            "frontend/src/hooks/useTodoData.ts",
+            "frontend/src/types/todo.ts",
+            "frontend/src/styles/global.css",
+            "server/api-schemas.ts",
+            "server/app.ts",
+            "frontend/src/components/TodoPrioritySelect.tsx",
+            "frontend/src/lib/todo-utils.ts"
+          ],
+          "checks": [
+            "frontend/src/pages/__tests__/TodoDetailView.test.tsx",
+            "frontend/src/components/__tests__/TodoCard.test.tsx",
+            "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+            "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+            "frontend/src/hooks/__tests__/useTodoData.test.ts",
+            "server/__tests__/todo-priority-schema.test.ts",
+            "tests/offline/telos-priority.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+              "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+              "sha256": "779365ef8c25b4fdfd90fb68839b0236fc06076b471b47012bc8251c85495970"
+            },
+            {
+              "path": "tests/offline/telos-priority.spec.ts",
+              "sha256": "a69a0647dfa64f4b4504a5693c3e435c4981cd4612bfd2d761fae6e5d0011894"
+            }
+          ],
+          "reason": "Allow already approved S7 navigation/layout expectations while retaining exact priority ordering and confirmed-value consistency safeguards."
         }
       ]
     },

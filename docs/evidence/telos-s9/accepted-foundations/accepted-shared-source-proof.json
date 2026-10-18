@@ -1,0 +1,16 @@
+{
+  "pr": {
+    "headRefOid": "438e85484f0225b51c7ab1f4880e4fb4cfbf3dee",
+    "mergeCommit": {
+      "oid": "a7cef26f4de2050412e978e7c311107d5505ed5e"
+    },
+    "mergedAt": "2026-10-18T16:28:19Z",
+    "number": 1020,
+    "state": "MERGED",
+    "url": "https://github.com/dimakis/mitzo/pull/1020"
+  },
+  "acceptedTree": "145ac383cd379ca27aedc7f860da9ed38683b728",
+  "reviewedTree": "145ac383cd379ca27aedc7f860da9ed38683b728",
+  "treesIdentical": true,
+  "parents": ["634048b1c7309a411dcfbf39dd2ae4e0308bdcfb"]
+}
