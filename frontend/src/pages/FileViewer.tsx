@@ -29,7 +29,9 @@ function FileViewerDocument() {
   const [searchParams, setSearchParams] = useSearchParams();
   const routerNavigate = useNavigate();
   const location = useLocation();
-  const nav = useFileNavigation(searchParams, setSearchParams);
+  const nav = useFileNavigation(searchParams, (next, options) =>
+    setSearchParams(next, { ...options, state: location.state }),
+  );
   const { state } = nav;
   const rawFrom = searchParams.get('from');
   // Validate fromRoute: must be a relative path, no protocol-relative URLs
@@ -113,7 +115,7 @@ function FileViewerDocument() {
               if (editor.dirty && !confirm('Discard unsaved changes?')) return;
               editor.resetEditor();
               if (fromRoute) {
-                routerNavigate(fromRoute);
+                routerNavigate(fromRoute, { state: location.state });
               } else {
                 nav.handleBack(false); // dirty already checked above
               }
@@ -285,7 +287,7 @@ function FileViewerDocument() {
               state.filePath,
               state.sessionId || undefined,
               location.pathname + location.search,
-              routerNavigate,
+              (url) => routerNavigate(url, { state: location.state }),
             )}
             urlTransform={artifactUrlTransform}
             fullscreenStatus={editorFeedback}
@@ -312,7 +314,7 @@ function FileViewerDocument() {
                 state.filePath,
                 state.sessionId || undefined,
                 location.pathname + location.search,
-                routerNavigate,
+                (url) => routerNavigate(url, { state: location.state }),
               )}
             >
               {state.content}

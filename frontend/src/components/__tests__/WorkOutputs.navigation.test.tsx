@@ -3,10 +3,20 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { WorkOutputs } from '../WorkOutputs';
+import { TelosItemWorkspace } from '../TelosItemWorkspace';
+import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
 import { apiFetch } from '../../lib/api-fetch';
 import { installDialogStub } from './dialog-stub';
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+  AUTH_RESTORED_EVENT: 'mitzo:auth-restored',
+}));
 vi.mock('../UserOutputUpload', () => ({ UserOutputUpload: () => null }));
+vi.mock('../TelosItemRoleEntries', () => ({
+  TelosItemRoleEntries: () => <p>Ordinary role entry</p>,
+}));
+vi.mock('../TelosItemSources', () => ({ TelosItemSources: () => null }));
 const id = 'a'.repeat(32);
 const version = (revision: number) => ({
   id,
@@ -37,12 +47,17 @@ function view(path = '/todos/studio?filter=mine') {
   );
 }
 let latest = 3;
+let denyArtifact = false;
 beforeEach(() => {
   installDialogStub();
   vi.clearAllMocks();
   latest = 3;
+  denyArtifact = false;
+  sessionStorage.clear();
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     const u = new URL(String(url), 'http://fixture');
+    if (u.pathname.endsWith('/versions') && denyArtifact)
+      return { ok: false, status: 403 } as Response;
     if (u.pathname.endsWith('/versions'))
       return response({
         artifacts: [
@@ -117,3 +132,53 @@ it('closing the dialog removes only its owned URL fields and restores the Work r
     expect(screen.getByLabelText('Current route').textContent).toBe('/todos/studio?filter=mine'),
   );
 });
+
+const workspaceRecord = { ...createTelosWorkFixtures().homeStudio.items[0], itemId: 'studio' };
+const pinnedRoute = `/todos/studio?filter=mine&savedArtifact=${id}&savedRevision=3&savedHash=${'3'.repeat(64)}`;
+function workspace(tab: string) {
+  sessionStorage.setItem('telos.item.tab.studio', tab);
+  return render(
+    <MemoryRouter initialEntries={[pinnedRoute]}>
+      <Probe />
+      <TelosItemWorkspace
+        record={workspaceRecord}
+        records={[workspaceRecord]}
+        refreshKey={0}
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+}
+it.each(['Overview', 'Chat', 'Work', 'Materials'])(
+  'opens exactly one pinned document on direct navigation with remembered %s and preserves the tab on close',
+  async (tab) => {
+    latest = 4;
+    workspace(tab);
+    await screen.findByRole('heading', { name: 'Retained studio plan r3' });
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Retained studio plan r4' })).toBeNull();
+    expect(screen.getByRole('button', { name: tab }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByLabelText('Current route').textContent).toBe(pinnedRoute);
+    fireEvent.click(screen.getByRole('button', { name: /^Done$/ }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByLabelText('Current route').textContent).toBe('/todos/studio?filter=mine');
+    expect(screen.getByRole('button', { name: tab }).getAttribute('aria-pressed')).toBe('true');
+    expect(sessionStorage.getItem('telos.item.tab.studio')).toBe(tab);
+  },
+);
+it.each(['Chat', 'Work'])(
+  'shows unavailable pinned documents and retries without leaving remembered %s',
+  async (tab) => {
+    denyArtifact = true;
+    workspace(tab);
+    await screen.findByText('This saved artifact is no longer available to you.');
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Retained studio plan r3' })).toBeNull();
+    denyArtifact = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry saved version' }));
+    await screen.findByRole('heading', { name: 'Retained studio plan r3' });
+    expect(screen.getByRole('button', { name: tab }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByLabelText('Current route').textContent).toBe(pinnedRoute);
+  },
+);
