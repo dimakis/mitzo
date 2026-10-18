@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
+import { TaskStore } from '../task-store.js';
+import { resolveTelosWorkTaskToolContext } from '../telos-work-execution-authority.js';
 import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
 import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
 import { getAgentLibrary } from '../agent-library-runtime.js';
@@ -22,7 +24,26 @@ const runtime = vi.hoisted(() => ({
   queryGate: undefined as Promise<void> | undefined,
   controller: false,
   owner: false,
+  scopeError: false,
+  useTls: false,
+  scopeContext: undefined as { currentTaskId: string; goalId: string } | undefined,
 }));
+vi.mock('../local-server-url.js', async (original) => ({
+  ...(await original<typeof import('../local-server-url.js')>()),
+  localServerUsesTls: () => runtime.useTls,
+}));
+vi.mock('../telos-work-command-scope.js', async (original) => {
+  const actual = await original<typeof import('../telos-work-command-scope.js')>();
+  return {
+    ...actual,
+    resolveTelosWorkCommandScope: (
+      ...args: Parameters<typeof actual.resolveTelosWorkCommandScope>
+    ) => {
+      if (runtime.scopeError) throw Error('Incomplete durable delegated worker');
+      return runtime.scopeContext ?? actual.resolveTelosWorkCommandScope(...args);
+    },
+  };
+});
 vi.mock('../ordinary-local-codex-owned-runtime.js', () => ({
   OrdinaryLocalCodexOwnedRuntime: class {
     close = vi.fn(() => {
@@ -108,6 +129,7 @@ vi.mock('../goal-client.js', () => ({
 let chat: typeof import('../chat.js');
 let startOpenShell: typeof import('../ordinary-openshell-codex-entry.js').startOwnedOpenShellCodexCommand;
 let root: string;
+let tasks: TaskStore;
 let sequence = 0;
 const profiles = new AccountProfiles(
   [
@@ -135,6 +157,8 @@ beforeAll(async () => {
     }),
   );
   chat = await import('../chat.js');
+  tasks = new TaskStore(':memory:');
+  chat.setTaskStore(tasks);
   startOpenShell = (await import('../ordinary-openshell-codex-entry.js'))
     .startOwnedOpenShellCodexCommand;
 });
@@ -146,6 +170,9 @@ beforeEach(() => {
   runtime.beforeDispatch = undefined;
   runtime.queryGate = undefined;
   runtime.controller = runtime.owner = false;
+  runtime.scopeError = false;
+  runtime.useTls = false;
+  runtime.scopeContext = undefined;
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
   vi.mocked(openCodexChat).mockImplementation(async (options) => {
@@ -177,6 +204,7 @@ beforeEach(() => {
   });
 });
 afterAll(() => {
+  tasks?.close();
   chat?.eventStore.close();
   rmSync(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
@@ -349,6 +377,106 @@ it('refuses invalid interactive authority before resolving lazy owners', async (
   expect(getAgentLibrary).not.toHaveBeenCalled();
   expect(getRepositoryWorkspaces).not.toHaveBeenCalled();
   expect(runtime.instances).toHaveLength(0);
+});
+
+it('refuses incomplete delegated worker scope before ordinary driver admission or native startup', async () => {
+  const f = request();
+  runtime.scopeError = true;
+  await expect(chat.startOwnedLocalCodexCommand(f.transport, f.clientId, f.args)).rejects.toThrow(
+    /unavailable/,
+  );
+  expect(runtime.instances).toHaveLength(0);
+  expect(openCodexChat).not.toHaveBeenCalled();
+  expect(chat.eventStore.getSendCommand(f.args.commandId)).toBeUndefined();
+});
+
+it('rechecks delegated scope at the actual guarded consumer boundary after driver awaits', async () => {
+  const f = request();
+  runtime.beforeDispatch = () => {
+    runtime.scopeError = true;
+  };
+  await expect(chat.startOwnedLocalCodexCommand(f.transport, f.clientId, f.args)).rejects.toThrow(
+    /unavailable/,
+  );
+  expect(openCodexChat).not.toHaveBeenCalled();
+  expect(chat.eventStore.getOrdinaryLocalCommandAdmission(f.args.commandId)?.state).toBe(
+    'uncertain',
+  );
+  expect(runtime.trace).not.toContain('loop');
+});
+
+it.each([false, true])(
+  'binds proven task tools to the canonical internal listener (TLS %s)',
+  async (useTls) => {
+    const f = request();
+    runtime.useTls = useTls;
+    const mapped = tasks.createOrRecoverTelosExecutionTask(
+      { title: 'Exact task' },
+      {
+        attemptId: `${f.clientId}-attempt`,
+        childItemId: 'child',
+        leadConversationId: 'lead',
+        workerConversationId: f.args.reservation.conversationId,
+        contextSnapshotId: `${f.clientId}-context`,
+        contextHash: 'a'.repeat(64),
+      },
+    );
+    runtime.scopeContext = { currentTaskId: mapped.id, goalId: mapped.id };
+    await chat.startOwnedLocalCodexCommand(f.transport, f.clientId, f.args);
+    const options = vi.mocked(openCodexChat).mock.calls.at(-1)![0];
+    expect(options.session.taskContext).toEqual(runtime.scopeContext);
+    expect(options.mcpServers).toHaveProperty('task-board');
+    expect(options.mcpServers!['task-board'].args).toEqual(
+      expect.arrayContaining([
+        '--base-url',
+        `http://localhost:${Number.parseInt(process.env.PORT || '3100', 10) + (useTls ? 1 : 0)}`,
+        '--client-id',
+        f.clientId,
+        '--session-id',
+        f.args.reservation.conversationId,
+        '--task-id',
+        mapped.id,
+      ]),
+    );
+    const capturedArgs = [...options.mcpServers!['task-board'].args!];
+    const capturedSessionId = options.session.sessionId;
+    const capturedTaskContext = options.session.taskContext;
+    options.session.sessionId = 'rebound-conversation';
+    options.session.taskContext = { currentTaskId: 'another-task', goalId: 'another-task' };
+    expect(options.mcpServers!['task-board'].args).toEqual(capturedArgs);
+    options.session.sessionId = capturedSessionId;
+    options.session.taskContext = capturedTaskContext;
+    expect(options.systemPrompt).toBe('Frozen instructions');
+    runtime.scopeError = true;
+    expect(() => options.assertAgentContextAuthorization!()).toThrow();
+    runtime.scopeError = false;
+    await vi.waitFor(() => expect(runtime.instances[0].close).toHaveBeenCalled());
+  },
+);
+
+it('leaves unbound task workflows free to advance within the existing task transport', async () => {
+  const f = request();
+  const first = tasks.create({ title: 'Legacy A' });
+  const second = tasks.create({ title: 'Legacy B' });
+  runtime.scopeContext = { currentTaskId: first.id, goalId: first.id };
+  await chat.startOwnedLocalCodexCommand(f.transport, f.clientId, f.args);
+  const options = vi.mocked(openCodexChat).mock.calls.at(-1)![0];
+  const args = options.mcpServers!['task-board'].args!;
+  expect(args).not.toContain('--session-id');
+  expect(args).not.toContain('--task-id');
+  options.session.taskContext = { currentTaskId: second.id, goalId: first.id };
+  const work = vi.fn(() => {
+    throw Error('Legacy tasks must not open Telos');
+  });
+  expect(
+    resolveTelosWorkTaskToolContext(
+      { events: chat.eventStore, tasks, work },
+      { sessionId: f.args.reservation.conversationId, taskId: second.id, accountBinding: binding },
+      { sessionId: undefined, taskId: undefined },
+    ),
+  ).toBe(second.id);
+  expect(work).not.toHaveBeenCalled();
+  await vi.waitFor(() => expect(runtime.instances[0].close).toHaveBeenCalled());
 });
 
 it('connects the actual consumer to driver admission and pumps its existing native query after consumed', async () => {

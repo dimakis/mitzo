@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -256,6 +257,7 @@ function options(abortController: AbortController) {
     eventStore: {
       getRecentConversationText: () => [],
       getSession: () => undefined,
+      getSessionEvents: () => [],
     },
   } as unknown as Parameters<typeof openCodexChat>[0];
 }
@@ -383,6 +385,7 @@ function ownedLocalOptions(
   } as Parameters<typeof openCodexChat>[0];
   return { eventStore, opts, lease, ownedLocal };
 }
+
 it('routes the selected model when provisioning an OpenShell subscription', () => {
   expect(
     selectedOpenShellAccountRoute({
@@ -441,6 +444,7 @@ it.each([
     chat.close();
   },
 );
+
 it('retains the failing initialization step while closing the runtime', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
@@ -2220,7 +2224,7 @@ it('preserves first launch and valid restore while failing closed for a replacem
     {
       registry: { findBySessionId: () => undefined, entries: function* () {} },
       eventStore: { getSession: () => ({}) },
-      taskStore: { getTree: () => [] },
+      taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
       queue: () => ({ queued: 0, running: 0, recovery: false }),
     },
   )!;
@@ -3094,6 +3098,42 @@ it.each(['recipe', 'supplied', 'retained'] as const)(
   },
 );
 
+it('rechecks owned command authority immediately before native enqueue and provider dispatch', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions();
+  let current = true;
+  const guard = vi.fn(() => {
+    if (!current) throw Error('Delegated scope revoked');
+  });
+  const enqueue = vi.spyOn(f.ownedLocal, 'assertBeforeEnqueue');
+  const dispatch = vi.spyOn(f.ownedLocal, 'assertBeforeDispatch');
+  try {
+    const query = await openCodexChat({ ...f.opts, assertAgentContextAuthorization: guard });
+    const callbacks = mocks.conversationOptions!;
+    current = false;
+    expect(() => (callbacks.beforeEnqueue as (input: unknown) => void)({})).toThrow(
+      'scope revoked',
+    );
+    expect(() => (callbacks.onProviderDispatch as (id: string) => void)('owned-command')).toThrow(
+      'scope revoked',
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(callbacks.environmentContinuationOwner).toBeUndefined();
+    current = true;
+    query.close();
+  } finally {
+    f.eventStore.close();
+  }
+});
+
 it('uses the already verified owned client locally regardless of global OpenShell settings', async () => {
   vi.clearAllMocks();
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
@@ -3547,7 +3587,7 @@ function ownedOpenShellAdapterFixture(resume = false) {
   const lifecycle = lifecycleController.initializeOpenShellLifecycle(config, {
     registry: { findBySessionId: () => undefined, entries: function* () {} },
     eventStore: { getSession: () => ({}) },
-    taskStore: { getTree: () => [] },
+    taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
     queue: () => ({ queued: 0, running: 0, recovery: false }),
   })!;
   if (resume)
@@ -3967,6 +4007,455 @@ it('disposes acquired hooks when the owned admission is revoked before configure
   }
 });
 
+it('exposes exact slice allocation to a retained owned local lead and fences approval and owner changes', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const f = ownedLocalOptions();
+  retainTelosWorkRoleContext(f.eventStore, f.opts.conversationId, f.opts.binding, {
+    version: 1,
+    itemId: 'outcome',
+    role: 'lead',
+    brief: {
+      revision: 'r1',
+      text: 'Reviewed lead brief',
+      sha256: createHash('sha256').update('Reviewed lead brief').digest('hex'),
+    },
+    parentCriteria: [],
+    overallGoal: { itemId: 'outcome', revision: 'r1', text: 'Outcome' },
+    sources: [],
+    artifacts: [],
+  });
+  let ownerId = 'lead-client';
+  f.opts.registry = {
+    findBySessionId: () => ({ clientId: ownerId, session: f.opts.session }),
+    get: () => f.opts.session,
+  } as never;
+  const chat = await openCodexChat(f.opts);
+  try {
+    expect(mocks.conversationOptions?.tools).toContainEqual(
+      expect.objectContaining({ name: 'TelosStartSlice' }),
+    );
+    const execute = mocks.conversationOptions!.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<{ content: string; isError: boolean }>;
+    const input = {
+      requestId: 'start-request',
+      childItemId: 'slice-one',
+      mode: 'start',
+      predecessorAttemptId: null,
+    };
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+    expect(await execute('TelosStartSlice', input, new AbortController().signal)).toEqual({
+      content: 'Denied',
+      isError: true,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mocks.permissionHandler).toHaveBeenCalledWith(
+      'TelosStartSlice',
+      input,
+      expect.objectContaining({ allowSessionGrant: true }),
+    );
+    const policy = mocks.permissionHandler.mock.calls.at(-1)![2];
+    expect(policy).not.toHaveProperty('forcePrompt');
+    expect(policy).not.toHaveProperty('title');
+    const receipt = {
+      version: 1,
+      state: 'chat_ready',
+      execution: 'not_started',
+      workerConversationId: 'worker',
+      workerPath: '/chat/worker',
+      itemPath: '/todos/slice-one',
+      leadPath: '/chat/owned-session',
+      attempt: {
+        version: 1,
+        requestId: 'start-request',
+        attemptId: 'attempt',
+        predecessorAttemptId: null,
+        leadConversationId: 'owned-session',
+        childItemId: 'slice-one',
+        contextSnapshotId: 'source',
+        state: 'chat_ready',
+        workerConversationId: 'worker',
+        allocationReceiptId: 'allocation',
+        executionTaskId: 'task',
+        accountingGoalId: null,
+        turnCommandId: null,
+      },
+    };
+    fetch.mockResolvedValue(new Response(JSON.stringify(receipt)));
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
+    const result = await execute('TelosStartSlice', input, new AbortController().signal);
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content)).toEqual(receipt);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/internal/telos/work/delegate'),
+      expect.objectContaining({
+        body: JSON.stringify({ clientId: 'lead-client', sessionId: 'owned-session', input }),
+      }),
+    );
+    fetch.mockClear();
+    mocks.permissionHandler.mockImplementationOnce(async () => {
+      ownerId = 'replacement-client';
+      return { behavior: 'allow', updatedInput: input };
+    });
+    await expect(execute('TelosStartSlice', input, new AbortController().signal)).rejects.toThrow(
+      /owner changed/,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    chat.close();
+    f.eventStore.close();
+  }
+});
+
+it('exposes slice allocation to a retained OpenShell lead without enabling selected profile tool routes', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  const store = new EventStore(':memory:');
+  const binding = {
+    accountId: 'lead',
+    accountLabel: 'Lead',
+    provider: 'openai-codex' as const,
+    profileRevision: 'r1',
+    model: 'offline-fixture',
+  };
+  store.upsertSession({ sessionId: 'lead-session', accountBinding: binding });
+  retainTelosWorkRoleContext(store, 'lead-session', binding, {
+    version: 1,
+    itemId: 'outcome',
+    role: 'lead',
+    brief: {
+      revision: 'r1',
+      text: 'Brief',
+      sha256: createHash('sha256').update('Brief').digest('hex'),
+    },
+    parentCriteria: [],
+    overallGoal: { itemId: 'outcome', revision: 'r1', text: 'Outcome' },
+    sources: [],
+    artifacts: [],
+  });
+  const base = options(new AbortController());
+  const chat = await openCodexChat({
+    ...base,
+    eventStore: store,
+    conversationId: 'lead-session',
+    binding,
+    contributorGuidance: store
+      .getSessionEvents('lead-session')
+      .find((event) => event.type === 'telos_work_role_context')!.payload.guidance as string,
+  });
+  expect(mocks.conversationOptions?.tools).toContainEqual(
+    expect.objectContaining({ name: 'TelosStartSlice' }),
+  );
+  chat.close();
+  store.close();
+});
+
+async function openWorkerToolFixture(
+  role: 'worker' | 'lead' = 'worker',
+  context = true,
+  guarded = true,
+  owned = true,
+) {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  const store = new EventStore(':memory:');
+  const ownedFixture = owned ? ownedOpenShellAdapterFixture() : undefined;
+  const binding = (ownedFixture?.binding ?? {
+    accountId: 'worker',
+    accountLabel: 'Worker',
+    provider: 'openai-codex' as const,
+    profileRevision: 'r1',
+    model: 'offline-fixture',
+  }) as Parameters<typeof retainTelosWorkRoleContext>[2];
+  store.upsertSession({ sessionId: 'worker-session', accountBinding: binding });
+  retainTelosWorkRoleContext(store, 'worker-session', binding, {
+    version: 1,
+    itemId: 'slice',
+    role,
+    ...(role === 'worker' ? { leadConversationId: 'lead' } : {}),
+    brief: {
+      revision: 'r1',
+      text: 'Exact slice',
+      sha256: createHash('sha256').update('Exact slice').digest('hex'),
+    },
+    parentCriteria: [],
+    overallGoal: { itemId: 'outcome', revision: 'r1', text: 'Outcome' },
+    sources: [],
+    artifacts: [],
+  });
+  const opts = ownedFixture?.opts ?? options(new AbortController());
+  opts.session.taskContext = context ? { currentTaskId: 'exact-task', goalId: 'exact-task' } : null;
+  let clientId = 'worker-client';
+  const proof = vi.fn(() => {});
+  const restore: Array<() => void> = [];
+  let owner: Parameters<typeof openCodexChat>[0]['ownedOpenShell'];
+  if (ownedFixture) {
+    const { OwnedOpenShellCodexChatAdmission } =
+      await import('../owned-openshell-codex-chat-admission.js');
+    owner = Object.assign(Object.create(OwnedOpenShellCodexChatAdmission.prototype), {
+      assertOptions: vi.fn(),
+      assertCurrent: vi.fn(async () => {}),
+      assertCurrentSync: vi.fn(),
+      configuration: () => ownedFixture.config,
+      adoptPhysicalRuntime: vi.fn(),
+      assertBeforeEnqueue: vi.fn(),
+      assertBeforeDispatch: vi.fn(),
+      assertModelSelection: vi.fn(),
+      persistNativeCustody: vi.fn(),
+      canClaimCommand: vi.fn(() => false),
+    });
+    const { CodexConversationStore } = await import('../codex-conversation-store.js');
+    const retained = vi
+      .spyOn(CodexConversationStore.prototype, 'readArtifactRuntime')
+      .mockReturnValue({
+        runtime: ownedFixture.physical,
+        route: { kind: 'api', provider: 'selected-provider', model: binding.model },
+      });
+    const ensure = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+      .mockResolvedValue(ownedFixture.physical);
+    const verify = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'verifyKnowledgeRuntime')
+      .mockResolvedValue({});
+    const compile = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'compileContext')
+      .mockResolvedValue({
+        type: 'boot_context',
+        scope: 'sandbox',
+        sourceCount: 0,
+        tokenCount: 0,
+        tokenBudget: 12000,
+        sources: [],
+        included: [],
+        trimmed: [],
+        fullMarkdown: '',
+      });
+    restore.push(
+      () => retained.mockRestore(),
+      () => ensure.mockRestore(),
+      () => verify.mockRestore(),
+      () => compile.mockRestore(),
+    );
+  }
+  const chat = await openCodexChat({
+    ...opts,
+    eventStore: store,
+    conversationId: 'worker-session',
+    binding,
+    registry: {
+      findBySessionId: () => ({ clientId, session: opts.session }),
+      get: () => opts.session,
+    } as never,
+    contributorGuidance: store
+      .getSessionEvents('worker-session')
+      .find((event) => event.type === 'telos_work_role_context')!.payload.guidance as string,
+    ...(guarded ? { assertAgentContextAuthorization: proof } : {}),
+    ...(owner ? { ownedOpenShell: owner } : {}),
+  });
+  return {
+    opts,
+    proof,
+    config: mocks.conversationOptions!,
+    replaceOwner() {
+      clientId = 'replacement';
+    },
+    close() {
+      chat.close();
+      store.close();
+      restore.forEach((reset) => reset());
+      ownedFixture?.cleanup();
+    },
+  };
+}
+
+it('gives mapped OpenShell workers exact task tools and forwards their saved result through ordinary permissions', async () => {
+  const f = await openWorkerToolFixture();
+  try {
+    const names = (f.config.tools as Array<{ name: string }>).map((tool) => tool.name);
+    for (const suffix of ['TaskStatus', 'TaskComplete', 'TaskBlock', 'TaskArtifact'])
+      expect(names).toContain(`mcp__task-board__${suffix}`);
+    expect(names).not.toContain('mcp__task-board__TaskSet');
+    expect(names).not.toContain('TelosStartSlice');
+    const execute = f.config.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<{ content: string; isError: boolean }>;
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ result: 'Task "Slice" marked as pending_review — awaiting approval.' }),
+        ),
+      );
+    vi.stubGlobal('fetch', fetch);
+    mocks.permissionHandler.mockResolvedValueOnce({
+      behavior: 'allow',
+      updatedInput: { summary: 'Saved evidence' },
+    });
+    const before = f.proof.mock.calls.length;
+    expect(
+      await execute(
+        'mcp__task-board__TaskComplete',
+        { summary: 'Saved evidence' },
+        new AbortController().signal,
+      ),
+    ).toEqual({
+      content: 'Task "Slice" marked as pending_review — awaiting approval.',
+      isError: false,
+    });
+    expect(f.proof.mock.calls.length).toBeGreaterThan(before);
+    expect(mocks.permissionHandler).toHaveBeenCalledWith(
+      'mcp__task-board__TaskComplete',
+      { summary: 'Saved evidence' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/internal/task-tools/complete'),
+      expect.objectContaining({
+        body: JSON.stringify({ summary: 'Saved evidence' }),
+        headers: expect.objectContaining({
+          'X-Client-Id': 'worker-client',
+          'X-Task-Session-Id': 'worker-session',
+          'X-Task-Id': 'exact-task',
+        }),
+      }),
+    );
+    fetch.mockClear();
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+    expect(
+      (
+        await execute(
+          'mcp__task-board__TaskBlock',
+          { reason: 'Needs approval' },
+          new AbortController().signal,
+        )
+      ).isError,
+    ).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    mocks.permissionHandler.mockImplementationOnce(async () => {
+      f.opts.session.taskContext = { currentTaskId: 'other-task', goalId: 'other-task' };
+      return { behavior: 'allow', updatedInput: { summary: 'Saved evidence' } };
+    });
+    await expect(
+      execute(
+        'mcp__task-board__TaskComplete',
+        { summary: 'Saved evidence' },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/task.*scope|context.*changed/i);
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    f.close();
+  }
+});
+
+it.each([
+  ['lead', true, true, true],
+  ['worker', false, true, true],
+  ['worker', true, false, true],
+  ['worker', true, true, false],
+] as const)(
+  'withholds OpenShell task adapters without exact worker role/context/proof/owner: %s %s %s %s',
+  async (role, context, proof, owned) => {
+    const f = await openWorkerToolFixture(role, context, proof, owned);
+    try {
+      const names = (f.config.tools as Array<{ name: string }>).map((tool) => tool.name);
+      expect(names.some((name) => name.startsWith('mcp__task-board__'))).toBe(false);
+      const fetch = vi.fn();
+      vi.stubGlobal('fetch', fetch);
+      const execute = f.config.executeTool as (
+        name: string,
+        input: Record<string, unknown>,
+        signal: AbortSignal,
+      ) => Promise<{ isError: boolean }>;
+      expect(
+        (await execute('mcp__task-board__TaskStatus', {}, new AbortController().signal)).isError,
+      ).toBe(true);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  },
+);
+
+it('keeps explicit owned lead tool selection authoritative over S5 helpers and ambient task MCP servers', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    displayName: (name: string) => name,
+    close: mocks.mcpClose,
+  });
+  const definition = {
+    name: 'Selected lead',
+    role: 'agent' as const,
+    instructions: 'Plan within the selected tools.',
+    expectedOutput: 'Evidence',
+    acceptanceCriteria: ['Selected effects only'],
+    modelPolicyRole: 'agent' as const,
+    tools: [{ id: 'mitzo:Read', version: 1 }],
+  };
+  const profile = {
+    profileId: 'owned-agent',
+    revision: 1,
+    definition,
+    contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+  };
+  const f = ownedLocalOptions('/tmp', profile);
+  retainTelosWorkRoleContext(f.eventStore, f.opts.conversationId, f.opts.binding, {
+    version: 1,
+    itemId: 'outcome',
+    role: 'lead',
+    brief: {
+      revision: 'r1',
+      text: 'Lead',
+      sha256: createHash('sha256').update('Lead').digest('hex'),
+    },
+    parentCriteria: [],
+    overallGoal: { itemId: 'outcome', revision: 'r1', text: 'Outcome' },
+    sources: [],
+    artifacts: [],
+  });
+  f.opts.mcpServers = {
+    'task-board': { command: 'offline-task-board', args: [] },
+    telos: { command: 'offline-telos', args: [] },
+  };
+  f.opts.registry = {
+    findBySessionId: () => ({ clientId: 'selected-lead', session: f.opts.session }),
+    get: () => f.opts.session,
+  } as never;
+  const query = await openCodexChat(f.opts);
+  try {
+    expect(
+      (mocks.conversationOptions!.tools as Array<{ name: string }>).map((tool) => tool.name),
+    ).toEqual(['AskUserQuestion', 'Read']);
+    expect(mocks.connect).toHaveBeenCalledWith({}, expect.anything());
+    const execute = mocks.conversationOptions!.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<unknown>;
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    mocks.permissionHandler.mockClear();
+    for (const name of [
+      'TelosStartSlice',
+      'mcp__task-board__TaskComplete',
+      'mcp__telos__TelosStartSlice',
+    ])
+      await expect(execute(name, {}, new AbortController().signal)).rejects.toThrow(/not selected/);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+  } finally {
+    query.close();
+    f.eventStore.close();
+  }
+});
 it('routes qualified owned Codex task provider calls to durable review proposals without saving tasks', async () => {
   const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
   const { default: Database } = await import('better-sqlite3');

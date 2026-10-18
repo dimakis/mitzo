@@ -1,4 +1,9 @@
 const paths = {
+  // Lucide geometry used by the frozen Telos receipt (ISC):
+  // https://github.com/lucide-icons/lucide/tree/main/icons
+  messagesSquare:
+    'M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2zM20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1',
+  arrowUpRight: 'M7 7h10v10M7 17 17 7',
   pin: 'M16 3H8l1 7-4 4v2h6v6l2-3v-3h6v-2l-4-4Z',
   bot: 'M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3',
   box: 'm12 3 9 5v8l-9 5-9-5V8Zm-9 5 9 5 9-5M12 13v8M7.5 5.5l9 5',

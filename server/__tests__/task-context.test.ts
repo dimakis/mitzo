@@ -117,6 +117,26 @@ describe('buildTaskContextPrompt', () => {
     expect(ctx).toContain('https://github.com/org/repo/pull/42');
   });
 
+  it('can build an exact-slice context without sibling identifiers, summaries, or artifacts', () => {
+    const goal = store.create({ title: 'Outcome' });
+    const selected = store.create({ title: 'Selected slice', parentId: goal.id });
+    const sibling = store.create({ title: 'Private sibling', parentId: goal.id });
+    store.update(sibling.id, {
+      status: 'done',
+      summary: 'PRIVATE-SIBLING-SUMMARY',
+      artifacts: { private: 'PRIVATE-SIBLING-ARTIFACT' },
+    });
+
+    const ctx = buildTaskContextPrompt(store, selected.id, { includeSiblingContext: false })!;
+
+    expect(ctx).toContain(`id="${selected.id}"`);
+    expect(ctx).toContain('<parent title="Outcome"');
+    expect(ctx).not.toContain(sibling.id);
+    expect(ctx).not.toContain('Private sibling');
+    expect(ctx).not.toContain('PRIVATE-SIBLING-SUMMARY');
+    expect(ctx).not.toContain('PRIVATE-SIBLING-ARTIFACT');
+  });
+
   it('omits sibling-artifacts when none exist', () => {
     const goal = store.create({ title: 'Goal' });
     const s1 = store.create({ title: 'Step 1', parentId: goal.id, priority: 2 });
@@ -142,5 +162,27 @@ describe('buildTaskSystemPrompt', () => {
 
   it('returns empty string for nonexistent task', () => {
     expect(buildTaskSystemPrompt(store, 'bad-id')).toBe('');
+  });
+
+  it('gives exact Telos workers scoped task instructions without sibling context', () => {
+    const sibling = store.create({ title: 'PRIVATE-SIBLING' });
+    store.update(sibling.id, { status: 'done', summary: 'PRIVATE-SIBLING-SUMMARY' });
+    const selected = store.createOrRecoverTelosExecutionTask(
+      { title: 'Selected slice' },
+      {
+        attemptId: 'attempt',
+        childItemId: 'slice',
+        leadConversationId: 'lead',
+        workerConversationId: 'worker',
+        contextSnapshotId: 'snapshot',
+        contextHash: 'a'.repeat(64),
+      },
+    );
+    const prompt = buildTaskSystemPrompt(store, selected.id);
+
+    expect(prompt).toContain('Work only on this exact selected slice');
+    expect(prompt).not.toContain('TaskSet');
+    expect(prompt).not.toContain(sibling.id);
+    expect(prompt).not.toContain('PRIVATE-SIBLING-SUMMARY');
   });
 });
