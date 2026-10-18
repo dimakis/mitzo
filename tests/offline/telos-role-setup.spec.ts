@@ -69,6 +69,25 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       });
       let selectedContext: Record<string, unknown> | undefined;
       let setupUnavailable = false;
+      let healthCompletion: { status: number; failure: string | null } | undefined;
+      page.on('response', (response) => {
+        if (new URL(response.url()).pathname === '/api/service-health') {
+          void response.finished().then(
+            (error) => {
+              healthCompletion = { status: response.status(), failure: error?.message ?? null };
+            },
+            (error: unknown) => {
+              healthCompletion = { status: response.status(), failure: String(error) };
+            },
+          );
+        }
+      });
+      async function reloadAfterHealth() {
+        // Settle this document's fallback before WebKit starts tearing it down.
+        await expect.poll(() => healthCompletion).toEqual({ status: 200, failure: null });
+        healthCompletion = undefined;
+        await page.reload();
+      }
       page.on('pageerror', (e) => errors.push(e.message));
       await page.setViewportSize({
         width: info.project.name.startsWith('mobile') ? 320 : 1280,
@@ -481,8 +500,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         },
         { inventory, preparationId },
       );
-      await page.waitForLoadState('networkidle');
-      await page.reload();
+      await reloadAfterHealth();
       const assign = page.getByRole('button', { name: actionLabel });
       await expect(assign).toBeEnabled();
       const settingsPanel = await settingsHome(page);
@@ -504,8 +522,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         page.getByText('Setup could not be confirmed. Retry to recover the same request.'),
       ).toBeVisible();
       setupUnavailable = false;
-      await page.waitForLoadState('networkidle');
-      await page.reload();
+      await reloadAfterHealth();
       await page.getByRole('button', { name: actionLabel }).click();
       await expect(page).toHaveURL(new RegExp(`/chat/${boundId}$`));
       expect(calls).toHaveLength(2);
