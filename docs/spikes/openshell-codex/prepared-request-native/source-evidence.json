@@ -80,10 +80,14 @@
     {
       "file": "native-skill-completion-fixture.patch",
       "sha256": "311ea0b1b11b111bf24ff82c849b1dd015344df4b31e127756f0c266e24fabf9"
+    },
+    {
+      "file": "native-linux-literal-globs.patch",
+      "sha256": "ed346421178aa1144668d4d0ab2613391140095ab13ecdd8d89208974e6ea685"
     }
   ],
-  "sourceTree": "9553a064fd80dd4955028e79d66148d31f5c1f64",
-  "localSourceCommit": "a55dca6698828e414e0ebd316bb8bf3ff2943b8c",
+  "sourceTree": "6e9df0a9a29a18d4982c49b13457eb9bcfaab690",
+  "localSourceCommit": "a984645f8b34d706242e981c72dd3e5f9429fec7",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -108,7 +112,8 @@
     "e673127f21b000346dfc35d4604030d7447cf6c0",
     "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
     "476400255d18e172d6579a49cfe071538d8fecff",
-    "a55dca6698828e414e0ebd316bb8bf3ff2943b8c"
+    "a55dca6698828e414e0ebd316bb8bf3ff2943b8c",
+    "a984645f8b34d706242e981c72dd3e5f9429fec7"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -118,44 +123,56 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "Fixture-only duplicate completion-wait correction; no native production source changed. Exact new-source CI required.",
+    "scope": "Conservative Linux launch-time literal GlobPattern expansion in actual bwrap owner; no changes to original wildcard matching, per-read policy, original Core approval fixtures or guards.",
     "localFocused": {
-      "status": "not_run_new_tree",
-      "reason": "Broad Core fixture belongs in existing CI; source-equivalence and scoped rustfmt check only.",
-      "format": "Rust1.95 scoped check passed; pre-existing stable imports_granularity warning retained."
+      "status": "new_linux_cases_not_run_on_mac",
+      "newLinuxCases": 9,
+      "format": "Scoped Rust1.95 rustfmt check passed; original imports_granularity warning retained.",
+      "dynamicGreenClaimed": false
     },
     "ci": {
       "status": "pending_new_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
+      "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
-      "previousRun": 39094032703,
-      "previousSourceTree": "7407c99d2b1fe8a9b6bfffb8896f12c7fdd93db4",
+      "previousRun": 39100230330,
+      "previousSourceTree": "9553a064fd80dd4955028e79d66148d31f5c1f64",
       "previousObservedResults": {
         "linux": {
-          "passed": 5470,
-          "failed": 3,
-          "skipped": 8
+          "passed": 5471,
+          "failed": 2,
+          "skipped": 8,
+          "skillFixture": "passed0.502s"
         },
         "macos": {
-          "passed": 5479,
-          "failed": 3,
-          "skipped": 27
+          "conclusion": "cancelled90min",
+          "recordedPassed": 4478,
+          "selected": 5482,
+          "announcedSkipped": 27,
+          "finalSummary": false,
+          "remainingFixtureOutcomes": "unknown"
         }
       },
       "zeroNativeSkipsClaimed": false
     },
-    "fixtureRegression": {
-      "sourceCommit": "a55dca6698828e414e0ebd316bb8bf3ff2943b8c",
-      "failingOnBothPlatforms": [
-        "suite::skill_approval::shell_zsh_fork_skill_scripts_ignore_declared_permissions"
+    "literalContract": {
+      "accepted": "Resolved UTF8 literal regular files or clean first absence after verified real directory prefixes; all aliases refuse.",
+      "unsupported": [
+        "directories",
+        "special files",
+        "braces or backslash in literal spelling",
+        "nonUTF8 paths",
+        "unexpected metadata errors"
       ],
-      "observedFailure": "timeout in the unchanged skill fixture on both platforms",
-      "dynamicIsolation": false,
-      "assertionsPreserved": 6,
-      "helpersConfigGuardsBytesPreserved": true,
-      "green": "pending exact-source CI",
-      "staticDiagnosis": "helper consumes TurnComplete before returning None; sole caller redundantly waits again"
+      "sharedDeduplicatedBound": 8192,
+      "someZeroAndOriginalWildcardBehaviorPreserved": true,
+      "filesystemAtomicityClaimed": false,
+      "futureNameReservationClaimed": false
+    },
+    "independentReview": {
+      "reviewer": "native_safety_reaudit /gpt-6.1-sol",
+      "result": "No narrow source blocker under existing prelaunch-match contract; static only."
     },
     "testCountsOverlap": true
   },
@@ -478,6 +495,53 @@
           "actualArchiveFetchAndNativeHelperLinking": "pending CI",
           "sourcePatchCountUnchanged": 18
         }
+      }
+    },
+    {
+      "sourceTree": "9553a064fd80dd4955028e79d66148d31f5c1f64",
+      "localSourceCommit": "a55dca6698828e414e0ebd316bb8bf3ff2943b8c",
+      "patchCount": 19,
+      "checks": {
+        "scope": "Fixture-only duplicate completion-wait correction; no native production source changed. Exact new-source CI required.",
+        "localFocused": {
+          "status": "not_run_new_tree",
+          "reason": "Broad Core fixture belongs in existing CI; source-equivalence and scoped rustfmt check only.",
+          "format": "Rust1.95 scoped check passed; pre-existing stable imports_granularity warning retained."
+        },
+        "ci": {
+          "status": "pending_new_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "previousRun": 39094032703,
+          "previousSourceTree": "7407c99d2b1fe8a9b6bfffb8896f12c7fdd93db4",
+          "previousObservedResults": {
+            "linux": {
+              "passed": 5470,
+              "failed": 3,
+              "skipped": 8
+            },
+            "macos": {
+              "passed": 5479,
+              "failed": 3,
+              "skipped": 27
+            }
+          },
+          "zeroNativeSkipsClaimed": false
+        },
+        "fixtureRegression": {
+          "sourceCommit": "a55dca6698828e414e0ebd316bb8bf3ff2943b8c",
+          "failingOnBothPlatforms": [
+            "suite::skill_approval::shell_zsh_fork_skill_scripts_ignore_declared_permissions"
+          ],
+          "observedFailure": "timeout in the unchanged skill fixture on both platforms",
+          "dynamicIsolation": false,
+          "assertionsPreserved": 6,
+          "helpersConfigGuardsBytesPreserved": true,
+          "green": "pending exact-source CI",
+          "staticDiagnosis": "helper consumes TurnComplete before returning None; sole caller redundantly waits again"
+        },
+        "testCountsOverlap": true
       }
     }
   ]

@@ -193,12 +193,16 @@ jobs:
           CARGO_NET_OFFLINE: 'true'
         run: |
           set -euo pipefail
+          native_packages=(-p codex-core -p codex-http-client -p codex-state -p codex-api)
+          if [[ "$RUNNER_OS" == 'Linux' ]]; then
+            native_packages+=(-p codex-linux-sandbox)
+          fi
           env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
-            just test -p codex-core -p codex-http-client -p codex-state -p codex-api \
+            just test "${native_packages[@]}" \
             --test-threads 1 --retries 0 2>&1 | tee native-fixtures.log
       - name: Check native source formatting
         working-directory: .native-prepared-source/codex-rs
-        run: cargo fmt --check -p codex-core -p codex-http-client -p codex-state -p codex-api
+        run: cargo fmt --check -p codex-core -p codex-http-client -p codex-state -p codex-api -p codex-linux-sandbox
       - name: Retain exact-source fixture evidence
         if: always()
         uses: actions/upload-artifact@v7
