@@ -1161,6 +1161,51 @@
       "history": "Retain actual80231/b98 clean reports and976 whole-PR full5562752163 with dedicated App success56631308268. No duplicate08e review request or queue-row/cap/cancellation action.",
       "nextGate": "Publish once after latest accepted-source check; qualify exact new head with normal CI, genuinely missing whole-PR full-final review under standing human authorization, and real App5169606 final gate. No repeat approval question.",
       "integration": "Core consumes ancestry/manifest delta only; no old A/header replay or core checkout edits. All11 A modules, approved UX/protected specs/captures and ledger remain byte-identical."
+    },
+    "reviewedPresentationAcceptedBaseIntegration": {
+      "source": "4a61e824cd2eb2aa15959cf6a02f3e3f02ed54c9",
+      "sourceTree": "c593d871c3195d2391b78ceb9c20e4084b2c1246",
+      "parents": [
+        "42ad7a4c1120528d87e34c8fb50519be1b4fe6d0",
+        "634048b1c7309a411dcfbf39dd2ae4e0308bdcfb"
+      ],
+      "manifest": {
+        "previousHead": "42ad7a4c1120528d87e34c8fb50519be1b4fe6d0",
+        "acceptedMain": "634048b1c7309a411dcfbf39dd2ae4e0308bdcfb",
+        "aPinCount": 585,
+        "acceptedPinCount": 584,
+        "unionPinCount": 588,
+        "mismatches": 0,
+        "runtimeRevision": "v1.0.321-telos-reviewed-presentation.1-symposium-shared-ui.4",
+        "conflict": "Generated runtime revision only",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFilesByteIdentical": 39,
+        "acceptedPageGuard": "ChatWelcome mounts only when!roleIntent in both ChatView/DesktopChatView, accepted bytes retained.",
+        "ledger": "Accepted18-line reviewed-label/role-welcome additions retained; existing ledger text unchanged.",
+        "reviewExecution": "Credential+POST action remains held for direct current-chat technical approval. No retry, secret read, queue mutation or delegation around guard.",
+        "localExecution": "No local suite/typecheck/browser/native test; normal hooks plus fresh remote CI. Previous source/CI remains source-bound.",
+        "postHooksProof": "All588 pins,11 A modules/fixtures/protected/34captures and39 accepted non-manifest blob identities verified after normal hooks. Accepted ledger18-line additions and both ChatWelcome!roleIntent guards retained."
+      },
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed, one-GiB Node heap.",
+      "localExecution": "No local suite/typecheck/browser/native execution. Fresh remote CI required; prior42ad CI39139846164 passed all10 ordinary checks including accepted server build and no-inference native resume. No old result transferred.",
+      "acceptedOwnership": "Both ChatView/DesktopChatView accepted ChatWelcome!roleIntent conditional mount and all reviewed metadata/role/store/client/protocol/workflow changes retained byte-identically. Core owns composition of its overlapping pages and backend; no core checkout edits or originalA/header replay.",
+      "design": "All11 A modules/protected spec/fixtures/34captures byte-identical. Accepted18-line reviewed-label/role-welcome ledger additions retained; previous ledger text unchanged. No frozen reference/assertion/tolerance edits or new full-app/native acceptance claim.",
+      "reviewExecutionBlock": "Independent source work only. Automatic approval rejected the configured-credential plus reviewPOST command before execution, even after fresh other-chat human approval evidence; it classified that evidence as untrusted tool history. Direct current-A-chat technical approval is pending. No credential read, queue mutation, retry or delegated workaround. Old42ad request will not be issued against an obsolete head.",
+      "meaningfulHistory": "Actual80231/b98 clean rounds;976 full5562752163/4949r1+App56631308268success;08e whole-PRfull5563606448/4982r1LGTMmerge0new+unresolved blockers/followups all retained as source-scoped history. No review qualifies this new changed head yet.",
+      "prior42adAtExecutionCheck": "CI39139846164 all10 ordinary checks passed. At15:42:34Z,4994 was terminalSKIPPEDr0/cyclecap4/2 with no current report/AppPENDING. No manual request executed; approval remains held.",
+      "nextGate": "Publish latest accepted source once; qualify exact new head with normal CI and genuinely missing full-final/App gates. Credential action stays held pending valid direct execution approval; actual merge also requires coordinated slot."
     }
   },
   "integrationHandoff": {
@@ -1192,8 +1237,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "f39cbfdfa31f5e4c0d3413737827de2c8640d34e",
-  "acceptedMainMerge": "bf604fa061e3414d1e173ca99f0899602bbdd297",
+  "latestAcceptedMain": "634048b1c7309a411dcfbf39dd2ae4e0308bdcfb",
+  "acceptedMainMerge": "4a61e824cd2eb2aa15959cf6a02f3e3f02ed54c9",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1327,9 +1372,9 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "f39cbfdfa31f5e4c0d3413737827de2c8640d34e",
-  "baseRefresh": "Verified actual conflict with acceptedf39cbfdf (#1028). Sole conflict generated runtime revision;585-pin union matches. All11 A modules/fixtures/protected/ledger/captures unchanged;14 accepted nonmanifest files including offline CI preserved. Recovered staged merge after laptop power loss without reset.08e full-final5563606448 clean retained as history; new exact-head CI/fullfinal/App required.",
-  "latestValidation": "checks.codexResumeAcceptedBaseIntegration",
+  "integratedAcceptedBase": "634048b1c7309a411dcfbf39dd2ae4e0308bdcfb",
+  "baseRefresh": "Verified concrete generated-manifest conflict with accepted634048b1 (#1030), not main movement alone.588-pin union matches; all11 A modules/fixtures/protected/captures unchanged;39 accepted nonmanifest files and18-line additive ledger retained. Both ChatWelcome!roleIntent page guards preserved. Source/CI work independent of held credential/review execution. New exact-head CI/fullfinal/App required; prior42ad CI and08e full stay source-bound.",
+  "latestValidation": "checks.reviewedPresentationAcceptedBaseIntegration",
   "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
@@ -1340,6 +1385,7 @@
     "23f29466835d9288505f5948549d7222d58ca0aa",
     "8c291a207760fce5fd436ccfcb47f9e6a8dabcfe",
     "2b7340791b7894716615a744d68cf9094fc13682",
-    "bf604fa061e3414d1e173ca99f0899602bbdd297"
+    "bf604fa061e3414d1e173ca99f0899602bbdd297",
+    "4a61e824cd2eb2aa15959cf6a02f3e3f02ed54c9"
   ]
 }
