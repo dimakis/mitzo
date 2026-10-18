@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { createTelosSourceApprovalData } from './fixtures/telos-source-approval-data.js';
+import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 import { TelosWorkAdvisorDraft } from '../telos-work-advisor-draft.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { reviewTelosWorkRoleContext } from '../telos-work-role-review.js';
@@ -19,11 +19,8 @@ afterEach(() => {
     .forEach((close) => close());
 });
 function fixture(purpose: 'child' | 'refine' = 'child') {
-  const f = createTelosSourceApprovalData();
+  const f = createTelosCanonicalData();
   cleanups.push(() => f.close());
-  const db = new Database(f.dbPath);
-  db.exec("ALTER TABLE items ADD COLUMN categories TEXT DEFAULT '[]'");
-  db.close();
   const binding = {
     accountId: 'offline',
     accountLabel: 'Offline',
@@ -121,7 +118,7 @@ it.each(['privacy', 'permission', 'bytes'] as const)(
     const r = fixture();
     const db = new Database(r.f.dbPath);
     db.prepare(
-      "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories) SELECT 'material-owner',NULL,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories FROM items WHERE id='studio'",
+      "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,first_seen,last_seen,categories) SELECT 'material-owner',NULL,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,first_seen,last_seen,categories FROM items WHERE id='studio'",
     ).run();
     const material = r.f.artifacts.save({
       itemId: 'material-owner',
@@ -200,7 +197,7 @@ it('refuses to return compiled preview bytes after an unrelated material owner b
   const r = fixture();
   const db = new Database(r.f.dbPath);
   db.prepare(
-    "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories) SELECT 'preview-material-owner',NULL,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories FROM items WHERE id='studio'",
+    "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,first_seen,last_seen,categories) SELECT 'preview-material-owner',NULL,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,first_seen,last_seen,categories FROM items WHERE id='studio'",
   ).run();
   const material = r.f.artifacts.save({
     itemId: 'preview-material-owner',
@@ -516,7 +513,7 @@ it.each(['parent', 'sibling'] as const)(
     if (owner === 'sibling') {
       const db = new Database(r.f.dbPath);
       db.prepare(
-        "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories) SELECT 'sibling',NULL,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,categories FROM items WHERE id='studio'",
+        "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,first_seen,last_seen,categories) SELECT 'sibling',NULL,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,created_at,updated_at,first_seen,last_seen,categories FROM items WHERE id='studio'",
       ).run();
       db.close();
     }

@@ -96,10 +96,14 @@
     {
       "file": "native-parent-bindings.patch",
       "sha256": "8ba1a20b76d04bfabefb8f3cca93d55148362d73e7cccc7f12b5d969eb9eaa33"
+    },
+    {
+      "file": "native-selected-network-profile.patch",
+      "sha256": "3039055f2ff018e0946e10a517b270d88160a1561db427da3987735c574b73a1"
     }
   ],
-  "sourceTree": "b4f196081c383cf9dcf2062d10b8a7281fbd7819",
-  "localSourceCommit": "5ad3d2fc441933f3e83b9532b486a98f44c84559",
+  "sourceTree": "7876c1360f3610f33b91cf239d566636d284f787",
+  "localSourceCommit": "d8cc5471da23683065474f8eec7e66b3d59168ac",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -128,7 +132,8 @@
     "a984645f8b34d706242e981c72dd3e5f9429fec7",
     "30b5be3e0eb23c6d4acc6218be87a278e7954f49",
     "88240eb5125987afaadee7429df80cda315e257d",
-    "5ad3d2fc441933f3e83b9532b486a98f44c84559"
+    "5ad3d2fc441933f3e83b9532b486a98f44c84559",
+    "d8cc5471da23683065474f8eec7e66b3d59168ac"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -138,7 +143,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "Retained twenty-patch source plus typed native approval routing, inert fresh-user provenance, original configuration/policy bindings and first restricted-launch custody; no child consumer.",
+    "scope": "Retained twenty-three-patch inert native source plus selected-environment network-profile compile correction; no C2 metadata or child consumer.",
     "localFocused": {
       "status": "new_linux_cases_not_run_on_mac",
       "newLinuxCases": 9,
@@ -146,7 +151,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_23_patch_source",
+      "status": "pending_24_patch_source_after_23_patch_build_failure",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -176,7 +181,17 @@
         }
       },
       "zeroNativeSkipsClaimed": false,
-      "published20PatchRun": 39121183011
+      "published20PatchRun": 39121183011,
+      "previous23PatchRun": {
+        "run": 39125280789,
+        "sourceTree": "b4f196081c383cf9dcf2062d10b8a7281fbd7819",
+        "platforms": {
+          "linux": "helper build E0609 before fixtures",
+          "macos": "helper build E0609 before fixtures"
+        },
+        "nativeFixtureExecutionStarted": false,
+        "testCountsAvailable": false
+      }
     },
     "literalContract": {
       "accepted": "Resolved UTF8 literal regular files or clean first absence after verified real directory prefixes; all aliases refuse.",
@@ -201,7 +216,8 @@
       "stages": {
         "routing": "30b5be3e0eb23c6d4acc6218be87a278e7954f49",
         "provenance": "88240eb5125987afaadee7429df80cda315e257d",
-        "bindings": "5ad3d2fc441933f3e83b9532b486a98f44c84559"
+        "bindings": "5ad3d2fc441933f3e83b9532b486a98f44c84559",
+        "selectedEnvironmentCorrection": "d8cc5471da23683065474f8eec7e66b3d59168ac"
       },
       "sourceReviewedByRootAndIndependentSol61": true,
       "sourceTreeReconstructedFromAll23Patches": true,
@@ -210,12 +226,23 @@
       "rustTestsExecutedOnTheseStages": false,
       "compiled": false,
       "newLocalChecks": "Scoped Rust1.95 formatting/source preservation only",
-      "physicalEligibility": "Original RequireEscalated, requested concrete restricted sandbox with denied reads, Restricted network in requested/canonical/transformed profiles; unsupported snapshots/grants/proxies/remote paths refuse optional provenance",
+      "physicalEligibility": "Original RequireEscalated, requested concrete restricted sandbox with denied reads, Restricted network in selected/requested/canonical/transformed profiles; unsupported snapshots/grants/proxies/remote paths refuse optional provenance",
       "hasChildConsumer": false,
       "hasFinalSessionCas": false,
       "sameRequestHookMetadataImplemented": false,
       "guardianFixtureCorrectionIncluded": false,
-      "ordinaryPreparedRequestAuthorityEstablished": false
+      "ordinaryPreparedRequestAuthorityEstablished": false,
+      "sourceTreeReconstructedFromAll24Patches": true,
+      "original23PatchChecksumsUnchanged": true,
+      "compileCorrection": {
+        "candidate": "ff9a3f25c8e5e74e08e1a4973372b9a7a0d8fa72",
+        "integrated": "d8cc5471da23683065474f8eec7e66b3d59168ac",
+        "c2Excluded": true,
+        "scope": "Replace nonexistent EnvironmentConfig.permissions access with actual selected TurnEnvironment.permission_profile getter; all four network policies must be Restricted",
+        "regressionAuthoredFirst": true,
+        "rustTestsExecuted": false,
+        "compileQualificationPending": true
+      }
     }
   },
   "runtimeQualified": false,

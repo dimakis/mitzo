@@ -138,11 +138,12 @@ separate user authorizations described in the Symposium handover.
 
 ## Inert native approval source stages
 
-The ordered bundle now contains 23 patches. The original twenty checksums are
-unchanged. The final three retain typed extension routing, fresh user provenance
+The ordered bundle now contains 24 patches. The original twenty-three checksums
+are unchanged. Patches 21–23 retain typed extension routing, fresh user provenance
 from the actual approval owner, and original configuration/policy plus actual
 restricted-launch bindings. Root and an independent reviewer inspected each
-stage; reconstruction yields tree `b4f196081c383cf9dcf2062d10b8a7281fbd7819`.
+stage; the corrected bundle reconstructs tree
+`7876c1360f3610f33b91cf239d566636d284f787`.
 
 The original policy flags, hooks, contributors and protected fixture assertions
 remain. Only an actual fresh user approval can produce the sealed evidence;
@@ -155,7 +156,18 @@ This source has no child consumer, same-request hook-match metadata or final
 Session admission CAS. It cannot reuse parent approval yet. The existing
 native CI job now includes the changed Guardian reviewer crate on both platforms;
 its shell-recording coverage passed 19 cases locally, which verifies package
-selection only. Rust compilation and fixture qualification remain pending CI.
+selection only. The 23-patch CI run `39125280789` failed on both platforms during helper
+compilation: a new check accessed nonexistent `EnvironmentConfig.permissions`.
+No native fixtures ran, so that run has no native pass/fail/skip counts.
+
+Patch 24 uses the selected `TurnEnvironment.permission_profile()` owner and
+requires Restricted networking in selected, requested, canonical and transformed
+profiles. Existing proxy, managed-network, snapshot, grant and sandbox exclusions
+remain. A selected-environment regression and four-position matrix were authored
+first; only scoped formatting and source checks ran locally. Root and independent
+source review missed the original field error; neither review established compile
+qualification. Compilation and fixture qualification of the correction remain
+pending exact-source CI. Unpublished C2 metadata changes are excluded.
 The separately proposed Guardian terminal-test correction is excluded.
 
 This ordinary shell compatibility work creates no prepared Responses capability,
