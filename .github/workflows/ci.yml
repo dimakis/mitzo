@@ -283,8 +283,22 @@ jobs:
           sudo install -d -o "$USER" /sandbox
           python3 -I docs/spikes/openshell-codex/knowledge-write-scope-smoke.py
 
-      - name: Build workspace packages
-        run: npx tsc -b packages/protocol packages/harness packages/client
+      - name: Build server and verify reviewed runtime artifacts
+        run: npm run build:server
+
+      - name: Verify pinned Codex resume without inference
+        id: codex-resume
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(cat docs/spikes/openshell-codex/runtime-codex-version)
+          RUNTIME_DIR="$RUNNER_TEMP/codex-resume-contract"
+          mkdir -p "$RUNTIME_DIR"
+          gh release download "rust-v$VERSION" --repo openai/codex \
+            --pattern codex-x86_64-unknown-linux-musl.tar.gz --dir "$RUNTIME_DIR"
+          tar -xzf "$RUNTIME_DIR/codex-x86_64-unknown-linux-musl.tar.gz" -C "$RUNTIME_DIR"
+          python3 scripts/test-codex-metadata-resume.py \
+            --codex "$RUNTIME_DIR/codex-x86_64-unknown-linux-musl"
 
       - name: Verify reviewed daily quote catalogue
         id: quotes
@@ -374,7 +388,8 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          if [ "${{ steps.lint.outcome }}" = "failure" ] || \
+          if [ "${{ steps.codex-resume.outcome }}" = "failure" ] || \
+             [ "${{ steps.lint.outcome }}" = "failure" ] || \
              [ "${{ steps.quotes.outcome }}" = "failure" ] || \
              [ "${{ steps.format.outcome }}" = "failure" ] || \
              [ "${{ steps.design.outcome }}" = "failure" ] || \

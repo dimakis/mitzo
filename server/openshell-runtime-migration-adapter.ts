@@ -250,6 +250,7 @@ async function prepareRetainedRuntimeMigrationFenced(
             await client.initialize();
             const response = (await client.request('thread/resume', {
               threadId: identity.thread,
+              excludeTurns: true,
               cwd: candidate.runtime.workdir,
               model: input.binding.model,
               modelProvider: 'openshell',
