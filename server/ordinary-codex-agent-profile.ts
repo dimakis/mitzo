@@ -2,7 +2,7 @@ import { resolveChatAgentProfile } from './agent-library-binding.js';
 import {
   AgentLibraryVersionSchema,
   PROFILE_BUILDER_ID,
-  PROFILE_BUILDER_REVISION,
+  PROFILE_BUILDER_REVISIONS,
   TOOL_BUILDER_ID,
   TOOL_BUILDER_REVISION,
   type AgentLibraryVersion,
@@ -26,13 +26,11 @@ export function readOrdinaryCodexAgentProfile(
 export function ordinaryCodexAgentProfiles(
   versions: readonly AgentLibraryVersion[],
 ): AgentLibraryVersion[] {
-  const builtin = readBuiltinAgentLibraryProfile({
-    kind: 'builtin',
-    profileId: PROFILE_BUILDER_ID,
-    revision: PROFILE_BUILDER_REVISION,
-  })!;
+  const builtins = PROFILE_BUILDER_REVISIONS.map((revision) =>
+    readBuiltinAgentLibraryProfile({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision })!,
+  );
   return [
-    builtin,
+    ...builtins,
     readBuiltinAgentLibraryProfile({
       kind: 'builtin',
       profileId: TOOL_BUILDER_ID,

@@ -131,6 +131,10 @@ it captures approved input and the exact authenticated operator across awaited
 approval. Logout, cancellation, ownership changes or source drift prevent the
 call. Publication does not select a tool for any profile or running session.
 
+Custom invocation fields are contract data. A field named `file_path` does not
+trigger native filesystem path resolution. Project pre/post hooks still run;
+their explicit input updates follow the normal validation and approval path.
+
 ## Reusable Builder in ordinary chat
 
 The code-owned `mitzo-tool-builder` profile explicitly selects six bounded tools:

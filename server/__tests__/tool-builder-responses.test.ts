@@ -206,10 +206,16 @@ it.each(['openai', 'google-vertex'] as const)(
   },
 );
 
-it.each(['openai', 'google-vertex'] as const)(
-  'admits published custom tools through actual %s exposure, dispatch and cold resume',
-  async (provider) => {
-    const f = fixture();
+it.each([
+  ['openai', 'text'],
+  ['google-vertex', 'text'],
+  ['openai', 'file_path'],
+  ['google-vertex', 'file_path'],
+] as const)(
+  'admits published custom tools through actual %s %s exposure, dispatch and cold resume',
+  async (provider, field) => {
+    const f = fixture(':memory:', field);
+    const toolInput = (text: string) => ({ [field]: field === 'file_path' ? 'a.txt' : text });
     const root = await mkdtemp(join(tmpdir(), 'mitzo-builder-provider-'));
     roots.push(root);
     const registry = new SessionRegistry();
@@ -321,6 +327,16 @@ it.each(['openai', 'google-vertex'] as const)(
             ).toBe(true);
           }
           f.execute.mockClear();
+          if (field === 'file_path') {
+            expect(
+              await runner.executeTool(
+                { type: 'tool_use', id: 'ordinary-data', name: wire, input: toolInput('abc') },
+                options.session.abortController.signal,
+              ),
+            ).toMatchObject({ is_error: false, content: '{"length":5}' });
+            expect(f.execute.mock.calls.at(-1)?.[0]).toEqual({ file_path: 'a.txt' });
+            f.execute.mockClear();
+          }
           if (!resume) {
             captured.approve.mockImplementationOnce(async (_name, input) => {
               revokeAuthSession(auth);
@@ -329,7 +345,7 @@ it.each(['openai', 'google-vertex'] as const)(
             expect(
               (
                 await runner.executeTool(
-                  { type: 'tool_use', id: 'revoked', name: wire, input: { text: 'abc' } },
+                  { type: 'tool_use', id: 'revoked', name: wire, input: toolInput('abc') },
                   options.session.abortController.signal,
                 )
               ).is_error,
@@ -343,17 +359,20 @@ it.each(['openai', 'google-vertex'] as const)(
           }
           expect(
             await runner.executeTool(
-              { type: 'tool_use', id: 'invoke', name: wire, input: { text: 'abcd' } },
+              { type: 'tool_use', id: 'invoke', name: wire, input: toolInput('abcd') },
               options.session.abortController.signal,
             ),
-          ).toMatchObject({ is_error: false, content: '{"length":4}' });
+          ).toMatchObject({
+            is_error: false,
+            content: field === 'file_path' ? '{"length":5}' : '{"length":4}',
+          });
           expect(f.execute).toHaveBeenCalledOnce();
           if (resume) {
             f.drift();
             expect(
               (
                 await runner.executeTool(
-                  { type: 'tool_use', id: 'drift', name: wire, input: { text: 'abc' } },
+                  { type: 'tool_use', id: 'drift', name: wire, input: toolInput('abc') },
                   options.session.abortController.signal,
                 )
               ).is_error,

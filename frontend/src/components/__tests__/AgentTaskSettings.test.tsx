@@ -197,9 +197,14 @@ it('does not erase saved execution intent when unavailable settings are merely r
   );
 });
 
-it.each([false, true])(
-  'restores the saved route without dirtying input when target IDs collide: %s',
-  async (collidingTargets) => {
+it.each([
+  { revision: 0, dirty: true, collidingTargets: false },
+  { revision: 0, dirty: true, collidingTargets: true },
+  { revision: 1, dirty: false, collidingTargets: false },
+  { revision: 1, dirty: false, collidingTargets: true },
+])(
+  'restores the retained route at revision $revision without changing input when target IDs collide: $collidingTargets',
+  async ({ revision, dirty, collidingTargets }) => {
     const subscription = {
       accountId: 'subscription',
       provider: 'openai-codex',
@@ -243,8 +248,8 @@ it.each([false, true])(
           modelPolicyRole: 'agent',
         },
       }),
-      expectedRevision: 1,
-      dirty: false,
+      expectedRevision: revision,
+      dirty,
       execution: {
         account,
         harness: 'responses' as const,
@@ -281,7 +286,8 @@ it.each([false, true])(
       ).toBe('local'),
     );
     expect(JSON.parse(screen.getByLabelText('Copy').textContent!)).toMatchObject({
-      dirty: false,
+      expectedRevision: revision,
+      dirty,
       idempotencyKey: seed.idempotencyKey,
     });
     fireEvent.click(screen.getByRole('button', { name: /^Agent settings/ }));
@@ -289,7 +295,8 @@ it.each([false, true])(
     expect(screen.getByText('Runs with Mitzo Responses')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(JSON.parse(screen.getByLabelText('Copy').textContent!)).toMatchObject({
-      dirty: false,
+      expectedRevision: revision,
+      dirty,
       idempotencyKey: seed.idempotencyKey,
       execution: seed.execution,
       runtime: { accountReference: account, execution: { location: 'local', targetId: 'mac' } },

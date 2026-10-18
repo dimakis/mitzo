@@ -78,11 +78,12 @@ export class NativeHooks {
       input: Record<string, unknown>,
       forcePrompt: boolean,
     ) => Promise<{ content: string; isError: boolean }>,
+    options: { normalizeFilePath?: boolean } = {},
   ): Promise<{ content: string; isError: boolean }> {
     let executed = false;
     try {
       const normalized =
-        typeof input.file_path === 'string'
+        options.normalizeFilePath !== false && typeof input.file_path === 'string'
           ? { ...input, file_path: resolve(this.cwd, input.file_path) }
           : input;
       const pre = await this.run('PreToolUse', { tool_name: name, tool_input: normalized }, signal);

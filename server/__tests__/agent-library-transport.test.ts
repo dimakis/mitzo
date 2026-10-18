@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
-import { profileBuilderDefinition } from '@mitzo/protocol';
+import {
+  profileBuilderDefinition,
+  PROFILE_BUILDER_REVISION,
+  PROFILE_BUILDER_ID,
+} from '@mitzo/protocol';
 import { afterEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
@@ -17,6 +21,7 @@ vi.mock('../symposium-custodian-mode.js', () => ({
 }));
 import {
   bindAgentLibraryTransport,
+  readBuiltinAgentLibraryProfile,
   readAgentLibraryProfile,
   captureAgentLibraryAuthorization,
   withAgentLibraryRecoveryAuthorization,
@@ -111,7 +116,7 @@ it('resolves the authenticated built-in builder as a pinned profile without cata
     bindAgentLibraryTransport('builder', { id: 'login', expiresAt: Date.now() + 10000 }),
   );
   const builder = await readAgentLibraryProfile(
-    { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 1 },
+    { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: PROFILE_BUILDER_REVISION },
     'builder',
   );
   expect(builder?.definition.name).toBe('Agent Builder');
@@ -121,7 +126,11 @@ it('resolves the authenticated built-in builder as a pinned profile without cata
   expect(mocks.request).not.toHaveBeenCalled();
   expect(
     await readAgentLibraryProfile(
-      { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 2 },
+      {
+        kind: 'builtin',
+        profileId: 'mitzo-profile-builder',
+        revision: PROFILE_BUILDER_REVISION + 1,
+      },
       'builder',
     ),
   ).toBeNull();
@@ -184,3 +193,21 @@ it.each([1, 2])(
     );
   },
 );
+
+it('retains the exact builtin revision one guidance for unsent historical Builder drafts', () => {
+  const historical = readBuiltinAgentLibraryProfile({
+    kind: 'builtin',
+    profileId: PROFILE_BUILDER_ID,
+    revision: 1,
+  });
+  expect(historical?.revision).toBe(1);
+  expect(historical?.definition.instructions).not.toContain('AgentProposeTask');
+  expect(historical?.definition.instructions).toContain('SymposiumProposeProfile');
+  const current = readBuiltinAgentLibraryProfile({
+    kind: 'builtin',
+    profileId: PROFILE_BUILDER_ID,
+    revision: PROFILE_BUILDER_REVISION,
+  });
+  expect(current?.definition.instructions).toContain('AgentProposeTask');
+  expect(current?.contentHash).not.toBe(historical?.contentHash);
+});

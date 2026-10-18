@@ -431,6 +431,34 @@ print(json.dumps({"ok": True}))
     }
   });
 
+  it('passes numeric priority to the backend without changing the legacy actions', async () => {
+    writeFileSync(
+      TODO_SCRIPT,
+      `import json, sys
+assert sys.argv[1:] == ['--action', 'priority', 'item-1', '7']
+print(json.dumps({'ok': True}))
+`,
+    );
+    const res = await request(app)
+      .post('/api/todos/item-1/action')
+      .send({ action: 'priority', priority: 7 })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it.each([undefined, 0, 11, 7.5, true, '7'])(
+    'rejects invalid priority %s before invoking the backend',
+    async (priority) => {
+      writeFileSync(TODO_SCRIPT, 'raise RuntimeError("must not execute")');
+      const res = await request(app)
+        .post('/api/todos/item-1/action')
+        .send({ action: 'priority', priority })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(400);
+    },
+  );
+
   it('POST /api/todos/:id/action — star returns success', async () => {
     const res = await request(app)
       .post('/api/todos/item-1/action')

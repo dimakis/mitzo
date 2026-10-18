@@ -4661,6 +4661,9 @@ app.post('/api/todos/:id/action', async (req, res) => {
     if (body.data.action === 'snooze' && body.data.days) {
       args.push(String(body.data.days));
     }
+    if (body.data.action === 'priority' && body.data.priority !== undefined) {
+      args.push(String(body.data.priority));
+    }
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,

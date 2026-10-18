@@ -4,6 +4,7 @@ import {
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISION,
   profileBuilderDefinition,
+  profileBuilderDefinitionForRevision,
   AgentProfileSelectionSchema,
   agentProfileLabel,
   type AgentLibraryVersion,
@@ -144,6 +145,20 @@ function LibraryChatAgentProfilePicker({
                 },
               ]
             : catalog.versions;
+        if (
+          requested?.kind === 'builtin' &&
+          requested.profileId === PROFILE_BUILDER_ID &&
+          requested.revision !== PROFILE_BUILDER_REVISION
+        ) {
+          const historical = profileBuilderDefinitionForRevision(requested.revision);
+          if (historical)
+            available.push({
+              kind: 'builtin',
+              profileId: PROFILE_BUILDER_ID,
+              revision: requested.revision,
+              definition: historical,
+            });
+        }
         setVersions(available);
         if (
           requested &&

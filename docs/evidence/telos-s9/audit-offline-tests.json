@@ -1,0 +1,593 @@
+{
+  "numTotalTestSuites": 8,
+  "numPassedTestSuites": 8,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 49,
+  "numPassedTests": 49,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792276916854,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT17 partial: canonical source -> mounted HTTP -> typed client -> silent independent lead and immutable restart receipt",
+          "status": "passed",
+          "title": "CT17 partial: canonical source -> mounted HTTP -> typed client -> silent independent lead and immutable restart receipt",
+          "duration": 510.39245800000003,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT17 partial: definite stale context is rejected by actual HTTP/client before ordinary allocation",
+          "status": "passed",
+          "title": "CT17 partial: definite stale context is rejected by actual HTTP/client before ordinary allocation",
+          "duration": 370.57925,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT17 partial: lost committed HTTP response replays exactly after restart; changed input conflicts without allocation",
+          "status": "passed",
+          "title": "CT17 partial: lost committed HTTP response replays exactly after restart; changed input conflicts without allocation",
+          "duration": 410.6790000000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT18 partial: fresh Symposium allocation and Telos role setup share owners but retain separate workspaces, contexts and receipts",
+          "status": "passed",
+          "title": "CT18 partial: fresh Symposium allocation and Telos role setup share owners but retain separate workspaces, contexts and receipts",
+          "duration": 503.795333,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792276923043,
+      "endTime": 1792276924838.7954,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/tests/integration/telos-s9/accepted-boundaries.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps all 44 approved rows traceable without upgrading partial, red, planned or unauthorised evidence into acceptance",
+          "status": "passed",
+          "title": "keeps all 44 approved rows traceable without upgrading partial, red, planned or unauthorised evidence into acceptance",
+          "duration": 4.706708000000006,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792276931294,
+      "endTime": 1792276931298.7068,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/tests/integration/telos-s9/evidence-ledger.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT18 partial: ordinary admission, delivery ACKs, reply mappings and output references cannot cross Telos/Symposium sessions",
+          "status": "passed",
+          "title": "CT18 partial: ordinary admission, delivery ACKs, reply mappings and output references cannot cross Telos/Symposium sessions",
+          "duration": 599.21075,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT18 partial: native queue interrupt and terminal callbacks affect only their owning Telos/Symposium conversation",
+          "status": "passed",
+          "title": "CT18 partial: native queue interrupt and terminal callbacks affect only their owning Telos/Symposium conversation",
+          "duration": 497.08445800000004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792276925616,
+      "endTime": 1792276926713.0845,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/tests/integration/telos-s9/shared-effects.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT17/CT18 partial: real task dispatcher enforces retained Telos role scope without blocking unrelated Symposium work; review stays explicit",
+          "status": "passed",
+          "title": "CT17/CT18 partial: real task dispatcher enforces retained Telos role scope without blocking unrelated Symposium work; review stays explicit",
+          "duration": 559.0362500000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792276928716,
+      "endTime": 1792276929275.0361,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/tests/integration/telos-s9/task-boundary.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "confirms through real silent preparation and recovers linked joins without a command or second allocation",
+          "status": "passed",
+          "title": "confirms through real silent preparation and recovers linked joins without a command or second allocation",
+          "duration": 471.1027499999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses unverified capacity and denied confirmation before any join or reservation",
+          "status": "passed",
+          "title": "refuses unverified capacity and denied confirmation before any join or reservation",
+          "duration": 435.31337499999995,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "recovers crash after actual preparation before allocation recording from the original receipt",
+          "status": "passed",
+          "title": "recovers crash after actual preparation before allocation recording from the original receipt",
+          "duration": 504.8282079999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains allocation when access changes during preparation and requires fresh recovery authority",
+          "status": "passed",
+          "title": "retains allocation when access changes during preparation and requires fresh recovery authority",
+          "duration": 385.37737500000003,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "preserves the allocated session when membership linking conflicts across restart",
+          "status": "passed",
+          "title": "preserves the allocated session when membership linking conflicts across restart",
+          "duration": 381.7077919999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "freezes caller and authority inputs across awaits",
+          "status": "passed",
+          "title": "freezes caller and authority inputs across awaits",
+          "duration": 439.37300000000005,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "serializes identity through existing owners across concurrent coordinators",
+          "status": "passed",
+          "title": "serializes identity through existing owners across concurrent coordinators",
+          "duration": 526.4460000000004,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects settings absent from the retained assessment before recording a join",
+          "status": "passed",
+          "title": "rejects settings absent from the retained assessment before recording a join",
+          "duration": 391.0454580000005,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "honors cancellation before authority and after resolver without preparing a session",
+          "status": "passed",
+          "title": "honors cancellation before authority and after resolver without preparing a session",
+          "duration": 455.47504200000003,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "reauthorizes after a host resolver await before reserving the ordinary session",
+          "status": "passed",
+          "title": "reauthorizes after a host resolver await before reserving the ordinary session",
+          "duration": 386.67354200000045,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792276917702,
+      "endTime": 1792276922079.6736,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/server/__tests__/collaboration-joining-owner.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "stages retained context without dispatching, and delivers only the exact provider-accepted bytes",
+          "status": "passed",
+          "title": "stages retained context without dispatching, and delivers only the exact provider-accepted bytes",
+          "duration": 26.401374999999973,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "binds immutable delivery batches to admitted ordinary sessions and preserves independent recipients",
+          "status": "passed",
+          "title": "binds immutable delivery batches to admitted ordinary sessions and preserves independent recipients",
+          "duration": 14.504832999999962,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps reading silent until a later explicit command carries context and one reply origin",
+          "status": "passed",
+          "title": "keeps reading silent until a later explicit command carries context and one reply origin",
+          "duration": 21.240083999999968,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "reauthorizes frozen sources at each admission barrier and never ACKs a rejected preparation",
+          "status": "passed",
+          "title": "reauthorizes frozen sources at each admission barrier and never ACKs a rejected preparation",
+          "duration": 14.49591700000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "claims each pending delivery for only one ordinary command, including after restart",
+          "status": "passed",
+          "title": "claims each pending delivery for only one ordinary command, including after restart",
+          "duration": 14.730084000000033,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "refuses an overfull batch before hydrating later retained messages",
+          "status": "passed",
+          "title": "refuses an overfull batch before hydrating later retained messages",
+          "duration": 31.11629199999993,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "durably records provider acceptance before effects and recovers exact partial outcomes after restart",
+          "status": "passed",
+          "title": "durably records provider acceptance before effects and recovers exact partial outcomes after restart",
+          "duration": 15.021584000000075,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "does not recover uncertain dispatch without an exact durable provider ACK",
+          "status": "passed",
+          "title": "does not recover uncertain dispatch without an exact durable provider ACK",
+          "duration": 12.662083000000052,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "recovers each ACKed receipt independently when an earlier receipt became terminal",
+          "status": "passed",
+          "title": "recovers each ACKed receipt independently when an earlier receipt became terminal",
+          "duration": 16.521834000000013,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "preserves original hook references when no delivery owner is installed",
+          "status": "passed",
+          "title": "preserves original hook references when no delivery owner is installed",
+          "duration": 9.920832999999902,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps private stage/preparation/ACK payloads off client event and replay projections",
+          "status": "passed",
+          "title": "keeps private stage/preparation/ACK payloads off client event and replay projections",
+          "duration": 12.985125000000039,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "leaves unstaged ordinary commands and their context unchanged",
+          "status": "passed",
+          "title": "leaves unstaged ordinary commands and their context unchanged",
+          "duration": 9.685083000000077,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "composes through the real ordinary native driver: {\"lostAck\":false,\"base\":\"Preserved native application context\",\"revoke\":false,\"observerFails\":false}",
+          "status": "passed",
+          "title": "composes through the real ordinary native driver: {\"lostAck\":false,\"base\":\"Preserved native application context\",\"revoke\":false,\"observerFails\":false}",
+          "duration": 75.68758300000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "composes through the real ordinary native driver: {\"lostAck\":true,\"base\":\"Preserved native application context\",\"revoke\":false,\"observerFails\":false}",
+          "status": "passed",
+          "title": "composes through the real ordinary native driver: {\"lostAck\":true,\"base\":\"Preserved native application context\",\"revoke\":false,\"observerFails\":false}",
+          "duration": 72.93283400000007,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "composes through the real ordinary native driver: {\"lostAck\":false,\"revoke\":false,\"observerFails\":false}",
+          "status": "passed",
+          "title": "composes through the real ordinary native driver: {\"lostAck\":false,\"revoke\":false,\"observerFails\":false}",
+          "duration": 73.72779200000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "composes through the real ordinary native driver: {\"lostAck\":false,\"base\":\"Preserved native application context\",\"revoke\":true,\"observerFails\":false}",
+          "status": "passed",
+          "title": "composes through the real ordinary native driver: {\"lostAck\":false,\"base\":\"Preserved native application context\",\"revoke\":true,\"observerFails\":false}",
+          "duration": 19.436457999999902,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "composes through the real ordinary native driver: {\"lostAck\":false,\"base\":\"Preserved native application context\",\"revoke\":false,\"observerFails\":true}",
+          "status": "passed",
+          "title": "composes through the real ordinary native driver: {\"lostAck\":false,\"base\":\"Preserved native application context\",\"revoke\":false,\"observerFails\":true}",
+          "duration": 75.00400000000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains exact context ACK and original observer error precedence: {\"projectionFails\":false,\"failure\":\"error\"}",
+          "status": "passed",
+          "title": "retains exact context ACK and original observer error precedence: {\"projectionFails\":false,\"failure\":\"error\"}",
+          "duration": 78.37337500000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains exact context ACK and original observer error precedence: {\"projectionFails\":true,\"failure\":\"error\"}",
+          "status": "passed",
+          "title": "retains exact context ACK and original observer error precedence: {\"projectionFails\":true,\"failure\":\"error\"}",
+          "duration": 77.36016700000005,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains exact context ACK and original observer error precedence: {\"projectionFails\":false,\"failure\":\"null\"}",
+          "status": "passed",
+          "title": "retains exact context ACK and original observer error precedence: {\"projectionFails\":false,\"failure\":\"null\"}",
+          "duration": 76.91045899999995,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains exact context ACK and original observer error precedence: {\"projectionFails\":true,\"failure\":\"null\"}",
+          "status": "passed",
+          "title": "retains exact context ACK and original observer error precedence: {\"projectionFails\":true,\"failure\":\"null\"}",
+          "duration": 77.57429200000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains exact context ACK and original observer error precedence: {\"projectionFails\":false,\"failure\":\"undefined\"}",
+          "status": "passed",
+          "title": "retains exact context ACK and original observer error precedence: {\"projectionFails\":false,\"failure\":\"undefined\"}",
+          "duration": 74.95245799999998,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains exact context ACK and original observer error precedence: {\"projectionFails\":true,\"failure\":\"undefined\"}",
+          "status": "passed",
+          "title": "retains exact context ACK and original observer error precedence: {\"projectionFails\":true,\"failure\":\"undefined\"}",
+          "duration": 77.50216599999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "retains exact context ACK and original observer error precedence: {\"projectionFails\":true,\"failure\":\"context-only\"}",
+          "status": "passed",
+          "title": "retains exact context ACK and original observer error precedence: {\"projectionFails\":true,\"failure\":\"context-only\"}",
+          "duration": 78.56858299999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792276927133,
+      "endTime": 1792276928190.5686,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/server/__tests__/collaboration-ordinary-delivery.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "persists a private exact command mapping and reads only finalized visible text through EventStore",
+          "status": "passed",
+          "title": "persists a private exact command mapping and reads only finalized visible text through EventStore",
+          "duration": 23.82487499999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "deduplicates driver source callbacks and never permits another session or command to claim them",
+          "status": "passed",
+          "title": "deduplicates driver source callbacks and never permits another session or command to claim them",
+          "duration": 13.330709000000013,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "requires exact durable mapping, completed text blocks and the exact end watermark",
+          "status": "passed",
+          "title": "requires exact durable mapping, completed text blocks and the exact end watermark",
+          "duration": 16.642374999999987,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps independent same-account sessions separate and recovers source and projection receipts after restart",
+          "status": "passed",
+          "title": "keeps independent same-account sessions separate and recovers source and projection receipts after restart",
+          "duration": 18.199916,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects a forged or conflicting durable source record instead of trusting session activity",
+          "status": "passed",
+          "title": "rejects a forged or conflicting durable source record instead of trusting session activity",
+          "duration": 13.191832999999974,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792276931057,
+      "endTime": 1792276931142.192,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/server/__tests__/collaboration-ordinary-replies.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "rejects ordinary child controls on the actual parsed WebSocket path, then confirms owner Stop and resumes the same child",
+          "status": "passed",
+          "title": "rejects ordinary child controls on the actual parsed WebSocket path, then confirms owner Stop and resumes the same child",
+          "duration": 86.86599999999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "preserves ordinary Stop for an unowned query",
+          "status": "passed",
+          "title": "preserves ordinary Stop for an unowned query",
+          "duration": 0.6014170000000831,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792276930744,
+      "endTime": 1792276930831.6013,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/server/__tests__/ordinary-contributor-stop.test.ts"
+    }
+  ]
+}

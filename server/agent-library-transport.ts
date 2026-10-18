@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   PROFILE_BUILDER_ID,
-  PROFILE_BUILDER_REVISION,
-  profileBuilderDefinition,
+  profileBuilderDefinitionForRevision,
   TOOL_BUILDER_ID,
   TOOL_BUILDER_REVISION,
   toolBuilderDefinition,
@@ -72,26 +71,18 @@ export async function withAgentLibraryRecoveryAuthorization<T>(
 /** Builtin identity is code-owned and never resolved through the user Library. */
 export function readBuiltinAgentLibraryProfile(selection: AgentProfileSelection) {
   if (selection.kind === 'builtin') {
-    const builtin =
+    const builtinDefinition =
       selection.profileId === PROFILE_BUILDER_ID
-        ? {
-            id: PROFILE_BUILDER_ID,
-            revision: PROFILE_BUILDER_REVISION,
-            definition: profileBuilderDefinition,
-          }
-        : selection.profileId === TOOL_BUILDER_ID
-          ? {
-              id: TOOL_BUILDER_ID,
-              revision: TOOL_BUILDER_REVISION,
-              definition: toolBuilderDefinition,
-            }
+        ? profileBuilderDefinitionForRevision(selection.revision)
+        : selection.profileId === TOOL_BUILDER_ID && selection.revision === TOOL_BUILDER_REVISION
+          ? toolBuilderDefinition
           : undefined;
-    if (!builtin || selection.revision !== builtin.revision) return null;
-    const definition = PortableProfileDefinitionSchema.parse(builtin.definition);
+    if (!builtinDefinition) return null;
+    const definition = PortableProfileDefinitionSchema.parse(builtinDefinition);
     return {
       kind: 'builtin' as const,
-      profileId: builtin.id,
-      revision: builtin.revision,
+      profileId: selection.profileId,
+      revision: selection.revision,
       definition,
       contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
     };

@@ -2,7 +2,7 @@ import { UiIcon } from './UiIcon';
 import { outcomeStatusIcons } from '../lib/status-icons';
 import { useRef, useEffect, useState } from 'react';
 import type { TodoItem } from '../types/todo';
-import { sourceIcon } from '../lib/todo-utils';
+import { sourceIcon, todoPriority } from '../lib/todo-utils';
 import { notifySuccess, impactLight } from '../lib/haptics';
 import { recordTitle } from '../lib/record-title';
 
@@ -14,7 +14,6 @@ interface TodoCardProps {
   onDone: (id: string) => void;
   onTap: (item: TodoItem) => void;
   onAddChild: (parentId: string) => void;
-  onStar: (id: string) => void;
   onStartSession: (item: TodoItem) => void;
 }
 
@@ -51,7 +50,6 @@ export function TodoCard({
   onDone,
   onTap,
   onAddChild,
-  onStar,
   onStartSession,
 }: TodoCardProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -201,17 +199,13 @@ export function TodoCard({
                 <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
               </button>
             )}
-            <button
-              className="todo-card-star"
-              aria-label={item.starred ? 'Unstar item' : 'Star item'}
-              aria-pressed={item.starred}
-              onClick={(e) => {
-                e.stopPropagation();
-                onStar(item.id);
-              }}
+            <span
+              className="todo-card-priority"
+              role="img"
+              aria-label={`Priority ${todoPriority(item)} of 10`}
             >
-              <UiIcon name="star" filled={item.starred} size={16} />
-            </button>
+              P{todoPriority(item)}
+            </span>
           </div>
 
           {item.intent && <div className="todo-card-intent">{item.intent}</div>}
@@ -291,7 +285,6 @@ export function TodoCard({
               onDone={onDone}
               onTap={onTap}
               onAddChild={onAddChild}
-              onStar={onStar}
               onStartSession={onStartSession}
             />
           ))}

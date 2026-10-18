@@ -653,7 +653,12 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   await seed(page, { 'mitzo-chat-draft:briefing-draft': JSON.stringify(savedDraft()) });
   await page.goto('/sessions/drafts');
-  await page.getByRole('link', { name: /What is the story with my morning briefing/ }).click();
+  // Complete this chat mount's passive health read before the hard navigation
+  // below. WebKit reports an intercepted fetch cancelled by unload as a page
+  // error; keep that error assertion and the full leave/reopen journey intact.
+  await waitForNewFixtureReads(page, ['/api/service-health'], () =>
+    page.getByRole('link', { name: /What is the story with my morning briefing/ }).click(),
+  );
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(message);
   await agentSettings(page);
@@ -689,9 +694,9 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
     animations: 'disabled',
   });
   await page.goto('/sessions/drafts');
-  await page
-    .getByRole('link', { name: /Fix the morning briefing with this saved context/ })
-    .click();
+  await waitForNewFixtureReads(page, ['/api/service-health'], () =>
+    page.getByRole('link', { name: /Fix the morning briefing with this saved context/ }).click(),
+  );
   await expect(input).toHaveValue('Fix the morning briefing with this saved context');
   await agentSettings(page);
   await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-value', 'low');
@@ -1438,7 +1443,11 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
     },
   };
   await seed(page, { 'mitzo-chat-draft:meeting-launch': JSON.stringify(draft) });
-  await page.goto('/chat?draft=meeting-launch');
+  // Finish each document's passive health read before its next unload. WebKit
+  // reports an intercepted fetch cancelled by reload as an access-control error.
+  await waitForNewFixtureReads(page, ['/api/service-health'], () =>
+    page.goto('/chat?draft=meeting-launch'),
+  );
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
   await chooseSetting(page, 'Account', account.id);
   await chooseSetting(page, 'Model', 'luna-alternate');
@@ -1451,7 +1460,7 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
       ),
     )
     .toEqual({ accountId: account.id, model: 'luna-alternate', reasoningEffort: 'high' });
-  await page.reload();
+  await waitForNewFixtureReads(page, ['/api/service-health'], () => page.reload());
   const controls = page.getByRole('button', { name: /^Workspace controls/ });
   if ((await controls.getAttribute('aria-expanded')) === 'false') await controls.click();
   await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'luna-alternate');

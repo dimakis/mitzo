@@ -1,0 +1,901 @@
+
+Running 18 tests using 1 worker
+
+(node:76866) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (937ms)
+(node:76941) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys,json; from pathlib import Path; sys.dont_write_bytecode=True; sys.path.insert(0,str(Path(sys.argv[1])/"command_center")); from lib.todo.store import TodoStore; s=TodoStore(Path(sys.argv[2])); print(s.set_priority("outcome",json.loads(sys.argv[3]))); s.close()
+                                                                                                                                                                                                                     ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mgmt-reference/command_center/lib/todo/store.py", line 458, in set_priority
+    validate_priority(priority)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mgmt-reference/command_center/lib/todo/models.py", line 95, in validate_priority
+    raise ValueError("priority must be an integer from 1 to 10")
+ValueError: priority must be an integer from 1 to 10
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys,json; from pathlib import Path; sys.dont_write_bytecode=True; sys.path.insert(0,str(Path(sys.argv[1])/"command_center")); from lib.todo.store import TodoStore; s=TodoStore(Path(sys.argv[2])); print(s.set_priority("outcome",json.loads(sys.argv[3]))); s.close()
+                                                                                                                                                                                                                     ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mgmt-reference/command_center/lib/todo/store.py", line 458, in set_priority
+    validate_priority(priority)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mgmt-reference/command_center/lib/todo/models.py", line 95, in validate_priority
+    raise ValueError("priority must be an integer from 1 to 10")
+ValueError: priority must be an integer from 1 to 10
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys,json; from pathlib import Path; sys.dont_write_bytecode=True; sys.path.insert(0,str(Path(sys.argv[1])/"command_center")); from lib.todo.store import TodoStore; s=TodoStore(Path(sys.argv[2])); print(s.set_priority("outcome",json.loads(sys.argv[3]))); s.close()
+                                                                                                                                                                                                                     ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mgmt-reference/command_center/lib/todo/store.py", line 458, in set_priority
+    validate_priority(priority)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mgmt-reference/command_center/lib/todo/models.py", line 95, in validate_priority
+    raise ValueError("priority must be an integer from 1 to 10")
+ValueError: priority must be an integer from 1 to 10
+  ✓   2 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:12:1 › S9 accepted MGMT owner persists every priority and rejects invalid values without mutation (951ms)
+  ✘   3 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical tree updates without manual refresh (dark) (8.1s)
+(node:77173) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   4 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical detail updates without manual refresh (dark) (5.5s)
+(node:77322) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   5 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (dark) (527ms)
+(node:77341) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   6 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:224:3 › S9 Context is collapsed and readable as originally approved (dark) (523ms)
+(node:77406) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   7 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:261:3 › S9 New item enters ordinary advisor planning before mandatory capture (dark) (3.1s)
+(node:77523) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   8 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:274:3 › S9 selected retained material opens in-app at the pinned older revision (dark) (3.1s)
+(node:77594) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   9 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:300:3 › S9 unclassified legacy parent retains actual child navigation (dark) (3.1s)
+(node:77720) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  10 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:317:3 › S9 priority is editable and persisted in the replacement workspace and tree (dark) (3.0s)
+(node:77808) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  11 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical tree updates without manual refresh (light) (8.1s)
+(node:78176) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  12 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical detail updates without manual refresh (light) (5.5s)
+(node:78351) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  13 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (light) (624ms)
+(node:78405) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  14 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:224:3 › S9 Context is collapsed and readable as originally approved (light) (555ms)
+(node:78429) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  15 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:261:3 › S9 New item enters ordinary advisor planning before mandatory capture (light) (3.0s)
+(node:78515) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  16 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:274:3 › S9 selected retained material opens in-app at the pinned older revision (light) (3.1s)
+(node:78629) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  17 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:300:3 › S9 unclassified legacy parent retains actual child navigation (light) (3.0s)
+(node:78764) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  18 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:317:3 › S9 priority is editable and persisted in the replacement workspace and tree (light) (3.0s)
+
+
+  1) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical tree updates without manual refresh (dark) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Updated outcome', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "soft toBeVisible" getByRole('button', { name: 'Updated outcome', exact: true }) with timeout 2500ms
+      - waiting for getByRole('button', { name: 'Updated outcome', exact: true })
+
+
+      174 |           }),
+      175 |         )
+    > 176 |         .toBeVisible();
+          |          ^
+      177 |       expect.soft(host.canonicalReads).toBeGreaterThan(before);
+      178 |       if (view === 'tree') {
+      179 |         await expect
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:176:10
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 3
+    Received:   3
+
+      175 |         )
+      176 |         .toBeVisible();
+    > 177 |       expect.soft(host.canonicalReads).toBeGreaterThan(before);
+          |                                        ^
+      178 |       if (view === 'tree') {
+      179 |         await expect
+      180 |           .soft(
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:177:40
+
+    Error: expect(locator).toHaveText(expected) failed
+
+    Locator:  locator('.telos-tree-row').filter({ has: getByRole('button', { name: /^(Original|Updated) outcome$/ }) }).locator('.telos-node-status')
+    Expected: "acknowledged"
+    Received: "active"
+    Timeout:  2500ms
+
+    Call log:
+      - Expect "soft toHaveText" locator('.telos-tree-row').filter({ has: getByRole('button', { name: /^(Original|Updated) outcome$/ }) }).locator('.telos-node-status') with timeout 2500ms
+      - waiting for locator('.telos-tree-row').filter({ has: getByRole('button', { name: /^(Original|Updated) outcome$/ }) }).locator('.telos-node-status')
+        9 × locator resolved to <span class="telos-node-status">active</span>
+          - unexpected value "active"
+
+
+      184 |               .locator('.telos-node-status'),
+      185 |           )
+    > 186 |           .toHaveText('acknowledged');
+          |            ^
+      187 |         await page.getByRole('button', { name: 'Browse categories' }).click();
+      188 |         await expect
+      189 |           .soft(page.getByRole('button', { name: 'Updated category', exact: true }))
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:186:12
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Updated category', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "soft toBeVisible" getByRole('button', { name: 'Updated category', exact: true }) with timeout 2500ms
+      - waiting for getByRole('button', { name: 'Updated category', exact: true })
+
+
+      188 |         await expect
+      189 |           .soft(page.getByRole('button', { name: 'Updated category', exact: true }))
+    > 190 |           .toBeVisible();
+          |            ^
+      191 |       } else await expect.soft(page.locator('.telos-item-heading')).toContainText('acknowledged');
+      192 |       await page.screenshot({ path: info.outputPath(`${view}-${theme}.png`), fullPage: true });
+      193 |       expect(host.unexpected).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:190:12
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-same-ID--c318a-ithout-manual-refresh-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-same-ID--c318a-ithout-manual-refresh-dark--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-same-ID--c318a-ithout-manual-refresh-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-same-ID--c318a-ithout-manual-refresh-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical detail updates without manual refresh (dark) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Updated outcome', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "soft toBeVisible" getByRole('heading', { name: 'Updated outcome', exact: true }) with timeout 2500ms
+      - waiting for getByRole('heading', { name: 'Updated outcome', exact: true })
+
+
+      174 |           }),
+      175 |         )
+    > 176 |         .toBeVisible();
+          |          ^
+      177 |       expect.soft(host.canonicalReads).toBeGreaterThan(before);
+      178 |       if (view === 'tree') {
+      179 |         await expect
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:176:10
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 1
+    Received:   1
+
+      175 |         )
+      176 |         .toBeVisible();
+    > 177 |       expect.soft(host.canonicalReads).toBeGreaterThan(before);
+          |                                        ^
+      178 |       if (view === 'tree') {
+      179 |         await expect
+      180 |           .soft(
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:177:40
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('.telos-item-heading')
+    Expected substring: "acknowledged"
+    Received string:    "Original outcomeOutcome · active"
+    Timeout: 2500ms
+
+    Call log:
+      - Expect "soft toContainText" locator('.telos-item-heading') with timeout 2500ms
+      - waiting for locator('.telos-item-heading')
+        9 × locator resolved to <header class="telos-item-heading">…</header>
+          - unexpected value "Original outcomeOutcome · active"
+
+
+      189 |           .soft(page.getByRole('button', { name: 'Updated category', exact: true }))
+      190 |           .toBeVisible();
+    > 191 |       } else await expect.soft(page.locator('.telos-item-heading')).toContainText('acknowledged');
+          |                                                                     ^
+      192 |       await page.screenshot({ path: info.outputPath(`${view}-${theme}.png`), fullPage: true });
+      193 |       expect(host.unexpected).toEqual([]);
+      194 |       expect(host.errors).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:191:69
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-same-ID--3b5d0-ithout-manual-refresh-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-same-ID--3b5d0-ithout-manual-refresh-dark--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-same-ID--3b5d0-ithout-manual-refresh-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-same-ID--3b5d0-ithout-manual-refresh-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (dark) 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "rgb(23, 19, 32)"
+    Received: "rgb(242, 242, 245)"
+
+      217 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });
+      218 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+    > 219 |     expect(colors.foreground).toBe(colors.expected);
+          |                               ^
+      220 |     expect(host.unexpected).toEqual([]);
+      221 |     expect(host.errors).toEqual([]);
+      222 |   });
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:219:31
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:224:3 › S9 Context is collapsed and readable as originally approved (dark) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+    -   "accessible": true,
+    -   "open": false,
+    +   "accessible": false,
+    +   "open": true,
+      }
+
+      246 |       };
+      247 |     });
+    > 248 |     expect(state).toEqual({ accessible: true, open: false });
+          |                   ^
+      249 |     await trigger.click();
+      250 |     const disclosure = trigger.locator('..');
+      251 |     await expect(disclosure).toContainText('Repositories');
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:248:19
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-Context--b8be2-s-originally-approved-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-Context--b8be2-s-originally-approved-dark--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-Context--b8be2-s-originally-approved-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-Context--b8be2-s-originally-approved-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:261:3 › S9 New item enters ordinary advisor planning before mandatory capture (dark) 
+
+    Error: expect(page).toHaveURL(expected) failed
+
+    Expected pattern: /\/chat(?:\/|\?)/
+    Received string:  "https://mitzo-ui.test/todos"
+    Timeout: 2500ms
+
+    Call log:
+      - Expect "toHaveURL" with timeout 2500ms
+        9 × locator resolved to <html data-theme="dark" data-accent="mint" data-font="system">…</html>
+          - unexpected value "https://mitzo-ui.test/todos"
+
+
+      265 |     await page.goto('/todos');
+      266 |     await page.getByRole('button', { name: 'New item', exact: true }).click();
+    > 267 |     await expect(page).toHaveURL(/\/chat(?:\/|\?)/);
+          |                        ^
+      268 |     await expect(page.getByPlaceholder('Short outcome title')).toHaveCount(0);
+      269 |     expect(host.writes).toEqual([]);
+      270 |     expect(host.unexpected).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:267:24
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-New-item-b5d60-ore-mandatory-capture-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-New-item-b5d60-ore-mandatory-capture-dark--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-New-item-b5d60-ore-mandatory-capture-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-New-item-b5d60-ore-mandatory-capture-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:274:3 › S9 selected retained material opens in-app at the pinned older revision (dark) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('OLDER REVIEWED REVISION')
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "soft toBeVisible" getByText('OLDER REVIEWED REVISION') with timeout 2500ms
+      - waiting for getByText('OLDER REVIEWED REVISION')
+
+
+      285 |     await expect(title).toBeVisible();
+      286 |     await title.click();
+    > 287 |     await expect.soft(page.getByText('OLDER REVIEWED REVISION', { exact: false })).toBeVisible();
+          |                                                                                    ^
+      288 |     expect.soft(host.materialReads).toContain(1);
+      289 |     expect.soft(host.materialReads).not.toContain(2);
+      290 |     expect(popups).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:287:84
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected value: 1
+    Received array: []
+
+      286 |     await title.click();
+      287 |     await expect.soft(page.getByText('OLDER REVIEWED REVISION', { exact: false })).toBeVisible();
+    > 288 |     expect.soft(host.materialReads).toContain(1);
+          |                                     ^
+      289 |     expect.soft(host.materialReads).not.toContain(2);
+      290 |     expect(popups).toEqual([]);
+      291 |     expect(downloads).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:288:37
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-selected-ff326-pinned-older-revision-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-selected-ff326-pinned-older-revision-dark--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-selected-ff326-pinned-older-revision-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-selected-ff326-pinned-older-revision-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  7) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:300:3 › S9 unclassified legacy parent retains actual child navigation (dark) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Real legacy child', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('button', { name: 'Real legacy child', exact: true }) with timeout 2500ms
+      - waiting for getByRole('button', { name: 'Real legacy child', exact: true })
+
+
+      305 |     await expect(page.getByRole('heading', { name: 'Legacy parent', exact: true })).toBeVisible();
+      306 |     const child = page.getByRole('button', { name: 'Real legacy child', exact: true });
+    > 307 |     await expect(child).toBeVisible();
+          |                         ^
+      308 |     await child.click();
+      309 |     await expect(page).toHaveURL(/\/todos\/legacy-child$/);
+      310 |     await expect(
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:307:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-unclassi-c2bb8-tual-child-navigation-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-unclassi-c2bb8-tual-child-navigation-dark--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-unclassi-c2bb8-tual-child-navigation-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-unclassi-c2bb8-tual-child-navigation-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  8) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:317:3 › S9 priority is editable and persisted in the replacement workspace and tree (dark) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('combobox', { name: 'Priority', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('combobox', { name: 'Priority', exact: true }) with timeout 2500ms
+      - waiting for getByRole('combobox', { name: 'Priority', exact: true })
+
+
+      326 |     ).toBeVisible();
+      327 |     const select = page.getByRole('combobox', { name: 'Priority', exact: true });
+    > 328 |     await expect(select).toBeVisible();
+          |                          ^
+      329 |     await expect(select).toHaveValue('5');
+      330 |     for (let value = 1; value <= 10; value++) {
+      331 |       await select.selectOption(String(value));
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:328:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-priority-37bc9-nt-workspace-and-tree-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-priority-37bc9-nt-workspace-and-tree-dark--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-priority-37bc9-nt-workspace-and-tree-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-priority-37bc9-nt-workspace-and-tree-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  9) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical tree updates without manual refresh (light) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Updated outcome', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "soft toBeVisible" getByRole('button', { name: 'Updated outcome', exact: true }) with timeout 2500ms
+      - waiting for getByRole('button', { name: 'Updated outcome', exact: true })
+
+
+      174 |           }),
+      175 |         )
+    > 176 |         .toBeVisible();
+          |          ^
+      177 |       expect.soft(host.canonicalReads).toBeGreaterThan(before);
+      178 |       if (view === 'tree') {
+      179 |         await expect
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:176:10
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 3
+    Received:   3
+
+      175 |         )
+      176 |         .toBeVisible();
+    > 177 |       expect.soft(host.canonicalReads).toBeGreaterThan(before);
+          |                                        ^
+      178 |       if (view === 'tree') {
+      179 |         await expect
+      180 |           .soft(
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:177:40
+
+    Error: expect(locator).toHaveText(expected) failed
+
+    Locator:  locator('.telos-tree-row').filter({ has: getByRole('button', { name: /^(Original|Updated) outcome$/ }) }).locator('.telos-node-status')
+    Expected: "acknowledged"
+    Received: "active"
+    Timeout:  2500ms
+
+    Call log:
+      - Expect "soft toHaveText" locator('.telos-tree-row').filter({ has: getByRole('button', { name: /^(Original|Updated) outcome$/ }) }).locator('.telos-node-status') with timeout 2500ms
+      - waiting for locator('.telos-tree-row').filter({ has: getByRole('button', { name: /^(Original|Updated) outcome$/ }) }).locator('.telos-node-status')
+        9 × locator resolved to <span class="telos-node-status">active</span>
+          - unexpected value "active"
+
+
+      184 |               .locator('.telos-node-status'),
+      185 |           )
+    > 186 |           .toHaveText('acknowledged');
+          |            ^
+      187 |         await page.getByRole('button', { name: 'Browse categories' }).click();
+      188 |         await expect
+      189 |           .soft(page.getByRole('button', { name: 'Updated category', exact: true }))
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:186:12
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Updated category', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "soft toBeVisible" getByRole('button', { name: 'Updated category', exact: true }) with timeout 2500ms
+      - waiting for getByRole('button', { name: 'Updated category', exact: true })
+
+
+      188 |         await expect
+      189 |           .soft(page.getByRole('button', { name: 'Updated category', exact: true }))
+    > 190 |           .toBeVisible();
+          |            ^
+      191 |       } else await expect.soft(page.locator('.telos-item-heading')).toContainText('acknowledged');
+      192 |       await page.screenshot({ path: info.outputPath(`${view}-${theme}.png`), fullPage: true });
+      193 |       expect(host.unexpected).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:190:12
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-same-ID--0eb93-thout-manual-refresh-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-same-ID--0eb93-thout-manual-refresh-light--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-same-ID--0eb93-thout-manual-refresh-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-same-ID--0eb93-thout-manual-refresh-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  10) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical detail updates without manual refresh (light) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Updated outcome', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "soft toBeVisible" getByRole('heading', { name: 'Updated outcome', exact: true }) with timeout 2500ms
+      - waiting for getByRole('heading', { name: 'Updated outcome', exact: true })
+
+
+      174 |           }),
+      175 |         )
+    > 176 |         .toBeVisible();
+          |          ^
+      177 |       expect.soft(host.canonicalReads).toBeGreaterThan(before);
+      178 |       if (view === 'tree') {
+      179 |         await expect
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:176:10
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 1
+    Received:   1
+
+      175 |         )
+      176 |         .toBeVisible();
+    > 177 |       expect.soft(host.canonicalReads).toBeGreaterThan(before);
+          |                                        ^
+      178 |       if (view === 'tree') {
+      179 |         await expect
+      180 |           .soft(
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:177:40
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('.telos-item-heading')
+    Expected substring: "acknowledged"
+    Received string:    "Original outcomeOutcome · active"
+    Timeout: 2500ms
+
+    Call log:
+      - Expect "soft toContainText" locator('.telos-item-heading') with timeout 2500ms
+      - waiting for locator('.telos-item-heading')
+        9 × locator resolved to <header class="telos-item-heading">…</header>
+          - unexpected value "Original outcomeOutcome · active"
+
+
+      189 |           .soft(page.getByRole('button', { name: 'Updated category', exact: true }))
+      190 |           .toBeVisible();
+    > 191 |       } else await expect.soft(page.locator('.telos-item-heading')).toContainText('acknowledged');
+          |                                                                     ^
+      192 |       await page.screenshot({ path: info.outputPath(`${view}-${theme}.png`), fullPage: true });
+      193 |       expect(host.unexpected).toEqual([]);
+      194 |       expect(host.errors).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:191:69
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-same-ID--2fa09-thout-manual-refresh-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-same-ID--2fa09-thout-manual-refresh-light--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-same-ID--2fa09-thout-manual-refresh-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-same-ID--2fa09-thout-manual-refresh-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  11) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (light) 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "rgb(255, 255, 255)"
+    Received: "rgb(32, 33, 39)"
+
+      217 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });
+      218 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+    > 219 |     expect(colors.foreground).toBe(colors.expected);
+          |                               ^
+      220 |     expect(host.unexpected).toEqual([]);
+      221 |     expect(host.errors).toEqual([]);
+      222 |   });
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:219:31
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  12) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:224:3 › S9 Context is collapsed and readable as originally approved (light) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+    -   "accessible": true,
+    -   "open": false,
+    +   "accessible": false,
+    +   "open": true,
+      }
+
+      246 |       };
+      247 |     });
+    > 248 |     expect(state).toEqual({ accessible: true, open: false });
+          |                   ^
+      249 |     await trigger.click();
+      250 |     const disclosure = trigger.locator('..');
+      251 |     await expect(disclosure).toContainText('Repositories');
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:248:19
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-Context--d6495--originally-approved-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-Context--d6495--originally-approved-light--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-Context--d6495--originally-approved-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-Context--d6495--originally-approved-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  13) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:261:3 › S9 New item enters ordinary advisor planning before mandatory capture (light) 
+
+    Error: expect(page).toHaveURL(expected) failed
+
+    Expected pattern: /\/chat(?:\/|\?)/
+    Received string:  "https://mitzo-ui.test/todos"
+    Timeout: 2500ms
+
+    Call log:
+      - Expect "toHaveURL" with timeout 2500ms
+        9 × locator resolved to <html data-theme="light" data-accent="teal" data-font="georgia">…</html>
+          - unexpected value "https://mitzo-ui.test/todos"
+
+
+      265 |     await page.goto('/todos');
+      266 |     await page.getByRole('button', { name: 'New item', exact: true }).click();
+    > 267 |     await expect(page).toHaveURL(/\/chat(?:\/|\?)/);
+          |                        ^
+      268 |     await expect(page.getByPlaceholder('Short outcome title')).toHaveCount(0);
+      269 |     expect(host.writes).toEqual([]);
+      270 |     expect(host.unexpected).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:267:24
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-New-item-78d5c-re-mandatory-capture-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-New-item-78d5c-re-mandatory-capture-light--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-New-item-78d5c-re-mandatory-capture-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-New-item-78d5c-re-mandatory-capture-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  14) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:274:3 › S9 selected retained material opens in-app at the pinned older revision (light) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('OLDER REVIEWED REVISION')
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "soft toBeVisible" getByText('OLDER REVIEWED REVISION') with timeout 2500ms
+      - waiting for getByText('OLDER REVIEWED REVISION')
+
+
+      285 |     await expect(title).toBeVisible();
+      286 |     await title.click();
+    > 287 |     await expect.soft(page.getByText('OLDER REVIEWED REVISION', { exact: false })).toBeVisible();
+          |                                                                                    ^
+      288 |     expect.soft(host.materialReads).toContain(1);
+      289 |     expect.soft(host.materialReads).not.toContain(2);
+      290 |     expect(popups).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:287:84
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected value: 1
+    Received array: []
+
+      286 |     await title.click();
+      287 |     await expect.soft(page.getByText('OLDER REVIEWED REVISION', { exact: false })).toBeVisible();
+    > 288 |     expect.soft(host.materialReads).toContain(1);
+          |                                     ^
+      289 |     expect.soft(host.materialReads).not.toContain(2);
+      290 |     expect(popups).toEqual([]);
+      291 |     expect(downloads).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:288:37
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-selected-654cd-inned-older-revision-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-selected-654cd-inned-older-revision-light--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-selected-654cd-inned-older-revision-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-selected-654cd-inned-older-revision-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  15) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:300:3 › S9 unclassified legacy parent retains actual child navigation (light) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Real legacy child', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('button', { name: 'Real legacy child', exact: true }) with timeout 2500ms
+      - waiting for getByRole('button', { name: 'Real legacy child', exact: true })
+
+
+      305 |     await expect(page.getByRole('heading', { name: 'Legacy parent', exact: true })).toBeVisible();
+      306 |     const child = page.getByRole('button', { name: 'Real legacy child', exact: true });
+    > 307 |     await expect(child).toBeVisible();
+          |                         ^
+      308 |     await child.click();
+      309 |     await expect(page).toHaveURL(/\/todos\/legacy-child$/);
+      310 |     await expect(
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:307:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-unclassi-c69b9-ual-child-navigation-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-unclassi-c69b9-ual-child-navigation-light--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-unclassi-c69b9-ual-child-navigation-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-unclassi-c69b9-ual-child-navigation-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  16) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:317:3 › S9 priority is editable and persisted in the replacement workspace and tree (light) 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('combobox', { name: 'Priority', exact: true })
+    Expected: visible
+    Timeout: 2500ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('combobox', { name: 'Priority', exact: true }) with timeout 2500ms
+      - waiting for getByRole('combobox', { name: 'Priority', exact: true })
+
+
+      326 |     ).toBeVisible();
+      327 |     const select = page.getByRole('combobox', { name: 'Priority', exact: true });
+    > 328 |     await expect(select).toBeVisible();
+          |                          ^
+      329 |     await expect(select).toHaveValue('5');
+      330 |     for (let value = 1; value <= 10; value++) {
+      331 |       await select.selectOption(String(value));
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:328:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-priority-337d3-t-workspace-and-tree-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/s9-ui/ui.contract.ts-S9-priority-337d3-t-workspace-and-tree-light--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/s9-ui/ui.contract.ts-S9-priority-337d3-t-workspace-and-tree-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/s9-ui/ui.contract.ts-S9-priority-337d3-t-workspace-and-tree-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  16 failed
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical tree updates without manual refresh (dark) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical detail updates without manual refresh (dark) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (dark) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:224:3 › S9 Context is collapsed and readable as originally approved (dark) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:261:3 › S9 New item enters ordinary advisor planning before mandatory capture (dark) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:274:3 › S9 selected retained material opens in-app at the pinned older revision (dark) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:300:3 › S9 unclassified legacy parent retains actual child navigation (dark) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:317:3 › S9 priority is editable and persisted in the replacement workspace and tree (dark) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical tree updates without manual refresh (light) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:154:5 › S9 same-ID canonical detail updates without manual refresh (light) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (light) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:224:3 › S9 Context is collapsed and readable as originally approved (light) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:261:3 › S9 New item enters ordinary advisor planning before mandatory capture (light) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:274:3 › S9 selected retained material opens in-app at the pinned older revision (light) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:300:3 › S9 unclassified legacy parent retains actual child navigation (light) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:317:3 › S9 priority is editable and persisted in the replacement workspace and tree (light) 
+  2 passed (1.1m)

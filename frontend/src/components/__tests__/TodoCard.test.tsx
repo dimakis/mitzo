@@ -60,7 +60,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -75,7 +74,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -91,7 +89,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -106,7 +103,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -114,78 +110,26 @@ describe('TodoCard', () => {
     expect(screen.getAllByLabelText('1 durable link')[0].textContent).toContain('1');
   });
 
-  it('shows ☆ star button for unstarred item', () => {
+  it.each([
+    { priority: undefined, starred: false, expected: 5 },
+    { priority: undefined, starred: true, expected: 10 },
+    { priority: 7, starred: true, expected: 7 },
+  ])('shows P$expected while preserving item status', ({ priority, starred, expected }) => {
     const { container } = render(
       <TodoCard
-        item={mockItem}
+        item={{ ...mockItem, priority, starred }}
         onAck={vi.fn()}
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
-    const starBtn = container.querySelector('.todo-card-star');
-    expect(starBtn).toBeTruthy();
-    expect(starBtn?.querySelector('svg')?.getAttribute('fill')).toBe('none');
-  });
-
-  it('shows one star control while preserving the outcome status', () => {
-    const starredItem = { ...mockItem, starred: true };
-    const { container } = render(
-      <TodoCard
-        item={starredItem}
-        onAck={vi.fn()}
-        onDone={vi.fn()}
-        onTap={vi.fn()}
-        onAddChild={vi.fn()}
-        onStar={vi.fn()}
-        onStartSession={vi.fn()}
-      />,
-    );
-    const starBtn = container.querySelector('.todo-card-star');
-    expect(starBtn?.querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
+    expect(screen.getByLabelText(`Priority ${expected} of 10`).textContent).toBe(`P${expected}`);
+    expect(container.querySelector('.todo-card-star')).toBeNull();
     expect(container.querySelector('.todo-card-icon svg')?.getAttribute('data-icon')).toBe(
       'running',
     );
-  });
-
-  it('calls onStar with item id when star button is clicked', () => {
-    const onStar = vi.fn();
-    const { container } = render(
-      <TodoCard
-        item={mockItem}
-        onAck={vi.fn()}
-        onDone={vi.fn()}
-        onTap={vi.fn()}
-        onAddChild={vi.fn()}
-        onStar={onStar}
-        onStartSession={vi.fn()}
-      />,
-    );
-    const starBtn = container.querySelector('.todo-card-star')!;
-    fireEvent.click(starBtn);
-    expect(onStar).toHaveBeenCalledWith('abc123');
-  });
-
-  it('calls onStar when already starred (to toggle off)', () => {
-    const onStar = vi.fn();
-    const starredItem = { ...mockItem, starred: true };
-    const { container } = render(
-      <TodoCard
-        item={starredItem}
-        onAck={vi.fn()}
-        onDone={vi.fn()}
-        onTap={vi.fn()}
-        onAddChild={vi.fn()}
-        onStar={onStar}
-        onStartSession={vi.fn()}
-      />,
-    );
-    const starBtn = container.querySelector('.todo-card-star')!;
-    fireEvent.click(starBtn);
-    expect(onStar).toHaveBeenCalledWith('abc123');
   });
 
   it('calls onTap on tap (touchstart + touchend without move)', () => {
@@ -197,7 +141,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={onTap}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -216,7 +159,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={onTap}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -236,7 +178,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={onTap}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -256,7 +197,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -272,7 +212,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -295,7 +234,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -325,7 +263,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -348,7 +285,6 @@ describe('TodoCard', () => {
         onDone={onDone}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -371,7 +307,6 @@ describe('TodoCard', () => {
         onDone={onDone}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -392,7 +327,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -422,7 +356,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -452,7 +385,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -469,7 +401,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={onAddChild}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -487,7 +418,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -503,7 +433,6 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
