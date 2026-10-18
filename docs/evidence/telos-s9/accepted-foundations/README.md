@@ -98,8 +98,22 @@ to execute the contract files directly, once each.
 ## Remaining scope
 
 This adds bounded CT03/CT04 and partial CT06/CT17/CT18 evidence. Full immutable human
-metadata and its review/setup-reviewed APIs remain draft1030; no API/client/fixture
-adoption from that branch. Complete code/non-code journeys, worker execution,
-canonical verified completion, full S5a/S5b, S6/S7/S8, UX/CT20 and the separately
-authorized CT19 single-runtime window remain open. Code merged, offline integration,
-UX accepted and live runtime qualified stay distinct. S9/parent remain active.
+metadata APIs from PR1030 are accepted at `634048b1`. The S9 fixture mounts the real
+review/setup-reviewed hosts, its recovery hooks retain the exact reviewed wrapper
+and presentation reference, and its worker checks bind retained presentation to the
+original task/context hash. Those assertions provide bounded metadata evidence;
+the ten planned adversarial, authorization, storage, full-shell, Resources and
+geometry groups still need complete S9 qualification. Historical f39 manifests and
+results keep their original executed-source scope. S5a's owned CT01–CT06 ratification
+is separately attributed to its coordinator.
+
+The worker selection has `artifacts: []`; the original plan is retained and checked
+at the origin, lead and storage boundaries. Worker-selected material coverage
+remains pending. The result enters real task handlers through synthetic injection;
+actual worker/provider dispatch and callback qualification remain pending.
+
+Complete code/non-code journeys, actual worker execution, canonical verified
+completion, S5b/downstream S6/S7/S8 work, full shared app/Files/forwarding boundaries,
+UX/CT20 and the separately authorized CT19 single-runtime window remain open.
+Code merged, offline integration, UX accepted and live runtime qualified stay
+distinct. S9/parent remain active.
