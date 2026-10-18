@@ -73,7 +73,7 @@ results and current composed-source results are recorded separately; an older
 pass count cannot qualify a newer tree. Full fixture logs and JUnit results retain
 skipped/filtered counts and run without automatic test retries.
 
-The next patch updates only the remote-environment test server for the real
+The eighteenth patch updates only the remote-environment test server for the real
 `fs/open` / `fs/readBlock` / `fs/close` instruction-reader protocol, retaining its
 original assertions. Corrected exact-source CI remains pending. The prior
 17-patch CI run `39076917374` reported green jobs while `tee` hid upstream test
@@ -153,4 +153,34 @@ certificate and no-replay assertions remain.
 
 Run39083668664 on native tree7407c99d failed on both platforms before native test execution: building the real code-mode helper enabled V8, and standalone Cargo tried unavailable Deno archives. Pinned upstream already supplies the supported `ptrcomp_sandbox_release` archive and its matching Rust bindings through `scripts/codex_package/v8.py`. CI now calls that unchanged owner with the reconstructed source root, verifies its source-pinned manifest and both artifact hashes, and publishes both Cargo paths together. It refuses unsupported/ambiguous hosts, verifier failure and a source-build bypass. The native source tree and eighteen patches are unchanged.
 
-Sixteen recorded workflow regressions and twelve unchanged upstream offline dependency-helper tests pass. They are build-preparation evidence and are not added to native crate counts. Actual verified archive downloads, helper linking and full corrected native fixtures still require CI. Historical masked failures and their skipped counts remain retained above.
+Sixteen recorded workflow regressions and twelve unchanged upstream offline dependency-helper tests pass. They are build-preparation evidence and are not added to native crate counts. Run `39087651210` on application source `542400d2` has now completed verified artifact preparation and helper builds on both platforms. Full corrected native fixtures are still running; this is not a passing fixture result or qualification of a later application head. Historical masked failures and their skipped counts remain retained above.
+
+### Public schema and ordinary metadata audit, 18 October
+
+The official [Responses create reference](https://developers.openai.com/api/reference/python/resources/responses/methods/create)
+and [input-count reference](https://developers.openai.com/api/reference/python/resources/responses/subresources/input_tokens/methods/count)
+were fetched as Markdown on 18 October. Their SHA256s were respectively
+`a5a6eb5d7f43fde87963d91314c4debb82c2ee2551965f8c7e070e64b3e569ef` and
+`af420bceb28be322e85b9609f70632c2f1756101be0d443992ce11156627c041`.
+The public schemas document conditional shapes beyond this validator's subset:
+reasoning context and max effort, configuration updates and original image detail.
+Create also documents access programs; count does not accept that parameter.
+Current implementation refusals must not be described as universal public API
+limitations, and adding a shape still requires exact count-projection coverage.
+
+Neither reference documents native client metadata or internal item passthrough.
+The ordinary provider policy includes internal metadata for the official HTTPS
+API host. Disabling the configuration flag does not override that host policy;
+other routes with the flag disabled still produce client identities and ancestry.
+The native item type explicitly describes passthrough into underlying chat
+messages. Public object metadata does not establish an equivalent representation.
+Populated native fields remain refused; they are not dropped or silently moved.
+
+Final HTTP capture must include the existing owner's late guardian and auth
+selection, normalization, contributors and tool-result metadata bounding before
+serialization. Contributors may create effectful response interceptors. Freezing
+an earlier builder result, invoking those contributors during pure preparation,
+or claiming a fresh-session tool inventory from an existing session's discovery
+snapshot does not close this boundary. No public-success policy, pure pre-session
+capture, selected-account capacity or consumable dispatch is established by this
+audit.
