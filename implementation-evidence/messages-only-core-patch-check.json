@@ -1,0 +1,11 @@
+{
+  "coreBase": "61b5c852167d0f3c15fc1506cf55ce83471807e5",
+  "path": "server/collaboration-forwarding.ts",
+  "beforeSha256": "9a30674bf9923a2a350debdab77dcf84a7d368794bb576145d0d1cfe1847e15d",
+  "patchedSha256": "8eb6d7b32dab93b30b92241c9e83b9bd24ef644c38b0648c363847679e2ccdcb",
+  "patchSha256": "931bd5f8f5dcbabfb26075f2d5677f65ac32c82b09554252dc1fd521c8c2d1e3",
+  "appliesCleanly": true,
+  "scope": "Applied only producer delta to a temporary copy of committed core source; no core checkout edited and no core integration test run by B.",
+  "canonicalProtocolImportsAndExportsUnchanged": true,
+  "canonicalFingerprintFunctionUnchanged": true
+}
