@@ -1,0 +1,70 @@
+{
+  "predecessorHead": "c4068c06d583989728dacce95bd289f2d0cef241",
+  "acceptedMain": "f39cbfdfa31f5e4c0d3413737827de2c8640d34e",
+  "signedSourceMerge": "541fc21d1ad6bbd8642e431e6c1ddd140e8bb370",
+  "sourceMergeSignatureVerified": true,
+  "signedSourceMergeTree": "4daaa77aca565a7590ea4bc9654f9dbdff1c4911",
+  "mergeClean": true,
+  "manualConflictResolution": false,
+  "priorCChangedPathCount": 235,
+  "allPriorCPathsByteIdenticalAtSourceMerge": true,
+  "acceptedIncomingPathCount": 15,
+  "allAcceptedIncomingPathsByteIdentical": true,
+  "protectedPathsUnchanged": [
+    "docs/design/approved/README.md",
+    "docs/design/approved/chat-settings/VALIDATION.md",
+    "docs/design/approved/chat-settings/approved-mock-dark.png",
+    "docs/design/approved/chat-settings/implemented-desktop-chromium-light.png",
+    "docs/design/approved/chat-settings/implemented-mobile-webkit-dark.png",
+    "docs/design/approved/chat-settings/quick-sheet.html",
+    "docs/design/approved/ledger.json",
+    "docs/design/approved/telos-priority-scale/priority-scale.svg",
+    "tests/offline/agent-library.spec.ts"
+  ],
+  "formatFailure": {
+    "failedRun": 39135943443,
+    "failedJob": 117700350280,
+    "failedStep": "Format check",
+    "onlyFlaggedFile": "docs/evidence/symposium-integration-acceptance.md",
+    "oldPrHead": "c4068c06d583989728dacce95bd289f2d0cef241",
+    "oldHeadTree": "9e0834461a4adaeaa73749c5143784fff222fa57",
+    "actualFailedCiCheckout": "881302875005926adb884bc3acc777b056802339",
+    "actualFailedCiTree": "4daaa77aca565a7590ea4bc9654f9dbdff1c4911",
+    "beforeSha256": "727d37f16326b347037e210af489d5f41ae9f11039952b78c4350421aaf8b589",
+    "afterFormatSha256": "c30ac424d00675f547c9d3a7593feb4703bc6e1c8a0e9c4c62395811aa5176c8",
+    "whitespaceStrippedContentIdentical": true,
+    "testAssertionOrNativeFailure": false
+  },
+  "failedJobSteps": [
+    {
+      "name": "Format check",
+      "conclusion": "failure"
+    },
+    {
+      "name": "Summary",
+      "conclusion": "failure"
+    }
+  ],
+  "retainedFullFailedLogSha256": "66f94e182277d5bb9a7b329691b79c72c06a0d5417ee47f04ebf653d30c7c61a",
+  "retainedFullFailedLogLocation": "Task-root implementation-evidence/resume-format-reconciliation/failed-job.log",
+  "implementationRevision": "v1.0.320-codex-resume",
+  "sourcePins": 581,
+  "sourcePinMismatches": [],
+  "rawReceipts": [
+    {
+      "file": "raw/failed-job.json.raw",
+      "sha256": "ac0ecbacab412d4c5383d8b07f122914e620870de65a9fbb860cd3713e8ba17a"
+    },
+    {
+      "file": "raw/format-correction-proof.json.raw",
+      "sha256": "36769ce49cf556995dfb618b9c3162c0e9b095875bbdb50eab53d99493e5be45"
+    },
+    {
+      "file": "raw/source-merge-proof.json.raw",
+      "sha256": "5717263b97e4e15ca814a998ec73764283abe321162fcc8546224f19d5ddadbf"
+    }
+  ],
+  "currentQualification": "Source merge, unchanged owned/protected bytes and targeted formatting only. New published head needs fresh normal CI, exact-head whole-PR final and dedicated-App evidence. Prior CI/full review/App do not approve it.",
+  "currentPacketLocation": "Task-root implementation-evidence/resume-format-reconciliation/",
+  "remainingFeatureGaps": "Actual app startup, durable positive/omission, joining, native/runtime, mounted full UX and physical iOS remain open."
+}

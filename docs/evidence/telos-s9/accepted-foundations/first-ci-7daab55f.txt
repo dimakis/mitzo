@@ -1,0 +1,7 @@
+Historical first publication head7daab55f CI39141479169 SUCCESS. Not final634 integration-head CI.
+ci	Design token contract	2026-10-18T15:42:23.6459265Z  Test Files  6 passed (6)
+ci	Design token contract	2026-10-18T15:42:23.6460627Z       Tests  109 passed (109)
+ci	Test	2026-10-18T15:56:56.8768751Z  ✓ tests/integration/telos-s9/accepted-foundations/vertical.test.ts (1 test) 1846ms
+ci	Test	2026-10-18T15:56:57.0613019Z  ✓ tests/integration/telos-s9/accepted-foundations/recovery.test.tsx (3 tests) 1304ms
+ci	Test	2026-10-18T15:56:57.0942618Z  Test Files  1301 passed | 9 skipped (1310)
+ci	Test	2026-10-18T15:56:57.1067811Z       Tests  17877 passed | 31 skipped (17908)

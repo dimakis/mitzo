@@ -1,0 +1,18 @@
+{
+  "coreCommit": "cb32e03fda3babb9fe14fd3e486175e5b881f4d6",
+  "coreTree": "9a33fd7693392147f5871ac4dff8ed49fc127d66",
+  "candidateHead": "8d3f23ece66c6998e099285906050aad17a245ad",
+  "candidateTree": "0c011710f6c6777117392102d467e11ce0e73324",
+  "status": "M tests/acceptance/symposium-application-wiring.repro.ts\n?? node_modules",
+  "command": "node mitzo/node_modules/tsx/dist/cli.mjs implementation-evidence/verify-cb32-source-pins.mts",
+  "implementationRevision": "v1.0.287-symposium-integration.7",
+  "sourcePins": 561,
+  "mismatches": [],
+  "productionChanges": [],
+  "compiledChecker": {
+    "command": "node scripts/check-reviewed-handler-artifacts.mjs",
+    "exitCode": 1,
+    "result": "ERR_MODULE_NOT_FOUND: candidate dist/connections/reviewed-handler-artifacts.js is not built; no broad build attempted. Actual source module/function checked here through tsx."
+  },
+  "runtimeQualification": "not performed; source hashes only"
+}

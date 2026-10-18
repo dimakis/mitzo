@@ -1,0 +1,14 @@
+{
+  "head": "522091cd4c0d758c4ef058cff237eeee485feb7c",
+  "fullFinalReviewVerified": true,
+  "trustedReviewId": 5564007587,
+  "job": {
+    "id": 5027,
+    "head_sha": "522091cd4c0d758c4ef058cff237eeee485feb7c",
+    "status": "succeeded",
+    "revision": 1,
+    "force_review": 1,
+    "force_follow_up": 0
+  },
+  "scopeContract": "Deployed reviewer final_review=force_review and not force_follow_up; _select_review_surface selects full PR diff for final_review."
+}

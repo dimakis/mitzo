@@ -1,0 +1,104 @@
+{
+  "observedAt": "2026-10-18T00:45:46.887789+00:00",
+  "applicationHead": "c534f3d717a34198fbd0639643b027d2c67879b4",
+  "applicationTree": "a8d853be3c212b96e61b4217f9b6511d5862edd4",
+  "implementationCommit": "671967064dca484c4ec93ca853c64adfe7f4c64d",
+  "nativeDependencyHead": "3830e3a0e5b120c74f578e960fad1704c4c7094c",
+  "nativeSourceCommit": "476400255d18e172d6579a49cfe071538d8fecff",
+  "nativeSourceTree": "7407c99d2b1fe8a9b6bfffb8896f12c7fdd93db4",
+  "sourcePins": 563,
+  "sourceMismatches": 0,
+  "runtimeSourceRevision": "v1.0.287-symposium-integration.9",
+  "tests": [
+    {
+      "report": "symposium-combined-ci-fixes-green.json",
+      "passed": 140,
+      "failed": 0,
+      "skipped": 0,
+      "files": [
+        "server/__tests__/collaboration-forward-browser-boundary.test.ts",
+        "server/__tests__/collaboration-forward-contract.test.ts",
+        "server/__tests__/collaboration-forward-ordinary-delivery.test.ts",
+        "server/__tests__/collaboration-forwarding.test.ts",
+        "server/__tests__/session-collaboration-reconcile-contract.test.ts",
+        "frontend/src/components/__tests__/SavedArtifactDialog.test.tsx",
+        "frontend/src/components/__tests__/SymposiumConversation.test.tsx",
+        "frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx"
+      ]
+    },
+    {
+      "report": "symposium-integrated-protected-source-green.json",
+      "passed": 130,
+      "failed": 0,
+      "skipped": 1,
+      "files": [
+        "server/__tests__/collaboration-conversation-artifacts.test.ts",
+        "server/__tests__/connection-template-registry.test.ts",
+        "frontend/src/styles/__tests__/approved-designs.test.ts",
+        "frontend/src/styles/__tests__/briefing-dialog.test.ts",
+        "frontend/src/styles/__tests__/home-design.test.ts",
+        "frontend/src/styles/__tests__/motion-contract.test.ts",
+        "frontend/src/styles/__tests__/todo-card.test.ts",
+        "frontend/src/styles/__tests__/tokens.test.ts",
+        "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx"
+      ]
+    },
+    {
+      "report": "symposium-combined-forward-storage-green.json",
+      "passed": 72,
+      "failed": 0,
+      "skipped": 0,
+      "files": [
+        "server/__tests__/collaboration-ordinary-delivery.test.ts",
+        "packages/protocol/__tests__/collaboration-forward-storage.test.ts"
+      ]
+    },
+    {
+      "report": "symposium-s7-lifeops-integrated-green.json",
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "files": ["server/__tests__/telos-document-editing.test.ts"]
+    },
+    {
+      "report": "symposium-application-native-ci-green.json",
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "files": ["server/__tests__/symposium-native-ci.test.ts"]
+    }
+  ],
+  "countsAreSeparateEnvelopesAndMayOverlap": true,
+  "browser": {
+    "stats": {
+      "startTime": "2026-10-18T00:42:52.123Z",
+      "duration": 35291.718,
+      "expected": 14,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "scenarios": 12,
+    "startupChecks": 2,
+    "workers": 1,
+    "nodeHeapMiB": 1024,
+    "retries": 0,
+    "outsideSeatbelt": true,
+    "allAppTrafficIntercepted": true,
+    "actualAppOwners": false,
+    "nativeIosInspection": false,
+    "fullJoiningUxAcceptance": false,
+    "inspectedSelectedImages": true
+  },
+  "sourceProducers": [
+    "79e467da",
+    "6eb7c85f",
+    "61d78ed4",
+    "e8c0c750",
+    "fe4f811b",
+    "92eb883b (only LifeOps test delta)"
+  ],
+  "modelCalls": 0,
+  "runtimeInstalled": false,
+  "mergeAuthorized": false
+}

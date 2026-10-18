@@ -1,0 +1,62 @@
+diff --git a/tests/acceptance/symposium-application-wiring.repro.ts b/tests/acceptance/symposium-application-wiring.repro.ts
+index 90a30cfc..926ea5d8 100644
+--- a/tests/acceptance/symposium-application-wiring.repro.ts
++++ b/tests/acceptance/symposium-application-wiring.repro.ts
+@@ -52,7 +52,12 @@ const group = crypto.randomUUID();
+ let reviewedSnapshot: CollaborationSnapshot | undefined;
+ let reviewedSettings: CollaborationSettings | undefined;
+ let api: CollaborationApiClient;
++let diagnosticLoad = 0;
+ async function loadApplication() {
++  const diagnosticStarted = Date.now();
++  const diagnosticInstance = ++diagnosticLoad;
++  const phase = (name: string) => console.error(JSON.stringify({ acceptanceAppPhase: name, load: diagnosticInstance, elapsedMs: Date.now() - diagnosticStarted, at: new Date().toISOString() }));
++  phase('guard');
+   // Do not touch host credentials while the core-owned safe import seam is absent.
+   // This is a BLOCKED prerequisite, not application behavior acceptance.
+   const tokens = readFileSync(new URL('../../server/internal-token.ts', import.meta.url), 'utf8');
+@@ -103,18 +108,24 @@ async function loadApplication() {
+       throw Error('External network forbidden in application fixture');
+     }),
+   );
++  phase('target-import');
+   const targetFixture =
+     await import('../../server/__tests__/fixtures/symposium-application-target.js');
++  phase('target-configure');
+   await targetFixture.configureApplicationReviewTarget(root, fresh);
++  phase('app-import');
+   const loaded = await import('../../server/app.js');
++  phase('app-imported');
+   app = loaded.app;
+   close = Reflect.get(loaded, 'closeIdleApplicationResources');
+   if (typeof close !== 'function')
+     throw Error('Core idle application resource teardown unavailable');
++  phase('connections-install');
+   connections = await targetFixture.installApplicationReviewConnections(
+     root,
+     loaded.setConnectionsRuntime,
+   );
++  phase('connections-installed');
+   const idleClose = close;
+   close = async () => {
+     releaseTransport?.();
+@@ -124,8 +135,11 @@ async function loadApplication() {
+     await idleClose();
+   };
+   events = (await import('../../server/chat.js')).eventStore;
++  phase('http-listen');
+   http = await createApplicationHttpTransport(app);
++  phase('http-ready');
+   if (!cookie) {
++    phase('login');
+     const login = await http.request('POST', '/api/auth/login', {
+       body: { passphrase: process.env.AUTH_PASSPHRASE },
+     });
+@@ -133,6 +147,7 @@ async function loadApplication() {
+     const raw = login.headers['set-cookie'];
+     cookie = String(Array.isArray(raw) ? raw[0] : raw).split(';')[0];
+     expect(cookie).toMatch(/^cc_auth=.+/);
++    phase('login-complete');
+   }
+ }
+ async function restartApplication() {

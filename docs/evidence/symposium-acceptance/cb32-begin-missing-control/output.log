@@ -1,0 +1,47 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+{"level":30,"time":1792280411279,"pid":87139,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (2 tests | 2 failed) 3201ms
+   × reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity 3192ms
+   × requires actual joining and finalized reply owners after the observational review 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+AssertionError: expected 404 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 404
+
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:194:5
+    192|       })
+    193|     ).status,
+    194|   ).toBe(403);
+       |     ^
+    195|   expect(events.getSessionCollaboration(group)).toBeUndefined();
+    196|   const sessionsBeforeBegin = events
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires actual joining and finalized reply owners after the observational review
+Error: BLOCKED: actual app review prerequisite failed
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:421:11
+    419| it('requires actual joining and finalized reply owners after the obser…
+    420|   if (!reviewedSnapshot || !reviewedSettings)
+    421|     throw Error('BLOCKED: actual app review prerequisite failed');
+       |           ^
+    422|   const snapshot = reviewedSnapshot;
+    423|   const view = await api.view(group);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 8 passed (9)
+      Tests  2 failed | 60 passed (62)
+   Start at  00:40:07
+   Duration  7.69s (transform 2.03s, setup 0ms, import 2.53s, tests 4.28s, environment 0ms)
+

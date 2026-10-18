@@ -1,0 +1,55 @@
+{
+  "source": {
+    "commit": "fda8320ad400743663d759aac030c07442e778a2",
+    "tree": "3f589ef6626da53bd6f5e22045f30bff42b2ce2c",
+    "status": "",
+    "testSha256": "ee566459d7b39c0d2de9354ccb71cb55882a7c29935bceb61c81248efeee15d0"
+  },
+  "command": [
+    "node",
+    "node_modules/@playwright/test/cli.js",
+    "test",
+    "--config",
+    "playwright.offline.config.ts",
+    "tests/offline/agent-library.spec.ts",
+    "--project=mobile-webkit",
+    "--workers=1",
+    "--retries=0",
+    "--reporter=json",
+    "--output=/private/tmp/symposium-c-library-cbeaf6882b2742879bcaf78ca02a9a30"
+  ],
+  "startedAtUtc": "2026-10-18T06:24:50.751573+00:00",
+  "finishedAtUtc": "2026-10-18T06:26:03.842563+00:00",
+  "exitCode": 1,
+  "listingExitCode": 0,
+  "stats": {
+    "startTime": "2026-10-18T06:25:21.705Z",
+    "duration": 42101.946,
+    "expected": 0,
+    "skipped": 4,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "rawReportSha256": "0b05cd7f0147408b2901272085ff801c59dbca817fe308d299b4cf9bbe41dd4e",
+  "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "outputDirectory": "/private/tmp/symposium-c-library-cbeaf6882b2742879bcaf78ca02a9a30",
+  "workers": 1,
+  "nodeHeapMiB": 1024,
+  "retriesRequested": 0,
+  "node": "v24.10.0",
+  "playwright": "1.63.0",
+  "temporaryBindings": {
+    "protocol": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/mitzo/packages/protocol",
+    "harness": "/Users/dsaridak/Documents/Codex/2026-10-16/symposium-completion-map-16-october-2026/delivery-recovery/packages/harness",
+    "client": "/Users/dsaridak/Documents/Codex/2026-10-16/symposium-completion-map-16-october-2026/delivery-recovery/packages/client"
+  },
+  "originalMitzoScopeLink": "/Users/dsaridak/Documents/Codex/2026-10-16/symposium-completion-map-16-october-2026/delivery-recovery/node_modules/@mitzo",
+  "mitzoScopeRestoredExactly": true,
+  "protocolBuild": "Only current C packages/protocol built; no foreign package source/build modified",
+  "protocolDistributionSha256": "c8a62189e46438f1fc17ea971cd36e2fb9fd77e39637cd63c20b2a88be163ea5",
+  "hostGuard": "Approved outside Seatbelt; no CODEX_SANDBOX override or binary switch",
+  "allTrafficIntercepted": true,
+  "backendServerStarted": false,
+  "modelCalls": 0,
+  "fullSymposiumOrIosAcceptance": false
+}

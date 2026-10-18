@@ -1,0 +1,63 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+stderr | tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+{"acceptanceAppPhase":"guard","load":1,"elapsedMs":0,"at":"2026-10-18T04:22:16.140Z"}
+{"acceptanceAppPhase":"target-import","load":1,"elapsedMs":25,"at":"2026-10-18T04:22:16.165Z"}
+
+stderr | tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+{"acceptanceAppPhase":"target-configure","load":1,"elapsedMs":35,"at":"2026-10-18T04:22:16.175Z"}
+
+stderr | tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+{"acceptanceAppPhase":"app-import","load":1,"elapsedMs":5694,"at":"2026-10-18T04:22:21.834Z"}
+
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (3 tests | 3 failed) 20973ms
+   × reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity 20915ms
+   × reads exact completed durable source through actual production injection and typed client without restore or allocation 39ms
+   × requires actual joining and finalized reply owners after the observational review 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:191:1
+    189| });
+    190|
+    191| it('reviews an actual prepared unused Local workspace through real app…
+       | ^
+    192|   await loadApplication();
+    193|   events.upsertSession({ sessionId: 'existing-chat', conversationSourc…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > reads exact completed durable source through actual production injection and typed client without restore or allocation
+Error: BLOCKED: actual app prerequisite failed
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:462:20
+    460|
+    461| it('reads exact completed durable source through actual production inj…
+    462|   if (!http) throw Error('BLOCKED: actual app prerequisite failed');
+       |                    ^
+    463|   const sessionId = 'retained-durable-source';
+    464|   const userText = '\uFEFF  Selected π\r\n\t';
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires actual joining and finalized reply owners after the observational review
+Error: BLOCKED: actual app review prerequisite failed
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:578:11
+    576| it('requires actual joining and finalized reply owners after the obser…
+    577|   if (!reviewedSnapshot || !reviewedSettings)
+    578|     throw Error('BLOCKED: actual app review prerequisite failed');
+       |           ^
+    579|   const snapshot = reviewedSnapshot;
+    580|   const view = await api.view(group);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  3 failed | 8 passed (11)
+   Start at  05:22:10
+   Duration  80.38s (transform 14.95s, setup 0ms, import 36.39s, tests 24.60s, environment 0ms)
+
