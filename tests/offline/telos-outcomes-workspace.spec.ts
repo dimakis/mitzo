@@ -92,11 +92,9 @@ for (const theme of ['dark', 'light'])
     const unexpected: string[] = [];
     const errors: string[] = [];
     async function reload() {
-      await page.waitForLoadState('networkidle');
       await page.reload();
     }
     async function navigate(path: string) {
-      await page.waitForLoadState('networkidle');
       await page.goto(path);
     }
     const documentReads: number[] = [];
