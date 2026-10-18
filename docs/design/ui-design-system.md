@@ -1480,6 +1480,14 @@ The shared compact Agents control clips its flex label with the existing ellipsi
 pattern, preserving its full accessible name, fixed icon space and shared control
 height at narrow widths and large text sizes.
 
+Ordinary conversation files reuse the existing viewer, optimistic editor and file
+options. Root discovery retains the selected chat; verified ordinary metadata
+withholds Git/worktree controls, while unverified metadata withholds root choices.
+Loading a different chat or document retires the previous UI read and callbacks,
+including a return to a previously selected chat. Server file admission remains
+authoritative. Existing editor drafts, conflict review, download and return links
+keep their original session/path scope without a new editor or storage owner.
+
 The scoped offline role fixture checks source-only lead setup, full refinement/child
 advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
 expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,

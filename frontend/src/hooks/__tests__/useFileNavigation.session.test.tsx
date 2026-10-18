@@ -13,6 +13,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(apiFetch).mockImplementation((url) => {
     const path = String(url);
+    if (path.endsWith('/meta')) return response({ sessionId: path.split('/')[3] }) as never;
     if (path === '/api/git/info')
       return response({ branch: 'main', repoPath: '/base-repo', worktrees: [] }) as never;
     if (path === '/api/files/roots') return response([]) as never;
