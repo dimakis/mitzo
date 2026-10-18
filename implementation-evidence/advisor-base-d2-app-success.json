@@ -1,0 +1,16 @@
+{
+  "sha": "d2c47c71b9c7452d0d4bc9f4f5ffec3737ab371e",
+  "state": "success",
+  "statuses": [
+    {
+      "context": "Centaur final LGTM",
+      "created_at": "2026-10-18T13:33:48Z",
+      "creator": null,
+      "description": "Final Centaur LGTM for this commit",
+      "id": 56631391764,
+      "state": "success",
+      "target_url": null,
+      "updated_at": "2026-10-18T13:33:48Z"
+    }
+  ]
+}

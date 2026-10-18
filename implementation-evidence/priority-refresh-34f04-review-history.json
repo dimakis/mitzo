@@ -1,0 +1,11 @@
+[
+  {
+    "author": "dimakis",
+    "body": "\u003c!-- centaur:sha:34f04ef3c074110a93013cc5ae650407ccffde46 --\u003e\n## Centaur Review\n\nLGTM — no issues found.\n\n### Convergence\n**Recommendation:** `merge` — No blocking in-scope findings remain.\n\n- New blocking findings: 0\n- Unresolved blocking findings: 0\n- Non-blocking follow-ups: 0\n- Repeated/deferred findings: 0\n- Verified resolved findings: 1\n\n\n\u003c!-- centaur:job:dimakis/mitzo:1020:34f04ef3c074110a93013cc5ae650407ccffde46:0 --\u003e",
+    "commit_id": "34f04ef3c074110a93013cc5ae650407ccffde46",
+    "html_url": "https://github.com/dimakis/mitzo/pull/1020#pullrequestreview-5561003331",
+    "id": 5561003331,
+    "state": "COMMENTED",
+    "submitted_at": "2026-10-18T01:48:54Z"
+  }
+]
