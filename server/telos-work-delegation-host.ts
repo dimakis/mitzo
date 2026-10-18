@@ -10,6 +10,7 @@ import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-wor
 import { TelosArtifactStore } from './telos-artifact-store.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
 import { reviewTelosWorkRoleContext } from './telos-work-role-review.js';
+import { captureTelosWorkRolePresentation } from './telos-work-role-presentation.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import type { TelosWorkRoleRequest } from './telos-work-routes.js';
 import type { EventStore } from './event-store.js';
@@ -61,28 +62,29 @@ export function createTelosWorkDelegationHost(deps: TelosWorkDelegationHostDepen
             (deps.sourceConversation ?? deps.ordinaryConversation)(id),
           authorizeArtifact: (_actor, id) => artifacts!.userUploadAllowed(id),
         });
-        const review = (
+        const presentationReviewInput = (
           input: Pick<TelosWorkDelegationInput, 'childItemId' | 'leadConversationId'>,
           sources: string[],
           refs: TelosWorkDelegationInput['contextSelection']['artifacts'],
-        ) =>
-          reviewTelosWorkRoleContext({
-            work,
-            artifacts,
-            actor,
-            itemId: input.childItemId,
-            role: 'worker',
-            selectedSourceSnapshotIds: sources,
-            selectedArtifactRefs: refs,
-            ...(actor.kind === 'conversation'
-              ? {
-                  readTarget: (id: string) =>
-                    work.readDelegationTarget(actor.id, input.childItemId, id),
-                  readReviewedSource: (id: string) =>
-                    capture.readForDelegation(actor.id, input.childItemId, id),
-                }
-              : { readReviewedSource: (id: string) => capture.read(input.childItemId, id, actor) }),
-          });
+        ) => ({
+          work,
+          artifacts,
+          actor,
+          itemId: input.childItemId,
+          role: 'worker' as const,
+          selectedSourceSnapshotIds: sources,
+          selectedArtifactRefs: refs,
+          ...(actor.kind === 'conversation'
+            ? {
+                readTarget: (id: string) =>
+                  work.readDelegationTarget(actor.id, input.childItemId, id),
+                readReviewedSource: (id: string) =>
+                  capture.readForDelegation(actor.id, input.childItemId, id),
+              }
+            : { readReviewedSource: (id: string) => capture.read(input.childItemId, id, actor) }),
+        });
+        const review = (...args: Parameters<typeof presentationReviewInput>) =>
+          reviewTelosWorkRoleContext(presentationReviewInput(...args));
         let input: TelosWorkDelegationInput;
         if (actor.kind === 'operator') {
           input = TelosWorkDelegationInputSchema.parse(structuredClone(request.raw));
@@ -231,6 +233,18 @@ export function createTelosWorkDelegationHost(deps: TelosWorkDelegationHostDepen
             assertScope(scope);
           },
           assertBeforeApply: assertScope,
+          capturePresentation: (scope) => {
+            assertScope(scope);
+            const selected = scope.intent.input.contextSelection;
+            return captureTelosWorkRolePresentation(
+              presentationReviewInput(
+                scope.intent.input,
+                selected.sources.map((source) => source.snapshotId),
+                selected.artifacts,
+              ),
+              selected,
+            );
+          },
         });
         return await deps.dispatch(owner, actor, input, request.signal);
       } finally {

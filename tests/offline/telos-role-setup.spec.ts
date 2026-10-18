@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { settingsHome, openChatSetting } from '../support/chat-settings';
+import { offlineRoleReview } from '../support/telos-role-presentation';
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -73,6 +74,8 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         acceptanceCriteria: ['Ready'],
       });
       let selectedContext: Record<string, unknown> | undefined;
+      let selectedReview: ReturnType<typeof offlineRoleReview> | undefined;
+      const retainedReviews = new Map<string, ReturnType<typeof offlineRoleReview>>();
       let setupUnavailable = false;
       let rejectBeforeAllocation = false;
       let contextReviews = 0;
@@ -108,7 +111,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         if (path === '/api/telos/work/items/advisor-child')
           return route.fulfill({ json: savedWork });
         if (path === '/api/telos/work/items/studio') return route.fulfill({ json: work });
-        if (path === '/api/telos/work/roles/context') {
+        if (path === '/api/telos/work/roles/context' || path === '/api/telos/work/roles/review') {
           contextReviews++;
           const request = route.request().postDataJSON();
           selectedContext = {
@@ -126,10 +129,38 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
             sources: work.sources.filter((s) => request.sourceSnapshotIds.includes(s.snapshotId)),
             artifacts: request.artifactRefs,
           };
-          return route.fulfill({ json: selectedContext });
+          if (path.endsWith('/roles/context')) return route.fulfill({ json: selectedContext });
+          selectedReview = offlineRoleReview(selectedContext, {
+            itemTitle: record.summary,
+            goalTitle: record.summary,
+            sources: Object.fromEntries(
+              work.sources.map((source) => [
+                source.snapshotId,
+                {
+                  title: data.source.packet.sourceTitle,
+                  createdAt: data.source.packet.sourceCreatedAt,
+                },
+              ]),
+            ),
+            materials: data.outputs,
+          });
+          retainedReviews.set(selectedReview.presentationRef.id, selectedReview);
+          return route.fulfill({ json: selectedReview });
         }
-        if (path === '/api/telos/work/roles/setup') {
-          const input = TelosWorkRoleSetupInputSchema.parse(route.request().postDataJSON());
+        if (
+          path === '/api/telos/work/roles/setup' ||
+          path === '/api/telos/work/roles/setup-reviewed'
+        ) {
+          const body = route.request().postDataJSON();
+          const input = TelosWorkRoleSetupInputSchema.parse(
+            path.endsWith('/roles/setup-reviewed') ? body.input : body,
+          );
+          if (path.endsWith('/roles/setup-reviewed')) {
+            const reviewed = retainedReviews.get(body.presentationRef.id);
+            expect(reviewed?.presentationRef).toEqual(body.presentationRef);
+            expect(reviewed?.selection).toEqual(input.contextSelection);
+            selectedReview = reviewed;
+          }
           calls.push(input);
           if (rejectBeforeAllocation) {
             work = { ...work, revision: 'e'.repeat(64) };
@@ -399,6 +430,14 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
               ...(path.includes(boundId)
                 ? {
                     telosWorkRoleContext: selectedContext,
+                    ...(selectedReview
+                      ? {
+                          telosWorkRolePresentation: {
+                            presentation: selectedReview.presentation,
+                            presentationRef: selectedReview.presentationRef,
+                          },
+                        }
+                      : {}),
                     runtimeBinding: {
                       version: 2,
                       account: inventory.accounts[0].account,
