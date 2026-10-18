@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.352-role-draft-ownership.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.353-ordinary-chat-consumer.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -258,7 +258,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/collaboration-projection.ts':
     '21028cd31c292b11f9e70e2cac476d478f90d2b278c28b07d942aa153f09060a',
   '../../packages/client/src/index.ts':
-    'ff991e163bbcac2b9721efdef5c466a851f492437d589b51c56d1505a5b11f8a',
+    '0cf62447cb182a9943c919aeaba30c149ccf033bd97cdcebc5f7dc3aea652727',
   // Configurable neutral spares: durable claims, protected controls and explicit host enrollment.
   '../openshell-cli-environment.ts':
     '77f66ceaffb019038fe06479459505dbb37480b7791c596c8e869bef14c2b456',
@@ -433,7 +433,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
     '32660ff240dd5f62c2a8ab976941553a84b7f3809ed3455ffe4e64ccfcd2613d',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    'fd5a900f4757836fc06de4ac172d043a3a5397bd79abe22ea7984d9c0c5de389',
+    '3455179c20c25b6d439fde9a62f4b91c6d179ecc7aa22693261a28245bdea65f',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '4791a0f7870378d7353134e2a93972f1f7b5ef8197f20cfdc7304d0fd8adfb75',
   '../../frontend/src/lib/launch-draft-delivery.ts':
@@ -454,11 +454,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/explicit-local-chat.ts':
     'd7d0cc38945d801628db8d05c4d8d62e6866dd9045c59002d4a3fd47e9129108',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
-    'f27a25d30f2890a67aa2b15c7da54ceedc73317aadced7bc2b27371287bbb98c',
+    '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
-    '557d4eaae544a784468eff8de3253d742d5b1f414407e4a55c730f3671f59252',
+    '82b94c5d1a00f36174a78e9eb2532c16eb67d3d0cc9ee18a6a1b525372823e2b',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'a1cecb5dd74e3d0dad468a7c21c832e8c1c55d6060e9c26b103a78bcc39e2f40',
+    'f9d24d6d5ad2c5683ab3635f918693e4a9e7e078eeb17243c0fda1de2eee4710',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':

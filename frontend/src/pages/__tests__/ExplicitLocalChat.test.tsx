@@ -218,6 +218,7 @@ function setup(
   metadataFailed = false,
   continuation = false,
   suppliedFixture?: import('../../lib/explicit-local-chat').ExplicitLocalInventory,
+  ordinary?: 'prepared' | 'conversation' | 'invalid',
 ) {
   const fixture = suppliedFixture ?? localInventoryFixture();
   const draft = createChatDraft();
@@ -265,8 +266,15 @@ function setup(
                 models: fixture.accounts[0].models,
                 reasoningEffort: 'low',
               },
-              runtimeCommandScope: continuation ? 'conversation' : 'first-command-only',
-              repositoryWorkspaceId: readyId,
+              runtimeCommandScope:
+                ordinary === 'prepared' || ordinary === 'invalid'
+                  ? 'prepared-first-command'
+                  : continuation || ordinary === 'conversation'
+                    ? 'conversation'
+                    : 'first-command-only',
+              ...(ordinary
+                ? { ordinaryWorkspaceId: ordinary === 'invalid' ? 'invalid' : readyId }
+                : { repositoryWorkspaceId: readyId }),
               mode: 'agent',
               agentProfile: fixture.agentProfiles[0],
               runtimeBinding: {
@@ -285,11 +293,19 @@ function setup(
   const localSend = vi.fn(
     (_request: import('@mitzo/protocol').OrdinaryCodexFirstCommand, _observers?: unknown) => true,
   );
+  const ordinarySend = vi.fn(
+    (
+      _request: import('@mitzo/protocol').OrdinaryWorkspaceFirstCommand,
+      _phase: 'first' | 'continue',
+      _observers?: unknown,
+    ) => true,
+  );
   const legacySend = vi.fn();
   store.setState({
     localFirstCommandTransportAvailable: true,
     connection: { status: 'connected', clientId: 'sse-current' },
     sendLocalFirstCommand: localSend,
+    sendOrdinaryWorkspaceCommand: ordinarySend,
     sendMessage: legacySend,
     ...(bound ? { sessions: { ...store.getState().sessions, active: 'bound-session' } } : {}),
   });
@@ -307,9 +323,13 @@ function setup(
   return {
     store,
     localSend,
+    ordinarySend,
     legacySend,
     draft,
     fixture,
+    setOrdinaryConversation: () => {
+      ordinary = 'conversation';
+    },
     recoverMetadata: () => {
       metadataFailed = false;
     },
@@ -319,6 +339,74 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${name}: sends the ordinary prepared first command and refreshes into continuation without a repository`, async () => {
+    const { store, ordinarySend, localSend, legacySend, setOrdinaryConversation } = setup(
+      Screen,
+      false,
+      false,
+      true,
+      false,
+      false,
+      undefined,
+      'prepared',
+    );
+    const trigger = await screen.findByRole('button', { name: /^Workspace controls/ });
+    if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Model' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend).toHaveBeenCalledOnce();
+    const [request, phase, observers] = ordinarySend.mock.calls[0];
+    expect(phase).toBe('first');
+    expect(request).toMatchObject({
+      version: 2,
+      sessionId: 'bound-session',
+      workspace: { kind: 'ordinary', workspaceId: readyId },
+      selection: { model: 'luna-fixture', thinking: 'low' },
+      payload: { text: 'hello' },
+    });
+    expect(request).not.toHaveProperty('repositoryWorkspaceId');
+    expect(observers).not.toHaveProperty('onSessionAssigned');
+    setOrdinaryConversation();
+    act(() =>
+      store.setState({
+        localCommand: {
+          request,
+          ordinaryPhase: 'first',
+          state: 'consumed',
+          sessionId: 'bound-session',
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Thinking level' })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend.mock.calls[1][1]).toBe('continue');
+    expect(ordinarySend.mock.calls[1][0].clientMsgId).not.toBe(request.clientMsgId);
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    expect(store.getState().sessions.active).toBe('bound-session');
+  });
+  it(`${name}: refuses malformed ordinary scope without repository or legacy send fallback`, async () => {
+    const { ordinarySend, localSend, legacySend } = setup(
+      Screen,
+      false,
+      false,
+      true,
+      false,
+      false,
+      undefined,
+      'invalid',
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend).not.toHaveBeenCalled();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
   it(`${name}: mounts one settings panel at the top and leaves the composer clear`, async () => {
     setup(Screen, true);
     const trigger = await screen.findByRole('button', { name: /^Workspace controls/ });

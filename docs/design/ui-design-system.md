@@ -1469,6 +1469,14 @@ locked. Only an exact durable pre-allocation rejection permits explicit re-revie
 a fresh confirmation. This reuses the existing setup card, status/alert text, composer
 and controls, with no new style or motion pattern.
 
+A bound ordinary workspace uses the same chat settings, transcript and composer.
+Its prepared first command keeps the original account, model, thinking, agent and
+execution choices fixed. A matching consumed receipt refreshes its command phase;
+future model/thinking choices then use the existing continuation controls. Unknown
+delivery keeps the original command and draft for explicit recovery in More options.
+Workspace details say Conversation files and show that a Git branch does not apply.
+No new settings, storage owner or motion pattern is introduced.
+
 The scoped offline role fixture checks source-only lead setup, full refinement/child
 advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
 expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,

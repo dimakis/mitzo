@@ -5,6 +5,7 @@ import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   SessionRuntimeBindingSchema,
+  OrdinaryWorkspaceFirstCommandSchema,
   AgentLibraryVersionSchema,
   AgentContextSnapshotSchema,
   type AgentLibraryVersion,
@@ -97,6 +98,8 @@ export function useExplicitLocalChat(
     sessionId: string;
     binding: SessionRuntimeBinding | null;
     firstCommand: boolean;
+    preparedFirst: boolean;
+    ordinaryWorkspaceId?: string;
     reason?: string;
     intent: ChatRuntimeSelection | null;
     repositoryWorkspaceId?: string;
@@ -185,8 +188,27 @@ export function useExplicitLocalChat(
           body.runtimeBinding == null
             ? null
             : SessionRuntimeBindingSchema.parse(body.runtimeBinding);
+        const ordinaryWorkspaceId =
+          body.ordinaryWorkspaceId == null
+            ? undefined
+            : OrdinaryWorkspaceFirstCommandSchema.shape.workspace.shape.workspaceId.parse(
+                body.ordinaryWorkspaceId,
+              );
+        const preparedFirst = body.runtimeCommandScope === 'prepared-first-command';
+        if (
+          (ordinaryWorkspaceId !== undefined || preparedFirst) &&
+          (!ordinaryWorkspaceId ||
+            body.repositoryWorkspaceId != null ||
+            parsed?.version !== 2 ||
+            parsed.harness.implementation !== 'codex' ||
+            parsed.execution.location !== 'local' ||
+            parsed.account.provider !== 'openai-codex')
+        )
+          throw Error('Ordinary conversation identity unavailable');
         setMeta({
           sessionId,
+          ordinaryWorkspaceId,
+          preparedFirst,
           binding: parsed,
           ...(parsed?.harness.implementation === 'gemini'
             ? {
@@ -262,6 +284,8 @@ export function useExplicitLocalChat(
     ['codex', 'responses', 'claude-sdk', 'gemini'].includes(
       currentMeta?.binding?.harness.implementation ?? '',
     );
+  const preparedFirst = bound && !!currentMeta?.preparedFirst && !metadataPending;
+  const commandAvailable = !metadataPending && (preparedFirst || continuation);
   const [future, setFuture] = useState<{ sessionId: string; intent: ChatRuntimeSelection } | null>(
     null,
   );
@@ -308,7 +332,7 @@ export function useExplicitLocalChat(
     ? currentMeta!.nativeConstraint!.reason
     : metadataPending
       ? (metadataError ?? 'Loading conversation settings…')
-      : bound && !continuation
+      : bound && !commandAvailable
         ? (currentMeta?.reason ??
           `This ${currentMeta?.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local'} conversation supports its first command only. Start a new chat for another command.`)
         : sessionId && !currentMeta
@@ -407,10 +431,14 @@ export function useExplicitLocalChat(
     setChoice({ draftId, intent: reviewed });
     retained?.update(reviewed);
   };
+  const refresh = useCallback(() => setAttempt((value) => value + 1), []);
   return {
     intent: selectedIntent,
     inventory,
     continuation,
+    preparedFirst,
+    commandAvailable,
+    ordinaryWorkspaceId: currentMeta?.ordinaryWorkspaceId,
     repositoryWorkspaceId: currentMeta?.repositoryWorkspaceId,
     agentProfile: currentMeta?.agentProfile,
     agentContext: currentMeta?.agentContext,
@@ -425,7 +453,7 @@ export function useExplicitLocalChat(
     error,
     metadataUnavailable,
     metadataPending,
-    refresh: () => setAttempt((value) => value + 1),
+    refresh,
     update,
     review: () => {
       update({
