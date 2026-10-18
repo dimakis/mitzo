@@ -25,7 +25,7 @@ const entity = z.object({
   area_id: optional,
 });
 const area = z.object({ area_id: text.min(1), name: optional });
-const generatedAt = z.string().datetime({ offset: true });
+const generatedAt = z.string().max(64).datetime({ offset: true });
 const section = <T extends z.ZodType>(item: T) =>
   z.object({ generated_at: generatedAt, items: z.array(item).max(20000) });
 const snapshot = z

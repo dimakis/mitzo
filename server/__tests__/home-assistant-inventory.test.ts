@@ -8,6 +8,11 @@ import {
 } from '../home-assistant-inventory.js';
 
 const directories: string[] = [];
+it('rejects oversized timestamps before they can expand the result metadata', () => {
+  const data = snapshot();
+  data.sections.devices.generated_at = '2026-10-18T12:00:00.' + '1'.repeat(17000) + 'Z';
+  expect(() => queryHomeAssistantInventory(data, {})).toThrow();
+});
 it('matches the HA spoke portable contract fixture', () => {
   const fixture = JSON.parse(
     readFileSync(new URL('./fixtures/ha-inventory-v1.json', import.meta.url), 'utf8'),

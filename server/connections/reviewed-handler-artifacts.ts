@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.323-ha-inventory';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.323-ha-inventory.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -45,7 +45,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work-role-presentation.ts':
     '99736d144a8086119d3defb90b79a0b1b8635772a2c8d70fc96034df59421417',
   '../home-assistant-inventory.ts':
-    '0b135e6d375db363af35af342a9926320fd5b5d92995b68b63545b919c28164c',
+    'b0ae9e5ca3403b483dd0fbcfbad856db4a00c6009350ff0d3c80f179d4366af0',
   '../connection-request-error.ts':
     '2c5b07c9c52fcc4f5e4be3f0e1750c2713e042c164611284c60f725388d158e4',
   // Bounded native resume, including retained-runtime migration validation.
