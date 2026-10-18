@@ -6074,12 +6074,12 @@ it('persists one startup error and keeps a failed receipt from dispatching again
   const store = new EventStore(':memory:');
   const ctx = createContext({ eventStore: store });
   const transport = mockTransport();
-  const message = {
-    type: 'send' as const,
+  const message = V2SendMessage.parse({
+    type: 'send',
     sessionId: null,
     prompt: 'Continue research',
     clientMsgId: 'durable-startup-failure',
-  };
+  });
   vi.mocked(startChat).mockImplementationOnce(async (startupTransport, _client, _prompt, opts) => {
     startupTransport.send({ type: 'session_id', sessionId: opts.initialSessionId });
     opts.onStartupAdmission?.(new Error('Bounded transport failure'));
