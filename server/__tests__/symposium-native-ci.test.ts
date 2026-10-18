@@ -24,14 +24,14 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function runRecordedStep(exitCode: number, brokenLog = false) {
+function runRecordedStep(exitCode: number, brokenLog = false, runnerOs = 'Linux') {
   const root = mkdtempSync(join(tmpdir(), 'symposium-native-ci-'));
   roots.push(root);
   const bin = join(root, 'bin');
   mkdirSync(bin);
   writeFileSync(
     join(bin, 'just'),
-    `#!/bin/sh\nprintf 'offline native fixture stdout\\n'\nprintf 'offline native fixture stderr\\n' >&2\nexit ${exitCode}\n`,
+    `#!/bin/sh\nprintf '%s\\n' "$@" > native-arguments\nprintf 'offline native fixture stdout\\n'\nprintf 'offline native fixture stderr\\n' >&2\nexit ${exitCode}\n`,
     { mode: 0o700 },
   );
   const script = join(root, 'step.sh');
@@ -42,15 +42,40 @@ function runRecordedStep(exitCode: number, brokenLog = false) {
   const flags = step.shell === 'bash' ? ['--noprofile', '--norc', '-e', '-o', 'pipefail'] : ['-e'];
   const result = spawnSync('bash', [...flags, script], {
     cwd: root,
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, RUNNER_OS: runnerOs },
     encoding: 'utf8',
   });
   if (result.error) throw result.error;
   return {
     result,
     log: brokenLog ? null : readFileSync(join(root, 'native-fixtures.log'), 'utf8'),
+    arguments: readFileSync(join(root, 'native-arguments'), 'utf8').trim().split('\n'),
   };
 }
+
+it.each(['Linux', 'macOS'])(
+  'executes all original crate fixtures and the affected Linux sandbox owner on %s',
+  (runnerOs) => {
+    const recorded = runRecordedStep(0, false, runnerOs);
+    expect(recorded.result.status).toBe(0);
+    expect(recorded.arguments).toEqual([
+      'test',
+      '-p',
+      'codex-core',
+      '-p',
+      'codex-http-client',
+      '-p',
+      'codex-state',
+      '-p',
+      'codex-api',
+      ...(runnerOs === 'Linux' ? ['-p', 'codex-linux-sandbox'] : []),
+      '--test-threads',
+      '1',
+      '--retries',
+      '0',
+    ]);
+  },
+);
 
 it('selects an explicit bash shell for the logged native test pipeline', () => {
   expect(step.shell).toBe('bash');

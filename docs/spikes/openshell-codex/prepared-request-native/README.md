@@ -206,3 +206,28 @@ isolation. The nineteenth-patch tree requires new exact-source CI. The Linux
 literal-glob sandbox construction and Mac permission/child-approval failures
 remain unresolved. No permission rule, assertion or guard is relaxed, and no
 runtime qualification or upstream comparison is inferred.
+
+### Conservative Linux literal glob expansion
+
+The twentieth patch extends the existing launch-time bwrap glob expander to
+resolved UTF-8 literal regular files and verified clean missing paths. Every
+existing prefix must be a real directory; all symlink components, directories,
+special files, ambiguous literal syntax and unexpected metadata errors refuse.
+This does not reserve future names or add filesystem atomicity. The original
+wildcard scan, logical/canonical match handling, depth behavior, per-read matcher,
+approval assertions and sandbox guards remain unchanged. All expansions share
+the existing 8,192-path deduplicated bound.
+
+Nine new Linux owner cases are retained but have not run locally on macOS. The
+existing Linux CI job now includes codex-linux-sandbox alongside the original
+four crates; no new job or upstream diagnostic comparison is added. The preceding
+run 39100230330 recorded Linux 5,471 passes / 2 failures / 8 skips, with the skill
+completion correction passing in 0.502 seconds. Both remaining Linux failures
+were sandbox construction failures for literal deny globs. Removing that
+construction incompatibility may expose further approval failures.
+
+The preceding Mac job reached its 90-minute limit with 4,478 recorded passes,
+5,482 selected tests and 27 announced skips. Its retained log has no final summary
+or JUnit; its remaining fixture outcomes and cancellation cause are unknown.
+The new exact source still requires CI. Neither source reconstruction nor these
+partial results qualify an installed runtime.
