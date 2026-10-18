@@ -73,6 +73,16 @@ results and current composed-source results are recorded separately; an older
 pass count cannot qualify a newer tree. Full fixture logs and JUnit results retain
 skipped/filtered counts and run without automatic test retries.
 
+The next patch updates only the remote-environment test server for the real
+`fs/open` / `fs/readBlock` / `fs/close` instruction-reader protocol, retaining its
+original assertions. Corrected exact-source CI remains pending. The prior
+17-patch CI run `39076917374` reported green jobs while `tee` hid upstream test
+failures: Linux had 5,088 passes, 385 failures and 8 skips; Mac had 5,173 passes,
+309 failures and 27 skips. Those jobs do not qualify the source. Their original
+logs and counts are retained. CI now explicitly propagates pipeline failures,
+builds the actual required runtime helpers and supplies pinned upstream test
+prerequisites. These changes do not establish that every native failure is fixed.
+
 The application changes in `server/collaboration-context-compiler.ts`,
 `server/collaboration-review-owner.ts` and the existing EventStore retain a
 private native witness behind a public total-count assessment. They preserve the

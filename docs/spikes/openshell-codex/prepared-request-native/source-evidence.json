@@ -72,10 +72,14 @@
     {
       "file": "native-public-tool-shapes.patch",
       "sha256": "48f119569c27d55ec5571d5e1f06c1ebeeca4ac1fa89c065ccc3e00d1bbb7c70"
+    },
+    {
+      "file": "native-remote-bounded-read-fixture.patch",
+      "sha256": "d6afe05bcf8d669f90bb987795d4ec3031fb0ee6740ccdaf07f83dd96b54a853"
     }
   ],
-  "sourceTree": "21b13b6fc0ebbc1461c5fa42371948f810c4b397",
-  "localSourceCommit": "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
+  "sourceTree": "7407c99d2b1fe8a9b6bfffb8896f12c7fdd93db4",
+  "localSourceCommit": "476400255d18e172d6579a49cfe071538d8fecff",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -98,7 +102,8 @@
     "c6e9256ac3445958efa2e8b8ed7e578d3f2f39d4",
     "4eccb2a",
     "e673127f21b000346dfc35d4604030d7447cf6c0",
-    "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd"
+    "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
+    "476400255d18e172d6579a49cfe071538d8fecff"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -108,36 +113,44 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "Current composed source; historical foundation counts do not qualify this tree.",
+    "scope": "Fixture-only composed tree; corrected full native CI qualification pending. Historical passes retain their original exact trees.",
     "localFocused": {
-      "status": "passed",
-      "sourceCommit": "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
-      "sourceTree": "21b13b6fc0ebbc1461c5fa42371948f810c4b397",
-      "packages": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
-      "automaticTestRetries": 0,
-      "buildJobs": 1,
-      "testThreads": 1,
-      "localPlatform": "macOS",
-      "guardedHttpWebsocketSuites": "CI only; do not count sandbox early returns as executed fixtures",
-      "kind": "selected library regressions using recording transports and temporary databases; includes role/tool planning, ordinary formatter and project document owners",
-      "runId": "496247cf-8668-4dbd-844b-78903b7de254",
-      "passed": 215,
-      "failed": 0,
-      "filteredOut": 3059,
-      "defaultStack": true,
-      "scopedFormat": "passed; retained existing stable-rustfmt imports_granularity warnings",
-      "taskPackageArtifactsCleanedBeforeBuild": false,
-      "exactSourceBuildObserved": true,
-      "sourcePath": "native-integration/codex-rs",
-      "warnings": [
-        "Existing codex-core ToolCallSource unused-import warning retained; no production fix applied to unrelated upstream owner."
-      ]
+      "status": "not_run_new_tree",
+      "reason": "Only Core remote filesystem RPC fixture changed; preserved exact prior CI provides two failing regressions. No cold broad Core integration build run locally.",
+      "format": "Rust 1.95 scoped check passed; original stable imports_granularity warning retained."
     },
     "ci": {
-      "status": "external_PR_gate",
+      "status": "pending_corrected_PR_gate",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
-      "platforms": ["ubuntu-24.04", "macos-26"]
+      "platforms": ["ubuntu-24.04", "macos-26"],
+      "previousRun": 39076917374,
+      "previousSourceTree": "21b13b6fc0ebbc1461c5fa42371948f810c4b397",
+      "previousGreenJobStatusesInvalid": true,
+      "previousObservedResults": {
+        "linux": {
+          "passed": 5088,
+          "failed": 385,
+          "skipped": 8
+        },
+        "macos": {
+          "passed": 5173,
+          "failed": 309,
+          "skipped": 27
+        }
+      },
+      "cause": "Unspecified bash shell hid failing just test exit100 behind successful tee. Missing runtime helpers and two actual fs/open fixture incompatibilities observed; other failures remain unproven until corrected CI.",
+      "zeroNativeSkipsClaimed": false
+    },
+    "fixtureRegression": {
+      "sourceCommit": "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
+      "failingOnBothPlatforms": [
+        "suite::remote_env::deferred_executor_loads_agents_md_when_environment_becomes_ready",
+        "suite::remote_env::guardian_environments::guardian_revalidates_allow_with_offline_secondary_executor"
+      ],
+      "observedFailure": "unexpected exec-server request: Some(\"fs/open\")",
+      "assertionsPreserved": true,
+      "green": "pending corrected exact-source CI"
     },
     "testCountsOverlap": true
   },
@@ -341,6 +354,44 @@
         "filteredOut": 3137,
         "localPlatform": "macOS",
         "scopedFormat": "passed"
+      }
+    },
+    {
+      "sourceCommit": "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
+      "sourceTree": "21b13b6fc0ebbc1461c5fa42371948f810c4b397",
+      "checks": {
+        "scope": "Current composed source; historical foundation counts do not qualify this tree.",
+        "localFocused": {
+          "status": "passed",
+          "sourceCommit": "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
+          "sourceTree": "21b13b6fc0ebbc1461c5fa42371948f810c4b397",
+          "packages": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
+          "automaticTestRetries": 0,
+          "buildJobs": 1,
+          "testThreads": 1,
+          "localPlatform": "macOS",
+          "guardedHttpWebsocketSuites": "CI only; do not count sandbox early returns as executed fixtures",
+          "kind": "selected library regressions using recording transports and temporary databases; includes role/tool planning, ordinary formatter and project document owners",
+          "runId": "496247cf-8668-4dbd-844b-78903b7de254",
+          "passed": 215,
+          "failed": 0,
+          "filteredOut": 3059,
+          "defaultStack": true,
+          "scopedFormat": "passed; retained existing stable-rustfmt imports_granularity warnings",
+          "taskPackageArtifactsCleanedBeforeBuild": false,
+          "exactSourceBuildObserved": true,
+          "sourcePath": "native-integration/codex-rs",
+          "warnings": [
+            "Existing codex-core ToolCallSource unused-import warning retained; no production fix applied to unrelated upstream owner."
+          ]
+        },
+        "ci": {
+          "status": "external_PR_gate",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
+          "platforms": ["ubuntu-24.04", "macos-26"]
+        },
+        "testCountsOverlap": true
       }
     }
   ]
