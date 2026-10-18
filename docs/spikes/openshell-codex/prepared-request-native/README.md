@@ -67,7 +67,8 @@ never reads application configuration, selects credentials or invokes a model.
 The native CI workflow is configured to reconstruct and test this source against
 fixture transports and temporary databases. It includes `codex-core` (including
 the formatter and real ordinary HTTP/WebSocket owners), `codex-api`,
-`codex-http-client` and `codex-state` together. The earlier three-crate workflow
+`codex-http-client`, `codex-state` and the affected `codex-guardian-reviewer`
+extension together. The earlier three-crate workflow
 did not qualify the formatter or its ordinary request owners. Historical foundation
 results and current composed-source results are recorded separately; an older
 pass count cannot qualify a newer tree. Full fixture logs and JUnit results retain
@@ -134,6 +135,31 @@ Other source/access/account/route authority changes still need ordering against
 native consumption; consumable admission remains unavailable for those changes
 until that ordering is proved. Live calls, activation and deployment require their
 separate user authorizations described in the Symposium handover.
+
+## Inert native approval source stages
+
+The ordered bundle now contains 23 patches. The original twenty checksums are
+unchanged. The final three retain typed extension routing, fresh user provenance
+from the actual approval owner, and original configuration/policy plus actual
+restricted-launch bindings. Root and an independent reviewer inspected each
+stage; reconstruction yields tree `b4f196081c383cf9dcf2062d10b8a7281fbd7819`.
+
+The original policy flags, hooks, contributors and protected fixture assertions
+remain. Only an actual fresh user approval can produce the sealed evidence;
+cached/session, Hook and Guardian approvals cannot. Actual initial-call lifetime
+tests use `exec_command_inner` and its real stored flag, including yield,
+future drop, process failure and retained polling. Configuration and manager-policy
+drift tests use their original owners. These new Rust tests have not run.
+
+This source has no child consumer, same-request hook-match metadata or final
+Session admission CAS. It cannot reuse parent approval yet. The existing
+native CI job now includes the changed Guardian reviewer crate on both platforms;
+its shell-recording coverage passed 19 cases locally, which verifies package
+selection only. Rust compilation and fixture qualification remain pending CI.
+The separately proposed Guardian terminal-test correction is excluded.
+
+This ordinary shell compatibility work creates no prepared Responses capability,
+HTTP send, provider session, application joining or runtime adoption authority.
 
 Public body-schema handling of inline image/PDF bytes does not register artifact
 sources or qualify saved files. The existing source reader and artifact-kind
