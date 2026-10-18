@@ -137,29 +137,35 @@ const TodoContextHintsSchema = TelosOutcomeContextHintsSchema;
 const TodoLinkSchema = TelosOutcomeLinkSchema;
 
 const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
-  z.object({
-    id: z.string(),
-    summary: z.string(),
-    intent: z.string().optional().default(''),
-    rationale: z.string().optional().default(''),
-    acceptanceCriteria: z.array(z.string()).optional().default([]),
-    profile: z.string(),
-    urgency: z.number(),
-    // optional+default(false) so the API accepts items without `starred`.
-    // The frontend TodoItem declares starred as required (boolean) — Zod's
-    // default coercion guarantees it's always present after parsing.
-    starred: z.boolean().optional().default(false),
-    status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']),
-    ageDays: z.number(),
-    parentId: z.string().nullable().optional().default(null),
-    children: z.array(TodoItemSchema).optional().default([]),
-    childCount: z.number().optional().default(0),
-    completedChildCount: z.number().optional().default(0),
-    sources: z.array(TodoSourceSchema),
-    links: z.array(TodoLinkSchema).optional().default([]),
-    contextHints: TodoContextHintsSchema,
-    goalId: z.string().nullable().optional().default(null),
-  }),
+  z
+    .object({
+      id: z.string(),
+      summary: z.string(),
+      intent: z.string().optional().default(''),
+      rationale: z.string().optional().default(''),
+      acceptanceCriteria: z.array(z.string()).optional().default([]),
+      profile: z.string(),
+      urgency: z.number(),
+      priority: z.number().int().min(1).max(10).optional(),
+      // optional+default(false) so the API accepts items without `starred`.
+      // The frontend TodoItem declares starred as required (boolean) — Zod's
+      // default coercion guarantees it's always present after parsing.
+      starred: z.boolean().optional().default(false),
+      status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']),
+      ageDays: z.number(),
+      parentId: z.string().nullable().optional().default(null),
+      children: z.array(TodoItemSchema).optional().default([]),
+      childCount: z.number().optional().default(0),
+      completedChildCount: z.number().optional().default(0),
+      sources: z.array(TodoSourceSchema),
+      links: z.array(TodoLinkSchema).optional().default([]),
+      contextHints: TodoContextHintsSchema,
+      goalId: z.string().nullable().optional().default(null),
+    })
+    .transform((item) => ({
+      ...item,
+      priority: item.priority ?? (item.starred ? 10 : 5),
+    })),
 );
 
 export const TodoListResponse = z.object({
@@ -175,10 +181,17 @@ export const TodoCreateBody = z.object({
 
 export const TodoOutcomeCreateBody = TelosOutcomeCreateBodySchema;
 
-export const TodoActionBody = z.object({
-  action: z.enum(['ack', 'snooze', 'done', 'star', 'unstar']),
-  days: z.number().optional(),
-});
+export const TodoActionBody = z
+  .object({
+    action: z.enum(['ack', 'snooze', 'done', 'star', 'unstar', 'priority']),
+    days: z.number().optional(),
+    priority: z.number().int().min(1).max(10).optional(),
+  })
+  .superRefine((body, context) => {
+    if (body.action === 'priority' && body.priority === undefined) {
+      context.addIssue({ code: 'custom', path: ['priority'], message: 'Priority is required' });
+    }
+  });
 
 export const TodoActionResponse = z.object({
   ok: z.boolean(),

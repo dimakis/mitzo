@@ -140,7 +140,6 @@ it.each(['active', 'acknowledged', 'snoozed', 'completed'] as const)(
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
