@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { TelosWorkControls } from './telos-work-controls.js';
+import type { TelosWorkControlScope } from '@mitzo/protocol';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   TelosWorkCommandSchema,
@@ -101,6 +103,40 @@ export class TelosWorkStore {
   }
   close() {
     if (this.db.open) this.db.close();
+  }
+  private controls() {
+    return new TelosWorkControls(
+      this.db,
+      (id) => this.snapshot(id),
+      this.policy.ordinaryConversation,
+    );
+  }
+  requestControl(raw: unknown, actor: TelosWorkActor) {
+    return this.controls().request(raw, actor);
+  }
+  readControl(id: string, actor: TelosWorkActor) {
+    return this.controls().read(id, actor);
+  }
+  acknowledgeControl(raw: unknown, actor: TelosWorkActor) {
+    return this.controls().acknowledge(raw, actor);
+  }
+  releaseControl(raw: unknown, actor: TelosWorkActor) {
+    return this.controls().release(raw, actor);
+  }
+  assertControlAction(itemId: string, scope: TelosWorkControlScope, mainCommit?: string) {
+    this.controls().assertAction(itemId, scope, mainCommit);
+  }
+  recordControlAppliedForHost(
+    raw: unknown,
+    verify: Parameters<TelosWorkControls['recordApplied']>[1],
+  ) {
+    this.controls().recordApplied(raw, verify);
+  }
+  recordControlRevalidationForHost(
+    raw: unknown,
+    verify: Parameters<TelosWorkControls['recordRevalidation']>[1],
+  ) {
+    this.controls().recordRevalidation(raw, verify);
   }
   /** Internal operator-only advisor save port. Receipt identity shares the
    * existing command owner; no conversation capability or dispatch is granted. */

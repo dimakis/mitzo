@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.329-telos-s6-current-authority';
+  'v1.0.330-telos-s6-control-receipts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/telos-work-controls.ts':
+    'a05b7683433d70e88e96efb25ec29eb664d128a2f18d0d9d1700fcd6268c9e6f',
+  '../telos-work-controls.ts': 'bdc424e3c04fd61ed273321e24970d3ea8ee0baf8a80d9156b2b1527af2c3f40',
   '../../frontend/src/components/AgentTaskProposal.tsx':
     'c431e4b77b6349b5f6f2b8d2d0040a5c970a2440c222d93577e0848451499f2a',
   '../../frontend/src/components/SymposiumProfilePicker.css':
@@ -144,8 +147,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-work-routes.ts': '4a3bdda93822d70392e521824aeef84fcbe426fc945c1653a5917831e998d4e6',
   '../../packages/client/src/telos-work-api.ts':
     '9dc3a4c550598560008127b8de2985f934c49280ae67963a81f8276f36e782c2',
-  '../telos-work-schema.ts': '51d23d7e4e2f6af0076901a5e5748b203d4f07238f60b69755a79c8c9671a24e',
-  '../telos-work-store.ts': '745ffc485ffdedc8d2561cdd7a64a4538439207b36be038e68e2ad21ff7b52fb',
+  '../telos-work-schema.ts': '065c358cdfa86b00dc102e0f72126bec2e7bf88eda756ae6e8d57dfca9ae8d3d',
+  '../telos-work-store.ts': 'c92db1169b159bb48daf64d0a2496f6d1f2059f931b1b3ebd7be65324652eff1',
   '../../packages/protocol/src/telos-work-api.ts':
     'e24a6d7142cb5bef3910ec37b750b05dece5814d85e35d8bcbdc2f3813270176',
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',
@@ -730,7 +733,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    'b5a357f8916c6bec25b3601d94518a4a615e5cb02eb8cef30db03e59ac5045ed',
+    '30ec360fc148a7d50d7c1334737bf0a760713074ce8faf3d2eb8e95a6a52b000',
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':
