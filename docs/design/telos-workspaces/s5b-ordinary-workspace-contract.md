@@ -78,3 +78,34 @@ navigation and reattach. No hidden Git fixture can qualify those journeys. Code
 acceptance, complete offline integration, owning UI acceptance and live runtime
 qualification remain separate. No model, live target, staging or deployment test
 is authorized by this work.
+
+## Versioned ordinary session journal
+
+A separate strict V2 preparation receipt retains `workspaceKind: 'ordinary'`, the
+allocated workspace/session identities, original V2 settings and the existing
+allocation-operation fingerprint. It uses the same EventStore preparation table.
+The V1 schema and its normalized JSON stay unchanged; V1 getters cannot project
+an ordinary receipt as a repository. New explicit ordinary getters serve this
+kind. These private ports require the caller's existing authorization, readiness,
+profile and directory-owner qualifications; a metadata receipt grants none.
+
+Session metadata stores `ordinaryWorkspaceId` separately and exclusively from
+`repositoryWorkspaceId`. Runtime-bound kind, identity and cwd cannot be replaced
+or cleared. New ordinary enrollment is limited to local Codex/openai-codex.
+Exact restart/replay checks the original metadata, account and settings. The
+explicit first command consumes that same preparation in the existing global
+command/send/admission transaction. No implicit command, native thread or provider
+turn is created by preparation.
+
+Existing local command receipts already carry a generic workspace identity and
+cwd. Their original wire shape is retained, with durable session-kind checks.
+Unprepared ordinary metadata and unsupported adapters cannot enter that ledger.
+Legacy joining allocation refuses an ordinary command rather than manufacturing
+a repository identity from its generic ID. A real-owner negative integration
+case demonstrates that fence; synthetic capacity is supplied only at the existing
+trusted compiler port, with no model/native call.
+
+Seven ordinary session-journal cases and sixty existing preparation/runtime/
+metadata cases pass in the focused 67-case run. Native owned-runtime, public
+role/command wrappers and frontend adoption remain separate integrations, with
+CT07–CT09 still open.
