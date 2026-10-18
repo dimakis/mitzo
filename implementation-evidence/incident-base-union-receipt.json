@@ -1,0 +1,68 @@
+{
+  "priorFullyReviewedHead": "70776eabc851fabe586c40ec21bc4569673ac96d",
+  "acceptedBase": "f39cbfdfa31f5e4c0d3413737827de2c8640d34e",
+  "actualConflict": "server/connections/reviewed-handler-artifacts.ts",
+  "incomingFiles": 15,
+  "allAcceptedIncomingFilesExactExceptManifest": true,
+  "acceptedCiWorkflowSha256": "c5fd96ebe67c264aad82367644fea9f238326d09551ac7b574200ded1c18051a",
+  "acceptedResumeStartupFailureOwnersAndTestsUnmodified": true,
+  "manifestEntries": 589,
+  "allActualSourcePinsMatch": true,
+  "bothPinSetsPreservedWithoutDuplicateOrRehash": true,
+  "unchangedPrivacyWitnessArtifactCode": [
+    "server/collaboration-forwarding.ts",
+    "server/__tests__/collaboration-forwarding.test.ts",
+    "server/collaboration-retained-artifact-source.ts",
+    "server/collaboration-context-source.ts",
+    "server/collaboration-context-compiler.ts",
+    "server/telos-artifact-store.ts",
+    "server/telos-artifact-routes.ts",
+    "frontend/src/components/SavedArtifactDialog.tsx",
+    "frontend/src/components/SavedArtifactDialog.css",
+    "frontend/src/components/WorkOutputs.tsx",
+    "frontend/src/components/SavedArtifactRouteDialog.tsx",
+    "frontend/src/lib/saved-artifact-location.ts"
+  ],
+  "allFrontendApprovedReferencesDesignAndCapturesUnchanged": true,
+  "localChecks": {
+    "forwarding": {
+      "passed": 52,
+      "files": 1,
+      "skipped": 0
+    },
+    "manifestTypes": "pass",
+    "officialSourceClosure": "pass",
+    "manifestFormat": "pass",
+    "workerCount": 1,
+    "heapMiB": 1024
+  },
+  "restartRecovery": "Dirty merge/index preserved; incomplete check logs absent after power loss, verified already-resolved manifest and completed only interrupted checks",
+  "historicalFullReview": {
+    "body": "<!-- centaur:sha:70776eabc851fabe586c40ec21bc4569673ac96d -->\n## Centaur Review\n\nLGTM \u2014 no issues found.\n\n### Convergence\n**Recommendation:** `merge` \u2014 No blocking in-scope findings remain.\n\n- New blocking findings: 0\n- Unresolved blocking findings: 0\n- Non-blocking follow-ups: 0\n- Repeated/deferred findings: 0\n- Verified resolved findings: 0\n\n\n<!-- centaur:job:dimakis/mitzo:1020:70776eabc851fabe586c40ec21bc4569673ac96d:1 -->",
+    "commit_id": "70776eabc851fabe586c40ec21bc4569673ac96d",
+    "id": 5563596415,
+    "node_id": "PRR_kwDOR2Rn9s8AAAABS52-fw",
+    "state": "COMMENTED",
+    "submitted_at": "2026-10-18T15:07:28Z",
+    "user": "dimakis"
+  },
+  "historicalCleanRounds": [5561003331, 5562773551, 5563596415],
+  "priorCi": {
+    "run": 39133449252,
+    "head": "70776eabc851fabe586c40ec21bc4569673ac96d",
+    "allEightJobsSucceeded": true,
+    "passed": 17939,
+    "existingSkipped": 31
+  },
+  "oldJobHandling": "4980r1 completed whole-PR full-final on707; no duplicate/restart/cancellation/rawqueue change; changed head requires its own normal CI/fullfinal/App",
+  "modelCallsOrStagingOrRuntimeAdoption": false,
+  "evidenceSha256": {
+    "incident-base-forwarding.log": "9de00bc10a191a74402279603f0befcffef80e9101dbd120a2a2d7e636486eab",
+    "incident-base-source-closure.log": "1d06cf98ff66600f20d331a92ae46753d6ef939d55206547e760aaa8c9a7911e",
+    "incident-base-manifest-red.log": "631dd4bdcdaeee9df39eee630ce805aedfad7e1a1679d39358c7c5ad7f0468de"
+  },
+  "allTrackedFrontendDesignAndPngCapturesByteUnchanged": true,
+  "historicalJobProof": "incident-base-completed-4980.json",
+  "historicalAppProof": "incident-base-707-app-status.json",
+  "historical707AppStatus": "pending; not claimed success"
+}

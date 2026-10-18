@@ -1601,6 +1601,26 @@ large text, keyboard activation and reduced motion. Inspected captures show
 [desktop activity](assets/research-activity-desktop-light.png). These isolated
 renders use intercepted traffic and no backend, credentials or model calls.
 
+## Retained artifact inspection
+
+Work output titles open the shared `SavedArtifactDialog` through an exact
+artifact/revision/hash selector on the existing route. The dialog uses HomeDialog,
+UiIcon, shared motion and semantic tokens. Its bounded body scrolls while the
+header and native file actions remain reachable. The saved-version selector uses
+custom control geometry so WebKit retains the 44px touch target. Preview follows
+the existing safe document renderer policy; unsupported formats remain explicit.
+Provenance is collapsed until requested. The real Work link and Files editing
+bridge preserve existing associations and exact selected revisions across reload.
+Native export is separate from agent-delivery receipts.
+
+Focused synthetic actual-owner/browser checks cover 320px WebKit/Chromium and
+1280px desktop Chromium in dark Mint/System and light Teal/Georgia, large text,
+keyboard focus return, reduced motion, final-provenance scrolling and pinned Files
+Back navigation. Inspected captures show [mobile provenance](assets/symposium-artifact-mobile-dark.png)
+and [desktop inspection](assets/symposium-artifact-desktop-light.png). These are
+implementation evidence. The approved full Symposium participant-sharing flow
+still requires the core durable delivery contract and its own acceptance.
+
 ## Telos worker creation receipt
 
 `TelosWorkerReceiptCard` renders the frozen Telos mock's worker material row inside

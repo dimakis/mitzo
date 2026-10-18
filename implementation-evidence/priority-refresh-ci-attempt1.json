@@ -1,0 +1,951 @@
+{
+  "conclusion": "failure",
+  "headSha": "7813295edfc742b620fa7e71453f8203dfc34b46",
+  "jobs": [
+    {
+      "completedAt": "2026-10-18T03:13:49Z",
+      "conclusion": "success",
+      "databaseId": 117569772531,
+      "name": "ci",
+      "startedAt": "2026-10-18T02:54:39Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-18T02:54:41Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-18T02:54:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:46Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-18T02:54:42Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:51Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v7",
+          "number": 3,
+          "startedAt": "2026-10-18T02:54:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:55Z",
+          "conclusion": "success",
+          "name": "Run npm install --global npm@11.18.0",
+          "number": 4,
+          "startedAt": "2026-10-18T02:54:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:29Z",
+          "conclusion": "success",
+          "name": "Install dependencies",
+          "number": 5,
+          "startedAt": "2026-10-18T02:54:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:30Z",
+          "conclusion": "success",
+          "name": "Verify native knowledge write boundary",
+          "number": 6,
+          "startedAt": "2026-10-18T02:55:29Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:39Z",
+          "conclusion": "success",
+          "name": "Build workspace packages",
+          "number": 7,
+          "startedAt": "2026-10-18T02:55:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:39Z",
+          "conclusion": "success",
+          "name": "Verify reviewed daily quote catalogue",
+          "number": 8,
+          "startedAt": "2026-10-18T02:55:39Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:56:23Z",
+          "conclusion": "success",
+          "name": "Lint",
+          "number": 9,
+          "startedAt": "2026-10-18T02:55:39Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:57:26Z",
+          "conclusion": "success",
+          "name": "Format check",
+          "number": 10,
+          "startedAt": "2026-10-18T02:56:23Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:57:29Z",
+          "conclusion": "success",
+          "name": "Design token contract",
+          "number": 11,
+          "startedAt": "2026-10-18T02:57:26Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:58:02Z",
+          "conclusion": "success",
+          "name": "Type check (server)",
+          "number": 12,
+          "startedAt": "2026-10-18T02:57:29Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:58:29Z",
+          "conclusion": "success",
+          "name": "Type check (frontend)",
+          "number": 13,
+          "startedAt": "2026-10-18T02:58:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:12:49Z",
+          "conclusion": "success",
+          "name": "Test",
+          "number": 14,
+          "startedAt": "2026-10-18T02:58:29Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:12:49Z",
+          "conclusion": "success",
+          "name": "Test count guard",
+          "number": 15,
+          "startedAt": "2026-10-18T03:12:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:12:50Z",
+          "conclusion": "success",
+          "name": "Audit",
+          "number": 16,
+          "startedAt": "2026-10-18T03:12:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:12:53Z",
+          "conclusion": "success",
+          "name": "Secret scan",
+          "number": 17,
+          "startedAt": "2026-10-18T03:12:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:12:57Z",
+          "conclusion": "success",
+          "name": "Build MCP server",
+          "number": 18,
+          "startedAt": "2026-10-18T03:12:53Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:13:45Z",
+          "conclusion": "success",
+          "name": "Build",
+          "number": 19,
+          "startedAt": "2026-10-18T03:12:57Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:13:45Z",
+          "conclusion": "success",
+          "name": "Bundle size",
+          "number": 20,
+          "startedAt": "2026-10-18T03:13:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:13:45Z",
+          "conclusion": "success",
+          "name": "Summary",
+          "number": 21,
+          "startedAt": "2026-10-18T03:13:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:13:46Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v7",
+          "number": 41,
+          "startedAt": "2026-10-18T03:13:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:13:46Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 42,
+          "startedAt": "2026-10-18T03:13:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:13:46Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 43,
+          "startedAt": "2026-10-18T03:13:46Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39091742497/job/117569772531"
+    },
+    {
+      "completedAt": "2026-10-18T02:54:47Z",
+      "conclusion": "success",
+      "databaseId": 117569772643,
+      "name": "Select CI jobs",
+      "startedAt": "2026-10-18T02:54:39Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-18T02:54:41Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-18T02:54:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:44Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-18T02:54:41Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:44Z",
+          "conclusion": "success",
+          "name": "Select dependent checks",
+          "number": 3,
+          "startedAt": "2026-10-18T02:54:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:44Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 6,
+          "startedAt": "2026-10-18T02:54:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:44Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 7,
+          "startedAt": "2026-10-18T02:54:44Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39091742497/job/117569772643"
+    },
+    {
+      "completedAt": "2026-10-18T03:00:43Z",
+      "conclusion": "success",
+      "databaseId": 117569800315,
+      "name": "Browser interaction tests",
+      "startedAt": "2026-10-18T02:54:49Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-18T02:54:51Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-18T02:54:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:54Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-18T02:54:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:59Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v7",
+          "number": 3,
+          "startedAt": "2026-10-18T02:54:54Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:01Z",
+          "conclusion": "success",
+          "name": "Run npm install --global npm@11.18.0",
+          "number": 4,
+          "startedAt": "2026-10-18T02:54:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:33Z",
+          "conclusion": "success",
+          "name": "Run npm install --no-audit",
+          "number": 5,
+          "startedAt": "2026-10-18T02:55:01Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:56:20Z",
+          "conclusion": "success",
+          "name": "Run npx playwright install --with-deps webkit chromium",
+          "number": 6,
+          "startedAt": "2026-10-18T02:55:33Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:00:40Z",
+          "conclusion": "success",
+          "name": "Run npm run test:browser",
+          "number": 7,
+          "startedAt": "2026-10-18T02:56:20Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:00:40Z",
+          "conclusion": "skipped",
+          "name": "Retain browser failure evidence",
+          "number": 8,
+          "startedAt": "2026-10-18T03:00:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:00:40Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v7",
+          "number": 15,
+          "startedAt": "2026-10-18T03:00:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:00:40Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 16,
+          "startedAt": "2026-10-18T03:00:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:00:40Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 17,
+          "startedAt": "2026-10-18T03:00:40Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39091742497/job/117569800315"
+    },
+    {
+      "completedAt": "2026-10-18T03:06:58Z",
+      "conclusion": "failure",
+      "databaseId": 117569800332,
+      "name": "Native Swift tests and builds",
+      "startedAt": "2026-10-18T02:55:09Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-18T02:55:11Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-18T02:55:10Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:15Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-18T02:55:11Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:23Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v7",
+          "number": 3,
+          "startedAt": "2026-10-18T02:55:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:25Z",
+          "conclusion": "success",
+          "name": "Run npm install --global npm@11.18.0",
+          "number": 4,
+          "startedAt": "2026-10-18T02:55:23Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:56:21Z",
+          "conclusion": "success",
+          "name": "Run npm install --no-audit",
+          "number": 5,
+          "startedAt": "2026-10-18T02:55:25Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:57:31Z",
+          "conclusion": "success",
+          "name": "Prepare native web assets and plugins",
+          "number": 6,
+          "startedAt": "2026-10-18T02:56:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:57:45Z",
+          "conclusion": "success",
+          "name": "Test Keychain helper with disposable credentials",
+          "number": 7,
+          "startedAt": "2026-10-18T02:57:31Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:58:22Z",
+          "conclusion": "success",
+          "name": "Test shared native package",
+          "number": 8,
+          "startedAt": "2026-10-18T02:57:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:59:05Z",
+          "conclusion": "success",
+          "name": "Test Watch receipt routing offline",
+          "number": 9,
+          "startedAt": "2026-10-18T02:58:22Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:01:02Z",
+          "conclusion": "success",
+          "name": "Build iPhone app with Watch companion",
+          "number": 10,
+          "startedAt": "2026-10-18T02:59:05Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:01:02Z",
+          "conclusion": "success",
+          "name": "Verify embedded Watch companion",
+          "number": 11,
+          "startedAt": "2026-10-18T03:01:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:01:03Z",
+          "conclusion": "success",
+          "name": "Test native cold-boot wait with offline process fixtures",
+          "number": 12,
+          "startedAt": "2026-10-18T03:01:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:06:46Z",
+          "conclusion": "failure",
+          "name": "Test real notification bridge in an offline disposable simulator",
+          "number": 13,
+          "startedAt": "2026-10-18T03:01:03Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:06:49Z",
+          "conclusion": "success",
+          "name": "Retain native notification failure evidence",
+          "number": 14,
+          "startedAt": "2026-10-18T03:06:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:06:49Z",
+          "conclusion": "skipped",
+          "name": "Post Run actions/setup-node@v7",
+          "number": 27,
+          "startedAt": "2026-10-18T03:06:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:06:51Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 28,
+          "startedAt": "2026-10-18T03:06:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:06:53Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 29,
+          "startedAt": "2026-10-18T03:06:51Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39091742497/job/117569800332"
+    },
+    {
+      "completedAt": "2026-10-18T03:04:43Z",
+      "conclusion": "success",
+      "databaseId": 117569800339,
+      "name": "Offline layouts (desktop-chromium)",
+      "startedAt": "2026-10-18T02:54:49Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-18T02:54:51Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-18T02:54:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:55Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-18T02:54:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:59Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v7",
+          "number": 3,
+          "startedAt": "2026-10-18T02:54:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:03Z",
+          "conclusion": "success",
+          "name": "Run npm install --global npm@11.18.0",
+          "number": 4,
+          "startedAt": "2026-10-18T02:54:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:35Z",
+          "conclusion": "success",
+          "name": "Run npm install --no-audit",
+          "number": 5,
+          "startedAt": "2026-10-18T02:55:03Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:56:13Z",
+          "conclusion": "success",
+          "name": "Run npx playwright install --with-deps webkit chromium",
+          "number": 6,
+          "startedAt": "2026-10-18T02:55:35Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:35Z",
+          "conclusion": "success",
+          "name": "Verify shared theme and mobile layouts without a backend",
+          "number": 7,
+          "startedAt": "2026-10-18T02:56:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:35Z",
+          "conclusion": "skipped",
+          "name": "Retain offline layout failure evidence",
+          "number": 8,
+          "startedAt": "2026-10-18T03:04:35Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:36Z",
+          "conclusion": "success",
+          "name": "Retain agent tool selection visual evidence",
+          "number": 9,
+          "startedAt": "2026-10-18T03:04:35Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:37Z",
+          "conclusion": "success",
+          "name": "Retain responsiveness visual acceptance screenshots",
+          "number": 10,
+          "startedAt": "2026-10-18T03:04:36Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:39Z",
+          "conclusion": "success",
+          "name": "Retain Local first-command visual evidence",
+          "number": 11,
+          "startedAt": "2026-10-18T03:04:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:40Z",
+          "conclusion": "success",
+          "name": "Retain artefact sharing acceptance screenshots",
+          "number": 12,
+          "startedAt": "2026-10-18T03:04:39Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:40Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v7",
+          "number": 23,
+          "startedAt": "2026-10-18T03:04:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:40Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 24,
+          "startedAt": "2026-10-18T03:04:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:40Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 25,
+          "startedAt": "2026-10-18T03:04:40Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39091742497/job/117569800339"
+    },
+    {
+      "completedAt": "2026-10-18T03:04:27Z",
+      "conclusion": "success",
+      "databaseId": 117569800364,
+      "name": "Offline layouts (mobile-chromium)",
+      "startedAt": "2026-10-18T02:54:49Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-18T02:54:52Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-18T02:54:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:56Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-18T02:54:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:00Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v7",
+          "number": 3,
+          "startedAt": "2026-10-18T02:54:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:03Z",
+          "conclusion": "success",
+          "name": "Run npm install --global npm@11.18.0",
+          "number": 4,
+          "startedAt": "2026-10-18T02:55:00Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:32Z",
+          "conclusion": "success",
+          "name": "Run npm install --no-audit",
+          "number": 5,
+          "startedAt": "2026-10-18T02:55:03Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:56:23Z",
+          "conclusion": "success",
+          "name": "Run npx playwright install --with-deps webkit chromium",
+          "number": 6,
+          "startedAt": "2026-10-18T02:55:32Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:17Z",
+          "conclusion": "success",
+          "name": "Verify shared theme and mobile layouts without a backend",
+          "number": 7,
+          "startedAt": "2026-10-18T02:56:23Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:17Z",
+          "conclusion": "skipped",
+          "name": "Retain offline layout failure evidence",
+          "number": 8,
+          "startedAt": "2026-10-18T03:04:17Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:19Z",
+          "conclusion": "success",
+          "name": "Retain agent tool selection visual evidence",
+          "number": 9,
+          "startedAt": "2026-10-18T03:04:17Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:21Z",
+          "conclusion": "success",
+          "name": "Retain responsiveness visual acceptance screenshots",
+          "number": 10,
+          "startedAt": "2026-10-18T03:04:19Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:23Z",
+          "conclusion": "success",
+          "name": "Retain Local first-command visual evidence",
+          "number": 11,
+          "startedAt": "2026-10-18T03:04:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:24Z",
+          "conclusion": "success",
+          "name": "Retain artefact sharing acceptance screenshots",
+          "number": 12,
+          "startedAt": "2026-10-18T03:04:23Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:24Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v7",
+          "number": 23,
+          "startedAt": "2026-10-18T03:04:24Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:25Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 24,
+          "startedAt": "2026-10-18T03:04:24Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:04:25Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 25,
+          "startedAt": "2026-10-18T03:04:25Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39091742497/job/117569800364"
+    },
+    {
+      "completedAt": "2026-10-18T03:09:15Z",
+      "conclusion": "success",
+      "databaseId": 117569800394,
+      "name": "Offline layouts (mobile-webkit)",
+      "startedAt": "2026-10-18T02:54:49Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-18T02:54:50Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-18T02:54:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:53Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-18T02:54:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:56Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v7",
+          "number": 3,
+          "startedAt": "2026-10-18T02:54:53Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:54:58Z",
+          "conclusion": "success",
+          "name": "Run npm install --global npm@11.18.0",
+          "number": 4,
+          "startedAt": "2026-10-18T02:54:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:55:31Z",
+          "conclusion": "success",
+          "name": "Run npm install --no-audit",
+          "number": 5,
+          "startedAt": "2026-10-18T02:54:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T02:56:22Z",
+          "conclusion": "success",
+          "name": "Run npx playwright install --with-deps webkit chromium",
+          "number": 6,
+          "startedAt": "2026-10-18T02:55:31Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:09Z",
+          "conclusion": "success",
+          "name": "Verify shared theme and mobile layouts without a backend",
+          "number": 7,
+          "startedAt": "2026-10-18T02:56:22Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:09Z",
+          "conclusion": "skipped",
+          "name": "Retain offline layout failure evidence",
+          "number": 8,
+          "startedAt": "2026-10-18T03:09:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:10Z",
+          "conclusion": "success",
+          "name": "Retain agent tool selection visual evidence",
+          "number": 9,
+          "startedAt": "2026-10-18T03:09:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:11Z",
+          "conclusion": "success",
+          "name": "Retain responsiveness visual acceptance screenshots",
+          "number": 10,
+          "startedAt": "2026-10-18T03:09:10Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:12Z",
+          "conclusion": "success",
+          "name": "Retain Local first-command visual evidence",
+          "number": 11,
+          "startedAt": "2026-10-18T03:09:11Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:13Z",
+          "conclusion": "success",
+          "name": "Retain artefact sharing acceptance screenshots",
+          "number": 12,
+          "startedAt": "2026-10-18T03:09:12Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:13Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v7",
+          "number": 23,
+          "startedAt": "2026-10-18T03:09:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:13Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 24,
+          "startedAt": "2026-10-18T03:09:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:14Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 25,
+          "startedAt": "2026-10-18T03:09:14Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39091742497/job/117569800394"
+    },
+    {
+      "completedAt": "2026-10-18T03:09:27Z",
+      "conclusion": "success",
+      "databaseId": 117572340634,
+      "name": "Connections browser regression",
+      "startedAt": "2026-10-18T03:09:17Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-18T03:09:18Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-18T03:09:18Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:22Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v7",
+          "number": 2,
+          "startedAt": "2026-10-18T03:09:18Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:25Z",
+          "conclusion": "success",
+          "name": "Require every selected browser suite",
+          "number": 3,
+          "startedAt": "2026-10-18T03:09:22Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:25Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v7",
+          "number": 6,
+          "startedAt": "2026-10-18T03:09:25Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-18T03:09:25Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 7,
+          "startedAt": "2026-10-18T03:09:25Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39091742497/job/117572340634"
+    }
+  ],
+  "status": "completed"
+}
