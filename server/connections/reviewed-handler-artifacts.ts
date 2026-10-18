@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.315-telos-s5.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.316-telos-s5.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1020,7 +1020,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/SessionList.tsx':
     '3b9738b0bcae4e4c08793a787a17811e062799c7161faaf976aa02cf2109fd90',
   // S4 ordinary role setup, immutable context, scoped host operations and advisor saves.
-  '../task-orchestrator.ts': '438183522fcc774c2945367ea28a2a76793b71fdca0b718ab0445285381e099a',
+  '../task-orchestrator.ts': '0c25385bc6ace3c9ef225b336379e41d47ecc99ba9f383dcf4f1cdd705c2fff7',
   '../telos-work-role-context.ts':
     '35dec116d6e955cfa836f92f8c414f0ec9179ff960160f107b690da7e9825d77',
   '../telos-work-role-host.ts': '29900a5554dc606e55d05a8e2ae40c09def476dc33c4837b2dd734cfe9ffb295',

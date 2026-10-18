@@ -69,6 +69,13 @@ task protects its worker even after disconnect or restart while the legacy task
 terminal-task and legacy client ownership rules remain in force; protection neither
 claims a task nor submits a command.
 
+Task Board rejection of a mapped worker result retains its review feedback and
+returns the exact task to `pending`, independently of the legacy loop. Its mapping,
+saved summary, artifacts and provenance remain intact. Rejection neither sends a
+worker turn nor starts, resumes or changes a legacy loop; the feedback is available
+in the task context for the worker's next explicit ordinary command. Unbound legacy
+review retry behavior and explicit approval remain with their existing owners.
+
 | Fact                          | Evidence owner                                                                    |
 | ----------------------------- | --------------------------------------------------------------------------------- |
 | Chat ready                    | Retained ordinary allocation and Telos delegation receipt                         |

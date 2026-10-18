@@ -447,10 +447,19 @@ export class TaskOrchestrator {
     return true;
   }
 
-  /** Reject a pending_review task → active + feedback + tick. */
+  /** Retain mapped review feedback for an explicit worker command; retry legacy work normally. */
   rejectTask(taskId: string, feedback: string): boolean {
     const task = this.deps.store.get(taskId);
-    if (!task || task.status !== 'pending_review' || this.state === 'idle') return false;
+    if (!task || task.status !== 'pending_review') return false;
+    if (this.deps.store.getTelosExecutionBinding(taskId)) {
+      this.deps.store.update(taskId, {
+        status: 'pending',
+        annotations: [...task.annotations, `review_feedback: ${feedback}`],
+      });
+      this.deps.broadcastTasks();
+      return true;
+    }
+    if (this.state === 'idle') return false;
     const annotations = [...task.annotations, `review_feedback: ${feedback}`];
     const manuallyPaused = this.state === 'paused' && this.autoPausedReason === null;
 
