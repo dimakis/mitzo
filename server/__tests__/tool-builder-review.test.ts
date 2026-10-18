@@ -1,106 +1,17 @@
 import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
-import { z } from 'zod';
 import express from 'express';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { createToolBuilderRouter } from '../tool-builder-router.js';
 import { revokeAuthSession } from '../auth.js';
-import { CustomToolRegistry, type InstalledCustomTool } from '../custom-tool-registry.js';
-import { ToolBuilderStore } from '../tool-builder-store.js';
-import {
-  CustomToolDraftInputSchema,
-  toolBuilderContractDigest,
-  toolBuilderSourceDigest,
-} from '../tool-builder.js';
+import { CustomToolRegistry } from '../custom-tool-registry.js';
+import { toolBuilderContractDigest } from '../tool-builder.js';
 
-const id = 'c2f63831-e4bc-46c2-ab36-7b7850ad501a';
-const input = z.object({ text: z.string() }).strict();
-const output = z.object({ length: z.number().int() }).strict();
-function fixture() {
-  const contract = CustomToolDraftInputSchema.parse({
-    name: 'Text length',
-    description: 'Count text characters',
-    inputSchema: JSON.parse(JSON.stringify(z.toJSONSchema(input))),
-    outputSchema: JSON.parse(JSON.stringify(z.toJSONSchema(output))),
-    examples: [{ input: { text: 'abc' }, expected: { length: 3 } }],
-    permissions: { behavior: 'read', requiredConnections: [] },
-    compatibility: { routes: ['local-api'] },
-    testProfile: 'unit',
-    files: [
-      {
-        path: 'src/index.mjs',
-        content: 'export const runTool = ({text}) => ({length: text.length});\n',
-      },
-      {
-        path: 'test/index.test.mjs',
-        content: 'import {test} from "node:test"; test("length", () => {});\n',
-      },
-    ],
-  });
-  const sourceDigest = toolBuilderSourceDigest(contract.files);
-  const contractDigest = toolBuilderContractDigest(contract);
-  const draft = {
-    ...contract,
-    id,
-    version: 1,
-    status: 'unpublished' as const,
-    workspaceId: 'workspace',
-    sourceDigest,
-    contractDigest,
-    tests: {
-      passed: true as const,
-      complete: true as const,
-      summary: 'Unit tests and examples passed',
-      evidenceKind: 'trusted-executor' as const,
-      sourceDigest,
-      contractDigest,
-      examples: [{ ...contract.examples[0], actual: { length: 3 } }],
-    },
-  };
-  const qualify = vi.fn(async (_signal: AbortSignal) => {});
-  const execute = vi.fn(async (value: Record<string, unknown>) => ({
-    length: String(value.text).length,
-  }));
-  const sourceFiles = Object.fromEntries(
-    contract.files.map((file) => [file.path, `../custom-tools/${id}/${file.path}`]),
-  );
-  const entry: InstalledCustomTool = {
-    id: `custom:${id}`,
-    version: 1,
-    contractDigest,
-    sourceFiles,
-    executorSource: sourceFiles['src/index.mjs'],
-    qualifierSource: sourceFiles['test/index.test.mjs'],
-    qualify,
-    input,
-    output,
-    execute,
-  };
-  let state = {
-    entries: [entry],
-    artifacts: Object.fromEntries(
-      contract.files.map((file) => [
-        sourceFiles[file.path],
-        createHash('sha256').update(file.content).digest('hex'),
-      ]),
-    ),
-    revision: 'fixture-v1',
-  };
-  const registry = new CustomToolRegistry(() => state);
-  const store = new ToolBuilderStore(':memory:', registry);
-  return {
-    draft,
-    entry,
-    registry,
-    store,
-    execute,
-    qualify,
-    drift: () => {
-      state = { ...state, revision: 'fixture-v2' };
-    },
-  };
-}
+import {
+  toolBuilderFixture as fixture,
+  toolBuilderFixtureId as id,
+} from './fixtures/tool-builder.js';
 
 it('keeps a reviewed draft private until explicit publication creates an exact catalog reference', async () => {
   const f = fixture();

@@ -112,3 +112,25 @@ after each awaited operation and immediately before inserting the publication.
 A newer qualification supersedes an older attempt; failure or cancellation
 cannot leave a new publication. Exact retries of an existing publication verify
 its current binding and return the original receipt without executing again.
+
+## Catalog and local API admission
+
+The ordinary Agent Library owner mounts the private Tool Builder review routes
+and projects accepted publications into its existing Tools endpoint. Custodian
+owner/controller configurations retain their refusal; this does not introduce a
+new proxy. The statically imported inventory is initially empty. A draft bundle
+alone cannot add executable code to that inventory.
+
+Published custom references use the existing portable profile tool selection.
+Actual local OpenAI Responses and Gemini/Vertex admission resolves their immutable
+receipt, installed definition and complete reviewed closure. The native private
+continuation store retains these definitions and reference mappings for cold
+resume. Other runtime routes retain their refusal. Invocation checks exact wire
+identity, current selection, skill policy, bounded schemas and existing approval;
+it captures approved input and the exact authenticated operator across awaited
+approval. Logout, cancellation, ownership changes or source drift prevent the
+call. Publication does not select a tool for any profile or running session.
+
+Custom invocation fields are contract data. A field named `file_path` does not
+trigger native filesystem path resolution. Project pre/post hooks still run;
+their explicit input updates follow the normal validation and approval path.
