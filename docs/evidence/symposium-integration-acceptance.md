@@ -2,7 +2,33 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
-Current acceptance source preparation integrates actual accepted recovery main
+Current resumed candidate aligns accepted main
+`f39cbfdfa31f5e4c0d3413737827de2c8640d34e` (#1028) with prior C
+`c4068c06d583989728dacce95bd289f2d0cef241`. The clean signed source merge
+`541fc21d1ad6bbd8642e431e6c1ddd140e8bb370` has tree
+`4daaa77aca565a7590ea4bc9654f9dbdff1c4911`, exactly the composed source
+used by earlier CI checkout `881302875005926adb884bc3acc777b056802339`.
+All235 prior C delta paths survive unchanged at the source merge; all15 incoming
+accepted paths are byte-identical. All581 fingerprints match
+`v1.0.320-codex-resume`, with zero mismatches.
+[Reconciliation and format-failure proof](symposium-acceptance/f39-format-reconciliation/verification.json).
+
+CI39135943443 failed only its evidence-map Prettier check and downstream summary.
+The bare C head was tree9e083446; actual composed CI was tree4daaa77a. That
+source distinction is retained. The targeted map formatting correction preserves
+all non-whitespace content before this new checkpoint note; no assertion, timeout,
+reference or native test was changed. This is a formatting repair, not an assertion
+or native failure waiver. No broad local suite, typecheck or browser launch ran.
+
+The final published head/tree, current CI, qualifying review rounds, actual
+whole-PR final admission/result and dedicated-App status are retained separately
+in task-root `implementation-evidence/resume-format-reconciliation/` and the
+active milestone note. Fresh gates are required for this advanced head; old ad74
+full review and App success remain source-specific history. Strict/base readiness
+and the coordinated landing slot remain separate. Full-feature acceptance stays
+open, including actual app/durable/join/native/UX/iOS gaps.
+
+Previous accepted-recovery source checkpoint integrates actual accepted recovery main
 `2b22bade2b1e612cc564661bf1e69b45a317e5eb` (#1029, including #1027) into prior C
 `ad74f30c32621f6d31c679c5220ed7bd2d1dd91a`. The clean signed source merge is
 `90a820dede75623e6690f2977eb8582d74827cdf`, tree
@@ -125,7 +151,7 @@ import is deferred; fork is separate. No new plan or milestone tree was created.
 
 | Owner                                   | Agreed files/contracts                                                                                                                        | Current source and evidence classification                                                                                                                                                                                                                                |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Core — Continue Symposium after #1000   | Native capture/count/consume; application construction/auth/join/recovery/delivery/reply wiring; ledger/call sites; canonical plan/checkpoint | C independently attempted core PR1023 source6ddc2607 with accepted6de/nativef8/durable source;584 pins match. Current app attempt unqualified; last bounded app checkpoint420d. native distribution/account qualification remains separate.                                                               |
+| Core — Continue Symposium after #1000   | Native capture/count/consume; application construction/auth/join/recovery/delivery/reply wiring; ledger/call sites; canonical plan/checkpoint | C independently attempted core PR1023 source6ddc2607 with accepted6de/nativef8/durable source;584 pins match. Current app attempt unqualified; last bounded app checkpoint420d. native distribution/account qualification remains separate.                               |
 | A — Implement Symposium UI Workstream   | Shared transcript adapter, stable recipient controls, focused UI behavior/captures                                                            | A serif fixfe4f811b retained in420d; private/projection/header/recovery fixtures independently rerun as bounded protected/shared browser cases. No full backend app/native iOS claim.                                                                                     |
 | B — Implement Symposium Workstream      | Exact forwarding selection, retained-version adapter and artifact fixture                                                                     | Exact saved-version/custody producer and private selector/storage/refusal owners on420d reused, including original15 source save-fence cases; browser-safe extraction79e467da preserves Node custody in its explicit private entry. Public durable delivery remains open. |
 | C — Build Symposium Integration Harness | New scoped fixtures/tests, runner, this single map and independent defect reports                                                             | This branch; actual owners, new durable app case and guarded omission runner. Current startup evidence remains unqualified. No second dispatcher, native algorithm, scheduler, account catalog or artifact engine.                                                        |
