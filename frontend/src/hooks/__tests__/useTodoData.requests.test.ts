@@ -3,8 +3,35 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { markAuthLost } from '../../lib/api-fetch';
 import { useTodoData } from '../useTodoData';
+import type { TodoItem } from '../../types/todo';
 vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: () => () => {} } }));
 const fetchMock = vi.fn();
+const createdItem: TodoItem = {
+  id: 'created',
+  summary: 'Created',
+  profile: 'work',
+  priority: 5,
+  urgency: 0,
+  starred: false,
+  status: 'active',
+  ageDays: 0,
+  parentId: null,
+  children: [],
+  childCount: 0,
+  completedChildCount: 0,
+  goalId: null,
+  sources: [],
+  contextHints: {
+    repos: [],
+    paths: [],
+    issues: [],
+    docIds: [],
+    people: [],
+    jiraKeys: [],
+    keywords: [],
+    taskHint: '',
+  },
+};
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
@@ -29,9 +56,7 @@ it.each(['refresh', 'create', 'outcome'] as const)(
     const hook = renderHook(() => useTodoData());
     fetchMock.mockImplementation(async (_url: string, init?: RequestInit) =>
       Response.json(
-        init?.method === 'POST'
-          ? { item: { id: 'created' } }
-          : { profiles: [], items: [{ id: 'created' }] },
+        init?.method === 'POST' ? { item: createdItem } : { profiles: [], items: [createdItem] },
       ),
     );
     await act(async () => {
