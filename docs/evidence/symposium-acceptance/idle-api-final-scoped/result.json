@@ -1,0 +1,30 @@
+{
+  "source": {
+    "commit": "617bf52a859832e441f5fe3bb22acb92bff0b50a",
+    "tree": "e2b405f0d0c150100e47fe33eae333f08e7a237a",
+    "status": "M docs/evidence/symposium-integration-acceptance.md\n M server/__tests__/fixtures/symposium-application-http.ts\n M server/__tests__/symposium-acceptance-http.test.ts\n M tests/acceptance/symposium-application-wiring.repro.ts\n?? docs/evidence/symposium-acceptance/idle-api-scoped/\n?? docs/evidence/symposium-acceptance/real-http-restart/\n?? docs/evidence/symposium-acceptance/real-http-safe-app/\n?? docs/evidence/symposium-acceptance/safe-app-de9974bf/",
+    "trackedDiffSha256": "6c80c83ba3cc04a47115f6c0eaf9e07483293ffb9ec023dedae51ff1c372a44b",
+    "untrackedSourceSha256": {}
+  },
+  "startedAt": "2026-10-17T22:36:33.668Z",
+  "finishedAt": "2026-10-17T22:36:36.444Z",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.symposium-acceptance.config.ts"
+  ],
+  "requiredJourneys": false,
+  "reusedOwnerContracts": false,
+  "artifactCandidate": false,
+  "heapMiB": 1024,
+  "maxWorkers": 1,
+  "node": "v24.10.0",
+  "vitest": "4.1.11",
+  "exitCode": 0,
+  "signal": null,
+  "result": "passed_scoped_checks",
+  "outputSha256": "b5db06ebd1a0a95befcb39e028ec654ac2611f593118abba14e19a127f4dc71f",
+  "liveQualification": "not performed; this runner selects offline fixtures only"
+}

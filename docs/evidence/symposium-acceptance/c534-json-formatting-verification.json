@@ -1,0 +1,11 @@
+{
+  "originalCommit": "6b8f9f974bb0224fba51fa0bbf0d2c9dc2c2ba76",
+  "rawArchivesByteIdenticalToGit": 9,
+  "jsonDataEquivalent": 9,
+  "currentRetainedChecksumsVerified": 11,
+  "executionMetadataUnchanged": true,
+  "formatterExclusionsChanged": false,
+  "testExecutionsRepeated": 0,
+  "fullRepositoryPrettierCheck": "passed",
+  "formatCheckCommand": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/prettier/bin/prettier.cjs --check ."
+}
