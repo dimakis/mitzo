@@ -159,7 +159,29 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
               throw new TelosWorkError('unauthorized', 'Retained outcome lead unavailable');
           }
         };
-        const retained = work.prepareRoleSetup(input, actor);
+        const retained = work.prepareRoleSetup(input, actor, () => {
+          request.signal.throwIfAborted();
+          request.assertAuthorized();
+          if (selection.itemId !== input.itemId || selection.role !== input.role)
+            throw new TelosWorkError('unauthorized', 'Role setup scope changed');
+          const current = reviewTelosWorkRoleContext({
+            work,
+            artifacts,
+            readReviewedSource: reviewedSourceReader(request, work, artifacts, input.itemId),
+            actor,
+            itemId: input.itemId,
+            role: input.role,
+            advisorPurpose: selection.advisorPurpose,
+            selectedSourceSnapshotIds: selection.sources.map((source) => source.snapshotId),
+            selectedArtifactRefs: selection.artifacts,
+          });
+          request.signal.throwIfAborted();
+          request.assertAuthorized();
+          return (
+            input.expectedRevision === selection.brief.revision &&
+            isDeepStrictEqual(current, selection)
+          );
+        });
         const initial = { actor, setup: retained.setup };
         assertScope(initial);
         await deps.authorizeSettings(structuredClone(initial), request.signal);

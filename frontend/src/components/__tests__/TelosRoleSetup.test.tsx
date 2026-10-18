@@ -9,6 +9,7 @@ import { TelosRoleSetup } from '../TelosRoleSetup';
 const state = vi.hoisted(() => ({
   options: null as TelosRoleSetupOptions | null,
   boundConversationId: null as string | null,
+  rejected: false,
   review: vi.fn(async () => {}),
   confirm: vi.fn(async () => {}),
   retry: vi.fn(async () => {}),
@@ -20,10 +21,11 @@ vi.mock('../../hooks/useTelosRoleSetup', () => ({
       context: null,
       boundConversationId: state.boundConversationId,
       pending: null,
-      error: null,
       uncertain: false,
+      rejectedBeforeAllocation: state.rejected,
       locked: false,
-      canConfirm: !!options.settings,
+      canConfirm: !!options.settings && !state.rejected,
+      error: state.rejected ? 'The reviewed work changed before setup began.' : null,
       review: state.review,
       confirm: state.confirm,
       retry: state.retry,
@@ -36,6 +38,7 @@ afterEach(() => {
   vi.clearAllMocks();
   state.options = null;
   state.boundConversationId = null;
+  state.rejected = false;
 });
 it('derives exact ordinary settings and offers one silent binding action without a model send', async () => {
   const inventory = localInventoryFixture();
@@ -102,4 +105,40 @@ it('reopens a confirmed retained role chat without a fresh setup or model send',
   expect(state.confirm).not.toHaveBeenCalled();
   expect(state.review).not.toHaveBeenCalled();
   expect(state.retry).not.toHaveBeenCalled();
+});
+
+it('a retained terminal rejection requires explicit review before a new confirmation', async () => {
+  state.rejected = true;
+  const inventory = localInventoryFixture();
+  const intent = {
+    ...createChatRuntimeSelection(),
+    execution: { location: 'local' as const, targetId: 'mac' },
+    capabilityRevision: inventory.capabilityRevision,
+    account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+    agentProfile: { profileId: 'agent', revision: 1 },
+  };
+  const onBound = vi.fn();
+  const renderSetup = () => (
+    <MemoryRouter>
+      <TelosRoleSetup
+        intent={{ itemId: 'item', role: 'lead', mode: 'assign' }}
+        runtime={{ intent, inventory, reason: undefined } as never}
+        repositoryWorkspaceId="11111111-1111-4111-8111-111111111111"
+        mode="agent"
+        draftId="rejected-draft"
+        onBound={onBound}
+        onLocked={vi.fn()}
+        beforeConfirm={() => true}
+      />
+    </MemoryRouter>
+  );
+  const mounted = render(renderSetup());
+  expect(state.review).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Review updated brief' }));
+  expect(state.retry).toHaveBeenCalledOnce();
+  state.rejected = false;
+  mounted.rerender(renderSetup());
+  expect(state.review).not.toHaveBeenCalled();
+  expect(state.confirm).not.toHaveBeenCalled();
+  expect(onBound).not.toHaveBeenCalled();
 });
