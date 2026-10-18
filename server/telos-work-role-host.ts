@@ -1,5 +1,4 @@
-import { assertAgentToolRoute } from './agent-tool-selection.js';
-import { TelosOrdinaryWorkRoleSetup } from './telos-ordinary-work-role-setup.js';
+import type { TelosOrdinaryWorkRoleSetup } from './telos-ordinary-work-role-setup.js';
 import {
   TelosWorkRoleSetupIntentSchema,
   TelosOrdinaryWorkRoleSetupIntentSchema,
@@ -167,6 +166,9 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
             { actor, input: TelosOrdinaryWorkRoleSetupInputSchema.parse(input) },
             request.signal,
           );
+          const { assertAgentToolRoute } = await import('./agent-tool-selection.js');
+          request.signal.throwIfAborted();
+          request.assertAuthorized();
           assertAgentToolRoute(selected.agentProfile.definition, 'codex-owned-local');
           await deps.workspaces().qualifyOrdinaryWorkspace({
             ...selected,
@@ -324,11 +326,13 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
         },
       };
       const owner = ordinary
-        ? new TelosOrdinaryWorkRoleSetup({
+        ? new (await import('./telos-ordinary-work-role-setup.js')).TelosOrdinaryWorkRoleSetup({
             ...common,
             resolveSelection: deps.ordinary!.resolveSelection,
           })
         : new TelosWorkRoleSetup({ ...common, resolvePreparation: deps.resolvePreparation });
+      // Execution-only imports may yield; preserve the original authority fence.
+      assertScope(initial);
       return owner.setup(actor, input, request.signal);
     });
   }
