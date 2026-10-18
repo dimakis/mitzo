@@ -1,3 +1,4 @@
+import { resolveTelosWorkCommandScope } from '../telos-work-command-scope.js';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { mkdirSync, renameSync, symlinkSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import Database from 'better-sqlite3';
@@ -236,12 +237,24 @@ it('recovers the exact V2 worker after a lost committed ordinary preparation res
     intent.allocationOperationId,
   )!;
   expect(original.delegationAttemptId).toBe(intent.attemptId);
+  const scope = () =>
+    resolveTelosWorkCommandScope(
+      { events: f.native.events, tasks: f.tasks, work: () => f.work },
+      original.sessionId,
+      f.native.binding,
+    );
+  expect(scope).toThrow(/incomplete|delegat/i);
   const before = f.native.events.listSessions().length;
   f.restart();
+  expect(scope).toThrow(/incomplete|delegat/i);
   const reserve = vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace');
   const receipt = await f.delegation.delegate(f.actor, f.input, f.native.signal.signal);
   expect(receipt.workerConversationId).toBe(original.sessionId);
   expect(receipt.attempt.attemptId).toBe(intent.attemptId);
+  expect(scope()).toEqual({
+    currentTaskId: receipt.attempt.executionTaskId,
+    goalId: receipt.attempt.executionTaskId,
+  });
   expect(
     f.native.events.getOrdinaryWorkspaceSessionPreparation(intent.allocationOperationId),
   ).toEqual(original);
@@ -655,3 +668,43 @@ it('recovers the canonical default-start attempt when a new request selects anot
     f.native.workspaces.getOrdinaryWorkspaceForConversation(original.workerConversationId)?.binding,
   ).toEqual(f.native.binding);
 });
+
+it.each(['preparation-attempt', 'work-allocation'] as const)(
+  'refuses changed V2 %s authority before any command without changing the task or receipt',
+  async (damage) => {
+    const f = await fixture(),
+      receipt = await f.delegation.delegate(f.actor, f.input, f.native.signal.signal);
+    const original = f.native.events.getOrdinaryWorkspaceSessionPreparationForConversation(
+      receipt.workerConversationId,
+    )!;
+    const before = f.tasks.getTree();
+    if (damage === 'preparation-attempt') {
+      const db = new Database(join(f.native.root, 'events.db'));
+      try {
+        db.prepare('UPDATE ordinary_session_preparations SET receipt=? WHERE operation_id=?').run(
+          JSON.stringify({ ...original, delegationAttemptId: randomUUID() }),
+          original.allocationOperationId,
+        );
+      } finally {
+        db.close();
+      }
+    } else
+      f.db
+        .prepare(
+          "UPDATE telos_work_attempts SET data=json_set(data,'$.allocationReceiptId',?) WHERE attempt_id=?",
+        )
+        .run(randomUUID(), receipt.attempt.attemptId);
+    expect(() =>
+      resolveTelosWorkCommandScope(
+        { events: f.native.events, tasks: f.tasks, work: () => f.work },
+        receipt.workerConversationId,
+        f.native.binding,
+      ),
+    ).toThrow(/delegat|authority/i);
+    expect(f.tasks.getTree()).toEqual(before);
+    expect(
+      f.native.events.getOrdinaryInitialCommandId(receipt.workerConversationId),
+    ).toBeUndefined();
+    expect(f.native.first.launch).not.toHaveBeenCalled();
+  },
+);
