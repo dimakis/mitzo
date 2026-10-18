@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { selectCiJobs } from '../ci-selection.mjs';
 
+it.each(['AGENTS.md', 'CLAUDE.md', 'skills/land-pr/SKILL.md', '.cursor/rules/ci-discipline.mdc'])(
+  'keeps core CI for policy prose without unrelated browser/native builds: %s',
+  (filename) => {
+    expect(selectCiJobs({ eventName: 'pull_request', files: [{ filename }] })).toEqual({
+      browser: false,
+      native: false,
+    });
+  },
+);
+
+it('retains dependent coverage when a rename crosses the prose boundary', () => {
+  expect(
+    selectCiJobs({
+      eventName: 'pull_request',
+      files: [{ filename: 'skills/land-pr/SKILL.md', previous_filename: 'frontend/src/api.ts' }],
+    }),
+  ).toEqual({ browser: true, native: false });
+});
+
 describe('CI job selection', () => {
   it('keeps all jobs for main and unknown or incomplete change lists', () => {
     for (const input of [
@@ -23,6 +42,8 @@ describe('CI job selection', () => {
     ['tests/browser/connections.spec.ts', true, false],
     ['package-lock.json', true, true],
     ['scripts/build-ios.sh', true, true],
+    ['skills/land-pr/scripts/check.sh', true, true],
+    ['.cursor/rules/helper.js', true, true],
     ['.github/workflows/ci.yml', true, true],
     ['docs/spikes/openshell-codex/knowledge-write-scope.c', true, true],
   ])('selects dependent jobs for %s', (filename, browser, native) => {
