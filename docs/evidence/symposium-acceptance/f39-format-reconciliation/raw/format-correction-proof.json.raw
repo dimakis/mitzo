@@ -1,0 +1,14 @@
+{
+  "failedRun": 39135943443,
+  "failedJob": 117700350280,
+  "failedStep": "Format check",
+  "onlyFlaggedFile": "docs/evidence/symposium-integration-acceptance.md",
+  "oldPrHead": "c4068c06d583989728dacce95bd289f2d0cef241",
+  "oldHeadTree": "9e0834461a4adaeaa73749c5143784fff222fa57",
+  "actualFailedCiCheckout": "881302875005926adb884bc3acc777b056802339",
+  "actualFailedCiTree": "4daaa77aca565a7590ea4bc9654f9dbdff1c4911",
+  "beforeSha256": "727d37f16326b347037e210af489d5f41ae9f11039952b78c4350421aaf8b589",
+  "afterFormatSha256": "c30ac424d00675f547c9d3a7593feb4703bc6e1c8a0e9c4c62395811aa5176c8",
+  "whitespaceStrippedContentIdentical": true,
+  "testAssertionOrNativeFailure": false
+}

@@ -1,0 +1,16 @@
+{
+  "coreCommit": "c534f3d717a34198fbd0639643b027d2c67879b4",
+  "coreTree": "a8d853be3c212b96e61b4217f9b6511d5862edd4",
+  "candidateHead": "b580e7f46ecc368dca213645afc8de28f9b1ab4e",
+  "candidateTree": "6f793776857def8215d6e2b9b07e0d05445b5077",
+  "status": "?? node_modules",
+  "command": "node mitzo/node_modules/tsx/dist/cli.mjs implementation-evidence/verify-c534-source-pins.mts",
+  "implementationRevision": "v1.0.287-symposium-integration.9",
+  "sourcePins": 563,
+  "mismatches": [],
+  "productionChanges": [],
+  "compiledChecker": {
+    "result": "Not rerun: no broad dist build attempted; actual source manifest/function checked through tsx. Prior cb32 missing-dist diagnostic remains historical."
+  },
+  "runtimeQualification": "not performed; source hashes only"
+}
