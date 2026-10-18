@@ -136,7 +136,8 @@
       "The initial final batch was pushed before inspecting completed ancestor CI; its stale manifest failures required a second narrow pin-only push. Normal hooks and required gates were retained.",
       "Core source audit found successful policy PUT followed by failed GET could strand Saving. Four real-hook regression cases reproduced it; final suite includes six cases with superseded reads.",
       "Intermediate recovery browser matrix6failed/2startup passed because deferred React state publication replaced the actual read diagnostic with generic copy. Internal read now returns the error directly; final matrix6UI+2startup passes without weakening assertions.",
-      "CI77ce exposed a63.671875px serif intrinsic name width below protected64px minimum. macOS Georgia protected test passed; exact Times New Roman fallback RED reproduced on both mobile engines. Shared-token name-track floor repairs production layout; protected tests unchanged;12UI+2startup final matrix passes."
+      "CI77ce exposed a63.671875px serif intrinsic name width below protected64px minimum. macOS Georgia protected test passed; exact Times New Roman fallback RED reproduced on both mobile engines. Shared-token name-track floor repairs production layout; protected tests unchanged;12UI+2startup final matrix passes.",
+      "Accepted Tool Builder main9767 caused only generated runtime version conflict. Full accepted+A pin union verified553/zero mismatch; first focused run hit two sandboxed disposable-listener EPERM errors, then same27 files/323 tests passed outside Seatbelt with zero errors. No UI rerender for byte-identical base/manifest merge."
     ],
     "retainedComposerRegression": {
       "files": 5,
@@ -652,7 +653,148 @@
         "mergeTree": "e389fb9daa65ed9b56797d6803e8bded620d9871",
         "conflicts": 0,
         "action": "Retain integrated13669901 base because no dependency/conflict requires another merge; final normal CI validates the proposed merge."
+      },
+      "independentStaticInspection": {
+        "owner": "C",
+        "source": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+        "renderSource": "fe4f811b0245f5911cd45a74939c8b855d095830",
+        "renderTree": "49b30c2045e6204cd6e3752e92c04d2f98c99287",
+        "publishedCHead": "3bc38d04a779b3d81543349513faa8f698f48169",
+        "images": 8,
+        "result": "C viewed/retained/hash-verified all eight320/390 mobile WebKit/Chromium light/dark crops: readable adjacent names/counts, no visible ellipsis/overlap/duplicate, distinct right chevron. Protected spec byte equality to77 and frozen HTML hash independently verified.",
+        "bounds": "That static inspection did not establish DOM dimensions, interaction behavior or exact-head CI."
+      },
+      "independentCombinedBrowser": {
+        "owner": "C",
+        "coreSource": "c534",
+        "cOverlay": "b580",
+        "publishedCHead": "6b8f9f97",
+        "receipt": "C single map and c534-browser-independent evidence in draftPR1022",
+        "passedUiCases": 12,
+        "startupDependencies": 2,
+        "failed": 0,
+        "skipped": 0,
+        "retries": 0,
+        "seconds": 37.18,
+        "execution": "One worker/1GiB, approved outside Seatbelt, unchanged protected+shared specs, three projects/both themes.",
+        "measurements": "Six raw DOM files/twelve rows independently measure320px name track64px and gap4px. Eight selected C-run captures viewed/retained, including serif320/390, setup/footer/large text, policy GET-confirmation recovery/refusal and retained partial success.",
+        "bounds": "No protected assertion/reference/tolerance/CSS change. Original static receipts retain original source bounds. Bounded DOM/interaction advancement does not qualify full backend joining/native iOS; actual join503 persists."
       }
+    },
+    "toolBuilderAcceptedBaseIntegration": {
+      "source": "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc",
+      "acceptedMain": "9767edf8c1b8f220627ed30837ae65ab9cc45a85",
+      "previousHead": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+      "manifest": {
+        "acceptedMain": "9767edf8c1b8f220627ed30837ae65ab9cc45a85",
+        "previousHead": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+        "acceptedPinCount": 549,
+        "aPinCount": 547,
+        "unionPinCount": 553,
+        "mismatches": 0,
+        "aOwnedPreserved": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "aOwnedBytesVerifiedUnchanged": [
+          "docs/design/assets/symposium-corrected-desktop-chromium-header-390-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-header-390-light.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-header-desktop-column-320-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-header-desktop-column-320-light.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-policy-pending-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-policy-pending-light.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-policy-refusal-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-policy-refusal-light.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-shared-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-shared-light.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-header-390-dark.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-header-390-light.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-policy-pending-dark.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-policy-pending-light.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-policy-refusal-dark.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-policy-refusal-light.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-shared-dark.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-shared-light.png",
+          "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-dark.png",
+          "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-light.png",
+          "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-dark.png",
+          "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-light.png",
+          "docs/design/assets/symposium-serif-header-mobile-chromium-320-dark.png",
+          "docs/design/assets/symposium-serif-header-mobile-chromium-320-light.png",
+          "docs/design/assets/symposium-serif-header-mobile-chromium-390-dark.png",
+          "docs/design/assets/symposium-serif-header-mobile-chromium-390-light.png",
+          "docs/design/assets/symposium-serif-header-mobile-webkit-320-dark.png",
+          "docs/design/assets/symposium-serif-header-mobile-webkit-320-light.png",
+          "docs/design/assets/symposium-serif-header-mobile-webkit-390-dark.png",
+          "docs/design/assets/symposium-serif-header-mobile-webkit-390-light.png",
+          "docs/design/assets/symposium-shared-desktop-chromium-dark.png",
+          "docs/design/assets/symposium-shared-desktop-chromium-light.png",
+          "docs/design/assets/symposium-shared-mobile-webkit-dark.png",
+          "docs/design/assets/symposium-shared-mobile-webkit-light.png",
+          "frontend/src/components/ChatArea.tsx",
+          "frontend/src/components/ChatInput.tsx",
+          "frontend/src/components/CollaborationTranscript.css",
+          "frontend/src/components/CollaborationTranscript.tsx",
+          "frontend/src/components/ComposerResponders.tsx",
+          "frontend/src/components/ConversationAgents.css",
+          "frontend/src/components/ConversationAgents.tsx",
+          "frontend/src/components/__tests__/ChatAreaMetadata.test.tsx",
+          "frontend/src/components/__tests__/ChatInputResponders.test.tsx",
+          "frontend/src/components/__tests__/CollaborationTranscript.test.tsx",
+          "frontend/src/components/__tests__/ComposerRespondersPolicy.test.tsx",
+          "frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx",
+          "frontend/src/components/__tests__/ConversationPolicyFeedback.test.tsx",
+          "frontend/src/hooks/__tests__/useConversationPresentation.test.tsx",
+          "frontend/src/hooks/useConversationPresentation.ts",
+          "frontend/src/lib/__tests__/conversation-draft-intent.test.ts",
+          "frontend/src/lib/__tests__/conversation-presentation.test.ts",
+          "frontend/src/lib/chat-drafts.ts",
+          "frontend/src/lib/conversation-presentation.ts",
+          "packages/client/src/__tests__/collaboration-projection-replay.test.ts",
+          "packages/client/src/collaboration-projection.ts",
+          "tests/fixtures/symposium-shared-conversation-data.ts",
+          "tests/fixtures/symposium-shared-conversation.tsconfig.json",
+          "tests/fixtures/symposium-shared-conversation.tsx",
+          "tests/offline/symposium-shared-conversation.spec.ts"
+        ],
+        "runtimeRevision": "v1.0.304-tool-builder-review.1-symposium-shared-ui.4",
+        "conflict": "Generated runtime version only"
+      },
+      "unit": {
+        "passed": 323,
+        "files": 27,
+        "failed": 0,
+        "unhandledErrors": 0,
+        "seconds": 26.75,
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx vitest run <original21 A files plus collaboration-conversation-artifacts, connection-template-registry, sandbox-ownership-artifacts, tool-builder, tool-builder-review, symposium-access-tools> --maxWorkers=1",
+        "execution": "Approved outside Seatbelt for disposable Supertest listeners; synthetic offline transport, zero model calls.",
+        "history": "First sandboxed run:321 passed/2 failed/2 unhandled listener EPERM errors, not product failures. Re-ran the same complete27 suites outside Seatbelt:323 passed/zero errors. Both logs retained in task root; no tests weakened."
+      },
+      "types": "Focused source/fixture TypeScript passed",
+      "lint": "Focused manifest and normal merge eslint/prettier/gitleaks hooks passed",
+      "renders": "Not re-run solely for base/manifest merge. Every A UI/component/controller/fixture/spec and retained capture byte is unchanged from80231; source-specific C render/DOM receipts retain original bounds. Normal final CI still exercises proposed merged source.",
+      "reviewHistory": {
+        "id": "PRR_kwDOR2Rn9s8AAAABS3R8WA",
+        "author": "dimakis",
+        "commit": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+        "state": "COMMENTED",
+        "submittedAt": "2026-10-18T01:09:59Z",
+        "report": "Centaur LGTM, recommendation merge, zero new/unresolved blockers and no follow-ups.",
+        "ciRun": 39082899577,
+        "ci": "All listed unit/server/browser/mobile/desktop/native/aggregate jobs passed on80231.",
+        "appStatus": "Centaur final LGTM was still pending when refreshed; old writer success does not substitute for current App status.",
+        "bounds": "One actual clean historical report retained. New combined head requires current CI and a full final exact-head trusted review; no human merge authority."
+      },
+      "remaining": "After push verify normal exact-head CI and review queue; request the missing full final whole-PR review through the existing authenticated service without duplicate job/model configuration changes. Draft remains unqualified for landing."
     }
   },
   "integrationHandoff": {
@@ -670,7 +812,7 @@
     "acceptanceMap": "Single combined map remains C docs/evidence/symposium-integration-acceptance.md, PR1022; latest reported signed2ce97499 includes independent four-image recovery receipt. A does not duplicate global acceptance; full application journey remains core/C."
   },
   "remaining": [
-    "Core must mount the final hook/slots in actual application pages and connect its existing verified auth getter and dispatch/reader owners.",
+    "Core and C retain final application composition, native authority, actual joining/dispatch and combined recovery qualification.",
     "C must independently inspect these final corrected captures and rerun on final combined accepted backend/UI source; full app review/join/send remains open.",
     "Exact-head CI and trusted Centaur review remain required; this draft is not ready-for-landing evidence.",
     "Full account/runtime matrix and physical iOS behavior remain unqualified."
@@ -684,8 +826,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "95ead865732f0351e8aaa64af5e387e9deea76e5",
-  "acceptedMainMerge": "163f74748e4c9e782e1f27db7179987fdcb903aa",
+  "latestAcceptedMain": "9767edf8c1b8f220627ed30837ae65ab9cc45a85",
+  "acceptedMainMerge": "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -819,8 +961,13 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
-  "baseRefresh": "Integrated accepted13669901 after GitHub reported the153fbe4d PR conflicting and omitted its normal pull_request CI. Sole conflict was generated runtime revision; preserved accepted sandbox pins and A pins, combined distinct suffix, no A UI/API/controller/fixture byte changes. No rebase or force push.",
-  "latestValidation": "checks.serifNameFloor",
-  "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f"
+  "integratedAcceptedBase": "9767edf8c1b8f220627ed30837ae65ab9cc45a85",
+  "baseRefresh": "Integrated freshly verified9767edf8 (#1017 foundations, #1018 S9, #1007/#1008 Tool Builder). Sole conflict was generated runtime revision. Preserved full accepted+A manifest union;553 pins/zero mismatches. A UI/controller/draft/projection/fixtures/protected tests/reference/capture bytes unchanged. Core already consumed80231; it receives ancestry/manifest delta only.",
+  "latestValidation": "checks.toolBuilderAcceptedBaseIntegration",
+  "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
+  "acceptedMainMergeHistory": [
+    "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
+    "163f74748e4c9e782e1f27db7179987fdcb903aa",
+    "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc"
+  ]
 }
