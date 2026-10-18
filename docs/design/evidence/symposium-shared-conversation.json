@@ -922,6 +922,49 @@
       "status": "Failed/incomplete:5 timeouts,1 interrupted,6 unrun,2 startup pass.",
       "finding": "Read-only trace/source inspection isolated no concrete selector/rendering defect. Broad slow page/goto/screenshot operations; Chromium Cancel error recorded after teardown starts. Hostload plausibility is not causality or a flake exception.",
       "bounds": "No new test/browser/source/reference/timeout action; root and owning reviewer received report. Root actual joining/native qualification remains independent; native permission-fixture failures belong to core owners."
+    },
+    "s5AcceptedBaseIntegration": {
+      "source": "23f29466835d9288505f5948549d7222d58ca0aa",
+      "sourceTree": "bf1444440cdbbbdb05f0551104587c46f89cd7bd",
+      "parents": [
+        "c55295c523d579ef1df015db75b9b110255eab08",
+        "fdd95797499a3a6dcad3322af303e958fdbfed19"
+      ],
+      "manifest": {
+        "acceptedMain": "fdd95797499a3a6dcad3322af303e958fdbfed19",
+        "previousHead": "c55295c523d579ef1df015db75b9b110255eab08",
+        "acceptedPinCount": 580,
+        "aPinCount": 570,
+        "unionPinCount": 584,
+        "mismatches": 0,
+        "runtimeRevision": "v1.0.317-telos-s5.1-symposium-shared-ui.4",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "chatAreaDelta": "Exactly accepted S5 import and Boolean(telosWorkerReceipt(block, sessionId)) keepVisible check; all original A code retained. Pin recomputed from merged module.",
+        "chatAreaSha256": "7bf3ed3548c6e7d4bc2700a035897427e44d96cd3ec31e1ec87d911503fc6e80",
+        "acceptedChangedFilesVerified": 71,
+        "protectedSpecUnchanged": true,
+        "ledger": "Accepted S5 ledger preserved byte-for-byte; approved prior entries retained.",
+        "localTests": "Not launched under directly observed load149.10/155.72/156.00; current remote CI required.",
+        "postHooksProof": "All584 pins match; unchanged A bytes and all71 accepted non-overlap changed files verified after normal hooks."
+      },
+      "staticChecks": "Exact accepted S5 two-line ChatArea addition composed with A unchanged behavior; other10 A modules/fixtures/protected/captures unchanged. Accepted worker receipt/custody sources and updated design ledger byte-identical. All584 combined source pins match after normal hooks.",
+      "hooks": "Normal ESLint/prettier/gitleaks and commitlint passed with one-GiB Node heap.",
+      "localExecution": "Not launched under directly observed load149.10/155.72/156.00; current remote CI required.",
+      "priorValidationBounds": "All c552 ordinary CI jobs succeeded (CI39117095065), final Centaur LGTM pending. Historical unit/design/browser counts and80231/b98 trusted clean reports retain their original source bounds, with no new UX acceptance or current-head test-pass claim.",
+      "integration": "Core receives ancestry/manifest delta and exact accepted ChatArea addition only. No A/header patch replay; core owns mounting/joining/native/reader composition.",
+      "reviewState": "Fresh exact-head CI, full final trusted review and App gate required. Normal automatic scheduling only. Existing credential-action approval question remains separate; no credential read, manual enqueue/replacement/upgrade/retry or new permission question.",
+      "authorization": "No merge, runtime, model-call, staging, activation or deployment authority."
     }
   },
   "integrationHandoff": {
@@ -953,8 +996,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "09276da4ac8f21ff748d2d80ecf136cc47ce0d5b",
-  "acceptedMainMerge": "383caf4e5323d9b9641f10613666bc98117a9fbd",
+  "latestAcceptedMain": "fdd95797499a3a6dcad3322af303e958fdbfed19",
+  "acceptedMainMerge": "23f29466835d9288505f5948549d7222d58ca0aa",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1088,15 +1131,16 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "09276da4ac8f21ff748d2d80ecf136cc47ce0d5b",
-  "baseRefresh": "Verified real merge conflict against accepted09276da4 (#1004 Agent Builder tasks, #1014 immutable local custom publications, #1024 readable context), not GitHub metadata alone. Sole conflict generated runtime revision; complete accepted566+A562 maps union570 pins, zero mismatch. A-owned modules/fixtures/protected/ref/capture bytes preserved; accepted dependency/callsite/catalog changes retained. Core receives ancestry/manifest delta only.",
-  "latestValidation": "checks.catalogContextAcceptedBaseIntegration",
+  "integratedAcceptedBase": "fdd95797499a3a6dcad3322af303e958fdbfed19",
+  "baseRefresh": "Verified actual conflict with accepted S5 fdd95797 (#1013). Preserved complete accepted580+A570 maps in584-pin union, zero mismatch. ChatArea composes exactly accepted receipt import/keepVisible additions with A behavior; all other10 A modules, fixtures, protected test and captures unchanged. Accepted custody/receipt and ledger retained. No local execution under observed hostload149; fresh remote CI/full final review/App gates required.",
+  "latestValidation": "checks.s5AcceptedBaseIntegration",
   "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
     "163f74748e4c9e782e1f27db7179987fdcb903aa",
     "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc",
     "209385f5c988abfc524b59812053ac15eae40f57",
-    "383caf4e5323d9b9641f10613666bc98117a9fbd"
+    "383caf4e5323d9b9641f10613666bc98117a9fbd",
+    "23f29466835d9288505f5948549d7222d58ca0aa"
   ]
 }
