@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.335-telos-s6-first-dispatch';
+  'v1.0.336-telos-s6-detached-scope';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,7 +27,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '716f889418970118c872d70c8718f4d268077fedc299f002b72446c205ef3b7d',
   '../../packages/protocol/src/telos-work-controls.ts':
     '5ed0945a92524675e6be14c772cc44949842e3d60430fa7f40cca479cead87be',
-  '../telos-work-controls.ts': '71724a8dd12a1c92ada2971b6fb717adbcb33da14a0eeb3acd286b3d60e4a630',
+  '../telos-work-controls.ts': '91413804155784dd73b1344cd242888580e4a2841175cb3771a6293b898aab2a',
   '../../frontend/src/components/AgentTaskProposal.tsx':
     'c431e4b77b6349b5f6f2b8d2d0040a5c970a2440c222d93577e0848451499f2a',
   '../../frontend/src/components/SymposiumProfilePicker.css':

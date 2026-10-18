@@ -74,3 +74,9 @@ preserves that distinction. The new allocated-but-unstarted regression was
 observed red and then green. The real delegation-host regression was updated to
 use independent sibling workers for client rebinding; a separate real retry test
 asserts CT11 retirement instead of expecting a retired worker to complete.
+
+An operator reparent can remove a selected outcome from the coordinator. Its
+former control cannot follow it into unrelated work or read its new recipients.
+Other still-attached recipients retain their own gates/evidence. Detached scope
+is pending/unavailable rather than applied. A dedicated red/green regression
+covers current routing after reparenting; prior control records are retained.

@@ -95,8 +95,15 @@ export class TelosWorkControls {
     if (!rows.length || rows.length > 1000) denied('Control tree unavailable or too large');
     return rows.map((row) => this.work(row.id));
   }
-  private attached(c: Control) {
-    for (const id of c.input.targetItemIds) {
+  private attached(c: Control, itemId?: string) {
+    const roots =
+      itemId === undefined
+        ? c.input.targetItemIds
+        : c.input.targetItemIds.filter((id) =>
+            this.descendants(id).some((w) => w.itemId === itemId),
+          );
+    if (!roots.length) denied('Control recipient is not in an exact attached outcome');
+    for (const id of roots) {
       const target = this.work(id);
       if (
         target.parentId !== c.input.coordinatorItemId ||
@@ -139,8 +146,18 @@ export class TelosWorkControls {
             )
           ? ('acknowledged' as const)
           : ('requested' as const);
-    const targets = c.input.targetItemIds.flatMap((root) =>
-      this.descendants(root)
+    const targets = c.input.targetItemIds.flatMap((root) => {
+      if (this.work(root).parentId !== c.input.coordinatorItemId)
+        return [
+          {
+            itemId: root,
+            leadConversationId: null,
+            assignmentRevision: 0,
+            stage: 'requested' as const,
+            workers: [],
+          },
+        ];
+      return this.descendants(root)
         .filter((w) => w.kind !== 'work_item')
         .map((w) => {
           const lead = w.assignments.find((a) => a.role === 'lead');
@@ -175,8 +192,8 @@ export class TelosWorkControls {
                 : ownStage,
             workers,
           };
-        }),
-    );
+        });
+    });
     for (const target of targets) {
       if (target.stage !== 'applied') continue;
       const descendants = new Set(this.descendants(target.itemId).map((w) => w.itemId));
@@ -213,7 +230,6 @@ export class TelosWorkControls {
   read(id: string, actor: TelosWorkActor): TelosWorkControlView {
     return this.db.transaction(() => {
       const c = this.load(id);
-      this.attached(c);
       const view = this.project(c);
       if (actor.kind === 'operator' && actor.id.trim()) return view;
       const coordinator = this.work(c.input.coordinatorItemId).assignments.find(
@@ -223,8 +239,10 @@ export class TelosWorkControls {
         actor.kind === 'conversation' &&
         this.available(actor.id) &&
         coordinator?.conversation.conversationId === actor.id
-      )
+      ) {
+        this.attached(c);
         return view;
+      }
       const targets = view.targets.filter(
         (t) =>
           t.leadConversationId === actor.id || t.workers.some((w) => w.conversationId === actor.id),
@@ -491,8 +509,10 @@ export class TelosWorkControls {
       for (const row of controls) {
         const c = JSON.parse(row.data) as Control;
         if (c.input.scope !== scope) continue;
-        const covered = c.input.targetItemIds.some((root) =>
-          this.descendants(root).some((w) => w.itemId === itemId),
+        const covered = c.input.targetItemIds.some(
+          (root) =>
+            this.work(root).parentId === c.input.coordinatorItemId &&
+            this.descendants(root).some((w) => w.itemId === itemId),
         );
         if (!covered) continue;
         if (!c.released) denied(`Scoped ${scope} hold remains requested`);

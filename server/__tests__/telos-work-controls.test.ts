@@ -389,3 +389,25 @@ it('CT12: a nested coordinator cannot claim an applied subtree before its attach
     true,
   );
 });
+
+it('CT11/CT12: operator reparenting removes former coordinator control authority without routing a hold into unrelated Job work', () => {
+  const f = fixture();
+  const c = f.request('new_worker_dispatch');
+  f.command('feature-1', { operation: 'reparent', parentId: 'job' });
+  expect(() =>
+    f.work.readControl(c.controlId, { kind: 'conversation', id: 'coordinator-chat' }),
+  ).toThrow(/attached/i);
+  expect(() =>
+    f.work.acknowledgeControl(
+      {
+        requestId: 'detached-ack',
+        controlId: c.controlId,
+        itemId: 'feature-1',
+        assignmentRevision: 1,
+      },
+      { kind: 'conversation', id: 'lead-1' },
+    ),
+  ).toThrow(/attached/i);
+  expect(() => f.work.assertControlAction('slice-1', 'new_worker_dispatch')).not.toThrow();
+  expect(() => f.work.assertControlAction('slice-2', 'new_worker_dispatch')).toThrow(/hold/i);
+});
