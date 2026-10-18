@@ -789,6 +789,8 @@ for (const theme of ['dark', 'light'])
         summary: `Scroll work item ${String(index + 1).padStart(2, '0')}`,
       }),
     );
+    // Both accepted read DTOs belong to the same synthetic scenario.
+    fixtures.homeStudio.items.push(...scrollItems);
     records.push(...scrollItems);
     const scrollRecordsLoaded = page.waitForResponse(
       (response) =>
