@@ -769,6 +769,7 @@ export function verifiedOpenShellPolicy(
 async function knowledgePhase<T>(
   phase:
     | 'reconcile'
+    | 'initial_reconcile'
     | 'reuse_initial_selection'
     | 'verify_host'
     | 'freeze_upload'
@@ -905,16 +906,22 @@ export async function preparePublishedOpenShellSeed(
   signal: AbortSignal,
   beforeFreeze?: (selectedSeed: string) => Promise<void>,
 ): Promise<{ seed: string; cleanup: () => void; publication?: KnowledgeBundleSelection }> {
-  const publication = await config.knowledgeStore?.reconcile(signal);
+  const publication = await knowledgePhase('initial_reconcile', () =>
+    config.knowledgeStore?.reconcile(signal),
+  );
   const selection = publication ? structuredClone(publication) : undefined;
   signal.throwIfAborted();
   // Capacity callers must budget the actual immutable selection before the
   // host snapshot allocation, then pass that same snapshot to ensure().
   const selectedConfig = { ...config, seed: selection?.seed ?? config.seed };
-  const selectedSeed = verifiedOpenShellSeed(selectedConfig);
+  const selectedSeed = await knowledgePhase('verify_host', () =>
+    verifiedOpenShellSeed(selectedConfig),
+  );
   await beforeFreeze?.(selectedSeed);
   signal.throwIfAborted();
-  const prepared = prepareOpenShellSeed({ ...selectedConfig, seed: selectedSeed });
+  const prepared = await knowledgePhase('freeze_upload', () =>
+    prepareOpenShellSeed({ ...selectedConfig, seed: selectedSeed }),
+  );
   if (selection) {
     try {
       const baselineBytes = readFileSync(join(prepared.seed, '..', 'baseline.json'));

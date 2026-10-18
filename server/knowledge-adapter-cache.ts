@@ -1,4 +1,5 @@
 /** Reuse only a physical, fully verified conversion of the exact accepted revision. */
+import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, resolve, sep } from 'node:path';
@@ -47,7 +48,7 @@ export function cachedKnowledgeConversion(
     receipt.baselineSha256 !== hash(raw) ||
     receipt.payloadSha256 !== baseline.payloadSha256 ||
     baseline.startingCommit !== identity.revision ||
-    JSON.stringify(receipt) !== JSON.stringify(state.receipt)
+    !isDeepStrictEqual(receipt, state.receipt)
   )
     throw Error('Cached knowledge bundle provenance changed');
   const records = baseline.files;
