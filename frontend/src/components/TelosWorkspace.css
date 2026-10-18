@@ -227,9 +227,10 @@
   .telos-node-icon {
     display: none;
   }
-  .telos-node-status {
-    max-width: 6em;
-    overflow-wrap: anywhere;
+  .telos-tree-row-end > .todo-priority-badge,
+  .telos-tree-row-end > .telos-node-status {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 }
 
@@ -324,6 +325,7 @@
   }
   .telos-tree-row-end {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     width: 100%;

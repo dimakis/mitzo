@@ -1668,6 +1668,9 @@ main-column bounds so clipped overflow cannot hide an overlap.
 The brief's 20rem column is structural reading geometry. Search wraps before the
 actions at phone widths and uses five shared control heights as its preferred
 basis. Output actions move below the copy so full hashes cannot squeeze titles.
+On phones the existing row metadata/actions may wrap onto another line; short
+priority/status tokens remain intact rather than shrinking into split words beside
+a longer coordinator entry. Type size, indents and shared control height are retained.
 Category discovery and recursive branches use shared `MotionPresence` disclosures; Escape restores the category trigger focus. Native output disclosures require no extra animation lifecycle. No palette, typography,
 shared settings reference or frozen approval changed.
 
