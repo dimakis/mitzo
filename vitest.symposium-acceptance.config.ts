@@ -29,6 +29,7 @@ export default mergeConfig(base, {
             'server/__tests__/collaboration-conversation-router.test.ts',
             'packages/protocol/__tests__/collaboration-conversation.test.ts',
             'packages/client/src/__tests__/collaboration-conversation.test.ts',
+            'packages/client/src/__tests__/collaboration-associations.test.ts',
           ]
         : []),
       ...(process.env.SYMPOSIUM_REQUIRED_JOURNEYS === '1' ? ['tests/acceptance/*.repro.ts'] : []),

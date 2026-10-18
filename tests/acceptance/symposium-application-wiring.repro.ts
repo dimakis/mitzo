@@ -198,7 +198,9 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
     .map((row) => row.sessionId)
     .sort();
   let lostBeginResponses = 0;
+  const associationRequests: string[] = [];
   api = new CollaborationApiClient(async (url, init) => {
+    if (url.startsWith('/api/session-collaborations?')) associationRequests.push(url);
     const result = await http!.request(init?.method ?? 'GET', url, {
       headers: { cookie },
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
@@ -234,6 +236,27 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
       .sort(),
   ).toEqual(sessionsBeforeBegin);
   expect(events.getOrdinaryInitialCommandId('existing-chat')).toBeUndefined();
+  // Read the existing association through the typed client and actual app mount;
+  // this is metadata discovery, with no context read, allocation or command.
+  const listMethod = Reflect.get(api, 'listForSession');
+  expect(typeof listMethod).toBe('function');
+  const listForSession = (after?: string) =>
+    Reflect.apply(listMethod, api, ['existing-chat', after]);
+  const sourceEventsBeforeList = events.getSessionEvents('existing-chat');
+  expect(
+    (await http!.request('GET', '/api/session-collaborations?sessionId=existing-chat')).status,
+  ).toBe(401);
+  const associations = { collaborations: [beginReceipt], nextCursor: null };
+  expect(await listForSession()).toEqual(associations);
+  expect(associationRequests).toEqual(['/api/session-collaborations?sessionId=existing-chat']);
+  expect(await listForSession(group)).toEqual({ collaborations: [], nextCursor: null });
+  expect(associationRequests).toHaveLength(2);
+  expect(associationRequests[1]).toBe(
+    `/api/session-collaborations?sessionId=existing-chat&after=${group}`,
+  );
+  expect(events.getSessionEvents('existing-chat')).toEqual(sourceEventsBeforeList);
+  expect(events.getOrdinaryInitialCommandId('existing-chat')).toBeUndefined();
+  expect(events.listSessions()).toHaveLength(sessionsBeforeBegin.length);
   const view = await api.view(group);
   expect(view.joins).toEqual([]);
   expect(view.messages).toEqual([]);
@@ -255,6 +278,9 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
   const sessionsBefore = events.listSessions().length;
   await restartApplication();
   expect(await begin()).toEqual(beginReceipt);
+  expect(await listForSession()).toEqual(associations);
+  expect(associationRequests).toHaveLength(3);
+  expect(events.getSessionEvents('existing-chat')).toEqual(sourceEventsBeforeList);
   expect(lostBeginResponses).toBe(1);
   expect(await api.view(group)).toEqual(retained);
   expect(await (await import('../../server/auth.js')).authenticateToken(token)).toEqual(identity);
