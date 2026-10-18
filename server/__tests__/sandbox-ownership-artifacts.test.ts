@@ -11,6 +11,7 @@ it('pins ownership review and managed batch UI in the reviewed runtime source cl
     '../sandbox-ownership-review.ts',
     '../codex-conversation-store.ts',
     '../openshell-lifecycle-controller.ts',
+    '../openshell-lifecycle-production.ts',
     '../openshell-warm-pool-router.ts',
     '../app.ts',
     '../../frontend/src/pages/SandboxesView.tsx',

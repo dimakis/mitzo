@@ -121,11 +121,34 @@ export function assertTelosWorkTaskExecutionScope(
   sessionId: string,
   binding: AccountBinding | undefined,
   executionTaskId: string,
+  executionMapping?: {
+    contextHash: string;
+    executionTaskId: string;
+    childItemId: string;
+    leadConversationId: string;
+    workerConversationId: string;
+  } | null,
 ): void {
   const selected = resolveTelosWorkRoleContext(store, sessionId, binding);
+  if (executionMapping) {
+    if (
+      selected?.role !== 'worker' ||
+      executionMapping.executionTaskId !== executionTaskId ||
+      executionMapping.workerConversationId !== sessionId ||
+      executionMapping.childItemId !== selected.itemId ||
+      executionMapping.leadConversationId !== selected.leadConversationId ||
+      (selected.executionTaskId !== undefined && selected.executionTaskId !== executionTaskId) ||
+      executionMapping.contextHash !==
+        createHash('sha256').update(JSON.stringify(selected)).digest('hex')
+    )
+      throw new Error('Telos role context does not authorize task execution in this conversation');
+    return;
+  }
   if (!selected) return;
-  if (selected.role !== 'worker' || selected.executionTaskId !== executionTaskId)
+  if (selected.role !== 'worker')
     throw new Error('Telos role context does not authorize task execution in this conversation');
+  if (selected.executionTaskId === executionTaskId) return;
+  throw new Error('Telos role context does not authorize task execution in this conversation');
 }
 /** Ordinary packet owners call this before their existing request hashing. */
 export function resolveTelosWorkSystemPrompt(

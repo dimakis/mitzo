@@ -11,6 +11,7 @@ import { webAccessOutcome, webAccessSummary } from '../lib/web-access-outcome';
 import { ConnectionSetupCard } from './ConnectionSetupCard';
 import { RepositoryChatSetupCard } from './RepositoryChatSetupCard';
 import { GoogleSearchResult } from './GoogleSearchResult';
+import { TelosWorkerReceiptCard } from './TelosWorkerReceiptCard';
 import { agentTaskProposalLink } from '../lib/agent-task-proposal-link';
 
 interface Props {
@@ -194,6 +195,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
       </button>
       {showSetupCard && <ConnectionSetupCard block={block} sessionId={sessionId} />}
       {showSetupCard && <RepositoryChatSetupCard block={block} sessionId={sessionId} />}
+      {showSetupCard && <TelosWorkerReceiptCard block={block} sessionId={sessionId} />}
       {['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
         block.toolName ?? '',
       ) &&

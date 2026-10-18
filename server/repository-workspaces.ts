@@ -74,6 +74,11 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
     commandFingerprint: string;
   };
   handoff?: { sourceConversationId: string; prompt: string };
+  delegation?: {
+    sourceConversationId: string;
+    sourceWorkspaceId: string;
+    settingsFingerprint: string;
+  };
 }
 export interface RepositoryChatPreparation extends PublicRepositoryWorkspace {
   sourceConversationId: string;
@@ -283,7 +288,7 @@ export class RepositoryWorkspaces {
   /** Release only idle persistence. Never cancel work or delete retained sources/tasks. */
   closeIdle(): void {
     if (this.released) return;
-    if (this.activeOperations || this.pendingChats.size)
+    if (this.activeOperations || this.pendingChats.size || this.pendingDelegated.size)
       throw Error('Repository workspace owner active');
     this.close();
     this.released = true;
@@ -291,6 +296,10 @@ export class RepositoryWorkspaces {
   private pendingChats = new Map<
     string,
     { key: string; result: Promise<RepositoryChatPreparation> }
+  >();
+  private pendingDelegated = new Map<
+    string,
+    { key: string; result: Promise<RepositoryWorkspace> }
   >();
   constructor(
     private directory: string,
@@ -315,6 +324,8 @@ export class RepositoryWorkspaces {
   async prepareOrdinarySession(
     input: {
       allocationOperationId: string;
+      /** Trusted delegation owner marker, never a client selection. */
+      delegationAttemptId?: string;
       id: string;
       binding: AccountBinding;
       taskRoot: string;
@@ -364,6 +375,9 @@ export class RepositoryWorkspaces {
       const conversationId = nativeStartupSessionId(`repository:${selected.id}`);
       const preparationFingerprint = ordinaryPreparationFingerprint({
         allocationOperationId: selected.allocationOperationId,
+        ...(selected.delegationAttemptId
+          ? { delegationAttemptId: selected.delegationAttemptId }
+          : {}),
         id: selected.id,
         binding: selected.binding,
         taskRoot: selected.taskRoot,
@@ -438,10 +452,177 @@ export class RepositoryWorkspaces {
           reasoningEffort: settings.selection.thinking,
           mode: settings.selection.permission.mode,
         },
-        { allocationOperationId: selected.allocationOperationId, preparationFingerprint, settings },
+        {
+          allocationOperationId: selected.allocationOperationId,
+          preparationFingerprint,
+          settings,
+          ...(selected.delegationAttemptId
+            ? { delegationAttemptId: selected.delegationAttemptId }
+            : {}),
+        },
       );
       return { receipt, reservation };
     });
+  }
+  /** Prepare a new isolated worker from its lead's pinned repository selection.
+   * The allocation identity is retained before acquisition; no command is submitted.
+   */
+  async prepareDelegatedWorkspace(input: {
+    allocationOperationId: string;
+    sourceConversationId: string;
+    settings: CollaborationSettings;
+    binding: AccountBinding;
+    signal: AbortSignal;
+  }): Promise<RepositoryWorkspace> {
+    input.signal.throwIfAborted();
+    const operationId = input.allocationOperationId;
+    const key = ordinaryPreparationFingerprint({ ...input, signal: undefined });
+    const pending = this.pendingDelegated.get(operationId);
+    if (pending) {
+      if (pending.key !== key) throw new Error('Delegated workspace allocation identity conflict');
+      return pending.result;
+    }
+    const result = this.prepareDelegatedWorkspaceOnce(input).finally(() => {
+      if (this.pendingDelegated.get(operationId)?.result === result)
+        this.pendingDelegated.delete(operationId);
+    });
+    this.pendingDelegated.set(operationId, { key, result });
+    return result;
+  }
+  private async prepareDelegatedWorkspaceOnce(
+    input: Parameters<RepositoryWorkspaces['prepareDelegatedWorkspace']>[0],
+  ): Promise<RepositoryWorkspace> {
+    const selected = structuredClone({ ...input, signal: undefined });
+    const id = z.string().uuid().parse(selected.allocationOperationId);
+    const settings = OrdinarySilentPreparationSelectionSchema.parse(selected.settings);
+    const binding = AccountBindingSchema.parse(selected.binding);
+    const signal = input.signal;
+    signal.throwIfAborted();
+    const source = this.get(settings.repositoryWorkspaceId);
+    if (
+      !source ||
+      source.id !== settings.repositoryWorkspaceId ||
+      source.id === id ||
+      !(
+        (['reserved', 'claimed'].includes(source.state) &&
+          source.conversationId === selected.sourceConversationId) ||
+        (source.state === 'ready' &&
+          source.conversationId === undefined &&
+          source.ordinaryPreparation?.runtimeBinding.execution.location === 'openshell')
+      ) ||
+      source.ordinaryFirstReservation?.conversationId !== selected.sourceConversationId ||
+      !isDeepStrictEqual(source.ordinaryFirstReservation?.binding, source.binding) ||
+      !source.ordinaryPreparation ||
+      !isDeepStrictEqual(source.ordinaryPreparation.runtimeBinding, settings.binding) ||
+      !isDeepStrictEqual({ ...source.binding, model: binding.model }, binding) ||
+      binding.model !== settings.selection.model ||
+      !isDeepStrictEqual(settings.binding.account, {
+        accountId: binding.accountId,
+        provider: binding.provider,
+        profileRevision: binding.profileRevision,
+      })
+    )
+      throw new Error('Delegated workspace source or selected settings changed');
+    const assertSource = () => {
+      signal.throwIfAborted();
+      if (!isDeepStrictEqual(this.get(source.id), source))
+        throw new Error('Delegated workspace source identity changed');
+    };
+    const authorizeSource = async () => {
+      assertSource();
+      await this.authorize(source, source.binding, signal);
+      assertSource();
+    };
+    await authorizeSource();
+    const delegation = {
+      sourceConversationId: selected.sourceConversationId,
+      sourceWorkspaceId: source.id,
+      settingsFingerprint: ordinaryPreparationFingerprint(settings),
+    };
+    const assertIdentity = (record: RepositoryWorkspace) => {
+      if (
+        record.id !== id ||
+        record.connectionId !== source.connectionId ||
+        record.connectionRevision !== source.connectionRevision ||
+        record.repository !== source.repository ||
+        record.baseBranch !== source.baseBranch ||
+        record.baseOid !== source.baseOid ||
+        record.featureBranch !== `mitzo/repo-${id}` ||
+        !isDeepStrictEqual(record.binding, binding) ||
+        !isDeepStrictEqual(record.delegation, delegation) ||
+        !isDeepStrictEqual(record.ordinaryPreparation?.runtimeBinding, settings.binding) ||
+        !isDeepStrictEqual(record.ordinaryPreparation?.originalBinding, binding)
+      )
+        throw new Error('Delegated workspace allocation identity conflict');
+    };
+    const retained = this.db
+      .prepare('SELECT record FROM repository_workspaces WHERE id=?')
+      .get(id) as { record: string } | undefined;
+    if (!retained) {
+      const proof = OrdinaryRepositoryPreparationSchema.parse(
+        await this.deps.ordinaryPreparation?.capture(
+          binding,
+          {
+            runOn: settings.binding.execution.location as 'local' | 'openshell',
+            runtime: {
+              account: settings.binding.account,
+              harness: settings.binding.harness.implementation,
+              targetId: settings.binding.execution.targetId,
+            },
+          },
+          signal,
+        ),
+      );
+      assertSource();
+      await authorizeSource();
+      const record: RepositoryWorkspace = {
+        id,
+        connectionId: source.connectionId,
+        connectionRevision: source.connectionRevision,
+        binding,
+        repository: source.repository,
+        baseBranch: source.baseBranch,
+        baseOid: source.baseOid,
+        featureBranch: `mitzo/repo-${id}`,
+        state: 'preview',
+        createdAt: Date.now(),
+        ordinaryPreparation: proof,
+        delegation,
+      };
+      assertIdentity(record);
+      assertSource();
+      // Another process may have retained this operation during capture. Never
+      // overwrite its record: the exact identity check below owns reconciliation.
+      this.db
+        .prepare(
+          'INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,NULL) ON CONFLICT(id) DO NOTHING',
+        )
+        .run(id, JSON.stringify(record));
+    }
+    let record = this.get(id);
+    assertIdentity(record);
+    if (!['preview', 'ready', 'reserved', 'claimed'].includes(record.state))
+      throw new Error(`Delegated workspace ${record.state}; preserve its original allocation`);
+    if (record.state === 'preview') {
+      await this.prepare(id, binding, signal);
+      assertSource();
+      await authorizeSource();
+      record = this.get(id);
+      assertIdentity(record);
+      if (!['ready', 'reserved', 'claimed'].includes(record.state))
+        throw new Error('Delegated workspace preparation outcome is uncertain');
+    } else {
+      await this.authorize(record, binding, signal);
+      assertSource();
+      this.assertUnchangedHostRecord(record);
+      if (record.state === 'ready') {
+        await this.verifyHostSource(record, signal);
+        assertSource();
+        this.assertUnchangedHostRecord(record);
+      }
+    }
+    signal.throwIfAborted();
+    return record;
   }
   close() {
     this.db.close();

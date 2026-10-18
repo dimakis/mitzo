@@ -19,6 +19,7 @@ vi.mock('../chat.js', () => ({
   registry: { findBySessionId: () => undefined },
   prepareOwnedCodexChat: vi.fn(),
   echoOwnedCodexCommand: vi.fn(),
+  resolveOwnedTelosWorkCommandScope: vi.fn(() => null),
 }));
 vi.mock('../agent-library-transport.js', () => ({
   captureAgentLibraryAuthorization: () => ({ auth: { id: 'operator' }, assertCurrent: () => {} }),

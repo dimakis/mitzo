@@ -29,6 +29,34 @@ afterEach(() => {
   }
 });
 
+it('records delegated worker completion as reviewable evidence without verifying the slice', () => {
+  const task = store.createOrRecoverTelosExecutionTask(
+    { title: 'Exact slice' },
+    {
+      attemptId: 'attempt',
+      childItemId: 'slice',
+      leadConversationId: 'lead',
+      workerConversationId: 'worker',
+      contextSnapshotId: 'context',
+      contextHash: 'a'.repeat(64),
+    },
+  );
+  expect(handleTaskSet(store, task.id, [{ title: 'Unrequested child' }])).toMatch(/Error:.*exact/i);
+  expect(store.getChildren(task.id)).toEqual([]);
+  expect(handleTaskArtifact(store, task.id, 'report', 'saved evidence')).toContain(
+    'Artifact stored',
+  );
+  expect(store.get(task.id)?.status).toBe('pending');
+  expect(handleTaskComplete(store, task.id, 'Worker reports its result')).toContain(
+    'pending_review',
+  );
+  expect(store.get(task.id)).toMatchObject({
+    status: 'pending_review',
+    summary: 'Worker reports its result',
+    artifacts: { report: 'saved evidence' },
+  });
+});
+
 describe('handleTaskSet', () => {
   it('creates subtasks under the current task', () => {
     const goal = store.create({ title: 'Goal' });
