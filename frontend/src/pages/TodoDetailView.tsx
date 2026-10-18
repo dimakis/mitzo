@@ -5,9 +5,10 @@ import { TelosItemRoleEntries } from '../components/TelosItemRoleEntries';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { findInTree, useTodoData, useLatestTodoPriority } from '../hooks/useTodoData';
 import { TodoPrioritySelect } from '../components/TodoPrioritySelect';
+import { createTodoPrioritySaveState } from '../lib/todo-priority-save-state';
 import type { TodoItem } from '../types/todo';
 import { sourceIcon, buildPrompt, buildTodoContext, todoPriority } from '../lib/todo-utils';
 import { WorkOutputs } from '../components/WorkOutputs';
@@ -31,6 +32,7 @@ function parseItemHistory(value: unknown): string[] {
 export function TodoDetailView() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const prioritySaveState = useMemo(() => createTodoPrioritySaveState(id), [id]);
   const {
     items,
     loading,
@@ -106,6 +108,7 @@ export function TodoDetailView() {
           <TelosItemWorkspace
             key={record.itemId}
             record={record}
+            prioritySaveState={prioritySaveState}
             refreshKey={canonical.refreshKey}
             relatedState={
               error
@@ -266,6 +269,7 @@ export function TodoDetailView() {
         <div className="todo-detail-actions">
           <TodoPrioritySelect
             key={item.id}
+            saveState={prioritySaveState}
             priority={todoPriority(item)}
             onChange={handlePriority}
           />
