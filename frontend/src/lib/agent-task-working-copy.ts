@@ -31,6 +31,7 @@ const schema = z.object({
   notificationPolicy: AgentTaskDefinitionSchema.shape.notificationPolicy,
   dirty: z.boolean(),
 });
+export const AgentTaskWorkingCopySchema = schema;
 export type AgentTaskWorkingCopy = z.infer<typeof schema>;
 const KEY = 'mitzo-agent-task-working-copy';
 export const AGENT_TASK_SAVED = 'mitzo:agent-task-saved';

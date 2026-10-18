@@ -602,6 +602,59 @@ never saves automatically. Offline fixtures cover direct save, empty/error state
 long instructions, keyboard activation, 320px/390px mobile and desktop, dark/light
 themes and alternate accent/font preferences.
 
+### Task proposals in ordinary chat
+
+The native `AgentProposeTask` tool result opens detailed review in the Library,
+with a return to its originating ordinary Builder conversation. The tool disclosure
+uses the existing text-link treatment; it does not embed a task form, card or dialog
+in the transcript. Opening review performs an authenticated proposal read and no save.
+
+The Library reuses `AgentTaskEditor`, `AgentSettingsPicker`, account/model and
+execution controls. Task details have the quiet bordered surface, heading/Close
+and Save/Cancel placement shown in the original approved Library reference.
+Workspace/source references and notifications remain editable in a native disclosure.
+The task owns its retained execution intent independently of Builder settings.
+Shared semantic tokens, control-height targets and normal navigation motion remain
+in use. Proposal reviews and independent manual task drafts retain separate input.
+
+Published profile detail opens with readable Instructions, Expected output and
+Success criteria. Edit profile retains the full identity, instructions, context,
+tools and prompt-preview editors; drafts open in editing mode. The Library preserves
+Tools, import/export, search, version history and the existing taskboard link while
+keeping its primary Profiles / Tasks & schedules navigation together. Secondary
+catalog and import/search actions live in the native Library options disclosure;
+they do not squeeze the primary collection tabs into a vertical stack on phones.
+
+Explicit Save task returns its exact task identity and revision and links to the
+Library task. Confirmed receipts survive chat reload. Failed validation preserves
+editable input; a definitive owner rejection permits editing or discard. An
+uncertain save keeps its exact reviewed request for retry. Cancel save wait ends
+waiting and fences late responses without claiming that an accepted save was
+undone. Reads verify exact session/proposal/task/revision identity. Human Save uses
+current interactive operator and retained-owner authority; it can outlive a stopped
+Builder. A revoked or failed save retains its original request for an authorized retry.
+No control runs a task or enables its paused schedule.
+
+Offline actual-chat checks cover task creation/editing, independent Builder and
+task settings, validation, failure/retry, cancellation/revocation and reload.
+The 53-check Builder/settings matrix covers mobile WebKit/Chromium and desktop
+Chromium, dark/light with Teal/Georgia, 320px, larger text, keyboard activation,
+44px controls and the existing deleted-chat/discarded-draft/late-receipt regressions.
+Matched System/Lavender captures were inspected against the frozen references:
+[published profile](assets/agent-library-published-profile-mobile-dark.png),
+[desktop profile](assets/agent-library-published-profile-desktop-light.png),
+[native chat result](assets/agent-builder-native-task-result-mobile-dark.png),
+[Library task review](assets/agent-library-task-review-mobile-dark.png),
+[task actions](assets/agent-library-task-review-actions-mobile-dark.png),
+[retained retry](assets/agent-library-task-retry-mobile-dark.png) and
+[exact saved receipt](assets/agent-library-task-receipt-mobile-dark.png).
+The Library uses its normal page scroller; top/actions captures show separate
+viewport positions rather than claiming a full-page image of the internal scroller.
+The active `quick-sheet-2026-10-17` ledger references and protected checks remain
+unchanged. Browser evidence uses intercepted traffic and inert ordinary drivers;
+it does not establish live continuation, completion or runtime admission. Original
+approved references govern the layout; implementation captures are validation evidence.
+
 ## Google Workspace policy status
 
 `GoogleWorkspaceControls` retains the existing Connections surface and controls,
