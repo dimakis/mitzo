@@ -135,7 +135,8 @@
       "HTTP408 originally cleared pending policy identity; genuine RED now passes with408/429/5xx retaining the original request.",
       "The initial final batch was pushed before inspecting completed ancestor CI; its stale manifest failures required a second narrow pin-only push. Normal hooks and required gates were retained.",
       "Core source audit found successful policy PUT followed by failed GET could strand Saving. Four real-hook regression cases reproduced it; final suite includes six cases with superseded reads.",
-      "Intermediate recovery browser matrix6failed/2startup passed because deferred React state publication replaced the actual read diagnostic with generic copy. Internal read now returns the error directly; final matrix6UI+2startup passes without weakening assertions."
+      "Intermediate recovery browser matrix6failed/2startup passed because deferred React state publication replaced the actual read diagnostic with generic copy. Internal read now returns the error directly; final matrix6UI+2startup passes without weakening assertions.",
+      "CI77ce exposed a63.671875px serif intrinsic name width below protected64px minimum. macOS Georgia protected test passed; exact Times New Roman fallback RED reproduced on both mobile engines. Shared-token name-track floor repairs production layout; protected tests unchanged;12UI+2startup final matrix passes."
     ],
     "retainedComposerRegression": {
       "files": 5,
@@ -444,6 +445,207 @@
       "captureClosure": "git diff153fbe4d..163f747 across all A UI/API/controller/draft/projection/fixture/spec files is empty. Every retained capture hash verified unchanged; existing captures retain their exact recorded source bounds.",
       "gates": "Prior153fbe4d had no exact-head check/status and a cancelled status-writer workflow. Existing Centaur queue independently inspected read-only:153 job4760 and2ae job4753 queued, no published reviews; do not submit duplicate review or count old gate success as approval. Exact resulting-head CI/job scheduling must be verified after push, outside this commit.",
       "remaining": "Draft; exact-head full CI and two qualifying trusted review rounds/final LGTM still required. Combined actual app and physical iOS acceptance remain open."
+    },
+    "serifNameFloor": {
+      "source": "fe4f811b0245f5911cd45a74939c8b855d095830",
+      "previousHead": "77ce9a27037c737066b83eeb229b6dc5bf6de09b",
+      "ciFinding": {
+        "run": "https://github.com/dimakis/mitzo/actions/runs/39078550433",
+        "mobileWebkitJob": 117531561854,
+        "mobileChromiumJob": 117531561864,
+        "failure": "Unchanged symposium-approved-design.spec.ts participant-name width assertion >=64 failed at63.671875 in dark Georgia/serif fallback.",
+        "otherChecks": "That head passed ci, Browser interaction tests, desktop offline and Native Swift tests/builds. Connections browser regression was only the aggregate rejecting the mobile offline failures, not a separate connections defect.",
+        "retainedArtifact": {
+          "id": 12118467741,
+          "name": "playwright-offline-failure-mobile-webkit-39078550433-1",
+          "inspection": "CI screenshot shows complete Architect glyphs with remaining count and adjacent controls; narrowed box is font intrinsic width, not clipping. Screenshot/trace retained in task ci-header-red."
+        }
+      },
+      "red": "Existing protected dark journeys passed on macOS Georgia. Selecting CI-equivalent Times New Roman/serif in the owned real-component fixture reproduced exact63.671875 width and failed unchanged >=64 behavior on both mobile engines; traces retained in task serif-name-floor-red. No protected assertion or reference was changed.",
+      "repair": "ConversationAgents.css names track reserves min(100%, calc(2 * var(--space-6))) using existing spacing scale:64px at16px root type. Count remains nonshrinking, adjacent, and inside the trigger. No font substitution, viewport/container threshold, name count formula, or joining change in production.",
+      "protectedTest": {
+        "path": "tests/offline/symposium-approved-design.spec.ts",
+        "sha256": "9ac87c581b795a899a5d137d56ae0f0ba3cdd196b3369987b93dfe1dd084aea1",
+        "unchanged": true
+      },
+      "referenceSha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+      "unit": {
+        "files": 5,
+        "passed": 36,
+        "failed": 0,
+        "seconds": 3.03,
+        "suites": [
+          "ConversationAgentsHeader",
+          "ConversationAgents",
+          "ConversationPolicyFeedback",
+          "collaboration-conversation-artifacts",
+          "connection-template-registry"
+        ],
+        "bounds": "Focused post-CSS checks; earlier285/24 accepted-base run retained separately, not claimed as a fresh rerun."
+      },
+      "design": {
+        "passed": 108,
+        "existingCiBaseRefSkip": 1
+      },
+      "types": "Focused TypeScript including browser spec passed",
+      "lint": "Changed spec/manifest ESLint and normal hooks pass",
+      "browser": {
+        "passedUiCases": 12,
+        "startupDependencies": 2,
+        "failed": 0,
+        "retries": 0,
+        "seconds": 35.9,
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx playwright test --config playwright.offline.config.ts tests/offline/symposium-approved-design.spec.ts tests/offline/symposium-shared-conversation.spec.ts --workers=1",
+        "projects": ["mobile-webkit", "mobile-chromium", "desktop-chromium"],
+        "coverage": "Both untouched protected approved-design journeys and owned shared-conversation journeys in light/dark. Protected mobile320/390 + desktop1280 and large text20px remain. Owned serif fallback metrics at320/390 retain >=64 names area, adjacent count <=8px and contained count, with original body font restored before interaction tests."
+      },
+      "measurements": [
+        {
+          "project": "mobile-webkit",
+          "theme": "dark",
+          "measurements": [
+            {
+              "width": 320,
+              "nameTrackWidth": 64,
+              "countGap": 4,
+              "fontFamily": "Times New Roman, serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            },
+            {
+              "width": 390,
+              "nameTrackWidth": 140.96875,
+              "countGap": 4,
+              "fontFamily": "Times New Roman, serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            }
+          ]
+        },
+        {
+          "project": "mobile-webkit",
+          "theme": "light",
+          "measurements": [
+            {
+              "width": 320,
+              "nameTrackWidth": 64,
+              "countGap": 4,
+              "fontFamily": "Times New Roman, serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            },
+            {
+              "width": 390,
+              "nameTrackWidth": 140.96875,
+              "countGap": 4,
+              "fontFamily": "Times New Roman, serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            }
+          ]
+        },
+        {
+          "project": "mobile-chromium",
+          "theme": "dark",
+          "measurements": [
+            {
+              "width": 320,
+              "nameTrackWidth": 64,
+              "countGap": 4,
+              "fontFamily": "\"Times New Roman\", serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            },
+            {
+              "width": 390,
+              "nameTrackWidth": 140.984375,
+              "countGap": 4,
+              "fontFamily": "\"Times New Roman\", serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            }
+          ]
+        },
+        {
+          "project": "mobile-chromium",
+          "theme": "light",
+          "measurements": [
+            {
+              "width": 320,
+              "nameTrackWidth": 64,
+              "countGap": 4,
+              "fontFamily": "\"Times New Roman\", serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            },
+            {
+              "width": 390,
+              "nameTrackWidth": 140.984375,
+              "countGap": 4,
+              "fontFamily": "\"Times New Roman\", serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            }
+          ]
+        }
+      ],
+      "runtimeManifest": {
+        "file": "server/connections/reviewed-handler-artifacts.ts",
+        "changedEntry": "../../frontend/src/components/ConversationAgents.css",
+        "sha256": "11987888ab05191634c9bc7044f4907f57f3f6e8a91bf1f271af046f1f676022",
+        "revision": "v1.0.286-codex-agent-tools-sandbox-review.1-symposium-shared-ui.4",
+        "sourcePins": 547,
+        "mismatches": 0,
+        "bounds": "Only owned CSS hash and distinct suffix changed; unrelated accepted/core entries retained."
+      },
+      "captures": [
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-webkit-320-dark.png",
+          "sha256": "ae6c35c3b62c55c95c394f614d432bfb6442af149c4c6f2e07ea3948e92963a3",
+          "kind": "actual header, 320px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-webkit-390-dark.png",
+          "sha256": "b9042d6408f18ff93f15d7280af6aabb3a357a8af1c6e51ec91ca5575b949a0e",
+          "kind": "actual header, 390px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-webkit-320-light.png",
+          "sha256": "ff9ea6cf6441e463e22892faed30f9f8d83990bb0ee34344074dceb17ded9df4",
+          "kind": "actual header, 320px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-webkit-390-light.png",
+          "sha256": "bf9ffdc366a8b283434a2a95a31953a4c12cec2a30d0544a94a6f61680f590b3",
+          "kind": "actual header, 390px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-chromium-320-dark.png",
+          "sha256": "aec8b23ee8421c7070b56e632832dc150a48574e62908f83d9a22f8e5f29a9dc",
+          "kind": "actual header, 320px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-chromium-390-dark.png",
+          "sha256": "61f49b7a6ae6604f08ac674d97694ea8671114463a2ff384dd4a6df7d47229bf",
+          "kind": "actual header, 390px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-chromium-320-light.png",
+          "sha256": "04d2d1a89692b77ceacee111d5f8707a20e832f8a76a1f061b36c30b2083fefe",
+          "kind": "actual header, 320px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-chromium-390-light.png",
+          "sha256": "2cd896b5c9dfcf359391fb969a5c101dbec0db0b9403f08b508f227ef51a593f",
+          "kind": "actual header, 390px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        }
+      ],
+      "visualInspection": [
+        "Retained failing CI320px mobile WebKit screenshot: full first name/count, no ellipsis, ordinary adjacent controls present.",
+        "Fixed Times New Roman header mobile WebKit320dark: first name+2, readable area64px vs63.671875 glyph;4px count gap.",
+        "Fixed mobile Chromium390light: first two names+1, complete text,4px count gap."
+      ],
+      "remaining": "Fresh exact-head CI and trusted review required; C independent new-crop inspection and core combined app/native iOS acceptance remain separate. Core alone repairs its combined AUTH_LOST_EVENT mock/header fixture issues."
     }
   },
   "integrationHandoff": {
@@ -457,7 +659,7 @@
     "controller": "useConversationPresentation({collaborationId,api,authScope,getVerifiedAuthScope,draftId,names}) reuses existing real typed view/events/setPolicy, projection and ordinary draft owner. Core supplies its existing currentVerifiedAuthSessionId getter; missing or mismatched current proof fails closed. AUTH_LOST clears private state and fences late results; restore checks after existing auth owner synchronous publication.",
     "policy": "Confirmed server view drives checkboxes. In-memory pending request retains requestId, membership/revision fences and values on network/408/429/5xx ambiguity. retryPolicy reuses exact original body. Unchanged read cannot clear uncertainty; newer authoritative revision fences it. Known definite400/401/403/404/409/422 refusal clears pending but retains error until refresh. No optimistic success. Matching receipt confirmation recovery: pendingPolicy.receipt proves mutation committed; needsRefresh=true and uncertain=false expose failed view confirmation. Preserve original input/receipt and old confirmed projection. retryPolicy with receipt performs read-only refresh; core must render this state before unknown-outcome uncertainty.",
     "agentsSlots": "ConversationAgents adds optional policyFeedback:ReactNode and policyUnavailableReason:string; feedback appears once inside existing Agents dialog. Core wires pending/refusal/retry/refresh via these slots. No new joining lifecycle or auth owner.",
-    "header": "Core df7aaa markup is integrated as93ab42f6 and extended by A container/count corrections a24bd063+844d5ddb. Consume final A once; do not independently reapply core header patch.",
+    "header": "Core df7aaa markup is integrated as93ab42f6 and extended by A container/count corrections a24bd063+844d5ddb. Consume final A once; do not independently reapply core header patch. Serif follow-up fe4f811b retains existing4rem readable name-track floor across CI serif metrics; sole production edit is ConversationAgents.css min-width. Protected approved-design test and reference bytes unchanged.",
     "acceptanceMap": "Single combined map remains C docs/evidence/symposium-integration-acceptance.md, PR1022; latest reported signed2ce97499 includes independent four-image recovery receipt. A does not duplicate global acceptance; full application journey remains core/C."
   },
   "remaining": [
@@ -612,6 +814,6 @@
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
   "integratedAcceptedBase": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
   "baseRefresh": "Integrated accepted13669901 after GitHub reported the153fbe4d PR conflicting and omitted its normal pull_request CI. Sole conflict was generated runtime revision; preserved accepted sandbox pins and A pins, combined distinct suffix, no A UI/API/controller/fixture byte changes. No rebase or force push.",
-  "latestValidation": "checks.acceptedBaseIntegration",
+  "latestValidation": "checks.serifNameFloor",
   "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f"
 }
