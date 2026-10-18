@@ -138,15 +138,15 @@ separate user authorizations described in the Symposium handover.
 
 ## Inert native approval source stages
 
-The ordered bundle now contains 24 patches. The original twenty-three checksums
+The ordered bundle now contains 26 patches. The original twenty-five checksums
 are unchanged. Patches 21–23 retain typed extension routing, fresh user provenance
 from the actual approval owner, and original configuration/policy plus actual
 restricted-launch bindings. Root and an independent reviewer inspected each
 stage; the corrected bundle reconstructs tree
-`7876c1360f3610f33b91cf239d566636d284f787`.
+`d455f8008c7ee555fab63c458df136594fcc352b`.
 
-The original policy flags, hooks, contributors and protected fixture assertions
-remain. Only an actual fresh user approval can produce the sealed evidence;
+The production policy flags, hooks, contributors and permission guards remain.
+The original parent denied-read fixture remains unchanged. Only an actual fresh user approval can produce the sealed evidence;
 cached/session, Hook and Guardian approvals cannot. Actual initial-call lifetime
 tests use `exec_command_inner` and its real stored flag, including yield,
 future drop, process failure and retained polling. Configuration and manager-policy
@@ -168,7 +168,27 @@ first; only scoped formatting and source checks ran locally. Root and independen
 source review missed the original field error; neither review established compile
 qualification. Compilation and fixture qualification of the correction remain
 pending exact-source CI. Unpublished C2 metadata changes are excluded.
-The separately proposed Guardian terminal-test correction is excluded.
+The twenty-fifth patch is the exact explicitly approved Guardian terminal-test
+correction (18 October, patch SHA
+`389b5db30b7b2ccd64af0fc5f928d71bf0abe30d5b10bb1d883880e325d19a0e`).
+The unchanged-restrictions positive retains six offline requests, two actual
+current-turn Guardian assessments, original command identity and a real denied
+file nonleak. A separate changed-deny/cwd case requires the existing refusal
+before stdin, Guardian or child effects, with both secrets unchanged. Only two
+test files change; the entire production Core tree is byte-identical before and
+after this patch. The original assertion exception is explicitly approved; no
+other assertion or guard waiver is implied. These tests have not run on the
+composed tree; exact-source CI remains required.
+
+The twenty-sixth patch fixes a second compiler error exposed by native run
+`39132277931`: both helper builds reject a borrow of `snapshot_credential_context`
+after its original ownership move (E0382). No native fixtures started, so that run
+has no test pass/fail/skip counts. The correction retains only an immutable
+presence boolean before the move and uses it in the original exclusion. The
+credential value still moves once through its unchanged owner; no credentials
+are cloned or recreated, and no guard or assertion changes. Root and independent
+source review missed this ownership error too; corrected compilation and fixture
+execution remain exact-source CI requirements.
 
 This ordinary shell compatibility work creates no prepared Responses capability,
 HTTP send, provider session, application joining or runtime adoption authority.

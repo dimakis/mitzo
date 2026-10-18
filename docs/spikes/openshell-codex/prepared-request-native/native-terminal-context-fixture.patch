@@ -1,0 +1,354 @@
+From 5ec80c7aed37123b1bfab46352f259f9af0cd752 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 10:00:49 +0100
+Subject: [PATCH] test(core): separate terminal review from filesystem drift
+ refusal
+
+---
+ .../suite/unified_exec_zsh_fork_approvals.rs  |  70 +++++--
+ ..._fork_persistent_terminal_refusal_tests.rs | 185 ++++++++++++++++++
+ 2 files changed, 238 insertions(+), 17 deletions(-)
+ create mode 100644 codex-rs/core/tests/suite/unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs
+
+diff --git a/codex-rs/core/tests/suite/unified_exec_zsh_fork_approvals.rs b/codex-rs/core/tests/suite/unified_exec_zsh_fork_approvals.rs
+index 46b7aa3..8d77612 100644
+--- a/codex-rs/core/tests/suite/unified_exec_zsh_fork_approvals.rs
++++ b/codex-rs/core/tests/suite/unified_exec_zsh_fork_approvals.rs
+@@ -57,6 +57,9 @@ use std::time::Duration;
+ use toml_edit::Key as TomlKey;
+ use wiremock::MockServer;
+ 
++#[path = "unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs"]
++mod persistent_terminal_refusal_tests;
++
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+ async fn unified_exec_zsh_fork_parent_approval_preserves_denied_reads() -> Result<()> {
+     skip_if_no_network!(Ok(()));
+@@ -460,14 +463,17 @@ async fn unified_exec_zsh_fork_guardian_reviews_persistent_terminal_in_current_t
+         .path()
+         .join("unified-exec-zsh-fork-current-turn.txt");
+     let initial_denied_path = outside_dir.path().join("original-environment-private");
++    let denied_secret = "persistent-terminal-initial-denied-read-secret";
++    fs::write(&initial_denied_path, format!("{denied_secret}\n"))?;
+     let permission_profile = denied_read_permission_profile(&initial_denied_path)?;
+     let rules = r#"prefix_rule(pattern=["touch"], decision="prompt")"#.to_string();
+ 
+     let outside_path_for_hook = outside_path.clone();
+-    let Some((server, test)) = build_unified_exec_zsh_fork_test_or_skip(
++    let Some((server, test)) = build_unified_exec_zsh_fork_test_with_features_or_skip(
+         "unified-exec zsh-fork current-turn guardian approval test",
+         approval_policy,
+         permission_profile,
++        &[Feature::ExecPermissionApprovals],
+         move |home| {
+             let _ = fs::remove_file(&outside_path_for_hook);
+             let rules_dir = home.join("rules");
+@@ -486,12 +492,15 @@ async fn unified_exec_zsh_fork_guardian_reviews_persistent_terminal_in_current_t
+         "cmd": open_command,
+         "yield_time_ms": 250,
+         "tty": true,
+-        "sandbox_permissions": SandboxPermissions::RequireEscalated,
+-        "justification": "start an interactive terminal for the next turn",
++        "sandbox_permissions": SandboxPermissions::WithAdditionalPermissions,
++        "additional_permissions": {"file_system": {"write": [outside_dir.path()]}},
++        "justification": "retain a bounded terminal write grant for the next turn",
+     });
+     let write_call_id = "uexec-zsh-fork-cross-turn-write";
+     let write_args = json!({
+-        "chars": format!("touch {outside_path:?}\nexit\n"),
++        "chars": format!(
++            "if IFS= read -r retained_secret < {initial_denied_path:?}; then printf '%s\\n' \"$retained_secret\"; fi\ntouch {outside_path:?}\nexit\n"
++        ),
+         "session_id": 1000,
+         "yield_time_ms": 5_000,
+     });
+@@ -556,13 +565,8 @@ async fn unified_exec_zsh_fork_guardian_reviews_persistent_terminal_in_current_t
+         unreachable!("completion wait only returns turn-complete events");
+     };
+ 
+-    let next_cwd = test.config.cwd.join("next-turn");
+-    fs::create_dir(&next_cwd)?;
+-    let next_denied_path = next_cwd.join("next-environment-private");
+-    let (sandbox_policy, permission_profile) = turn_permission_fields(
+-        denied_read_permission_profile(next_denied_path.as_path())?,
+-        next_cwd.as_path(),
+-    );
++    // The process retains its launch sandbox. Change the reviewer, while keeping
++    // the filesystem context compatible; policy drift has a separate refusal case.
+     test.codex
+         .start_or_steer_turn(
+             TurnInputRequest::user_input(vec![UserInput::Text {
+@@ -570,10 +574,7 @@ async fn unified_exec_zsh_fork_guardian_reviews_persistent_terminal_in_current_t
+                 text_elements: Vec::new(),
+             }])
+             .with_thread_settings(ThreadSettingsOverrides {
+-                environments: Some(local_selections(next_cwd)),
+                 approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
+-                sandbox_policy: Some(sandbox_policy),
+-                permission_profile,
+                 ..Default::default()
+             }),
+         )
+@@ -632,8 +633,20 @@ async fn unified_exec_zsh_fork_guardian_reviews_persistent_terminal_in_current_t
+         "Guardian-approved command from the second turn should create the file"
+     );
+ 
+-    let guardian_requests = responses
+-        .requests()
++    let requests = responses.requests();
++    assert_eq!(requests.len(), 6);
++    let result = parse_result(&requests.last().unwrap().function_call_output(write_call_id));
++    assert_eq!(result.exit_code, Some(0));
++    assert!(
++        !result.stdout.contains(denied_secret),
++        "retained terminal read leaked the original denied file: {}",
++        result.stdout
++    );
++    assert_eq!(
++        fs::read_to_string(&initial_denied_path)?,
++        format!("{denied_secret}\n")
++    );
++    let guardian_requests = requests
+         .into_iter()
+         .filter(|request| {
+             request.body_json()["client_metadata"]["x-openai-subagent"].as_str() == Some("guardian")
+@@ -653,7 +666,6 @@ async fn unified_exec_zsh_fork_guardian_reviews_persistent_terminal_in_current_t
+         .map(|(permissions, _)| permissions)
+         .context("intercepted command's Guardian permissions")?;
+     assert!(permissions.contains(initial_denied_path.to_string_lossy().as_ref()));
+-    assert!(!permissions.contains(next_denied_path.to_string_lossy().as_ref()));
+ 
+     Ok(())
+ }
+@@ -672,6 +684,27 @@ async fn build_unified_exec_zsh_fork_test_or_skip<F>(
+ where
+     F: FnOnce(&Path) + Send + 'static,
+ {
++    build_unified_exec_zsh_fork_test_with_features_or_skip(
++        test_name,
++        approval_policy,
++        permission_profile,
++        &[],
++        pre_build_hook,
++    )
++    .await
++}
++
++async fn build_unified_exec_zsh_fork_test_with_features_or_skip<F>(
++    test_name: &str,
++    approval_policy: AskForApproval,
++    permission_profile: PermissionProfile,
++    additional_features: &[Feature],
++    pre_build_hook: F,
++) -> Result<Option<(MockServer, TestCodex)>>
++where
++    F: FnOnce(&Path) + Send + 'static,
++{
++    let additional_features = additional_features.to_vec();
+     let Some(runtime) = zsh_fork_runtime(test_name)? else {
+         return Ok(None);
+     };
+@@ -703,6 +736,9 @@ where
+                 .set_permission_profile(permission_profile)
+                 .expect("set permission profile");
+             assert!(config.features.enable(Feature::WriteStdinApproval).is_ok());
++            for feature in additional_features {
++                assert!(config.features.enable(feature).is_ok());
++            }
+         })
+         .build(&server)
+         .await?;
+diff --git a/codex-rs/core/tests/suite/unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs b/codex-rs/core/tests/suite/unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs
+new file mode 100644
+index 0000000..bda7e19
+--- /dev/null
++++ b/codex-rs/core/tests/suite/unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs
+@@ -0,0 +1,185 @@
++//! Filesystem changes cannot be approved onto an already-running terminal.
++
++use super::*;
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn persistent_terminal_refuses_changed_denied_reads_before_stdin_or_guardian() -> Result<()> {
++    skip_if_no_network!(Ok(()));
++
++    let approval_policy = AskForApproval::OnRequest;
++    let outside_dir = tempfile::tempdir_in(std::env::current_dir()?)?;
++    let outside_path = outside_dir.path().join("must-not-touch");
++    let initial_denied_path = outside_dir.path().join("original-environment-private");
++    let original_secret = "persistent-terminal-original-policy-secret";
++    fs::write(&initial_denied_path, format!("{original_secret}\n"))?;
++    let rules = r#"prefix_rule(pattern=["touch"], decision="prompt")"#;
++    let Some((server, test)) = build_unified_exec_zsh_fork_test_with_features_or_skip(
++        "unified-exec zsh-fork changed denied-read refusal test",
++        approval_policy,
++        denied_read_permission_profile(&initial_denied_path)?,
++        &[Feature::ExecPermissionApprovals],
++        move |home| {
++            let rules_dir = home.join("rules");
++            fs::create_dir_all(&rules_dir).unwrap();
++            fs::write(rules_dir.join("default.rules"), rules).unwrap();
++        },
++    )
++    .await?
++    else {
++        return Ok(());
++    };
++
++    let next_cwd = test.config.cwd.join("next-turn");
++    fs::create_dir(&next_cwd)?;
++    let next_denied_path = next_cwd.join("next-environment-private");
++    let next_secret = "persistent-terminal-new-policy-secret";
++    fs::write(&next_denied_path, format!("{next_secret}\n"))?;
++    let input_marker = test.config.cwd.join("stdin-must-not-arrive");
++    let read_marker = test.config.cwd.join("newly-denied-read-must-not-arrive");
++    let open_call_id = "uexec-zsh-fork-drift-open";
++    let open_command = "while IFS= read -r command; do eval \"$command\"; done";
++    let open_args = json!({
++        "cmd": open_command,
++        "yield_time_ms": 250,
++        "tty": true,
++        "sandbox_permissions": SandboxPermissions::WithAdditionalPermissions,
++        "additional_permissions": {"file_system": {"write": [outside_dir.path()]}},
++        "justification": "retain a bounded terminal grant before policy changes",
++    });
++    let write_call_id = "uexec-zsh-fork-drift-write";
++    // If input reaches the old shell, its first builtin can write this marker.
++    // The later read is intentionally NOT claimed as a physical-denial test:
++    // current policy must refuse the entire input before any bytes reach it.
++    let write_args = json!({
++        "chars": format!(
++            "printf delivered > {input_marker:?}\nIFS= read -r new_secret < {next_denied_path:?}\nprintf '%s' \"$new_secret\" > {read_marker:?}\ntouch {outside_path:?}\nexit\n"
++        ),
++        "session_id": 1000,
++        "yield_time_ms": 5_000,
++    });
++    let responses = mount_sse_sequence(
++        &server,
++        vec![
++            sse(vec![
++                ev_response_created("resp-drift-open"),
++                ev_function_call(
++                    open_call_id,
++                    "exec_command",
++                    &serde_json::to_string(&open_args)?,
++                ),
++                ev_completed("resp-drift-open"),
++            ]),
++            sse(vec![
++                ev_response_created("resp-drift-first-done"),
++                ev_assistant_message("msg-drift-first-done", "terminal is running"),
++                ev_completed("resp-drift-first-done"),
++            ]),
++            sse(vec![
++                ev_response_created("resp-drift-write"),
++                ev_function_call(
++                    write_call_id,
++                    "write_stdin",
++                    &serde_json::to_string(&write_args)?,
++                ),
++                ev_completed("resp-drift-write"),
++            ]),
++            sse(vec![
++                ev_response_created("resp-drift-second-done"),
++                ev_assistant_message("msg-drift-second-done", "a new terminal is required"),
++                ev_completed("resp-drift-second-done"),
++            ]),
++        ],
++    )
++    .await;
++
++    submit_turn_with_session_permissions(
++        &test,
++        "start a persistent terminal with user approvals",
++        approval_policy,
++        ApprovalsReviewer::User,
++    )
++    .await?;
++    approve_expected_exec(&test, open_command).await?;
++    let first_completion = wait_for_event(&test.codex, |event| {
++        matches!(event, EventMsg::TurnComplete(_))
++    })
++    .await;
++    let EventMsg::TurnComplete(first_completion) = first_completion else {
++        unreachable!("completion wait only returns turn-complete events");
++    };
++
++    let (sandbox_policy, permission_profile) = turn_permission_fields(
++        denied_read_permission_profile(next_denied_path.as_path())?,
++        next_cwd.as_path(),
++    );
++    test.codex
++        .start_or_steer_turn(
++            TurnInputRequest::user_input(vec![UserInput::Text {
++                text: "attempt input after changing the terminal's permission context".into(),
++                text_elements: Vec::new(),
++            }])
++            .with_thread_settings(ThreadSettingsOverrides {
++                environments: Some(local_selections(next_cwd)),
++                approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
++                sandbox_policy: Some(sandbox_policy),
++                permission_profile,
++                ..Default::default()
++            }),
++        )
++        .await?;
++
++    let mut current_turn_id = None;
++    loop {
++        let event = tokio::time::timeout(Duration::from_secs(30), test.codex.next_event())
++            .await
++            .context("timed out waiting for changed-permission terminal refusal")??;
++        match event.msg {
++            EventMsg::TurnStarted(started) => current_turn_id = Some(started.turn_id),
++            EventMsg::GuardianAssessment(assessment) => {
++                panic!("incompatible terminal input reached Guardian: {assessment:?}")
++            }
++            EventMsg::ExecApprovalRequest(_) => {
++                panic!("incompatible terminal input requested manual approval")
++            }
++            EventMsg::TurnComplete(completed) => {
++                assert_eq!(Some(completed.turn_id), current_turn_id);
++                break;
++            }
++            _ => {}
++        }
++    }
++    let current_turn_id = current_turn_id.context("expected the refusal turn to start")?;
++    assert_ne!(current_turn_id, first_completion.turn_id);
++
++    let requests = responses.requests();
++    assert_eq!(requests.len(), 4);
++    assert!(requests.iter().all(|request| {
++        request.body_json()["client_metadata"]["x-openai-subagent"].as_str() != Some("guardian")
++    }));
++    let output = requests.last().unwrap().function_call_output(write_call_id);
++    let result = parse_result(&output);
++    assert_eq!(
++        result.stdout,
++        "write_stdin rejected: this terminal cannot enforce the current denied-read restrictions; start a new terminal"
++    );
++    assert!(
++        !input_marker.exists(),
++        "rejected stdin reached the old shell"
++    );
++    assert!(
++        !read_marker.exists(),
++        "rejected stdin performed its read/output"
++    );
++    assert!(!outside_path.exists(), "rejected stdin executed its child");
++    assert_eq!(
++        fs::read_to_string(&initial_denied_path)?,
++        format!("{original_secret}\n")
++    );
++    assert_eq!(
++        fs::read_to_string(&next_denied_path)?,
++        format!("{next_secret}\n")
++    );
++    assert!(!output.to_string().contains(original_secret));
++    assert!(!output.to_string().contains(next_secret));
++    Ok(())
++}
+-- 
+2.54.0 (Apple Git-157)
+

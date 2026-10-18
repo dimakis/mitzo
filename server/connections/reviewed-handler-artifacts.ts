@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.318-symposium-integration.25';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.319-symposium-integration.26';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -174,13 +174,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
 
   '../telos-work-conversation.ts':
     '6abc340f3236812d9e9875e8a60944590575d991e95ccaf3f2b61aff323c5175',
-  '../telos-work-routes.ts': 'bef8cd0eca6ea5bf140739f75f44485228f1e136ce26b6d3e8ea8ef498da6854',
+  '../telos-work-routes.ts': '375f2f62e1e4f3f544dc4b2857d0f336f03ff27886509847ffe466b04cf83607',
   '../../packages/client/src/telos-work-api.ts':
-    '159f97f133f12e7a2e2b10def1d68726022c8966a8df7a26ab46d3a3828b5b91',
-  '../telos-work-schema.ts': '61e76d98894a22696b4f56332b090f763cbcb9576ff071885bb2e72efbc23436',
-  '../telos-work-store.ts': '97970f7a1bd191ce4af86fd98834fa52bcb5eba70afa8bfd79ea4b61696f8acb',
+    '5ec12c86cd7c0bb925388a4bf078536aec02eb18c50e76dc7fa26ea15d0793f1',
+  '../telos-work-schema.ts': 'b1874e0218b378ce48d6c23c3229a73482830de4747b4d1550aeeb15f6032063',
+  '../telos-work-store.ts': '8af828b05c2e1373ed5eea7e08fcfe9f62d4daabe98d9b51ed767ebed4b7bbcb',
   '../../packages/protocol/src/telos-work-api.ts':
-    '4cb6af6268bf48f775d21e3ff9bfeea0d77110e1a9a96e8f185f85a630c8e332',
+    'e24a6d7142cb5bef3910ec37b750b05dece5814d85e35d8bcbdc2f3813270176',
   // Recoverable tool validation and confirmed Telos creation receipts.
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',
   '../telos-tool.ts': 'a21d66aaf087d882b78403d335453effa8e7411220d5537b71ff0c271cf9e824',
@@ -1067,7 +1067,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-orchestrator.ts': '0c25385bc6ace3c9ef225b336379e41d47ecc99ba9f383dcf4f1cdd705c2fff7',
   '../telos-work-role-context.ts':
     '35dec116d6e955cfa836f92f8c414f0ec9179ff960160f107b690da7e9825d77',
-  '../telos-work-role-host.ts': '29900a5554dc606e55d05a8e2ae40c09def476dc33c4837b2dd734cfe9ffb295',
+  '../telos-work-role-host.ts': '11fb9f3b62997d844f810c11ebc65ee27832f7efeec013690948b9ed19a6d86e',
   '../telos-work-role-review.ts':
     '39b3e713bdd7fb9a827445f78d400c42faaf216f0ed0758d77ec5b494634949b',
   '../telos-work-role-setup.ts': '130380c2fdecaba2ec3c7d7d8cc6c073e90a19a4ecad454ce9073ddb839f5a28',
@@ -1078,7 +1078,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work-advisor.ts':
     '6c6453efb49883911a12c494bf85261e21b99d45d5b285248980a85a33b581f5',
   '../../frontend/src/components/TelosRoleSetup.tsx':
-    '0a911c0fd1ce944d8c4ed2ca11cb97af919e0487190e017244bcd7cb6760aa4e',
+    '55c5da5e9d2e3185143cfd010addded5340a26a17b5819e03b5f00e871441a97',
   '../../frontend/src/components/TelosLinkedContext.tsx':
     'c24010f87574f428c8d954c4bf8b73e62d9d8a88a925bd634b8f0233b8966c36',
   '../../frontend/src/components/TelosItemRoleEntries.tsx':
@@ -1086,7 +1086,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosAdvisorDraft.tsx':
     '13ce94112aab43de64fb22b139d2508cd30bc02cea5d337bb21d0e89c2c6b1f3',
   '../../frontend/src/hooks/useTelosRoleSetup.ts':
-    '0747b5bdc0e4a0f1d524ec025b288f9a2f728a577bf46a8340b00ffc17d6967d',
+    '406736d2e0e31ffc9e612595c6364ebbcc958cd8f6b7937c99db74a2a0217974',
   // Consented native research, structured URL reads and their transcript projection.
   '../research-instructions.ts': '0847d737a765fd2b1c3707d44909d92b186167b6ab34782ea2deb878dc1488a2',
   '../github-read-summary.ts': 'a0484745af976ccee6b840e3955824509669d0fedb1561d6a6ce35c31ebadc2d',

@@ -48,6 +48,13 @@ export const TelosWorkRoleSetupIntentSchema = z.strictObject({
 });
 export type TelosWorkRoleSetupInput = z.infer<typeof TelosWorkRoleSetupInputSchema>;
 export type TelosWorkRoleSetupIntent = z.infer<typeof TelosWorkRoleSetupIntentSchema>;
+/** Separate error metadata: never changes retained role input/context identity. */
+export const TelosWorkRoleSetupRecoverySchema = z.strictObject({
+  version: z.literal(1),
+  requestId: id,
+  outcome: z.enum(['rejected_before_allocation', 'recover_original']),
+});
+export type TelosWorkRoleSetupRecovery = z.infer<typeof TelosWorkRoleSetupRecoverySchema>;
 export const TelosWorkCommandSchema = z.discriminatedUnion('operation', [
   z.strictObject({
     ...base,
