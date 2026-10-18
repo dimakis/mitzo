@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.286-codex-agent-tools-sandbox-review.1-symposium-shared-ui.3';
+  'v1.0.286-codex-agent-tools-sandbox-review.1-symposium-shared-ui.4';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -146,7 +146,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.tsx':
     'a6eb4cf5cc612e4ea64c0ca231fb96d4031e7039d5099c92856635929236c0e8',
   '../../frontend/src/components/ConversationAgents.css':
-    '69a9d424e9deb834dec78da7317df2acda6dc3eee1f175d20f9ba178bed650f9',
+    '11987888ab05191634c9bc7044f4907f57f3f6e8a91bf1f271af046f1f676022',
   '../../frontend/src/components/ComposerResponders.tsx':
     '1d9d03fc824c8903172bc7216dfcdd7bf0275092315b824f583d96410b900c76',
   '../../frontend/src/components/ComposerResponders.css':

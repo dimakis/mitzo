@@ -349,8 +349,10 @@
   align-items: center;
   gap: var(--space-1);
 }
+/* Preserve the readable four-rem name track across serif fallback metrics;
+   the remaining-person count stays adjacent and never shrinks. */
 .conversation-participant-names {
-  min-width: 0;
+  min-width: min(100%, calc(2 * var(--space-6)));
   overflow: hidden;
   text-overflow: ellipsis;
 }
