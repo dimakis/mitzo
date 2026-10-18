@@ -33,7 +33,6 @@ describe('TELOS title gestures', () => {
         onDone={onDone}
         onTap={onTap}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
@@ -54,7 +53,6 @@ describe('TELOS title gestures', () => {
         onDone={vi.fn()}
         onTap={onTap}
         onAddChild={vi.fn()}
-        onStar={vi.fn()}
         onStartSession={vi.fn()}
       />,
     );
