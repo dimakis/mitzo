@@ -74,16 +74,18 @@ const workspace = z.strictObject({
     .optional(),
 });
 export type OrdinaryWorkspaceRecord = z.infer<typeof workspace>;
-export interface OrdinaryWorkspaceReservationInput {
+export interface OrdinaryWorkspaceSelectionInput {
   preparationId: string;
-  allocationOperationId: string;
   binding: AccountBinding;
   settings: OrdinaryWorkspaceSettings;
   agentProfile: AgentLibraryVersion;
-  taskRoot: string;
   /** Trusted operation requirements may only narrow the server-derived capability set. */
   requiredCapabilities?: readonly string[];
   signal: AbortSignal;
+}
+export interface OrdinaryWorkspaceReservationInput extends OrdinaryWorkspaceSelectionInput {
+  allocationOperationId: string;
+  taskRoot: string;
 }
 export interface OrdinaryWorkspaceClaimInput {
   id: string;
@@ -238,16 +240,14 @@ export class OrdinaryWorkspaceCustody {
     if (result.changes !== 1) throw Error('Ordinary workspace reservation changed');
     return this.get(next.id);
   }
-  async reserve(raw: OrdinaryWorkspaceReservationInput) {
+  async qualify(raw: OrdinaryWorkspaceSelectionInput) {
     const signal = raw.signal;
     signal.throwIfAborted();
     const selected = {
       preparationId: z.uuid().parse(raw.preparationId),
-      allocationOperationId: z.uuid().parse(raw.allocationOperationId),
       binding: AccountBindingSchema.parse(structuredClone(raw.binding)),
       settings: OrdinaryWorkspaceSettingsSchema.parse(structuredClone(raw.settings)),
       agentProfile: AgentLibraryVersionSchema.parse(structuredClone(raw.agentProfile)),
-      taskRoot: canonicalPath.parse(raw.taskRoot),
       requiredCapabilities: [...new Set(raw.requiredCapabilities ?? [])].sort(),
     };
     if (
@@ -276,6 +276,17 @@ export class OrdinaryWorkspaceCustody {
     const prepared = await this.assertReadiness(selected.preparationId, binding, signal);
     if (!isDeepStrictEqual(prepared.proof.runtimeBinding, settings.binding))
       throw Error('Ordinary runtime identity changed');
+    return selected;
+  }
+  async reserve(raw: OrdinaryWorkspaceReservationInput) {
+    const signal = raw.signal;
+    const selection = await this.qualify(raw);
+    const selected = {
+      ...selection,
+      allocationOperationId: z.uuid().parse(raw.allocationOperationId),
+      taskRoot: canonicalPath.parse(raw.taskRoot),
+    };
+    const { settings, binding, agentProfile } = selected;
     const rootIdentity = privateDirectory(selected.taskRoot);
     const fingerprint = ordinaryPreparationFingerprint(selected);
     signal.throwIfAborted();

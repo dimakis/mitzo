@@ -308,6 +308,9 @@ export class RepositoryWorkspaces {
   prepareOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['prepare']>[0]) {
     return this.ordinaryWorkspaceProvider().prepare(input);
   }
+  qualifyOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['qualify']>[0]) {
+    return this.ordinaryWorkspaceProvider().qualify(input);
+  }
   reserveOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['reserve']>[0]) {
     return this.ordinaryWorkspaceProvider().reserve(input);
   }

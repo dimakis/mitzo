@@ -1,3 +1,12 @@
+import {
+  TelosWorkRoleSetupIntentSchema,
+  TelosOrdinaryWorkRoleSetupInputSchema,
+  TelosOrdinaryWorkRoleSetupIntentSchema,
+  TelosWorkRoleSetupRequestIntentSchema,
+  type TelosWorkRoleSetupRequest,
+  type TelosWorkRoleSetupRequestIntent,
+  type TelosOrdinaryWorkRoleSetupIntent,
+} from '@mitzo/protocol';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -16,7 +25,6 @@ import {
   TelosWorkRolePresentationRefSchema,
   type TelosWorkRolePresentationRef,
   type TelosWorkRolePresentation,
-  type TelosWorkRoleSetupInput,
   TelosWorkAdvisorDraftSaveRequestSchema,
   TelosWorkSourceSnapshotSchema,
   type TelosWorkCommand,
@@ -301,7 +309,7 @@ export class TelosWorkStore {
     return parsed.data;
   }
   private qualifyRolePresentation(
-    input: TelosWorkRoleSetupInput,
+    input: TelosWorkRoleSetupRequest,
     actor: TelosWorkActor,
     raw: TelosWorkRolePresentationRef | null,
     hasOriginal: boolean,
@@ -366,8 +374,35 @@ export class TelosWorkStore {
     reviewIsCurrent?: () => boolean,
     presentationRef?: TelosWorkRolePresentationRef | null,
   ): { setup: TelosWorkRoleSetupIntent; receipt: TelosWorkCommandReceipt | null } {
+    const result = this.prepareRoleSetupRequest(
+      TelosWorkRoleSetupInputSchema.parse(raw),
+      actor,
+      reviewIsCurrent,
+      presentationRef,
+    );
+    return { ...result, setup: TelosWorkRoleSetupIntentSchema.parse(result.setup) };
+  }
+  prepareOrdinaryRoleSetup(
+    raw: unknown,
+    actor: TelosWorkActor,
+    reviewIsCurrent?: () => boolean,
+    presentationRef?: TelosWorkRolePresentationRef | null,
+  ): { setup: TelosOrdinaryWorkRoleSetupIntent; receipt: TelosWorkCommandReceipt | null } {
+    const result = this.prepareRoleSetupRequest(
+      TelosOrdinaryWorkRoleSetupInputSchema.parse(raw),
+      actor,
+      reviewIsCurrent,
+      presentationRef,
+    );
+    return { ...result, setup: TelosOrdinaryWorkRoleSetupIntentSchema.parse(result.setup) };
+  }
+  private prepareRoleSetupRequest(
+    input: TelosWorkRoleSetupRequest,
+    actor: TelosWorkActor,
+    reviewIsCurrent?: () => boolean,
+    presentationRef?: TelosWorkRolePresentationRef | null,
+  ): { setup: TelosWorkRoleSetupRequestIntent; receipt: TelosWorkCommandReceipt | null } {
     this.operator(actor);
-    const input = TelosWorkRoleSetupInputSchema.parse(raw);
     const nested = this.db.inTransaction;
     const result = this.db
       .transaction(() => {
@@ -394,7 +429,7 @@ export class TelosWorkStore {
           if (saved.fingerprint !== fingerprint)
             conflict('Role setup identity reused with different input');
           return {
-            setup: JSON.parse(saved.intent) as TelosWorkRoleSetupIntent,
+            setup: TelosWorkRoleSetupRequestIntentSchema.parse(JSON.parse(saved.intent)),
             receipt: saved.receipt
               ? TelosWorkCommandReceiptSchema.parse(JSON.parse(saved.receipt))
               : null,
@@ -427,11 +462,11 @@ export class TelosWorkStore {
             .run(input.requestId, actorId, fingerprint, reason);
           return { rejection: reason };
         }
-        const setup: TelosWorkRoleSetupIntent = {
+        const setup = TelosWorkRoleSetupRequestIntentSchema.parse({
           actorId,
           input,
           allocationOperationId: randomUUID(),
-        };
+        });
         this.db
           .prepare(
             'INSERT INTO telos_work_role_setups(actor_id,request_id,fingerprint,intent) VALUES(?,?,?,?)',
@@ -461,10 +496,36 @@ export class TelosWorkStore {
     actor: TelosWorkActor,
     assertBeforeApply: () => void,
   ): TelosWorkCommandReceipt {
+    return this.completeRoleSetupRequest(
+      TelosWorkRoleSetupIntentSchema.parse(setup),
+      conversationId,
+      actor,
+      assertBeforeApply,
+    );
+  }
+  completeOrdinaryRoleSetup(
+    setup: TelosOrdinaryWorkRoleSetupIntent,
+    conversationId: string,
+    actor: TelosWorkActor,
+    assertBeforeApply: () => void,
+  ): TelosWorkCommandReceipt {
+    return this.completeRoleSetupRequest(
+      TelosOrdinaryWorkRoleSetupIntentSchema.parse(setup),
+      conversationId,
+      actor,
+      assertBeforeApply,
+    );
+  }
+  private completeRoleSetupRequest(
+    setup: TelosWorkRoleSetupRequestIntent,
+    conversationId: string,
+    actor: TelosWorkActor,
+    assertBeforeApply: () => void,
+  ): TelosWorkCommandReceipt {
     this.operator(actor);
     return this.db
       .transaction(() => {
-        const retained = this.prepareRoleSetup(setup.input, actor);
+        const retained = this.prepareRoleSetupRequest(setup.input, actor);
         if (JSON.stringify(retained.setup) !== JSON.stringify(setup))
           conflict('Role setup scope mismatch');
         if (retained.receipt) return retained.receipt;
