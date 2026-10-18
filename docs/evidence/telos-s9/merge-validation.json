@@ -1,0 +1,32 @@
+{
+  "acceptedMain": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
+  "combinedTestedCommit": "89bc1b78c320154c9c315fbb38de8acdafd96ace",
+  "evidenceScope": "Offline evidence PR1018; S9 and parent active; final acceptance pending",
+  "productionDiffFromAcceptedMain": false,
+  "reports": {
+    "docs/evidence/telos-s9/merge-offline-tests.json": {
+      "numTotalTests": 49,
+      "numPassedTests": 49,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "success": true
+    },
+    "docs/evidence/telos-s9/merge-foundation-contracts.json": {
+      "numTotalTests": 7,
+      "numPassedTests": 2,
+      "numFailedTests": 5,
+      "numPendingTests": 0,
+      "success": false
+    }
+  },
+  "checksums": {
+    "docs/evidence/telos-s9/merge-offline-tests.log": "2766fb75ab5aa1c4739c83e20553da3cc56d726f53d4e02a23aa5374e3a71fba",
+    "docs/evidence/telos-s9/merge-foundation-contracts.json": "9ee36335e3e22a4dbd01c136d798dc1c6f4732ea1b2daca84bc0a85d5bf41719",
+    "docs/evidence/telos-s9/merge-offline-tests.json": "dec208b70bf142f868c74a8ec3cb62264717a7457d0bc6d19a5cfe70eea6bef6",
+    "docs/evidence/telos-s9/merge-validation.md": "10c935d8cbfb80dc60f74ea471ed38606e3ba69f470cb8e27bbdb1f8e257b6c6",
+    "docs/evidence/telos-s9/merge-foundation-contracts.log": "a12227779bdc553f2cb8641e099afa57427e08eedb59d37e961229efec0daf3f",
+    "server/app.ts": "467d8d85cd624d42b667048bd8bd5ac4dbe51729b6b3a5229cafe371ff3e4e07",
+    "server/codex-conversation-store.ts": "eee98642c310c6ed02ee94de11c7aaa3e376f454388352e94fa20a714c97bfed",
+    "packages/protocol/src/event-store.ts": "fdbde593270e896b680763fe8de9d131ea08fc9b2250e4cd8a8e8a277ce053ac"
+  }
+}
