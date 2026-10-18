@@ -9,7 +9,8 @@
     "rootDir": "server",
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": true
   },
   "include": ["server/**/*.ts"],
   "references": [{ "path": "packages/protocol" }, { "path": "packages/harness" }]

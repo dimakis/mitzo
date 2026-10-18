@@ -116,6 +116,7 @@ for (const theme of ['dark', 'light'])
 
     let failRecords = false;
     let failConversations = true;
+    let failChildConversations = false;
     let assignedLead = false;
     const assignedFixture = createTelosWorkFixtures().leadWithUnstartedSlice;
     let rejectPriority = false;
@@ -177,7 +178,10 @@ for (const theme of ['dark', 'light'])
           return failRecords
             ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
             : route.fulfill({ json: record });
-        if (record.itemId === records[0].itemId && failConversations)
+        if (
+          (record.itemId === records[0].itemId && failConversations) ||
+          (record.itemId === 'fixture-studio-slice' && failChildConversations)
+        )
           return route.fulfill({ status: 503, json: { error: 'Conversations unavailable' } });
         const scenario = scenarios.find((s) => s.items.some((r) => r.itemId === record.itemId))!;
         const assigned = record.itemId === records[0].itemId && assignedLead;
@@ -616,6 +620,35 @@ for (const theme of ['dark', 'light'])
     await expect(
       page.getByRole('button', { name: 'Plan the recording setup', exact: true }),
     ).toBeVisible();
+    // Keep each compact child row mounted while the canonical owner renews it.
+    for (const tab of ['Overview', 'Work']) {
+      await page.getByRole('button', { name: tab, exact: true }).click();
+      const child = page.getByRole('button', { name: 'Plan the recording setup', exact: true });
+      const row = child.locator('xpath=ancestor::li[1]');
+      await row.evaluate((element) => {
+        element.setAttribute('data-s7-mounted', 'same-row');
+      });
+      failChildConversations = true;
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await expect(row.getByText('Conversations unavailable', { exact: true })).toBeVisible();
+      failChildConversations = false;
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await expect(row.getByRole('button', { name: 'Choose worker', exact: true })).toBeVisible();
+      const childRecord = records.find((record) => record.itemId === 'fixture-studio-slice')!;
+      childRecord.kind = 'coordinator';
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await expect(
+        row.getByRole('button', { name: 'View coordinator', exact: true }),
+      ).toBeVisible();
+      childRecord.kind = 'work_item';
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await expect(row.getByRole('button', { name: 'Choose worker', exact: true })).toBeVisible();
+      await expect(row).toHaveAttribute('data-s7-mounted', 'same-row');
+      await expect(page.getByRole('button', { name: tab, exact: true })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    }
     records[0] = { ...records[0], kind: null };
     await navigate('/todos/fixture-studio');
     await expect(page.getByText('Unclassified · active', { exact: true })).toBeVisible();

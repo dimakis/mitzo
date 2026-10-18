@@ -51,13 +51,16 @@ export class ListCache<T> {
     this.listeners.forEach((listeners) => listeners.forEach((listener) => listener()));
   }
 
-  load(key: string, loader: () => Promise<T>): Promise<T> {
+  load(key: string, loader: () => Promise<T>, onAccepted?: (data: T) => void): Promise<T> {
     const existing = this.pending.get(key);
     if (existing) return existing;
     const generation = this.generation;
     const request = loader()
       .then((data) => {
         if (generation !== this.generation) throw new SupersededListRequest();
+        // Record derived memory only at admission, before observers or later
+        // mutations can run. Superseded responses never reach this callback.
+        onAccepted?.(data);
         this.set(key, data);
         return data;
       })

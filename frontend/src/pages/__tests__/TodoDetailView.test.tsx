@@ -599,7 +599,7 @@ describe('TodoDetailView', () => {
       const select = screen.getByRole('combobox', { name: 'Priority' }) as HTMLSelectElement;
       fireEvent.change(select, { target: { value: '7' } });
       await waitFor(() => expect(select.value).toBe('7'));
-      expect(filteredList.result.current.items[0].priority).toBe(7);
+      await waitFor(() => expect(filteredList.result.current.items[0].priority).toBe(7));
       expect(navigationItem.priority).toBe(5);
       fireEvent.change(select, { target: { value: '9' } });
       expect(

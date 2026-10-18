@@ -19,6 +19,7 @@ vi.mock('../../lib/event-bus-singleton', () => ({
 
 import { apiFetch } from '../../lib/api-fetch';
 import { useTodoData } from '../useTodoData';
+import { ListCache } from '../../lib/list-cache';
 
 const mockItems = [
   {
@@ -75,6 +76,53 @@ afterEach(() => {
 });
 
 describe('useTodoData', () => {
+  it('keeps a confirmation delivered between read publication and promise completion in both mounted consumers', async () => {
+    const list = renderHook(() => useTodoData('work'));
+    const detail = renderHook(() => useTodoData());
+    await waitFor(() => expect(list.result.current.loading).toBe(false));
+    await waitFor(() => expect(detail.result.current.loading).toBe(false));
+    let confirm!: (value: { ok: true }) => void;
+    let awaitingConfirmation = false;
+    const confirmation = new Promise<{ ok: true }>((resolve) => {
+      confirm = resolve;
+    });
+    vi.mocked(apiFetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => {
+        awaitingConfirmation = true;
+        return confirmation;
+      },
+    } as Response);
+    let save!: Promise<void>;
+    act(() => {
+      save = detail.result.current.setPriority('abc123', 7);
+    });
+    await waitFor(() => expect(awaitingConfirmation).toBe(true));
+    const olderRead = { ...mockResponse, items: [{ ...mockItems[0], priority: 3 }] };
+    vi.mocked(apiFetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => olderRead,
+    } as Response);
+    const publish = ListCache.prototype.set;
+    vi.spyOn(ListCache.prototype, 'set').mockImplementation(function (
+      this: ListCache<unknown>,
+      key,
+      data,
+    ) {
+      Reflect.apply(publish, this, [key, data]);
+      // The read has passed its generation check and published. The write's
+      // JSON continuation now runs before the read's finally/consumer delivery.
+      if (key === '/api/todos' && data === olderRead) confirm({ ok: true });
+    });
+    act(() => detail.result.current.refresh());
+    await act(async () => {
+      await save;
+    });
+    expect(list.result.current.items[0].priority).toBe(7);
+    expect(detail.result.current.items[0].priority).toBe(7);
+    expect(detail.result.current.error).toBeNull();
+  });
+
   it('publishes confirmed priority to simultaneously mounted list and detail consumers', async () => {
     const list = renderHook(() => useTodoData('work'));
     const detail = renderHook(() => useTodoData());

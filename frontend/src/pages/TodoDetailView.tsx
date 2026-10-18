@@ -6,7 +6,7 @@ import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
-import { findInTree, useTodoData } from '../hooks/useTodoData';
+import { findInTree, useTodoData, useLatestTodoPriority } from '../hooks/useTodoData';
 import { TodoPrioritySelect } from '../components/TodoPrioritySelect';
 import type { TodoItem } from '../types/todo';
 import { sourceIcon, buildPrompt, buildTodoContext, todoPriority } from '../lib/todo-utils';
@@ -64,6 +64,7 @@ export function TodoDetailView() {
   const navigationItem = (location.state as { item?: TodoItem } | null)?.item;
   const [stateItem, setStateItem] = useState(navigationItem);
   useEffect(() => setStateItem(navigationItem), [navigationItem]);
+  const fallbackItem = useLatestTodoPriority(stateItem?.id === id ? stateItem : undefined);
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [ordinaryRoleItem, setOrdinaryRoleItem] = useState<string | null>(null);
@@ -71,8 +72,7 @@ export function TodoDetailView() {
     setOrdinaryRoleItem(available ? itemId : null);
   }, []);
 
-  const item =
-    (id ? findInTree(items, id) : undefined) ?? (stateItem?.id === id ? stateItem : undefined);
+  const item = (id ? findInTree(items, id) : undefined) ?? fallbackItem;
 
   const recordIds = id ? [id] : [];
   function collectRecordIds(value: TodoItem) {

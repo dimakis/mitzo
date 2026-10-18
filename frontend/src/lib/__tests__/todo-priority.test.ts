@@ -1,6 +1,12 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-vi.mock('../api-fetch', () => ({ apiFetch: vi.fn(), invalidateTodoReads: vi.fn() }));
-import { apiFetch } from '../api-fetch';
+vi.mock('../api-fetch', () => ({
+  apiFetch: vi.fn(),
+  invalidateTodoReads: vi.fn(),
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+  AUTH_RESTORED_EVENT: 'mitzo:auth-restored',
+}));
+import { apiFetch, invalidateTodoReads } from '../api-fetch';
 import { setTodoPriority, subscribeTodoPriorityUpdates } from '../todo-priority';
 
 const unsubscribe: (() => void)[] = [];
@@ -110,3 +116,32 @@ it('does not misreport an acknowledged write if a view observer fails', async ()
   expect(log).toHaveBeenCalledOnce();
   log.mockRestore();
 });
+
+it.each(['mitzo:auth-lost', 'mitzo:auth-restored'])(
+  'fences delayed acknowledgments and queued writes across %s',
+  async (event) => {
+    const listener = vi.fn();
+    unsubscribe.push(subscribeTodoPriorityUpdates(listener));
+    let finish!: (response: Response) => void;
+    vi.mocked(apiFetch).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const old = setTodoPriority('item', 7);
+    const queued = setTodoPriority('item', 9);
+    const oldRejected = expect(old).rejects.toThrow('expired authentication');
+    const queuedRejected = expect(queued).rejects.toThrow('expired authentication');
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new Event(event));
+    vi.mocked(apiFetch).mockResolvedValueOnce(Response.json({ ok: true }));
+    await setTodoPriority('item', 4);
+    finish(Response.json({ ok: true }));
+    await oldRejected;
+    await queuedRejected;
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenCalledExactlyOnceWith({ id: 'item', priority: 4 });
+    expect(invalidateTodoReads).toHaveBeenCalledOnce();
+  },
+);
