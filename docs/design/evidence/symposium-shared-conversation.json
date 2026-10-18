@@ -1032,6 +1032,64 @@
       "authorization": "Directly verified human user message01a14eb9-9c08-7681-8108-466c4a5d1634 resolves credential use for genuinely missing qualifying final reviews. No duplicate or obsoletehead request, model/config/cap/row/status change or new approval question. No merge/runtime/live/staging authority.",
       "nextGate": "Fresh exact-head CI then current whole-PR full final normal admission after live job/review/head guards, preserving all actual clean history. Final App5169606 gate still required.",
       "integration": "Core receives ancestry/manifest delta only. No originalA/header replay; A source and evidence unchanged, accepted canonical advisor store/schema/fixture repair intact."
+    },
+    "roleRecoveryAcceptedBaseIntegration": {
+      "source": "2b7340791b7894716615a744d68cf9094fc13682",
+      "sourceTree": "43c056cbb2b78a5ab47b929d42624af027148f32",
+      "parents": [
+        "5a3f0037b8c642b2b1e56fdc5d79ed35f1f1f55b",
+        "2b22bade2b1e612cc564661bf1e69b45a317e5eb"
+      ],
+      "manifest": {
+        "previousHead": "5a3f0037b8c642b2b1e56fdc5d79ed35f1f1f55b",
+        "acceptedMain": "2b22bade2b1e612cc564661bf1e69b45a317e5eb",
+        "aPinCount": 584,
+        "acceptedPinCount": 580,
+        "unionPinCount": 584,
+        "mismatches": 0,
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFileCount": 17,
+        "ledger": "Accepted8-line role-recovery addition preserved byte-for-byte; prior A approved rules unchanged.",
+        "runtimeRevision": "v1.0.319-telos-role-recovery.1-symposium-shared-ui.4",
+        "conflict": "Generated runtime revision only",
+        "localExecution": "No local test/typecheck/browser at observed load138.62/150.51/132.40; normal hooks plus fresh remote CI.",
+        "postHooksProof": "All584 pins,11 A modules/fixtures/protected/captures and17 accepted non-manifest blob identities verified after normal hooks. Accepted ledger8-line addition retained."
+      },
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed; one-GiB Node heap.",
+      "localExecution": "No local test/typecheck/browser at observed load138.62/150.51/132.40; normal hooks plus fresh remote CI.",
+      "priorValidationBounds": "Intermediate5a3f0037 exact CI39132069545 completed SUCCESS (all8 workflow jobs). Its full-final packet was never submitted because actual accepted#1029 introduced a real conflict during CI. That green history does not approve this changed head.",
+      "priorFullReviewAndStatus": {
+        "head": "976750b775fc346babb96b9e34cf1a249eec417e",
+        "review": 5562752163,
+        "nodeId": "PRR_kwDOR2Rn9s8AAAABS5Dcow",
+        "job": 4949,
+        "revision": 1,
+        "mode": "whole-PR full final,force1/followup0/autofix0",
+        "result": "Actual LGTM/merge,zero new+unresolved blockers",
+        "finalStatus": 56631308268,
+        "statusState": "success",
+        "statusCreatedAt": "2026-10-18T13:30:55Z",
+        "statusPublisher": "dimakis-mitzo-centaur-status[bot]",
+        "appId": 5169606,
+        "appIdEvidence": "Owning reviewer independent App verification; worker independently verified exact REST status and dedicated publisher.",
+        "bounds": "Meaningful clean full+App history at976 only; not current-head approval.80231/b98 actual clean reports retained."
+      },
+      "design": "Accepted8-line role-recovery ledger addition retained byte-identically. A frozen header policy/recovery, protected spec and captures unchanged; no design-reference or assertion changes.",
+      "authorization": "Existing explicit human permission covers genuinely missing further Centaur rounds; no additional question. No new review until current head/CI/live jobs/published reports verified. No duplicate oldhead review, model/config/cap/row/status mutation or merge/runtime grant.",
+      "nextGate": "Publish source/evidence once, verify exact current CI/normal automatic job. Current whole-PR full final normal API admission may be needed after CI; final trusted report and App5169606 gate required.",
+      "integration": "Core consumes ancestry/manifest delta only, no originalA/header replay or core checkout edits."
     }
   },
   "integrationHandoff": {
@@ -1063,8 +1121,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
-  "acceptedMainMerge": "8c291a207760fce5fd436ccfcb47f9e6a8dabcfe",
+  "latestAcceptedMain": "2b22bade2b1e612cc564661bf1e69b45a317e5eb",
+  "acceptedMainMerge": "2b7340791b7894716615a744d68cf9094fc13682",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1198,9 +1256,9 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
-  "baseRefresh": "Actual manifest conflict with accepted117783fd (#1027 canonical advisor schema). Sole resolution generated runtime version;584 combined pins match; all11 A modules, fixtures/protected/design-ledger/captures unchanged;10 accepted non-manifest files byte-identical. No local execution underload138.62/150.51/132.40. Prior976 full-final actual LGTM preserved as history; new CI/current full-final/App gates required.",
-  "latestValidation": "checks.canonicalAdvisorAcceptedBaseIntegration",
+  "integratedAcceptedBase": "2b22bade2b1e612cc564661bf1e69b45a317e5eb",
+  "baseRefresh": "During5a CI actualmain advanced to accepted2b22bade (#1029). Sole real merge conflict generated runtime version.584 combined pins match after hooks,11 A modules/fixtures/protected/captures unchanged;17 accepted nonmanifest files and role-recovery ledger addition byte-identical. Intermediate5a CI passed but no obsolete full review requested. Historical976 full-final+App success retained as history; new exact-head CI/fullfinal/App required.",
+  "latestValidation": "checks.roleRecoveryAcceptedBaseIntegration",
   "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
@@ -1209,6 +1267,7 @@
     "209385f5c988abfc524b59812053ac15eae40f57",
     "383caf4e5323d9b9641f10613666bc98117a9fbd",
     "23f29466835d9288505f5948549d7222d58ca0aa",
-    "8c291a207760fce5fd436ccfcb47f9e6a8dabcfe"
+    "8c291a207760fce5fd436ccfcb47f9e6a8dabcfe",
+    "2b7340791b7894716615a744d68cf9094fc13682"
   ]
 }
