@@ -9,7 +9,9 @@ import { createTelosWorkRouter } from '../telos-work-routes.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { resolveTelosWorkRolePresentation } from '../telos-work-role-presentation.js';
+import { resolveTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { createTelosWorkDelegationHost } from '../telos-work-delegation-host.js';
 import { createTelosWorkRoleHost } from '../telos-work-role-host.js';
 import { TelosWorkStore } from '../telos-work-store.js';
@@ -401,3 +403,48 @@ it('refuses a delayed task mutation when its client has rebound to another real 
   expect(f.tasks.get(first.attempt.executionTaskId!)?.status).toBe('pending_review');
   expect(f.tasks.get(second.attempt.executionTaskId!)?.status).toBe('pending');
 });
+
+it('CT05: delegated workers retain admission-time names across replay and EventStore reopen without rewriting their task/context binding', async () => {
+  const f = await fixture();
+  const receipt = await f.host().delegate(f.request());
+  const workerId = receipt.workerConversationId;
+  const binding = f.ordinary.store.getSession(workerId)!.accountBinding!;
+  const context = resolveTelosWorkRoleContext(f.ordinary.store, workerId, binding)!;
+  const task = f.tasks.getTelosExecutionBinding(receipt.attempt.executionTaskId!)!;
+  expect(context.executionTaskId).toBeUndefined();
+  expect(task.contextHash).toBe(createHash('sha256').update(JSON.stringify(context)).digest('hex'));
+  const display = resolveTelosWorkRolePresentation(f.ordinary.store, workerId, binding);
+  expect(display).toMatchObject({
+    presentation: {
+      contextSha256: task.contextHash,
+      item: { itemId: 'slice', title: 'Slice one' },
+      overallGoal: { itemId: 'outcome', title: 'Outcome' },
+      parents: [{ itemId: 'outcome', title: 'Outcome' }],
+    },
+  });
+  const attempts = f.work.read('slice', f.actor).attempts;
+  const preparations = f.ordinary.resolvePreparation.mock.calls.length;
+  const db = new Database(f.path);
+  try {
+    db.prepare(
+      "UPDATE items SET summary='A later slice title',updated_at='later' WHERE id='slice'",
+    ).run();
+  } finally {
+    db.close();
+  }
+  f.ordinary.reopen();
+  f.deps.events = f.ordinary.store;
+  expect(await f.host().delegate(f.request())).toEqual(receipt);
+  expect(resolveTelosWorkRolePresentation(f.ordinary.store, workerId, binding)).toEqual(display);
+  expect(resolveTelosWorkRoleContext(f.ordinary.store, workerId, binding)).toEqual(context);
+  expect(f.tasks.getTelosExecutionBinding(receipt.attempt.executionTaskId!)).toEqual(task);
+  expect(f.work.read('slice', f.actor).attempts).toEqual(attempts);
+  expect(f.work.read('sibling', f.actor).attempts).toEqual([]);
+  expect(f.ordinary.resolvePreparation).toHaveBeenCalledTimes(preparations);
+  expect(f.ordinary.store.getOrdinaryInitialCommandId(workerId)).toBeUndefined();
+  expect(
+    f.ordinary.store
+      .getSessionEvents(workerId)
+      .filter((event) => event.type === 'telos_work_role_presentation'),
+  ).toHaveLength(1);
+}, 60_000);
