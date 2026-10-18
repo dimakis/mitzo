@@ -39,6 +39,8 @@ export const TelosWorkItemSchema = z.strictObject({
   profile: z.string(),
   status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']),
   starred: z.boolean(),
+  // Optional on older wire records; current projections always provide 1–10.
+  priority: z.number().int().min(1).max(10).optional(),
   categories: z.array(z.string()),
   createdAt: recordedDate,
   updatedAt: recordedDate,
