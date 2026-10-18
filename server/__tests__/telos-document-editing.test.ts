@@ -150,12 +150,32 @@ it.each([
 });
 
 it('preserves the private LifeOps storage restriction', async () => {
-  const { path, save, app, url } = setup();
+  const { path, save, app, url, original } = setup();
+  const before = await request(app).get(url);
+  expect(before.status).toBe(200);
+  expect(before.body.editable).toBe(true);
   const db = new Database(path);
   db.exec("UPDATE items SET profile='lifeops'");
   db.close();
-  expect((await request(app).get(url)).body.editable).toBe(false);
-  expect((await save()).status).toBe(403);
+  for (const query of ['', '?revision=1']) {
+    const read = await request(app).get(url + query);
+    expect(read.status).toBe(403);
+    expect(read.body).toEqual({ error: 'Telos document unavailable' });
+  }
+  const rejected = await save();
+  expect(rejected.status).toBe(403);
+  expect(rejected.body).toEqual({ error: 'LifeOps documents require private case storage.' });
+  const store = new TelosArtifactStore(path);
+  try {
+    expect(store.document(original.id).editable).toBe(false);
+    expect(store.read(original.id)).toMatchObject({
+      revision: 1,
+      sha256: original.sha256,
+      bytes: Buffer.from('# Original'),
+    });
+  } finally {
+    store.close();
+  }
 });
 
 it.each(['script.py', 'script.js'])(

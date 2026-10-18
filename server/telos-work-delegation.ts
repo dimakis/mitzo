@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { retainTelosWorkRolePresentation } from './telos-work-role-presentation.js';
 import {
   CollaborationSettingsSchema,
   TelosWorkDelegationInputSchema,
   type CollaborationSettings,
   type TelosWorkDelegationIntent,
   type TelosWorkDelegationReceipt,
+  type TelosWorkRolePresentation,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
@@ -45,6 +47,8 @@ export class TelosWorkDelegation {
         scope: TelosWorkDelegationScope,
         signal: AbortSignal,
       ): Promise<Preparation>;
+      /** Optional retained display capture; legacy direct owners keep their original behavior. */
+      capturePresentation?(scope: TelosWorkDelegationScope): TelosWorkRolePresentation;
       /** Synchronous authority/material denial fence, including final work commit. */
       assertBeforeApply(scope: TelosWorkDelegationScope): void;
     },
@@ -62,12 +66,22 @@ export class TelosWorkDelegation {
     signal.throwIfAborted();
     let intent: TelosWorkDelegationIntent | undefined;
     try {
-      const retained = this.deps.work.prepareDelegation(input, actor, (selected) => {
-        signal.throwIfAborted();
-        this.deps.assertBeforeApply(
-          structuredClone({ actor, intent: selected, settings: selected.input.settings }),
-        );
-      });
+      const retained = this.deps.work.prepareDelegation(
+        input,
+        actor,
+        (selected) => {
+          signal.throwIfAborted();
+          this.deps.assertBeforeApply(
+            structuredClone({ actor, intent: selected, settings: selected.input.settings }),
+          );
+        },
+        this.deps.capturePresentation
+          ? (selected) =>
+              this.deps.capturePresentation!(
+                structuredClone({ actor, intent: selected, settings: selected.input.settings }),
+              )
+          : undefined,
+      );
       intent = structuredClone(retained.intent);
       // A different default-start request may resolve to the existing attempt.
       // Every subsequent decision uses its canonical original selections.
@@ -227,6 +241,9 @@ export class TelosWorkDelegation {
         account,
         selected.input.contextSelection,
       );
+      const display = this.deps.work.rolePresentationForDelegation(selected, actor);
+      if (display)
+        retainTelosWorkRolePresentation(this.deps.events, workerConversationId, account, display);
       assertCurrent(workerSettings);
       await authorize(workerSettings);
       assertPreparation();

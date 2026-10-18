@@ -1514,6 +1514,24 @@ These focused renders omit the application shell. Final full-app context names,
 combined-source UX and S5a acceptance remain separate checks; frozen references and
 the approved Quick Settings sheet remain unchanged.
 
+New reviews retain human names in a separate immutable presentation, pinned to
+the complete reviewed selection. The existing disclosure uses authorized goal
+and parent titles, retained source title/date, and exact material revision
+title/filename/date. Source-capture records use Reviewed source record as their
+readable filename label; their original filename and exact download remain intact.
+Missing historical presentation retains the generic labels above. A present
+invalid presentation displays Reviewed context labels unavailable and never
+fetches current replacements. The versioned review envelope and setup wrapper
+leave retained role selections, guidance and task hashes unchanged. Focused
+canonical-data mobile/desktop light/dark renders cover the labels and existing
+actions; whole-shell qualification and complete S5a acceptance remain separate.
+
+An active Telos role setup omits the empty-chat welcome decoration on both
+layouts. Its canvas/wordmark must not overlap the preparation notice, review or
+recovery controls, including when navigating from an ordinary empty chat with
+normal motion. The ordinary empty chat retains its existing replay animation;
+settings, composer and drafts keep their existing behavior.
+
 ## Telos numeric priority
 
 The approved additive priority amendment uses `TodoPrioritySelect` in the current
@@ -1582,6 +1600,26 @@ large text, keyboard activation and reduced motion. Inspected captures show
 [mobile activity](assets/research-activity-mobile-dark.png) and
 [desktop activity](assets/research-activity-desktop-light.png). These isolated
 renders use intercepted traffic and no backend, credentials or model calls.
+
+## Retained artifact inspection
+
+Work output titles open the shared `SavedArtifactDialog` through an exact
+artifact/revision/hash selector on the existing route. The dialog uses HomeDialog,
+UiIcon, shared motion and semantic tokens. Its bounded body scrolls while the
+header and native file actions remain reachable. The saved-version selector uses
+custom control geometry so WebKit retains the 44px touch target. Preview follows
+the existing safe document renderer policy; unsupported formats remain explicit.
+Provenance is collapsed until requested. The real Work link and Files editing
+bridge preserve existing associations and exact selected revisions across reload.
+Native export is separate from agent-delivery receipts.
+
+Focused synthetic actual-owner/browser checks cover 320px WebKit/Chromium and
+1280px desktop Chromium in dark Mint/System and light Teal/Georgia, large text,
+keyboard focus return, reduced motion, final-provenance scrolling and pinned Files
+Back navigation. Inspected captures show [mobile provenance](assets/symposium-artifact-mobile-dark.png)
+and [desktop inspection](assets/symposium-artifact-desktop-light.png). These are
+implementation evidence. The approved full Symposium participant-sharing flow
+still requires the core durable delivery contract and its own acceptance.
 
 ## Telos worker creation receipt
 

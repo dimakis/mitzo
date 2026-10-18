@@ -1,0 +1,30 @@
+{
+  "runtime": "/Users/dsaridak/projects/centaur-releases/264f91fda1bf-bb7798385d7bfc27bbafc12f4d682c45de978cf6ab5271905dbc116e5ff68199-e1ac6b7c57c450cae30d447a1acb13ab65e5612e55e71dee01244e5c9e2555b5-9c4fec4a5500dadf0ec5b1f0ead4a017f3151bcbf743901733e9d3b895b020a3",
+  "sourceReadOnly": true,
+  "sources": {
+    "centaur/plugins/reviewer/plugin.py": {
+      "sha256": "1c1a8972f1c2ae243bfb42d29f8377f0b8c7572c8477ca1caf9f5ee7ad40eff2",
+      "inspectedLines": [156, 178]
+    },
+    "centaur/plugins/reviewer/reviewer.py": {
+      "sha256": "a60a76ad1fcbdcc2c8586d72421dca50ac7fb119527b681f14a4745430c91ce8",
+      "inspectedLines": [505, 522]
+    },
+    "centaur/plugins/reviewer/review_engine.py": {
+      "sha256": "ea3a6406b2b19ecf4d3bc2c9ecdafa6ad2e17ae8dcfcecce942bf8b62cd095f7",
+      "inspectedLines": [288, 326]
+    },
+    "README.md": {
+      "sha256": "7987adb4c5a4df9faa3b91d975b87ae75b6711acc7bb21892de37cecf86d3cb7",
+      "inspectedLines": [149, 160]
+    },
+    "centaur/plugins/reviewer/webhook.py": {
+      "sha256": "6f6a3dfd6f49f2fcbc598fc101721c2a7b9ca82f1ffc1472501fcecdbf256e79",
+      "inspectedLines": [
+        [23, 41],
+        [191, 235]
+      ]
+    }
+  },
+  "noCredentialReadOrReviewInvocation": true
+}

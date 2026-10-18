@@ -1,0 +1,9 @@
+{
+  "owner": "MGMT command_center/lib/todo/store.py TodoStore/create_outcome",
+  "ownerHead": "c90c49b8c68583a220e7ad2288500934a708c379",
+  "ownerSourceSha256": "691c73570611418add2304b582094c16ce2ba276d3550479d0377230e38ded8d",
+  "snapshotSha256": "27f6a2e7c687ba039d34c673e600b5f4702cbcd294b03c63ecd64609d97cf3b2",
+  "itemId": "2f0ee9d71059523d",
+  "syntheticOnly": true,
+  "migrationBoundary": "Canonical owner initial schema + current supported migrations, prior to TelosArtifactStore initialization"
+}

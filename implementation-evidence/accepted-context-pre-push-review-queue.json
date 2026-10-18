@@ -1,0 +1,61 @@
+{
+  "snapshotOnly": true,
+  "liveCompletenessUnknown": true,
+  "jobs": [
+    {
+      "id": 4907,
+      "pr_number": 1020,
+      "head_sha": "6f2f61b7140d28b71d4074f139b81f59a48e5349",
+      "stage": "review",
+      "status": "skipped",
+      "attempts": 1,
+      "last_error": "review cycle cap reached (2/2)",
+      "force_review": 0,
+      "revision": 0
+    },
+    {
+      "id": 4896,
+      "pr_number": 1020,
+      "head_sha": "7813295edfc742b620fa7e71453f8203dfc34b46",
+      "stage": "review",
+      "status": "skipped",
+      "attempts": 1,
+      "last_error": "PR head advanced while waiting for CI",
+      "force_review": 0,
+      "revision": 0
+    },
+    {
+      "id": 4850,
+      "pr_number": 1020,
+      "head_sha": "34f04ef3c074110a93013cc5ae650407ccffde46",
+      "stage": "complete",
+      "status": "succeeded",
+      "attempts": 1,
+      "last_error": null,
+      "force_review": 0,
+      "revision": 0
+    },
+    {
+      "id": 4848,
+      "pr_number": 1020,
+      "head_sha": "c5b6aac621ab2d3ec854bcc1f59a311967054030",
+      "stage": "review",
+      "status": "skipped",
+      "attempts": 1,
+      "last_error": "PR head advanced while waiting for CI",
+      "force_review": 0,
+      "revision": 0
+    },
+    {
+      "id": 4847,
+      "pr_number": 1020,
+      "head_sha": "eacc2396184cf8e0a89ee0e43cfa69e5e1e2bd15",
+      "stage": "review",
+      "status": "skipped",
+      "attempts": 1,
+      "last_error": "PR head advanced while waiting for CI",
+      "force_review": 0,
+      "revision": 0
+    }
+  ]
+}

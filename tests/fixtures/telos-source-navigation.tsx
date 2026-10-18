@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { createMitzoStore, type WebSocketLike } from '@mitzo/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { ResponsiveChatView } from '../../frontend/src/components/ResponsiveChatView';
@@ -24,6 +25,7 @@ import '../../frontend/src/styles/motion.css';
 declare global {
   interface Window {
     fixtureSends: Record<string, unknown>[];
+    fixtureNavigate?: (path: string) => void;
   }
 }
 window.fixtureSends = [];
@@ -112,9 +114,23 @@ function ItemRoute() {
   return desktop ? <DesktopShell center={<TodoDetailView />} /> : <TodoDetailView />;
 }
 
+/** Test-only route control uses the real router without reloading/remounting the
+ * ordinary view, so motion and draft transitions are exercised as in-app changes. */
+function FixtureNavigation() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    window.fixtureNavigate = navigate;
+    return () => {
+      delete window.fixtureNavigate;
+    };
+  }, [navigate]);
+  return null;
+}
+
 createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={store}>
     <BrowserRouter>
+      <FixtureNavigation />
       <MobileShell>
         <Routes>
           <Route path="/chat" element={<ResponsiveChatView />} />
