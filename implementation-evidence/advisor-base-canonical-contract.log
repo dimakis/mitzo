@@ -1,0 +1,89 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+ ❯ server/__tests__/telos-work-advisor-draft.test.ts (17 tests | 3 failed) 33947ms
+   × refuses unrelated material bytes revocation after compilation without retaining any advisor save mutation 5829ms
+   × refuses to return compiled preview bytes after an unrelated material owner becomes private during compilation 6304ms
+   × rechecks compiled material in the borrowed work transaction after source retention and rolls everything back 5456ms
+ ❯ server/__tests__/telos-canonical-advisor.test.ts (10 tests | 2 failed) 64882ms
+   × CT02: canonical fresh rolls back the complete save after the item write 39405ms
+   × CT02: canonical fresh rolls back the complete save after the source write 12049ms
+ ❯ server/__tests__/telos-canonical-advisor-http.test.ts (4 tests | 2 failed) 48698ms
+   × CT01: upgraded advisor refine round-trips all canonical fields through HTTP and the typed client 9776ms
+   × CT01: upgraded advisor child round-trips all canonical fields through HTTP and the typed client 31519ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/__tests__/telos-canonical-advisor-http.test.ts > CT01: upgraded advisor refine round-trips all canonical fields through HTTP and the typed client
+ FAIL  server/__tests__/telos-canonical-advisor-http.test.ts > CT01: upgraded advisor child round-trips all canonical fields through HTTP and the typed client
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ server/__tests__/telos-canonical-advisor-http.test.ts:19:39
+     17|
+     18| for (const variant of ['fresh', 'upgraded'] as const) {
+     19|   it.each(['refine', 'child'] as const)(
+       |                                       ^
+     20|     `CT01: ${variant} advisor %s round-trips all canonical fields thro…
+     21|     async (operation) => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  server/__tests__/telos-canonical-advisor.test.ts > CT02: canonical fresh rolls back the complete save after the item write
+ FAIL  server/__tests__/telos-canonical-advisor.test.ts > CT02: canonical fresh rolls back the complete save after the source write
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ server/__tests__/telos-canonical-advisor.test.ts:20:49
+     18|
+     19| for (const variant of ['fresh', 'upgraded'] as const) {
+     20|   it.each(['item', 'source', 'receipt'] as const)(
+       |                                                 ^
+     21|     `CT02: canonical ${variant} rolls back the complete save after the…
+     22|     async (stage) => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  server/__tests__/telos-work-advisor-draft.test.ts > refuses unrelated material bytes revocation after compilation without retaining any advisor save mutation
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ server/__tests__/telos-work-advisor-draft.test.ts:115:52
+    113| }
+    114|
+    115| it.each(['privacy', 'permission', 'bytes'] as const)(
+       |                                                    ^
+    116|   'refuses unrelated material %s revocation after compilation without …
+    117|   async (revocation) => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  server/__tests__/telos-work-advisor-draft.test.ts > refuses to return compiled preview bytes after an unrelated material owner becomes private during compilation
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ server/__tests__/telos-work-advisor-draft.test.ts:196:1
+    194|   },
+    195| );
+    196| it('refuses to return compiled preview bytes after an unrelated materi…
+       | ^
+    197|   const r = fixture();
+    198|   const db = new Database(r.f.dbPath);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  server/__tests__/telos-work-advisor-draft.test.ts > rechecks compiled material in the borrowed work transaction after source retention and rolls everything back
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ server/__tests__/telos-work-advisor-draft.test.ts:237:1
+    235| });
+    236|
+    237| it('rechecks compiled material in the borrowed work transaction after …
+       | ^
+    238|   const r = fixture();
+    239|   const material = r.f.material;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  7 failed | 24 passed (31)
+   Start at  14:28:38
+   Duration  207.11s (transform 17.11s, setup 0ms, import 37.07s, tests 147.53s, environment 0ms)
+

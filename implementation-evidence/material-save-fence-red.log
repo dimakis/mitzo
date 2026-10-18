@@ -1,0 +1,39 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts (35 tests | 2 failed) 500ms
+   × exposes a private synchronous material fence for the existing save owner without reopening sources 14ms
+   × renews retained material privacy synchronously for the existing save owner 14ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > exposes a private synchronous material fence for the existing save owner without reopening sources
+TypeError: result.assertLocalMaterialCurrent is not a function
+ ❯ server/__tests__/collaboration-forwarding.test.ts:722:17
+    720|   );
+    721|   const before = authorizeSource.mock.calls.length;
+    722|   expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+       |                 ^
+    723|   expect(authorizeSource).toHaveBeenCalledTimes(before);
+    724|   expect(result.packet).not.toHaveProperty('assertLocalMaterialCurrent…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > renews retained material privacy synchronously for the existing save owner
+TypeError: result.assertLocalMaterialCurrent is not a function
+ ❯ server/__tests__/collaboration-forwarding.test.ts:764:19
+    762|       }),
+    763|     });
+    764|     expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+       |                   ^
+    765|     const fault = new Database(f.path);
+    766|     fault.prepare('UPDATE items SET profile=? WHERE id=?').run('LifeOp…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 33 passed (35)
+   Start at  00:02:46
+   Duration  1.01s (transform 248ms, setup 0ms, import 392ms, tests 500ms, environment 0ms)
+

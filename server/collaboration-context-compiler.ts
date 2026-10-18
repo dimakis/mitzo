@@ -67,6 +67,9 @@ export interface AuthorizedCollaborationContext {
       sourceConversationId: string;
       mediaType: string;
       bytes: Uint8Array;
+      /** Private synchronous original-source/custody renewal. Missing means this
+       * source cannot support a final local forwarding fence. Not dispatch authority. */
+      assertCurrent?(): void;
     }
   >;
 }

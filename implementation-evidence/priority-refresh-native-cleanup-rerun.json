@@ -1,0 +1,121 @@
+{
+  "head": "7813295edfc742b620fa7e71453f8203dfc34b46",
+  "ciRun": 39091742497,
+  "firstAttempt": 1,
+  "mainJob": 117569772531,
+  "mainResults": {
+    "passed": 17633,
+    "skipped": 31,
+    "passedFiles": 1278,
+    "skippedFiles": 9
+  },
+  "otherSuccessfulFirstAttemptJobs": 7,
+  "failedJob": 117569800332,
+  "failedStage": "Offline simulator notification bridge cleanup",
+  "functionalBridgeSucceeded": true,
+  "failure": "RuntimeError: Native fixture cleanup failed: shutdown: TimeoutExpired",
+  "cleanupShutdownTimeoutSeconds": 60,
+  "rawNativeLogSha256": "8acfa25942d46a0c2ff135735c45b63e064af0f775fdd9e7fc7a6f9247303b84",
+  "rerun": "One targeted native-job rerun requested after entire first attempt completed; source unchanged, no coverage/config/status/credentials changes",
+  "currentResult": "success; ordinary CI all eight jobs green after exactly one native-only retry; source unchanged; first failure retained",
+  "retryAttempt": 2,
+  "retryNativeJob": 117573636425,
+  "reviewQueueSnapshot": {
+    "snapshotOnly": true,
+    "liveCompletenessUnknown": true,
+    "jobs": [
+      {
+        "id": 4896,
+        "head_sha": "7813295edfc742b620fa7e71453f8203dfc34b46",
+        "stage": "review",
+        "status": "queued",
+        "attempts": 0,
+        "force_review": 0,
+        "revision": 0
+      },
+      {
+        "id": 4850,
+        "head_sha": "34f04ef3c074110a93013cc5ae650407ccffde46",
+        "stage": "complete",
+        "status": "succeeded",
+        "attempts": 1,
+        "force_review": 0,
+        "revision": 0
+      }
+    ]
+  },
+  "retryRawLogSha256": "c260526de3de88057364d2057bbc8c7918d5941e6f165295db6837026ffdac75",
+  "ciResult": {
+    "attempt": 2,
+    "conclusion": "success",
+    "headSha": "7813295edfc742b620fa7e71453f8203dfc34b46",
+    "jobs": [
+      {
+        "active": [],
+        "conclusion": "success",
+        "id": 117573636425,
+        "name": "Native Swift tests and builds",
+        "status": "completed"
+      },
+      {
+        "active": [],
+        "conclusion": "success",
+        "id": 117573637281,
+        "name": "Offline layouts (desktop-chromium)",
+        "status": "completed"
+      },
+      {
+        "active": [],
+        "conclusion": "success",
+        "id": 117573637436,
+        "name": "Offline layouts (mobile-webkit)",
+        "status": "completed"
+      },
+      {
+        "active": [],
+        "conclusion": "success",
+        "id": 117573637844,
+        "name": "Connections browser regression",
+        "status": "completed"
+      },
+      {
+        "active": [],
+        "conclusion": "success",
+        "id": 117573653729,
+        "name": "Browser interaction tests",
+        "status": "completed"
+      },
+      {
+        "active": [],
+        "conclusion": "success",
+        "id": 117573655183,
+        "name": "ci",
+        "status": "completed"
+      },
+      {
+        "active": [],
+        "conclusion": "success",
+        "id": 117573657024,
+        "name": "Select CI jobs",
+        "status": "completed"
+      },
+      {
+        "active": [],
+        "conclusion": "success",
+        "id": 117573663648,
+        "name": "Offline layouts (mobile-chromium)",
+        "status": "completed"
+      }
+    ],
+    "status": "completed"
+  },
+  "reviewGate": "Automatic4896/revision0 queued in read-only immutable snapshot; no exact-head published report yet; App5169606 context pending",
+  "newReviewRequests": 0,
+  "mergeReadyOrAutoMerge": false,
+  "retryStartedAt": "2026-10-18T03:16:43Z",
+  "retryCompletedAt": "2026-10-18T03:26:40Z",
+  "retryFunctionalAndCleanupStep": {
+    "name": "Test real notification bridge in an offline disposable simulator",
+    "conclusion": "success"
+  }
+}
