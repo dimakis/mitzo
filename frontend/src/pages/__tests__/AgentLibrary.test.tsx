@@ -1182,3 +1182,73 @@ it('resolves the saved task link again after another editor and a proposal revie
   fireEvent.click(screen.getByRole('link', { name: 'Reopen saved task A' }));
   await waitFor(() => expect(screen.getByLabelText('Task name')).toHaveProperty('value', 'task-a'));
 });
+
+it('retains a newly assigned task after leaving a saved task link, reload and route return', async () => {
+  const savedTask = {
+    taskId: 'saved-task',
+    revision: 1,
+    definition: { ...taskProposalDefinition, name: 'Original saved task' },
+    configuration: { state: 'draft' },
+    deleted: false,
+    createdAt: '2026-10-17T12:00:00.000Z',
+    updatedAt: '2026-10-17T12:00:00.000Z',
+  };
+  const originalSaved = structuredClone(savedTask);
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    response(path === '/api/agent-tasks' ? [savedTask] : { drafts: [], versions: [published] }),
+  );
+  function Owner() {
+    const location = useLocation();
+    return (
+      <>
+        <Location />
+        {location.pathname === '/agent-library' ? (
+          <>
+            <Link to="/elsewhere">Leave Library</Link>
+            <AgentLibrary />
+          </>
+        ) : (
+          <Link to="/agent-library">Return to Library</Link>
+        )}
+      </>
+    );
+  }
+  const open = (url: string) =>
+    render(
+      <MemoryRouter initialEntries={[url]}>
+        <Owner />
+      </MemoryRouter>,
+    );
+  const first = open('/agent-library?task=saved-task');
+  expect(await screen.findByLabelText('Task name')).toHaveProperty('value', 'Original saved task');
+  fireEvent.click(screen.getByRole('tab', { name: 'Profiles', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Assign task', exact: true }));
+  fireEvent.change(screen.getByLabelText('Task name'), {
+    target: { value: 'Independent new draft' },
+  });
+  fireEvent.change(screen.getByLabelText('Objective'), {
+    target: { value: 'Unfinished independent objective' },
+  });
+  const retained = JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!);
+  expect(retained.taskId).not.toBe(savedTask.taskId);
+  expect(retained.expectedRevision).toBe(0);
+  const reloadUrl = screen.getByLabelText('Current route').textContent!;
+  first.unmount();
+  open(reloadUrl);
+  await screen.findByRole('button', { name: 'Task settings: Original saved task' });
+  expect(screen.getByLabelText('Task name')).toHaveProperty('value', 'Independent new draft');
+  expect(screen.getByLabelText('Objective')).toHaveProperty(
+    'value',
+    'Unfinished independent objective',
+  );
+  expect(screen.getByLabelText('Current route').textContent).toBe('/agent-library');
+  fireEvent.click(screen.getByRole('link', { name: 'Leave Library' }));
+  fireEvent.click(screen.getByRole('link', { name: 'Return to Library' }));
+  await screen.findByRole('button', { name: 'Task settings: Original saved task' });
+  expect(screen.getByLabelText('Task name')).toHaveProperty('value', 'Independent new draft');
+  expect(JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!)).toEqual(retained);
+  expect(savedTask).toEqual(originalSaved);
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method && init.method !== 'GET'),
+  ).toEqual([]);
+});

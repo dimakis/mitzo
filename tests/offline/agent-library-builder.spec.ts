@@ -1402,3 +1402,72 @@ test('ordinary Builder cancels a task save wait, retains exact retry through ope
   expect(fixture.unexpected).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });
+
+test('Library keeps a new task draft independent after leaving an older saved task link', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, isMobile ? 'dark' : 'light', false, true, 'create');
+  fixture.task.failNext = false;
+  await page.goto('/agent-library');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await prepareFirstCommand(
+    page,
+    'Propose a paused task before assigning another independent draft.',
+  );
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  const originalChat = page.url();
+  await openTaskReview(page, 0);
+  await page.getByRole('button', { name: 'Save task', exact: true }).click();
+  const receipt = page.getByRole('status').filter({ hasText: 'Saved Morning review' });
+  await expect(receipt).toContainText('revision 1');
+  await receipt.getByRole('link', { name: 'Open Library task', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
+    'Morning review',
+  );
+  const originalSaved = structuredClone(fixture.task.saved);
+  await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
+  await page.getByRole('button', { name: 'Assign task', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Task name', exact: true })
+    .fill('Independent unsaved task');
+  await page
+    .getByRole('textbox', { name: 'Objective', exact: true })
+    .fill('Retain this unfinished objective while I return to the Builder.');
+  const retained = await page.evaluate(() =>
+    JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!),
+  );
+  expect(retained.taskId).not.toBe(originalSaved!.taskId);
+  expect(retained.expectedRevision).toBe(0);
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: 'Task settings: Morning review', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
+    'Independent unsaved task',
+  );
+  await expect(page).toHaveURL('https://mitzo-ui.test/agent-library');
+  await page.goto(originalChat);
+  await page.getByRole('link', { name: 'Open Agent Library', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
+    'Independent unsaved task',
+  );
+  await expect(page.getByRole('textbox', { name: 'Objective', exact: true })).toHaveValue(
+    'Retain this unfinished objective while I return to the Builder.',
+  );
+  expect(
+    await page.evaluate(() => JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!)),
+  ).toEqual(retained);
+  expect(fixture.task.saved).toEqual(originalSaved);
+  expect(fixture.task.saves).toHaveLength(1);
+  expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+  await page.getByRole('button', { name: 'Save task', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: info.outputPath('library-independent-new-task-draft.png'),
+    animations: 'disabled',
+  });
+});

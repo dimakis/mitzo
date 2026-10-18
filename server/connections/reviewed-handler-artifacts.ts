@@ -569,7 +569,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    '066533f48a5016e938fbd505237f9ff55902b1d74ba5919bc19cb83b2c3ecd96',
+    'e71c544e721388bcd86fc539d35ebd1ea243d1ee37e30edc113626dd66f382f6',
   // Read-only tool catalog cards and their shared visual presentation.
   '../../frontend/src/components/ToolLibraryCatalog.tsx':
     'e287ccd9d36b3def7b49918a955866d8e6466e576742b885b65d7898e03c3037',

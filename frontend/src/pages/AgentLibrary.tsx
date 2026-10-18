@@ -470,7 +470,7 @@ export function AgentLibrary() {
     );
   const assign = () => {
     if (!selectedVersion) return;
-    if (proposalRequested) navigate('/agent-library');
+    if (proposalRequested || linkedTaskId !== null) navigate('/agent-library');
     taskState.update(createAgentTaskWorkingCopy(selectedVersion));
     setCollection('tasks');
   };
