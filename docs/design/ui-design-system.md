@@ -1514,6 +1514,24 @@ These focused renders omit the application shell. Final full-app context names,
 combined-source UX and S5a acceptance remain separate checks; frozen references and
 the approved Quick Settings sheet remain unchanged.
 
+New reviews retain human names in a separate immutable presentation, pinned to
+the complete reviewed selection. The existing disclosure uses authorized goal
+and parent titles, retained source title/date, and exact material revision
+title/filename/date. Source-capture records use Reviewed source record as their
+readable filename label; their original filename and exact download remain intact.
+Missing historical presentation retains the generic labels above. A present
+invalid presentation displays Reviewed context labels unavailable and never
+fetches current replacements. The versioned review envelope and setup wrapper
+leave retained role selections, guidance and task hashes unchanged. Focused
+canonical-data mobile/desktop light/dark renders cover the labels and existing
+actions; whole-shell qualification and complete S5a acceptance remain separate.
+
+An active Telos role setup omits the empty-chat welcome decoration on both
+layouts. Its canvas/wordmark must not overlap the preparation notice, review or
+recovery controls, including when navigating from an ordinary empty chat with
+normal motion. The ordinary empty chat retains its existing replay animation;
+settings, composer and drafts keep their existing behavior.
+
 ## Telos numeric priority
 
 The approved additive priority amendment uses `TodoPrioritySelect` in the current

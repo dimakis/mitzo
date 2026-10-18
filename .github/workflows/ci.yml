@@ -151,6 +151,18 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: Retain Telos context and setup visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: telos-context-and-setup-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/**/role-*.png
+            test-results/offline/**/reviewed-context-*.png
+            test-results/offline/**/linked-context-*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Retain artefact sharing acceptance screenshots
         if: always()
         uses: actions/upload-artifact@v7

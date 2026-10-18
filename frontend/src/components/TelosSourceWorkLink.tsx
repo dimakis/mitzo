@@ -4,10 +4,13 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   TelosWorkRoleContextSelectionSchema,
+  TelosWorkRolePresentationRefSchema,
+  type TelosWorkRoleContextReview,
   type TelosWorkRoleContextSelection,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { TelosLinkedContext } from './TelosLinkedContext';
+import { readTelosRolePresentation } from '../lib/telos-role-presentation';
 
 /** The compact item row is shared by the mobile and desktop ordinary chat. */
 export function TelosSourceWorkLink({ conversationId }: { conversationId?: string } = {}) {
@@ -15,6 +18,7 @@ export function TelosSourceWorkLink({ conversationId }: { conversationId?: strin
   const [role, setRole] = useState<{
     conversationId: string;
     context?: TelosWorkRoleContextSelection;
+    display?: Pick<TelosWorkRoleContextReview, 'presentation' | 'presentationRef'>;
     error?: boolean;
   }>();
   useEffect(() => {
@@ -31,7 +35,21 @@ export function TelosSourceWorkLink({ conversationId }: { conversationId?: strin
           metadata.telosWorkRoleContext === undefined
             ? undefined
             : TelosWorkRoleContextSelectionSchema.parse(metadata.telosWorkRoleContext);
-        if (!controller.signal.aborted) setRole({ conversationId, context });
+        let display:
+          Pick<TelosWorkRoleContextReview, 'presentation' | 'presentationRef'> | undefined;
+        if (metadata.telosWorkRolePresentation !== undefined) {
+          if (!context) throw new Error('Original role context required for labels');
+          const retained = metadata.telosWorkRolePresentation;
+          display = {
+            presentation: readTelosRolePresentation(
+              context,
+              retained?.presentation,
+              retained?.presentationRef,
+            ),
+            presentationRef: TelosWorkRolePresentationRefSchema.parse(retained?.presentationRef),
+          };
+        }
+        if (!controller.signal.aborted) setRole({ conversationId, context, display });
       })
       .catch(() => {
         if (!controller.signal.aborted) setRole({ conversationId, error: true });
@@ -56,7 +74,7 @@ export function TelosSourceWorkLink({ conversationId }: { conversationId?: strin
             Return to lead chat
           </Link>
         )}
-        <TelosLinkedContext context={context} />
+        <TelosLinkedContext context={context} {...role.display} />
       </div>
     );
   }
