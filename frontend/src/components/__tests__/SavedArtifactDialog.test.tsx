@@ -2,6 +2,7 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { useState, type ReactElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 import {
   act,
   cleanup,
@@ -64,15 +65,18 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 it('opens the selected saved revision, changes versions explicitly and exports the older pinned URL', async () => {
-  render(<SavedArtifactDialog artifact={version(2)} onClose={vi.fn()} />);
+  const user = userEvent.setup();
+  await act(async () => {
+    render(<SavedArtifactDialog artifact={version(2)} onClose={vi.fn()} />);
+  });
   await screen.findByRole('heading', { name: 'Version 2' });
   const picker = screen.getByRole('combobox', { name: 'Version' });
   expect((picker as HTMLSelectElement).value).toBe('2');
   expect(screen.getByRole('option', { name: /Saved version 3/ })).toBeTruthy();
-  fireEvent.change(picker, { target: { value: '1' } });
+  await user.selectOptions(picker, '1');
   await screen.findByRole('heading', { name: 'Version 1' });
-  fireEvent.click(screen.getByRole('button', { name: 'File options' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
+  await user.click(screen.getByRole('button', { name: 'File options' }));
+  await user.click(screen.getByRole('button', { name: 'Share file' }));
   await waitFor(() => expect(shareFile).toHaveBeenCalledWith(version(1).url));
   expect(screen.queryByRole('button', { name: /Share saved version/ })).toBeNull();
 });
