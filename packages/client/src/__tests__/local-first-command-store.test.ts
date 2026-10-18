@@ -981,3 +981,26 @@ it('admits same-session continuation through its frozen outbox without assigning
   expect(JSON.parse(call[1].body)).toEqual(continuation);
   expect(channel.send.mock.calls.some(([body]) => body.type === 'send')).toBe(false);
 });
+
+it('shows preparation after durable ordinary acceptance and clears it only for the selected response', () => {
+  const { store } = setup();
+  channel.listener({ type: 'session_id', sessionId: 'ordinary-session' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'ordinary-session',
+    messageId: 'ordinary-prompt',
+    text: 'Hello',
+  });
+  channel.listener({
+    type: '_send_accepted',
+    originalSessionId: null,
+    sessionId: 'ordinary-session',
+    clientMsgId: 'ordinary-prompt',
+    retained: true,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({ type: 'message_start', sessionId: 'other-session', messageId: 'foreign' });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({ type: 'message_start', sessionId: 'ordinary-session', messageId: 'answer' });
+  expect(store.getState().sendStatus).toBeNull();
+});

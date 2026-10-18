@@ -681,6 +681,66 @@ describe('chat-rest-handler', () => {
     );
   });
 
+  it.each(['ready', 'failed'])(
+    'acknowledges the durable prompt before startup becomes %s',
+    async (outcome) => {
+      let finish!: () => void;
+      const preparation = vi.spyOn(eventStore, 'setSendCommandPreparing');
+      vi.mocked(handleSendV2).mockImplementationOnce(
+        async (_id, transport, msg, _ctx, delivery) => {
+          const sessionId = delivery!.initialSessionId!;
+          eventStore.upsertSession({ sessionId });
+          transport.send({
+            type: 'user_message',
+            sessionId,
+            messageId: msg.clientMsgId,
+            text: msg.prompt,
+          });
+          await new Promise<void>((resolve) => {
+            finish = resolve;
+          });
+          if (outcome === 'failed') {
+            transport.send({ type: 'error', sessionId, error: 'startup unavailable' });
+            throw Error('startup unavailable');
+          }
+        },
+      );
+      const message = {
+        type: 'send',
+        sessionId: null,
+        prompt: 'hello',
+        clientMsgId: 'slow-startup',
+      };
+      try {
+        const first = await request(testServer).post('/api/chat/send').send(message).timeout(1000);
+        expect(first.status).toBe(202);
+        expect(first.body).toMatchObject({ accepted: true, retained: true });
+        expect(eventStore.hasUserMessage(first.body.sessionId, message.clientMsgId)).toBe(true);
+        const retry = await request(testServer).post('/api/chat/send').send(message).timeout(1000);
+        expect(retry.body).toEqual(first.body);
+        expect(handleSendV2).toHaveBeenCalledOnce();
+        finish();
+        if (outcome === 'failed') {
+          await vi.waitFor(() =>
+            expect(eventStore.getSendCommand(message.clientMsgId)?.error).toBe(
+              'startup unavailable',
+            ),
+          );
+          expect(
+            eventStore
+              .getEventsAfter(first.body.sessionId, 0)
+              .some((event) => event.type === 'error'),
+          ).toBe(true);
+        } else
+          await vi.waitFor(() =>
+            expect(preparation).toHaveBeenLastCalledWith(message.clientMsgId, false),
+          );
+      } finally {
+        finish?.();
+      }
+    },
+  );
+
   it('records and rejects an asynchronous send admission failure', async () => {
     vi.mocked(handleSendV2).mockRejectedValueOnce(new Error('queue unavailable'));
 

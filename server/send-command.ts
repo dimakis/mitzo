@@ -10,12 +10,15 @@ type SendReceipt = {
   accepted: true;
   clientMsgId: string;
   sessionId: string | null;
+  retained?: true;
 };
 
 export interface AcceptSendCommandAsyncOptions {
   /** Re-dispatch an exact existing receipt so a command-specific gate can
    * revalidate current routing/configuration without changing its identity. */
   replayExisting?: boolean;
+  /** Return a receipt after the exact prompt is durable; execution remains gated. */
+  acknowledgeRetained?: boolean;
 }
 
 const pendingAsyncAcceptances = new WeakMap<EventStore, Map<string, Promise<SendReceipt>>>();
@@ -70,7 +73,11 @@ export function acceptSendCommand(
 export function acceptSendCommandAsync(
   store: EventStore,
   message: SendMessage,
-  dispatch: (message: SendMessage, sessionId: string) => Promise<void | false>,
+  dispatch: (
+    message: SendMessage,
+    sessionId: string,
+    retained: () => void,
+  ) => Promise<void | false>,
   options: AcceptSendCommandAsyncOptions = {},
 ): Promise<SendReceipt> {
   assertLegacySend(store, message);
@@ -86,13 +93,31 @@ export function acceptSendCommandAsync(
   if (inFlight) return inFlight;
   if (existing?.error) throw new Error(existing.error);
 
+  let acknowledgeRetention!: (receipt: SendReceipt) => void;
+  const retained = new Promise<SendReceipt>((resolve) => {
+    acknowledgeRetention = resolve;
+  });
   const admission = (async (): Promise<SendReceipt> => {
     let sessionId = existing ? existing.sessionId : (message.sessionId ?? randomUUID());
     const shouldDispatch = !existing || !!options.replayExisting;
     if (shouldDispatch) {
       if (!existing) store.insertSendCommand(message.clientMsgId, sessionId!, message);
       try {
-        if ((await dispatch(message, sessionId!)) === false) {
+        if (!existing && options.acknowledgeRetained)
+          store.setSendCommandPreparing(message.clientMsgId, true);
+        const onRetained = () => {
+          if (!options.acknowledgeRetained || existing) return;
+          if (!store.hasUserMessage(sessionId!, message.clientMsgId))
+            throw Error('Send acknowledgement requires the exact durable prompt');
+          acknowledgeRetention({
+            ok: true,
+            accepted: true,
+            clientMsgId: message.clientMsgId,
+            sessionId,
+            retained: true,
+          });
+        };
+        if ((await dispatch(message, sessionId!, onRetained)) === false) {
           if (!existing) {
             store.completeNativeSendCommand(message.clientMsgId);
             sessionId = null;
@@ -101,6 +126,8 @@ export function acceptSendCommandAsync(
         if (!existing) {
           const failed = store.getSendCommand(message.clientMsgId)?.error;
           if (failed) throw new Error(failed);
+          if (options.acknowledgeRetained)
+            store.setSendCommandPreparing(message.clientMsgId, false);
         }
       } catch (err) {
         // An exact replay is deliberately allowed to fail its command-specific
@@ -114,12 +141,25 @@ export function acceptSendCommandAsync(
         throw err;
       }
     }
-    return { ok: true, accepted: true, clientMsgId: message.clientMsgId, sessionId };
+    return {
+      ok: true,
+      accepted: true,
+      clientMsgId: message.clientMsgId,
+      sessionId,
+      ...(options.acknowledgeRetained &&
+      sessionId &&
+      store.hasUserMessage(sessionId, message.clientMsgId)
+        ? { retained: true as const }
+        : {}),
+    };
   })();
+  const acknowledgment = options.acknowledgeRetained
+    ? Promise.race([admission, retained])
+    : admission;
   const clearPending = () => {
-    if (pending.get(message.clientMsgId) === admission) pending.delete(message.clientMsgId);
+    if (pending.get(message.clientMsgId) === acknowledgment) pending.delete(message.clientMsgId);
   };
-  pending.set(message.clientMsgId, admission);
+  pending.set(message.clientMsgId, acknowledgment);
   void admission.then(clearPending, clearPending);
-  return admission;
+  return acknowledgment;
 }

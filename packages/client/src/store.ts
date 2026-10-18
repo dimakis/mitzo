@@ -1709,6 +1709,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
         pendingOptimisticMessageIds.delete(msg.clientMsgId);
       if (visible) {
+        const messages = store.getState().messages;
+        const userIndex = messages.messages.findIndex(
+          (message) => message.messageId === msg.clientMsgId,
+        );
+        const user = messages.messages[userIndex];
+        const responseStarted =
+          messages.messages.slice(userIndex + 1).some((message) => message.role === 'assistant') ||
+          (user?.startedSeq !== undefined &&
+            messages.current?.startedSeq !== undefined &&
+            messages.current.startedSeq > user.startedSeq);
         if (
           awaitingSessionId &&
           (msg.type === '_send_failed' || (msg.type === '_send_accepted' && msg.sessionId === null))
@@ -1730,7 +1740,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               ? msg.retrying
                 ? 'Reconnecting — your message will retry automatically.'
                 : 'Sending…'
-              : null,
+              : msg.type === '_send_accepted' && msg.retained === true && !responseStarted
+                ? 'Preparing response…'
+                : null,
         });
         if (
           msg.type === '_send_accepted' &&
@@ -1976,6 +1988,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         }
       }
     }
+
+    if (
+      ['message_start', 'session_end', 'error'].includes(String(msg.type)) &&
+      store.getState().sendStatus === 'Preparing response…'
+    )
+      store.setState({ sendStatus: null });
 
     if (
       selectedEventSession &&
