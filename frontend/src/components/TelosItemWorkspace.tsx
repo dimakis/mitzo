@@ -9,6 +9,7 @@ import { telosKindLabel } from '../lib/telos-kind-label';
 import { TelosItemRoleEntries } from './TelosItemRoleEntries';
 import { TelosItemSources } from './TelosItemSources';
 import { WorkOutputs } from './WorkOutputs';
+import { SavedArtifactRouteDialog } from './SavedArtifactRouteDialog';
 import { Link } from 'react-router-dom';
 import { artifactViewerUrl } from '../lib/file-paths';
 import './TelosWorkspace.css';
@@ -84,7 +85,7 @@ export function TelosItemWorkspace({
   );
   const materials = (
     <>
-      <WorkOutputs itemId={record.itemId} profile={record.profile} />
+      <WorkOutputs itemId={record.itemId} profile={record.profile} ownsSavedArtifactRoute={false} />
       {artifactLinks.length > 0 && (
         <section className="todo-detail-contract">
           <h2>Saved document references</h2>
@@ -269,6 +270,7 @@ export function TelosItemWorkspace({
           </dl>
         </aside>
       </div>
+      <SavedArtifactRouteDialog itemId={record.itemId} />
     </article>
   );
 }

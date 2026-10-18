@@ -1609,7 +1609,11 @@ continues to own collection branding/navigation. Parent kinds and legacy unclass
 expose Overview, Chat and Materials. Existing role, source and saved-output owners
 supply those entry points. Source exchanges, retained bytes and external links
 remain distinct. The shared output title selects one exact ID/revision/hash dialog on the Work URL.
-Its File options Open bridges to the existing Files editor and preserves that Work
+The workspace owns this dialog independently of the selected tab, so direct saved
+links also open or report unavailable versions with Chat or Work remembered. Closing
+removes only the saved selector and retains the current tab. The output list retains
+its route owner by default for legacy detail views; canonical tabs share exactly one
+workspace owner. Its File options Open bridges to the existing Files editor and preserves that Work
 selection on Back; explicit saved-document references continue to use Files links.
 The output disclosure shows exact revision/hash, recorded save
 time and source identity; unavailable author/date facts remain explicit. The original Context

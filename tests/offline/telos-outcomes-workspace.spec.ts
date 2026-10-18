@@ -116,6 +116,14 @@ for (const theme of ['dark', 'light'])
       url: '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=' + revision,
     });
 
+    const outcomeArtifact = (revision: number) => ({
+      ...artifactVersion(revision),
+      id: 'e'.repeat(32),
+      itemId: 'fixture-studio',
+      title: 'Saved outcome plan',
+      url: '/api/telos/artifacts/' + 'e'.repeat(32) + '?revision=' + revision,
+    });
+
     let failRecords = false;
     let failConversations = true;
     let failChildConversations = false;
@@ -224,9 +232,40 @@ for (const theme of ['dark', 'light'])
         return route.fulfill({
           json: {
             limit: 100,
-            artifacts: url.pathname.includes('/fixture-studio-slice/') ? [artifactVersion(3)] : [],
+            artifacts: url.pathname.includes('/fixture-studio-slice/')
+              ? [artifactVersion(3)]
+              : url.pathname.includes('/fixture-studio/')
+                ? [outcomeArtifact(3)]
+                : [],
           },
         });
+      if (url.pathname === '/api/telos/artifacts/' + 'e'.repeat(32) + '/versions') {
+        if (denyArtifact) return route.fulfill({ status: 403, json: { error: 'Access revoked' } });
+        const before = Number(url.searchParams.get('beforeRevision') || Number.MAX_SAFE_INTEGER);
+        return route.fulfill({
+          json: {
+            artifacts: [outcomeArtifact(4), outcomeArtifact(3)].filter(
+              (row) => row.revision < before,
+            ),
+            cursor: null,
+            hasMore: false,
+          },
+        });
+      }
+      if (url.pathname === '/api/telos/artifacts/' + 'e'.repeat(32) + '/document') {
+        const revision = Number(url.searchParams.get('revision'));
+        return route.fulfill({
+          json: {
+            path: outcomeArtifact(revision).url,
+            name: 'plan.md',
+            ext: '.md',
+            content: `# Retained outcome plan r${revision}`,
+            revision,
+            editable: true,
+            previewUnavailable: false,
+          },
+        });
+      }
       if (url.pathname === '/api/telos/artifacts/' + 'a'.repeat(32) + '/versions') {
         if (denyArtifact) return route.fulfill({ status: 403, json: { error: 'Access revoked' } });
         const before = Number(url.searchParams.get('beforeRevision') || Number.MAX_SAFE_INTEGER);
@@ -677,6 +716,37 @@ for (const theme of ['dark', 'light'])
         'aria-pressed',
         'true',
       );
+    }
+    // Direct saved links must work independently of the item's remembered tab.
+    const outcomePin = `/todos/fixture-studio?savedArtifact=${'e'.repeat(32)}&savedRevision=3&savedHash=${'b'.repeat(64)}`;
+    for (const tab of ['Chat', 'Work']) {
+      await page.getByRole('button', { name: tab, exact: true }).click();
+      await navigate(outcomePin);
+      await expect(page.getByRole('heading', { name: 'Retained outcome plan r3' })).toBeVisible();
+      await expect(page.getByRole('dialog')).toHaveCount(1);
+      await expect(page.getByRole('button', { name: tab, exact: true })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      await page.screenshot({
+        path: info.outputPath(`saved-link-${tab.toLowerCase()}-${theme}.png`),
+        fullPage: true,
+      });
+      denyArtifact = true;
+      await reload();
+      await expect(
+        page.getByRole('alert').filter({ hasText: 'no longer available to you' }),
+      ).toBeVisible();
+      denyArtifact = false;
+      await page.getByRole('button', { name: 'Retry saved version', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Retained outcome plan r3' })).toBeVisible();
+      await page.getByRole('button', { name: 'Done', exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: tab, exact: true })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      expect(new URL(page.url()).searchParams.has('savedArtifact')).toBe(false);
     }
     records[0] = { ...records[0], kind: null };
     await navigate('/todos/fixture-studio');
