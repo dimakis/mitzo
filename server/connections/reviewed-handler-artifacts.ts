@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.306-telos-s7-forwarding-fence';
+  'v1.0.307-telos-s7-reviewed-convergence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -215,7 +215,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-tool-catalog.ts': 'd5df71ee4d2a5f748a8274006642fe88674133315e177f99541e81f7466e3973',
   '../agent-tool-selection.ts': 'dbf832f63b538a46862eff28906798487ef00c5d6b4fe9ad6ab4eda12af84771',
   '../../packages/protocol/src/agent-tools.ts':
-    'c2ac5032c8cae17467c1e60638b5bf0efb7410ca345f9ba116e73aa606cdac26',
+    'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
   '../symposium-session-create.ts':
     '1696f970ee8d8680ce3d73f80cc06b5712dfe78159a1a6635cad81f24e040640',
   '../../frontend/src/components/AgentTaskEditor.tsx':
@@ -992,7 +992,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/todo-priority.ts':
     '7727912851c8c0a47492e77fef3b8ab1bfababda7cc241335a4746e08529cd1b',
   '../tool-builder-schema.ts': 'b55fb292b80f3f1c5ad9376a27abaf62b901cdf07e5fb62ce07cf7fbc17a419f',
-  '../tool-builder.ts': '5820f9e284cb3156d30b5e378bf2d2eb50e58909dc04cfbf9b216017261bed99',
+  '../tool-builder.ts': 'f086bdabeac717acab30aa0433a5b2eb17cafb82ec56126009ad6a5a58a01b61',
   '../symposium-access-tools.ts':
     'f5ee50c9bea25c0453b52941eb186f43e8de6efa674736eab22348ac08b59032',
+  '../custom-tool-registry.ts': '700f948fa87df78c94879efe1a07ecc6402dff483550a3c2fbeec136183d81cb',
+  '../tool-builder-router.ts': '098b60cbc463a81cb3a43fa45a6fcd0ddba309ae6c4ef1ba3b69a26c2c916bd5',
+  '../tool-builder-store.ts': '26ec2fa2c3bccd7a2c1fd41dbf4a0b3f10116ff97a3f684a502445096da06e3d',
 });
