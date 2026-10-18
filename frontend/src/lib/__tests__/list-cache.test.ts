@@ -3,6 +3,26 @@ import { expect, it, vi } from 'vitest';
 import { ListCache, SupersededListRequest } from '../list-cache';
 import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../api-fetch';
 
+it('publishes snapshots by key and stops notifying after unsubscribe', async () => {
+  const cache = new ListCache<string>();
+  const seen: (string | undefined)[] = [];
+  const other = vi.fn();
+  const unsubscribe = cache.subscribe('all', () => seen.push(cache.get('all')));
+  cache.subscribe('profile', other);
+  cache.set('all', 'first');
+  cache.update((value) => `${value} updated`);
+  expect(seen).toEqual(['first', 'first updated']);
+  expect(other).not.toHaveBeenCalled();
+  cache.clear();
+  expect(seen).toEqual(['first', 'first updated', undefined]);
+  expect(other).toHaveBeenCalledOnce();
+  await cache.load('all', async () => 'loaded');
+  expect(seen.at(-1)).toBe('loaded');
+  unsubscribe();
+  cache.set('all', 'later');
+  expect(seen).toHaveLength(4);
+});
+
 it('shares concurrent reads, retains a snapshot, and revalidates later reads', async () => {
   const cache = new ListCache<string>();
   let finish!: (value: string) => void;
@@ -28,6 +48,8 @@ it.each([AUTH_LOST_EVENT, AUTH_RESTORED_EVENT])(
   async (event) => {
     const cache = new ListCache<string>();
     cache.set('other', 'private');
+    const snapshots: (string | undefined)[] = [];
+    cache.subscribe('other', () => snapshots.push(cache.get('other')));
     let finish!: (value: string) => void;
     const stale = cache.load(
       'all',
@@ -39,6 +61,7 @@ it.each([AUTH_LOST_EVENT, AUTH_RESTORED_EVENT])(
     const rejected = expect(stale).rejects.toBeInstanceOf(SupersededListRequest);
     window.dispatchEvent(new Event(event));
     expect(cache.get('other')).toBeUndefined();
+    expect(snapshots).toEqual([undefined]);
     expect(await cache.load('all', async () => 'new-account')).toBe('new-account');
     finish('old-account');
     await rejected;
@@ -76,4 +99,26 @@ it('updates retained snapshots after a mutation and rejects older reads', async 
   finish(['deleted']);
   await rejected;
   expect(cache.get('all')).toEqual(['retained']);
+});
+
+it('records derived memory only when a current read is admitted, before publication', async () => {
+  const cache = new ListCache<string>();
+  const accepted = vi.fn();
+  cache.subscribe('all', () => expect(accepted).toHaveBeenLastCalledWith('current'));
+  let finish!: (value: string) => void;
+  const stale = cache.load(
+    'all',
+    () =>
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+    accepted,
+  );
+  const rejected = expect(stale).rejects.toBeInstanceOf(SupersededListRequest);
+  cache.invalidate();
+  finish('stale');
+  await rejected;
+  expect(accepted).not.toHaveBeenCalled();
+  await cache.load('all', async () => 'current', accepted);
+  expect(accepted).toHaveBeenCalledExactlyOnceWith('current');
 });
