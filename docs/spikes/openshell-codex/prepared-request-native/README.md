@@ -148,3 +148,9 @@ errors and explicitly select the native backend in native fallback fixtures.
 The redirect fixture also restores blocking mode on accepted sockets. Production
 backend, trust and retry policies are unchanged; all original connection-count,
 certificate and no-replay assertions remain.
+
+### Verified V8 build dependency preparation
+
+Run39083668664 on native tree7407c99d failed on both platforms before native test execution: building the real code-mode helper enabled V8, and standalone Cargo tried unavailable Deno archives. Pinned upstream already supplies the supported `ptrcomp_sandbox_release` archive and its matching Rust bindings through `scripts/codex_package/v8.py`. CI now calls that unchanged owner with the reconstructed source root, verifies its source-pinned manifest and both artifact hashes, and publishes both Cargo paths together. It refuses unsupported/ambiguous hosts, verifier failure and a source-build bypass. The native source tree and eighteen patches are unchanged.
+
+Sixteen recorded workflow regressions and twelve unchanged upstream offline dependency-helper tests pass. They are build-preparation evidence and are not added to native crate counts. Actual verified archive downloads, helper linking and full corrected native fixtures still require CI. Historical masked failures and their skipped counts remain retained above.
