@@ -45,9 +45,35 @@ export function TelosLinkedContext({
   return (
     <details className="composer-session-details chat-launch-prompt">
       <summary>{summary}</summary>
+      <h3>Overall goal</h3>
+      <p>{context.overallGoal.text}</p>
+      <p>
+        <Link
+          className="session-work-link"
+          to={`/todos/${encodeURIComponent(context.overallGoal.itemId)}`}
+        >
+          Open overall goal
+        </Link>
+      </p>
+      {!!context.parentCriteria.length && <h3>Parent outcome</h3>}
+      {context.parentCriteria.map((parent) => (
+        <section key={parent.itemId}>
+          <p>
+            <Link className="session-work-link" to={`/todos/${encodeURIComponent(parent.itemId)}`}>
+              Parent item
+            </Link>
+          </p>
+          <ul>
+            {parent.criteria.map((criterion, index) => (
+              <li key={index}>{criterion}</li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      <h3>This item</h3>
       {fields ? (
         <>
-          <h3>{fields.summary}</h3>
+          <h4>{fields.summary}</h4>
           <p>{fields.intent}</p>
           {fields.rationale && (
             <>
@@ -75,74 +101,39 @@ export function TelosLinkedContext({
       ) : (
         <p>{context.brief.text}</p>
       )}
-      <h4>Overall goal</h4>
-      <p>{context.overallGoal.text}</p>
-      <p>
-        <Link to={`/todos/${encodeURIComponent(context.overallGoal.itemId)}`}>
-          Open overall goal
-        </Link>
-      </p>
-      {!!context.parentCriteria.length && <h4>Parent criteria</h4>}
-      {context.parentCriteria.map((parent) => (
-        <section key={parent.itemId}>
-          <p>
-            <Link to={`/todos/${encodeURIComponent(parent.itemId)}`}>Parent item</Link>
-          </p>
-          <ul>
-            {parent.criteria.map((criterion, index) => (
-              <li key={index}>{criterion}</li>
-            ))}
-          </ul>
-          <dl>
-            <dt>Parent revision</dt>
-            <dd>{parent.revision}</dd>
-          </dl>
-        </section>
-      ))}
       {!!context.sources.length && <h4>Sources</h4>}
       {context.sources.map((source) => (
         <section key={source.snapshotId}>
           {source.source && source.selection.kind === 'selected' ? (
             source.source.namespace === 'mitzo' ? (
               <Link
+                className="session-work-link"
                 to={`/chat/${encodeURIComponent(source.source.conversationId)}?${new URLSearchParams({ telosItem: context.itemId, telosSource: source.snapshotId }).toString()}`}
               >
                 Open original chat
               </Link>
             ) : (
-              <a href={source.source.url}>Open original chat</a>
+              <a className="session-work-link" href={source.source.url}>
+                Open original chat
+              </a>
             )
           ) : (
             <p>Original message selection unavailable.</p>
           )}
-          <dl>
-            <dt>Source snapshot</dt>
-            <dd>{source.snapshotId}</dd>
-            {source.selection.kind === 'selected' && (
-              <>
-                <dt>Selected messages</dt>
-                <dd>{source.selection.messageIds.join(', ')}</dd>
-                <dt>Selected blocks</dt>
-                <dd>{source.selection.blockIds.join(', ') || 'Whole selected messages'}</dd>
-                <dt>Through sequence</dt>
-                <dd>{source.selection.throughSequence}</dd>
-              </>
-            )}
-          </dl>
+          {source.selection.kind === 'selected' && (
+            <p>
+              {source.selection.messageIds.length}{' '}
+              {source.selection.messageIds.length === 1 ? 'selected message' : 'selected messages'}
+            </p>
+          )}
         </section>
       ))}
       {!!materials.length && <h4>Materials</h4>}
       {materials.map((material) => (
         <section key={`${material.artifactId}:${material.revision}`}>
-          <dl>
-            <dt>Retained material</dt>
-            <dd>{material.artifactId}</dd>
-            <dt>Revision</dt>
-            <dd>{material.revision}</dd>
-            <dt>SHA-256</dt>
-            <dd>{material.sha256}</dd>
-          </dl>
+          <p>Retained material · Revision {material.revision}</p>
           <button
+            className="home-secondary"
             type="button"
             onClick={() => void openMaterial(material.artifactId, material.revision)}
           >
@@ -150,15 +141,6 @@ export function TelosLinkedContext({
           </button>
         </section>
       ))}
-      <h4>Selected versions</h4>
-      <dl>
-        <dt>Brief revision</dt>
-        <dd>{context.brief.revision}</dd>
-        <dt>Brief SHA-256</dt>
-        <dd>{context.brief.sha256}</dd>
-        <dt>Goal revision</dt>
-        <dd>{context.overallGoal.revision}</dd>
-      </dl>
       {error && <p role="alert">{error}</p>}
     </details>
   );
