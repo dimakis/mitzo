@@ -1,0 +1,89 @@
+{
+  "numTotalTestSuites": 2,
+  "numPassedTestSuites": 2,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 4,
+  "numPassedTests": 4,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792341521303,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload",
+          "status": "passed",
+          "title": "CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload",
+          "duration": 543.8071669999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation",
+          "status": "passed",
+          "title": "CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation",
+          "duration": 452.40549999999985,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review",
+          "status": "passed",
+          "title": "CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review",
+          "duration": 403.9247919999998,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792341523742,
+      "endTime": 1792341525141.9248,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations/tests/integration/telos-s9/accepted-foundations/recovery.test.tsx"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child",
+          "status": "passed",
+          "title": "CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child",
+          "duration": 1017.905125,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792341525646,
+      "endTime": 1792341526663.905,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations/tests/integration/telos-s9/accepted-foundations/vertical.test.ts"
+    }
+  ]
+}

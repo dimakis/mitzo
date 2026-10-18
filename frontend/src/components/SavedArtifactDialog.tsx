@@ -245,7 +245,7 @@ function SavedArtifactDetails({
                   url,
                   undefined,
                   location.pathname + location.search,
-                  navigate,
+                  (url) => navigate(url, { state: location.state }),
                 )}
               >
                 {preview.content}
@@ -265,6 +265,7 @@ function SavedArtifactDetails({
         <Link
           className="home-secondary saved-artifact-work-link"
           to={`/todos/${encodeURIComponent(version.itemId)}`}
+          state={location.state}
         >
           <span>Open Work item</span>
           <UiIcon name="forward" size={16} />
@@ -301,7 +302,11 @@ function SavedArtifactDetails({
           <ShareButton
             key={url}
             filePath={url}
-            onOpen={() => navigate(artifactViewerUrl(url, location.pathname + location.search))}
+            onOpen={() =>
+              navigate(artifactViewerUrl(url, location.pathname + location.search), {
+                state: location.state,
+              })
+            }
           />
         )}
         <button className="home-secondary" type="button" onClick={onClose}>

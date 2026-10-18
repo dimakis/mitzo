@@ -64,9 +64,6 @@ export interface TodoOutcomeDraft {
 
 /** Metadata for a preserved file revision; saving is separate from review or delivery. */
 export interface TodoOutput {
-  sessionId?: string;
-  sourcePath?: string | null;
-  createdAt?: string;
   sourceKind?:
     'user_upload' | 'user_edit' | 'session_artifact' | 'external_codex_report' | 'source_capture';
   id: string;
@@ -76,5 +73,8 @@ export interface TodoOutput {
   revision: number;
   size: number;
   sha256: string;
+  createdAt?: string;
+  sessionId?: string;
+  sourcePath?: string | null;
   url: string;
 }

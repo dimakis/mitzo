@@ -1,0 +1,13 @@
+{
+  "command": "node scripts/run-symposium-durable-injection-control.mjs --positive-evidence-dir docs/evidence/symposium-acceptance/6ddc-actual-app-narrowed --evidence-dir /tmp/symposium-6ddc-injection-control-not-created",
+  "exitCode": 1,
+  "result": "refused unqualified baseline before source mutation or execution",
+  "applicationSha256Before": "467d8d85cd624d42b667048bd8bd5ac4dbe51729b6b3a5229cafe371ff3e4e07",
+  "applicationSha256After": "467d8d85cd624d42b667048bd8bd5ac4dbe51729b6b3a5229cafe371ff3e4e07",
+  "sourceUnchanged": true,
+  "outputDirectoryCreated": false,
+  "actualOmissionExecution": "NOT RUN; positive durable app baseline unavailable",
+  "scriptSha256": "ce7b90f70ad72b688bbec4ef38cd0eb536e5f70b130a02d63a81c769fe8dd5f9",
+  "sourceScope": "Precondition-only check in C primary accepted-base checkout; no app execution or core6dd omission",
+  "scriptRawFile": "primary-script.mjs.raw"
+}

@@ -1,0 +1,147 @@
+{
+  "classification": "PASS: exact combined C source; normal selected CI gates only",
+  "pr": 1022,
+  "head": "53a6057879493734cba507a234a4f3d28eac31fa",
+  "tree": "0331928678d93fef64d51ffcf4736fa95c14304e",
+  "run": 39104956665,
+  "url": "https://github.com/dimakis/mitzo/actions/runs/39104956665",
+  "status": "completed",
+  "conclusion": "success",
+  "actualCheckout": "2a53a5d9c05d2344e55b410a5574069dd1a81ecc",
+  "checkoutTreeEqualsHead": true,
+  "allEightJobsSuccess": true,
+  "jobs": [
+    {
+      "id": 117608684815,
+      "name": "Select CI jobs",
+      "conclusion": "success",
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39104956665/job/117608684815"
+    },
+    {
+      "id": 117608684991,
+      "name": "ci",
+      "conclusion": "success",
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39104956665/job/117608684991"
+    },
+    {
+      "id": 117608706905,
+      "name": "Browser interaction tests",
+      "conclusion": "success",
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39104956665/job/117608706905"
+    },
+    {
+      "id": 117608706906,
+      "name": "Native Swift tests and builds",
+      "conclusion": "success",
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39104956665/job/117608706906"
+    },
+    {
+      "id": 117608706915,
+      "name": "Offline layouts (mobile-webkit)",
+      "conclusion": "success",
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39104956665/job/117608706915"
+    },
+    {
+      "id": 117608706917,
+      "name": "Offline layouts (mobile-chromium)",
+      "conclusion": "success",
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39104956665/job/117608706917"
+    },
+    {
+      "id": 117608706930,
+      "name": "Offline layouts (desktop-chromium)",
+      "conclusion": "success",
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39104956665/job/117608706930"
+    },
+    {
+      "id": 117611487154,
+      "name": "Connections browser regression",
+      "conclusion": "success",
+      "url": "https://github.com/dimakis/mitzo/actions/runs/39104956665/job/117611487154"
+    }
+  ],
+  "core": {
+    "job": 117608684991,
+    "passed": 17668,
+    "skipped": 31,
+    "filesPassed": 1288,
+    "filesSkipped": 9,
+    "durationSeconds": 774.54,
+    "focused109Cases": "Separate earlier CI step; not added to full-suite count"
+  },
+  "browserProjects": {
+    "mobile-webkit": {
+      "passed": 251,
+      "skipped": 12,
+      "agentLibraryFourCasesSeconds": [36.7, 32.3, 31.4, 29.5]
+    },
+    "mobile-chromium": {
+      "passed": 251,
+      "skipped": 12,
+      "agentLibraryFourCasesSeconds": [20.2, 15.6, 15.2, 15.7]
+    },
+    "desktop-chromium": {
+      "passed": 252,
+      "skipped": 11,
+      "agentLibraryFourCasesSeconds": [23.4, 18.3, 17.4, 17.7]
+    }
+  },
+  "exactOwnerFix": "3440ea283508e8fce45b5cf795a692f4d9b61c4d",
+  "agentLibrarySha256": "ee566459d7b39c0d2de9354ccb71cb55882a7c29935bceb61c81248efeee15d0",
+  "originalTimeoutMs": 60000,
+  "originalFailureRetained": "../48e4-library-gate/diagnosis.json",
+  "localMacBrowser": "UNQUALIFIED startup timeout; no retry; this CI result is separate",
+  "scope": "No whole Symposium acceptance transfer: actual app startup, durable omission positive/control, joining, native/runtime, mounted full UX and physical iOS remain open. No model calls, live target, staging, deployment or PR/main merge. Later documentation-only publication changes head; this run qualifies precisely the source above.",
+  "logs": [
+    {
+      "file": "raw/core.log.gz",
+      "rawBytes": 1393176,
+      "rawSha256": "8a799ff9e0a86d61fb5d36457d504d691e05736069d4dead9d858602c30131ab",
+      "gzipSha256": "9ead5e42df4e109a1966c3c424ea49da99d88f86883f05d28397946433f82b17"
+    },
+    {
+      "file": "raw/mobile-webkit.log.gz",
+      "rawBytes": 230351,
+      "rawSha256": "c13c0f40754ee6438ec61773094ca0c12ed6c99e0ceecf51b7996d430f981a80",
+      "gzipSha256": "582372f4c7b9006f9649843b0e19981e9147add1c2ea5b0091efc3c54b7b4f94"
+    },
+    {
+      "file": "raw/mobile-chromium.log.gz",
+      "rawBytes": 230896,
+      "rawSha256": "4d42c1f4c85361f3c299844d352a6beef6a26ebfb4e30eb5d9fd153cf0275467",
+      "gzipSha256": "0360c2fbf30ad61bcaff4abc374a329093186624452208e3620b389b463a7bcb"
+    },
+    {
+      "file": "raw/desktop-chromium.log.gz",
+      "rawBytes": 231034,
+      "rawSha256": "78bd5bbb184602b4b499def1ea27559da3ed9dc14579fed960e15a2128b6ea7c",
+      "gzipSha256": "5430a3b07f458c0a5bdd524f229c71f9e24553cb6d8f20f9446dd67a18fcb062"
+    }
+  ],
+  "jsonRepresentations": [
+    {
+      "rawFile": "raw/run.json.raw",
+      "rawSha256": "ff0612c4fd851fcc76e1b3dd4797f2372c14199c3317e6f589f485679da9fdd3",
+      "formattedFile": "run.json",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/jobs.json.raw",
+      "rawSha256": "1f7af480e34a9109d9b08fa749e6da7e5eb6b8dad2281a951cd9a88222af701c",
+      "formattedFile": "jobs.json",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/checkout.json.raw",
+      "rawSha256": "d16d4562e54334cd7557524153869b10a28cac3b02fe5cae6197fd3798f4178b",
+      "formattedFile": "checkout.json",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/core-job.json.raw",
+      "rawSha256": "503d7c21d93b1d7f777eee9f920b07f48a9f448d9cbe982e5484fbcc38da6918",
+      "formattedFile": "core-job.json",
+      "semanticEqual": true
+    }
+  ]
+}
