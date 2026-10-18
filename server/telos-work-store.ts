@@ -146,7 +146,7 @@ export class TelosWorkStore {
         if (input.operation === 'child') {
           this.db
             .prepare(
-              'INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,categories,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+              'INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,starred,context_hints,categories,first_seen,last_seen,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             )
             .run(
               itemId,
@@ -162,7 +162,14 @@ export class TelosWorkStore {
               JSON.stringify([input.proposed.category]),
               now,
               now,
+              now,
+              now,
             );
+          this.db
+            .prepare(
+              "INSERT INTO history(item_id,old_status,new_status,changed_at) VALUES(?,NULL,'active',?)",
+            )
+            .run(itemId, now);
         } else {
           const categories = [
             ...new Set([input.proposed.category, ...anchor.record.categories.slice(1)]),
