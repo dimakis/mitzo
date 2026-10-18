@@ -478,6 +478,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
   const pendingOptimisticMessageIds = new Set<string>();
+  // Completion belongs to a command, not a session that can accept later sends.
+  // Keep observations across HTTP uncertainty, retries and view navigation.
+  const preparationObservations = new Map<string, { sessionId?: string; ended: boolean }>();
+  function observePreparation(id: string, sessionId?: string) {
+    let observation = preparationObservations.get(id);
+    if (!observation) {
+      observation = { sessionId, ended: false };
+      preparationObservations.set(id, observation);
+      if (preparationObservations.size > 256)
+        preparationObservations.delete(preparationObservations.keys().next().value!);
+    } else if (!observation.sessionId && sessionId) observation.sessionId = sessionId;
+    return observation;
+  }
   const deliveryObservers = new Map<string, NonNullable<SendMessageOptions['onDelivery']>>();
   const assignmentObservers = new Map<
     string,
@@ -1044,6 +1057,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       pendingOptimisticMessageIds.add(clientMsgId);
+      observePreparation(clientMsgId, parserState.currentSessionId);
       if (opts?.onDelivery || opts?.onSessionAssigned) observeDelivery(clientMsgId, opts, 'send');
 
       const buildPayload = (): Record<string, unknown> => {
@@ -1574,6 +1588,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.setRecoverySession?.(sessionId);
       for (const id of pendingOptimisticMessageIds) {
         if (isLocalDelivery(id)) continue;
+        observePreparation(id, sessionId);
         if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
         const origin = deliveryOrigins.get(id);
         if (origin && !origin.sessionId) origin.sessionId = sessionId;
@@ -1672,6 +1687,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         (msg.sessionId ?? null) !== (origin.sessionId ?? null)
       )
         return true;
+      const preparation =
+        typeof msg.clientMsgId === 'string'
+          ? observePreparation(
+              msg.clientMsgId,
+              typeof msg.sessionId === 'string' ? msg.sessionId : origin?.sessionId,
+            )
+          : undefined;
       if (
         msg.type === '_send_accepted' &&
         typeof msg.clientMsgId === 'string' &&
@@ -1685,6 +1707,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const visible = store
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
+      const currentCommand =
+        store
+          .getState()
+          .messages.messages.filter((message) => message.role === 'user')
+          .at(-1)?.messageId === msg.clientMsgId;
       if (
         msg.type === '_send_accepted' &&
         typeof msg.sessionId === 'string' &&
@@ -1714,6 +1741,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           (message) => message.messageId === msg.clientMsgId,
         );
         const user = messages.messages[userIndex];
+        const preparationEnded =
+          preparation?.ended === true && preparation.sessionId === msg.sessionId;
         const responseStarted =
           messages.messages.slice(userIndex + 1).some((message) => message.role === 'assistant') ||
           (user?.startedSeq !== undefined &&
@@ -1731,16 +1760,21 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             messages: messagesReducer(s.messages, { type: 'SESSION_STATE_CHANGED', state: 'idle' }),
           }));
         store.setState({
-          sendError:
-            msg.type === '_send_failed' || msg.type === '_send_uncertain'
+          sendError: !currentCommand
+            ? store.getState().sendError
+            : msg.type === '_send_failed' || msg.type === '_send_uncertain'
               ? String(msg.error)
               : null,
-          sendStatus:
-            msg.type === '_send_pending'
+          sendStatus: !currentCommand
+            ? store.getState().sendStatus
+            : msg.type === '_send_pending'
               ? msg.retrying
                 ? 'Reconnecting — your message will retry automatically.'
                 : 'Sending…'
-              : msg.type === '_send_accepted' && msg.retained === true && !responseStarted
+              : msg.type === '_send_accepted' &&
+                  msg.retained === true &&
+                  !responseStarted &&
+                  !preparationEnded
                 ? 'Preparing response…'
                 : null,
         });
@@ -1923,7 +1957,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (foreground) callbacks.onSessionAssigned(eventSessionId);
       }
       if (!matchesDeliverySession(msg.messageId, eventSessionId)) return true;
+      observePreparation(msg.messageId, eventSessionId);
       settleDelivery(msg.messageId, 'accepted');
+    }
+
+    // Observe a known command's completion even when its view is offscreen.
+    // This is UI progress only: it never accepts or retries an uncertain send.
+    if (msg.type === 'session_end' && typeof eventSessionId === 'string') {
+      for (const observation of preparationObservations.values())
+        if (observation.sessionId === eventSessionId) observation.ended = true;
     }
 
     if (
