@@ -10,7 +10,7 @@ import { TelosItemRoleEntries } from './TelosItemRoleEntries';
 import { TelosItemSources } from './TelosItemSources';
 import { WorkOutputs } from './WorkOutputs';
 import { SavedArtifactRouteDialog } from './SavedArtifactRouteDialog';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { artifactViewerUrl } from '../lib/file-paths';
 import './TelosWorkspace.css';
 
@@ -44,6 +44,7 @@ export function TelosItemWorkspace({
   relatedState?: 'loading' | 'unavailable' | 'ready';
   onRefresh?(): void;
 }) {
+  const location = useLocation();
   const key = 'telos.item.tab.' + record.itemId;
   const [tab, setTab] = useState<Tab>(() => initialTab(key));
   const [error, setError] = useState('');
@@ -94,6 +95,7 @@ export function TelosItemWorkspace({
               className="todo-detail-source-row"
               key={link.url}
               to={artifactViewerUrl(link.url, `/todos/${encodeURIComponent(record.itemId)}`)}
+              state={location.state}
             >
               {link.title} · {link.description} · Added {date(link.addedAt)}
             </Link>

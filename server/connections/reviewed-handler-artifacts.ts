@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.327-telos-s7-coordinator-label-wrapping';
+  'v1.0.328-telos-s7-saved-reference-return';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1019,7 +1019,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosWorkspace.css':
     '490357c449ee469fb662f4722f187f9ad4922e1f04c23d1b7b37fc74874ba3e2',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
-    'db6e31708765a7a7327fbf71d06f19a5ce83b13e651ea36881727dbf44a9108f',
+    '0aa621c16c1f889700bd2f4ee61d1f170b475d5ec1bfcfc107a312a3c6f00f66',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
     '8887547994e8428bba3ac664407601535c8dfc3bc619725fd2e598671bf1f54f',
   '../../frontend/src/pages/TodoWorkspace.tsx':

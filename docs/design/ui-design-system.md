@@ -1644,7 +1644,8 @@ its route owner by default for legacy detail views; canonical tabs share exactly
 workspace owner. Its File options Open bridges to the existing Files editor and preserves that Work
 selection on Back. Output title/selector/version/close navigation and Files URL updates
 carry the same collection scroll/profile/item-history state. Saving a new revision
-in Files retains the original pinned return selector. Explicit saved-document references continue to use Files links.
+in Files retains the original pinned return selector. Explicit saved-document references continue to use Files links and carry the same
+collection return state through Files Back and item Back.
 The output disclosure shows exact revision/hash, recorded save
 time and source identity; unavailable author/date facts remain explicit. The original Context
 section is a native, initially collapsed disclosure with populated readable labels.

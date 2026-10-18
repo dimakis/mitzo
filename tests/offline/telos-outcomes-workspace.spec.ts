@@ -823,6 +823,19 @@ for (const theme of ['dark', 'light'])
         itemId: `fixture-scroll-${index + 1}`,
         parentId: 'fixture-studio',
         summary: `Scroll work item ${String(index + 1).padStart(2, '0')}`,
+        links:
+          index === 39
+            ? [
+                ...scrollTemplate.links,
+                {
+                  type: 'artifact',
+                  url: scrollArtifact(3).url,
+                  title: 'Saved scroll reference',
+                  description: 'Pinned saved version 3',
+                  addedAt: scrollTemplate.updatedAt,
+                },
+              ]
+            : scrollTemplate.links,
       }),
     );
     // Both accepted read DTOs belong to the same synthetic scenario.
@@ -936,6 +949,46 @@ for (const theme of ['dark', 'light'])
       .toBeLessThanOrEqual(2);
     await page.screenshot({
       path: info.outputPath('output-return-' + theme + '.png'),
+      fullPage: true,
+    });
+    // Saved document references are a separate Files entry point from output
+    // title links; they must retain this same deep collection return state.
+    const referenceReturnScroll = await page
+      .locator('.todo-scroll')
+      .evaluate((element) => element.scrollTop);
+    await lastScrollItem.click();
+    await expect(
+      page
+        .locator('.telos-item-workspace')
+        .getByRole('heading', { name: 'Scroll work item 40', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Materials', exact: true }).click();
+    await page.getByRole('link', { name: /^Saved scroll reference/ }).click();
+    await expect(
+      page
+        .locator('.viewer-page')
+        .getByRole('heading', { name: 'Retained scroll return plan r3', exact: true }),
+    ).toBeVisible();
+    await page.locator('.viewer-page').getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(
+      page
+        .locator('.telos-item-workspace')
+        .getByRole('heading', { name: 'Scroll work item 40', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(
+      scrollRows.getByRole('button', { name: 'Choose worker', exact: true }),
+    ).toHaveCount(40);
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await page.locator('.todo-scroll').evaluate((element) => element.scrollTop)) -
+            referenceReturnScroll,
+        ),
+      )
+      .toBeLessThanOrEqual(2);
+    await page.screenshot({
+      path: info.outputPath('saved-reference-return-' + theme + '.png'),
       fullPage: true,
     });
     // A short status must not be squeezed into multiple lines by the longer

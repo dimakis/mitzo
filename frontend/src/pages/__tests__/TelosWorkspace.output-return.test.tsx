@@ -194,9 +194,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it.each(['done', 'version', 'files', 'files-edit', 'work-item', 'nested'] as const)(
+it.each(['done', 'version', 'files', 'files-edit', 'work-item', 'nested', 'reference'] as const)(
   'preserves deep collection return state through the real output %s journey',
   async (journey) => {
+    if (journey === 'reference') {
+      records.find((record) => record.itemId === itemId)!.links = [
+        {
+          type: 'artifact',
+          url: version(3).url,
+          title: 'Saved return reference',
+          description: 'Pinned saved version 3',
+          addedAt: root.updatedAt,
+        },
+      ];
+    }
     render(
       <MemoryRouter initialEntries={[{ pathname: '/todos', state: { activeProfile: 'manual' } }]}>
         <Probe />
@@ -216,40 +227,52 @@ it.each(['done', 'version', 'files', 'files-edit', 'work-item', 'nested'] as con
     fireEvent.click(await screen.findByRole('button', { name: 'Deep return child 11' }));
     await screen.findByRole('heading', { name: 'Deep return child 11' });
     fireEvent.click(screen.getByRole('button', { name: 'Materials' }));
-    fireEvent.click(await screen.findByRole('link', { name: 'Return plan' }));
-    await screen.findByRole('heading', { name: 'Retained return plan r3' });
-    if (['version', 'files', 'files-edit'].includes(journey)) {
-      fireEvent.change(screen.getByRole('combobox', { name: 'Version' }), {
-        target: { value: '4' },
-      });
-      await screen.findByRole('heading', { name: 'Retained return plan r4' });
-    }
-    if (journey === 'files' || journey === 'files-edit') {
-      fireEvent.click(screen.getByRole('button', { name: 'File options' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    if (journey === 'reference') {
+      fireEvent.click(await screen.findByRole('link', { name: /^Saved return reference/ }));
       await waitFor(() => expect(document.querySelector('.viewer-page')).toBeTruthy());
-      await screen.findByRole('heading', { name: 'Retained return plan r4' });
-      if (journey === 'files-edit') {
-        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-        fireEvent.change(screen.getByRole('textbox', { name: 'Document editor fixture' }), {
-          target: { value: '# Saved return plan r5' },
-        });
-        fireEvent.click(screen.getByRole('button', { name: 'Save new revision' }));
-        await waitFor(() =>
-          expect(screen.getByLabelText('Route').textContent).toContain('revision%3D5'),
-        );
-      }
+      await screen.findByRole('heading', { name: 'Retained return plan r3' });
       fireEvent.click(
         within(document.querySelector<HTMLElement>('.viewer-page')!).getByRole('button', {
           name: 'Back',
         }),
       );
-      await screen.findByRole('heading', { name: 'Retained return plan r4' });
+      await screen.findByRole('heading', { name: 'Deep return child 11' });
+    } else {
+      fireEvent.click(await screen.findByRole('link', { name: 'Return plan' }));
+      await screen.findByRole('heading', { name: 'Retained return plan r3' });
+      if (['version', 'files', 'files-edit'].includes(journey)) {
+        fireEvent.change(screen.getByRole('combobox', { name: 'Version' }), {
+          target: { value: '4' },
+        });
+        await screen.findByRole('heading', { name: 'Retained return plan r4' });
+      }
+      if (journey === 'files' || journey === 'files-edit') {
+        fireEvent.click(screen.getByRole('button', { name: 'File options' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+        await waitFor(() => expect(document.querySelector('.viewer-page')).toBeTruthy());
+        await screen.findByRole('heading', { name: 'Retained return plan r4' });
+        if (journey === 'files-edit') {
+          fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+          fireEvent.change(screen.getByRole('textbox', { name: 'Document editor fixture' }), {
+            target: { value: '# Saved return plan r5' },
+          });
+          fireEvent.click(screen.getByRole('button', { name: 'Save new revision' }));
+          await waitFor(() =>
+            expect(screen.getByLabelText('Route').textContent).toContain('revision%3D5'),
+          );
+        }
+        fireEvent.click(
+          within(document.querySelector<HTMLElement>('.viewer-page')!).getByRole('button', {
+            name: 'Back',
+          }),
+        );
+        await screen.findByRole('heading', { name: 'Retained return plan r4' });
+      }
+      if (journey === 'work-item')
+        fireEvent.click(screen.getByRole('link', { name: 'Open Work item' }));
+      else fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     }
-    if (journey === 'work-item')
-      fireEvent.click(screen.getByRole('link', { name: 'Open Work item' }));
-    else fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     if (journey === 'nested') {
       await screen.findByRole('heading', { name: 'Home studio setup' });
