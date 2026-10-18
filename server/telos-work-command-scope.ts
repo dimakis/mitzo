@@ -73,7 +73,8 @@ export function resolveTelosWorkCommandScope(
 /** Called for new queue admission and immediately before physical provider
  * dispatch. Do not use for tools/completion inside an already running turn. */
 export function assertTelosWorkCommandAdmission(
-  owners: Omit<Owners, 'work'> & {
+  owners: Omit<Owners, 'work' | 'events'> & {
+    events: Owners['events'] & Pick<EventStore, 'hasProviderDispatchForConversation'>;
     work(): Pick<
       TelosWorkStore,
       | 'executionTaskBinding'
@@ -89,5 +90,7 @@ export function assertTelosWorkCommandAdmission(
   const selected = resolveTelosWorkRoleContext(owners.events, sessionId, account);
   if (!selected) return;
   owners.work().enforceControlAction(selected.itemId, 'safe_point', sessionId);
+  if (scope && !owners.events.hasProviderDispatchForConversation(sessionId))
+    owners.work().enforceControlAction(selected.itemId, 'new_worker_dispatch', sessionId);
   if (scope) owners.work().assertExecutionBriefCurrent(scope.currentTaskId, sessionId);
 }

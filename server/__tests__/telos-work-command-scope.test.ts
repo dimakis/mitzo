@@ -25,7 +25,7 @@ afterEach(() =>
     .reverse()
     .forEach((close) => close()),
 );
-function fixture(delegation = true, withRole = true, marker?: string) {
+function fixture(delegation = true, withRole = true, marker?: string, coordinated = false) {
   const root = mkdtempSync(join(tmpdir(), 'telos-command-scope-'));
   let events = new EventStore(join(root, 'events.db'));
   let tasks = new TaskStore(join(root, 'tasks.db'));
@@ -34,6 +34,10 @@ function fixture(delegation = true, withRole = true, marker?: string) {
   db.exec(`CREATE TABLE items(id TEXT PRIMARY KEY,parent_id TEXT,summary TEXT,updated_at TEXT);
     INSERT INTO items VALUES('outcome',NULL,'Outcome','original');
     INSERT INTO items VALUES('child','outcome','Slice one','original');`);
+  if (coordinated)
+    db.exec(
+      "INSERT INTO items VALUES('coordinator',NULL,'Coordinator','original'),('priority','coordinator','Priority','original'); UPDATE items SET parent_id='coordinator' WHERE id='outcome';",
+    );
   db.close();
   const open = () =>
     new TelosWorkStore(path, { ordinaryConversation: (id) => !!events.getSession(id) });
@@ -58,6 +62,23 @@ function fixture(delegation = true, withRole = true, marker?: string) {
     );
   command('outcome', { operation: 'classify', kind: 'outcome' });
   command('child', { operation: 'classify', kind: 'work_item' });
+  if (coordinated) {
+    command('coordinator', { operation: 'classify', kind: 'coordinator' });
+    command('priority', { operation: 'classify', kind: 'outcome' });
+    events.upsertSession({ sessionId: 'coordinator-chat' });
+    command('coordinator', {
+      operation: 'link',
+      role: 'lead',
+      conversation: { namespace: 'mitzo', conversationId: 'coordinator-chat' },
+    });
+    command('coordinator', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'coordinator-chat',
+      expectedAssignmentRevision: 0,
+    });
+  }
+
   command('outcome', {
     operation: 'link',
     role: 'lead',
@@ -433,4 +454,35 @@ it('CT10: parent brief changes also fence future dispatch without rewriting the 
     /context.*changed/i,
   );
   expect(resolveTelosWorkRoleContext(f.events, 'worker', f.account)).toEqual(original);
+});
+
+it('CT12: a dispatch hold also fences an already allocated but unstarted worker, while leaving previously dispatched workers continuing under their captured context', () => {
+  const f = fixture(true, true, undefined, true);
+  f.complete();
+  const hold = (requestId: string) =>
+    f.work.requestControl(
+      {
+        requestId,
+        coordinatorItemId: 'coordinator',
+        priorityItemId: 'priority',
+        targetItemIds: ['outcome'],
+        scope: 'new_worker_dispatch',
+      },
+      f.actor,
+    );
+  const first = hold('before-first-turn');
+  f.admit('already-queued');
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).toThrow(/hold/i);
+  f.work.releaseControl({ requestId: 'release-first', controlId: first.controlId }, f.actor);
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).not.toThrow();
+  const execution = f.events.beginExecution(
+    'worker',
+    'synthetic-execution',
+    'already-queued',
+    'offline-fingerprint',
+  );
+  f.events.beginProviderAttempt(execution.token, 'synthetic-provider-attempt');
+  hold('after-first-dispatch');
+  f.reopen();
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).not.toThrow();
 });

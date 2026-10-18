@@ -2198,6 +2198,16 @@ export class EventStore {
     return this.executionLedger.transitionProviderAttempt(token, nextPhase, terminalReason);
   }
 
+  /** Durable evidence that this ordinary conversation has reached provider
+   * dispatch before. Queue admission alone is not evidence of a started worker. */
+  hasProviderDispatchForConversation(sessionId: string): boolean {
+    if (!this.db) throw new Error('Execution history unavailable');
+    this.assertConversationIdentity(sessionId);
+    return !!this.db
+      .prepare('SELECT 1 FROM provider_attempts WHERE session_id=? LIMIT 1')
+      .get(sessionId);
+  }
+
   /** Read provider-attempt history for one immutable execution generation. */
   getProviderAttempts(executionToken: ExecutionToken): ProviderAttemptRecord[] {
     return this.executionLedger.getProviderAttempts(executionToken);

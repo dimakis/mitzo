@@ -361,8 +361,9 @@ it('refuses a delayed task mutation when its client has rebound to another real 
     f.request({
       ...f.input,
       requestId: 'second-worker',
-      mode: 'retry',
-      predecessorAttemptId: first.attempt.attemptId,
+      childItemId: 'sibling',
+      mode: 'start',
+      predecessorAttemptId: null,
     }),
   );
   let currentSessionId = second.workerConversationId;
@@ -448,3 +449,37 @@ it('CT05: delegated workers retain admission-time names across replay and EventS
       .filter((event) => event.type === 'telos_work_role_presentation'),
   ).toHaveLength(1);
 }, 60_000);
+
+it('CT11: a real retry retires old completion authority without erasing either ordinary allocation or task attribution', async () => {
+  const f = await fixture();
+  const first = await f.host().delegate(f.request());
+  const second = await f
+    .host()
+    .delegate(
+      f.request({
+        ...f.input,
+        requestId: 'explicit-retry',
+        mode: 'retry',
+        predecessorAttemptId: first.attempt.attemptId,
+      }),
+    );
+  const resolve = (receipt: typeof first) =>
+    resolveTelosWorkTaskToolContext(
+      { events: f.ordinary.store, tasks: f.tasks, work: () => f.work },
+      {
+        sessionId: receipt.workerConversationId,
+        taskId: receipt.attempt.executionTaskId!,
+        accountBinding:
+          f.ordinary.store.getSession(receipt.workerConversationId)?.accountBinding ?? undefined,
+      },
+      { sessionId: receipt.workerConversationId, taskId: receipt.attempt.executionTaskId },
+    );
+  expect(() => resolve(first)).toThrow(/superseded/i);
+  expect(resolve(second)).toBe(second.attempt.executionTaskId);
+  expect(
+    f.work.executionTaskBinding(first.attempt.executionTaskId!, first.workerConversationId),
+  ).toEqual(first.attempt);
+  expect(f.tasks.get(first.attempt.executionTaskId!)?.status).toBe('pending');
+  expect(f.tasks.get(second.attempt.executionTaskId!)?.status).toBe('pending');
+  expect(f.ordinary.store.getSession(first.workerConversationId)).toBeDefined();
+});

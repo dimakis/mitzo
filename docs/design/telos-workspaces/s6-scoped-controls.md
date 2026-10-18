@@ -65,3 +65,12 @@ PR preparation or fabricate an applied main-publication receipt. Shared-main
 publication owner integration and its exact-head/current-main validation remain
 explicitly outstanding. The host guard/revalidation ledger is preparatory until
 that action owner is connected and tested.
+
+A new-worker-dispatch hold also fences the first provider turn of an already
+allocated/queued worker. The existing execution ledger's durable provider-attempt
+history distinguishes a started conversation from queue admission. Existing
+workers can continue unless a safe-point hold separately applies. Restart
+preserves that distinction. The new allocated-but-unstarted regression was
+observed red and then green. The real delegation-host regression was updated to
+use independent sibling workers for client rebinding; a separate real retry test
+asserts CT11 retirement instead of expecting a retired worker to complete.
