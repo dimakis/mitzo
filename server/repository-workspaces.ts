@@ -311,6 +311,9 @@ export class RepositoryWorkspaces {
   reserveOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['reserve']>[0]) {
     return this.ordinaryWorkspaceProvider().reserve(input);
   }
+  revalidateOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['revalidate']>[0]) {
+    return this.ordinaryWorkspaceProvider().revalidate(input);
+  }
   claimOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['claim']>[0]) {
     return this.ordinaryWorkspaceProvider().claim(input);
   }
