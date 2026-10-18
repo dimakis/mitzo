@@ -1,0 +1,27 @@
+{
+  "repository": "dimakis/mitzo",
+  "acceptedMain": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+  "files": {
+    "server/telos-work-store.ts": "2050bdb8e4e63cef8565240ebdcb26e60fb648abccd38248f1deede40b113e5f",
+    "server/telos-work-routes.ts": "572567dcbf9aa71b95f7aa1a6a6aecacebbd6c1c3034fdb73e9707360cfbb29a",
+    "server/telos-source-routes.ts": "9fe592fae24c3ecb1a0915b0370b4e525facfa4b34a473981c5cc8e032187cad",
+    "server/telos-work-role-host.ts": "29900a5554dc606e55d05a8e2ae40c09def476dc33c4837b2dd734cfe9ffb295",
+    "server/telos-work-role-context.ts": "a829c634968013320d53e43308478e3b0d07aea5e803d7e31b5c00c112ee77ae",
+    "server/telos-work-role-setup.ts": "130380c2fdecaba2ec3c7d7d8cc6c073e90a19a4ecad454ce9073ddb839f5a28",
+    "server/repository-workspaces.ts": "87b74050cf4abf770b164b27d5524b23f2f395bf6adc4bc9bbf977ffd30fdbc5",
+    "server/collaboration-joining-owner.ts": "5bf3fb28f79159e8f124b1216366a9c98e6bc8e3d28d90c11ce3a4a0ed6c7934",
+    "server/collaboration-ordinary-delivery.ts": "80ff1b619e945d38883e2cabeb0c8c018c98e2231e5fff629bc742fab95beef3",
+    "server/collaboration-ordinary-replies.ts": "599f1574e4fb2deace9d5b0aa19e639d6bd7aed727837d404f44ff916eba8a5f",
+    "server/codex-conversation.ts": "5869138b6872839aaf3fe3a3d2a279eb3647e7c8e0ffbfaf98f9126cc581455d",
+    "server/codex-conversation-store.ts": "a28a891d7e15e599f67b78e9db30fb6b73c24b838b39bd7a86f44d078e6e5d0e",
+    "server/task-store.ts": "09c4d1d892afb56cdbe319c8e95b22b6a1a7b3fa6d399aa1b1e81e66059ba2bf",
+    "server/task-orchestrator.ts": "76dbcfba80de269d0d5c4228ef58158469f6f1fc4ba6ea3f04cf97656851a549",
+    "server/task-tools.ts": "19e4beb52a88f11dfce0e604297fe82fd940fb177eaafa057d4fa29cce2622e0",
+    "server/telos-artifact-store.ts": "1d7e2c5e2b6627b4eff7860b2497fe97dc808fe87d1f89ca28cd36b85e04bd50",
+    "packages/client/src/telos-work-api.ts": "25ed84aa3daa8ee86404b63a687d1e571f3b160c5c1ca23acc31c313318283a2",
+    "packages/protocol/src/event-store.ts": "2e1899a35d876b578a15886a43d0db4d08687c31934e1201030deece55cba1db",
+    "packages/protocol/src/session-metadata-store.ts": "0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f",
+    "packages/protocol/src/collaboration-conversation-store.ts": "cb01ab9d6dd9cca3ce81782a45c2c53cd54c26cd2c72adf909bb6adbf96067f5",
+    "packages/protocol/src/session-output-reference-store.ts": "de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014"
+  }
+}

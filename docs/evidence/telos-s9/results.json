@@ -1,0 +1,71 @@
+{
+  "scope": "early_offline_only",
+  "parent": "85e8444019a4ae4a",
+  "slice": "b896d14d79d52682",
+  "parentStatus": "active",
+  "sliceStatus": "active",
+  "mitzoAcceptedMain": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+  "mgmtAcceptedMain": "b4ad94541af3ed19e1a2c6fd1049fd98418016d0",
+  "workers": 1,
+  "nodeHeapMiB": 1024,
+  "runtime": "Node v24.10.0",
+  "modelCalls": 0,
+  "liveRuntimeAuthorization": null,
+  "liveRuntimeQualification": "pending",
+  "visualAcceptance": "pending",
+  "tests": {
+    "accepted-tests": {
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "startTime": 1792274299217,
+      "json": "accepted-tests.json",
+      "log": "accepted-tests.log"
+    },
+    "reused-owner-tests": {
+      "passed": 41,
+      "failed": 0,
+      "skipped": 0,
+      "startTime": 1792274122173,
+      "json": "reused-owner-tests.json",
+      "log": "reused-owner-tests.log"
+    },
+    "canonical-advisor-red": {
+      "passed": 0,
+      "failed": 2,
+      "skipped": 0,
+      "startTime": 1792274307359,
+      "json": "canonical-advisor-red.json",
+      "log": "canonical-advisor-red.log"
+    }
+  },
+  "localValidation": [
+    "changed integration TypeScript ESLint passed",
+    "changed evidence/integration Prettier passed",
+    "Python exporter syntax parsed and executed against clean accepted MGMT checkout"
+  ],
+  "fullBuildAndSuite": "CI pending; not run locally",
+  "ciAndReview": "Draft PR; exact-head CI and Centaur acceptance remain pending. No merge authority.",
+  "sourceSelection": "Latest accepted main fetched. Open S5 and priority Mitzo candidates excluded. MGMT canonical working changes excluded; schema generated from clean accepted reference checkout.",
+  "filesSha256": {
+    "docs/evidence/telos-s9/accepted-source.json": "ebb5af9c2adb926005ed6b822331d19171928ff3e26d6c8b02112ebdc6eaab5d",
+    "docs/evidence/telos-s9/accepted-tests.json": "ac8c947213d529425226344e63075953cbaf0214b926b2cd20f25628f090d6a7",
+    "docs/evidence/telos-s9/accepted-tests.log": "b760d80bfc19a600deef98dc64d09e087ee1a51e0cf718a06ece7e036f0b1aed",
+    "docs/evidence/telos-s9/approved-corrective-contracts.json": "91cbdcffc4cee42fe65958197a93724f60fa50bb4314d6d0db6658d4f378f970",
+    "docs/evidence/telos-s9/canonical-advisor-red.json": "7fbc4a2c72bb5ed440e8daa4d846196abcc94df31ecc68ed3e3ecd2922f05932",
+    "docs/evidence/telos-s9/canonical-advisor-red.log": "9a6a779cf32da3147686ad12770f1f03861a6e6facae919536bdaee8fa434e69",
+    "docs/evidence/telos-s9/requirements-evidence.json": "34561343e3ca6f4a13e76b53c79abeaee6dd1111f5cba09bf1abc4816615e5d5",
+    "docs/evidence/telos-s9/reused-owner-tests.json": "d26f5a8c8b02c1e63af8591ca04f5e69991d0c0a5931f8624368786dfc877af7",
+    "docs/evidence/telos-s9/reused-owner-tests.log": "e0cec4a7fab6cbd5de275618b8caaf563ad90b2b164f44a26c88aadfc6c5df7b",
+    "tests/integration/telos-s9/accepted-boundaries.test.ts": "8ff4fe30d20b4d823c92a767246d033e568b99430e497ed743cc149388615171",
+    "tests/integration/telos-s9/canonical-advisor.red-contract.ts": "427319488617ff897f9450e3fbff0e98eed0f5642e6f640a85bc01cebace3070",
+    "tests/integration/telos-s9/evidence-ledger.test.ts": "9e5e6d10eaa4085c4faef41fd21f7d9acac48e1ebc9b4b73cd1a69be58db5791",
+    "tests/integration/telos-s9/export-canonical-schema.py": "fd3e3aed439658ace6ace38b8575fab7b786a91a8a246805bb84b20e48ca2164",
+    "tests/integration/telos-s9/fixture.ts": "bee64abd981b05a94d9bc8dc53643225a9a26d61bcd2dd675959a316ff79702e",
+    "tests/integration/telos-s9/fixtures/canonical-schema-source.json": "1cab0e9baa486f51bcaba310748e1219c317e19465f8579cb5c772d024e031cb",
+    "tests/integration/telos-s9/fixtures/canonical-schema.sql": "bf359e185c7600c6fa08be4d81c89e3980045a56ef5636f3fa25c86fb16584ce",
+    "tests/integration/telos-s9/red.vitest.config.ts": "e0181a7fad9203663cfdd9ae4c8288ae7bbc1d63e7e1491c42c7590593d2875b",
+    "tests/integration/telos-s9/shared-effects.test.ts": "2c532a9d18367c556ca4885ca82c7db0deb7415a53a3f3ecb32278d85c1dbfb6",
+    "tests/integration/telos-s9/task-boundary.test.ts": "87f161c4365f0dc704271fce9cfacd84a0894246d0c7b75775b1506db3a9698e"
+  }
+}

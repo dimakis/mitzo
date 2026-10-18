@@ -120,7 +120,7 @@
       "format": "Rust 1.95 scoped check passed; original stable imports_granularity warning retained."
     },
     "ci": {
-      "status": "pending_corrected_PR_gate",
+      "status": "pending_after_verified_V8_dependency_preparation_fix",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
       "platforms": ["ubuntu-24.04", "macos-26"],
@@ -140,7 +140,16 @@
         }
       },
       "cause": "Unspecified bash shell hid failing just test exit100 behind successful tee. Missing runtime helpers and two actual fs/open fixture incompatibilities observed; other failures remain unproven until corrected CI.",
-      "zeroNativeSkipsClaimed": false
+      "zeroNativeSkipsClaimed": false,
+      "lastAttempt": {
+        "run": 39083668664,
+        "applicationSourceHead": "3830e3a0e5b120c74f578e960fad1704c4c7094c",
+        "nativeSourceTree": "7407c99d2b1fe8a9b6bfffb8896f12c7fdd93db4",
+        "result": "both_platforms_failed_standalone_helper_build",
+        "nativeFixtures": "not_started",
+        "reason": "codex-code-mode-host enables V8 ptrcomp_sandbox_release; standalone Cargo omitted upstream verified artifact setup and attempted nonexistent Deno assets (404).",
+        "platforms": ["macos-26", "ubuntu-24.04"]
+      }
     },
     "fixtureRegression": {
       "sourceCommit": "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
@@ -152,7 +161,25 @@
       "assertionsPreserved": true,
       "green": "pending corrected exact-source CI"
     },
-    "testCountsOverlap": true
+    "testCountsOverlap": true,
+    "v8DependencyPreparation": {
+      "owner": "Unmodified pinned scripts/codex_package/v8.py fetch_codex_v8_artifacts, with CODEX_REPO_ROOT selecting reconstructed source",
+      "versionAuthority": "The sole V8 version in the reconstructed Cargo.lock",
+      "integrity": "Source-pinned per-target manifest checksum, exact expected archive and matching binding digests; verified fetch before both Cargo overrides are exported",
+      "targets": ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"],
+      "workflowRecordingRegressions": {
+        "passed": 16,
+        "failed": 0,
+        "nativeCrateQualification": false
+      },
+      "unchangedUpstreamOfflineHelperTests": {
+        "passed": 12,
+        "failed": 0,
+        "archiveDownloads": 0
+      },
+      "actualArchiveFetchAndNativeHelperLinking": "pending CI",
+      "sourcePatchCountUnchanged": 18
+    }
   },
   "runtimeQualified": false,
   "installed": false,

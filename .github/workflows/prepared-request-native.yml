@@ -98,6 +98,61 @@ jobs:
       - name: Fetch locked public dependencies
         working-directory: .native-prepared-source/codex-rs
         run: cargo fetch --locked
+      - name: Check pinned V8 artifact dependency owner offline
+        shell: bash
+        working-directory: .native-prepared-source
+        run: |
+          set -euo pipefail
+          CODEX_REPO_ROOT="$PWD" python3 - <<'PY'
+          import os, sys, unittest
+          from pathlib import Path
+          sys.path.insert(0, str(Path(os.environ['CODEX_REPO_ROOT']) / 'scripts'))
+          suite = unittest.defaultTestLoader.loadTestsFromName('codex_package.test_v8')
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful():
+              raise SystemExit(1)
+          PY
+      - name: Prepare verified Codex V8 artifacts
+        shell: bash
+        working-directory: .native-prepared-source
+        run: |
+          set -euo pipefail
+          CODEX_REPO_ROOT="$PWD" python3 - <<'PY'
+          import hashlib, json, os, subprocess, sys
+          from pathlib import Path
+          source_root = Path(os.environ['CODEX_REPO_ROOT'])
+          sys.path.insert(0, str(source_root / 'scripts'))
+          from codex_package.targets import TARGET_SPECS
+          from codex_package.v8 import fetch_codex_v8_artifacts, resolved_v8_crate_version
+          compiler = subprocess.check_output(['rustc', '+1.95.0', '-vV'], text=True)
+          hosts = [line.removeprefix('host: ') for line in compiler.splitlines() if line.startswith('host: ')]
+          if len(hosts) != 1 or hosts[0] not in {'aarch64-apple-darwin', 'x86_64-unknown-linux-gnu'}:
+              raise RuntimeError(f'Unsupported native CI host: {hosts}')
+          if os.environ.get('V8_FROM_SOURCE', '').lower() in {'1', 'true', 'yes'}:
+              raise RuntimeError('V8 source-build override is unsupported in verified artifact CI')
+          host = hosts[0]
+          # This pinned owner verifies the source-pinned manifest, then BOTH files.
+          # Its convenience environment resolver permits overrides; use verified fetch directly.
+          pair = fetch_codex_v8_artifacts(
+              TARGET_SPECS[host],
+              cache_root=Path(os.environ['RUNNER_TEMP']) / 'native-rusty-v8',
+          )
+          def digest(path):
+              with path.open('rb') as source:
+                  return hashlib.file_digest(source, 'sha256').hexdigest()
+          proof = {
+              'host': host,
+              'v8_crate_version': resolved_v8_crate_version(),
+              'archive': str(pair.archive),
+              'archive_sha256': digest(pair.archive),
+              'binding': str(pair.binding),
+              'binding_sha256': digest(pair.binding),
+          }
+          (source_root / 'native-v8-artifacts.json').write_text(json.dumps(proof, indent=2) + '\n')
+          with Path(os.environ['GITHUB_ENV']).open('a') as environment:
+              environment.write(f'RUSTY_V8_ARCHIVE={pair.archive}\nRUSTY_V8_SRC_BINDING_PATH={pair.binding}\n')
+          print(json.dumps(proof))
+          PY
       - name: Build standalone native test helpers
         shell: bash
         working-directory: .native-prepared-source/codex-rs
@@ -152,5 +207,6 @@ jobs:
           path: |
             .native-prepared-source/codex-rs/native-fixtures.log
             .native-prepared-source/codex-rs/target/nextest/local/junit.xml
+            .native-prepared-source/native-v8-artifacts.json
             docs/spikes/openshell-codex/prepared-request-native/source-evidence.json
           if-no-files-found: warn

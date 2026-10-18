@@ -653,7 +653,12 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   await seed(page, { 'mitzo-chat-draft:briefing-draft': JSON.stringify(savedDraft()) });
   await page.goto('/sessions/drafts');
-  await page.getByRole('link', { name: /What is the story with my morning briefing/ }).click();
+  // Complete this chat mount's passive health read before the hard navigation
+  // below. WebKit reports an intercepted fetch cancelled by unload as a page
+  // error; keep that error assertion and the full leave/reopen journey intact.
+  await waitForNewFixtureReads(page, ['/api/service-health'], () =>
+    page.getByRole('link', { name: /What is the story with my morning briefing/ }).click(),
+  );
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(message);
   await agentSettings(page);
@@ -689,9 +694,9 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
     animations: 'disabled',
   });
   await page.goto('/sessions/drafts');
-  await page
-    .getByRole('link', { name: /Fix the morning briefing with this saved context/ })
-    .click();
+  await waitForNewFixtureReads(page, ['/api/service-health'], () =>
+    page.getByRole('link', { name: /Fix the morning briefing with this saved context/ }).click(),
+  );
   await expect(input).toHaveValue('Fix the morning briefing with this saved context');
   await agentSettings(page);
   await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-value', 'low');
