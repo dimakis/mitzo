@@ -121,7 +121,7 @@
     "oldCHeadRetained": true,
     "ownerCommitRetainedAsParent": true,
     "fixedTreeEqualsLocalAuditedTree": true,
-    "scope": "Temporary C-only source composition; no PR or main merge. PR publication remains pending this evidence preparation."
+    "scope": "Accepted main and exact owner fix retained as ancestors of signed published C head53a60578. No PR or main merge."
   },
   "localFocusedValidation": {
     "sourceHead": "fda8320ad400743663d759aac030c07442e778a2",
@@ -137,7 +137,13 @@
     "testFormatExitCode": 0,
     "testEslintExitCode": 0
   },
-  "combinedCi": "PENDING new C head publication; do not transfer owner/other-consumer gates",
+  "combinedCi": {
+    "head": "53a6057879493734cba507a234a4f3d28eac31fa",
+    "run": 39104956665,
+    "conclusion": "success",
+    "allEightJobsSuccess": true,
+    "verification": "../53a60578-combined-ci/verification.json"
+  },
   "appOmissionJoiningNativeUxIosGates": "Unchanged and open",
   "noModelLiveStagingOrRuntimeActivation": true,
   "noPrOrMainMerge": true,

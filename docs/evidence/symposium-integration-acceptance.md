@@ -10,7 +10,9 @@ successful attribute read after all four appearance capture sets. Accepted main
 d5d3 is now normally integrated with the exact existing owner3440 one-file fix;
 all117 assertions/12 screenshot calls/78 navigation calls and60000ms remain.
 Local WebKit startup failed before the four cases ran, so it remains unqualified;
-combined CI on the resulting C source is pending.
+combined CI39104956665 on signed53a60578 is **PASS**, all eight jobs green.
+WebKit records251passes/12skips and all four original60s journeys pass.
+[Completed combined CI proof](symposium-acceptance/53a60578-combined-ci/verification.json).
 [Failure, source and adoption diagnosis](symposium-acceptance/48e4-library-gate/diagnosis.json).
 
 Milestone `358d56cb7e4352ff`, parent `c0851ba23fcc5d04`; both remain active.
@@ -1089,7 +1091,20 @@ and ESLint pass.
 
 Accepted-main and exact-owner commits are composed on an isolated signed C source
 with their ancestry retained, matching the audited fixed tree. Combined CI on the
-resulting published C head is **PENDING**; other consumers' passing CI is not its gate.
+published signed C head `53a6057879493734cba507a234a4f3d28eac31fa` is **PASS**:
+[run39104956665](https://github.com/dimakis/mitzo/actions/runs/39104956665), all eight
+selected jobs successful. Actual checkout `2a53a5d9c05d2344e55b410a5574069dd1a81ecc`
+has the identical tree `0331928678d93fef64d51ffcf4736fa95c14304e`. C independently
+retained the raw job metadata, checkout proof and compressed logs.
+[Completed source-scoped receipt](symposium-acceptance/53a60578-combined-ci/verification.json).
+
+The repaired WebKit journeys pass in36.7/32.3/31.4/29.5seconds, retaining each
+original60000ms timeout. Whole WebKit and mobile Chromium jobs each record251passes/
+12skips; desktop Chromium252passes/11skips. Core CI records17668passes/31skips,
+1288files passed/9skipped; the separate109-case focused step is not added. Browser
+interaction, Swift and Connections aggregate also pass. These counts overlap and
+are not summed. Later evidence-only publication changes the head; this receipt
+qualifies exactly53a60578 and its identical CI tree, not a future head.
 The original Symposium app/omission/join/native/UX/iOS gaps and all historical
 source-specific checkpoints remain unchanged. This repair makes no product, model,
 live-target, staging, runtime or merge-to-main change.
