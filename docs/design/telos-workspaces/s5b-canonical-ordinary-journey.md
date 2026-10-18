@@ -48,7 +48,7 @@ remain applicable.
 
 Initial integration runs exposed fixture schema, source-loader, RPC-lifecycle and
 explicit permission-response assumptions. Those runs are diagnostics, not a
-manufactured failing-before product regression. This increment changes only the
+manufactured failing-before product regression. The initial increment changed only the
 test and its documentation. Focused ordinary/native, advisor and canonical-schema
 regressions accompany the qualification. Existing intercepted ordinary role, chat
 and Files browser journeys separately cover responsive UI, draft retention,
@@ -58,3 +58,15 @@ CI/trusted review and final combined-base validation remain separate gates.
 
 No live target, model-backed test, staging operation or deployment is authorized
 or qualified by this evidence.
+
+CI executes the complete CT09 journey on macOS, where the enrolled artifact
+helper's real process-isolation owner is supported. The Ubuntu full-suite run
+skips this one platform-dependent journey and runs a separate regression proving
+that an enrolled Linux command is refused before process launch. That refusal is
+not a successful CT09 journey. A dedicated, unconditional macOS job runs both
+cases with one worker and a 1 GiB heap, retains the actual JSON result, and checks
+that the complete journey passed with no skipped cases. The required core `ci`
+job depends on that job and fails its summary unless it succeeded. No changed-path
+selection can omit this coverage. The artifact helper, filesystem boundary, file
+bytes and source/material/replay assertions are unchanged; unsupported-host
+execution is not replaced by a fake adapter or a relaxed production fence.

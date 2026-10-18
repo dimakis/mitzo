@@ -1,4 +1,4 @@
-import { afterAll, afterEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, expect, it as platformTest, vi } from 'vitest';
 import request from 'supertest';
 import { randomUUID, createHash } from 'node:crypto';
 import { access, writeFile, readFile, stat } from 'node:fs/promises';
@@ -8,6 +8,10 @@ import type { ownedOrdinaryRuntimeFixture } from './fixtures/owned-ordinary-work
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { SessionSseRegistry } from '../session-sse-registry.js';
 import type { ConnectionRegistry } from '@mitzo/harness';
+
+// CT09 requires the real macOS process-isolation owner used by the artifact helper.
+// Required macOS CI runs it completely; Linux separately proves fail-closed refusal.
+const it = platformTest.runIf(process.platform === 'darwin');
 
 const services = vi.hoisted(() => ({ workspace: undefined as unknown }));
 vi.mock('../repository-workspace-runtime.js', async (original) => ({
