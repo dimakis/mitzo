@@ -1529,6 +1529,25 @@ export class TelosWorkStore {
     }
     return attempt;
   }
+  /** New-command/physical-dispatch fence only. Running output callbacks retain
+   * their original reviewed context. A scope change requires an explicit newly
+   * reviewed retry; neither this guard nor a source save can rewrite a packet. */
+  assertExecutionBriefCurrent(executionTaskId: string, workerConversationId: string): void {
+    this.db.transaction(() => {
+      const attempt = this.executionTaskBinding(executionTaskId, workerConversationId, true);
+      if (!attempt) throw new TelosWorkError('unauthorized', 'Exact delegated worker required');
+      const row = this.db
+        .prepare('SELECT intent FROM telos_work_delegation_requests WHERE attempt_id=? LIMIT 1')
+        .get(attempt.attemptId) as { intent: string } | undefined;
+      if (!row) conflict('Reviewed execution context unavailable');
+      const intent = JSON.parse(row.intent) as TelosWorkDelegationIntent;
+      for (const pin of intent.recordRevisions)
+        if (hash(this.item(pin.itemId)) !== pin.sha256)
+          conflict(
+            'Reviewed execution context changed; explicitly review and adopt a new worker attempt',
+          );
+    })();
+  }
   /** Host-only task-owner reconciliation. This binds retained allocation authority;
    * it does not start execution, assign a worker, or rewrite role context.
    * The caller verifies the task owner's exact immutable worker/item/lead scope.

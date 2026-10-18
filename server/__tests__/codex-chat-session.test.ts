@@ -4664,3 +4664,44 @@ it.each([false, true])(
     }
   },
 );
+
+it('CT10/CT12: fences a newly queued or dispatching work command separately from an active turn context', async () => {
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions();
+  let current = true;
+  const guard = vi.fn(() => {
+    if (!current) throw Error('Reviewed work admission changed');
+  });
+  const context = vi.fn();
+  const dispatch = vi.spyOn(f.ownedLocal, 'assertBeforeDispatch');
+  try {
+    const query = await openCodexChat({
+      ...f.opts,
+      assertAgentContextAuthorization: context,
+      assertWorkTurnAdmission: guard,
+    });
+    const callbacks = mocks.conversationOptions!;
+    current = false;
+    expect(() => (callbacks.beforeEnqueue as (input: unknown) => void)({})).toThrow(
+      'work admission changed',
+    );
+    expect(() => (callbacks.onProviderDispatch as (id: string) => void)('owned-command')).toThrow(
+      'work admission changed',
+    );
+    expect(dispatch).not.toHaveBeenCalled();
+    // Active-turn context authorization is independent of later brief saves.
+    await (callbacks.prepareAgentContext as (signal: AbortSignal) => Promise<void>)(
+      new AbortController().signal,
+    );
+    current = true;
+    query.close();
+  } finally {
+    f.eventStore.close();
+  }
+});

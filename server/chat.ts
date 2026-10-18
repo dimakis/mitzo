@@ -1,5 +1,8 @@
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
-import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
+import {
+  resolveTelosWorkCommandScope,
+  assertTelosWorkCommandAdmission,
+} from './telos-work-command-scope.js';
 import { TelosWorkStore } from './telos-work-store.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
@@ -198,22 +201,29 @@ export function setTaskStore(store: TaskStore): void {
 /** Existing ordinary admission calls this before effects and after awaits.
  * Only a proven durable mapping can attach task-tool context to a live chat.
  */
-export function resolveOwnedTelosWorkCommandScope(sessionId: string) {
+export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewCommand = false) {
   let work: TelosWorkStore | undefined;
   try {
+    const owners = {
+      events: eventStore,
+      tasks: _taskStore,
+      work: () =>
+        (work ??= new TelosWorkStore(
+          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+          {
+            ordinaryConversation: (id) =>
+              isAvailableTelosWorkConversation(eventStore.getSession(id)),
+          },
+        )),
+    };
+    if (forNewCommand)
+      assertTelosWorkCommandAdmission(
+        owners,
+        sessionId,
+        eventStore.getSession(sessionId)?.accountBinding ?? undefined,
+      );
     const scope = resolveTelosWorkCommandScope(
-      {
-        events: eventStore,
-        tasks: _taskStore,
-        work: () =>
-          (work ??= new TelosWorkStore(
-            process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
-            {
-              ordinaryConversation: (id) =>
-                isAvailableTelosWorkConversation(eventStore.getSession(id)),
-            },
-          )),
-      },
+      owners,
       sessionId,
       eventStore.getSession(sessionId)?.accountBinding ?? undefined,
     );
@@ -3478,6 +3488,10 @@ export async function prepareOwnedCodexChat(
         signal.throwIfAborted();
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId);
+      },
+      assertWorkTurnAdmission: () => {
+        admission.assertCurrentSync();
+        resolveOwnedTelosWorkCommandScope(sessionId, true);
       },
       assertAgentContextAuthorization: () => {
         admission.assertCurrentSync();

@@ -11,7 +11,10 @@ import {
   retainTelosWorkRoleContext,
   resolveTelosWorkRoleContext,
 } from '../telos-work-role-context.js';
-import { resolveTelosWorkCommandScope } from '../telos-work-command-scope.js';
+import {
+  resolveTelosWorkCommandScope,
+  assertTelosWorkCommandAdmission,
+} from '../telos-work-command-scope.js';
 import { handleTaskComplete, handleTaskStatus } from '../task-tools.js';
 import { resolveTelosWorkTaskToolContext } from '../telos-work-execution-authority.js';
 
@@ -187,6 +190,14 @@ function fixture(delegation = true, withRole = true, marker?: string) {
     account,
     command,
     actor,
+    retained,
+    changeBrief(itemId: string) {
+      const writer = new Database(path);
+      writer
+        .prepare('UPDATE items SET summary=?,updated_at=? WHERE id=?')
+        .run('Changed reviewed brief', randomUUID(), itemId);
+      writer.close();
+    },
     meta,
     binding,
     settings,
@@ -386,4 +397,40 @@ it('CT11: replacing a lead changes current routing without rewriting or revoking
   expect(f.work.read('outcome', f.actor).assignments[0].conversation.conversationId).toBe(
     'new-lead',
   );
+});
+
+it('CT10: a queued command cannot dispatch changed scope; running context and completion retain the original reviewed revision after restart', () => {
+  const f = fixture();
+  const taskId = f.complete();
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).not.toThrow();
+  const original = resolveTelosWorkRoleContext(f.events, 'worker', f.account);
+  f.admit('queued-before-change');
+  f.changeBrief('child');
+  f.reopen();
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).toThrow(
+    /brief.*changed|context.*changed/i,
+  );
+  expect(resolveTelosWorkRoleContext(f.events, 'worker', f.account)).toEqual(original);
+  // The already running command can return evidence under its original context.
+  expect(
+    resolveTelosWorkTaskToolContext(
+      f.owners(),
+      { sessionId: 'worker', taskId, accountBinding: f.account },
+      { sessionId: 'worker', taskId },
+    ),
+  ).toBe(taskId);
+  expect(f.work.executionTaskBinding(taskId, 'worker')?.contextSnapshotId).toBe(
+    f.retained!.intent.contextSnapshotId,
+  );
+  expect(f.events.getOrdinaryCommandAdmission('queued-before-change')).toBeDefined();
+});
+it('CT10: parent brief changes also fence future dispatch without rewriting the retained worker packet', () => {
+  const f = fixture();
+  f.complete();
+  const original = resolveTelosWorkRoleContext(f.events, 'worker', f.account);
+  f.changeBrief('outcome');
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).toThrow(
+    /context.*changed/i,
+  );
+  expect(resolveTelosWorkRoleContext(f.events, 'worker', f.account)).toEqual(original);
 });

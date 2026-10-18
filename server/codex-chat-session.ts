@@ -568,6 +568,8 @@ interface Options {
   agentProfile?: AgentLibraryVersion;
   /** Captured from verified operator transport, never caller JSON; admission only. */
   assertAgentContextAuthorization?: () => void;
+  /** New commands only; running tool/context continuations keep their admitted brief. */
+  assertWorkTurnAdmission?: () => void;
   repositoryWorkspace?: RepositoryChatWorkspace;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
@@ -1728,6 +1730,7 @@ async function openCodexChatBound(
           beforeThreadInitialization: (store: CodexConversationStore) =>
             options.ownedLocal!.persistCustody(store),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.assertWorkTurnAdmission?.();
             options.assertAgentContextAuthorization?.();
             options.ownedLocal!.assertBeforeEnqueue(input);
           },
@@ -1745,6 +1748,7 @@ async function openCodexChatBound(
           canClaimCommand: (commandId: string) =>
             options.ownedOpenShell!.canClaimCommand(commandId),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.assertWorkTurnAdmission?.();
             options.assertAgentContextAuthorization?.();
             options.ownedOpenShell!.assertBeforeEnqueue(input);
           },
@@ -2029,6 +2033,7 @@ async function openCodexChatBound(
       : {}),
     emit: (event) => events.push(event),
     onProviderDispatch: (messageId) => {
+      options.assertWorkTurnAdmission?.();
       if (ownedHost) options.assertAgentContextAuthorization?.();
       options.ownedLocal?.assertBeforeDispatch(messageId);
       options.ownedOpenShell?.assertBeforeDispatch(messageId);

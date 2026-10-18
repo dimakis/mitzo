@@ -69,3 +69,25 @@ export function resolveTelosWorkCommandScope(
   );
   return { currentTaskId: taskId, goalId: taskId };
 }
+
+/** Called for new queue admission and immediately before physical provider
+ * dispatch. Do not use for tools/completion inside an already running turn. */
+export function assertTelosWorkCommandAdmission(
+  owners: Owners & {
+    work(): Pick<
+      TelosWorkStore,
+      | 'executionTaskBinding'
+      | 'delegationAllocationForHost'
+      | 'assertExecutionBriefCurrent'
+      | 'assertControlAction'
+    >;
+  },
+  sessionId: string,
+  account: AccountBinding | undefined,
+): void {
+  const scope = resolveTelosWorkCommandScope(owners, sessionId, account);
+  const selected = resolveTelosWorkRoleContext(owners.events, sessionId, account);
+  if (!selected) return;
+  owners.work().assertControlAction(selected.itemId, 'safe_point');
+  if (scope) owners.work().assertExecutionBriefCurrent(scope.currentTaskId, sessionId);
+}
