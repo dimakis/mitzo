@@ -402,3 +402,21 @@ it('recovers the same actual reviewed outbox command after Drafts discard and co
     restored.getState().invalidateAuthentication();
   }
 });
+it('retains accepted revision1 guidance when recreating an old uncertain Builder draft', async () => {
+  const input = editor();
+  const path = await openAgentBuilderChat(input, true);
+  const draft = getChatDraft(new URL(path, 'https://mitzo.example').searchParams.get('draft')!)!;
+  const source = draft.settings.sourceSnapshots![0];
+  // Accepted revision1 records predate the explicit guidance revision field.
+  localStorage.setItem(
+    `mitzo-agent-builder-chat:${source.revision}`,
+    JSON.stringify({ draftId: draft.id, pendingCommandId: 'original-r1-command' }),
+  );
+  await discardChatDraft(draft);
+  const reopened = await openAgentBuilderChat(input, true);
+  const recovered = getChatDraft(
+    new URL(reopened, 'https://mitzo.example').searchParams.get('draft')!,
+  )!;
+  expect(new URLSearchParams(recovered.settings.search).get('profileRevision')).toBe('1');
+  expect(recovered.id).toBe(draft.id);
+});

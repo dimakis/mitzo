@@ -31,9 +31,12 @@ export class AgentTaskError extends Error {
 export class AgentTaskStore {
   private readonly db: Database.Database;
   private readonly profiles: SymposiumProfileStore;
-  constructor(path: string) {
+  constructor(
+    path: string,
+    private readonly sharedDb?: Database.Database,
+  ) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    this.db = new Database(path);
+    this.db = sharedDb ?? new Database(path);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.profiles = new SymposiumProfileStore(path, this.db);
@@ -49,7 +52,7 @@ export class AgentTaskStore {
     `);
   }
   close() {
-    if (this.db.open) this.db.close();
+    if (!this.sharedDb && this.db.open) this.db.close();
   }
   get(owner: string, taskId: string, revision?: number): AgentTaskRecord | null {
     Owner.parse(owner);

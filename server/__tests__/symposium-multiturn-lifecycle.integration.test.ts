@@ -201,7 +201,7 @@ it('persists three directed turns across profile revision, seat removal/addition
   const app = express();
   app.use(express.json());
   app.use((_req, res, next) => {
-    res.locals.authSession = { id: 'owner' };
+    res.locals.authSession = { id: 'owner', expiresAt: Date.now() + 60_000 };
     next();
   });
   app.use(

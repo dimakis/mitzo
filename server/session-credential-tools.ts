@@ -1,3 +1,4 @@
+import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 import {
   sessionProfileTools,
@@ -47,7 +48,19 @@ export function sessionCredentialTools(
   },
   assertRuntimeCurrent?: () => Promise<void>,
   assertRuntimeCurrentSync?: () => void,
+  enableAgentTasks = false,
 ) {
+  const taskToolsEnabled = enableAgentTasks && !!assertRuntimeCurrent && !!assertRuntimeCurrentSync;
+  const taskTools = taskToolsEnabled
+    ? sessionAgentTaskTools(
+        sessionId,
+        session,
+        registry,
+        toolPrefix,
+        assertRuntimeCurrent,
+        assertRuntimeCurrentSync,
+      )
+    : undefined;
   const profileTools = sessionProfileTools(
     sessionId,
     session,
@@ -117,6 +130,7 @@ export function sessionCredentialTools(
       ...credentialConnectionToolDefinitions,
       ...repositoryTools.definitions,
       ...profileToolDefinitions,
+      ...(taskToolsEnabled ? agentTaskToolDefinitions : []),
     ]),
     async execute(
       name: string,
@@ -130,6 +144,8 @@ export function sessionCredentialTools(
           content: 'Tool is not selected by this session’s published agent profile',
           isError: true,
         };
+      const taskResult = await taskTools?.execute(name, input, signal, call);
+      if (taskResult) return taskResult;
       const profileResult = await profileTools.execute(name, input, signal, call);
       if (profileResult) return profileResult;
       const repositoryResult = await repositoryTools.execute(name, input, signal);
