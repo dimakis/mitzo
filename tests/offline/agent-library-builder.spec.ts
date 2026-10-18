@@ -1,3 +1,4 @@
+import { observeMockedServiceHealth } from '../support/service-health-navigation';
 import { expect, test, type Page } from '@playwright/test';
 import { chooseSetting, openChatSetting, settingRow, settingsHome } from '../support/chat-settings';
 import { build } from 'esbuild';
@@ -61,6 +62,10 @@ async function offline(
   const files = (await bundle).outputFiles;
   const unexpected: string[] = [];
   const errors: string[] = [];
+  const health = observeMockedServiceHealth(page, 'https://mitzo-ui.test');
+  async function beforeHardNavigation() {
+    await expect.poll(health.completion).toEqual({ status: 200, failure: null });
+  }
   await page.addInitScript(() => {
     const clipboard = { text: '' };
     Object.defineProperty(navigator, 'clipboard', {
@@ -324,7 +329,15 @@ async function offline(
       body: `<!doctype html><html data-theme="${theme}" data-accent="teal" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
     });
   });
-  return { unexpected, errors, commands, legacyCommands, proposalSaves, lifecycle };
+  return {
+    unexpected,
+    errors,
+    commands,
+    legacyCommands,
+    proposalSaves,
+    lifecycle,
+    beforeHardNavigation,
+  };
 }
 
 async function openSettings(page: Page) {
@@ -461,6 +474,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(composer).toHaveValue(
       'Keep the exact unsaved instructions and improve the acceptance criteria.',
     );
+    await fixture.beforeHardNavigation();
     await page.reload();
     await expect(composer).toHaveValue(
       'Keep the exact unsaved instructions and improve the acceptance criteria.',
@@ -782,6 +796,7 @@ test('Library recovers the original uncertain command after its ordinary draft i
 
   // Use the real saved-draft collection and discard confirmation. The reviewed
   // outbox remains uncertain; no source mapping or storage is modified by tests.
+  await fixture.beforeHardNavigation();
   await page.goto('/sessions/drafts');
   const draft = page
     .getByRole('article')
@@ -815,6 +830,7 @@ test('Library recovers the original uncertain command after its ordinary draft i
 
   fixture.lifecycle.acceptLegacy = true;
   await expect.poll(() => fixture.lifecycle.legacyAccepted, { timeout: 15_000 }).toBeGreaterThan(0);
+  await fixture.beforeHardNavigation();
   await page.goto('/agent-library');
   await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();

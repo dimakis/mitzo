@@ -1,3 +1,4 @@
+import { observeMockedServiceHealth } from '../support/service-health-navigation';
 import { expect, test } from '@playwright/test';
 import { settingsHome, openChatSetting } from '../support/chat-settings';
 import { build } from 'esbuild';
@@ -69,6 +70,11 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       });
       let selectedContext: Record<string, unknown> | undefined;
       let setupUnavailable = false;
+      const health = observeMockedServiceHealth(page, 'https://mitzo-ui.test');
+      async function reloadAfterHealth() {
+        await expect.poll(health.completion).toEqual({ status: 200, failure: null });
+        await page.reload();
+      }
       page.on('pageerror', (e) => errors.push(e.message));
       await page.setViewportSize({
         width: info.project.name.startsWith('mobile') ? 320 : 1280,
@@ -481,8 +487,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         },
         { inventory, preparationId },
       );
-      await page.waitForLoadState('networkidle');
-      await page.reload();
+      await reloadAfterHealth();
       const assign = page.getByRole('button', { name: actionLabel });
       await expect(assign).toBeEnabled();
       const settingsPanel = await settingsHome(page);
@@ -504,8 +509,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         page.getByText('Setup could not be confirmed. Retry to recover the same request.'),
       ).toBeVisible();
       setupUnavailable = false;
-      await page.waitForLoadState('networkidle');
-      await page.reload();
+      await reloadAfterHealth();
       await page.getByRole('button', { name: actionLabel }).click();
       await expect(page).toHaveURL(new RegExp(`/chat/${boundId}$`));
       expect(calls).toHaveLength(2);
