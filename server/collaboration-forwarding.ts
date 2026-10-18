@@ -74,7 +74,10 @@ export function collaborationForwardFingerprint(raw: unknown): string {
 export async function prepareCollaborationForward(
   raw: unknown,
   deps: {
-    source?: AuthorizedCollaborationContext;
+    source?: AuthorizedCollaborationContext & {
+      /** Genuine synchronous operator/privacy renewal of the original opened witness. */
+      assertCurrentAtSave?(): void;
+    };
     retainedArtifacts?: RetainedCollaborationArtifactSource;
     authorizeTarget(target: CollaborationForwardTarget): Promise<void>;
   },
@@ -87,6 +90,7 @@ export async function prepareCollaborationForward(
   const authorizeTarget = () => deps.authorizeTarget(structuredClone(input.target));
   await authorizeTarget();
   const source = deps.source;
+  const assertSourceCurrentAtSave = source?.assertCurrentAtSave;
   const boundary = input.boundary;
   if (input.sourceConversationId !== null && (!source || !boundary)) changed();
   const opened =
@@ -157,7 +161,13 @@ export async function prepareCollaborationForward(
   const retainedChecks = new Map<string, () => void>();
   const transcriptChecks = new Map<string, () => void>();
   function assertLocalCustody() {
-    for (const check of [...retainedChecks.values(), ...transcriptChecks.values()]) {
+    const checks = [...retainedChecks.values(), ...transcriptChecks.values()];
+    if (input.sourceConversationId !== null) {
+      if (typeof assertSourceCurrentAtSave !== 'function') changed();
+      // Keep the original opened witness; no asynchronous reread can replace this fence.
+      checks.push(() => assertSourceCurrentAtSave.call(source));
+    }
+    for (const check of checks) {
       const asserted: unknown = check();
       if (asserted !== undefined) {
         void Promise.resolve(asserted).catch(() => {});
@@ -257,10 +267,11 @@ export async function prepareCollaborationForward(
     serialized,
     sha256: sha(serialized),
     requestFingerprint: collaborationForwardFingerprint(input),
-    /** Private local artifact custody only. The existing save owner must compose
-     * genuine synchronous target/membership, source witness/operator and retained
-     * access checks in its transaction. This does not run async authorization,
-     * reserve a receipt or authorize dispatch, including for message-only packets. */
+    /** Private local selected-source and artifact custody renewal. The existing save
+     * owner must compose genuine synchronous target/membership and retained-access
+     * checks in its transaction. This does not run async authorization, reserve a
+     * receipt or authorize dispatch. Transcript selections require the original
+     * source's genuine synchronous operator/privacy and witness renewal. */
     assertLocalMaterialCurrent: assertLocalCustody,
     assertCurrent,
   });
