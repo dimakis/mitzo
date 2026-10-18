@@ -1,0 +1,96 @@
+{
+  "reportedPrHead": "39a308cf5cd4673a90e9058600394fae51c66de6",
+  "reportedPrHeadTree": "11080db41116021cd17712904f3e7b7c8c204ea5",
+  "actualCiCheckout": "4a233b922d072cfc3ee17d721335ca02152a1e4d",
+  "actualCiCheckoutTree": "11080db41116021cd17712904f3e7b7c8c204ea5",
+  "checkoutTreeEqualsReportedHead": true,
+  "run": 39099579412,
+  "job": 117592903558,
+  "jobUrl": "https://github.com/dimakis/mitzo/actions/runs/39099579412/job/117592903558",
+  "jobStatus": "completed",
+  "jobConclusion": "success",
+  "jobCompletedAtUtc": "2026-10-18T05:23:43Z",
+  "coreJobCounts": {
+    "passed": 18349,
+    "skipped": 31,
+    "passedFiles": 1336,
+    "skippedFiles": 9,
+    "overlapNotAdded": true
+  },
+  "actualServiceApiHookComposition": {
+    "passed": 3,
+    "failed": 0,
+    "durationMs": 1639,
+    "source": "tests/integration/symposium-application-review-recovery.test.tsx",
+    "sourceSha256": "71eeb1f1debfcdfa665cd8e43d357a4144a9dd3f1fefb3bf955293ca024bcbe5",
+    "retainedRawSource": "raw/application-review-recovery.test.tsx.raw",
+    "scope": "Actual EventStore/service/auth/route/client/hook/journal connected through an Express fixture and explicit fixture capture adapter. No production app.ts construction, mounted page owner, genuine fresh preparation/permission adapter or first /begin retention proof."
+  },
+  "originalServiceOwner": {
+    "passed": 29,
+    "failed": 0,
+    "durationMs": 6843,
+    "source": "server/__tests__/collaboration-application-review.test.ts"
+  },
+  "scenarios": [
+    "Observational review remains unverified and creates no join/allocation",
+    "Initial review response lost after commit, hook unmount/reopen and same-auth transport renewal recover original accepted snapshot/intent without recapture",
+    "Edited-brief review response loss recovers exact retained edited intent; later source/membership changes do not silently recapture; confirmation remains disabled"
+  ],
+  "sourceBoundaryNotes": [
+    "Test defines captureReview using actual durable API plus view and schema parsing; it is an explicit fixture adapter, not the unmounted production capture/preparation adapter.",
+    "The fixture supplies Original brief when joiningBrief is absent. This is not evidence that production may invent an initial brief.",
+    "No different-login/allocation/confirmation/native capacity or full UX acceptance follows."
+  ],
+  "rawJobLog": {
+    "archive": "raw/core-job.log.gz",
+    "uncompressedSha256": "24f15b75850f7952b8af7d95d4279e8230f3bf97b73484f0d638a1b93477818c",
+    "uncompressedBytes": 1385685,
+    "compressedSha256": "79650616ac033481b5d59aef51eadad547e76ea132617c2609a63a9b64f984e6",
+    "compressedBytes": 170146,
+    "gzipMtime": 0
+  },
+  "excerpt": {
+    "rawFile": "excerpt.log",
+    "originalLineNumbers": [690, 697, 715, 718, 5282, 6142, 8255, 8256],
+    "rawSha256": "c9438942502420bdd4834f10ba7562eabc5ed9cff56fb73392fd0ac33b0d8089",
+    "normalizedFile": "excerpt.normalized.log",
+    "normalization": "Strip ANSI controls only; no result/source/time changes"
+  },
+  "jsonRepresentations": [
+    {
+      "rawFile": "raw/job.json.raw",
+      "rawSha256": "03a1463aa68b9facc73eae5f0d34f98a8fe22e5e6533c326b5b34cac23b11df2",
+      "formattedFile": "job.json",
+      "scope": "Original API/producer bytes retained; JSON file is formatted metadata with equal parsed data.",
+      "formattedSha256": "c142b1e8c4419d2a6356b60f2ddf4efae4d1927f9c79920afd052bf291e598a1",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/ci-checkout.json.raw",
+      "rawSha256": "88b1c4bbe45513c7d1ea637d9aa9f476f55c27942266b870298f9d51b638f323",
+      "formattedFile": "ci-checkout.json",
+      "scope": "Original API/producer bytes retained; JSON file is formatted metadata with equal parsed data.",
+      "formattedSha256": "8412069b396cd0306ab88362de0a70aec71976befd11b7196e5ba07850ddb013",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/producer-receipt.json.raw",
+      "rawSha256": "de12c67132bdd13433fea7a217071757db2def1c75bcfd9279a3e5899ec09f30",
+      "formattedFile": "producer-receipt.json",
+      "scope": "Original API/producer bytes retained; JSON file is formatted metadata with equal parsed data.",
+      "formattedSha256": "de12c67132bdd13433fea7a217071757db2def1c75bcfd9279a3e5899ec09f30",
+      "semanticEqual": true
+    }
+  ],
+  "localControls": "Original local5s failures and C6ddc20s app import failures remain unqualified and preserved; no cause or flake attribution.",
+  "wholeWorkflow": "Retained producer receipt reports success; C independently queried the completed ci job/checkout only, not a fresh all-jobs status.",
+  "verificationMode": "Independent read-only CI API/log/source/tree inspection; no C test re-execution",
+  "productionAppInjectionAccepted": false,
+  "durableInjectionOmissionAccepted": false,
+  "successfulJoiningAccepted": false,
+  "nativeRuntimeQualified": false,
+  "physicalIosQualified": false,
+  "newModelCalls": 0,
+  "producerReportedWholeWorkflow": "success"
+}

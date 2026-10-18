@@ -86,6 +86,8 @@ for (const { theme, sourceStatus } of sourceCases)
         return route.fulfill({ json: [{ ...data.work.links[0], itemId: 'studio' }] });
       }
       expect(route.request().method()).toBe('GET');
+      if (path === '/api/telos/work/items/studio/record')
+        return route.fulfill({ json: data.record });
       if (path === '/api/telos/work/items/studio') return route.fulfill({ json: data.work });
       if (path === '/api/telos/work/items/studio/sources/' + data.source.snapshot.snapshotId) {
         // The item opener first verifies the target; fail the later chat-owned read.

@@ -1348,21 +1348,75 @@ test('Settings previews and persists every accent and font across navigation and
   await page.screenshot({ path: testInfo.outputPath('settings.png') });
 });
 
-test('desktop Work keeps collection actions visible while hiding its duplicate heading', async ({
+test('desktop Work keeps legacy collection actions visible with one compact heading', async ({
   page,
   isMobile,
-}) => {
+}, testInfo) => {
   test.skip(isMobile, 'Desktop Work collection');
   await page.goto('/todos');
   for (const width of [1280, 820]) {
     await page.setViewportSize({ width, height: 900 });
-    const list = page.getByRole('region', { name: 'Work items', exact: true });
-    await expect(list.getByRole('button', { name: 'Add outcome' })).toBeVisible();
-    await expect(list.getByRole('button', { name: 'Refresh Telos' })).toBeVisible();
-    await expect(list.getByRole('heading', { name: 'Work', exact: true })).toBeHidden();
-    expect(
-      (await list.locator('.todo-collection-heading').boundingBox())!.height,
-    ).toBeLessThanOrEqual(80);
+    const collection = page.locator('.telos-legacy-page');
+    const heading = collection.locator('.todo-collection-heading');
+    await expect(collection.getByRole('button', { name: 'Add outcome' })).toBeVisible();
+    await expect(collection.getByRole('button', { name: 'Refresh Telos' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Work', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('heading', { name: 'Work', exact: true })).toBeVisible();
+    expect((await heading.boundingBox())!.height).toBeLessThanOrEqual(80);
+    for (const button of await heading.getByRole('button').all()) {
+      const box = (await button.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`work-legacy-${width}.png`) });
+  }
+});
+
+test('desktop Work starts an unsent planning draft from the canonical collection', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.skip(isMobile, 'Desktop Work collection');
+  await page.route('**/api/todos', (route) =>
+    route.fulfill({ json: { profiles: ['telos'], items: [] } }),
+  );
+  const sends: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/chat/send')
+      sends.push(request.url());
+  });
+  for (const width of [1280, 820]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/todos');
+    const collection = page.locator('.telos-canonical-page');
+    const heading = collection.locator('.todo-collection-heading');
+    const start = heading.getByRole('button', { name: 'New item', exact: true });
+    await expect(start).toBeVisible();
+    await expect(heading.getByRole('button', { name: 'Refresh Telos' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Telos outcomes', exact: true })).toHaveCount(1);
+    const headerBox = (await heading.boundingBox())!;
+    const contentBox = (await collection.locator('.todo-scroll').boundingBox())!;
+    expect(headerBox.y + headerBox.height).toBeLessThanOrEqual(contentBox.y + 1);
+    expect(headerBox.x).toBeGreaterThanOrEqual(0);
+    expect(headerBox.x + headerBox.width).toBeLessThanOrEqual(width);
+    for (const button of await heading.getByRole('button').all()) {
+      const box = (await button.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`work-canonical-${width}.png`) });
+    await start.click();
+    await expect(page).toHaveURL(/\/chat\?draft=[^&]+$/);
+    await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
+      /Help me plan a new Telos outcome\.[\s\S]*Save a draft only after I review it[\s\S]*Do not start work\./,
+    );
+    await expect(page.getByPlaceholder('Milestones — first line is the next action')).toHaveCount(
+      0,
+    );
+    expect(sends).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`work-planning-${width}.png`) });
   }
 });
 
