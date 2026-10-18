@@ -98,6 +98,69 @@
           "validation": "docs/design/approved/chat-settings/VALIDATION.md"
         }
       ]
+    },
+    {
+      "id": "telos-priority-scale",
+      "activeRevision": "priority-scale-2026-10-17",
+      "revisions": [
+        {
+          "id": "priority-scale-2026-10-17",
+          "approvedBy": "User (current Codex conversation)",
+          "approvedOn": "2026-10-17",
+          "approval": {
+            "thread": "01a14b56-e8c7-7e21-aafb-e9b5b63ae917",
+            "quote": "Fine. That works. Implement this and only this.",
+            "scope": "Replace the binary priority affordance with a 1\u201310 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+              "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1"
+            }
+          ],
+          "invariants": [
+            "Priority is an integer from 1 to 10, with larger numbers displayed as higher priority.",
+            "The item header contains one labelled Priority selector showing the selected value out of 10.",
+            "The existing Work tree shows the same value as a compact P<n> badge.",
+            "The surrounding Telos layout, navigation, content and controls remain unchanged.",
+            "The priority amendment preserves existing grouping, urgency sorting and navigation."
+          ],
+          "sources": [
+            "frontend/src/pages/TodoDetailView.tsx",
+            "frontend/src/components/TodoCard.tsx",
+            "frontend/src/hooks/useTodoData.ts",
+            "frontend/src/types/todo.ts",
+            "frontend/src/styles/global.css",
+            "server/api-schemas.ts",
+            "server/app.ts",
+            "frontend/src/components/TodoPrioritySelect.tsx",
+            "frontend/src/lib/todo-utils.ts"
+          ],
+          "checks": [
+            "frontend/src/pages/__tests__/TodoDetailView.test.tsx",
+            "frontend/src/components/__tests__/TodoCard.test.tsx",
+            "frontend/src/pages/__tests__/TodoView.test.tsx",
+            "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+            "frontend/src/hooks/__tests__/useTodoData.test.ts",
+            "server/__tests__/todo-priority-schema.test.ts",
+            "tests/offline/telos-priority.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+              "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/TodoView.test.tsx",
+              "sha256": "52bf6f956ff61077d8e788534b3cbb295071b1c7df19852185da7d9b4d255241"
+            },
+            {
+              "path": "tests/offline/telos-priority.spec.ts",
+              "sha256": "2d4627337c106756dfe92b98e5a7174cca1078d5ae8fd6e2806cfe118b83e893"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

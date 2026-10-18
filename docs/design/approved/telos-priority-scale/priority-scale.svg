@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1440" viewBox="0 0 1440 1440">
+<rect width="1440" height="900" fill="#f8f8f2"/>
+<rect x="0" y="0" width="130" height="900" fill="#f8f8f2"/>
+<line x1="129" y1="0" x2="129" y2="900" stroke="#dce1d4"/>
+<text x="21" y="53" font-family="Arial,sans-serif" font-size="26" font-weight="700" letter-spacing="-1.5" fill="#263128">mitzo</text>
+<text x="23" y="112" font-family="Arial,sans-serif" font-size="12" fill="#687267">◉　Today</text>
+<text x="23" y="161" font-family="Arial,sans-serif" font-size="12" fill="#687267">▣　Chats</text>
+<text x="23" y="210" font-family="Arial,sans-serif" font-size="12" fill="#687267">▤　Inbox</text>
+<rect x="9" y="229" width="112" height="40" rx="8" fill="#e4edda"/>
+<text x="22" y="254" font-family="Arial,sans-serif" font-size="12" fill="#365c32" font-weight="600">☷　Work</text>
+<text x="23" y="302" font-family="Arial,sans-serif" font-size="12" fill="#687267">♙　Agent Library</text>
+<text x="23" y="833" font-family="Arial,sans-serif" font-size="12" fill="#687267">⚙　Settings</text>
+<circle cx="29" cy="867" r="13" fill="#ecefe5"/><text x="29" y="871" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" fill="#596453">D</text><text x="50" y="871" font-family="Arial,sans-serif" font-size="11" fill="#687267">Dimitri</text>
+
+<!-- Approved item overview shell -->
+<rect x="130" y="0" width="1310" height="900" fill="#f8f8f2"/>
+<rect x="130" y="0" width="1310" height="900" fill="none" stroke="#dce1d4"/>
+<text x="164" y="47" font-family="Arial,sans-serif" font-size="12" fill="#626c60">‹</text>
+<text x="186" y="47" font-family="Arial,sans-serif" font-size="11" fill="#626c60">All outcomes　›　Home studio setup　›　Slice 1 · Plan the recording setup</text>
+<text x="164" y="111" font-family="Georgia,serif" font-size="31" fill="#262d27">Slice 1 · Plan the recording setup</text>
+
+<!-- The only new header control: numeric priority beside existing item kind badge -->
+<rect x="1136" y="83" width="92" height="29" rx="5" fill="#ecefe5"/>
+<text x="1182" y="102" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" fill="#626c60">Work item</text>
+<text x="1242" y="101" font-family="Arial,sans-serif" font-size="10" fill="#626c60">Priority</text>
+<rect x="1291" y="81" width="111" height="34" rx="7" fill="#fffef9" stroke="#cdd5c8"/>
+<text x="1304" y="103" font-family="Arial,sans-serif" font-size="12" font-weight="600" fill="#262d27">7 / 10</text>
+<text x="1381" y="102" font-family="Arial,sans-serif" font-size="12" fill="#626c60">⌄</text>
+
+<text x="164" y="145" font-family="Arial,sans-serif" font-size="12" fill="#626c60">Produce a practical recording setup plan from the room, existing equipment and agreed budget.</text>
+<line x1="130" y1="181" x2="1440" y2="181" stroke="#dce1d4"/>
+<text x="166" y="220" font-family="Arial,sans-serif" font-size="12" fill="#365c32" font-weight="600">Overview</text>
+<line x1="163" y1="236" x2="222" y2="236" stroke="#365c32" stroke-width="2"/>
+<text x="249" y="220" font-family="Arial,sans-serif" font-size="12" fill="#626c60">Chat</text>
+<text x="302" y="220" font-family="Arial,sans-serif" font-size="12" fill="#626c60">Materials</text>
+<line x1="130" y1="237" x2="1440" y2="237" stroke="#dce1d4"/>
+
+<!-- Existing overview content layout -->
+<rect x="163" y="263" width="946" height="586" fill="#f8f8f2"/>
+<rect x="1109" y="237" width="331" height="663" fill="#fffef9"/>
+<line x1="1109" y1="237" x2="1109" y2="900" stroke="#dce1d4"/>
+<text x="183" y="289" font-family="Arial,sans-serif" font-size="11" fill="#365c32">Source conversation　↗</text>
+<rect x="163" y="311" width="946" height="178" rx="9" fill="#fffef9" stroke="#dce1d4"/>
+<text x="184" y="341" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#262d27">Worker session</text>
+<rect x="184" y="357" width="904" height="68" rx="7" fill="#f4f5ef"/>
+<circle cx="208" cy="391" r="13" fill="#ecefe5"/><text x="208" y="395" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" fill="#626c60">A</text>
+<text x="233" y="386" font-family="Arial,sans-serif" font-size="12" font-weight="600" fill="#262d27">Studio planner</text>
+<text x="233" y="406" font-family="Arial,sans-serif" font-size="10" fill="#626c60">Personal account · Luna · High · OpenShell · Codex</text>
+<rect x="184" y="443" width="142" height="31" rx="6" fill="#365c32"/><text x="255" y="463" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" fill="#fffef9">Open worker chat</text>
+<rect x="338" y="443" width="102" height="31" rx="6" fill="#fffef9" stroke="#dce1d4"/><text x="389" y="463" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" fill="#262d27">＋ New chat</text>
+<text x="164" y="532" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#262d27">This work item</text>
+<text x="164" y="561" font-family="Arial,sans-serif" font-size="12" fill="#626c60">Its worker keeps the conversation, settings and execution history.</text>
+<text x="164" y="581" font-family="Arial,sans-serif" font-size="12" fill="#626c60">Results remain linked to this item.</text>
+<line x1="163" y1="612" x2="1100" y2="612" stroke="#dce1d4"/>
+<text x="164" y="647" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#262d27">Plans, documents &amp; outputs</text>
+<text x="164" y="675" font-family="Arial,sans-serif" font-size="11" fill="#365c32">View origin</text>
+<rect x="163" y="692" width="946" height="75" rx="8" fill="#fffef9" stroke="#dce1d4"/>
+<rect x="180" y="710" width="38" height="38" rx="7" fill="#ecefe5"/><text x="199" y="735" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" fill="#626c60">▧</text>
+<text x="232" y="722" font-family="Arial,sans-serif" font-size="12" fill="#262d27">Recording setup · brief</text>
+<text x="232" y="744" font-family="Arial,sans-serif" font-size="10" fill="#626c60">r3 · updated 16 Oct 2026 · Source · planning conversation</text>
+<text x="1076" y="734" font-family="Arial,sans-serif" font-size="13" fill="#626c60">↗</text>
+
+<!-- Existing right brief panel -->
+<text x="1135" y="278" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#262d27">Outcome</text>
+<text x="1135" y="303" font-family="Arial,sans-serif" font-size="11" fill="#626c60">Prepare a simple recording setup</text><text x="1135" y="320" font-family="Arial,sans-serif" font-size="11" fill="#626c60">for a first music project.</text>
+<line x1="1135" y1="342" x2="1413" y2="342" stroke="#dce1d4"/>
+<text x="1135" y="371" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#262d27">Why this matters</text>
+<text x="1135" y="397" font-family="Arial,sans-serif" font-size="11" fill="#626c60">Turn the desired result into an</text><text x="1135" y="414" font-family="Arial,sans-serif" font-size="11" fill="#626c60">inspectable, achievable outcome.</text>
+<line x1="1135" y1="436" x2="1413" y2="436" stroke="#dce1d4"/>
+<text x="1135" y="465" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#262d27">Done when</text>
+<text x="1135" y="491" font-family="Arial,sans-serif" font-size="11" fill="#626c60">A first session can be recorded.</text>
+<line x1="1135" y1="514" x2="1413" y2="514" stroke="#dce1d4"/>
+<text x="1135" y="543" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#262d27">Within</text>
+<text x="1135" y="569" font-family="Arial,sans-serif" font-size="11" fill="#365c32">Home studio setup　↗</text>
+<line x1="1135" y1="592" x2="1413" y2="592" stroke="#dce1d4"/>
+<text x="1135" y="621" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#262d27">Task hint</text>
+<text x="1135" y="647" font-family="Arial,sans-serif" font-size="11" fill="#626c60">Use the approved parent plan;</text><text x="1135" y="664" font-family="Arial,sans-serif" font-size="11" fill="#626c60">return evidence with the result.</text>
+<line x1="1135" y1="687" x2="1413" y2="687" stroke="#dce1d4"/>
+<text x="1135" y="716" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#262d27">Origin &amp; dates</text>
+<text x="1135" y="742" font-family="Arial,sans-serif" font-size="10" fill="#626c60">Created 16 Oct · Updated 16 Oct</text>
+<text x="1135" y="760" font-family="Arial,sans-serif" font-size="10" fill="#626c60">Brief r3 · Dimitri + planning agent</text>
+<text x="1135" y="788" font-family="Arial,sans-serif" font-size="11" fill="#365c32">Source conversation　↗</text>
+
+<!-- Small callout outside the UI to show the list-row treatment -->
+<rect x="164" y="802" width="920" height="33" rx="6" fill="#f4f5ef" stroke="#dce1d4" stroke-dasharray="3 3"/>
+<text x="179" y="823" font-family="Arial,sans-serif" font-size="10" fill="#626c60">In the existing Work tree row, the same value appears as a small right-aligned</text>
+<rect x="648" y="808" width="39" height="21" rx="11" fill="#fffef9" stroke="#cdd5c8"/><text x="667" y="822" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" fill="#626c60">P7</text>
+<text x="697" y="823" font-family="Arial,sans-serif" font-size="10" fill="#626c60">badge.</text>
+</svg>
