@@ -11,6 +11,12 @@ import {
   TelosWorkRoleSetupInputSchema,
   type TelosWorkRoleSetupIntent,
   type TelosWorkRoleSetupRecovery,
+  TelosWorkRoleContextReviewSchema,
+  type TelosWorkRoleContextReview,
+  TelosWorkRolePresentationRefSchema,
+  type TelosWorkRolePresentationRef,
+  type TelosWorkRolePresentation,
+  type TelosWorkRoleSetupInput,
   TelosWorkAdvisorDraftSaveRequestSchema,
   TelosWorkSourceSnapshotSchema,
   type TelosWorkCommand,
@@ -226,10 +232,139 @@ export class TelosWorkStore {
       })
       .immediate();
   }
+  /** One SQLite boundary captures names with their actual selected revisions. */
+  reviewRolePresentation(
+    actor: TelosWorkActor,
+    produce: () => Pick<TelosWorkRoleContextReview, 'selection' | 'presentation'>,
+  ): TelosWorkRoleContextReview {
+    this.operator(actor);
+    return this.retainRolePresentation(`operator:${actor.id}`, produce);
+  }
+  private retainRolePresentation(
+    actorId: string,
+    produce: () => Pick<TelosWorkRoleContextReview, 'selection' | 'presentation'>,
+  ): TelosWorkRoleContextReview {
+    return this.db
+      .transaction(() => {
+        const candidate = produce();
+        const presentationRef = { id: randomUUID(), sha256: hash(candidate.presentation) };
+        const reviewed = TelosWorkRoleContextReviewSchema.parse({
+          version: 1,
+          ...candidate,
+          presentationRef,
+        });
+        if (
+          reviewed.presentation.contextSha256 !== hash(reviewed.selection) ||
+          presentationRef.sha256 !== hash(reviewed.presentation)
+        )
+          invalid('Reviewed presentation bytes changed');
+        this.db
+          .prepare(
+            'INSERT INTO telos_work_role_presentations(id,actor_id,selection,presentation,sha256) VALUES(?,?,?,?,?)',
+          )
+          .run(
+            presentationRef.id,
+            actorId,
+            JSON.stringify(reviewed.selection),
+            JSON.stringify(reviewed.presentation),
+            presentationRef.sha256,
+          );
+        return reviewed;
+      })
+      .immediate();
+  }
+  private readRolePresentation(
+    raw: TelosWorkRolePresentationRef,
+    actorId: string,
+  ): TelosWorkRoleContextReview {
+    const ref = TelosWorkRolePresentationRefSchema.parse(raw);
+    const row = this.db
+      .prepare('SELECT * FROM telos_work_role_presentations WHERE id=?')
+      .get(ref.id) as
+      { actor_id: string; selection: string; presentation: string; sha256: string } | undefined;
+    if (!row) conflict('Reviewed presentation unavailable');
+    if (row.actor_id !== actorId)
+      throw new TelosWorkError('unauthorized', 'Original presentation owner required');
+    if (row.sha256 !== ref.sha256) conflict('Reviewed presentation reference changed');
+    const parsed = TelosWorkRoleContextReviewSchema.safeParse({
+      version: 1,
+      selection: JSON.parse(row.selection),
+      presentation: JSON.parse(row.presentation),
+      presentationRef: ref,
+    });
+    if (
+      !parsed.success ||
+      parsed.data.presentation.contextSha256 !== hash(parsed.data.selection) ||
+      ref.sha256 !== hash(parsed.data.presentation)
+    )
+      throw new Error('Retained reviewed presentation unavailable');
+    return parsed.data;
+  }
+  private qualifyRolePresentation(
+    input: TelosWorkRoleSetupInput,
+    actor: TelosWorkActor,
+    raw: TelosWorkRolePresentationRef | null,
+    hasOriginal: boolean,
+  ) {
+    const actorId = `operator:${actor.id}`;
+    const fingerprint = hash(input);
+    const saved = this.db
+      .prepare('SELECT * FROM telos_work_role_setup_presentations WHERE request_id=?')
+      .get(input.requestId) as
+      | {
+          actor_id: string;
+          fingerprint: string;
+          presentation_id: string;
+          presentation_sha256: string;
+        }
+      | undefined;
+    if (
+      saved &&
+      (saved.actor_id !== actorId ||
+        saved.fingerprint !== fingerprint ||
+        !raw ||
+        raw.id !== saved.presentation_id ||
+        raw.sha256 !== saved.presentation_sha256)
+    )
+      conflict('Original role presentation required for this request');
+    if (!raw) return;
+    const review = this.readRolePresentation(raw, `operator:${actor.id}`);
+    if (JSON.stringify(review.selection) !== JSON.stringify(input.contextSelection))
+      conflict('Presentation belongs to a different reviewed context');
+    if (saved) return;
+    if (hasOriginal) conflict('A presentation cannot attach to an existing role request');
+    this.db
+      .prepare(
+        'INSERT INTO telos_work_role_setup_presentations(request_id,actor_id,fingerprint,presentation_id,presentation_sha256) VALUES(?,?,?,?,?)',
+      )
+      .run(input.requestId, actorId, fingerprint, raw.id, raw.sha256);
+  }
+  rolePresentationForSetup(
+    raw: unknown,
+    actor: TelosWorkActor,
+  ): TelosWorkRoleContextReview | undefined {
+    this.operator(actor);
+    const input = TelosWorkRoleSetupInputSchema.parse(raw);
+    const saved = this.db
+      .prepare('SELECT * FROM telos_work_role_setup_presentations WHERE request_id=?')
+      .get(input.requestId) as
+      | {
+          actor_id: string;
+          fingerprint: string;
+          presentation_id: string;
+          presentation_sha256: string;
+        }
+      | undefined;
+    if (!saved) return undefined;
+    const ref = { id: saved.presentation_id, sha256: saved.presentation_sha256 };
+    this.qualifyRolePresentation(input, actor, ref, true);
+    return this.readRolePresentation(ref, `operator:${actor.id}`);
+  }
   prepareRoleSetup(
     raw: unknown,
     actor: TelosWorkActor,
     reviewIsCurrent?: () => boolean,
+    presentationRef?: TelosWorkRolePresentationRef | null,
   ): { setup: TelosWorkRoleSetupIntent; receipt: TelosWorkCommandReceipt | null } {
     this.operator(actor);
     const input = TelosWorkRoleSetupInputSchema.parse(raw);
@@ -244,6 +379,17 @@ export class TelosWorkStore {
           )
           .get(actorId, input.requestId) as
           { fingerprint: string; intent: string; receipt: string | null } | undefined;
+        const rejected = this.db
+          .prepare(
+            'SELECT actor_id,fingerprint,reason FROM telos_work_role_setup_rejections WHERE request_id=?',
+          )
+          .get(input.requestId) as
+          | { actor_id: string; fingerprint: string; reason: 'work_revision' | 'reviewed_context' }
+          | undefined;
+        // Public HTTP admission supplies null for legacy setup or the exact ref.
+        // Internal ordinary owner replay omits this extra display-data qualifier.
+        if (presentationRef !== undefined)
+          this.qualifyRolePresentation(input, actor, presentationRef, !!saved || !!rejected);
         if (saved) {
           if (saved.fingerprint !== fingerprint)
             conflict('Role setup identity reused with different input');
@@ -262,13 +408,6 @@ export class TelosWorkStore {
             .get(input.requestId, actorId)
         )
           conflict('Role setup request belongs to another operator');
-        const rejected = this.db
-          .prepare(
-            'SELECT actor_id,fingerprint,reason FROM telos_work_role_setup_rejections WHERE request_id=?',
-          )
-          .get(input.requestId) as
-          | { actor_id: string; fingerprint: string; reason: 'work_revision' | 'reviewed_context' }
-          | undefined;
         if (rejected) {
           if (rejected.actor_id !== actorId || rejected.fingerprint !== fingerprint)
             conflict('Role setup identity reused with different input or operator');
@@ -1076,6 +1215,7 @@ export class TelosWorkStore {
     raw: unknown,
     actor: TelosWorkActor,
     assertBeforeApply: (intent: TelosWorkDelegationIntent) => void = () => {},
+    capturePresentation?: (intent: TelosWorkDelegationIntent) => TelosWorkRolePresentation,
   ): { intent: TelosWorkDelegationIntent; receipt: TelosWorkDelegationReceipt | null } {
     const input = TelosWorkDelegationInputSchema.parse(raw);
     const actorId = `${actor.kind}:${actor.id}`;
@@ -1172,6 +1312,14 @@ export class TelosWorkStore {
         };
         this.assertDelegationAuthority(intent, actor);
         assertBeforeApply(intent);
+        // Capture before adding the attempt advances this item's revision. The
+        // presentation and its attempt association commit in this same owner.
+        const display = capturePresentation
+          ? this.retainRolePresentation(actorId, () => ({
+              selection: intent.input.contextSelection,
+              presentation: capturePresentation(structuredClone(intent)),
+            }))
+          : undefined;
         const attempt = TelosWorkAttemptSchema.parse({
           version: 1,
           requestId: input.requestId,
@@ -1202,9 +1350,41 @@ export class TelosWorkStore {
         this.db
           .prepare('INSERT INTO telos_work_delegation_requests VALUES(?,?,?,?,?,NULL)')
           .run(actorId, input.requestId, fingerprint, intent.attemptId, JSON.stringify(intent));
+        if (display)
+          this.db
+            .prepare(
+              'INSERT INTO telos_work_delegation_presentations(attempt_id,presentation_id,presentation_sha256) VALUES(?,?,?)',
+            )
+            .run(intent.attemptId, display.presentationRef.id, display.presentationRef.sha256);
         return { intent, receipt: null };
       })
       .immediate();
+  }
+  /** Host-only display read after exact existing S5 authority is requalified. */
+  rolePresentationForDelegation(
+    intent: TelosWorkDelegationIntent,
+    actor: TelosWorkActor,
+  ): TelosWorkRoleContextReview | undefined {
+    this.assertDelegationAuthority(intent, actor);
+    const original = this.db
+      .prepare('SELECT intent FROM telos_work_delegation_requests WHERE attempt_id=? LIMIT 1')
+      .get(intent.attemptId) as { intent: string } | undefined;
+    if (!original || JSON.stringify(JSON.parse(original.intent)) !== JSON.stringify(intent))
+      conflict('Original delegation presentation scope required');
+    const saved = this.db
+      .prepare(
+        'SELECT presentation_id,presentation_sha256 FROM telos_work_delegation_presentations WHERE attempt_id=?',
+      )
+      .get(intent.attemptId) as
+      { presentation_id: string; presentation_sha256: string } | undefined;
+    if (!saved) return undefined;
+    const review = this.readRolePresentation(
+      { id: saved.presentation_id, sha256: saved.presentation_sha256 },
+      intent.actorId,
+    );
+    if (JSON.stringify(review.selection) !== JSON.stringify(intent.input.contextSelection))
+      throw new Error('Original delegated role presentation unavailable');
+    return review;
   }
   markDelegationUncertain(attemptId: string) {
     this.db

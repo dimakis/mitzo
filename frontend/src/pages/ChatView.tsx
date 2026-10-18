@@ -1382,15 +1382,17 @@ export function ChatView() {
           </button>
         </div>
       )}
-      <ChatWelcome
-        active={
-          !activeSessionId &&
-          !briefingChat.isBriefing &&
-          !messages.running &&
-          messages.messages.length === 0 &&
-          !messages.current
-        }
-      />
+      {!roleIntent && (
+        <ChatWelcome
+          active={
+            !activeSessionId &&
+            !briefingChat.isBriefing &&
+            !messages.running &&
+            messages.messages.length === 0 &&
+            !messages.current
+          }
+        />
+      )}
       <SymposiumConversation
         onContinueInNewChat={(text) => {
           const path = newChatPathWithDraft(text);
