@@ -1,4 +1,5 @@
 import { CredentialConnectionSetups, type ConnectionSetup } from './credential-setup.js';
+import { ConnectionRequestError, connectionRequestError } from './connection-request-error.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   WebSocketConfigSchema,
@@ -729,15 +730,16 @@ export class CredentialConnections {
       );
       combined.throwIfAborted();
       check();
+      if (response.status === 401) throw new ConnectionRequestError('authentication_failed');
+      if (response.status === 403) throw new ConnectionRequestError('access_denied');
+      if (response.status === 429 || response.status >= 500)
+        throw new ConnectionRequestError('service_unavailable');
       const body = redactCredentialResponse(response.body, secret, headers);
       return { status: response.status, body };
     } catch (error) {
       if (error instanceof Error && error.name === 'KeychainUnavailableError') throw error;
-      if (signal.aborted || controller.signal.aborted)
-        // eslint-disable-next-line preserve-caught-error -- Upstream errors may contain secrets.
-        throw new Error('Connection request cancelled');
       // eslint-disable-next-line preserve-caught-error -- Upstream errors may contain secrets.
-      throw new Error('Connection request failed');
+      throw connectionRequestError(error, combined, request.method);
     } finally {
       controllers.delete(controller);
       if (!controllers.size) this.active.delete(key);
