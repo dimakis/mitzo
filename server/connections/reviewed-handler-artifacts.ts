@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.343-resource-review-import.1';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.344-ordinary-command-outbox.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/client/src/local-command-delivery.ts':
+    '39aaa31d95c34e025dddad6be5628a081989546f281ea410329686f305326add',
   '../ordinary-workspace-artifact-root.ts':
     'c8432fa77fc88b058c0a62a8357d0a816da8ce2d711fe09e6de7e6705fff570c',
   '../../packages/protocol/src/ordinary-workspace-public.ts':
@@ -453,7 +456,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    '0daa50ad56f8e4dd6318d4315b09b6bb036e2e5208afb222857d64050e399804',
+    'd44e4ab3cb8fc85a268946a28f25e2eaf987e81cb6de172967b4d7436522fdee',
 
   // Explicit authenticated Local entry, immutable request and shared startup ownership.
   '../../packages/protocol/src/local-codex-first-command.ts':
@@ -513,7 +516,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    'efe6c0da20f366f8c52fe7afe8e82dfc075a2e3c2cfaeadd03933d0cf72d0796',
+    '57d24d67ba6a90c356767bd139e1a53ce0b1ef0f8078989a53bba51a7b8634ee',
   '../../packages/harness/src/permission-handler.ts':
     '180a1d3465818e4e53e8184c2ab7ca5fc53b0a267461e9a2fc0291a8a9b09011',
   '../../packages/harness/src/permissions.ts':

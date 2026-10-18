@@ -1,13 +1,13 @@
 import {
+  OrdinaryCommandDeliverySchema,
+  parseLocalCommandDelivery,
+  type OrdinaryCommandDelivery,
+} from './local-command-delivery.js';
+import {
   SourceSnapshotsSchema,
-  OrdinaryRuntimeFirstCommandSchema,
-  OrdinaryRuntimeContinuationCommandSchema,
   LocalCodexFirstCommandReceiptSchema,
   OrdinaryCodexRetainedCommandObservationSchema,
 } from '@mitzo/protocol';
-const localCommandSchema = OrdinaryRuntimeFirstCommandSchema.or(
-  OrdinaryRuntimeContinuationCommandSchema,
-);
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
 interface Entry {
   body: Record<string, unknown>;
@@ -15,6 +15,7 @@ interface Entry {
   uncertain?: boolean;
   localReceipt?: { sessionId: string; state: 'reserved' | 'uncertain' | 'consumed' };
   localDraftId?: string;
+  ordinaryDelivery?: OrdinaryCommandDelivery;
 }
 interface Config {
   url: string;
@@ -65,7 +66,14 @@ export class SendOutbox {
             typeof entry.uncertain !== 'boolean' ||
             Object.keys(entry).some(
               (key) =>
-                !['body', 'scope', 'uncertain', 'localReceipt', 'localDraftId'].includes(key),
+                ![
+                  'body',
+                  'scope',
+                  'uncertain',
+                  'localReceipt',
+                  'localDraftId',
+                  'ordinaryDelivery',
+                ].includes(key),
             )
           )
             throw Error('Invalid Local recovery');
@@ -74,7 +82,11 @@ export class SendOutbox {
             (typeof entry.localDraftId !== 'string' || !/^\S{1,200}$/.test(entry.localDraftId))
           )
             throw Error('Invalid Local draft identity');
-          const body = localCommandSchema.parse(entry.body);
+          const ordinaryDelivery =
+            entry.ordinaryDelivery === undefined
+              ? undefined
+              : OrdinaryCommandDeliverySchema.parse(entry.ordinaryDelivery);
+          const body = parseLocalCommandDelivery(entry.body, ordinaryDelivery);
           if (
             entry.localReceipt &&
             (!['reserved', 'uncertain', 'consumed'].includes(entry.localReceipt.state) ||
@@ -85,7 +97,12 @@ export class SendOutbox {
               Object.keys(entry.localReceipt).length !== 2)
           )
             throw Error('Invalid Local receipt');
-          return { ...entry, body, uncertain: true };
+          return {
+            ...entry,
+            body,
+            ...(ordinaryDelivery ? { ordinaryDelivery } : {}),
+            uncertain: true,
+          };
         });
       } else if (Array.isArray(saved))
         this.entries = saved.filter(
@@ -149,21 +166,32 @@ export class SendOutbox {
     // Pause new work; the bounded in-flight request may still acknowledge.
   }
 
-  enqueue(body: Record<string, unknown>, scope: number, localDraftId?: string): boolean {
+  enqueue(
+    body: Record<string, unknown>,
+    scope: number,
+    localDraftId?: string,
+    ordinaryDelivery?: OrdinaryCommandDelivery,
+  ): boolean {
     if (this.config.durableLaunches && body.sessionId !== null) return false;
     if (this.config.localFirstCommand) {
       if (localDraftId !== undefined && !/^\S{1,200}$/.test(localDraftId)) return false;
-      const parsed = localCommandSchema.safeParse(body);
-      if (!parsed.success || this.invalidLocalRecovery || this.entries.length || !this.active)
+      if (this.invalidLocalRecovery || this.entries.length || !this.active) return false;
+      try {
+        body = structuredClone(parseLocalCommandDelivery(body, ordinaryDelivery));
+        if (ordinaryDelivery)
+          ordinaryDelivery = OrdinaryCommandDeliverySchema.parse(ordinaryDelivery);
+      } catch {
         return false;
-      body = structuredClone(parsed.data);
+      }
     }
+    if (ordinaryDelivery && !this.config.localFirstCommand) return false;
     if (this.entries.length >= 100) return false;
     this.entries.push({
       body: { ...body },
       scope,
       ...(this.config.localFirstCommand ? { uncertain: false } : {}),
       ...(this.config.localFirstCommand && localDraftId ? { localDraftId } : {}),
+      ...(ordinaryDelivery ? { ordinaryDelivery: structuredClone(ordinaryDelivery) } : {}),
     });
     const durable = this.persist();
     if (
@@ -232,6 +260,9 @@ export class SendOutbox {
       state,
       ...(acknowledged ? { acknowledged: true } : {}),
       request: structuredClone(entry.body),
+      ...(entry.ordinaryDelivery
+        ? { ordinaryDelivery: structuredClone(entry.ordinaryDelivery) }
+        : {}),
       clientMsgId: entry.body.clientMsgId,
       ...(entry.localDraftId ? { originDraftId: entry.localDraftId } : {}),
       ...(entry.localReceipt ? { sessionId: entry.localReceipt.sessionId } : {}),
@@ -257,13 +288,15 @@ export class SendOutbox {
       if (!this.persist()) throw Error('Local intent could not be retained');
       const response = await Promise.race([
         this.config.fetch(
-          entry.body.runOn === 'openshell'
-            ? typeof entry.body.sessionId === 'string'
-              ? '/api/chat/runtime/continue'
-              : '/api/chat/runtime/send'
-            : typeof entry.body.sessionId === 'string'
-              ? this.config.url.replace(/\/send$/, '/continue')
-              : this.config.url,
+          entry.ordinaryDelivery
+            ? '/api/ordinary/workspaces/commands/' + entry.ordinaryDelivery.phase
+            : entry.body.runOn === 'openshell'
+              ? typeof entry.body.sessionId === 'string'
+                ? '/api/chat/runtime/continue'
+                : '/api/chat/runtime/send'
+              : typeof entry.body.sessionId === 'string'
+                ? this.config.url.replace(/\/send$/, '/continue')
+                : this.config.url,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
