@@ -6,7 +6,14 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { ordinaryRuntimeInventoryFixture } from '../../frontend/src/test-utils/ordinary-runtime-inventory-fixture';
 import { OrdinaryRuntimeFirstCommandSchema } from '../../packages/protocol/src/local-codex-first-command';
-import { profileBuilderDefinition } from '../../packages/protocol/src/profile-builder';
+import {
+  PROFILE_BUILDER_REVISION,
+  profileBuilderDefinition,
+} from '../../packages/protocol/src/profile-builder';
+import {
+  AgentTaskDefinitionSchema,
+  type AgentTaskRecord,
+} from '../../packages/protocol/src/agent-tasks';
 import { V2SendMessage } from '../../packages/protocol/src/ws-schemas-v2';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
@@ -44,7 +51,7 @@ const runtimeInventory = {
     {
       kind: 'builtin' as const,
       profileId: 'mitzo-profile-builder',
-      revision: 1,
+      revision: PROFILE_BUILDER_REVISION,
       definition: profileBuilderDefinition,
       contentHash: createHash('sha256')
         .update(JSON.stringify(profileBuilderDefinition))
@@ -57,6 +64,7 @@ async function offline(
   theme: 'light' | 'dark',
   unavailable = false,
   allowDispatch = false,
+  taskAuthoring: 'create' | 'edit' | null = null,
 ) {
   const files = (await bundle).outputFiles;
   const unexpected: string[] = [];
@@ -85,6 +93,42 @@ async function offline(
       'visible' | 'hidden' | 'unavailable' | 'malformed' | 'not-found' | 'unclassified',
     metadataReads: 0,
   };
+  const task = {
+    definition: AgentTaskDefinitionSchema.parse({
+      name: 'Morning review',
+      objective: 'Review the accepted report.',
+      profile: {
+        profileId: 'bob',
+        revision: 3,
+        contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+      },
+      execution: {
+        account: {
+          accountId: 'task-only-account',
+          provider: 'openai-codex',
+          profileRevision: 'task-r1',
+        },
+        harness: 'codex',
+        targetId: 'task-only-target',
+        model: 'luna-task-fixture',
+        reasoningEffort: 'low',
+        mode: 'ask',
+        authorityRefs: ['reviewed-task-authority'],
+      },
+      workspace: { workspaceId: 'task-only-workspace', sourceRefs: ['report-r3'] },
+      schedule: { cron: '0 7 * * 1-5', timezone: 'Europe/Dublin', state: 'paused' },
+      notificationPolicy: 'results',
+      outputPolicy: 'session',
+    }),
+    expectedRevision: taskAuthoring === 'edit' ? 3 : 0,
+    saves: [] as Record<string, unknown>[],
+    saved: null as AgentTaskRecord | null,
+    failNext: true,
+    revoked: false,
+    readStatus: 200,
+    holdSave: false,
+    releaseSave: null as (() => void) | null,
+  };
   let proposalSaved = false;
   const controlPosts = [
     '/api/chat/switch',
@@ -112,6 +156,14 @@ async function offline(
     if (path.endsWith('.png') || path.endsWith('.svg'))
       return route.fulfill({ body: await readFile(resolve('frontend/public', path.slice(1))) });
     if (path.startsWith('/api/')) {
+      if (path === '/api/telos/work/links' && route.request().method() === 'POST') {
+        // Existing Resources association lookup is a read; it grants no work mutation.
+        expect(route.request().postDataJSON()).toEqual({
+          namespace: 'mitzo',
+          conversationId: sessionId,
+        });
+        return route.fulfill({ json: [] });
+      }
       if (route.request().method() === 'POST' && controlPosts.includes(path))
         return route.fulfill({ json: { ok: true, applied: true } });
       if (allowDispatch && route.request().method() === 'POST') {
@@ -129,6 +181,45 @@ async function offline(
           });
           lifecycle.legacyAccepted++;
           return;
+        }
+        if (
+          taskAuthoring &&
+          path === '/api/symposium/profile-proposals/offline-task-proposal/save'
+        ) {
+          const body = route.request().postDataJSON() as Record<string, unknown>;
+          task.saves.push(body);
+          if (task.holdSave)
+            await new Promise<void>((resolve) => {
+              task.releaseSave = resolve;
+            });
+          if (task.revoked)
+            return route.fulfill({
+              status: 403,
+              json: { error: 'Interactive operator authority was revoked' },
+            });
+          if (task.failNext) {
+            task.failNext = false;
+            return route.fulfill({
+              status: 503,
+              json: { error: 'Offline task owner unavailable' },
+            });
+          }
+          const savedDefinition = AgentTaskDefinitionSchema.parse(body.definition);
+          task.saved = {
+            taskId: 'morning-review',
+            revision: task.expectedRevision + 1,
+            definition: savedDefinition,
+            configuration:
+              savedDefinition.objective.trim() &&
+              savedDefinition.execution &&
+              savedDefinition.workspace
+                ? { state: 'blocked', reason: 'admission-unavailable' }
+                : { state: 'draft' },
+            deleted: false,
+            createdAt: '2026-10-17T10:00:00Z',
+            updatedAt: '2026-10-17T10:00:00Z',
+          };
+          return route.fulfill({ json: task.saved });
         }
         if (path === '/api/symposium/profile-proposals/offline-builder-proposal/save') {
           const body = route.request().postDataJSON() as Record<string, unknown>;
@@ -186,6 +277,11 @@ async function offline(
           json: { error: 'No inference or writes during setup' },
         });
       }
+      if (path === '/api/symposium/profile-proposals' && task.readStatus !== 200)
+        return route.fulfill({
+          status: task.readStatus,
+          json: { error: 'Offline task review unavailable' },
+        });
       if (['/api/chat/runtime/capabilities', '/api/chat/local-codex/capabilities'].includes(path))
         return route.fulfill(
           lifecycle.legacy
@@ -230,7 +326,7 @@ async function offline(
           ],
         },
         '/api/agent-library/tools': { tools: [] },
-        '/api/agent-tasks': [],
+        '/api/agent-tasks': task.saved ? [task.saved] : [],
         '/api/accounts': lifecycle.legacy
           ? [
               {
@@ -254,7 +350,7 @@ async function offline(
           isHidden: lifecycle.metadata === 'hidden',
           sessionType: 'chat',
           mode: 'agent',
-          runtimeCommandScope: 'first-command-only',
+          runtimeCommandScope: taskAuthoring ? 'conversation' : 'first-command-only',
           runtimeBinding: lifecycle.legacy
             ? null
             : {
@@ -298,23 +394,67 @@ async function offline(
                     commands[0]?.payload.sourceSnapshots ?? legacyCommands[0].sourceSnapshots,
                   timestamp: 1,
                 },
+                ...(taskAuthoring
+                  ? [
+                      {
+                        messageId: 'ordinary-task-authoring-result',
+                        role: 'assistant',
+                        timestamp: 2,
+                        blocks: [
+                          {
+                            blockId: 'task-read-call',
+                            blockType: 'tool_use',
+                            content: '',
+                            toolName: 'AgentReadTasks',
+                            toolResult: JSON.stringify({ tasks: [] }),
+                          },
+                          {
+                            blockId: 'task-propose-call',
+                            blockType: 'tool_use',
+                            content: '',
+                            toolName: 'AgentProposeTask',
+                            toolResult: JSON.stringify({
+                              proposalId: 'offline-task-proposal',
+                              status: 'awaiting_user_review',
+                              taskId: 'morning-review',
+                              expectedRevision: task.expectedRevision,
+                            }),
+                          },
+                        ],
+                      },
+                    ]
+                  : []),
               ]
             : [],
         '/api/symposium/profile-proposals':
-          allowDispatch && commands.length && !proposalSaved
+          taskAuthoring && commands.length
             ? [
                 {
-                  proposalId: 'offline-builder-proposal',
-                  suggestedProfileId: null,
-                  state: 'pending',
-                  definition: {
-                    ...definition,
-                    name: 'Bob refined',
-                    instructions: 'Compare options and cite decision evidence.',
-                  },
+                  kind: 'task',
+                  sessionId,
+                  createdAt: 1,
+                  proposalId: 'offline-task-proposal',
+                  taskId: 'morning-review',
+                  expectedRevision: task.expectedRevision,
+                  definition: task.definition,
+                  state: task.saved ? 'saved' : 'pending',
+                  savedTask: task.saved,
                 },
               ]
-            : [],
+            : allowDispatch && commands.length && !proposalSaved
+              ? [
+                  {
+                    proposalId: 'offline-builder-proposal',
+                    suggestedProfileId: null,
+                    state: 'pending',
+                    definition: {
+                      ...definition,
+                      name: 'Bob refined',
+                      instructions: 'Compare options and cite decision evidence.',
+                    },
+                  },
+                ]
+              : [],
         [`/api/sessions/${sessionId}/symposium/status`]: { sessionId, config: null, seats: [] },
       };
       return route.fulfill({ json: data[path] ?? [] });
@@ -324,7 +464,7 @@ async function offline(
       body: `<!doctype html><html data-theme="${theme}" data-accent="teal" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
     });
   });
-  return { unexpected, errors, commands, legacyCommands, proposalSaves, lifecycle };
+  return { unexpected, errors, commands, legacyCommands, proposalSaves, lifecycle, task };
 }
 
 async function openSettings(page: Page) {
@@ -370,6 +510,154 @@ async function reviewSource(page: Page, name: string, screenshotPath?: string) {
   return snapshot;
 }
 
+async function editableProfileName(page: Page) {
+  const field = page.getByLabel('Agent name', { exact: true });
+  const edit = page.getByText('Edit profile', { exact: true });
+  await expect(field.or(edit).first()).toBeVisible();
+  if (!(await field.isVisible())) await edit.click();
+  return field;
+}
+
+async function openTaskReview(page: Page, expectedRevision: number, screenshotPath?: string) {
+  await expect(page.getByRole('region', { name: 'Task editor', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Agent task proposal', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole('textbox', { name: 'Task name', exact: true })).toHaveCount(0);
+  const activity = page.getByRole('button', { name: 'Activity: AgentProposeTask', exact: true });
+  await expect(activity).toBeVisible();
+  if ((await activity.getAttribute('aria-expanded')) !== 'true') await activity.click();
+  await page.getByRole('button', { name: 'AgentProposeTask', exact: true }).click();
+  const review = page.getByRole('link', { name: 'Review task in Library', exact: true });
+  if (screenshotPath) {
+    await review.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: screenshotPath, animations: 'disabled' });
+  }
+  const url = new URL((await review.getAttribute('href'))!, page.url());
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    proposal: 'offline-task-proposal',
+    session: sessionId,
+    task: 'morning-review',
+    revision: String(expectedRevision),
+  });
+  await review.click();
+  await expect(page).toHaveURL(url.href);
+  return page.getByRole('region', { name: 'Task editor', exact: true });
+}
+
+test('ordinary task result keeps chat native, reviews in Library and returns to the exact Builder conversation', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, isMobile ? 'dark' : 'light', false, true, 'create');
+  await page.goto('/agent-library');
+  await expect(page.getByRole('heading', { name: 'Bob', exact: true })).toBeVisible();
+  const collections = page.getByRole('tablist', { name: 'Library collections', exact: true });
+  const collectionBounds = await Promise.all(
+    (await collections.getByRole('tab').all()).map((tab) => tab.boundingBox()),
+  );
+  expect(collectionBounds).toHaveLength(2);
+  expect(Math.abs(collectionBounds[0]!.y - collectionBounds[1]!.y)).toBeLessThan(1);
+  await page.screenshot({
+    path: info.outputPath('library-published-profile.png'),
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  const source = await reviewSource(page, 'Bob');
+  await prepareFirstCommand(page, 'Propose a paused task using this exact profile.');
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  const originalChat = page.url();
+  const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await composer.fill('Keep discussing the reviewed task.');
+  const builderSettings = await openSettings(page);
+  await chooseSetting(page, 'Thinking', 'low');
+  await builderSettings.getByRole('button', { name: 'Done', exact: true }).click();
+  expect(fixture.task.saves).toEqual([]);
+  expect(fixture.commands).toHaveLength(1);
+  const editor = await openTaskReview(
+    page,
+    0,
+    info.outputPath('ordinary-builder-native-task-result.png'),
+  );
+  await expect(editor.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
+    'Morning review',
+  );
+  await expect(editor).toContainText('Bob · Profile r3');
+  await expect(
+    editor.getByRole('textbox', { name: 'Workspace reference', exact: true }),
+  ).toHaveCount(0);
+  const advanced = editor.getByText('Workspace and notifications', { exact: true });
+  await advanced.focus();
+  await advanced.press('Enter');
+  await expect(
+    editor.getByRole('textbox', { name: 'Workspace reference', exact: true }),
+  ).toHaveValue(fixture.task.definition.workspace!.workspaceId);
+  await advanced.press('Space');
+  await expect(
+    editor.getByRole('textbox', { name: 'Workspace reference', exact: true }),
+  ).toHaveCount(0);
+  await expect(advanced).toBeFocused();
+  await editor
+    .getByRole('textbox', { name: 'Task name', exact: true })
+    .fill('Reviewed morning task');
+  await page.screenshot({
+    path: info.outputPath('library-task-proposal-review.png'),
+    animations: 'disabled',
+  });
+  const largerText = await page.addStyleTag({ content: 'html { font-size:125% !important; }' });
+  await editor.getByRole('button', { name: 'Save task', exact: true }).scrollIntoViewIfNeeded();
+  await expect(editor.getByRole('button', { name: 'Save task', exact: true })).toBeInViewport();
+  expect(await editor.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  for (const control of await editor.locator('input,select,textarea,button,summary').all())
+    if (await control.isVisible())
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await page.screenshot({
+    path: info.outputPath('library-task-large-text.png'),
+    animations: 'disabled',
+  });
+  await largerText.evaluate((element) => element.remove());
+  await page.getByRole('link', { name: 'Back to Agent Builder', exact: true }).click();
+  await expect(page).toHaveURL(originalChat);
+  await expect(composer).toHaveValue('Keep discussing the reviewed task.');
+  expect(await reviewSource(page, 'Bob')).toEqual(source);
+  await openTaskReview(page, 0);
+  await expect(editor.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
+    'Reviewed morning task',
+  );
+  await page.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Offline task owner unavailable');
+  const originalSave = fixture.task.saves[0];
+  expect((originalSave.definition as typeof fixture.task.definition).execution).toEqual(
+    fixture.task.definition.execution,
+  );
+  await page.reload();
+  await expect(editor.getByRole('textbox', { name: 'Task name', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Retry task save', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Saved Reviewed morning task' }),
+  ).toContainText('revision 1');
+  expect(fixture.task.saves[1]).toEqual(originalSave);
+  await page.reload();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Saved Reviewed morning task' }),
+  ).toContainText('revision 1');
+  await page.screenshot({
+    path: info.outputPath('library-task-exact-receipt.png'),
+    animations: 'disabled',
+  });
+  await page.getByRole('link', { name: 'Back to Agent Builder', exact: true }).click();
+  await expect(page).toHaveURL(originalChat);
+  await expect(composer).toHaveValue('Keep discussing the reviewed task.');
+  await page.screenshot({
+    path: info.outputPath('ordinary-builder-task-return.png'),
+    animations: 'disabled',
+  });
+  expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 for (const theme of ['light', 'dark'] as const) {
   test(`Library refinement uses ordinary Builder chat and retains both drafts (${theme})`, async ({
     page,
@@ -378,8 +666,8 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
     const fixture = await offline(page, theme);
     await page.goto('/agent-library');
-    await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
-    await page.getByLabel('Agent name').fill('Working Bob');
+    await expect(await editableProfileName(page)).toHaveValue('Bob');
+    await (await editableProfileName(page)).fill('Working Bob');
     await page.getByRole('tab', { name: 'Instructions', exact: true }).click();
     const unsavedInstructions = 'Preserve exact whitespace.\n  Compare two viable options.  ';
     await page
@@ -419,7 +707,7 @@ for (const theme of ['light', 'dark'] as const) {
     const panel = await openSettings(page);
     await openChatSetting(page, 'agent');
     await expect(panel.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
-      JSON.stringify(['builtin', 'mitzo-profile-builder', 1]),
+      JSON.stringify(['builtin', 'mitzo-profile-builder', PROFILE_BUILDER_REVISION]),
     );
     await settingsHome(page);
     for (const field of ['Account', 'Model', 'Thinking'] as const) {
@@ -451,7 +739,7 @@ for (const theme of ['light', 'dark'] as const) {
       animations: 'disabled',
     });
     await page.getByRole('link', { name: 'Open Agent Library', exact: true }).click();
-    await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+    await expect(await editableProfileName(page)).toHaveValue('Working Bob');
     await page.getByRole('tab', { name: 'Instructions', exact: true }).click();
     await expect(
       page.getByRole('textbox', { name: 'Behavior and instructions', exact: true }),
@@ -486,7 +774,7 @@ test('Library creation keeps normal setup explicit when runtime choices are unav
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   const fixture = await offline(page, 'light', true);
   await page.goto('/agent-library');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
   await page.getByRole('button', { name: 'Create with Agent Builder', exact: true }).click();
   await expect(page).toHaveURL(/\/chat\?/);
   const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
@@ -514,7 +802,7 @@ test('Library creation keeps normal setup explicit when runtime choices are unav
     animations: 'disabled',
   });
   await page.goBack();
-  await expect(page.getByLabel('Agent name')).toHaveValue('');
+  await expect(await editableProfileName(page)).toHaveValue('');
   await page.goForward();
   await expect(composer).toHaveValue(
     'Retain this creation question until I can configure ordinary execution.',
@@ -530,7 +818,7 @@ test('Library published refinement pins the selected revision without copying an
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   const fixture = await offline(page, 'dark');
   await page.goto('/agent-library');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   const publishedUrl = page.url();
   const source = await reviewSource(page, 'Bob', info.outputPath('ordinary-builder-published.png'));
@@ -542,7 +830,7 @@ test('Library published refinement pins the selected revision without copying an
     contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
   });
   await page.getByRole('link', { name: 'Open Agent Library', exact: true }).click();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
   await page.getByRole('button', { name: 'Create with Agent Builder', exact: true }).click();
   await expect(page).not.toHaveURL(publishedUrl);
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
@@ -562,8 +850,8 @@ test('Library Builder sends one ordinary command with exact reviewed context and
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   const fixture = await offline(page, 'dark', false, true);
   await page.goto('/agent-library');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
-  await page.getByLabel('Agent name').fill('Working Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
+  await (await editableProfileName(page)).fill('Working Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   const snapshot = await reviewSource(page, 'Working Bob');
   const panel = await openSettings(page);
@@ -594,7 +882,11 @@ test('Library Builder sends one ordinary command with exact reviewed context and
       targetId: 'mac',
     },
     selection: {
-      agent: { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 1 },
+      agent: {
+        kind: 'builtin',
+        profileId: 'mitzo-profile-builder',
+        revision: PROFILE_BUILDER_REVISION,
+      },
       model: 'luna-fixture',
       thinking: 'high',
     },
@@ -653,7 +945,7 @@ test('Library Builder sends one ordinary command with exact reviewed context and
     animations: 'disabled',
   });
   await proposal.getByRole('link', { name: 'Open Agent Library', exact: true }).click();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Working Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
   await expect(
@@ -671,8 +963,8 @@ test('Library starts fresh ordinary setup after the assigned conversation is con
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   const fixture = await offline(page, 'dark', false, true);
   await page.goto('/agent-library');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
-  await page.getByLabel('Agent name').fill('Working Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
+  await (await editableProfileName(page)).fill('Working Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   const originalDraft = new URL(page.url()).searchParams.get('draft');
   const source = await reviewSource(page, 'Working Bob');
@@ -682,7 +974,7 @@ test('Library starts fresh ordinary setup after the assigned conversation is con
     .locator('.telos-chat-context')
     .getByRole('link', { name: 'Open Agent Library', exact: true })
     .click();
-  await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Working Bob');
   fixture.lifecycle.metadata = 'hidden';
   const readsBefore = fixture.lifecycle.metadataReads;
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
@@ -709,8 +1001,8 @@ test('Library retains its assigned conversation through uncertain metadata and r
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   const fixture = await offline(page, 'light', false, true);
   await page.goto('/agent-library');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
-  await page.getByLabel('Agent name').fill('Working Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
+  await (await editableProfileName(page)).fill('Working Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   await prepareFirstCommand(
     page,
@@ -728,7 +1020,7 @@ test('Library retains its assigned conversation through uncertain metadata and r
     await expect(page.getByRole('alert')).toContainText(/retained|retry|could not/i);
     await expect(page).toHaveURL(/\/agent-library$/);
     expect(fixture.lifecycle.metadataReads).toBeGreaterThan(readsBefore);
-    await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+    await expect(await editableProfileName(page)).toHaveValue('Working Bob');
     expect(fixture.commands).toHaveLength(1);
   }
   await page.screenshot({
@@ -756,8 +1048,8 @@ test('Library recovers the original uncertain command after its ordinary draft i
   const fixture = await offline(page, 'dark', false, true);
   fixture.lifecycle.legacy = true;
   await page.goto('/agent-library');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
-  await page.getByLabel('Agent name').fill('Working Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
+  await (await editableProfileName(page)).fill('Working Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   const originalDraft = new URL(page.url()).searchParams.get('draft');
   const source = await reviewSource(page, 'Working Bob');
@@ -776,7 +1068,11 @@ test('Library recovers the original uncertain command after its ordinary draft i
     model: 'luna-fixture',
     reasoningEffort: 'high',
     prompt: originalPrompt,
-    agentProfile: { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 1 },
+    agentProfile: {
+      kind: 'builtin',
+      profileId: 'mitzo-profile-builder',
+      revision: PROFILE_BUILDER_REVISION,
+    },
   });
   expect(JSON.parse(originalCommand.sourceSnapshots![0].content)).toEqual(source);
 
@@ -790,7 +1086,7 @@ test('Library recovers the original uncertain command after its ordinary draft i
   await page.getByRole('button', { name: 'Confirm discard', exact: true }).click();
   await expect(draft).toHaveCount(0);
   await page.goto('/agent-library');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Working Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   await expect(page).toHaveURL(/\/chat\?/);
   expect(new URL(page.url()).searchParams.get('draft')).toBe(originalDraft);
@@ -816,7 +1112,7 @@ test('Library recovers the original uncertain command after its ordinary draft i
   fixture.lifecycle.acceptLegacy = true;
   await expect.poll(() => fixture.lifecycle.legacyAccepted, { timeout: 15_000 }).toBeGreaterThan(0);
   await page.goto('/agent-library');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Working Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Working Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
   await expect(page.getByText(originalPrompt, { exact: true })).toBeVisible();
@@ -835,8 +1131,8 @@ test('Library keeps fresh setup when a hidden conversation receives its delayed 
   const fixture = await offline(page, 'light', false, true);
   fixture.lifecycle.commandState = 'reserved';
   await page.goto('/agent-library');
-  await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
-  await page.getByLabel('Agent name').fill('Working Bob');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
+  await (await editableProfileName(page)).fill('Working Bob');
   await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
   const oldDraft = new URL(page.url()).searchParams.get('draft');
   await prepareFirstCommand(page, 'Keep this original reserved command identity.');
@@ -873,4 +1169,305 @@ test('Library keeps fresh setup when a hidden conversation receives its delayed 
   expect(fixture.commands).toHaveLength(2);
   expect(fixture.unexpected).toEqual([]);
   expect(fixture.errors).toEqual([]);
+});
+
+test('ordinary Builder reviews a new Local Mac task using its retained route without changing execution intent', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, isMobile ? 'dark' : 'light', false, true, 'create');
+  fixture.task.definition.execution = {
+    ...fixture.task.definition.execution!,
+    account: runtimeInventory.accounts[0].account,
+    targetId: 'mac',
+    model: 'luna-fixture',
+  };
+  fixture.task.failNext = false;
+  const execution = structuredClone(fixture.task.definition.execution);
+  await page.goto('/agent-library');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await prepareFirstCommand(page, 'Propose a paused task on this Mac.');
+  await openTaskReview(page, 0);
+  const proposal = page.getByRole('region', { name: 'Task proposal review', exact: true });
+  const taskSettings = proposal.getByRole('button', { name: /^Agent settings,/ });
+  await expect(taskSettings).toHaveAccessibleName(/Local Mac/);
+  await taskSettings.click();
+  await expect(proposal.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+    'luna-fixture',
+  );
+  await expect(proposal.getByRole('option', { name: 'Luna fixture', exact: true })).toBeEnabled();
+  await expect(proposal.getByRole('button', { name: 'Local Mac', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(proposal.getByText('Runs with Codex', { exact: true })).toBeVisible();
+  await proposal.getByRole('button', { name: 'Done', exact: true }).click();
+  expect(fixture.task.saves).toEqual([]);
+  expect(fixture.commands).toHaveLength(1);
+  await taskSettings.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: info.outputPath('ordinary-builder-new-local-task.png'),
+    animations: 'disabled',
+  });
+  await proposal.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved Morning review' })).toContainText(
+    'task morning-review · revision 1',
+  );
+  expect(fixture.task.saved?.definition.execution).toEqual(execution);
+  expect(fixture.task.saved?.definition.schedule?.state).toBe('paused');
+  expect(fixture.task.saves).toHaveLength(1);
+  expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+for (const operation of ['create', 'edit'] as const) {
+  test(`ordinary Builder ${operation}s a paused task through explicit review and recovers its exact saved receipt`, async ({
+    page,
+    isMobile,
+  }, info) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+    const fixture = await offline(
+      page,
+      operation === 'create' ? 'dark' : 'light',
+      false,
+      true,
+      operation,
+    );
+    await page.goto('/agent-library');
+    await expect(await editableProfileName(page)).toHaveValue('Bob');
+    await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+    await prepareFirstCommand(page, 'Prepare a paused morning task for review.');
+    await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+    // The Builder used its own ordinary account/model/thinking/target. Task intent
+    // deliberately names unavailable selections and remains inspectable verbatim.
+    expect(fixture.commands[0].selection.thinking).toBe('high');
+    expect(fixture.task.definition.execution?.reasoningEffort).toBe('low');
+    const builderSettings = await openSettings(page);
+    await chooseSetting(page, 'Thinking', 'low');
+    await expect(settingRow(builderSettings, 'Thinking')).toHaveAttribute('data-value', 'low');
+    await chooseSetting(page, 'Thinking', 'high');
+    await expect(settingRow(builderSettings, 'Thinking')).toHaveAttribute('data-value', 'high');
+    await builderSettings.getByRole('button', { name: 'Done', exact: true }).click();
+    await openTaskReview(page, operation === 'edit' ? 3 : 0);
+    const proposal = page.getByRole('region', { name: 'Task proposal review', exact: true });
+    await expect(proposal.getByLabel('Task name', { exact: true })).toHaveValue('Morning review');
+    await expect(proposal).toContainText(
+      operation === 'create' ? 'Nothing is saved as a task yet.' : 'at revision 3',
+    );
+    await expect(
+      proposal.getByRole('combobox', { name: 'Agent profile', exact: true }),
+    ).toHaveValue(`bob:3:${fixture.task.definition.profile.contentHash}`);
+    await expect(proposal.getByRole('button', { name: /^Agent settings,/ })).toHaveAccessibleName(
+      /Low/,
+    );
+    expect(fixture.task.saves).toEqual([]);
+    expect(fixture.commands).toHaveLength(1);
+    await proposal.locator(':scope > p').first().scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: info.outputPath(`ordinary-builder-task-${operation}-top.png`),
+      animations: 'disabled',
+    });
+    await proposal.getByLabel('Task name', { exact: true }).fill('Reviewed morning task');
+    await proposal.getByRole('combobox', { name: 'Schedule', exact: true }).selectOption('cron');
+    await proposal.getByLabel('Cron expression', { exact: true }).fill('tomorrow');
+    await proposal.getByRole('button', { name: 'Save task', exact: true }).click();
+    await expect(proposal.getByRole('alert')).toContainText('five-field cron');
+    expect(fixture.task.saves).toEqual([]);
+    await proposal.getByLabel('Cron expression', { exact: true }).fill('30 8 * * 1-5');
+    await proposal.getByRole('button', { name: 'Save task', exact: true }).click();
+    await expect(proposal.getByRole('alert')).toHaveText('Offline task owner unavailable');
+    expect(fixture.task.saves).toHaveLength(1);
+    const originalSave = fixture.task.saves[0];
+    expect(originalSave).toMatchObject({
+      sessionId,
+      kind: 'task',
+      taskId: 'morning-review',
+      expectedRevision: operation === 'edit' ? 3 : 0,
+    });
+    expect((originalSave.definition as typeof fixture.task.definition).execution).toEqual(
+      fixture.task.definition.execution,
+    );
+    await proposal.getByRole('alert').scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        proposal.evaluate((element) => ({
+          card: element.scrollWidth <= element.clientWidth,
+          area: element.parentElement!.scrollWidth <= element.parentElement!.clientWidth,
+        })),
+      )
+      .toEqual({ card: true, area: true });
+    await page.screenshot({
+      path: info.outputPath(`ordinary-builder-task-${operation}-review.png`),
+      animations: 'disabled',
+    });
+    await page.reload();
+    await expect(proposal.getByLabel('Task name', { exact: true })).toHaveValue(
+      'Reviewed morning task',
+    );
+    await proposal.getByRole('button', { name: 'Retry task save', exact: true }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Saved Reviewed morning task' }),
+    ).toContainText(`task morning-review · revision ${operation === 'edit' ? 4 : 1}`);
+    expect(fixture.task.saves[1]).toEqual(originalSave);
+    expect(fixture.task.saved?.definition.execution).toEqual(fixture.task.definition.execution);
+    expect(fixture.task.saved?.definition.schedule).toEqual({
+      cron: '30 8 * * 1-5',
+      timezone: 'Europe/Dublin',
+      state: 'paused',
+    });
+    expect(fixture.task.saved?.configuration).toEqual({
+      state: 'blocked',
+      reason: 'admission-unavailable',
+    });
+    await page.reload();
+    const receipt = page.getByRole('status').filter({ hasText: 'Saved Reviewed morning task' });
+    await expect(receipt).toContainText('Schedule paused.');
+    await expect(receipt).toContainText('Saving does not start work.');
+    await page.screenshot({
+      path: info.outputPath(`ordinary-builder-task-${operation}-receipt.png`),
+      animations: 'disabled',
+    });
+    await receipt.getByRole('link', { name: 'Open Library task', exact: true }).click();
+    await expect(page).toHaveURL(/\/agent-library\?task=morning-review$/);
+    await expect(page.getByLabel('Task name', { exact: true })).toHaveValue(
+      'Reviewed morning task',
+    );
+    expect(fixture.commands).toHaveLength(1);
+    expect(fixture.proposalSaves).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    expect(fixture.unexpected).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
+}
+
+test('ordinary Builder cancels a task save wait, retains exact retry through operator revocation', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, 'light', false, true, 'create');
+  await page.goto('/agent-library');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await prepareFirstCommand(page, 'Review this task before saving.');
+  await openTaskReview(page, 0);
+  const proposal = page.getByRole('region', { name: 'Task proposal review', exact: true });
+  await expect(proposal.getByLabel('Task name', { exact: true })).toHaveValue('Morning review');
+  fixture.task.failNext = false;
+  fixture.task.holdSave = true;
+  await proposal.getByRole('button', { name: 'Save task', exact: true }).click();
+  await expect.poll(() => fixture.task.saves.length).toBe(1);
+  await proposal.getByRole('button', { name: 'Cancel save wait', exact: true }).click();
+  await expect(proposal.getByRole('alert')).toContainText('outcome is unconfirmed');
+  await expect(proposal.getByRole('textbox', { name: 'Objective', exact: true })).toBeDisabled();
+  fixture.task.revoked = true;
+  fixture.task.holdSave = false;
+  fixture.task.releaseSave?.();
+  await proposal.getByRole('button', { name: 'Retry task save', exact: true }).click();
+  await expect(proposal.getByRole('alert')).toContainText(
+    'Interactive operator authority was revoked',
+  );
+  await expect(proposal.getByRole('textbox', { name: 'Objective', exact: true })).toBeDisabled();
+  await expect(
+    proposal.getByRole('button', { name: 'Discard task proposal', exact: true }),
+  ).toBeDisabled();
+  expect(fixture.task.saves[1]).toEqual(fixture.task.saves[0]);
+  expect(fixture.task.saved).toBeNull();
+  await page.screenshot({
+    path: info.outputPath('ordinary-builder-task-revocation.png'),
+    animations: 'disabled',
+  });
+  fixture.task.readStatus = 503;
+  await page.reload();
+  await expect(page.getByRole('alert')).toHaveText('Offline task review unavailable');
+  await expect(proposal).toHaveCount(0);
+  expect(fixture.task.saves).toHaveLength(2);
+  fixture.task.readStatus = 200;
+  fixture.task.revoked = false;
+  await page.reload();
+  await expect(
+    proposal.getByRole('button', { name: 'Retry task save', exact: true }),
+  ).toBeEnabled();
+  await proposal.getByRole('button', { name: 'Retry task save', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved Morning review' })).toContainText(
+    'revision 1',
+  );
+  expect(fixture.task.saves[2]).toEqual(fixture.task.saves[0]);
+  expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('Library keeps a new task draft independent after leaving an older saved task link', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, isMobile ? 'dark' : 'light', false, true, 'create');
+  fixture.task.failNext = false;
+  await page.goto('/agent-library');
+  await expect(await editableProfileName(page)).toHaveValue('Bob');
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  await prepareFirstCommand(
+    page,
+    'Propose a paused task before assigning another independent draft.',
+  );
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  const originalChat = page.url();
+  await openTaskReview(page, 0);
+  await page.getByRole('button', { name: 'Save task', exact: true }).click();
+  const receipt = page.getByRole('status').filter({ hasText: 'Saved Morning review' });
+  await expect(receipt).toContainText('revision 1');
+  await receipt.getByRole('link', { name: 'Open Library task', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
+    'Morning review',
+  );
+  const originalSaved = structuredClone(fixture.task.saved);
+  await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
+  await page.getByRole('button', { name: 'Assign task', exact: true }).click();
+  await page
+    .getByRole('textbox', { name: 'Task name', exact: true })
+    .fill('Independent unsaved task');
+  await page
+    .getByRole('textbox', { name: 'Objective', exact: true })
+    .fill('Retain this unfinished objective while I return to the Builder.');
+  const retained = await page.evaluate(() =>
+    JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!),
+  );
+  expect(retained.taskId).not.toBe(originalSaved!.taskId);
+  expect(retained.expectedRevision).toBe(0);
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: 'Task settings: Morning review', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
+    'Independent unsaved task',
+  );
+  await expect(page).toHaveURL('https://mitzo-ui.test/agent-library');
+  await page.goto(originalChat);
+  await page.getByRole('link', { name: 'Open Agent Library', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
+    'Independent unsaved task',
+  );
+  await expect(page.getByRole('textbox', { name: 'Objective', exact: true })).toHaveValue(
+    'Retain this unfinished objective while I return to the Builder.',
+  );
+  expect(
+    await page.evaluate(() => JSON.parse(sessionStorage.getItem('mitzo-agent-task-working-copy')!)),
+  ).toEqual(retained);
+  expect(fixture.task.saved).toEqual(originalSaved);
+  expect(fixture.task.saves).toHaveLength(1);
+  expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+  await page.getByRole('button', { name: 'Save task', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: info.outputPath('library-independent-new-task-draft.png'),
+    animations: 'disabled',
+  });
 });

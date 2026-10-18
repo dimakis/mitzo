@@ -3,6 +3,7 @@ import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session
 import { summarizeSandboxInventory } from './sandbox-inventory.js';
 import { readOpenShellSandboxInventory } from './openshell-lifecycle-controller.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
+import { getToolBuilderStore } from './tool-builder-runtime.js';
 import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
 import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
 import { loadMcpServers } from './mcp-config.js';
@@ -1139,6 +1140,7 @@ app.use(
   '/api/agent-library',
   operatorAuthMiddleware,
   createAgentLibraryRouter(getAgentLibrary(), {
+    toolBuilder: () => (custodianOwnerMode ? undefined : getToolBuilderStore()),
     apiTools: () => {
       const service = getCredentialConnectionsRuntime();
       return service ? { catalog: getApiToolCatalog(), service } : undefined;
@@ -4658,6 +4660,9 @@ app.post('/api/todos/:id/action', async (req, res) => {
     const args = [TODO_SCRIPT, '--action', body.data.action, id];
     if (body.data.action === 'snooze' && body.data.days) {
       args.push(String(body.data.days));
+    }
+    if (body.data.action === 'priority' && body.data.priority !== undefined) {
+      args.push(String(body.data.priority));
     }
 
     const { stdout } = await execFileAsync('python3', args, {

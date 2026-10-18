@@ -91,6 +91,23 @@ export const SaveAgentTaskSchema = z.strictObject({
   idempotencyKey: reference,
   definition: AgentTaskDefinitionSchema,
 });
+/** Model proposals carry intent only. Idempotency and operator/session scope are host-owned. */
+export const AgentTaskProposalInputSchema = SaveAgentTaskSchema.omit({ idempotencyKey: true });
+export const AgentReadTasksSchema = z
+  .strictObject({
+    action: z.enum(['list', 'get']),
+    taskId: AgentTaskIdSchema.optional(),
+    offset: z.number().int().nonnegative().optional(),
+  })
+  .superRefine((request, ctx) => {
+    if (request.action === 'get' && (!request.taskId || request.offset !== undefined))
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Get requires a task ID and does not accept offset',
+      });
+    if (request.action === 'list' && request.taskId !== undefined)
+      ctx.addIssue({ code: 'custom', message: 'List does not accept a task ID' });
+  });
 export const CreateAgentTaskSchema = SaveAgentTaskSchema.extend({
   expectedRevision: z.literal(0),
 });

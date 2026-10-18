@@ -1,3 +1,4 @@
+import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import {
   assertAgentToolRoute,
   assertAgentToolSelected,
@@ -1437,6 +1438,16 @@ async function openCodexChatBound(
     startupReservation?.();
     throw error;
   }
+  const localTaskTools = options.ownedLocal
+    ? sessionAgentTaskTools(
+        options.conversationId,
+        options.session,
+        options.registry,
+        '',
+        assertHostCurrent,
+        assertHostCurrentSync,
+      )
+    : undefined;
   const localProfileTools = options.ownedLocal
     ? sessionProfileTools(
         options.conversationId,
@@ -1453,6 +1464,7 @@ async function openCodexChatBound(
           ...nativeToolDefinitions,
           ...mcp.definitions,
           ...profileToolDefinitions,
+          ...agentTaskToolDefinitions,
           githubPublishingDefinition,
         ].map((tool) => tool.name),
       )
@@ -1488,6 +1500,7 @@ async function openCodexChatBound(
     },
     ownedHost ? assertHostCurrent : undefined,
     ownedHost ? assertHostCurrentSync : undefined,
+    !!ownedHost,
   );
   const managedCapabilityConnection = options.binding?.accountId
     ? (managedConnections.find((connection) => connection.templateId === 'github-readonly') ?? null)
@@ -1626,6 +1639,7 @@ async function openCodexChatBound(
           ...nativeToolDefinitions,
           ...mcp.definitions,
           ...profileToolDefinitions,
+          ...agentTaskToolDefinitions,
           githubPublishingDefinition,
         ]
       : connectedOpenShell
@@ -2070,6 +2084,8 @@ async function openCodexChatBound(
       await assertHostCurrent();
       const apiResult = await apiTools?.execute(name, input, signal);
       if (apiResult) return apiResult;
+      const taskResult = await localTaskTools?.execute(name, input, signal, callContext);
+      if (taskResult) return taskResult;
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
       if (profileResult) return profileResult;
       const keychainResult = options.ownedLocal
