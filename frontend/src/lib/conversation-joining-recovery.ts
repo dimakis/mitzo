@@ -41,6 +41,10 @@ const setup = z.strictObject({
     })
     .nullable(),
   agent: AgentProfileSelectionSchema.nullable(),
+  repositoryWorkspaceId:
+    CollaborationApplicationReviewInputSchema.shape.target.shape.repositoryWorkspaceId.optional(),
+  permissionMode:
+    CollaborationApplicationReviewInputSchema.shape.target.shape.permissionMode.optional(),
 });
 const reviewRequest = z.strictObject({
   requestId: z.uuid(),
@@ -105,6 +109,9 @@ const schema = z
           target.model !== setup.selection.model ||
           target.reasoningEffort !== (setup.selection.reasoningEffort ?? null) ||
           target.runOn !== setup.runOn ||
+          (setup.repositoryWorkspaceId !== undefined &&
+            target.repositoryWorkspaceId !== setup.repositoryWorkspaceId) ||
+          (setup.permissionMode !== undefined && target.permissionMode !== setup.permissionMode) ||
           !joiningReviewEqual(target.agent, setup.agent) ||
           (request.joiningBrief !== undefined && selection.joiningBrief !== request.joiningBrief) ||
           !joiningReviewEqual(previousSnapshot, request.previousSnapshot)

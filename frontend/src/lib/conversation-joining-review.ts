@@ -19,6 +19,9 @@ export interface ConversationAgentSetup {
   runOn: 'openshell' | 'local';
   selection: AccountSelection | null;
   agent: AgentProfileSelection | null;
+  /** Explicit fresh-target intent only; the server revalidates preparation custody. */
+  repositoryWorkspaceId?: string;
+  permissionMode?: CollaborationApplicationReviewInput['target']['permissionMode'];
 }
 export interface ConversationArtifactOption {
   artifactId: string;
