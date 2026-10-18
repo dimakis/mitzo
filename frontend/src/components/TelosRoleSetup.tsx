@@ -132,7 +132,12 @@ export function TelosRoleSetup({
       )}
       <p>Choose the ordinary chat settings above. Opening this chat does not send a message.</p>
       {setup.context && (
-        <TelosLinkedContext context={setup.context} summary="Linked work context" />
+        <TelosLinkedContext
+          context={setup.context}
+          presentation={setup.presentation}
+          presentationRef={setup.presentationRef}
+          summary="Linked work context"
+        />
       )}
       {setup.error && <p role="alert">{setup.error}</p>}
       {!settings && (
