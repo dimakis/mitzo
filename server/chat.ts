@@ -1225,7 +1225,21 @@ export async function startChat(
   // repository, registry or transport effects. Keep one generated message ID so
   // the native path cannot later select an unchecked conversation identity.
   const initialMessageId = options.clientMsgId ?? randomUUID();
-  options = { ...options, clientMsgId: initialMessageId };
+  const onStartupAdmission = options.onStartupAdmission;
+  let startupAdmissionSettled = false;
+  options = {
+    ...options,
+    clientMsgId: initialMessageId,
+    ...(onStartupAdmission
+      ? {
+          onStartupAdmission: (error?: unknown) => {
+            if (startupAdmissionSettled) return;
+            startupAdmissionSettled = true;
+            onStartupAdmission(error);
+          },
+        }
+      : {}),
+  };
   const repositoryStartupId =
     options.repositoryWorkspaceId && !options.resume && !options.ordinarySdkAuthority
       ? nativeStartupSessionId(`repository:${options.repositoryWorkspaceId}`)
@@ -2902,43 +2916,54 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     const publicMessage = native
       ? publicCodexStartupError(err instanceof Error ? err : new Error(message))
       : message;
-    // Admission rejection is also a client/span boundary. Never forward the
-    // internal exception or its cause to a second, unsanitized error path.
-    options.onStartupAdmission?.(native ? new Error(publicMessage) : err);
-    terminalizeUndispatchedStartup(initialProviderAdmission);
-    if (message.includes('No conversation found') && options.resume) {
-      log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
-      send(transport, {
-        type: 'error',
-        error: 'Session expired. Send your message again to start fresh.',
-      });
-    } else {
-      log.error('startChat failed after register, cleaning up', {
-        clientId,
-        sessionId: newSdkSessionId ?? session.sessionId,
-        ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
-          ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))
-          : {}),
-        error: publicMessage,
-      });
-      send(transport, {
-        type: 'error',
-        ...(session.sessionId ? { sessionId: session.sessionId } : {}),
-        error: publicMessage,
-      });
+    try {
+      // Admission rejection is also a client/span boundary. Never forward the
+      // internal exception or its cause to a second, unsanitized error path.
+      options.onStartupAdmission?.(native ? new Error(publicMessage) : err);
+      terminalizeUndispatchedStartup(initialProviderAdmission);
+      if (message.includes('No conversation found') && options.resume) {
+        log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
+        send(transport, {
+          type: 'error',
+          error: 'Session expired. Send your message again to start fresh.',
+        });
+      } else {
+        log.error('startChat failed after register, cleaning up', {
+          clientId,
+          sessionId: newSdkSessionId ?? session.sessionId,
+          ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
+            ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))
+            : {}),
+          error: publicMessage,
+        });
+        send(transport, {
+          type: 'error',
+          ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+          error: publicMessage,
+        });
+      }
+    } finally {
+      const failedSession = registry.get(clientId);
+      if (failedSession === session) {
+        // A resumed startup also entered CREATED. Retire its driver state while
+        // retaining native history, bindings and uncertainty records. A replaced
+        // registry owner must never be ended or aborted by this attempt's cleanup.
+        try {
+          const failedSessionId = newSdkSessionId ?? session.sessionId;
+          if (failedSessionId)
+            eventStore.setSessionState(failedSessionId, 'ENDED', {
+              clientId,
+              reason: 'startup_failed',
+            });
+          cleanupSessionWorktrees(failedSession);
+        } finally {
+          registry.abort(clientId);
+        }
+      }
     }
-    if (newSdkSessionId) {
-      // Retain its binding: the SDK may have written history before startup failed.
-      eventStore.setSessionState(newSdkSessionId, 'ENDED', {
-        clientId,
-        reason: 'startup_failed',
-      });
-    }
-    const failedSession = registry.get(clientId);
-    if (failedSession) cleanupSessionWorktrees(failedSession);
-    registry.abort(clientId);
   } finally {
-    _onSessionChange?.(clientId, 'end', session.sessionId);
+    const current = registry.get(clientId);
+    if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);
   }
 }
 

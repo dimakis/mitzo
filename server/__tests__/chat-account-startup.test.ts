@@ -219,102 +219,151 @@ it.each([false, true])(
     }
   },
 );
-it('links a startup error to safe logged diagnostics and the saved session', async () => {
-  vi.resetModules();
-  const root = await mkdtemp(join(tmpdir(), 'mitzo-startup-error-reference-'));
-  vi.stubEnv('REPO_PATH', root);
-  vi.stubEnv('WORKTREE_ENABLED', 'false');
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => new Response(JSON.stringify({ boot: {} }))),
-  );
-  const logger = await import('../logger.js');
-  const logError = vi.fn();
-  vi.spyOn(logger, 'createLogger').mockReturnValue({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: logError,
-  });
-  const { CodexStartupError } = await import('../codex-startup-error.js');
-  const failure = new CodexStartupError(
-    'sandbox_preparation',
-    Object.assign(new Error('ssh PRIVATE_COMMAND Bearer sk-secret'), { code: 'ENOSPC' }),
-  );
-  const codex = await import('../codex-chat-session.js');
-  vi.spyOn(codex, 'openCodexChat').mockRejectedValue(failure);
-  const { CodexAppServerClient } = await import('../codex-app-server-client.js');
-  vi.spyOn(CodexAppServerClient, 'launch').mockReturnValue({
-    initialize: async () => {},
-    close: vi.fn(),
-  } as never);
-  const account = await import('../codex-account.js');
-  const profiles = new AccountProfiles(
-    [
-      {
-        id: 'personal',
-        label: 'Personal',
-        provider: 'openai-codex',
-        credentialRef: '/test/codex',
-        email: 'test@example.com',
-        planType: 'pro',
-        models: [{ id: 'luna', label: 'Luna' }],
-      },
-    ],
-    { codexEnabled: true },
-  );
-  vi.spyOn(account, 'verifyCodexAccount').mockResolvedValue(
-    profiles.resolve('personal', 'luna') as never,
-  );
-  const chat = await import('../chat.js');
-  const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
-  const send = vi.fn();
-  const onStartupAdmission = vi.fn();
-  try {
-    await chat.startChat({ send, isOpen: () => true }, 'error-reference', 'hello', {
-      cwd: root,
-      isolation: false,
-      accountId: 'personal',
-      model: 'luna',
-      accountProfiles: profiles,
-      initialSessionId: sessionId,
-      onStartupAdmission,
+it.each([
+  [false, false, false],
+  [true, false, false],
+  [true, true, false],
+  [true, false, true],
+])(
+  'links a startup error to safe logged diagnostics and the saved session (resume=%s, replaced=%s, deliveryFails=%s)',
+  async (resume, replaced, deliveryFails) => {
+    vi.resetModules();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-startup-error-reference-'));
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private-codex'));
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ boot: {} }))),
+    );
+    const logger = await import('../logger.js');
+    const logError = vi.fn();
+    vi.spyOn(logger, 'createLogger').mockReturnValue({
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: logError,
     });
-    const errors = send.mock.calls
-      .map(([message]) => message)
-      .filter((message) => message.type === 'error');
-    expect(errors).toEqual([
-      expect.objectContaining({
-        sessionId,
-        error: expect.stringContaining(failure.diagnosticId),
-      }),
-    ]);
-    expect(logError).toHaveBeenCalledWith(
-      'startChat failed after register, cleaning up',
-      expect.objectContaining({
-        sessionId,
-        startupPhase: 'sandbox_preparation',
-        startupErrorCode: 'ENOSPC',
-        diagnosticId: failure.diagnosticId,
-      }),
+    const { CodexStartupError } = await import('../codex-startup-error.js');
+    const failure = new CodexStartupError(
+      'sandbox_preparation',
+      Object.assign(new Error('ssh PRIVATE_COMMAND Bearer sk-secret'), { code: 'ENOSPC' }),
     );
-    expect(JSON.stringify([errors, logError.mock.calls])).not.toMatch(
-      /PRIVATE_COMMAND|sk-secret|queued work/,
+    const codex = await import('../codex-chat-session.js');
+    let replacementAbort: AbortController | undefined;
+    vi.spyOn(codex, 'openCodexChat').mockImplementation(async () => {
+      if (replaced) {
+        replacementAbort = new AbortController();
+        chat.registry.register('error-reference', {
+          ...chat.registry.get('error-reference')!,
+          abortController: replacementAbort,
+        });
+        chat.eventStore.setSessionState(sessionId, 'ACTIVE', { clientId: 'replacement' });
+      }
+      throw failure;
+    });
+    const { CodexAppServerClient } = await import('../codex-app-server-client.js');
+    vi.spyOn(CodexAppServerClient, 'launch').mockReturnValue({
+      initialize: async () => {},
+      close: vi.fn(),
+    } as never);
+    const account = await import('../codex-account.js');
+    const profiles = new AccountProfiles(
+      [
+        {
+          id: 'personal',
+          label: 'Personal',
+          provider: 'openai-codex',
+          credentialRef: '/test/codex',
+          email: 'test@example.com',
+          planType: 'pro',
+          models: [{ id: 'luna', label: 'Luna' }],
+        },
+      ],
+      { codexEnabled: true },
     );
-    expect(onStartupAdmission).toHaveBeenCalledOnce();
-    const admittedError = onStartupAdmission.mock.calls[0][0];
-    expect(admittedError.message).toContain(failure.diagnosticId);
-    expect(admittedError.stack).not.toMatch(/PRIVATE_COMMAND|sk-secret/);
-    expect(admittedError.cause).toBeUndefined();
-    expect(chat.registry.get('error-reference')).toBeUndefined();
-    expect(chat.eventStore.getSession(sessionId)?.state).toBe('ENDED');
-  } finally {
-    vi.restoreAllMocks();
-    chat.registry.dispose();
-    chat.eventStore.close();
-    await rm(root, { recursive: true, force: true });
-  }
-});
+    vi.spyOn(account, 'verifyCodexAccount').mockResolvedValue(
+      profiles.resolve('personal', 'luna') as never,
+    );
+    const chat = await import('../chat.js');
+    const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
+    const onSessionChange = vi.fn();
+    chat.setSessionChangeCallback(onSessionChange);
+    if (resume) {
+      chat.eventStore.upsertSession({
+        sessionId,
+        cwd: root,
+        conversationSource: 'mitzo',
+        accountBinding: profiles.resolve('personal', 'luna'),
+      });
+      chat.eventStore.append(sessionId, 'message_end', { type: 'message_end', id: 'saved-answer' });
+    }
+    const send = vi.fn((event) => {
+      if (deliveryFails && event.type === 'error') throw new Error('Offline error delivery failed');
+    });
+    const onStartupAdmission = vi.fn();
+    try {
+      const startup = chat.startChat({ send, isOpen: () => true }, 'error-reference', 'hello', {
+        cwd: root,
+        isolation: false,
+        accountId: 'personal',
+        model: 'luna',
+        accountProfiles: profiles,
+        ...(resume ? { resume: sessionId } : { initialSessionId: sessionId }),
+        onStartupAdmission,
+      });
+      if (deliveryFails) await expect(startup).rejects.toThrow('Offline error delivery failed');
+      else await startup;
+      const errors = send.mock.calls
+        .map(([message]) => message)
+        .filter((message) => message.type === 'error');
+      expect(errors).toEqual([
+        expect.objectContaining({
+          sessionId,
+          error: expect.stringContaining(failure.diagnosticId),
+        }),
+      ]);
+      expect(logError).toHaveBeenCalledWith(
+        'startChat failed after register, cleaning up',
+        expect.objectContaining({
+          sessionId,
+          startupPhase: 'sandbox_preparation',
+          startupErrorCode: 'ENOSPC',
+          diagnosticId: failure.diagnosticId,
+        }),
+      );
+      expect(JSON.stringify([errors, logError.mock.calls])).not.toMatch(
+        /PRIVATE_COMMAND|sk-secret|queued work/,
+      );
+      expect(onStartupAdmission).toHaveBeenCalledOnce();
+      const admittedError = onStartupAdmission.mock.calls[0][0];
+      expect(admittedError.message).toContain(failure.diagnosticId);
+      expect(admittedError.stack).not.toMatch(/PRIVATE_COMMAND|sk-secret/);
+      expect(admittedError.cause).toBeUndefined();
+      if (replaced) {
+        expect(chat.registry.get('error-reference')?.abortController).toBe(replacementAbort);
+        expect(replacementAbort?.signal.aborted).toBe(false);
+        expect(chat.eventStore.getSession(sessionId)?.state).toBe('ACTIVE');
+        expect(onSessionChange).not.toHaveBeenCalledWith('error-reference', 'end', sessionId);
+      } else {
+        expect(chat.registry.get('error-reference')).toBeUndefined();
+        expect(chat.eventStore.getSession(sessionId)?.state).toBe('ENDED');
+      }
+      if (resume)
+        expect(chat.eventStore.getSessionEvents(sessionId)).toContainEqual(
+          expect.objectContaining({
+            type: 'message_end',
+            payload: { type: 'message_end', id: 'saved-answer' },
+          }),
+        );
+    } finally {
+      vi.restoreAllMocks();
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 it('rejects unregistered and internal resumes before provider dispatch', async () => {
   vi.resetModules();
