@@ -302,5 +302,50 @@
     "Before joining/refreeze/silent allocation and finalized application reply remain unavailable; large-text screenshots show a disabled setup state.",
     "DOM metrics are independently rerun here, while older A static receipts retain their historical measurement limitations.",
     "No physical iOS, native request/admission, live model, runtime or deployment qualification."
-  ]
+  ],
+  "metricFileRepresentations": [
+    {
+      "rawPath": "metrics/raw/desktop-chromium-dark.json.raw",
+      "rawSha256": "845474b44eb4f200dbfe986f793c6364b49c55257491c80425283fe2b04bf748",
+      "formattedPath": "metrics/desktop-chromium-dark.json",
+      "formattedSha256": "1fd8901d4a184d46e14ba598fac318170c85766cf34ff0856a572677e7904940",
+      "canonicalJsonSha256": "91c344dcc58dd61124621f164d08c7d53092285b1b616734984786f31ce3dd3a"
+    },
+    {
+      "rawPath": "metrics/raw/desktop-chromium-light.json.raw",
+      "rawSha256": "845474b44eb4f200dbfe986f793c6364b49c55257491c80425283fe2b04bf748",
+      "formattedPath": "metrics/desktop-chromium-light.json",
+      "formattedSha256": "1fd8901d4a184d46e14ba598fac318170c85766cf34ff0856a572677e7904940",
+      "canonicalJsonSha256": "91c344dcc58dd61124621f164d08c7d53092285b1b616734984786f31ce3dd3a"
+    },
+    {
+      "rawPath": "metrics/raw/mobile-chromium-dark.json.raw",
+      "rawSha256": "845474b44eb4f200dbfe986f793c6364b49c55257491c80425283fe2b04bf748",
+      "formattedPath": "metrics/mobile-chromium-dark.json",
+      "formattedSha256": "1fd8901d4a184d46e14ba598fac318170c85766cf34ff0856a572677e7904940",
+      "canonicalJsonSha256": "91c344dcc58dd61124621f164d08c7d53092285b1b616734984786f31ce3dd3a"
+    },
+    {
+      "rawPath": "metrics/raw/mobile-chromium-light.json.raw",
+      "rawSha256": "845474b44eb4f200dbfe986f793c6364b49c55257491c80425283fe2b04bf748",
+      "formattedPath": "metrics/mobile-chromium-light.json",
+      "formattedSha256": "1fd8901d4a184d46e14ba598fac318170c85766cf34ff0856a572677e7904940",
+      "canonicalJsonSha256": "91c344dcc58dd61124621f164d08c7d53092285b1b616734984786f31ce3dd3a"
+    },
+    {
+      "rawPath": "metrics/raw/mobile-webkit-dark.json.raw",
+      "rawSha256": "b7aea44d3202f36d96716b14c40aadabd2ec210ec8d7984d801d688ffe421c39",
+      "formattedPath": "metrics/mobile-webkit-dark.json",
+      "formattedSha256": "7e919f11541d8eb46b0ab068c359fd196cf01d4b1241e6799eef887d9d5c7fb8",
+      "canonicalJsonSha256": "c7f1e7dcf9172cfacee3f31136d2b644519391970fbc6ce516c251499a03bff1"
+    },
+    {
+      "rawPath": "metrics/raw/mobile-webkit-light.json.raw",
+      "rawSha256": "b7aea44d3202f36d96716b14c40aadabd2ec210ec8d7984d801d688ffe421c39",
+      "formattedPath": "metrics/mobile-webkit-light.json",
+      "formattedSha256": "7e919f11541d8eb46b0ab068c359fd196cf01d4b1241e6799eef887d9d5c7fb8",
+      "canonicalJsonSha256": "c7f1e7dcf9172cfacee3f31136d2b644519391970fbc6ce516c251499a03bff1"
+    }
+  ],
+  "artifactFormattingProvenance": "../c534-json-formatting-provenance.json"
 }

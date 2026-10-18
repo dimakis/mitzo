@@ -40,9 +40,7 @@
         "name": "browser-startup-0",
         "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/tests/support",
         "testIgnore": [],
-        "testMatch": [
-          "**/browser-startup.setup.ts"
-        ],
+        "testMatch": ["**/browser-startup.setup.ts"],
         "timeout": 30000
       },
       {
@@ -56,9 +54,7 @@
         "name": "browser-startup-1",
         "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/tests/support",
         "testIgnore": [],
-        "testMatch": [
-          "**/browser-startup.setup.ts"
-        ],
+        "testMatch": ["**/browser-startup.setup.ts"],
         "timeout": 30000
       },
       {
@@ -72,9 +68,7 @@
         "name": "mobile-webkit",
         "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/tests/offline",
         "testIgnore": [],
-        "testMatch": [
-          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
-        ],
+        "testMatch": ["**/*.@(spec|test).?(c|m)[jt]s?(x)"],
         "timeout": 30000
       },
       {
@@ -88,9 +82,7 @@
         "name": "mobile-chromium",
         "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/tests/offline",
         "testIgnore": [],
-        "testMatch": [
-          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
-        ],
+        "testMatch": ["**/*.@(spec|test).?(c|m)[jt]s?(x)"],
         "timeout": 30000
       },
       {
@@ -104,18 +96,12 @@
         "name": "desktop-chromium",
         "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/tests/offline",
         "testIgnore": [],
-        "testMatch": [
-          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
-        ],
+        "testMatch": ["**/*.@(spec|test).?(c|m)[jt]s?(x)"],
         "timeout": 30000
       }
     ],
     "quiet": false,
-    "reporter": [
-      [
-        "json"
-      ]
-    ],
+    "reporter": [["json"]],
     "reportSlowTests": {
       "max": 5,
       "threshold": 300000

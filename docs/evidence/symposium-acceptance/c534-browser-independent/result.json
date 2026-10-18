@@ -26,5 +26,10 @@
   "nodeHeapMiB": 1024,
   "modelCalls": 0,
   "fullJoiningAcceptance": false,
-  "nativeIosQualification": false
+  "nativeIosQualification": false,
+  "reportRawFile": "raw/report.json.raw",
+  "reportSha256Scope": "Original execution stdout bytes; preserved unchanged in reportRawFile. report.json is a formatting-only derivative.",
+  "formattedReportFile": "report.json",
+  "formattedReportSha256": "bc1667d0d1ff8c1c456206c6318294526728feffffcd549ac6c4e7cc1e23bb31",
+  "artifactFormattingProvenance": "../c534-json-formatting-provenance.json"
 }

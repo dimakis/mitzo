@@ -684,7 +684,8 @@ unchanged, verified against currentc534, so C did not repeat those negative runs
 
 C also independently ran the **unchanged** protected approved-design and owned shared
 conversation Playwright specs outside Seatbelt, using one worker,1GiB, zero retries,
-all traffic intercepted and no server/provider. [Raw report](symposium-acceptance/c534-browser-independent/report.json)
+all traffic intercepted and no server/provider. [Raw execution report](symposium-acceptance/c534-browser-independent/raw/report.json.raw)
+([formatted derivative](symposium-acceptance/c534-browser-independent/report.json))
 and [result](symposium-acceptance/c534-browser-independent/result.json) record
 **12 UI scenarios plus2 startup checks passed**, zero failures/skips/retries,
 37.18seconds, across mobile WebKit, mobile Chromium and desktop Chromium, both themes.
@@ -692,7 +693,7 @@ Every test has one passed result, expectedStatuspassed and retry0. This browser
 envelope overlaps producer scenarios and is separate from the Node120-case envelope;
 no combined grand total is asserted.
 
-Six raw DOM metric files and [twelve measurements](symposium-acceptance/c534-browser-independent/dom-and-capture-receipt.json)
+Six original raw DOM metric files (preserved alongside formatted derivatives) and [twelve measurements](symposium-acceptance/c534-browser-independent/dom-and-capture-receipt.json)
 are retained. The independent run measures64px name tracks at320 and4px count gaps
 across all project/theme rows; the original width/adjacency/containment assertions
 pass. This advances the bounded current-source DOM evidence beyond earlier A-static
@@ -724,3 +725,33 @@ saved-content delivery and physical iOS remain open. Passing browser fixtures an
 host source hashes do not qualify the full application, installed native runtime,
 current-head CI/trusted review, deployment or merge. No model call or staging
 operation was performed.
+
+### Evidence JSON formatting repair — original6b8f9f97 execution preserved
+
+PR1022 head6b8f9f97 [CI run39084737528](https://github.com/dimakis/mitzo/actions/runs/39084737528),
+main job117548826624, failed Format check on nine retained JSON files. The
+[verified job step record](symposium-acceptance/c534-json-formatting-ci-failure.json)
+shows tests, lint, type checks and builds succeeded; Summary failed as the aggregate
+of the format failure. This was an evidence representation problem, not a newly
+observed browser/backend test failure.
+
+The [formatting provenance index](symposium-acceptance/c534-json-formatting-provenance.json)
+retains each original publication path/hash/size, unchanged `.json.raw` bytes, a
+formatted `.json` derivative and its distinct stored-file hash/size. All nine raw
+copies are byte-identical to their Git blobs at6b8f9f97, and parsed JSON plus canonical
+data hashes are identical before/after formatting. No source, test, PNG, reference,
+formatter exclusion or original producer checksum manifest was changed.
+
+Existing execution `reportSha256`, composition `browserReportSha256` and original
+producer receipt hash continue to identify **original raw bytes**, with explicit raw
+paths and scope added. Separate fields identify formatted derivatives and their
+hashes. Producer retained-file metadata and `RETAINED_SHA256SUMS` now identify current
+stored files and include the unchanged raw copies; the original producer `SHA256SUMS`
+remains intact as source attribution. Metric representation mappings link each raw
+and formatted file without changing the twelve observed measurements.
+
+Prettier is applied only to the derived repository JSON and evidence metadata.
+Opaque `.raw` archives retain original bytes without a parser or formatter-ignore
+change. This repair does **not** represent another browser/backend execution:
+source revisions, execution times, results, counts and full joining/native/UX gates
+are unchanged. Fresh normal CI/trusted review is required for the repair's new head.

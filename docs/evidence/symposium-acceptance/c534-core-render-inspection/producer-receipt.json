@@ -58,18 +58,14 @@
       "passed": 17,
       "failed": 0,
       "skipped": 0,
-      "files": [
-        "server/__tests__/telos-document-editing.test.ts"
-      ]
+      "files": ["server/__tests__/telos-document-editing.test.ts"]
     },
     {
       "report": "symposium-application-native-ci-green.json",
       "passed": 8,
       "failed": 0,
       "skipped": 0,
-      "files": [
-        "server/__tests__/symposium-native-ci.test.ts"
-      ]
+      "files": ["server/__tests__/symposium-native-ci.test.ts"]
     }
   ],
   "countsAreSeparateEnvelopesAndMayOverlap": true,

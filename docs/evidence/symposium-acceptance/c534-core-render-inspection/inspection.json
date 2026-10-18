@@ -28,14 +28,22 @@
     {
       "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/implementation-evidence/combined-ci-fixes/receipt.json",
       "retainedPath": "producer-receipt.json",
-      "sha256": "146d2eca9fe83b9a189398d41e026e061b7bac52accf4c78a0a366ce10b09b23",
-      "bytes": 3598
+      "sha256": "a44ddfe5f9a5282c6cb9dafa76ee09068713b7f95b33ca316169e2b4fd62f055",
+      "bytes": 3566,
+      "representation": "Prettier-formatted derivative of original producer bytes",
+      "rawRetainedPath": "raw/producer-receipt.json.raw",
+      "rawSha256": "146d2eca9fe83b9a189398d41e026e061b7bac52accf4c78a0a366ce10b09b23",
+      "rawBytes": 3598
     },
     {
       "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/implementation-evidence/combined-ci-fixes/browser.json",
       "retainedPath": "producer-browser.json",
-      "sha256": "6b216815b794638039502dda028e228ea5c1e15667bd52615fa12efb8637bc8d",
-      "bytes": 20422
+      "sha256": "de4534d74c1cb3243b36952bdbd255d23d9576e1e521e4684d59d2d4114c7e44",
+      "bytes": 20273,
+      "representation": "Prettier-formatted derivative of original producer bytes",
+      "rawRetainedPath": "raw/producer-browser.json.raw",
+      "rawSha256": "6b216815b794638039502dda028e228ea5c1e15667bd52615fa12efb8637bc8d",
+      "rawBytes": 20422
     },
     {
       "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/implementation-evidence/combined-ci-fixes/SHA256SUMS",
@@ -78,6 +86,20 @@
       "retainedPath": "mobile-webkit-policy-refusal-light.png",
       "sha256": "caffb384dbf8cb0d5da8ea31427cb4f894eee150588d71590ca9ebea25428be6",
       "bytes": 253220
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/implementation-evidence/combined-ci-fixes/receipt.json",
+      "retainedPath": "raw/producer-receipt.json.raw",
+      "sha256": "146d2eca9fe83b9a189398d41e026e061b7bac52accf4c78a0a366ce10b09b23",
+      "bytes": 3598,
+      "representation": "unchanged original producer bytes from publication6b8f9f97"
+    },
+    {
+      "sourcePath": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/implementation-evidence/combined-ci-fixes/browser.json",
+      "retainedPath": "raw/producer-browser.json.raw",
+      "sha256": "6b216815b794638039502dda028e228ea5c1e15667bd52615fa12efb8637bc8d",
+      "bytes": 20422,
+      "representation": "unchanged original producer bytes from publication6b8f9f97"
     }
   ],
   "independentlyInspectedPngs": 6,
@@ -87,5 +109,8 @@
     "Add agent setup/large-text footer and containment visible;320/390 serif names/counts correct; membership-refusal recovery stays in Agents."
   ],
   "fullApplicationUxAccepted": false,
-  "browserResultsAttribution": "Original report remains owner evidence; C independent rerun is stored separately in c534-browser-independent."
+  "browserResultsAttribution": "Original report remains owner evidence; C independent rerun is stored separately in c534-browser-independent.",
+  "sourceReceiptRawRetainedPath": "raw/producer-receipt.json.raw",
+  "sourceReceiptSha256Scope": "Original producer receipt bytes, preserved in sourceReceiptRawRetainedPath; formatted derivative hash is in retainedFiles.",
+  "artifactFormattingProvenance": "../c534-json-formatting-provenance.json"
 }
