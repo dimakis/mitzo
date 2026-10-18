@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   createAcceptanceFixture,
   cleanupAcceptanceFixtures,
@@ -38,6 +38,14 @@ async function reviewedHandoff() {
   });
   retained.restart();
   let allowed = true;
+  // Synthetic operator scope is an external boundary; visibility and the original
+  // source witness remain owned by the actual context source/EventStore.
+  function assertConversationCurrent(sessionId: string) {
+    const group = f.store.getSessionCollaboration(f.group);
+    if (sessionId !== 'architect' || !group?.participantSessionIds.includes(sessionId))
+      throw Error('Source access revoked');
+  }
+  const opened = vi.spyOn(f.store, 'openCollaborationVisibleSource');
   const handoff = await prepareCollaborationForward(
     {
       requestId: randomUUID(),
@@ -57,7 +65,8 @@ async function reviewedHandoff() {
     {
       source: createCollaborationContextSource({
         store: f.store,
-        authorizeConversation: async () => {},
+        authorizeConversation: async (sessionId) => assertConversationCurrent(sessionId),
+        assertConversationCurrent,
       }),
       retainedArtifacts: createRetainedCollaborationArtifactSource({
         store: retained.store,
@@ -79,6 +88,7 @@ async function reviewedHandoff() {
     bytes,
     older,
     handoff,
+    opened,
     revoke: () => {
       allowed = false;
     },
@@ -86,7 +96,7 @@ async function reviewedHandoff() {
 }
 
 it('carries the reviewed saved version and provenance unchanged through ordinary context serialization to its intended recipient', async () => {
-  const { f, retained, bytes, older, handoff } = await reviewedHandoff();
+  const { f, retained, bytes, older, handoff, opened } = await reviewedHandoff();
   expect(f.store.getSession('removed-original-session')).toBeNull();
   retained.store.save({
     itemId: retained.itemId,
@@ -123,6 +133,7 @@ it('carries the reviewed saved version and provenance unchanged through ordinary
   expect(context).not.toContain('Latest unreviewed edit');
   expect(context).not.toContain('Another edit after review');
   expect(f.samplingRequests()).toHaveLength(1);
+  expect(opened).toHaveBeenCalledTimes(1);
 });
 
 it('renews retained artifact access at the ordinary pre-dispatch barrier without sending when access changed', async () => {
@@ -134,4 +145,16 @@ it('renews retained artifact access at the ordinary pre-dispatch barrier without
     runtime.driver.send({ id: 'initial-reviewer', prompt: 'Explicit request' }),
   ).rejects.toThrow('Artifact access revoked');
   expect(f.samplingRequests()).toEqual([]);
+});
+
+it('renews the original selected source privacy at ordinary dispatch even when only retained artifacts were selected', async () => {
+  const { f, handoff, opened } = await reviewedHandoff();
+  const runtime = f.runtime('reviewer', [], handoff.serialized, () => handoff.assertCurrent());
+  await runtime.driver.initialize();
+  f.store.hideSession('architect');
+  await expect(
+    runtime.driver.send({ id: 'initial-reviewer', prompt: 'Explicit request' }),
+  ).rejects.toThrow('unavailable_recipient');
+  expect(f.samplingRequests()).toEqual([]);
+  expect(opened).toHaveBeenCalledTimes(1);
 });
