@@ -1,3 +1,4 @@
+import { createOwnedOrdinaryWorkspaceCommandRouter } from './ordinary-local-codex-entry.js';
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
 import { startWarmPoolHost } from './openshell-warm-pool-host.js';
@@ -798,6 +799,10 @@ app.get('/api/chat/events', (req, res) => {
 // Mount HTTP POST chat endpoints (authenticated)
 const chatRestRouter = createChatRestRouter(chatSseRegistry, v2Ctx);
 app.use('/api/chat', chatRestRouter);
+app.use(
+  '/api/ordinary/workspaces/commands',
+  createOwnedOrdinaryWorkspaceCommandRouter(chatSseRegistry, v2Ctx),
+);
 
 /**
  * Handle a v2 WebSocket connection (after hello handshake detected).

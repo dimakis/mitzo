@@ -1,3 +1,4 @@
+import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import {
   assertAgentToolRoute,
@@ -569,6 +570,7 @@ interface Options {
   /** Captured from verified operator transport, never caller JSON; admission only. */
   assertAgentContextAuthorization?: () => void;
   repositoryWorkspace?: RepositoryChatWorkspace;
+  ordinaryWorkspace?: OrdinaryWorkspaceRecord;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
@@ -693,6 +695,9 @@ export async function openCodexChat(options: Options) {
     profile: structuredClone(options.profile),
     agentProfile: selectedProfile,
     agentContext: options.agentContext ? structuredClone(options.agentContext) : undefined,
+    ordinaryWorkspace: options.ordinaryWorkspace
+      ? structuredClone(options.ordinaryWorkspace)
+      : undefined,
     repositoryWorkspace: options.repositoryWorkspace
       ? structuredClone(options.repositoryWorkspace)
       : undefined,

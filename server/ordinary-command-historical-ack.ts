@@ -1,8 +1,11 @@
+import { resolveTelosWorkSystemPrompt } from './telos-work-role-context.js';
 import { assertOrdinaryCodexSnapshotCustody } from './ordinary-codex-agent-context.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  OrdinaryWorkspaceFirstCommandSchema,
+  type OrdinaryWorkspaceFirstCommand,
   OrdinaryRuntimeFirstCommandSchema,
   OrdinaryRuntimeContinuationCommandSchema,
 } from '@mitzo/protocol';
@@ -17,18 +20,22 @@ import { getCodexConversationStore } from './codex-chat-session.js';
 import { getNativeResponsesStore } from './responses-chat-session.js';
 import { openShellPhysicalCustodyFingerprint } from './openshell-codex-custody.js';
 import { loadAccountProfiles } from './account-profiles.js';
-import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
+import { getRepositoryWorkspaces, getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
 
 /** Read-only acknowledgement. A consumed receipt proves acceptance, never permission to replay. */
-export function assertOrdinaryHistoricalAcknowledgement(
+function assertHistoricalAcknowledgement(
   events: EventStore,
   sessionId: string,
   authSessionId: string,
   input:
     | z.infer<typeof OrdinaryRuntimeFirstCommandSchema>
-    | z.infer<typeof OrdinaryRuntimeContinuationCommandSchema>,
+    | z.infer<typeof OrdinaryRuntimeContinuationCommandSchema>
+    | OrdinaryWorkspaceFirstCommand,
   first: boolean,
+  ordinary = false,
 ): boolean {
+  const workspaceId =
+    'workspace' in input ? input.workspace.workspaceId : input.repositoryWorkspaceId;
   const receipt = events.getOrdinaryCommandAdmission(input.clientMsgId);
   if (!receipt) return false;
   const reject = (why = 'identity') => {
@@ -45,8 +52,10 @@ export function assertOrdinaryHistoricalAcknowledgement(
     !binding ||
     binding.version !== 2 ||
     !isDeepStrictEqual(receipt.binding, binding) ||
-    meta.repositoryWorkspaceId !== input.repositoryWorkspaceId ||
-    receipt.workspace.workspaceId !== input.repositoryWorkspaceId ||
+    (ordinary
+      ? meta.ordinaryWorkspaceId !== workspaceId || meta.repositoryWorkspaceId != null
+      : meta.repositoryWorkspaceId !== workspaceId || meta.ordinaryWorkspaceId != null) ||
+    receipt.workspace.workspaceId !== workspaceId ||
     receipt.workspace.cwd !== meta.cwd ||
     !isDeepStrictEqual(binding.account, input.runtime.account) ||
     binding.execution.location !== input.runOn ||
@@ -56,7 +65,17 @@ export function assertOrdinaryHistoricalAcknowledgement(
     !isDeepStrictEqual(
       send.payload,
       meta.agentProfile
-        ? { ...input.payload, systemPrompt: buildAgentProfilePrompt(meta.agentProfile.definition) }
+        ? {
+            ...input.payload,
+            systemPrompt: ordinary
+              ? resolveTelosWorkSystemPrompt(
+                  events,
+                  sessionId,
+                  meta.accountBinding,
+                  buildAgentProfilePrompt(meta.agentProfile.definition),
+                )
+              : buildAgentProfilePrompt(meta.agentProfile.definition),
+          }
         : input.payload,
     )
   )
@@ -107,8 +126,18 @@ export function assertOrdinaryHistoricalAcknowledgement(
           )
           .digest('hex')}`;
   if (fingerprint !== receipt.requestFingerprint) return reject('fingerprint');
-  if (first) {
-    const workspace = getRepositoryWorkspaces(true).get(input.repositoryWorkspaceId);
+  if (ordinary) {
+    const workspace = getOrdinaryWorkspaces(true).validateOrdinaryWorkspace(sessionId, meta.cwd!);
+    const prepared = events.getOrdinaryWorkspaceSessionPreparation(workspace.allocationOperationId);
+    if (
+      workspace.id !== workspaceId ||
+      !prepared ||
+      (first && prepared.firstCommandId !== input.clientMsgId) ||
+      prepared.workspaceId !== workspaceId
+    )
+      return reject();
+  } else if (first) {
+    const workspace = getRepositoryWorkspaces(true).get(workspaceId);
     const frozen = workspace.ordinaryFirstReservation;
     if (
       events.getOrdinaryInitialCommandId(sessionId) !== input.clientMsgId ||
@@ -127,7 +156,7 @@ export function assertOrdinaryHistoricalAcknowledgement(
       custody.authSessionId !== authSessionId ||
       !isDeepStrictEqual(custody.binding, binding) ||
       custody.cwd !== receipt.workspace.cwd ||
-      custody.repositoryWorkspaceId !== input.repositoryWorkspaceId
+      custody.repositoryWorkspaceId !== workspaceId
     )
       return reject();
   } else if (input.runtime.harness === 'responses' || input.runtime.harness === 'gemini') {
@@ -180,4 +209,34 @@ export function assertOrdinaryHistoricalAcknowledgement(
       return reject();
   }
   return true;
+}
+
+/** Legacy repository wire remains strict and unchanged. */
+export function assertOrdinaryHistoricalAcknowledgement(
+  events: EventStore,
+  sessionId: string,
+  authSessionId: string,
+  input:
+    | z.infer<typeof OrdinaryRuntimeFirstCommandSchema>
+    | z.infer<typeof OrdinaryRuntimeContinuationCommandSchema>,
+  first: boolean,
+): boolean {
+  return assertHistoricalAcknowledgement(events, sessionId, authSessionId, input, first);
+}
+/** V2 acknowledges retained intent without borrowing repository authority. */
+export function assertOrdinaryWorkspaceHistoricalAcknowledgement(
+  events: EventStore,
+  sessionId: string,
+  authSessionId: string,
+  input: OrdinaryWorkspaceFirstCommand,
+  first: boolean,
+): boolean {
+  return assertHistoricalAcknowledgement(
+    events,
+    sessionId,
+    authSessionId,
+    OrdinaryWorkspaceFirstCommandSchema.parse(input),
+    first,
+    true,
+  );
 }
