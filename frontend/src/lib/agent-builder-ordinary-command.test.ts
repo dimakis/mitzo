@@ -66,6 +66,13 @@ import { agentBuilderCommandHandoff, openAgentBuilderChat } from './agent-builde
 import { getChatDraft, saveChatDraft } from './chat-drafts';
 import { newAgentDefinition } from './agent-library';
 import { apiFetch } from './api-fetch';
+import { createReviewedOutboxStorage } from './reviewed-outbox-storage';
+const productionLocalStorage = () =>
+  createReviewedOutboxStorage(
+    localStorage,
+    new URL('/api/chat/local-codex/send', window.location.href).href,
+    'local',
+  );
 vi.mock('./api-fetch', async (original) => ({ ...(await original<object>()), apiFetch: vi.fn() }));
 beforeEach(() => {
   localStorage.clear();
@@ -130,7 +137,10 @@ async function fixture() {
         },
       },
       sseConfig: { baseUrl: '', fetch },
-      localFirstCommandConfig: { url: '/unused', storage: localStorage },
+      localFirstCommandConfig: {
+        url: '/api/chat/local-codex/send',
+        storage: productionLocalStorage(),
+      },
     });
   const store = create();
   await store.getState().switchSession(request.sessionId);
@@ -178,6 +188,13 @@ it('restores the original source handoff after an uncertain V2 first command and
   f.lose();
   expect(f.store.getState().sendOrdinaryWorkspaceCommand(f.request, 'first')).toBe(true);
   await vi.waitFor(() => expect(f.store.getState().localCommand?.state).toBe('uncertain'));
+  expect(JSON.parse(productionLocalStorage().getItem('queue')!)).toEqual([
+    expect.objectContaining({
+      body: f.request,
+      ordinaryDelivery: { version: 2, phase: 'first' },
+      uncertain: true,
+    }),
+  ]);
   expect(await openAgentBuilderChat(input, true)).toBe(f.path);
   expect(agentBuilderCommandHandoff.prepare({ ...f.request, clientMsgId: 'replacement' })).toBe(
     false,
@@ -186,6 +203,9 @@ it('restores the original source handoff after an uncertain V2 first command and
   f.accept();
   const restored = f.create();
   await restored.getState().switchSession(f.request.sessionId);
+  expect(
+    f.fetch.mock.calls.filter(([url]) => url.startsWith('/api/ordinary/workspaces/commands/')),
+  ).toHaveLength(1);
   expect(restored.getState().recoverLocalCommand()).toBe(true);
   await vi.waitFor(() => expect(restored.getState().localCommand?.state).toBe('consumed'));
   expect(await openAgentBuilderChat(input, true)).toBe('/chat/' + f.request.sessionId);
@@ -193,6 +213,7 @@ it('restores the original source handoff after an uncertain V2 first command and
     url.startsWith('/api/ordinary/workspaces/commands/'),
   );
   expect(posts).toHaveLength(2);
+  expect(JSON.parse(productionLocalStorage().getItem('queue')!)).toEqual([]);
   expect(f.launches.assign).not.toHaveBeenCalled();
 });
 it('finalizes a delayed source receipt while preserving another active conversation and the newer actual draft', async () => {

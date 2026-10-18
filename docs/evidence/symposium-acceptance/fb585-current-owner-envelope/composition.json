@@ -1,0 +1,93 @@
+{
+  "coreCommit": "fb5854f6f4280bd84da3abf3c3ae8afb7a167739",
+  "coreTree": "f85449b00b16a24d769739447c7820dccd5f5e11",
+  "overlayCommit": "b4fbc90c06e18b50f71edef88c0276547f847bd3",
+  "overlayTree": "3842d99338a9bac1da8fed85fbcea4c9867f3404",
+  "overlayBranch": "test/symposium-acceptance-core-fb585",
+  "candidateStatus": "?? node_modules",
+  "changesAreOnlyScopedTestsAndEvidence": true,
+  "productionChanges": [],
+  "ownChangedHarnessMatchesTestedOverlay": true,
+  "actualOwnerResult": {
+    "passed": 150,
+    "failed": 1,
+    "skipped": 0,
+    "cases": 151,
+    "files": 14,
+    "seconds": 13.53,
+    "failure": "actual typed joining503; linked-agent and finalized-reply success assertions unchanged"
+  },
+  "initialFixtureRedResult": {
+    "passed": 147,
+    "failed": 3,
+    "skipped": 0,
+    "cases": 150,
+    "files": 14,
+    "seconds": 12.62,
+    "source": "../fb585-current-owner-initial/result.json",
+    "failures": [
+      "actual typed joining503",
+      "C artifact fixture missing original synchronous source assertion (two cases)"
+    ]
+  },
+  "adaptation": "Only C fixture: original selected source, saved version, serialized bytes and success assertions retained; synthetic operator scope checked against actual membership synchronously; actual context source/EventStore owns original witness and privacy; new hideSession before ordinary dispatch refusal, source opened once. Original15 core save-fence tests reused unchanged.",
+  "omissionControls": {
+    "sourceSpecificChecks": [
+      {
+        "path": "server/app.ts",
+        "priorSha256": "d6f3a19c9ff8ac166ac7818f4054f8150e0427e6c9ab07886ccf4d52313bcae7",
+        "currentSha256": "d6f3a19c9ff8ac166ac7818f4054f8150e0427e6c9ab07886ccf4d52313bcae7",
+        "unchanged": true
+      },
+      {
+        "path": "server/session-collaboration-router.ts",
+        "priorSha256": "32e8788aa3c8c932d4f2641bec8889e7c6dd742e51cde56c6fc7cf9a79eef7ab",
+        "currentSha256": "32e8788aa3c8c932d4f2641bec8889e7c6dd742e51cde56c6fc7cf9a79eef7ab",
+        "unchanged": true
+      },
+      {
+        "path": "server/collaboration-review-owner.ts",
+        "priorSha256": "43048f38b48cb2ca5cd007f129d640c13f966766060c1a45355dfa0bb099bde2",
+        "currentSha256": "43048f38b48cb2ca5cd007f129d640c13f966766060c1a45355dfa0bb099bde2",
+        "unchanged": true
+      },
+      {
+        "path": "tests/acceptance/symposium-application-wiring.repro.ts",
+        "priorSha256": "06a4e5d47064e103fdec2802dc97fc3157dc89da280b1e73009ddfe5bb1de52f",
+        "currentSha256": "06a4e5d47064e103fdec2802dc97fc3157dc89da280b1e73009ddfe5bb1de52f",
+        "unchanged": true
+      }
+    ],
+    "result": "Preserved cb32 omission controls; unchanged app/router/journey bytes verified, not rerun or relabelled."
+  },
+  "browserReuse": {
+    "priorIndependentSource": "c534f3d717a34198fbd0639643b027d2c67879b4",
+    "priorIndependentResult": "../c534-browser-independent/result.json",
+    "frontendAndBrowserPathsChanged": [
+      "frontend/src/components/__tests__/MarkdownPreviewCard.links.test.tsx",
+      "tests/offline/chat-drafts-updates.spec.ts"
+    ],
+    "scope": "Only unrelated test files changed. C c534 selected protected/shared execution and raw captures retain original bounds; no new C browser execution or full mounted-app claim."
+  },
+  "sourcePinResult": "../fb585-source-pins/result.json",
+  "validation": {
+    "typecheck": {
+      "exitCode": 0,
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/typescript/bin/tsc --noEmit --incremental false -p /tmp/symposium-artifact-typecheck.json",
+      "scope": "source aliases; C default/repro/candidate tests; current core source"
+    },
+    "eslint": {
+      "exitCode": 0,
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/eslint/bin/eslint.js tests/acceptance/symposium-artifact-handoff.candidate.ts vitest.symposium-acceptance.config.ts"
+    },
+    "format": {
+      "exitCode": 0,
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/prettier/bin/prettier.cjs --check .",
+      "scope": "full repository; no exclusions changed"
+    }
+  },
+  "modelCalls": 0,
+  "liveQualification": "not performed",
+  "fullJoiningAcceptance": false,
+  "nativeIosQualification": false
+}

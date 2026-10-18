@@ -1,0 +1,11 @@
+file:///Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/mitzo/scripts/run-symposium-durable-injection-control.mjs:33
+  throw Error(
+        ^
+
+Error: No positive actual-app durable baseline: bootstrap/prerequisite failures cannot establish an omission control
+    at file:///Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/mitzo/scripts/run-symposium-durable-injection-control.mjs:33:9
+    at ModuleJob.run (node:internal/modules/esm/module_job:377:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:691:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.10.0

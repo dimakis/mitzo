@@ -1,0 +1,64 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+{"level":30,"time":1792278213906,"pid":40725,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+{"level":30,"time":1792278214205,"pid":40725,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (2 tests | 2 failed) 3439ms
+   × reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity 3430ms
+   × requires actual joining and finalized reply owners after the observational review 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+AssertionError: Error: Host Codex runtime observation unavailable
+    at unavailable (/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/server/ordinary-local-codex-host-runtime.ts:17:27)
+    at readPrivateRuntimeSettings (/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/server/ordinary-local-codex-host-runtime.ts:74:11)
+    at privateFile (/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/server/ordinary-repository-preparation-authority.ts:26:13)
+    at credentialDigest (/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/server/ordinary-repository-preparation-authority.ts:44:7)
+    at Object.captureOrdinaryRepositoryPreparation [as capture] (/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/server/ordinary-repository-preparation-authority.ts:196:29)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/server/repository-workspaces.ts:800:17
+    at RepositoryWorkspaces.runOperation (/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/server/repository-workspaces.ts:278:14)
+    at RepositoryWorkspaces.<anonymous> (/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/tests/acceptance/symposium-application-wiring.repro.ts:234:18): expected 409 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 409
+
+ ❯ unavailable server/ordinary-local-codex-host-runtime.ts:17:27
+     15| import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-ru…
+     16|
+     17| const unavailable = () => new Error('Host Codex runtime observation un…
+       |                           ^
+     18| const Native = z.strictObject({
+     19|   version: z.literal(1),
+ ❯ readPrivateRuntimeSettings server/ordinary-local-codex-host-runtime.ts:74:11
+ ❯ privateFile server/ordinary-repository-preparation-authority.ts:26:13
+ ❯ credentialDigest server/ordinary-repository-preparation-authority.ts:44:7
+ ❯ Object.captureOrdinaryRepositoryPreparation [as capture] server/ordinary-repository-preparation-authority.ts:196:29
+ ❯ server/repository-workspaces.ts:800:17
+ ❯ RepositoryWorkspaces.runOperation server/repository-workspaces.ts:278:14
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:250:117
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires actual joining and finalized reply owners after the observational review
+Error: BLOCKED: actual app review prerequisite failed
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:366:11
+    364| it('requires actual joining and finalized reply owners after the obser…
+    365|   if (!reviewedSnapshot || !reviewedSettings)
+    366|     throw Error('BLOCKED: actual app review prerequisite failed');
+       |           ^
+    367|   const snapshot = reviewedSnapshot;
+    368|   const view = await api.view(group);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 8 passed (9)
+      Tests  2 failed | 56 passed (58)
+   Start at  00:03:30
+   Duration  7.42s (transform 2.11s, setup 0ms, import 2.23s, tests 4.34s, environment 0ms)
+
