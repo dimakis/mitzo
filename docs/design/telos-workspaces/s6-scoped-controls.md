@@ -38,3 +38,13 @@ synchronous transaction as persistence. New pending delegation consumes the
 new-worker-dispatch fence; an already committed allocation receipt remains
 recoverable without creating another worker. HTTP and existing route tests pass
 (26 tests); the new endpoint test was observed failing with a missing route first.
+
+`TelosWorkControl` exposes these operations to retained ordinary lead/worker
+roles through the existing native tool surface and MCP transport. Standard tool
+permissions and exact unchanged-input approval apply. Native owner/retained-role
+identity is rechecked after approval; the route independently checks current
+assignment authority. Inboxes carry retained data and do not launch model turns.
+The tool cannot claim applied evidence or revalidate a publication. The held
+Telos profile catalog activation policy is preserved. Focused tool, MCP and
+native regressions pass (118 tests), including observed red transport and native
+registration failures before implementation.

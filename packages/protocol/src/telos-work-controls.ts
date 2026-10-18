@@ -70,3 +70,6 @@ export const TelosWorkControlResultSchema = z.union([
   z.array(TelosWorkControlViewSchema),
 ]);
 export type TelosWorkControlCommand = z.infer<typeof TelosWorkControlCommandSchema>;
+export const TelosWorkControlToolInputSchema = z.strictObject({
+  command: TelosWorkControlCommandSchema,
+});

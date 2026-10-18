@@ -1,3 +1,9 @@
+import { TelosWorkControlToolInputSchema } from '@mitzo/protocol';
+import {
+  TELOS_WORK_CONTROL_TOOL,
+  telosWorkControlDefinitions,
+  executeTelosWorkControlTool,
+} from './telos-work-control-tools.js';
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import {
   assertAgentToolRoute,
@@ -821,6 +827,10 @@ async function openCodexChatBound(
       ? resolveTelosWorkRoleContext(options.eventStore, options.conversationId, options.binding)
       : undefined;
   const leadWorkTools = selectedTelosRole?.role === 'lead' ? telosWorkDefinitions : [];
+  const controlWorkTools =
+    selectedTelosRole && ['lead', 'worker'].includes(selectedTelosRole.role)
+      ? telosWorkControlDefinitions
+      : [];
   let workerTaskContext: ManagedSession['taskContext'] = null;
   if (
     options.ownedOpenShell &&
@@ -1089,6 +1099,7 @@ async function openCodexChatBound(
         ...telosItemDefinitions,
         ...telosArtifactDefinitions,
         ...leadWorkTools,
+        ...controlWorkTools,
         ...(workerTaskContext ? telosWorkerTaskDefinitions : []),
         ...integrationTools,
       ]
@@ -1503,6 +1514,7 @@ async function openCodexChatBound(
           ...agentTaskToolDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
+          ...controlWorkTools,
         ].map((tool) => tool.name),
       )
     : undefined;
@@ -1679,6 +1691,7 @@ async function openCodexChatBound(
           ...agentTaskToolDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
+          ...controlWorkTools,
         ]
       : connectedOpenShell
         ? [
@@ -2182,6 +2195,55 @@ async function openCodexChatBound(
         return result;
       }
       await assertHostCurrent();
+      if (name === TELOS_WORK_CONTROL_TOOL) {
+        if (!controlWorkTools.length)
+          return { content: 'Current retained lead or worker role required', isError: true };
+        const parsed = TelosWorkControlToolInputSchema.safeParse(input);
+        if (!parsed.success)
+          return toolInputError(
+            'Scoped work control',
+            TelosWorkControlToolInputSchema,
+            parsed.error,
+          );
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner || owner.session !== options.session)
+          return { content: 'Exact current work conversation unavailable', isError: true };
+        const assertControlOwner = () => {
+          signal.throwIfAborted();
+          const current = options.registry.findBySessionId(options.conversationId);
+          if (
+            current?.clientId !== owner.clientId ||
+            current.session !== owner.session ||
+            !isDeepStrictEqual(
+              resolveTelosWorkRoleContext(
+                options.eventStore,
+                options.conversationId,
+                options.binding,
+              ),
+              selectedTelosRole,
+            )
+          )
+            throw Error('Work control owner changed during approval');
+        };
+        assertControlOwner();
+        const permission = await buildPermissionHandler(owner.clientId, options.registry, {
+          onDemandCreate: options.onDemandCreate,
+        })(name, parsed.data, { signal, toolUseID: randomUUID(), allowSessionGrant: false });
+        assertControlOwner();
+        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
+          return { content: 'Scoped control input changed during approval', isError: true };
+        await assertHostCurrent();
+        assertControlOwner();
+        return executeTelosWorkControlTool(
+          localHttpBaseUrl(Number.parseInt(process.env.PORT || '3100', 10), localServerUsesTls()),
+          owner.clientId,
+          options.conversationId,
+          INTERNAL_TOKEN,
+          parsed.data,
+          signal,
+        );
+      }
       if (name === TELOS_START_SLICE_TOOL) {
         if (!leadWorkTools.length)
           return {

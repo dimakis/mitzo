@@ -4705,3 +4705,57 @@ it('CT10/CT12: fences a newly queued or dispatching work command separately from
     f.eventStore.close();
   }
 });
+
+it('CT12: a retained ordinary lead gets the scoped control tool with unchanged-input approval and current-owner checks', async () => {
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const f = ownedLocalOptions();
+  retainTelosWorkRoleContext(f.eventStore, f.opts.conversationId, f.opts.binding, {
+    version: 1,
+    itemId: 'outcome',
+    role: 'lead',
+    brief: {
+      revision: 'r1',
+      text: 'Reviewed lead brief',
+      sha256: createHash('sha256').update('Reviewed lead brief').digest('hex'),
+    },
+    parentCriteria: [],
+    overallGoal: { itemId: 'outcome', revision: 'r1', text: 'Outcome' },
+    sources: [],
+    artifacts: [],
+  });
+  let ownerId = 'lead-client';
+  f.opts.registry = {
+    findBySessionId: () => ({ clientId: ownerId, session: f.opts.session }),
+    get: () => f.opts.session,
+  } as never;
+  const chat = await openCodexChat(f.opts);
+  try {
+    expect(mocks.conversationOptions?.tools).toContainEqual(
+      expect.objectContaining({ name: 'TelosWorkControl' }),
+    );
+    const execute = mocks.conversationOptions!.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<{ content: string; isError: boolean }>;
+    const input = { command: { operation: 'inbox', itemId: 'outcome' } };
+    const fetch = vi.fn().mockResolvedValue(new Response('[]'));
+    vi.stubGlobal('fetch', fetch);
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
+    expect((await execute('TelosWorkControl', input, new AbortController().signal)).isError).toBe(
+      false,
+    );
+    fetch.mockClear();
+    mocks.permissionHandler.mockImplementationOnce(async () => {
+      ownerId = 'replacement';
+      return { behavior: 'allow', updatedInput: input };
+    });
+    await expect(execute('TelosWorkControl', input, new AbortController().signal)).rejects.toThrow(
+      /owner changed/i,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    chat.close();
+    f.eventStore.close();
+  }
+});

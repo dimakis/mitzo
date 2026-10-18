@@ -9,6 +9,7 @@ import { githubPublishingDefinition } from './github-publishing-tool.js';
 import { telosCreateOutcomeDefinition, telosAdoptSourceDefinition } from './telos-tool.js';
 import { telosItemDefinitions } from './telos-item-tools.js';
 import { telosArtifactDefinitions } from './telos-artifact-tools.js';
+import { telosWorkControlDefinitions } from './telos-work-control-tools.js';
 import { telosWorkDefinitions } from './telos-work-tools.js';
 
 const reads = new Set([
@@ -46,6 +47,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
         ...telosItemDefinitions,
         ...telosArtifactDefinitions,
         ...telosWorkDefinitions,
+        ...telosWorkControlDefinitions,
       ],
     },
   ];
