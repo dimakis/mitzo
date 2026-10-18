@@ -1,3 +1,6 @@
+import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { createTelosOrdinaryWorkFixture } from './fixtures/telos-ordinary-work.js';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { eventStore as startupStore } from '../chat.js';
@@ -130,3 +133,77 @@ it('concurrent V2 role requests resolve to the same original ordinary workspace 
   expect(f.native.first.launch).not.toHaveBeenCalled();
   expect(f.native.forbidden).not.toHaveBeenCalled();
 });
+
+it.each(['unavailable', null])(
+  'rejects unsupported thinking %s through real account authority before V2 role intent or ordinary allocation',
+  async (thinking) => {
+    const f = await fixture(),
+      before = f.native.events.listSessions().length;
+    f.input.settings.selection.thinking = thinking;
+    const reserve = vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace');
+    const outcome = await f.owner.setup(f.actor, f.input, f.native.signal.signal).then(
+      () => 'accepted',
+      () => 'rejected',
+    );
+    expect({
+      outcome,
+      roleIntents: f.db.prepare('SELECT count(*) AS n FROM telos_work_role_setups').get(),
+      reservations: reserve.mock.calls.length,
+      newSessions: f.native.events.listSessions().length - before,
+      nativeLaunches: f.native.first.launch.mock.calls.length,
+      originalCommand: f.native.events.getOrdinaryInitialCommandId(
+        f.native.first.receipt.sessionId,
+      ),
+    }).toEqual({
+      outcome: 'rejected',
+      roleIntents: { n: 0 },
+      reservations: 0,
+      newSessions: 0,
+      nativeLaunches: 0,
+      originalCommand: undefined,
+    });
+  },
+);
+
+it.each(['unavailable', null])(
+  'rejects unsupported thinking %s at direct ordinary reservation before allocation journal effects',
+  async (thinking) => {
+    const f = await fixture(),
+      before = f.native.events.listSessions().length;
+    const db = new Database(join(f.native.root, 'workspace-owner', 'workspaces.db'), {
+      readonly: true,
+      fileMustExist: true,
+    });
+    try {
+      const initial = db
+        .prepare('SELECT count(*) AS n FROM ordinary_preparation_allocations')
+        .get();
+      const settings = {
+        ...structuredClone(f.input.settings),
+        selection: { ...f.input.settings.selection, thinking },
+      };
+      await expect(
+        f.native.workspaces.reserveOrdinaryWorkspace({
+          preparationId: settings.workspace.preparationId,
+          allocationOperationId: randomUUID(),
+          binding: f.native.binding,
+          settings,
+          agentProfile: f.native.first.reserved.agentProfile,
+          taskRoot: f.native.taskRoot,
+          signal: f.native.signal.signal,
+        }),
+      ).rejects.toThrow();
+      expect(
+        db.prepare('SELECT count(*) AS n FROM ordinary_preparation_allocations').get(),
+      ).toEqual(initial);
+      expect(f.native.events.listSessions()).toHaveLength(before);
+      expect(f.db.prepare('SELECT count(*) AS n FROM telos_work_role_setups').get()).toEqual({
+        n: 0,
+      });
+      expect(f.native.first.launch).not.toHaveBeenCalled();
+      expect(f.native.forbidden).not.toHaveBeenCalled();
+    } finally {
+      db.close();
+    }
+  },
+);

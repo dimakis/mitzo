@@ -257,6 +257,10 @@ interface Dependencies {
       binding: AccountBinding,
       signal: AbortSignal,
       requireModelReadiness?: boolean,
+      selection?: Pick<
+        import('@mitzo/protocol').OrdinaryWorkspaceSettings['selection'],
+        'model' | 'thinking'
+      >,
     ): Promise<void>;
   };
   authorize(
