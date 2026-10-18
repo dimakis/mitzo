@@ -1,0 +1,11 @@
+[
+  {
+    "id": 5560361972,
+    "commit_id": "72f8df4d9c0ff15bcac27a0424461c2a05ed4dc8",
+    "state": "COMMENTED",
+    "submitted_at": "2026-10-17T22:18:52Z",
+    "body": "<!-- centaur:sha:72f8df4d9c0ff15bcac27a0424461c2a05ed4dc8 -->\n## Centaur Review\n\nLGTM \u2014 no issues found.\n\n### Convergence\n**Recommendation:** `merge` \u2014 No blocking in-scope findings remain.\n\n- New blocking findings: 0\n- Unresolved blocking findings: 0\n- Non-blocking follow-ups: 0\n- Repeated/deferred findings: 0\n- Verified resolved findings: 0\n\n\n<!-- centaur:job:dimakis/mitzo:1018:72f8df4d9c0ff15bcac27a0424461c2a05ed4dc8:0 -->",
+    "html_url": "https://github.com/dimakis/mitzo/pull/1018#pullrequestreview-5560361972",
+    "author": "dimakis"
+  }
+]
