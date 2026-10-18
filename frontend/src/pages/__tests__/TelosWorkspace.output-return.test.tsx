@@ -215,8 +215,8 @@ it.each(['done', 'version', 'files', 'files-edit', 'work-item', 'nested'] as con
     }
     fireEvent.click(await screen.findByRole('button', { name: 'Deep return child 11' }));
     await screen.findByRole('heading', { name: 'Deep return child 11' });
-    fireEvent.click(screen.getByRole('button', { name: 'Materials', exact: true }));
-    fireEvent.click(await screen.findByRole('link', { name: 'Return plan', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Materials' }));
+    fireEvent.click(await screen.findByRole('link', { name: 'Return plan' }));
     await screen.findByRole('heading', { name: 'Retained return plan r3' });
     if (['version', 'files', 'files-edit'].includes(journey)) {
       fireEvent.change(screen.getByRole('combobox', { name: 'Version' }), {
@@ -226,15 +226,15 @@ it.each(['done', 'version', 'files', 'files-edit', 'work-item', 'nested'] as con
     }
     if (journey === 'files' || journey === 'files-edit') {
       fireEvent.click(screen.getByRole('button', { name: 'File options' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Open', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
       await waitFor(() => expect(document.querySelector('.viewer-page')).toBeTruthy());
       await screen.findByRole('heading', { name: 'Retained return plan r4' });
       if (journey === 'files-edit') {
-        fireEvent.click(screen.getByRole('button', { name: 'Edit', exact: true }));
+        fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
         fireEvent.change(screen.getByRole('textbox', { name: 'Document editor fixture' }), {
           target: { value: '# Saved return plan r5' },
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Save new revision', exact: true }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save new revision' }));
         await waitFor(() =>
           expect(screen.getByLabelText('Route').textContent).toContain('revision%3D5'),
         );
@@ -242,19 +242,18 @@ it.each(['done', 'version', 'files', 'files-edit', 'work-item', 'nested'] as con
       fireEvent.click(
         within(document.querySelector<HTMLElement>('.viewer-page')!).getByRole('button', {
           name: 'Back',
-          exact: true,
         }),
       );
       await screen.findByRole('heading', { name: 'Retained return plan r4' });
     }
     if (journey === 'work-item')
       fireEvent.click(screen.getByRole('link', { name: 'Open Work item' }));
-    else fireEvent.click(screen.getByRole('button', { name: 'Done', exact: true }));
+    else fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     if (journey === 'nested') {
       await screen.findByRole('heading', { name: 'Home studio setup' });
-      fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     }
     await screen.findByRole('button', { name: 'Deep return child 11' });
     await waitFor(() => expect(scroller().scrollTop).toBe(600));
