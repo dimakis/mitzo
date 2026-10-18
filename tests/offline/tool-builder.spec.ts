@@ -200,48 +200,31 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(page.getByRole('heading', { name: 'Text length · v2' })).toBeVisible();
     await page.getByLabel('Source file').selectOption('test/qualify.mts');
     await page.getByRole('button', { name: 'Next source page' }).click();
+    const downloadButton = page.getByRole('button', { name: 'Download review bundle' });
+    const verifyBundle = async (activate: () => Promise<void>) => {
+      const download = page.waitForEvent('download');
+      await activate();
+      const savedBundle = await download;
+      expect(savedBundle.suggestedFilename()).toBe(`tool-draft-${id}-v2.json`);
+      const savedPath = await savedBundle.path();
+      expect(savedPath).not.toBeNull();
+      expect(JSON.parse(await readFile(savedPath!, 'utf8'))).toMatchObject({
+        format: 'mitzo-tool-draft-review-v1',
+        status: 'submitted',
+        draft: { id, version: 2, tests: { passed: true, complete: true } },
+      });
+    };
+    await verifyBundle(() => (isMobile ? downloadButton.tap() : downloadButton.click()));
     await page.getByLabel('Draft source').focus();
     await page.keyboard.press('PageDown');
     await expect
       .poll(() => page.getByLabel('Draft source').evaluate((element) => element.scrollTop))
       .toBeGreaterThan(0);
-    // WebKit can keep scrolling the page after the source's first scroll pixel.
-    // Wait for both positions to settle before targeting a physical click.
-    await page.getByLabel('Draft source').evaluate(
-      (element) =>
-        new Promise<void>((resolve) => {
-          let previous = '';
-          let stableSince = performance.now();
-          const check = () => {
-            const position = JSON.stringify([
-              window.scrollX,
-              window.scrollY,
-              element.scrollTop,
-              element.getBoundingClientRect().top,
-            ]);
-            const now = performance.now();
-            if (position !== previous) {
-              previous = position;
-              stableSince = now;
-            }
-            if (now - stableSince >= 150) resolve();
-            else requestAnimationFrame(check);
-          };
-          requestAnimationFrame(check);
-        }),
-    );
     await expect(page.getByRole('button', { name: 'Previous source page' })).toBeEnabled();
-    const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Download review bundle' }).click();
-    const savedBundle = await download;
-    expect(savedBundle.suggestedFilename()).toBe(`tool-draft-${id}-v2.json`);
-    const savedPath = await savedBundle.path();
-    expect(savedPath).not.toBeNull();
-    expect(JSON.parse(await readFile(savedPath!, 'utf8'))).toMatchObject({
-      format: 'mitzo-tool-draft-review-v1',
-      status: 'submitted',
-      draft: { id, version: 2, tests: { passed: true, complete: true } },
-    });
+    // Verify keyboard activation after scrolling independently of pointer
+    // coordinates: mobile WebKit can shift the viewport when source focus ends.
+    await downloadButton.focus();
+    await verifyBundle(() => page.keyboard.press('Enter'));
     await page.getByRole('button', { name: 'Accept review' }).click();
     await expect(
       page.getByText(
