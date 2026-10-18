@@ -1,0 +1,9 @@
+{
+  "sourceCommit": "69dbb57c89eea799323b9a5b475bf898bea2e053",
+  "sourceTree": "6b994eb97c7aa757caa345d9b0a7407d55be5861",
+  "productionChanges": "B8c12cf9f + core eaa68d32; no C production edits",
+  "command": "NODE_OPTIONS=--max-old-space-size=1024 node_modules/.bin/vitest run server/__tests__/collaboration-forwarding.test.ts server/__tests__/collaboration-retained-artifact-source.test.ts --maxWorkers=1 --fileParallelism=false",
+  "outputSha256": "6a0be0d6b14f7494a158f4acf28c3cd684e5a775f8ce263d9f7eba3672f49325",
+  "exitCode": 0,
+  "scope": "Actual owner late-await privacy/custody regression suite; bounded offline candidate only"
+}
