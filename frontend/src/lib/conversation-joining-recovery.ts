@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
   AgentProfileSelectionSchema,
+  CollaborationApplicationReviewInputSchema,
+  SessionCollaborationIdSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
   CollaborationSettingsSchema,
@@ -54,20 +56,65 @@ const fence = z.strictObject({
   joiningBrief: z.string().max(20_000),
 });
 export type ConversationJoiningReviewFence = z.infer<typeof fence>;
+const fields = {
+  sourceConversationId: id,
+  reviewRequest,
+  previousReview: fence.optional(),
+  acceptedReview: fence.optional(),
+  submission: CollaborationJoinInputSchema.optional(),
+  join: CollaborationJoinSchema.optional(),
+};
+const application = z.discriminatedUnion('state', [
+  z.strictObject({
+    state: z.literal('capture_pending'),
+    collaborationId: SessionCollaborationIdSchema,
+  }),
+  z.strictObject({
+    state: z.literal('captured'),
+    collaborationId: SessionCollaborationIdSchema,
+    input: CollaborationApplicationReviewInputSchema,
+  }),
+]);
 const schema = z
-  .strictObject({
-    version: z.literal(1),
-    sourceConversationId: id,
-    reviewRequest,
-    previousReview: fence.optional(),
-    acceptedReview: fence.optional(),
-    submission: CollaborationJoinInputSchema.optional(),
-    join: CollaborationJoinSchema.optional(),
-  })
+  .discriminatedUnion('version', [
+    z.strictObject({ version: z.literal(1), ...fields }),
+    z.strictObject({ version: z.literal(2), ...fields, application }),
+  ])
   .superRefine((record, context) => {
     const input = record.submission;
     const accepted = record.acceptedReview;
     const join = record.join;
+    if (record.version === 2) {
+      const captured = record.application;
+      if (captured.state === 'capture_pending') {
+        if (record.acceptedReview || input || join)
+          context.addIssue({ code: 'custom', message: 'Application review was never captured' });
+      } else {
+        const { selection, target, previousSnapshot } = captured.input;
+        const request = record.reviewRequest;
+        const setup = request.setup;
+        if (
+          selection.requestId !== request.requestId ||
+          selection.sourceConversationId !== record.sourceConversationId ||
+          selection.mode !== setup.context ||
+          selection.purpose !== setup.purpose.trim() ||
+          !joiningReviewEqual(selection.messageIds, setup.messageIds) ||
+          !joiningReviewEqual(selection.artifacts, setup.artifacts) ||
+          !setup.selection ||
+          target.accountId !== setup.selection.accountId ||
+          target.model !== setup.selection.model ||
+          target.reasoningEffort !== (setup.selection.reasoningEffort ?? null) ||
+          target.runOn !== setup.runOn ||
+          !joiningReviewEqual(target.agent, setup.agent) ||
+          (request.joiningBrief !== undefined && selection.joiningBrief !== request.joiningBrief) ||
+          !joiningReviewEqual(previousSnapshot, request.previousSnapshot)
+        )
+          context.addIssue({
+            code: 'custom',
+            message: 'Captured application review identity conflicts',
+          });
+      }
+    }
     if (
       (record.reviewRequest.previousSnapshot !== undefined) !==
         (record.previousReview !== undefined) ||
@@ -163,6 +210,25 @@ export function conversationJoiningRecovery(sourceConversationId: string) {
         (expected?.submission && !joiningReviewEqual(record.submission, expected.submission))
       )
         throw new Error('Original joining operation must be recovered');
+      if (expected?.reviewRequest.requestId === record.reviewRequest.requestId) {
+        if (
+          expected.version === 2 &&
+          expected.acceptedReview &&
+          !joiningReviewEqual(expected.acceptedReview, record.acceptedReview)
+        )
+          throw new Error('Original application review receipt must be recovered');
+        if (
+          expected.version !== record.version ||
+          !joiningReviewEqual(expected.reviewRequest, record.reviewRequest) ||
+          !joiningReviewEqual(expected.previousReview, record.previousReview) ||
+          (expected.version === 2 &&
+            (record.version !== 2 ||
+              expected.application.collaborationId !== record.application.collaborationId ||
+              (expected.application.state === 'captured' &&
+                !joiningReviewEqual(expected.application, record.application))))
+        )
+          throw new Error('Original application review must be recovered');
+      }
       const encoded = JSON.stringify(record);
       if (encoded.length > 256 * 1024) throw new Error('Joining recovery size exceeded');
       sessionStorage.setItem(key, encoded);

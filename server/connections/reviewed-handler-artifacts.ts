@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.307-symposium-integration.16';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.307-symposium-integration.17';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -55,7 +55,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/conversation-repository-label.ts':
     'd995d0b4bf5b26b364c6d1bdf98ea5e591716976b436f134e5952db3cb97419d',
   '../../frontend/src/lib/conversation-joining-recovery.ts':
-    '47f101e61d1b6af216de0a595689e4bc2b19d50df42db191bf539cf141b18e35',
+    '4631935f55a75e8359fe04944d0e1721300634e28030793c5c319e6939c7b589',
   '../collaboration-application-review.ts':
     '620d3455583727da0480f007294d66a2e06e4a727a4df23864d5fbbc0fc06966',
   '../../frontend/src/lib/saved-artifact-location.ts':
@@ -184,9 +184,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationJoiningReview.tsx':
     '97184120337bd86fdcd0c09384d33a82d31cd6eccc05ca9a3a1dc297564423ba',
   '../../frontend/src/hooks/useConversationJoiningReview.ts':
-    'dcb8592316538f0d87421d224d0a2aaadbc38181f5c9b56bfce5aed572d1083c',
+    'dbd20e6d0be416972288a4454dc0e6eaf771db9c50fcfc1fc4538f407e5b0a54',
   '../../frontend/src/lib/conversation-joining-review.ts':
-    '522a7df7880187236b963b01b38149ccc0f7ae2fc1e3ba1f46164d9903c676a7',
+    '4fad0204164a7269107223a9ea723f5fac6ac0cbe60b0e215310db0fcf60180a',
   '../../frontend/src/styles/home.css':
     '284a0c689b4f3071b6e07e097e89cd03f90fb7d4ee6d5f3a956bd35cbe588556',
   '../../frontend/src/styles/tokens.css':

@@ -8,7 +8,7 @@ import {
   joiningReviewFixture,
   joiningSetupFixture,
 } from '../../preview/conversation-joining-fixture';
-import type { ConversationJoiningOwner } from '../../lib/conversation-joining-review';
+import type { LegacyConversationJoiningOwner as ConversationJoiningOwner } from '../../lib/conversation-joining-review';
 import { markAuthLost, restoreCookieAuthentication } from '../../lib/api-fetch';
 
 vi.mock('../AccountModelPicker', () => ({

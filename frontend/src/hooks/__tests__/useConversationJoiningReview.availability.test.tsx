@@ -12,7 +12,7 @@ import {
   conversationJoiningRecovery,
   joiningReviewFence,
 } from '../../lib/conversation-joining-recovery';
-import type { ConversationJoiningOwner } from '../../lib/conversation-joining-review';
+import type { LegacyConversationJoiningOwner as ConversationJoiningOwner } from '../../lib/conversation-joining-review';
 import {
   joiningReviewFixture,
   joiningSetupFixture,

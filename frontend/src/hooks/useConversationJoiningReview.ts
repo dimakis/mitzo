@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createBrowserId } from '../lib/browser-crypto';
 import {
+  CollaborationApplicationReviewInputSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
   CollaborationSettingsSchema,
@@ -11,6 +12,7 @@ import {
 import type {
   ConversationAgentSetup,
   ConversationJoiningOwner,
+  ConversationJoiningReviewRequest,
   ConversationJoiningReviewResult,
 } from '../lib/conversation-joining-review';
 import {
@@ -50,13 +52,20 @@ const initial = (): State => ({
 });
 const recoveryError =
   'The original joining request could not be retained. Check again before joining.';
+const applicationRecoveryError =
+  'The original application review was not retained. This joining request cannot be checked here.';
 function restoredState(record: ConversationJoiningRecoveryRecord | null): State {
   if (!record) return initial();
   return {
     ...initial(),
     setup: structuredClone(record.reviewRequest.setup),
     restoredSetup: structuredClone(record.reviewRequest.setup),
-    brief: record.reviewRequest.joiningBrief ?? record.acceptedReview?.joiningBrief ?? '',
+    brief:
+      record.reviewRequest.joiningBrief ??
+      record.acceptedReview?.joiningBrief ??
+      (record.version === 2 && record.application.state === 'captured'
+        ? record.application.input.selection.joiningBrief
+        : ''),
     submission: record.submission ? structuredClone(record.submission) : null,
     join: record.join ? structuredClone(record.join) : null,
     uncertain: !!record.submission && !record.join,
@@ -162,6 +171,26 @@ function readJoin(
   return join;
 }
 
+function ownerIdentity(owner?: ConversationJoiningOwner) {
+  return owner
+    ? JSON.stringify([
+        owner.sourceConversationId,
+        owner.kind ?? 'legacy',
+        owner.kind === 'application' ? owner.collaborationId : null,
+      ])
+    : null;
+}
+function acceptsRecord(
+  owner: ConversationJoiningOwner,
+  record: ConversationJoiningRecoveryRecord | null,
+) {
+  return (
+    !record ||
+    record.version === 1 ||
+    (owner.kind === 'application' && record.application.collaborationId === owner.collaborationId)
+  );
+}
+
 /** Local presentation and retry correlation only. Current source, capacity,
  * allocation and operation receipts remain with the authenticated ordinary owner. */
 export function useConversationJoiningReview(
@@ -195,11 +224,12 @@ export function useConversationJoiningReview(
   const read = useRef<AbortController | null>(null);
   const alive = useRef(true);
   const boundSource = useRef<string | null>(owner?.sourceConversationId ?? null);
-  const previousOwnerSource = useRef(owner?.sourceConversationId);
+  const boundOwner = useRef(ownerIdentity(owner));
+  const previousOwner = useRef(ownerIdentity(owner));
   // A persisted linked receipt is correlation, not fresh server authorization.
   const restored = useRef(retained.current !== null);
   const lastReview = useRef<{
-    input: Parameters<ConversationJoiningOwner['review']>[0];
+    input: ConversationJoiningReviewRequest;
     previous?: ConversationJoiningReviewFence;
   } | null>(
     retained.current
@@ -231,6 +261,7 @@ export function useConversationJoiningReview(
       journal.current = selected;
       retained.current = record;
       boundSource.current = available.sourceConversationId;
+      boundOwner.current ??= ownerIdentity(available);
       if (record) {
         restored.current = true;
         lastReview.current = {
@@ -272,10 +303,10 @@ export function useConversationJoiningReview(
       window.removeEventListener(AUTH_RESTORED_EVENT, invalidate);
     };
   }, [adoptJournal]);
-  const ownerSource = owner?.sourceConversationId;
+  const selectedOwner = ownerIdentity(owner);
   useEffect(() => {
-    if (previousOwnerSource.current !== ownerSource) {
-      previousOwnerSource.current = ownerSource;
+    if (previousOwner.current !== selectedOwner) {
+      previousOwner.current = selectedOwner;
       generation.current++;
       read.current?.abort();
       if (lastReview.current) {
@@ -290,18 +321,22 @@ export function useConversationJoiningReview(
       }
     }
     adoptJournal();
-  }, [ownerSource, adoptJournal]);
+  }, [selectedOwner, adoptJournal]);
   const ownerAvailable =
     !!owner &&
+    boundOwner.current === ownerIdentity(owner) &&
+    acceptsRecord(owner, retained.current) &&
     (boundSource.current === null || boundSource.current === owner.sourceConversationId) &&
     !storageBlocked.current &&
     !loginInvalidated.current &&
     !!journal.current?.isCurrent();
-  const canPublish = (operation: number, source: string) =>
+  const canPublish = (operation: number, identity: string) =>
     alive.current &&
     generation.current === operation &&
-    currentOwner.current?.sourceConversationId === source &&
-    boundSource.current === source &&
+    ownerIdentity(currentOwner.current) === identity &&
+    boundOwner.current === identity &&
+    !!currentOwner.current &&
+    acceptsRecord(currentOwner.current, retained.current) &&
     !storageBlocked.current &&
     !loginInvalidated.current &&
     !!journal.current?.isCurrent();
@@ -309,6 +344,8 @@ export function useConversationJoiningReview(
     if (
       !currentOwner.current ||
       currentOwner.current.sourceConversationId !== boundSource.current ||
+      ownerIdentity(currentOwner.current) !== boundOwner.current ||
+      !acceptsRecord(currentOwner.current, retained.current) ||
       storageBlocked.current ||
       loginInvalidated.current ||
       !journal.current?.isCurrent()
@@ -323,10 +360,18 @@ export function useConversationJoiningReview(
     setup: ConversationAgentSetup,
     brief?: string,
     previous?: ConversationJoiningReviewFence,
-    retryInput?: Parameters<ConversationJoiningOwner['review']>[0],
+    retryInput?: ConversationJoiningReviewRequest,
+    freshApplication = false,
   ) => {
     if (!owner || !ownerAvailable || current.current.submission) return;
-    const source = owner.sourceConversationId;
+    const identity = ownerIdentity(owner)!;
+    if (owner.kind === 'application' && retained.current?.version === 1 && !freshApplication) {
+      update({
+        error:
+          'The original application review cannot be reconstructed. Start an explicit fresh review.',
+      });
+      return;
+    }
     boundSource.current = owner.sourceConversationId;
     const captured = structuredClone(setup);
     const input = retryInput
@@ -359,12 +404,30 @@ export function useConversationJoiningReview(
       ...(brief !== undefined ? { brief } : { review: null }),
     });
     try {
-      save({
-        version: 1,
-        sourceConversationId: owner.sourceConversationId,
-        reviewRequest: input,
-        ...(previous ? { previousReview: previous } : {}),
-      });
+      const existing = retained.current;
+      if (owner.kind === 'application') {
+        if (!(
+          retryInput &&
+          existing?.version === 2 &&
+          existing.reviewRequest.requestId === input.requestId
+        ))
+          save({
+            version: 2,
+            sourceConversationId: owner.sourceConversationId,
+            reviewRequest: input,
+            ...(previous ? { previousReview: previous } : {}),
+            application: { state: 'capture_pending', collaborationId: owner.collaborationId },
+          });
+        else if (!equal(ensureRecovery().read(), existing))
+          throw new Error('Joining recovery operation changed');
+      } else {
+        save({
+          version: 1,
+          sourceConversationId: owner.sourceConversationId,
+          reviewRequest: input,
+          ...(previous ? { previousReview: previous } : {}),
+        });
+      }
     } catch {
       update({
         setup: captured,
@@ -375,13 +438,50 @@ export function useConversationJoiningReview(
       return;
     }
     try {
-      const result = await owner.review(structuredClone(input), controller.signal);
-      if (!canPublish(operation, source)) return;
+      let result: ConversationJoiningReviewResult;
+      if (owner.kind === 'application') {
+        if (retained.current?.version !== 2) throw new Error('Application intent unavailable');
+        if (retained.current.application.state === 'capture_pending') {
+          const raw = await owner.captureReview(structuredClone(input), controller.signal);
+          if (!canPublish(operation, identity)) return;
+          const normalized = CollaborationApplicationReviewInputSchema.parse(raw);
+          save({
+            ...retained.current,
+            application: {
+              state: 'captured',
+              collaborationId: owner.collaborationId,
+              input: normalized,
+            },
+          });
+          update({ brief: normalized.selection.joiningBrief });
+        }
+        // The journal has parsed and independently cloned the exact public DTO.
+        // Never re-read source or settings once a POST may have crossed the wire.
+        const record = retained.current;
+        if (record?.version !== 2 || record.application.state !== 'captured')
+          throw new Error('Captured application intent unavailable');
+        const applicationInput = structuredClone(record.application.input);
+        result = await owner.review(structuredClone(applicationInput), controller.signal);
+        if (!canPublish(operation, identity)) return;
+        const { snapshot, settings } = result;
+        if (
+          !equal(snapshot.boundary, applicationInput.selection.boundary) ||
+          result.expectedMembershipRevision !==
+            applicationInput.selection.expectedMembershipRevision ||
+          snapshot.joiningBrief !== applicationInput.selection.joiningBrief ||
+          settings.repositoryWorkspaceId !== applicationInput.target.repositoryWorkspaceId ||
+          settings.selection.permission.mode !== applicationInput.target.permissionMode
+        )
+          throw new Error('Application review changed');
+      } else {
+        result = await owner.review(structuredClone(input), controller.signal);
+      }
+      if (!canPublish(operation, identity)) return;
       const accepted = readReview(result, owner, captured, brief, previous);
       save({ ...retained.current!, acceptedReview: joiningReviewFence(accepted) });
       update({ review: accepted, brief: accepted.snapshot.joiningBrief, pending: null });
     } catch {
-      if (!canPublish(operation, source)) return;
+      if (!canPublish(operation, identity)) return;
       update({
         pending: null,
         error: 'The joining brief could not be checked. Your setup and edits stay here.',
@@ -391,7 +491,11 @@ export function useConversationJoiningReview(
   const confirm = async () => {
     const state = current.current;
     if (!owner || !ownerAvailable || state.pending || state.join) return;
-    const source = owner.sourceConversationId;
+    if (owner.kind === 'application' && retained.current?.version !== 2) {
+      update({ error: applicationRecoveryError });
+      return;
+    }
+    const identity = ownerIdentity(owner)!;
     let input = state.submission;
     if (!input) {
       if (!ready(state) || !state.review || !state.setup) return;
@@ -418,7 +522,7 @@ export function useConversationJoiningReview(
     const operation = ++generation.current;
     try {
       const result = await owner.confirm(input);
-      if (!canPublish(operation, source)) return;
+      if (!canPublish(operation, identity)) return;
       const accepted = readJoin(result, current.current.submission!);
       save({ ...retained.current!, join: accepted });
       restored.current = false;
@@ -429,7 +533,7 @@ export function useConversationJoiningReview(
       });
       if (accepted.state === 'linked') onLinked?.(accepted);
     } catch {
-      if (!canPublish(operation, source)) return;
+      if (!canPublish(operation, identity)) return;
       update({
         pending: null,
         uncertain: true,
@@ -440,7 +544,11 @@ export function useConversationJoiningReview(
   const recover = async () => {
     const state = current.current;
     if (!owner || !ownerAvailable || !state.join || !state.submission || state.pending) return;
-    const source = owner.sourceConversationId;
+    if (owner.kind === 'application' && retained.current?.version !== 2) {
+      update({ error: applicationRecoveryError });
+      return;
+    }
+    const identity = ownerIdentity(owner)!;
     try {
       if (!equal(ensureRecovery().read(), retained.current))
         throw new Error('Joining recovery operation changed');
@@ -455,14 +563,14 @@ export function useConversationJoiningReview(
     update({ pending: 'recover', error: null });
     try {
       const result = await owner.recover(state.join.joinId, controller.signal);
-      if (!canPublish(operation, source)) return;
+      if (!canPublish(operation, identity)) return;
       const accepted = readJoin(result, state.submission, state.join);
       save({ ...retained.current!, join: accepted });
       restored.current = false;
       update({ join: accepted, pending: null });
       if (accepted.state === 'linked') onLinked?.(accepted);
     } catch {
-      if (!canPublish(operation, source)) return;
+      if (!canPublish(operation, identity)) return;
       update({
         pending: null,
         error: 'Joining could not be checked. The original request is retained.',
@@ -500,6 +608,19 @@ export function useConversationJoiningReview(
           : Promise.resolve();
       }
       return review(setup);
+    },
+    prepareFreshReview: (setup: ConversationAgentSetup) => {
+      const state = current.current;
+      if (
+        owner?.kind !== 'application' ||
+        !ownerAvailable ||
+        retained.current?.version !== 1 ||
+        state.pending ||
+        state.submission ||
+        state.join
+      )
+        return Promise.resolve();
+      return review(setup, state.brief, undefined, undefined, true);
     },
     editBrief: (brief: string) => {
       const state = current.current;
