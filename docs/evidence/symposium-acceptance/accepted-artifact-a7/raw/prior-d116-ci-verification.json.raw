@@ -1,0 +1,67 @@
+{
+  "run": 39144116165,
+  "head": "d1166ff0e903caddeb48c8174b41b3efcd2e2eb0",
+  "conclusion": "success",
+  "actualCheckout": "91ee017e8a4a6104afba2259aa3a04f8f4491ab7",
+  "tree": "6dcb8e63f84a2c6ca427ed6a7542638edae0624a",
+  "treeEqualsHead": true,
+  "allEightJobsSuccess": true,
+  "jobs": [
+    {
+      "id": 117724355639,
+      "name": "ci",
+      "conclusion": "success"
+    },
+    {
+      "id": 117724355958,
+      "name": "Select CI jobs",
+      "conclusion": "success"
+    },
+    {
+      "id": 117724388517,
+      "name": "Browser interaction tests",
+      "conclusion": "success"
+    },
+    {
+      "id": 117724388569,
+      "name": "Offline layouts (desktop-chromium)",
+      "conclusion": "success"
+    },
+    {
+      "id": 117724388574,
+      "name": "Offline layouts (mobile-webkit)",
+      "conclusion": "success"
+    },
+    {
+      "id": 117724388592,
+      "name": "Offline layouts (mobile-chromium)",
+      "conclusion": "success"
+    },
+    {
+      "id": 117724388602,
+      "name": "Native Swift tests and builds",
+      "conclusion": "success"
+    },
+    {
+      "id": 117727774110,
+      "name": "Connections browser regression",
+      "conclusion": "success"
+    }
+  ],
+  "logs": [
+    {
+      "jobName": "ci",
+      "jobId": 117724355639,
+      "conclusion": "success",
+      "rawSha256": "8362e76d5698d9226b723874f080c4f31797e27543e6b1267209b5ceae768c48",
+      "gzipSha256": "47ff5395dc59accafb1e92450c4dc1e3ce844c5e37a4d902095bd2bb7ddf2569"
+    },
+    {
+      "jobName": "Offline layouts (mobile-webkit)",
+      "jobId": 117724388574,
+      "conclusion": "success",
+      "rawSha256": "882121e96daf41a112b76f442f89c977e3a6bc3f459e8951260b35d628ceec3c",
+      "gzipSha256": "a3ef2b5e00ea82e02fee19482bfaaae155c7f082d78e01c4a1dc92d1cd81d91c"
+    }
+  ]
+}

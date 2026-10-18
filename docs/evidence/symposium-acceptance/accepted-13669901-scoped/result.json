@@ -1,0 +1,30 @@
+{
+  "source": {
+    "commit": "b1eb209610e57c00aeb9fa718a977fea44f34993",
+    "tree": "93f5b3e441f64eeb39181ee9784a8f884bbea297",
+    "status": "M tests/acceptance/symposium-application-wiring.repro.ts\n M vitest.symposium-acceptance.config.ts\n?? docs/evidence/symposium-acceptance/actual-review-missing-mount-control/\n?? docs/evidence/symposium-acceptance/actual-review-mounted-first/\n?? docs/evidence/symposium-acceptance/actual-review-preview-diagnostic/\n?? docs/evidence/symposium-acceptance/actual-review-private-profile/\n?? docs/evidence/symposium-acceptance/actual-review-restart-final/\n?? docs/evidence/symposium-acceptance/final-artifact-custody-scoped/",
+    "trackedDiffSha256": "8634df3ee94c6921138f52766ea09441e66256db97bb9c595bdf4469cf2a781a",
+    "untrackedSourceSha256": {}
+  },
+  "startedAt": "2026-10-17T23:05:55.086Z",
+  "finishedAt": "2026-10-17T23:05:58.914Z",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.symposium-acceptance.config.ts"
+  ],
+  "requiredJourneys": false,
+  "reusedOwnerContracts": false,
+  "artifactCandidate": false,
+  "heapMiB": 1024,
+  "maxWorkers": 1,
+  "node": "v24.10.0",
+  "vitest": "4.1.11",
+  "exitCode": 0,
+  "signal": null,
+  "result": "passed_scoped_checks",
+  "outputSha256": "cb35ddbe8013addb5f276e6d5f246f8a98fdf1e9d501a2717f533cc567e2d409",
+  "liveQualification": "not performed; this runner selects offline fixtures only"
+}

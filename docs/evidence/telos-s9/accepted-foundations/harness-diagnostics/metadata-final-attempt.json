@@ -1,0 +1,93 @@
+{
+  "numTotalTestSuites": 2,
+  "numPassedTestSuites": 0,
+  "numFailedTestSuites": 2,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 4,
+  "numPassedTests": 2,
+  "numFailedTests": 2,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792339297970,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload",
+          "status": "failed",
+          "title": "CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload",
+          "duration": 433.4067500000001,
+          "failureMessages": [
+            "AssertionError: expected false to be true // Object.is equality\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations/tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx:49:43\n    at file:///Users/dsaridak/tools/mitzo-releases/main-d0b06dc200a1/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation",
+          "status": "passed",
+          "title": "CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation",
+          "duration": 472.7405840000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review",
+          "status": "passed",
+          "title": "CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review",
+          "duration": 405.80962499999987,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792339300839,
+      "endTime": 1792339302150.8096,
+      "status": "failed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations/tests/integration/telos-s9/accepted-foundations/recovery.test.tsx"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child",
+          "status": "failed",
+          "title": "CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child",
+          "duration": 563.3128750000001,
+          "failureMessages": [
+            "Error: Telos work unavailable\n    at TelosWorkApiClient.request (/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations/packages/client/src/telos-work-api.ts:220:13)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations/tests/integration/telos-s9/accepted-foundations/vertical.contract.ts:121:10\n    at file:///Users/dsaridak/tools/mitzo-releases/main-d0b06dc200a1/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792339299201,
+      "endTime": 1792339299764.313,
+      "status": "failed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations/tests/integration/telos-s9/accepted-foundations/vertical.test.ts"
+    }
+  ]
+}

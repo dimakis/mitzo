@@ -1,0 +1,71 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (3 tests | 3 failed) 20088ms
+   × reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity 20084ms
+   × reads exact completed durable source through actual production injection and typed client without restore or allocation 0ms
+   × requires actual joining and finalized reply owners after the observational review 0ms
+{"level":40,"time":1792296745372,"pid":16267,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792296745837,"pid":16267,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792296746149,"pid":16267,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+ ❯ server/__tests__/collaboration-forward-browser-boundary.test.ts (3 tests | 1 failed) 8203ms
+   × awaits the actual shared conversation browser bundle without Node custody imports 5096ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:176:1
+    174| });
+    175|
+    176| it('reviews an actual prepared unused Local workspace through real app…
+       | ^
+    177|   await loadApplication();
+    178|   events.upsertSession({ sessionId: 'existing-chat', conversationSourc…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > reads exact completed durable source through actual production injection and typed client without restore or allocation
+Error: BLOCKED: actual app prerequisite failed
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:447:20
+    445|
+    446| it('reads exact completed durable source through actual production inj…
+    447|   if (!http) throw Error('BLOCKED: actual app prerequisite failed');
+       |                    ^
+    448|   const sessionId = 'retained-durable-source';
+    449|   const userText = '\uFEFF  Selected π\r\n\t';
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires actual joining and finalized reply owners after the observational review
+Error: BLOCKED: actual app review prerequisite failed
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:563:11
+    561| it('requires actual joining and finalized reply owners after the obser…
+    562|   if (!reviewedSnapshot || !reviewedSettings)
+    563|     throw Error('BLOCKED: actual app review prerequisite failed');
+       |           ^
+    564|   const snapshot = reviewedSnapshot;
+    565|   const view = await api.view(group);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  server/__tests__/collaboration-forward-browser-boundary.test.ts > awaits the actual shared conversation browser bundle without Node custody imports
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ server/__tests__/collaboration-forward-browser-boundary.test.ts:12:77
+     10| };
+     11|
+     12| it.each(['public packages', 'approved chat', 'shared conversation'] as…
+       |                                                                             ^
+     13|   'awaits the actual %s browser bundle without Node custody imports',
+     14|   async (entry) => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  2 failed | 26 passed (28)
+      Tests  4 failed | 438 passed (442)
+   Start at  05:11:19
+   Duration  124.20s (transform 17.13s, setup 0ms, import 32.79s, tests 77.10s, environment 1ms)
+

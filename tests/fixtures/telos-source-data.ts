@@ -215,7 +215,14 @@ export async function telosSourceBrowserData({
     }
     const source = capture.read('studio', receipt.work.sources[0].snapshotId, actor);
     const outputs = artifacts.list({ itemId: 'studio' });
-    return { work: receipt.work, source, messages, outputs, cursor };
+    return {
+      work: receipt.work,
+      record: work.readRecord('studio', actor),
+      source,
+      messages,
+      outputs,
+      cursor,
+    };
   } finally {
     work.close();
     artifacts.close();
