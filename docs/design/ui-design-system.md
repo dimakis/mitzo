@@ -1484,6 +1484,28 @@ using canonical kinds rather than inferring kind from a child count. Fresh captu
 The expanded run passed 24 route scenarios plus two browser startup dependencies;
 the startup checks are not additional role journeys.
 
+## Retained Telos context readability
+
+`TelosLinkedContext` presents Overall goal, Parent outcome, This item and Done when
+in that order within its existing native disclosure. Human text explains the work;
+opaque source/message/block identifiers and hashes stay in retained context and
+exact navigation/material actions. Existing payloads without parent/material titles
+use truthful Parent item and Retained material revision labels. This presentation
+does not enrich the immutable DTO with guessed names or dates.
+
+Navigation reuses `session-work-link`; retained-material actions reuse
+`home-secondary`, both with the shared control height. The existing bounded chat
+context region leaves the ordinary composer reachable. The isolated actual-component
+fixture checks 320px WebKit/Chromium and desktop Chromium, dark Mint/System and light
+Teal/Georgia at 160% text, keyboard disclosure, scrolling, exact retained links,
+material error visibility and unchanged unsent composer text. Captures:
+[mobile context](assets/telos-linked-context-mobile-dark.png),
+[large-text material error](assets/telos-linked-context-mobile-light-error.png),
+[desktop context](assets/telos-linked-context-desktop-light.png).
+These focused renders omit the application shell. Final full-app context names,
+combined-source UX and S5a acceptance remain separate checks; frozen references and
+the approved Quick Settings sheet remain unchanged.
+
 ## Telos numeric priority
 
 The approved additive priority amendment uses `TodoPrioritySelect` in the current
