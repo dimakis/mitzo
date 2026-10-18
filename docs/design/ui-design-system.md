@@ -1431,6 +1431,28 @@ using canonical kinds rather than inferring kind from a child count. Fresh captu
 The expanded run passed 24 route scenarios plus two browser startup dependencies;
 the startup checks are not additional role journeys.
 
+## Telos numeric priority
+
+The approved additive priority amendment uses `TodoPrioritySelect` in the current
+item header and a compact `P<n>` badge in each recursive item card. The native
+select inherits the shared font, semantic colors, control height and focus rule.
+Pending saves disable the field; failures announce uncertainty beside the field
+and preserve the last confirmed value. Existing grouping, sorting and navigation
+remain unchanged. This is not the later S7/S8 workspace implementation.
+
+The intercepted `telos-priority.spec.ts` fixture covers the actual responsive workspace
+on 320px WebKit/Chromium and desktop Chromium in dark Mint/System and light
+Teal/Georgia with larger text, keyboard focus, save/reject/reload and matching
+badges after navigation and immediately in the mounted desktop tree after saving.
+The list cache publishes confirmed changes to all consumers; per-item writes
+remain ordered across detail remounts. See [the amendment](../features/telos-priority-scale.md)
+for API/persistence ownership and its relationship to the frozen r1 design.
+
+Inspected implementation captures: [phone header](assets/telos-priority-mobile-dark.png),
+[phone badge](assets/telos-priority-tree-mobile-dark.png) and
+[desktop with larger text](assets/telos-priority-desktop-light.png). These preserve
+synthetic fixture evidence rather than replacing the approved reference.
+
 ## Device continuity
 
 Phone and web remain subscribed to the same conversation when a new message

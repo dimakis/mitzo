@@ -42,6 +42,11 @@ it('rejects noncanonical writable roots before executing', async () => {
 it('rejects a cwd outside authorized workspaces', async () => {
   await expect(run('touch should-not-exist', { cwd: root })).rejects.toThrow(/workspace/);
 });
+it('does not let a writable ancestor override private read denies in a scoped runner', async () => {
+  await expect(run('true', { readableRoots: [cwd], writableRoots: [root] })).rejects.toThrow(
+    'readable scope overlaps private storage',
+  );
+});
 it('does not execute an already cancelled request', async () => {
   const abort = new AbortController();
   abort.abort();
@@ -59,6 +64,19 @@ it('fails closed when a sandbox dependency would degrade isolation', async () =>
 
 // Real OS boundary tests: enable on a host that permits nested sandbox creation.
 describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('OS sandbox', () => {
+  it('scopes optional read roots without exposing neighboring task files', async () => {
+    const neighboring = join(root, 'other-task');
+    await writeFile(neighboring, 'unapproved-task-content');
+    await writeFile(join(cwd, 'allowed'), 'approved-workspace-content');
+    const readableRoots = [cwd, await realpath('/bin'), await realpath('/usr')];
+    const allowed = await run('/bin/cat allowed', { readableRoots });
+    expect(allowed).toEqual({ isError: false, content: 'approved-workspace-content' });
+    const output = await run(`/bin/cat '${neighboring}'`, {
+      readableRoots,
+    });
+    expect(output.isError).toBe(true);
+    expect(output.content).not.toContain('unapproved-task-content');
+  }, 20000);
   it('writes inside workspace, scrubs credentials and removes its private home', async () => {
     const result = await run('printf ok > result; printf "%s|%s" "$SECRET_TOKEN" "$HOME"');
     expect(result.isError).toBe(false);
