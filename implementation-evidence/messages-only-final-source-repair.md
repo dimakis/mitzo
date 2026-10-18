@@ -64,3 +64,11 @@ qualification. Core preserves its canonical selector and combined source manifes
 B's source hash differs because its pre-integration selector declarations differ.
 Core was given the exact interface and committed pin before its separate private
 save regression. Final combined CI and exact-head trusted review remain open.
+
+Branch refresh: accepted main15090f2f (#1007/#1017/#1018) is incorporated in merge
+dd9550b4. Only the source-manifest conflict needed resolution; both accepted and B
+fingerprint sets are preserved. The producer and its test file remain byte-identical
+to eacc2396. All169 focused checks pass again on the combined branch, and the
+complete source-fingerprint verification passes at
+v1.0.303-tool-builder-symposium-forwarding.5. The separate original code commit
+remains the consumable core delta; core need not consume this refresh.
