@@ -1,0 +1,1834 @@
+{
+  "schemaVersion": 1,
+  "parent": "85e8444019a4ae4a",
+  "slice": "b896d14d79d52682",
+  "date": "2026-10-17",
+  "acceptedMain": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+  "scope": "Early offline S9 acceptance engineering; additive map. Final acceptance remains open.",
+  "parentStatus": "active",
+  "sliceStatus": "active",
+  "approvedMock": {
+    "artifactId": "9d0559132154b92d0bbb427a982a0002",
+    "revision": 1,
+    "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+  },
+  "acceptedSourceManifest": "docs/evidence/telos-s9/accepted-source.json",
+  "historicalReview": {
+    "artifactId": "9fcd904a768b940da565fc2fc81ccc63",
+    "revision": 1,
+    "sourceCommit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+    "result": "80 focused passes, 3 review regressions FAILED; never evidence of corrective success"
+  },
+  "ux": [
+    {
+      "id": "UX01",
+      "requirement": "Work first opens All outcomes with pinned category filters, discovery and search.",
+      "slices": ["S7"],
+      "sliceOwners": ["57b0894e0379ab95"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX01",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [],
+        "completionPr": null,
+        "plannedOwnerTestFile": "frontend/src/pages/__tests__/TodoView.test.tsx"
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX02",
+      "requirement": "Explicit recursive tree distinguishes Coordinator, Outcome and Work item; selecting opens the right workspace.",
+      "slices": ["S2", "S7"],
+      "sliceOwners": ["847cb038d1e46d16", "57b0894e0379ab95"],
+      "boundaryOwner": "b5cd51ac8a56007f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX02",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [975],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-store.test.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX03",
+      "requirement": "One minimal back chevron plus optional breadcrumbs; back restores the previous item/list/chat context.",
+      "slices": ["S7", "S8"],
+      "sliceOwners": ["57b0894e0379ab95", "b47a0c568f1d98ba"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX03",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [],
+        "completionPr": null,
+        "plannedOwnerTestFile": "frontend/src/pages/__tests__/TodoDetailView.test.tsx"
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX04",
+      "requirement": "Overview retains outcome, why it matters, done when, task hint, context and origin/dates.",
+      "slices": ["S3", "S7"],
+      "sliceOwners": ["d4e0bf084cd61139", "57b0894e0379ab95"],
+      "boundaryOwner": "4f55b423d0731750",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX04",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [977, 981, 985, 997],
+        "completionPr": null,
+        "plannedOwnerTestFile": "frontend/src/pages/__tests__/TodoDetailView.test.tsx"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX05",
+      "requirement": "Lead assignment reuses ordinary Agent, Account, Model, Thinking, Run on and derived Runs with controls.",
+      "slices": ["S4", "S8"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "2f58567a6c487079",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX05",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [1002],
+        "completionPr": null,
+        "plannedOwnerTestFile": "frontend/src/components/__tests__/ChatExecutionPicker.test.tsx"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "HTTP role settings round-trip only; standard setup UI and non-code capability remain unaccepted.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX06",
+      "requirement": "Originating chat is separate from an assigned lead. Home studio can be source-only and unassigned.",
+      "slices": ["S3", "S4"],
+      "sliceOwners": ["d4e0bf084cd61139", "4cd96f8d0f5a5f3f"],
+      "boundaryOwner": "b5cd51ac8a56007f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX06",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [977, 981, 985, 997, 1002],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-tools.test.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Source and lead identities are independent; repository-free Home studio admission remains S5b pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX07",
+      "requirement": "Item opens exact originating conversation/exchange; original conversation links back to the created item; adopted context/revisions remain stable.",
+      "slices": ["S2", "S3"],
+      "sliceOwners": ["847cb038d1e46d16", "d4e0bf084cd61139"],
+      "boundaryOwner": "4f55b423d0731750",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX07",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [975, 977, 981, 985, 997],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-source.test.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Exact selected exchange/material and source readback verified; final UI return navigation remains pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX08",
+      "requirement": "Refine and Add child use full normal advisor chats with item, parent and overall goal context.",
+      "slices": ["S4", "S8"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "c0851ba23fcc5d04",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX08",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [1002],
+        "completionPr": null,
+        "plannedOwnerTestFile": "frontend/src/components/__tests__/TelosAdvisor.test.tsx"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX09",
+      "requirement": "Lead has an explicit collaboration/delegation/review mandate and corresponding scoped host behavior.",
+      "slices": ["S4", "S5"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "cf8dc85a4b6afaad"],
+      "boundaryOwner": "86255ad3cd29fcf1",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX09",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [1002],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-tools.test.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/task-boundary.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Real dispatcher refuses execution in retained lead context. Exact child delegation awaits accepted S5.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX10",
+      "requirement": "\u201cStart slice one\u201d creates one ordinary worker chat for exactly that item, returns a worker link and keeps the user in the lead chat.",
+      "slices": ["S5"],
+      "sliceOwners": ["cf8dc85a4b6afaad"],
+      "boundaryOwner": "2d80ca5c140bac5f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX10",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-delegation.test.ts"
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX11",
+      "requirement": "Worker receives reviewed brief/parent criteria/sources and links back to item and lead.",
+      "slices": ["S2", "S4", "S5"],
+      "sliceOwners": ["847cb038d1e46d16", "4cd96f8d0f5a5f3f", "cf8dc85a4b6afaad"],
+      "boundaryOwner": "86255ad3cd29fcf1",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX11",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [975, 1002],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-delegation.test.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Lead source/parent/goal context only. Worker execution task and back-links await accepted S5.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX12",
+      "requirement": "Multiple chats for a smallest item are listed immediately on the item's Chat tab with no default selection. Selecting opens full chat; Back returns to list.",
+      "slices": ["S8"],
+      "sliceOwners": ["b47a0c568f1d98ba"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX12",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [],
+        "completionPr": null,
+        "plannedOwnerTestFile": "frontend/src/components/__tests__/TelosChatList.test.tsx"
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX13",
+      "requirement": "One non-origin chat can open directly; source-only items expose origin and lead assignment. Counts match the actual unique linked conversations.",
+      "slices": ["S4", "S8"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX13",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [1002],
+        "completionPr": null,
+        "plannedOwnerTestFile": "frontend/src/components/__tests__/TelosChatList.test.tsx"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX14",
+      "requirement": "New chat creates another conversation for the same item; Change worker explicitly replaces current assignment. Both preserve prior chats.",
+      "slices": ["S2", "S4", "S8"],
+      "sliceOwners": ["847cb038d1e46d16", "4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "b5cd51ac8a56007f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX14",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [975, 1002],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-store.test.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX15",
+      "requirement": "Each chat keeps its own drafts, history, account/model/runtime/workspace and attributed outputs across navigation/restart.",
+      "slices": ["S2", "S4", "S8"],
+      "sliceOwners": ["847cb038d1e46d16", "4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "2f58567a6c487079",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX15",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [975, 1002],
+        "completionPr": null,
+        "plannedOwnerTestFile": "frontend/src/components/__tests__/TelosChatList.test.tsx"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        },
+        {
+          "file": "tests/integration/telos-s9/shared-effects.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Independent durable session/settings/workspace/output identities; composer drafts/resources/navigation await S8.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX16",
+      "requirement": "Chat has compact standard controls plus one slim item/chats/work row; work tree is closed by default and collapsible.",
+      "slices": ["S8"],
+      "sliceOwners": ["b47a0c568f1d98ba"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX16",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [],
+        "completionPr": null,
+        "plannedOwnerTestFile": "frontend/src/components/__tests__/TelosChatList.test.tsx"
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX17",
+      "requirement": "Coordinator asks priority and routes scoped controls through child leads; requested/acknowledged/applied/released are distinct and retained.",
+      "slices": ["S6"],
+      "sliceOwners": ["335551581dbf1e93"],
+      "boundaryOwner": "86255ad3cd29fcf1",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX17",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-coordination.test.ts"
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX18",
+      "requirement": "Unrelated outcomes remain unaffected; release requires appropriate upstream revalidation.",
+      "slices": ["S6"],
+      "sliceOwners": ["335551581dbf1e93"],
+      "boundaryOwner": "86255ad3cd29fcf1",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX18",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-coordination.test.ts"
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX19",
+      "requirement": "Materials retain document revision/hash, author, source, created/added/updated dates; Outputs, Sources and Links stay distinct.",
+      "slices": ["S3", "S7"],
+      "sliceOwners": ["d4e0bf084cd61139", "57b0894e0379ab95"],
+      "boundaryOwner": "4f55b423d0731750",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX19",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [977, 981, 985, 997],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-source.test.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        },
+        {
+          "file": "tests/integration/telos-s9/shared-effects.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Pinned retained Telos bytes and separate conversation output references verified. Reference registration is not independent retention; final UI/provenance journey pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX20",
+      "requirement": "Legacy items retain IDs, hierarchy, original fields/status/profile/links/context and explicit references; unknown provenance stays unknown.",
+      "slices": ["S2", "S3"],
+      "sliceOwners": ["847cb038d1e46d16", "d4e0bf084cd61139"],
+      "boundaryOwner": "b5cd51ac8a56007f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX20",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [975, 977, 981, 985, 997],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-migration.test.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Canonical synthetic record and hierarchy read; full legacy migration/backup/restore not rerun by S9.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX21",
+      "requirement": "Requests/retries/restart cannot duplicate item links, current assignments or worker allocations; uncertain results stay uncertain.",
+      "slices": ["S2", "S5"],
+      "sliceOwners": ["847cb038d1e46d16", "cf8dc85a4b6afaad"],
+      "boundaryOwner": "2d80ca5c140bac5f",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX21",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [975],
+        "completionPr": null,
+        "plannedOwnerTestFile": "server/__tests__/telos-work-delegation.test.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        },
+        {
+          "file": "tests/integration/telos-s9/shared-effects.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Role setup lost-response/restart and fresh Symposium retry verified. Exact child allocation/concurrency awaits S5/S5b.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX22",
+      "requirement": "Ordinary chat controls retain full parity, including Resources, context, Access, voice, skills, attachments, queued turns and stop/interrupt.",
+      "slices": ["S4", "S8"],
+      "sliceOwners": ["4cd96f8d0f5a5f3f", "b47a0c568f1d98ba"],
+      "boundaryOwner": "c44884c370d26704",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX22",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [1002],
+        "completionPr": null,
+        "plannedOwnerTestFile": "tests/browser/telos-workspaces.spec.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/shared-effects.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Real native queue interrupt/terminal ownership with fake RPC only. Full ordinary UI/device parity pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX23",
+      "requirement": "Exact final mock remains retained and retrievable by artifact ID, revision and hash. Any product-facing deviation needs explicit approval.",
+      "slices": ["S1", "S9"],
+      "sliceOwners": ["accd3d6f834c164d", "b896d14d79d52682"],
+      "boundaryOwner": "4f55b423d0731750",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX23",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [973],
+        "completionPr": null,
+        "plannedOwnerTestFile": "tests/browser/telos-workspaces.spec.ts"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    },
+    {
+      "id": "UX24",
+      "requirement": "Desktop and mobile conform, including narrow layout, full-width transcript after closing tree, keyboard and touch navigation.",
+      "slices": ["S7", "S8", "S9"],
+      "sliceOwners": ["57b0894e0379ab95", "b47a0c568f1d98ba", "b896d14d79d52682"],
+      "boundaryOwner": "a4d34a98b4d20bbc",
+      "approvedReference": {
+        "contractArtifactId": "c54d6f2479aab619b163187829b6bdff",
+        "revision": 1,
+        "row": "UX24",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "mergedFoundationPrs": [],
+        "completionPr": null,
+        "plannedOwnerTestFile": "tests/browser/telos-workspaces.spec.ts"
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "lightDark": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined implementation, scoped test results and approved desktop/mobile visual comparison remain pending.",
+      "plannedBaseline": "docs/design/telos-workspaces/acceptance-coverage.json (unchanged S1 planned fixture, not passing evidence)"
+    }
+  ],
+  "corrective": [
+    {
+      "id": "CT01",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Advisor refine and child creation on canonical schemas",
+      "assertions": "Use the actual MGMT schema/migrations with synthetic rows: fresh and pre-change upgrade fixtures. No test-only categories column. Required first_seen/last_seen and creation/history semantics hold. Save/refine round-trip all fields through real Mitzo routes and canonical read paths.",
+      "boundary": "MGMT persistence -> Telos work store/routes -> typed client projection",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S5a",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT01",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "red",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/canonical-advisor.red-contract.ts",
+          "result": "failed_required_behavior",
+          "evidence": "docs/evidence/telos-s9/canonical-advisor-red.log"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Current canonical advisor refine/child saves reproduce missing categories failures. Fresh actual-owner schema exported; pre-change upgrade and required first_seen/history coverage belong to S5a. Historical timestamp regression is not evidence of a fix."
+    },
+    {
+      "id": "CT02",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Atomic advisor save and replay",
+      "assertions": "Inject failure after item, source and receipt writes; roll back or recover according to the owning transaction contract. Repeat identical request returns original identities; changed input under the same request identity fails without mutation. No orphan source or false receipt.",
+      "boundary": "Canonical items/sources/history and material/receipt owners",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S5a",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT02",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Canonical save fails before successful item/source/receipt transaction. Await S5a atomicity contract and accepted fix; do not infer passing rollback/replay from role setup."
+    },
+    {
+      "id": "CT03",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Stale review rejected before allocation",
+      "assertions": "Change the item after review. Definite rejection permits fresh context review while preserving user draft/settings; retry uses the new revision; reload cannot trap the draft. Assert no allocator/model call on rejected request.",
+      "boundary": "Actual HTTP error contract -> useTelosRoleSetup -> setup UI",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S5a",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT03",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Backend/client rejects stale reviewed context before preparation. Frontend draft/settings refresh/reload recovery remains S5a pending; historical stale-setup regression is still historical failure evidence."
+    },
+    {
+      "id": "CT04",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Unknown allocation/commit outcome and reload",
+      "assertions": "Drop response after allocation and after durable commit; restart/reload then retry. Preserve original request identity, chat and assignment, with no duplicate allocation. Do not indiscriminately unlock every 409; prove pre-allocation rejection differs from uncertain/post-allocation outcomes.",
+      "boundary": "Role setup host/store receipts -> frontend persistence",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S5a",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT04",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Dropped response after durable role commit + restart exact replay verified. Drop after allocation before commit and frontend reload outcome semantics remain S5a pending."
+    },
+    {
+      "id": "CT05",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Readable approved linked context",
+      "assertions": "Render overall goal, parent outcome, this item, done when and readable source/revision labels from actual DTOs. Keep immutable IDs/hashes correct without making them the primary explanation. Compare desktop/mobile light/dark and narrow width with frozen approval; preserve approved settings sheet.",
+      "boundary": "Real projection -> TelosLinkedContext and offline intercepted browser",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S5a",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT05",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Historical F3 visual mismatch retained. No new comparison or fix claimed; S5a owns correction and desktop/mobile light/dark evidence."
+    },
+    {
+      "id": "CT06",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Early repository-backed vertical journey",
+      "assertions": "Synthetic origin/material -> advisor save -> lead setup -> exact child delegation -> ordinary worker/task -> saved output -> pending_review -> explicit verified completion. Use real stores/routes/dispatcher boundaries with fake provider/external side effects. Assert independent worker workspace and pinned revision, no sibling dispatch, no implicit model turn, no readiness-as-completion.",
+      "boundary": "Accepted S5 + S5a combined integration, no live backend/model",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S5a",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT06",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": "https://github.com/dimakis/mitzo/pull/1013"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        },
+        {
+          "file": "tests/integration/telos-s9/task-boundary.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Origin capture/adoption, retained material, HTTP/client role setup, task dispatch denial/review boundary verified separately. Full advisor -> lead -> exact worker -> retained result -> explicit outcome verification awaits accepted S5/S5a."
+    },
+    {
+      "id": "CT07",
+      "owner": "df0d5bb2ec46416b",
+      "scenario": "Ordinary non-code workspace admission",
+      "assertions": "Home studio/people-work item can review context and create applicable advisor/lead/worker without repository selection. Stable workspace identity and capability contract reuse ordinary runtime owners. Unsupported operations fail before allocation with an actionable reason; never fabricate a repository.",
+      "boundary": "Repository-free admission -> ordinary allocator -> role/work bindings",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S5b",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT07",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Repository-free workspace identity/readiness/capability contract not accepted. S5b pending. Repository-backed fixtures do not qualify non-code journeys."
+    },
+    {
+      "id": "CT08",
+      "owner": "df0d5bb2ec46416b",
+      "scenario": "Repository-free exact delegation and recovery",
+      "assertions": "Exactly one requested child gets its own ordinary workspace/chat/task. Retry, concurrent duplicate requests and restart preserve original identities and draft/settings/history; no workspace sharing by accident. Repository-backed revision pinning remains unchanged.",
+      "boundary": "S5 delegation receipts + new non-code workspace capability",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S5b",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT08",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": "https://github.com/dimakis/mitzo/pull/1013"
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Exact repository-free allocation/retry/concurrency/restart not available on accepted main. Await S5/S5a/S5b; no guessed adapter or skipped acceptance test."
+    },
+    {
+      "id": "CT09",
+      "owner": "df0d5bb2ec46416b",
+      "scenario": "Non-code vertical journey",
+      "assertions": "Origin -> item -> advisor/lead -> worker -> retained material/output -> pending_review -> verified completion using synthetic persistence and fake provider. Ordinary chat resources and drafts survive navigation and reattach. No repository is secretly supplied by fixtures.",
+      "boundary": "Actual stores/routes/client contract and offline browser",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S5b",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT09",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Full non-code journey pending S5b and reviewed result/verification contract. No repository secretly substituted."
+    },
+    {
+      "id": "CT10",
+      "owner": "335551581dbf1e93",
+      "scenario": "Brief changes during queued/running work",
+      "assertions": "Specify adoption boundary before coding. Running attempt retains its immutable reviewed context; a later eligible command explicitly adopts a new revision under the chosen contract. No silent rewriting of history or stale queued dispatch. Test change before dispatch, during execution and after restart.",
+      "boundary": "Context snapshots -> command admission -> task dispatcher",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S6",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT10",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "S6 must define adoption boundary. Immutable retained context/replay subset does not prove queued/running brief adoption."
+    },
+    {
+      "id": "CT11",
+      "owner": "335551581dbf1e93",
+      "scenario": "Lead replacement and superseded worker authority",
+      "assertions": "Define current routing/control separately from historical attribution. Replace lead during pending control and after worker launch; replace worker before late completion. Reject stale authority/receipts; retain original outputs and ownership; do not route new control to retired role holders.",
+      "boundary": "Role assignment history -> scoped controls -> completion callbacks",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S6",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT11",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "S6 current-authority/replacement contract pending. Historical role attribution alone does not establish current control authority."
+    },
+    {
+      "id": "CT12",
+      "owner": "335551581dbf1e93",
+      "scenario": "Scoped hold/release with delayed acknowledgement",
+      "assertions": "Exact attached leads/workers only; unrelated outcomes continue; pending/acknowledged/applied remain distinct. Duplicate, delayed and out-of-order acknowledgements and restart cannot falsely hold/release unknown workers. Nested coordinator cannot broaden scope or create cycles.",
+      "boundary": "Existing coordination owner and ordinary command queue",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S6",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT12",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "S6 scoped hold/release/acknowledgement contract pending. Native interrupt ownership is a different boundary."
+    },
+    {
+      "id": "CT13",
+      "owner": "57b0894e0379ab95",
+      "scenario": "Tree/workspace projection against canonical DTO",
+      "assertions": "Preserve tree kinds, categories/pins, original fields, dated provenance and separate material/source/external links. Empty, unavailable and stale states stay truthful; recursive navigation and reload preserve selection. Include repository-backed and non-code fixtures.",
+      "boundary": "Canonical persistence -> API/client -> actual outcomes/workspace UI",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S7",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT13",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "S7 current canonical DTO/UI journey pending. No visual acceptance from backend record reads."
+    },
+    {
+      "id": "CT14",
+      "owner": "57b0894e0379ab95",
+      "scenario": "Approved priority 1\u201310 amendment",
+      "assertions": "After authoritative priority changes are accepted, round-trip every allowed priority through schema/API/client/UI; selector and P<n> badge agree after reload. Preserve migration/default behavior and reject invalid values. Reference that amendment, not a unilateral frozen-mock rewrite.",
+      "boundary": "MGMT priority owner + Mitzo projection + approved selector/badge",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S7",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT14",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "MGMT priority PR348 is merged at b4ad94541af3ed19e1a2c6fd1049fd98418016d0. Mitzo PR1009 remains OPEN at f1ea61f2641eb1fbbe5d273a9511a9c24d44b2f8; accepted combined schema/API/client/UI round-trip awaits S7. The approved amendment does not rewrite the frozen mock."
+    },
+    {
+      "id": "CT15",
+      "owner": "b47a0c568f1d98ba",
+      "scenario": "Chat chooser and independent ordinary chat state",
+      "assertions": "Multiple chats list first with no preselection; single-chat entry remains direct. New chat and Change worker differ; Back returns correctly; drafts/settings/history/resources remain per chat. Compact header and collapsed tree match approved mobile/desktop behavior.",
+      "boundary": "Role/work links -> router/client state -> actual ordinary chat screen",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S8",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT15",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "S8 chooser/navigation/drafts/settings/resources UI contract pending; backend session independence is only a prerequisite."
+    },
+    {
+      "id": "CT16",
+      "owner": "b47a0c568f1d98ba",
+      "scenario": "Truthful status and priority in chat/work tree",
+      "assertions": "Readiness, queued/running, saved output, worker-reported done pending review and verified completion remain separate after reconnect. Preserve historical role attribution and current assignment. Display accepted priority projection consistently wherever the approved UI calls for it.",
+      "boundary": "Execution/work events -> work tree/header/chat projection",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S8",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT16",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "S8 status/priority projection and S5 result contract pending. Task pending_review and canonical active are tested separately, not whole-outcome verified completion."
+    },
+    {
+      "id": "CT17",
+      "owner": "b896d14d79d52682",
+      "scenario": "Combined accepted-main offline acceptance",
+      "assertions": "Run both complete journeys and recovery cases against the final combined accepted branch, including current Symposium changes affecting shared owners. No mocks that bypass the actual persistence/route/projection contracts being tested. Link every UX01\u2013UX24 row to owner, exact commit, test and visual evidence.",
+      "boundary": "Canonical data + accepted shared session/task/material/context owners",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S9",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT17",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": "https://github.com/dimakis/mitzo/pull/1013"
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        },
+        {
+          "file": "tests/integration/telos-s9/shared-effects.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        },
+        {
+          "file": "tests/integration/telos-s9/task-boundary.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Only available accepted boundaries verified. Full repository-backed and repository-free journeys, exact worker dispatch/recovery, reviewed outcome verification, final combined source and all UX evidence remain pending."
+    },
+    {
+      "id": "CT18",
+      "owner": "b896d14d79d52682",
+      "scenario": "Telos/Symposium isolation and coexistence offline",
+      "assertions": "Use existing Symposium source guide/contracts to construct synthetic sessions/commands. Exercise shared context, queue, task, artifact and session owners; prove no cross-session role/control/receipt/output leakage and no cancellation or completion misattribution. Reuse existing tests where they prove the boundary.",
+      "boundary": "Shared owners only; no new Symposium parent or superseded phase work",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S9",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT18",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "foundation_only",
+        "offlineIntegration": "partial",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [
+        {
+          "file": "tests/integration/telos-s9/accepted-boundaries.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        },
+        {
+          "file": "tests/integration/telos-s9/shared-effects.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        },
+        {
+          "file": "tests/integration/telos-s9/task-boundary.test.ts",
+          "result": "passed_subset",
+          "evidence": "docs/evidence/telos-s9/accepted-tests.json"
+        }
+      ],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Synthetic cross-session workspace/context/command/receipt/output and native interruption isolation covered; shared task scope/review covered separately. Current native provider fake only; fresh Symposium production joining requires native capacity authority and final accepted shared-source reconciliation."
+    },
+    {
+      "id": "CT19",
+      "owner": "b896d14d79d52682",
+      "scenario": "Single-runtime live qualification gate",
+      "assertions": "Pending separately selected and explicitly authorized target/window: exercise Telos and Symposium sequentially on one feasible runtime. Record exact accepted revisions, workspace/runtime identity, observed dispatch/recovery/output behavior and cross-feature isolation. No per-feature staging stacks, retired staging revival or automatic production fallback. Offline green cannot satisfy this row.",
+      "boundary": "Actual Podman/OpenShell runtime; NOT AUTHORIZED OR RUN by this amendment",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S9",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT19",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Required selected and explicitly authorized single-runtime/window is absent. NOT AUTHORIZED / NOT RUN. Sequential Telos/Symposium live qualification remains pending; no staging or production fallback."
+    },
+    {
+      "id": "CT20",
+      "owner": "b896d14d79d52682",
+      "scenario": "Final visual and lifecycle acceptance",
+      "assertions": "Compare final implementation with frozen approved artifacts plus explicit approved amendments at desktop/mobile widths and themes. Preserve settings/resources/navigation and lifecycle recovery. Record code merged, offline integration verified, UX accepted and live runtime qualified separately. Any unresolved required evidence keeps parent acceptance open.",
+      "boundary": "Final combined branch and acceptance evidence ledger",
+      "evidenceStatus": "required_not_yet_verified",
+      "slice": "S9",
+      "approvedReference": {
+        "matrixArtifactId": "1411c5cd72dabca9c11205dd596cc5b6",
+        "revision": 1,
+        "row": "CT20",
+        "amendmentArtifactId": "728d7c4d2d5f3a2f65a530d787ec5a70",
+        "mock": {
+          "artifactId": "9d0559132154b92d0bbb427a982a0002",
+          "revision": 1,
+          "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab"
+        }
+      },
+      "source": {
+        "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+        "completionPr": null,
+        "pendingCandidatePr": null
+      },
+      "states": {
+        "codeMerged": "pending",
+        "offlineIntegration": "pending",
+        "uxAccepted": "pending",
+        "liveRuntimeQualified": "pending"
+      },
+      "tests": [],
+      "visualEvidence": {
+        "desktop": null,
+        "mobile": null,
+        "status": "pending"
+      },
+      "outstandingException": "Final combined source + actual desktop/mobile light/dark/lifecycle comparison pending; no UX acceptance or live qualification claimed."
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9
+
+ ❯ tests/integration/telos-s9/canonical-advisor.red-contract.ts (2 tests | 2 failed) 2295ms
+   × CT01 red: advisor refine writes the actual canonical schema without fixture-only columns 1363ms
+   × CT01 red: advisor child writes the actual canonical schema without fixture-only columns 930ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/telos-s9/canonical-advisor.red-contract.ts > CT01 red: advisor refine writes the actual canonical schema without fixture-only columns
+AssertionError: expected [Function] to not throw an error but 'SqliteError: no such column: categori…' was thrown
+
+- Expected:
+undefined
+
++ Received:
+"SqliteError: no such column: categories"
+
+ ❯ tests/integration/telos-s9/canonical-advisor.red-contract.ts:79:13
+     77|           () => {},
+     78|         ),
+     79|       ).not.toThrow();
+       |             ^
+     80|     } finally {
+     81|       work.close();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/telos-s9/canonical-advisor.red-contract.ts > CT01 red: advisor child writes the actual canonical schema without fixture-only columns
+AssertionError: expected [Function] to not throw an error but 'SqliteError: table items has no colum…' was thrown
+
+- Expected:
+undefined
+
++ Received:
+"SqliteError: table items has no column named categories"
+
+ ❯ tests/integration/telos-s9/canonical-advisor.red-contract.ts:79:13
+     77|           () => {},
+     78|         ),
+     79|       ).not.toThrow();
+       |             ^
+     80|     } finally {
+     81|       work.close();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  23:18:59
+   Duration  4.60s (transform 1.34s, setup 0ms, import 2.19s, tests 2.29s, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/docs/evidence/telos-s9/landing-canonical-advisor-red.json
