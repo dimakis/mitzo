@@ -83,5 +83,14 @@
     "advisor-base-manifest-red.log": "12cb98bc8ee123b1e3b3d349a82d6c52d19d4379364bf96e8e5281dd55a777c0",
     "advisor-base-canonical-contract.log": "6cce6e8cf3600cfd3067863c036bca8944a850543ab326d00e1e3670f585cec5",
     "advisor-base-design.log": "5a7c2849ae1dc482e59a4248122095f4e6e8ef23a1653f8597b5da177d7f3987"
+  },
+  "historicalD2AppReconciled": {
+    "statusId": 56631391764,
+    "state": "success",
+    "createdAt": "2026-10-18T13:33:48Z",
+    "writerRun": 39132081011,
+    "writerRunSuccess": true,
+    "requiredAppBinding": 5169606,
+    "qualification": "Historical exactd2 only; no transfer to advanced source. Dedicated-writer provenance independently supplied by coordinator, public status API does not separately expose AppID."
   }
 }

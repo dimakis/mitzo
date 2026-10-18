@@ -1,0 +1,9 @@
+{
+  "checks": [
+    { "app_id": 15368, "context": "ci" },
+    { "app_id": 15368, "context": "Connections browser regression" },
+    { "app_id": 15368, "context": "Native Swift tests and builds" },
+    { "app_id": 5169606, "context": "Centaur final LGTM" }
+  ],
+  "strict": true
+}
