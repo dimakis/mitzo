@@ -619,7 +619,16 @@ export class CodexConversation {
     await this.opts.prepareAgentContext?.(signal);
     signal.throwIfAborted();
     if (this.closed) throw Error('Codex context dispatch closed');
-    return client.request(method, params);
+    // Resuming/forking establishes execution ownership, not transcript delivery.
+    // Even one retained turn can contain more tool output than a bounded RPC
+    // frame. History remains native; Mitzo renders its durable event stream and
+    // recovery inspects metadata-only, paginated thread/turns/list responses.
+    return client.request(
+      method,
+      method === 'thread/resume' || method === 'thread/fork'
+        ? { ...params, excludeTurns: true }
+        : params,
+    );
   }
   private async repairThreadOwnership(client: Rpc, options: Record<string, unknown>) {
     const pending = this.opts.store.pendingThreadOwnership(this.opts.conversationId, this.binding!);

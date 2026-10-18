@@ -696,6 +696,55 @@ async function setup(
   };
 }
 
+it('resumes a large retained conversation without hydrating history or replaying completed commands', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'completed-command', prompt: 'Original task' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  f.c.close();
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    // The pinned native runtime returns the entire retained tool history unless
+    // excluded. A single completed turn can exceed the transport's frame bound.
+    if (method === 'thread/resume' && params.excludeTurns !== true)
+      throw new Error('Full-history resume exceeds the bounded transport');
+    return request(method, params);
+  });
+  const resumed = new CodexConversation(f.conversationOptions);
+  try {
+    await resumed.initialize();
+    expect(f.store.read('app', f.getBinding()).threadId).toBe(f.getProviderThread());
+    expect(resumed.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: 'completed-command', status: 'completed' },
+    ]);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    await resumed.send({ id: 'follow-up', prompt: 'Continue the same task' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+    expect(f.requests.at(-1)?.params.threadId).toBe(f.getProviderThread());
+  } finally {
+    resumed.close();
+  }
+});
+
+it('uses metadata-only resume for idle reconnect and web-search policy changes', async () => {
+  const f = await setup();
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/resume' && params.excludeTurns !== true)
+      throw new Error('Full-history resume exceeds the bounded transport');
+    return request(method, params);
+  });
+  await f.c.setWebSearchGrant(0, 'denied');
+  f.callbacks.onClose(new Error('Idle transport lost'));
+  await f.c.send({ id: 'after-idle-loss', prompt: 'Continue' });
+  const resumes = f.requests.filter(({ method }) => method === 'thread/resume');
+  expect(resumes).toHaveLength(2);
+  expect(resumes.every(({ params }) => params.excludeTurns === true)).toBe(true);
+});
+
 it('preserves prior conversation text once when refreshing a stale tool surface', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-stale-tools-'));
   const store = new CodexConversationStore(join(dir, 'private.db'));
