@@ -1,10 +1,41 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import type { TodoItem, TodoData, TodoOutcomeDraft } from '../types/todo';
 import { apiFetch, invalidateTodoReads } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import { ListCache, SupersededListRequest } from '../lib/list-cache';
+import { setTodoPriority, subscribeTodoPriorityUpdates } from '../lib/todo-priority';
+import { todoPriority } from '../lib/todo-utils';
 
 const todoCache = new ListCache<TodoData>();
+// Same authentication lifetime as list snapshots. Keep only the latest known
+// priority so navigation fallbacks survive responsive remounts without freezing
+// a confirmed write over a later authoritative read.
+const prioritySnapshots = new ListCache<number>();
+function rememberPriorities(data: TodoData): void {
+  function visit(items: TodoItem[]) {
+    for (const item of items) {
+      prioritySnapshots.set(item.id, todoPriority(item));
+      visit(item.children);
+    }
+  }
+  visit(data.items);
+}
+export function useLatestTodoPriority(item: TodoItem | undefined): TodoItem | undefined {
+  const id = item?.id;
+  const subscribe = useCallback(
+    (listener: () => void) => (id ? prioritySnapshots.subscribe(id, listener) : () => {}),
+    [id],
+  );
+  const read = useCallback(() => (id ? prioritySnapshots.get(id) : undefined), [id]);
+  const priority = useSyncExternalStore(subscribe, read, read);
+  return !item || priority === undefined || priority === item.priority
+    ? item
+    : { ...item, priority };
+}
+subscribeTodoPriorityUpdates(({ id, priority }) => {
+  prioritySnapshots.set(id, priority);
+  todoCache.update((data) => ({ ...data, items: setPriorityInTree(data.items, id, priority) }));
+});
 function invalidateTodos(): void {
   invalidateTodoReads();
   todoCache.invalidate();
@@ -13,6 +44,7 @@ eventBus.on('todo_update', invalidateTodos);
 
 export interface UseTodoDataResult {
   loading: boolean;
+  refreshing: boolean;
   error: string | null;
   items: TodoItem[];
   profiles: string[];
@@ -20,6 +52,7 @@ export interface UseTodoDataResult {
   snooze: (id: string, days?: number) => Promise<void>;
   done: (id: string) => Promise<void>;
   star: (id: string) => Promise<void>;
+  setPriority: (id: string, priority: number) => Promise<void>;
   create: (summary: string, profile: string, parentId?: string) => Promise<void>;
   createOutcome: (draft: TodoOutcomeDraft) => Promise<TodoItem | undefined>;
   refresh: () => void;
@@ -49,6 +82,15 @@ export function toggleStarInTree(items: TodoItem[], id: string): TodoItem[] {
   });
 }
 
+function setPriorityInTree(items: TodoItem[], id: string, priority: number): TodoItem[] {
+  return items.map((item) => {
+    if (item.id === id) return { ...item, priority };
+    return item.children.length > 0
+      ? { ...item, children: setPriorityInTree(item.children, id, priority) }
+      : item;
+  });
+}
+
 export function findInTree(items: TodoItem[], id: string): TodoItem | undefined {
   for (const item of items) {
     if (item.id === id) return item;
@@ -58,10 +100,11 @@ export function findInTree(items: TodoItem[], id: string): TodoItem | undefined 
   return undefined;
 }
 
-export function useTodoData(profile?: string): UseTodoDataResult {
+export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDataResult {
   const url = profile ? `/api/todos?${new URLSearchParams({ profile })}` : '/api/todos';
   const [data, setData] = useState<TodoData | null>(() => todoCache.get(url) ?? null);
   const [loading, setLoading] = useState(() => !todoCache.get(url));
+  const [refreshing, setRefreshing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
@@ -69,24 +112,37 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   const urlRef = useRef(url);
   urlRef.current = url;
 
+  useEffect(() => todoCache.subscribe(url, () => setData(todoCache.get(url) ?? null)), [url]);
+
   useEffect(() => {
     let cancelled = false;
     const cached = todoCache.get(url);
+    // A direct route to a new item must not join a read admitted before its save.
+    // Keep retained rows, but resolve missing identities with a newly admitted read.
+    if (resolveItemId && !findInTree(cached?.items ?? [], resolveItemId)) invalidateTodos();
     setData(cached ?? null);
     setLoading(!cached);
+    setRefreshing(true);
     setError(null);
 
     todoCache
-      .load(url, async () => {
-        const response = await apiFetch(url);
-        if (!response.ok) throw new Error(`Todo API returned ${response.status}`);
-        return response.json();
-      })
-      .then((result: TodoData) => {
+      .load(
+        url,
+        async () => {
+          const response = await apiFetch(url);
+          if (!response.ok) throw new Error(`Todo API returned ${response.status}`);
+          return response.json();
+        },
+        rememberPriorities,
+      )
+      .then(() => {
         if (!cancelled) {
-          setData(result);
+          // The cache subscription publishes admitted reads and confirmed
+          // mutations in order. Promise completion must not replay an older
+          // read over a write acknowledged after that read's admission.
           setError(null);
           setLoading(false);
+          setRefreshing(false);
         }
       })
       .catch((error) => {
@@ -98,13 +154,14 @@ export function useTodoData(profile?: string): UseTodoDataResult {
         } else {
           setError('Unable to load Telos items');
           setLoading(false);
+          setRefreshing(false);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [url, refreshKey]);
+  }, [url, refreshKey, resolveItemId]);
 
   // Live update: SSE todo_update signals a refetch
   useEffect(() => {
@@ -142,7 +199,6 @@ export function useTodoData(profile?: string): UseTodoDataResult {
         );
       invalidateTodoReads();
       todoCache.update((data) => ({ ...data, items: removeFromTree(data.items, id) }));
-      setData((prev) => (prev ? { ...prev, items: removeFromTree(prev.items, id) } : prev));
     } catch {
       if (urlRef.current === actionUrl)
         setError('Couldn’t confirm this change. Refresh to check its status.');
@@ -170,10 +226,6 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     // Optimistically toggle
     invalidateTodoReads();
     todoCache.update((data) => ({ ...data, items: toggleStarInTree(data.items, id) }));
-    setData((prev) => {
-      if (!prev) return prev;
-      return { ...prev, items: toggleStarInTree(prev.items, id) };
-    });
 
     try {
       const response = await apiFetch(`/api/todos/${id}/action`, {
@@ -232,6 +284,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
 
   return {
     loading,
+    refreshing,
     error,
     items: data?.items ?? [],
     profiles: data?.profiles ?? [],
@@ -239,6 +292,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     snooze,
     done,
     star,
+    setPriority: setTodoPriority,
     create,
     createOutcome,
     refresh,
