@@ -13,6 +13,8 @@ export interface SandboxedCommandOptions {
   cwd: string;
   writableRoots: string[];
   deniedRoots: string[];
+  /** Optional deny-by-default read scope for development runners. Host-owned paths only. */
+  readableRoots?: string[];
   env: Record<string, string>;
   signal: AbortSignal;
   timeoutMs?: number;
@@ -103,13 +105,28 @@ export async function executeSandboxedCommand(
     ...options,
     writableRoots: [...options.writableRoots],
     deniedRoots: [...options.deniedRoots],
+    ...(options.readableRoots ? { readableRoots: [...options.readableRoots] } : {}),
     env: { ...options.env },
   };
   const authority = new AuthoritySnapshot();
-  for (const path of [options.cwd, ...options.writableRoots, ...options.deniedRoots]) {
+  for (const path of [
+    options.cwd,
+    ...options.writableRoots,
+    ...options.deniedRoots,
+    ...(options.readableRoots ?? []),
+  ]) {
     validatePath(path);
     authority.capture(path);
   }
+  if (
+    options.readableRoots &&
+    [...options.readableRoots, ...options.writableRoots].some((readable) =>
+      options.deniedRoots.some(
+        (denied) => contains(readable, denied) || contains(denied, readable),
+      ),
+    )
+  )
+    throw Error('Sandbox readable scope overlaps private storage');
   const metadata = options.writableRoots.map((root) => gitMetadataRoots(root, authority));
   const metadataRoots = metadata.flatMap((entry) => entry.writable);
   const protectedMetadata = metadata.flatMap((entry) => entry.protected);
@@ -150,8 +167,8 @@ export async function executeSandboxedCommand(
       authority: authority.serialize(),
       config: {
         filesystem: {
-          denyRead: options.deniedRoots,
-          allowRead: [],
+          denyRead: options.readableRoots ? ['/', ...options.deniedRoots] : options.deniedRoots,
+          allowRead: options.readableRoots ? [...options.readableRoots, home, scratch] : [],
           allowWrite: [...options.writableRoots, ...metadataRoots, home, scratch],
           // Override SRT's shared default scratch grants; each call has its own scratch.
           denyWrite: [
