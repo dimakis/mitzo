@@ -1,0 +1,205 @@
+
+Running 6 tests using 1 worker
+
+(node:45004) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [browser-startup-0] › tests/support/browser-startup.setup.ts:5:1 › browser startup (307ms)
+(node:45017) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (593ms)
+(node:45034) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  3 [desktop-chromium] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (dark) (459ms)
+(node:45097) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  4 [desktop-chromium] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (light) (510ms)
+(node:45181) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  5 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (dark) (1.2s)
+(node:45295) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  6 [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (light) (675ms)
+
+
+  1) [desktop-chromium] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (dark) 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "rgb(19, 20, 22)"
+    Received: "rgb(242, 242, 245)"
+
+      239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });
+      240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+    > 241 |     expect.soft(colors.foreground).toBe(colors.expected);
+          |                                    ^
+      242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+      243 |     expect(host.unexpected).toEqual([]);
+      244 |     expect(host.errors).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36
+
+    Error: expect(received).toBeGreaterThanOrEqual(expected)
+
+    Expected: >= 4.5
+    Received:    1.3564243263890676
+
+      240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+      241 |     expect.soft(colors.foreground).toBe(colors.expected);
+    > 242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+          |                             ^
+      243 |     expect(host.unexpected).toEqual([]);
+      244 |     expect(host.errors).toEqual([]);
+      245 |   });
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:242:29
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--desktop-chromium/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chromium] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (light) 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "rgb(250, 249, 246)"
+    Received: "rgb(32, 33, 39)"
+
+      239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });
+      240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+    > 241 |     expect.soft(colors.foreground).toBe(colors.expected);
+          |                                    ^
+      242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+      243 |     expect(host.unexpected).toEqual([]);
+      244 |     expect(host.errors).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36
+
+    Error: expect(received).toBeGreaterThanOrEqual(expected)
+
+    Expected: >= 4.5
+    Received:    2.5057118244298087
+
+      240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+      241 |     expect.soft(colors.foreground).toBe(colors.expected);
+    > 242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+          |                             ^
+      243 |     expect(host.unexpected).toEqual([]);
+      244 |     expect(host.errors).toEqual([]);
+      245 |   });
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:242:29
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--desktop-chromium/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (dark) 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "rgb(19, 20, 22)"
+    Received: "rgb(242, 242, 245)"
+
+      239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });
+      240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+    > 241 |     expect.soft(colors.foreground).toBe(colors.expected);
+          |                                    ^
+      242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+      243 |     expect(host.unexpected).toEqual([]);
+      244 |     expect(host.errors).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36
+
+    Error: expect(received).toBeGreaterThanOrEqual(expected)
+
+    Expected: >= 4.5
+    Received:    1.3564243263890676
+
+      240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+      241 |     expect.soft(colors.foreground).toBe(colors.expected);
+    > 242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+          |                             ^
+      243 |     expect(host.unexpected).toEqual([]);
+      244 |     expect(host.errors).toEqual([]);
+      245 |   });
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:242:29
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (light) 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "rgb(250, 249, 246)"
+    Received: "rgb(32, 33, 39)"
+
+      239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });
+      240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+    > 241 |     expect.soft(colors.foreground).toBe(colors.expected);
+          |                                    ^
+      242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+      243 |     expect(host.unexpected).toEqual([]);
+      244 |     expect(host.errors).toEqual([]);
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36
+
+    Error: expect(received).toBeGreaterThanOrEqual(expected)
+
+    Expected: >= 4.5
+    Received:    2.5057118244298087
+
+      240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });
+      241 |     expect.soft(colors.foreground).toBe(colors.expected);
+    > 242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+          |                             ^
+      243 |     expect(host.unexpected).toEqual([]);
+      244 |     expect(host.errors).toEqual([]);
+      245 |   });
+        at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:242:29
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace ../../../../../../../tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4 failed
+    [desktop-chromium] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (dark) 
+    [desktop-chromium] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (light) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (dark) 
+    [mobile-webkit] › tests/integration/telos-s9/ui.contract.ts:197:3 › S9 shared action foreground preserves semantic contrast (light) 
+  2 passed (9.2s)
