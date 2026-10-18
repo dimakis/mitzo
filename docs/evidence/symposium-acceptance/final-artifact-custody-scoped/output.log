@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+
+ Test Files  7 passed (7)
+      Tests  55 passed (55)
+   Start at  00:01:46
+   Duration  4.24s (transform 762ms, setup 0ms, import 2.55s, tests 974ms, environment 0ms)
+

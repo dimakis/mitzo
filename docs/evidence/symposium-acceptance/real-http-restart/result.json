@@ -1,0 +1,30 @@
+{
+  "source": {
+    "commit": "de9974bfa6b4f226847e27afc13832e083354809",
+    "tree": "0af2cdb4cb0bb2c011e9392d573d5fd9e63e3e42",
+    "status": "M scripts/run-symposium-acceptance.mjs\n M server/__tests__/fixtures/symposium-application-http.ts\n M server/__tests__/symposium-acceptance-http.test.ts\n M tests/acceptance/symposium-application-wiring.repro.ts\n?? node_modules",
+    "trackedDiffSha256": "cb40239d292c693eb021c3283f37e083424b8b1baa87889fd082ab8f1113a54e",
+    "untrackedSourceSha256": {}
+  },
+  "startedAt": "2026-10-17T22:34:21.812Z",
+  "finishedAt": "2026-10-17T22:34:28.393Z",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.symposium-acceptance.config.ts"
+  ],
+  "requiredJourneys": true,
+  "reusedOwnerContracts": false,
+  "artifactCandidate": true,
+  "heapMiB": 1024,
+  "maxWorkers": 1,
+  "node": "v24.10.0",
+  "vitest": "4.1.11",
+  "exitCode": 1,
+  "signal": null,
+  "result": "failed",
+  "outputSha256": "4940d4242e0561101e8691f722269eec9cdbdb48233da6f8171f982c047c1a6e",
+  "liveQualification": "not performed; this runner selects offline fixtures only"
+}

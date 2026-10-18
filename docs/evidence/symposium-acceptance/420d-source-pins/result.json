@@ -1,0 +1,16 @@
+{
+  "coreCommit": "420d2570a759859699809e036f551b1cb496efb6",
+  "coreTree": "e5c3e74a52def5f5266e549713262c3233b7f4f4",
+  "candidateHead": "0c9a4704cbe2b4aa74c6cc3ac98b6788f6b6f64f",
+  "candidateTree": "f2e6f146a834179950fee6b67d173c86264d21d9",
+  "status": "?? node_modules",
+  "command": "node mitzo/node_modules/tsx/dist/cli.mjs implementation-evidence/verify-420d-source-pins.mts",
+  "implementationRevision": "v1.0.305-symposium-integration.13",
+  "sourcePins": 573,
+  "mismatches": [],
+  "productionChanges": [],
+  "compiledChecker": {
+    "result": "Not rerun: no broad dist build attempted; actual source manifest/function checked through tsx. Prior cb32 missing-dist diagnostic remains historical."
+  },
+  "runtimeQualification": "not performed; source hashes only"
+}

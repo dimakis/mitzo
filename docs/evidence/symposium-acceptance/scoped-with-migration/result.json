@@ -1,0 +1,42 @@
+{
+  "source": {
+    "commit": "189289da78d971497deaa9cc4ca29365ba9c6e56",
+    "tree": "306dd2afe89b468c5f33feb3696e071cd25d7e98",
+    "status": "?? docs/evidence/\n?? scripts/generate-symposium-migration-fixture.mjs\n?? scripts/run-symposium-acceptance.mjs\n?? server/__tests__/fixtures/symposium-acceptance.ts\n?? server/__tests__/fixtures/symposium-application-http.ts\n?? server/__tests__/fixtures/symposium-event-store-09f1090f.json\n?? server/__tests__/fixtures/symposium-event-store-09f1090f.sqlite.gz\n?? server/__tests__/symposium-acceptance-coexistence.test.ts\n?? server/__tests__/symposium-acceptance-http.test.ts\n?? server/__tests__/symposium-acceptance-migration.test.ts\n?? server/__tests__/symposium-acceptance-policies.test.ts\n?? tests/acceptance/\n?? vitest.symposium-acceptance.config.ts",
+    "trackedDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untrackedSourceSha256": {
+      "scripts/generate-symposium-migration-fixture.mjs": "e162d46be9d56df8e5a6834182dda011c93f78b85dc5c0ecc69678a11459240a",
+      "scripts/run-symposium-acceptance.mjs": "3171f3d1a188249d09caea721fbae16f1c5960e462425f0e1e5c9d0aed0fc4a4",
+      "server/__tests__/fixtures/symposium-acceptance.ts": "cea0b01f6937b729a6c652514bc2008513e5cd5ad4fe43dc039418d3b265d652",
+      "server/__tests__/fixtures/symposium-application-http.ts": "ae9ad469673d92ac4052833cffea0dcb4d3fa0e7ec306ba0e2ec9fcbbe641ec8",
+      "server/__tests__/fixtures/symposium-event-store-09f1090f.json": "290f35510f09802a62fa71c7b1b769230171e05b51f4a1d094b3456498ae57b5",
+      "server/__tests__/symposium-acceptance-coexistence.test.ts": "6af09347ce43e998822b4583036ba2d19b1fe241b7f1d2d1b0425fe611c6d9e0",
+      "server/__tests__/symposium-acceptance-http.test.ts": "879e0e124c971f7747fad0bc5cbf4e8fc1e5e8989fad3b8cf583f224a904dc07",
+      "server/__tests__/symposium-acceptance-migration.test.ts": "f1e2b274669529191c1d3a5bc7ec8f249cd8dc71ebebb5aeb3e39e6661318540",
+      "server/__tests__/symposium-acceptance-policies.test.ts": "123af1379b65ea4f8fc6c1e6c6ddcc2c02960ad6efe0196f471e6d34b9ba0806",
+      "tests/acceptance/symposium-application-wiring.repro.ts": "b2faea497f62217497e920e2b3d9bc23b9ae9fc622637cc4a3788a952a94808b",
+      "tests/acceptance/symposium-reader-reply.repro.ts": "fd91087d17a2724c0042c5fc6da0fdaaf30e3d7d972a10450d493bf07489a844",
+      "vitest.symposium-acceptance.config.ts": "f7361e79933c791201fd7534eee10ada8da2cbaddfbb5fa558d8ef2665b4134b"
+    }
+  },
+  "startedAt": "2026-10-17T22:08:54.193Z",
+  "finishedAt": "2026-10-17T22:08:56.977Z",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.symposium-acceptance.config.ts"
+  ],
+  "requiredJourneys": false,
+  "reusedOwnerContracts": false,
+  "heapMiB": 1024,
+  "maxWorkers": 1,
+  "node": "v24.10.0",
+  "vitest": "4.1.11",
+  "exitCode": 0,
+  "signal": null,
+  "result": "passed_scoped_checks",
+  "outputSha256": "6fdf2d8d5eace32eb1d8d03e19a809dd6bcb83cc3236d4b5cb82c10cab823042",
+  "liveQualification": "not performed; this runner selects offline fixtures only"
+}
