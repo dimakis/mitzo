@@ -34,6 +34,9 @@ let app: typeof import('../app.js');
 let chat: typeof import('../chat.js');
 let auth: typeof import('../auth.js');
 let first: Awaited<ReturnType<typeof ownedOrdinaryRuntimeFixture>>['first'];
+let canonical: ReturnType<
+  (typeof import('./fixtures/telos-canonical-advisor.js'))['createTelosCanonicalData']
+>;
 beforeAll(async () => {
   vi.resetModules();
   vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
@@ -51,6 +54,10 @@ beforeAll(async () => {
     separateConfiguredWorkspace: true,
   });
   services.workspace = f.workspaces;
+  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+  canonical = createTelosCanonicalData();
+  cleanup.push(() => canonical.close());
+  vi.stubEnv('TELOS_DB_PATH', canonical.dbPath);
   await writeFile(join(f.configuredWorkspace, 'global.txt'), 'Configured workspace material');
   app = await import('../app.js');
   chat = await import('../chat.js');
@@ -212,4 +219,150 @@ it('stops offering prepared-first after the real first-command ledger admission,
     first.request.clientMsgId,
   );
   expect(first.launch).not.toHaveBeenCalled();
+});
+
+it('uses pure canonical scope checks to withhold incomplete delegation, allow exact recovered linkage and recheck linkage after awaited readiness', async () => {
+  const { TelosWorkStore } = await import('../telos-work-store.js');
+  const { TelosWorkDelegation } = await import('../telos-work-delegation.js');
+  const { reviewTelosWorkRoleContext } = await import('../telos-work-role-review.js');
+  const { randomUUID } = await import('node:crypto');
+  const work = new TelosWorkStore(canonical.dbPath, {
+    ordinaryConversation: (id) => !!f.events.getSession(id),
+  });
+  const actor = { kind: 'operator' as const, id: f.auth.id },
+    child = 'child-' + randomUUID();
+  const command = (input: object) =>
+    work.execute(
+      {
+        itemId: 'studio',
+        requestId: randomUUID(),
+        expectedRevision: work.read('studio', actor).revision,
+        ...input,
+      },
+      actor,
+    );
+  try {
+    command({ operation: 'classify', kind: 'outcome' });
+    command({
+      operation: 'link',
+      role: 'lead',
+      conversation: { namespace: 'mitzo', conversationId: first.receipt.sessionId },
+    });
+    command({
+      operation: 'assign',
+      role: 'lead',
+      conversationId: first.receipt.sessionId,
+      expectedAssignmentRevision: 0,
+    });
+    canonical.db
+      .prepare(
+        "INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,priority,first_seen,last_seen,created_at,updated_at) VALUES(?,'studio','Arrange the session','Retain a plan','Independent work','[\"Plan retained\"]','manual',8,?,?,?,?)",
+      )
+      .run(child, canonical.stamp, canonical.stamp, canonical.stamp, canonical.stamp);
+    work.execute(
+      {
+        operation: 'classify',
+        itemId: child,
+        requestId: randomUUID(),
+        expectedRevision: work.read(child, actor).revision,
+        kind: 'work_item',
+      },
+      actor,
+    );
+    const context = reviewTelosWorkRoleContext({
+      work,
+      artifacts: canonical.artifacts,
+      actor,
+      itemId: child,
+      role: 'worker',
+      selectedSourceSnapshotIds: [],
+      selectedArtifactRefs: [],
+    });
+    const input = {
+      version: 2 as const,
+      requestId: randomUUID(),
+      leadItemId: 'studio',
+      childItemId: child,
+      leadConversationId: first.receipt.sessionId,
+      expectedRevision: context.brief.revision,
+      mode: 'start' as const,
+      predecessorAttemptId: null,
+      settings: first.receipt.settings,
+      contextSelection: context,
+    };
+    const resolve = async () => ({
+      binding: f.binding,
+      agentProfile: first.reserved.agentProfile,
+      taskRoot: f.taskRoot,
+      requiredCapabilities: ['ordinary_conversation', 'task_execution'],
+    });
+    const owner = new TelosWorkDelegation<'ordinary'>({
+      workspaceKind: 'ordinary',
+      work,
+      events: f.events,
+      tasks: app.taskStore,
+      workspaces: f.workspaces,
+      qualifyOrdinarySettings: resolve,
+      resolvePreparation: resolve,
+      authorize: async () => {
+        if (!auth.isAuthSessionCurrent(f.auth)) throw Error('Private operator revoked');
+      },
+      assertBeforeApply: () => {
+        if (!auth.isAuthSessionCurrent(f.auth)) throw Error('Private operator revoked');
+      },
+    });
+    const prepare = f.events.prepareOrdinaryWorkspaceSession.bind(f.events);
+    vi.spyOn(f.events, 'prepareOrdinaryWorkspaceSession').mockImplementationOnce((...args) => {
+      prepare(...args);
+      throw Error('Interrupted before role retention');
+    });
+    await expect(owner.delegate(actor, input, f.signal.signal)).rejects.toThrow(
+      'Interrupted before role retention',
+    );
+    const intent = work.latestOrdinaryDelegationForHost(child)!;
+    const original = f.events.getOrdinaryWorkspaceSessionPreparation(intent.allocationOperationId)!;
+    const meta = () =>
+      request(app.app)
+        .get('/api/sessions/' + original.sessionId + '/meta')
+        .set('Authorization', 'Bearer ' + f.token);
+    const before = work.read(child, actor);
+    const incomplete = await meta();
+    expect(incomplete.status).toBe(200);
+    expect(incomplete.body.runtimeCommandScope).not.toBe('prepared-first-command');
+    expect(work.read(child, actor)).toEqual(before);
+    expect(f.events.getOrdinaryInitialCommandId(original.sessionId)).toBeUndefined();
+    const receipt = await owner.delegate(actor, input, f.signal.signal);
+    expect(receipt.workerConversationId).toBe(original.sessionId);
+    const wrapper = vi.spyOn(chat, 'resolveOwnedTelosWorkCommandScope');
+    const ready = await meta();
+    expect(ready.status).toBe(200);
+    expect(ready.body.runtimeCommandScope).toBe('prepared-first-command');
+    expect(wrapper).not.toHaveBeenCalled();
+    const qualify = f.workspaces.qualifyOrdinaryWorkspace.bind(f.workspaces);
+    vi.spyOn(f.workspaces, 'qualifyOrdinaryWorkspace').mockImplementationOnce(async (selected) => {
+      const value = await qualify(selected),
+        db = new Database(join(f.configuredWorkspace, '.mitzo', 'tasks.db'));
+      try {
+        db.prepare('DELETE FROM task_telos_execution_bindings WHERE task_id=?').run(
+          receipt.attempt.executionTaskId,
+        );
+      } finally {
+        db.close();
+      }
+      return value;
+    });
+    const damaged = await meta();
+    expect(damaged.status).toBe(200);
+    expect(damaged.body.runtimeCommandScope).not.toBe('prepared-first-command');
+    expect(app.taskStore.get(receipt.attempt.executionTaskId!)?.status).toBe('pending');
+    expect(app.taskStore.getTelosExecutionBinding(receipt.attempt.executionTaskId!)).toBeNull();
+    expect(f.events.getOrdinaryInitialCommandId(original.sessionId)).toBeUndefined();
+    expect(first.launch).not.toHaveBeenCalled();
+    expect(wrapper).not.toHaveBeenCalled();
+    expect(f.workspaces.getOrdinaryWorkspaceForConversation(original.sessionId)?.state).toBe(
+      'reserved',
+    );
+  } finally {
+    work.close();
+  }
 });

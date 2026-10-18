@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.345-prepared-command-metadata.1';
+  'v1.0.350-prepared-command-scope-fence.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -594,7 +594,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'f1f94940c39f423a448588c1be0321b06e42853657237a550f373c4b0fefc246',
+  '../app.ts': '32513f91bb81fd2545013d0a93999d1e75c535dcecc0e67ed89c104a0f517c7a',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -1103,7 +1103,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-work-delegation-host.ts':
     'f80204bc86526b806ae42d144bcffacc07aba609925698d300a6ebeeb20aa9ee',
   '../telos-work-command-scope.ts':
-    'ee4418309938ce4f14d62d08f051b2fcd7cfeefed51812defea067fcdcc8079c',
+    '264f36cdbef13f3de3ea15afc1667fd00c13c520a7a1c4c1a68ddf8a04d4f554',
   '../telos-work-execution-authority.ts':
     'dc141a3f96f32f7e753ab1363a1d3e64f375da62516e6d8a451eb0df527975d5',
   '../telos-work-tools.ts': '385bf4be8198cc30ef96c8c0693a327e7e6d02509b6936ae178f13c05b01847a',

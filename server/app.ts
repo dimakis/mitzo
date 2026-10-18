@@ -1,3 +1,4 @@
+import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
 import { ordinaryWorkspacePreparedCommandStatus } from './ordinary-workspace-prepared-command.js';
 import { requireSameOriginJson } from './connections-router.js';
 import {
@@ -3456,25 +3457,44 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   const preparedController = new AbortController();
   const abortPreparedStatus = () => preparedController.abort();
   res.once('close', abortPreparedStatus);
-  const preparedStatus = await ordinaryWorkspacePreparedCommandStatus({
-    events: eventStore,
-    workspaces: () => getOrdinaryWorkspaces(true),
-    sessionId: meta.sessionId,
-    signal: preparedController.signal,
-    assertCurrent: () => {
-      const auth = res.locals.authSession;
-      if (
-        !auth ||
-        !hasPersistentRevocationAuthority() ||
-        !isAuthSessionCurrent(auth) ||
-        custodianControllerClient ||
-        custodianOwnerMode ||
-        process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
-      )
-        throw Error('Current ordinary operator unavailable');
-    },
-  });
-  res.removeListener('close', abortPreparedStatus);
+  let preparedWork: TelosWorkStore | undefined;
+  let preparedStatus: Awaited<ReturnType<typeof ordinaryWorkspacePreparedCommandStatus>>;
+  try {
+    preparedStatus = await ordinaryWorkspacePreparedCommandStatus({
+      events: eventStore,
+      workspaces: () => getOrdinaryWorkspaces(true),
+      sessionId: meta.sessionId,
+      signal: preparedController.signal,
+      assertCurrent: () => {
+        const auth = res.locals.authSession;
+        if (
+          !auth ||
+          !hasPersistentRevocationAuthority() ||
+          !isAuthSessionCurrent(auth) ||
+          custodianControllerClient ||
+          custodianOwnerMode ||
+          process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+        )
+          throw Error('Current ordinary operator unavailable');
+        resolveTelosWorkCommandScope(
+          {
+            events: eventStore,
+            tasks: taskStore,
+            work: () =>
+              (preparedWork ??= new TelosWorkStore(telosDatabasePath(), {
+                ordinaryConversation: (id) =>
+                  isAvailableTelosWorkConversation(eventStore.getSession(id)),
+              })),
+          },
+          meta.sessionId,
+          eventStore.getSession(meta.sessionId)?.accountBinding ?? undefined,
+        );
+      },
+    });
+  } finally {
+    preparedWork?.close();
+    res.removeListener('close', abortPreparedStatus);
+  }
   if (res.destroyed) return;
   res.json({
     sessionId: meta.sessionId,

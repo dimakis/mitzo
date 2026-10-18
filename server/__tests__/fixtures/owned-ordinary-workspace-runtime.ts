@@ -33,7 +33,11 @@ import {
 /** Non-Git storage, real account/native readiness and ordinary owners; only RPC/provider effects are fake. */
 export async function ownedOrdinaryRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
-  options: { chatRoute?: boolean; separateConfiguredWorkspace?: boolean } = {},
+  options: {
+    chatRoute?: boolean;
+    separateConfiguredWorkspace?: boolean;
+    delegationAttemptId?: string;
+  } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-ordinary-native-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
@@ -229,7 +233,14 @@ export async function ownedOrdinaryRuntimeFixture(
         reasoningEffort: request.selection.thinking,
         mode: 'agent',
       },
-      { allocationOperationId, preparationFingerprint: reserved.preparationFingerprint, settings },
+      {
+        allocationOperationId,
+        preparationFingerprint: reserved.preparationFingerprint,
+        settings,
+        ...(options.delegationAttemptId
+          ? { delegationAttemptId: options.delegationAttemptId }
+          : {}),
+      },
     );
     const reservation = {
       id: reserved.id,
@@ -377,6 +388,12 @@ export async function ownedOrdinaryRuntimeFixture(
     forbidden,
     get legacyLookup() {
       return legacyLookup;
+    },
+    /** Reopen workspace custody while the server retains its original auth/EventStore owner. */
+    reopenWorkspaceOwner() {
+      workspaces.close();
+      workspaces = openWorkspaces();
+      legacyLookup = vi.spyOn(workspaces, 'getHostReservation');
     },
     /** Reopen actual durable owners only after the test has stopped any driver. */
     reopenStorage() {
