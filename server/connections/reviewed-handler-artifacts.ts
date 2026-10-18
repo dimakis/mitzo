@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.317-telos-s5.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.318-codex-resume';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Bounded native resume, including retained-runtime migration validation.
+  '../openshell-runtime-migration-adapter.ts':
+    '80de415c99219bfa5f4b371ef3ab6b247f22211610418bce69e2980dae58e431',
   '../../frontend/src/components/AgentTaskProposal.tsx':
     'c431e4b77b6349b5f6f2b8d2d0040a5c970a2440c222d93577e0848451499f2a',
   '../../frontend/src/components/SymposiumProfilePicker.css':
@@ -473,10 +476,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
-    'c824905203edea55743c4e3985438eec5ae18fa0a991b18ac86928593e8f97ee',
+    '30781aab58afc2ce7012e4180925e0f6adb2f6f1a9c3cc8ebc8a2087955c9fd6',
   '../codex-mcp-tools.ts': 'ad82004d216382a911fbc1f089e4aeb8b22b2e833d6ced51fa6c37682a901206',
   '../codex-runtime-diagnostics.ts':
-    '80730e66ff8aa543acfb4ce035c7cf2fbe936172498d3b8ed0d868143bee4513',
+    '00b48e32557feff7923a5d548f085d2107383491689ec43f75f465287552f4c9',
   'capabilities/approval.ts': '25c074b3091e67b0c3faba822e8e2c00ff32a34416fe0b37cb4f202d040d0320',
   'capabilities/types.ts': '2d87b1836d4040bb8a887c17d89cc3ccfab213016e6d276cbb3cdc084a0b9a89',
   '../notification-center.ts': 'a37c82c90d7f6b89e40a6523cf8bde76aacb4f65645100829fa827dc29a49a26',
@@ -528,7 +531,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '29b6dd057f8f4bd92c7877b9bfee008b006f38abcc4c61078265e20302e954cb',
+  '../chat.ts': '615bd61a1dd73592735f5a8bdbca2cdb60b835d944b0e6d4cb7fa314543fdce5',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     '272bcecc036d39a5763bb942e9050a1c873d39a3fc49a89d7724b6e2bb39a849',
@@ -550,7 +553,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
   '../symposium-production-review-composition.ts':
     '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
-  '../ws-handler-v2.ts': '2b5f9ced94d2b67a0858d13f04e5db11efba975718c6d7d6a8fdc96a3147115e',
+  '../ws-handler-v2.ts': 'a0b352acd34a25f5da0804b2cc3ea3e50cc463af1030e2d710f814e699f8d4c4',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
@@ -568,7 +571,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '19ef053de76d46b5d0a6d724bd0a43526722f1468bde19c4d5f65908c72e687d',
+  '../codex-conversation.ts': '9998c86ddf7480fa467aaff635ae61f987b05a8e2c353032cefbee22a340d405',
   '../codex-conversation-store.ts':
     'eee98642c310c6ed02ee94de11c7aaa3e376f454388352e94fa20a714c97bfed',
   // Retained-owner inference cancellation preserves actual handler cleanup and drain.

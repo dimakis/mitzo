@@ -64,6 +64,18 @@ Accepted or ambiguous provider work retains its existing recovery fences.
 Metadata-only resume does not authorize another account, change provider thread
 identity, grant tools, bypass ownership, or clear startup uncertainty records.
 
+The intentional source successor is `v1.0.318-codex-resume`. It refreshes the five
+changed existing runtime fingerprints and adds migration validation to the
+reviewed source closure. Provider-policy and GitHub publication implementation
+revisions remain unchanged because their authority and network semantics did not
+change. Integrity assertions and the server build's full source check remain active.
+
+Owned local/OpenShell target contracts and configured tool bindings derive from
+this source closure. Stale approvals therefore remain invalid until their normal
+operator review/activation; do not silently rewrite target declarations or tool
+approvals to adopt the new runtime. Retain earlier declarations and uncertainty
+records. This repair changes no production enrollment or credentials.
+
 Framing diagnostics contain fixed reasons only: `frame_too_large`,
 `invalid_json`, `invalid_envelope`, or `notification_handler_failed`.
 `transportFrameBytes` is the observed complete frame size or the accumulated
@@ -86,6 +98,10 @@ native contract with synthetic history in disposable homes. It requires the
 repository's runtime version, has no credentials and cannot send `turn/start`.
 It verifies that a full resume exceeds the bound while metadata-only resume
 keeps the original thread and its inspectable native history.
+
+CI compiles the actual server and verifies its reviewed source artifacts before
+the native resume contract and full regression suite. A missing source revision
+therefore fails early rather than waiting for the full suite to finish.
 
 Before activation, require CI and the repository's exact-head review gate.
 Production deployment remains a separately authorized operation; staging on the

@@ -271,8 +271,8 @@ jobs:
           sudo install -d -o "$USER" /sandbox
           python3 -I docs/spikes/openshell-codex/knowledge-write-scope-smoke.py
 
-      - name: Build workspace packages
-        run: npx tsc -b packages/protocol packages/harness packages/client
+      - name: Build server and verify reviewed runtime artifacts
+        run: npm run build:server
 
       - name: Verify pinned Codex resume without inference
         id: codex-resume
