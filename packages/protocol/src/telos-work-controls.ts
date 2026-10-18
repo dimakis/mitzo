@@ -57,3 +57,16 @@ export const TelosWorkControlViewSchema = z.strictObject({
 });
 export type TelosWorkControlScope = z.infer<typeof TelosWorkControlScopeSchema>;
 export type TelosWorkControlView = z.infer<typeof TelosWorkControlViewSchema>;
+
+export const TelosWorkControlCommandSchema = z.discriminatedUnion('operation', [
+  TelosWorkControlRequestSchema.extend({ operation: z.literal('request') }),
+  TelosWorkControlAcknowledgementSchema.extend({ operation: z.literal('acknowledge') }),
+  TelosWorkControlReleaseSchema.extend({ operation: z.literal('release') }),
+  z.strictObject({ operation: z.literal('read'), controlId: id }),
+  z.strictObject({ operation: z.literal('inbox'), itemId: id }),
+]);
+export const TelosWorkControlResultSchema = z.union([
+  TelosWorkControlViewSchema,
+  z.array(TelosWorkControlViewSchema),
+]);
+export type TelosWorkControlCommand = z.infer<typeof TelosWorkControlCommandSchema>;

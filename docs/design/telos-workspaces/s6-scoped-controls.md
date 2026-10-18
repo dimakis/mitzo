@@ -28,3 +28,13 @@ replacement, delayed/duplicate acknowledgements, denied fake host evidence,
 restart, release and current-main validation. Four tests pass after observed red
 missing-owner failures. These are store contracts; endpoint, ordinary-queue and
 publication integration evidence is still required before S6 acceptance.
+
+The operator `POST /api/telos/work/controls` and exact-session internal
+`POST /api/internal/telos/work/control` support request, inbox, read,
+acknowledge and release. Neither accepts application or revalidation evidence.
+The internal envelope pins both client and ordinary session IDs; request JSON
+cannot select its actor. Coordinator/recipient authority is checked in the same
+synchronous transaction as persistence. New pending delegation consumes the
+new-worker-dispatch fence; an already committed allocation receipt remains
+recoverable without creating another worker. HTTP and existing route tests pass
+(26 tests); the new endpoint test was observed failing with a missing route first.

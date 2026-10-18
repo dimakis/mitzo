@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.331-telos-s6-brief-admission';
+  'v1.0.332-telos-s6-control-api';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,8 +24,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work-controls.ts':
-    'a05b7683433d70e88e96efb25ec29eb664d128a2f18d0d9d1700fcd6268c9e6f',
-  '../telos-work-controls.ts': 'bdc424e3c04fd61ed273321e24970d3ea8ee0baf8a80d9156b2b1527af2c3f40',
+    '9fed0d0a56caf29a379a68b557ee80e488d366bc147593ccc9dd7ef8bc22f7ec',
+  '../telos-work-controls.ts': 'c7fdaf4e4d25297c00386604cd21925e0418f36e583dc808a25f394f8494f700',
   '../../frontend/src/components/AgentTaskProposal.tsx':
     'c431e4b77b6349b5f6f2b8d2d0040a5c970a2440c222d93577e0848451499f2a',
   '../../frontend/src/components/SymposiumProfilePicker.css':
@@ -144,11 +144,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '689c1925f2ba21871adbda5d79201d786cd88a55ed0b383130aad668e005b4f1',
   '../telos-work-conversation.ts':
     '6abc340f3236812d9e9875e8a60944590575d991e95ccaf3f2b61aff323c5175',
-  '../telos-work-routes.ts': '4a3bdda93822d70392e521824aeef84fcbe426fc945c1653a5917831e998d4e6',
+  '../telos-work-routes.ts': 'd96bd1b495c8b127909725b51328a0af378144ccfa2b3749a7a423b092a4b371',
   '../../packages/client/src/telos-work-api.ts':
     '9dc3a4c550598560008127b8de2985f934c49280ae67963a81f8276f36e782c2',
   '../telos-work-schema.ts': '065c358cdfa86b00dc102e0f72126bec2e7bf88eda756ae6e8d57dfca9ae8d3d',
-  '../telos-work-store.ts': 'd36864127689fffdc8355311cf76e2e005655810100c41747a322aae026f94eb',
+  '../telos-work-store.ts': '3bd6dc7fdad65c25a328f8212143164c606b7df0e429fecbe720e286921e2b0d',
   '../../packages/protocol/src/telos-work-api.ts':
     'e24a6d7142cb5bef3910ec37b750b05dece5814d85e35d8bcbdc2f3813270176',
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',

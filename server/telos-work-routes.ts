@@ -1,6 +1,8 @@
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import {
+  TelosWorkControlCommandSchema,
+  type TelosWorkControlCommand,
   TelosWorkCommandSchema,
   TelosWorkIdSchema,
   TelosSourceConversationReferenceSchema,
@@ -89,6 +91,79 @@ export function createTelosWorkRouter(options: {
     }
     return { kind: 'operator', id };
   };
+  const control = (
+    store: TelosWorkStore,
+    input: TelosWorkControlCommand,
+    authority: TelosWorkActor,
+  ) => {
+    switch (input.operation) {
+      case 'read':
+        return store.readControl(input.controlId, authority);
+      case 'inbox':
+        return store.controlInbox(input.itemId, authority);
+      case 'request': {
+        const { operation, ...raw } = input;
+        void operation;
+        return store.requestControl(raw, authority);
+      }
+      case 'acknowledge': {
+        const { operation, ...raw } = input;
+        void operation;
+        return store.acknowledgeControl(raw, authority);
+      }
+      case 'release': {
+        const { operation, ...raw } = input;
+        void operation;
+        return store.releaseControl(raw, authority);
+      }
+    }
+  };
+  router.post(
+    '/api/telos/work/controls',
+    options.operatorAuth,
+    requireSameOriginJson,
+    (req, res) => {
+      const authority = actor(res);
+      if (!authority) return;
+      const parsed = TelosWorkControlCommandSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ code: 'invalid', error: 'Invalid scoped control' });
+        return;
+      }
+      run(res, (store) => control(store, parsed.data, authority));
+    },
+  );
+  router.post('/api/internal/telos/work/control', (req, res) => {
+    if (!options.verifyInternal(req)) {
+      res.status(401).json({ code: 'unauthorized', error: 'Internal token required' });
+      return;
+    }
+    const parsed = z
+      .strictObject({
+        clientId: TelosWorkIdSchema,
+        sessionId: TelosWorkIdSchema,
+        input: TelosWorkControlCommandSchema,
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ code: 'invalid', error: 'Invalid scoped control' });
+      return;
+    }
+    const selected = parsed.data;
+    if (
+      req.headers['x-client-id'] !== selected.clientId ||
+      options.sessionId(selected.clientId) !== selected.sessionId ||
+      !options.ordinaryConversation(selected.sessionId)
+    ) {
+      res
+        .status(403)
+        .json({ code: 'unauthorized', error: 'Exact current ordinary conversation required' });
+      return;
+    }
+    run(res, (store) =>
+      control(store, selected.input, { kind: 'conversation', id: selected.sessionId }),
+    );
+  });
   router.get('/api/telos/work/items/:itemId', options.operatorAuth, (req, res) => {
     const authority = actor(res);
     if (!authority) return;

@@ -247,3 +247,78 @@ it('CT12: only verified host evidence applies a worker hold, duplicates stay mon
     /revalidat/i,
   );
 });
+
+it('CT12: real HTTP control commands derive the current conversation and reject forged actors, host proof and unrelated inbox reads', async () => {
+  const { default: express } = await import('express');
+  const { default: request } = await import('supertest');
+  const { createTelosWorkRouter } = await import('../telos-work-routes.js');
+  const { listenOnLoopback, closeTestServer } = await import('./loopback-test-server.js');
+  const f = fixture();
+  const app = express();
+  app.use(express.json());
+  const clients: Record<string, string> = {
+    coordinator: 'coordinator-chat',
+    lead: 'lead-1',
+    unrelated: 'job-lead',
+  };
+  app.use(
+    createTelosWorkRouter({
+      dbPath: () => f.canonical.dbPath,
+      operatorAuth: (_req, res, next) => {
+        res.locals.authSession = { id: 'offline-operator' };
+        next();
+      },
+      verifyInternal: (req) => req.headers['x-internal-token'] === 'offline-token',
+      sessionId: (client) => clients[client],
+      ordinaryConversation: () => true,
+    }),
+  );
+  const server = await listenOnLoopback(app);
+  const call = (client: string, input: object, sessionId = clients[client]) =>
+    request(server)
+      .post('/api/internal/telos/work/control')
+      .set('x-internal-token', 'offline-token')
+      .set('x-client-id', client)
+      .send({ clientId: client, sessionId, input });
+  try {
+    const input = {
+      operation: 'request',
+      requestId: 'http-hold',
+      coordinatorItemId: 'coordinator',
+      priorityItemId: 'feature-0',
+      targetItemIds: ['feature-1'],
+      scope: 'new_worker_dispatch',
+    };
+    const created = await call('coordinator', input);
+    expect(created.status).toBe(200);
+    expect(created.body.targets).toHaveLength(1);
+    const controlId = created.body.controlId;
+    expect((await call('unrelated', { operation: 'read', controlId })).status).toBe(403);
+    expect((await call('lead', { operation: 'read', controlId }, 'coordinator-chat')).status).toBe(
+      403,
+    );
+    expect(
+      (await call('coordinator', { ...input, actor: { kind: 'operator', id: 'forged' } })).status,
+    ).toBe(400);
+    expect(
+      (await call('lead', { operation: 'applied', controlId, evidenceRef: 'forged' })).status,
+    ).toBe(400);
+    const inbox = await call('lead', { operation: 'inbox', itemId: 'feature-1' });
+    expect(inbox.status).toBe(200);
+    expect(inbox.body).toHaveLength(1);
+    expect((await call('unrelated', { operation: 'inbox', itemId: 'feature-1' })).status).toBe(403);
+    const acknowledged = await call('lead', {
+      operation: 'acknowledge',
+      requestId: 'http-ack',
+      controlId,
+      itemId: 'feature-1',
+      assignmentRevision: 1,
+    });
+    expect(acknowledged.status).toBe(200);
+    expect(acknowledged.body.targets[0].stage).toBe('acknowledged');
+    clients.lead = 'job-lead';
+    expect((await call('lead', { operation: 'read', controlId }, 'lead-1')).status).toBe(403);
+  } finally {
+    await closeTestServer(server);
+  }
+});

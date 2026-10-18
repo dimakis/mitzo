@@ -111,6 +111,9 @@ export class TelosWorkStore {
       this.policy.ordinaryConversation,
     );
   }
+  controlInbox(itemId: string, actor: TelosWorkActor) {
+    return this.controls().inbox(itemId, actor);
+  }
   requestControl(raw: unknown, actor: TelosWorkActor) {
     return this.controls().request(raw, actor);
   }
@@ -1208,11 +1211,13 @@ export class TelosWorkStore {
         'SELECT 1 FROM telos_work_delegation_requests WHERE attempt_id=? AND receipt IS NOT NULL LIMIT 1',
       )
       .get(intent.attemptId);
-    if (!receipt)
+    if (!receipt) {
+      this.assertControlAction(input.leadItemId, 'new_worker_dispatch');
       for (const pin of intent.recordRevisions) {
         if (hash(this.item(pin.itemId)) !== pin.sha256)
           conflict('Reviewed delegation context changed');
       }
+    }
   }
   delegationRequestForHost(
     requestId: string,

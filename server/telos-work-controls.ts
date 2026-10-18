@@ -222,6 +222,35 @@ export class TelosWorkControls {
       };
     })();
   }
+  inbox(itemId: string, actor: TelosWorkActor): TelosWorkControlView[] {
+    return this.db.transaction(() => {
+      const item = this.work(itemId);
+      if (actor.kind !== 'operator' || !actor.id.trim()) {
+        const current = item.assignments.some((a) => a.conversation.conversationId === actor.id);
+        const worker =
+          item.attempts.at(-1)?.workerConversationId === actor.id &&
+          !item.assignments.some(
+            (a) => a.role === 'worker' && a.conversation.conversationId !== actor.id,
+          );
+        if (actor.kind !== 'conversation' || !this.available(actor.id) || (!current && !worker))
+          denied('Current linked recipient required; conversation is not authorized');
+      }
+      const rows = this.db
+        .prepare('SELECT control_id,data FROM telos_work_controls ORDER BY rowid')
+        .all() as { control_id: string; data: string }[];
+      return rows
+        .filter((row) => {
+          const c = JSON.parse(row.data) as Control;
+          return (
+            c.input.coordinatorItemId === itemId ||
+            c.input.targetItemIds.some((id) =>
+              this.descendants(id).some((w) => w.itemId === itemId),
+            )
+          );
+        })
+        .map((row) => this.read(row.control_id, actor));
+    })();
+  }
   request(raw: unknown, actor: TelosWorkActor): TelosWorkControlView {
     const input = TelosWorkControlRequestSchema.parse(raw);
     return this.db
