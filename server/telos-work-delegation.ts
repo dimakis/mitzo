@@ -93,7 +93,6 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
     input.contextSelection = TelosWorkRoleContextSelectionSchema.parse(input.contextSelection);
     renderTelosWorkRoleContext(input.contextSelection);
     signal.throwIfAborted();
-    let ordinarySelection: Preparation | undefined;
     if (ordinary) {
       if (!this.deps.qualifyOrdinarySettings)
         throw new TelosWorkError(
@@ -104,7 +103,6 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
         await this.deps.qualifyOrdinarySettings(structuredClone({ actor, input }), signal),
       );
       assertAgentToolRoute(selected.agentProfile.definition, 'codex-owned-local');
-      ordinarySelection = selected;
       await this.deps.workspaces.qualifyOrdinaryWorkspace({
         ...selected,
         preparationId: OrdinaryWorkspaceSettingsSchema.parse(input.settings).workspace
@@ -181,6 +179,32 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
         assertCurrent(settings);
       };
       await authorize(sourceSettings);
+      // A default-start alias may recover a different canonical intent. Recheck
+      // that intent's original selection, never the incoming alias's account/root.
+      let ordinarySelection: TelosOrdinaryWorkSelection | undefined;
+      if (ordinary) {
+        ordinarySelection = structuredClone(
+          await this.deps.qualifyOrdinarySettings!(
+            {
+              actor,
+              input: TelosOrdinaryWorkDelegationInputSchema.parse(
+                selected.input,
+              ) as DelegationInput<K>,
+            },
+            signal,
+          ),
+        );
+        await authorize(sourceSettings);
+        assertAgentToolRoute(ordinarySelection.agentProfile.definition, 'codex-owned-local');
+        const settings = OrdinaryWorkspaceSettingsSchema.parse(workerSettings);
+        await this.deps.workspaces.qualifyOrdinaryWorkspace({
+          ...ordinarySelection,
+          preparationId: settings.workspace.preparationId,
+          settings,
+          signal,
+        });
+        await authorize(workerSettings);
+      }
 
       // The ordinary ledger is consulted before a resolver or workspace owner:
       // a lost response must recover its original session, even after restart.
