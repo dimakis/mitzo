@@ -1,0 +1,32 @@
+[
+  {
+    "pr": {
+      "headRefOid": "9edf04428fc4ef01068ae8ed7b3375199bfeb8ce",
+      "mergeCommit": {
+        "oid": "117783fdf920f13e5e3b710d04d17f9cd46f5782"
+      },
+      "mergedAt": "2026-10-18T12:30:30Z",
+      "state": "MERGED",
+      "url": "https://github.com/dimakis/mitzo/pull/1027"
+    },
+    "mergeTree": "22fd17ffdc936f0aec570cd726bae9e5711870dd",
+    "reviewedHeadTree": "22fd17ffdc936f0aec570cd726bae9e5711870dd",
+    "treesIdentical": true,
+    "soleParent": "fdd95797499a3a6dcad3322af303e958fdbfed19"
+  },
+  {
+    "pr": {
+      "headRefOid": "04c56875ac2a8ab7b96db27d11c8dcd47fb5cf61",
+      "mergeCommit": {
+        "oid": "2b22bade2b1e612cc564661bf1e69b45a317e5eb"
+      },
+      "mergedAt": "2026-10-18T13:38:35Z",
+      "state": "MERGED",
+      "url": "https://github.com/dimakis/mitzo/pull/1029"
+    },
+    "mergeTree": "8833577374e4d3678fb74bdda1323209fbe83c0c",
+    "reviewedHeadTree": "8833577374e4d3678fb74bdda1323209fbe83c0c",
+    "treesIdentical": true,
+    "soleParent": "117783fdf920f13e5e3b710d04d17f9cd46f5782"
+  }
+]

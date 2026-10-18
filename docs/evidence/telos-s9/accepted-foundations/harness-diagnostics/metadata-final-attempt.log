@@ -1,0 +1,58 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations
+
+{"level":30,"time":1792339299610,"pid":52807,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-ZoH1Sv/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339299755,"pid":52807,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-ZoH1Sv/tasks.db","msg":"TaskStore initialized"}
+ ❯ tests/integration/telos-s9/accepted-foundations/vertical.test.ts (1 test | 1 failed) 564ms
+   × CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child 563ms
+{"level":30,"time":1792339301237,"pid":52868,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-cLniga/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339301650,"pid":52868,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-CACtXF/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339301731,"pid":52868,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-CACtXF/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339302115,"pid":52868,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-A5t0yP/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339302140,"pid":52868,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-A5t0yP/tasks.db","msg":"TaskStore initialized"}
+ ❯ tests/integration/telos-s9/accepted-foundations/recovery.test.tsx (3 tests | 1 failed) 1357ms
+   × CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload 433ms
+   ✓ CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation  473ms
+   ✓ CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review  406ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/telos-s9/accepted-foundations/recovery.test.tsx > CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx:49:43
+     47|   const first = renderHook(() => useTelosRoleSetup(options));
+     48|   await act(async () => first.result.current.review());
+     49|   expect(first.result.current.canConfirm).toBe(true);
+       |                                           ^
+     50|   expect(first.result.current.presentationRef).toMatchObject({
+     51|     id: expect.any(String),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/telos-s9/accepted-foundations/vertical.test.ts > CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child
+Error: Telos work unavailable
+ ❯ TelosWorkApiClient.request packages/client/src/telos-work-api.ts:220:13
+    218|           ? parsed.data
+    219|           : undefined;
+    220|       throw new TelosWorkApiError(
+       |             ^
+    221|         response.status,
+    222|         code,
+ ❯ tests/integration/telos-s9/accepted-foundations/vertical.contract.ts:121:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 2 passed (4)
+   Start at  17:01:37
+   Duration  4.16s (transform 763ms, setup 0ms, import 2.05s, tests 1.92s, environment 0ms)
+
+JSON report written to /tmp/s9-1032-accepted-metadata-final.json
