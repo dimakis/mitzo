@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { OrdinaryWorkspaceFirstCommandSchema } from '@mitzo/protocol';
+import { LocalCodexFirstCommandSchema, OrdinaryWorkspaceFirstCommandSchema } from '@mitzo/protocol';
 import type { SetURLSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
 import { artifactApiUrl, isTelosArtifactUrl, telosDocumentUrl } from '../lib/file-paths';
@@ -174,7 +174,19 @@ export function useFileNavigation(
             );
           return id.success && body.repositoryWorkspaceId == null ? 'ordinary' : 'unknown';
         }
-        return body.runtimeCommandScope === 'prepared-first-command' ? 'unknown' : 'repository';
+        if (body.repositoryWorkspaceId != null)
+          return LocalCodexFirstCommandSchema.shape.repositoryWorkspaceId.safeParse(
+            body.repositoryWorkspaceId,
+          ).success
+            ? 'repository'
+            : 'unknown';
+        // A bound runtime without its workspace identity is not legacy Git scope.
+        if (
+          body.repositoryWorkspaceId == null &&
+          (body.runtimeBinding != null || body.runtimeCommandScope != null)
+        )
+          return 'unknown';
+        return 'repository';
       } catch {
         return 'unknown';
       }

@@ -210,6 +210,11 @@ it.each([
   { sessionId: 'other', repositoryWorkspaceId: id },
   { sessionId: 'selected', ordinaryWorkspaceId: 'bad' },
   { sessionId: 'selected', ordinaryWorkspaceId: id, repositoryWorkspaceId: id },
+  { sessionId: 'selected', runtimeCommandScope: 'first-command-only' },
+  { sessionId: 'selected', runtimeCommandScope: 'conversation' },
+  { sessionId: 'selected', runtimeBinding: { version: 2 } },
+  { sessionId: 'selected', repositoryWorkspaceId: 'bad' },
+  { sessionId: 'selected', repositoryWorkspaceId: {} },
 ])(
   'does not expose a scoped roots response as a fallback for unverified metadata: %j',
   async (metadata) => {
@@ -280,4 +285,26 @@ it('keeps an earlier discovery retired when navigating A to B and back to A unde
   expect(result.current.state.canLoadWorktrees).toBe(false);
   act(() => retiredOpen({ name: 'retired-entry.md', isDir: false }, false));
   expect(setParams).not.toHaveBeenCalled();
+});
+
+it.each([
+  { sessionId: 'selected' },
+  {
+    sessionId: 'selected',
+    repositoryWorkspaceId: id,
+    runtimeBinding: { version: 2 },
+    runtimeCommandScope: 'conversation',
+  },
+])('preserves true legacy and explicit repository discovery: %j', async (metadata) => {
+  fixture();
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation((url, ...args) =>
+    String(url).endsWith('/meta') ? Promise.resolve(reply(metadata)) : original(url, ...args),
+  );
+  const { result } = renderHook(() =>
+    useFileNavigation(new URLSearchParams({ sessionId: 'selected' }), vi.fn()),
+  );
+  await waitFor(() => expect(result.current.state.roots[0]?.path).toBe('/private/selected'));
+  await waitFor(() => expect(result.current.state.gitInfo?.repoPath).toBe('/configured-repo'));
+  expect(result.current.state.canLoadWorktrees).toBe(true);
 });

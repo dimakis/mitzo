@@ -1684,3 +1684,10 @@ These bounded reference dimensions are a structural exception to the usual share
 spacing/radius scale; they do not establish a new palette, font or reusable scale.
 Browser assertions protect these exact dimensions while shared control-height and
 focus rules remain effective.
+
+The ordinary Files metadata guard also withholds Git/worktree discovery when a
+matching modern runtime projection lacks both workspace identities. A retained
+runtime binding or command-scope flag cannot establish legacy repository scope.
+Repository identities must satisfy the existing command UUID schema. Valid explicit
+repository identities and legacy metadata without runtime routing remain
+on their existing Files path. This does not change server file permissions.
