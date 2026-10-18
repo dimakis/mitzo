@@ -6,11 +6,12 @@ import {
   TelosWorkRoleContextSelectionSchema,
   TelosWorkRoleSetupInputSchema,
   TelosWorkCommandReceiptSchema,
+  TelosWorkRoleSetupRecoverySchema,
   type CollaborationSettings,
   type TelosWorkRoleContextRequest,
   type TelosWorkCommandReceipt,
 } from '@mitzo/protocol';
-import type { TelosWorkApiClient } from '@mitzo/client';
+import { TelosWorkApiError, type TelosWorkApiClient } from '@mitzo/client';
 import { createBrowserId } from '../lib/browser-crypto';
 
 const IntentSchema = z
@@ -53,6 +54,20 @@ const StoredSchema = z.strictObject({
   review: ReviewSchema.nullable(),
   submission: TelosWorkRoleSetupInputSchema.nullable(),
   receipt: TelosWorkCommandReceiptSchema.nullable(),
+  rejections: z
+    .array(
+      z
+        .strictObject({
+          submission: TelosWorkRoleSetupInputSchema,
+          recovery: TelosWorkRoleSetupRecoverySchema,
+        })
+        .refine(
+          ({ submission, recovery }) =>
+            submission.requestId === recovery.requestId &&
+            recovery.outcome === 'rejected_before_allocation',
+        ),
+    )
+    .default([]),
 });
 type Saved = z.infer<typeof StoredSchema>;
 interface State {
@@ -79,6 +94,8 @@ function sameSettings(retained: CollaborationSettings, supplied: CollaborationSe
   return parsed.success && equal(retained, parsed.data);
 }
 const key = (id: string) => `mitzo-telos-role-setup:${encodeURIComponent(id)}`;
+const rejectedMessage =
+  'The reviewed work changed before setup began. Review the updated brief, then confirm again.';
 function load(draftId: string | null): State {
   const state: State = {
     saved: null,
@@ -93,7 +110,12 @@ function load(draftId: string | null): State {
     if (!raw) return state;
     const saved = StoredSchema.parse(JSON.parse(raw));
     if (saved.draftId !== draftId) throw new Error('Draft identity changed');
-    return { ...state, saved, uncertain: saved.submission !== null && saved.receipt === null };
+    return {
+      ...state,
+      saved,
+      uncertain: saved.submission !== null && saved.receipt === null,
+      error: saved.rejections.length && !saved.review && !saved.submission ? rejectedMessage : null,
+    };
   } catch {
     return {
       ...state,
@@ -103,15 +125,36 @@ function load(draftId: string | null): State {
     };
   }
 }
-function persist(saved: Saved) {
+function persist(saved: Saved, rejectedRequest?: Saved['submission']) {
   const value = StoredSchema.parse(saved);
   const storageKey = key(saved.draftId);
   const old = localStorage.getItem(storageKey);
   if (old) {
     const previous = StoredSchema.parse(JSON.parse(old));
-    if (previous.submission && !equal(previous.submission, value.submission))
-      throw new Error('An original role request is already retained');
+    if (rejectedRequest && !equal(previous.submission, rejectedRequest) && !equal(previous, value))
+      throw new Error('The original request was replaced by a newer retained review or request');
+    if (!equal(previous.rejections, value.rejections.slice(0, previous.rejections.length)))
+      throw new Error('Role rejection history changed');
+    if (previous.receipt && !equal(previous.receipt, value.receipt))
+      throw new Error('A confirmed role receipt is already retained');
+    if (previous.submission && !equal(previous.submission, value.submission)) {
+      const added = value.rejections.slice(previous.rejections.length);
+      if (
+        value.submission ||
+        value.review ||
+        value.receipt ||
+        previous.receipt ||
+        added.length !== 1 ||
+        !equal(added[0].submission, previous.submission)
+      )
+        throw new Error('An original role request is already retained');
+    }
   }
+  if (
+    value.submission &&
+    value.rejections.some(({ submission }) => submission.requestId === value.submission!.requestId)
+  )
+    throw new Error('A rejected role request cannot be resumed');
   const encoded = JSON.stringify(value);
   localStorage.setItem(storageKey, encoded);
   if (localStorage.getItem(storageKey) !== encoded)
@@ -245,6 +288,7 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         },
         submission: null,
         receipt: null,
+        rejections: structuredClone(current.current.saved?.rejections ?? []),
       };
       persist(saved);
       update({ saved, pending: null, error: null, uncertain: false, storageError: false });
@@ -302,8 +346,51 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
       persist(saved);
       update({ saved, pending: null, error: null, uncertain: false, storageError: false });
       latest.current.onBound?.(conversationId);
-    } catch {
-      if (active(operation, draftId))
+    } catch (error) {
+      if (!active(operation, draftId)) return;
+      const recovery = TelosWorkRoleSetupRecoverySchema.safeParse(
+        error instanceof TelosWorkApiError ? error.recovery : undefined,
+      );
+      if (
+        error instanceof TelosWorkApiError &&
+        error.status === 409 &&
+        error.code === 'conflict' &&
+        recovery.success &&
+        recovery.data.outcome === 'rejected_before_allocation' &&
+        recovery.data.requestId === saved.submission!.requestId
+      ) {
+        const rejected: Saved = {
+          ...saved,
+          submission: null,
+          review: null,
+          receipt: null,
+          rejections: [
+            ...saved.rejections,
+            { submission: saved.submission!, recovery: recovery.data },
+          ],
+        };
+        try {
+          // The history and release share a verified write. Never release in
+          // memory first or overwrite a newer request saved by another tab.
+          persist(rejected, saved.submission!);
+          update({
+            saved: rejected,
+            pending: null,
+            uncertain: false,
+            storageError: false,
+            error: rejectedMessage,
+          });
+        } catch {
+          update({
+            ...current.current,
+            pending: null,
+            uncertain: true,
+            storageError: true,
+            error:
+              'The rejection could not be saved in device storage. Keep this draft to preserve its original request.',
+          });
+        }
+      } else
         update({
           ...current.current,
           pending: null,
@@ -325,6 +412,8 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
     pending: state.pending,
     error: state.error,
     uncertain: state.uncertain,
+    rejectedBeforeAllocation:
+      !!state.saved?.rejections.length && !state.saved.review && !state.saved.submission,
     locked: state.storageError || state.saved?.submission != null,
     canConfirm:
       !state.pending &&

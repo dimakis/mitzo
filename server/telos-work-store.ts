@@ -10,6 +10,7 @@ import {
   TelosOutcomeContextHintsSchema,
   TelosWorkRoleSetupInputSchema,
   type TelosWorkRoleSetupIntent,
+  type TelosWorkRoleSetupRecovery,
   TelosWorkAdvisorDraftSaveRequestSchema,
   TelosWorkSourceSnapshotSchema,
   type TelosWorkCommand,
@@ -55,6 +56,7 @@ export class TelosWorkError extends Error {
   constructor(
     readonly code: 'not_found' | 'unauthorized' | 'conflict' | 'invalid',
     message: string,
+    readonly recovery?: TelosWorkRoleSetupRecovery,
   ) {
     super(message);
   }
@@ -227,10 +229,12 @@ export class TelosWorkStore {
   prepareRoleSetup(
     raw: unknown,
     actor: TelosWorkActor,
+    reviewIsCurrent?: () => boolean,
   ): { setup: TelosWorkRoleSetupIntent; receipt: TelosWorkCommandReceipt | null } {
     this.operator(actor);
     const input = TelosWorkRoleSetupInputSchema.parse(raw);
-    return this.db
+    const nested = this.db.inTransaction;
+    const result = this.db
       .transaction(() => {
         const actorId = `operator:${actor.id}`;
         const fingerprint = hash(input);
@@ -258,8 +262,32 @@ export class TelosWorkStore {
             .get(input.requestId, actorId)
         )
           conflict('Role setup request belongs to another operator');
-        if (this.snapshot(input.itemId).revision !== input.expectedRevision)
-          conflict('Work revision conflict');
+        const rejected = this.db
+          .prepare(
+            'SELECT actor_id,fingerprint,reason FROM telos_work_role_setup_rejections WHERE request_id=?',
+          )
+          .get(input.requestId) as
+          | { actor_id: string; fingerprint: string; reason: 'work_revision' | 'reviewed_context' }
+          | undefined;
+        if (rejected) {
+          if (rejected.actor_id !== actorId || rejected.fingerprint !== fingerprint)
+            conflict('Role setup identity reused with different input or operator');
+          return { rejection: rejected.reason };
+        }
+        const reason =
+          this.snapshot(input.itemId).revision !== input.expectedRevision
+            ? 'work_revision'
+            : reviewIsCurrent && !reviewIsCurrent()
+              ? 'reviewed_context'
+              : null;
+        if (reason) {
+          this.db
+            .prepare(
+              'INSERT INTO telos_work_role_setup_rejections(request_id,actor_id,fingerprint,reason) VALUES(?,?,?,?)',
+            )
+            .run(input.requestId, actorId, fingerprint, reason);
+          return { rejection: reason };
+        }
         const setup: TelosWorkRoleSetupIntent = {
           actorId,
           input,
@@ -273,6 +301,20 @@ export class TelosWorkStore {
         return { setup, receipt: null };
       })
       .immediate();
+    // Throw only after the transaction commits. Throwing inside it would lose
+    // the proof and permit the rejected UUID to allocate after a later change.
+    if ('rejection' in result)
+      throw new TelosWorkError(
+        'conflict',
+        result.rejection === 'work_revision'
+          ? 'Work revision conflict'
+          : 'Reviewed work context changed',
+        // A caller-owned outer transaction could still roll this journal back.
+        nested
+          ? undefined
+          : { version: 1, requestId: input.requestId, outcome: 'rejected_before_allocation' },
+      );
+    return result;
   }
   completeRoleSetup(
     setup: TelosWorkRoleSetupIntent,

@@ -138,15 +138,15 @@ separate user authorizations described in the Symposium handover.
 
 ## Inert native approval source stages
 
-The ordered bundle now contains 24 patches. The original twenty-three checksums
+The ordered bundle now contains 25 patches. The original twenty-four checksums
 are unchanged. Patches 21–23 retain typed extension routing, fresh user provenance
 from the actual approval owner, and original configuration/policy plus actual
 restricted-launch bindings. Root and an independent reviewer inspected each
 stage; the corrected bundle reconstructs tree
-`7876c1360f3610f33b91cf239d566636d284f787`.
+`6756fe4348d63966c33835ca848bb806750c4f10`.
 
-The original policy flags, hooks, contributors and protected fixture assertions
-remain. Only an actual fresh user approval can produce the sealed evidence;
+The production policy flags, hooks, contributors and permission guards remain.
+The original parent denied-read fixture remains unchanged. Only an actual fresh user approval can produce the sealed evidence;
 cached/session, Hook and Guardian approvals cannot. Actual initial-call lifetime
 tests use `exec_command_inner` and its real stored flag, including yield,
 future drop, process failure and retained polling. Configuration and manager-policy
@@ -168,7 +168,17 @@ first; only scoped formatting and source checks ran locally. Root and independen
 source review missed the original field error; neither review established compile
 qualification. Compilation and fixture qualification of the correction remain
 pending exact-source CI. Unpublished C2 metadata changes are excluded.
-The separately proposed Guardian terminal-test correction is excluded.
+The twenty-fifth patch is the exact explicitly approved Guardian terminal-test
+correction (18 October, patch SHA
+`389b5db30b7b2ccd64af0fc5f928d71bf0abe30d5b10bb1d883880e325d19a0e`).
+The unchanged-restrictions positive retains six offline requests, two actual
+current-turn Guardian assessments, original command identity and a real denied
+file nonleak. A separate changed-deny/cwd case requires the existing refusal
+before stdin, Guardian or child effects, with both secrets unchanged. Only two
+test files change; the entire production Core tree is byte-identical before and
+after this patch. The original assertion exception is explicitly approved; no
+other assertion or guard waiver is implied. These tests have not run on the
+composed tree; exact-source CI remains required.
 
 This ordinary shell compatibility work creates no prepared Responses capability,
 HTTP send, provider session, application joining or runtime adoption authority.

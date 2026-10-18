@@ -33,6 +33,8 @@ import {
   TelosWorkRoleContextRequestSchema,
   TelosWorkRoleContextSelectionSchema,
   TelosWorkRoleSetupInputSchema,
+  TelosWorkRoleSetupRecoverySchema,
+  type TelosWorkRoleSetupRecovery,
   type TelosWorkRoleContextRequest,
   TelosWorkAdvisorDraftPreviewRequestSchema,
   TelosWorkAdvisorDraftSaveRequestSchema,
@@ -50,6 +52,7 @@ export class TelosWorkApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly recovery?: TelosWorkRoleSetupRecovery,
   ) {
     super(message);
   }
@@ -174,10 +177,23 @@ export class TelosWorkApiClient {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => null);
+      const code = typeof error?.code === 'string' ? error.code : 'unavailable';
+      const parsed = TelosWorkRoleSetupRecoverySchema.safeParse(error?.recovery);
+      const requestId =
+        body && typeof body === 'object' && 'requestId' in body ? body.requestId : undefined;
+      const recovery =
+        path === 'roles/setup' &&
+        parsed.success &&
+        parsed.data.requestId === requestId &&
+        (parsed.data.outcome === 'recover_original' ||
+          (response.status === 409 && code === 'conflict'))
+          ? parsed.data
+          : undefined;
       throw new TelosWorkApiError(
         response.status,
-        typeof error?.code === 'string' ? error.code : 'unavailable',
+        code,
         typeof error?.error === 'string' ? error.error : 'Telos work unavailable',
+        recovery,
       );
     }
     return schema.parse(await response.json());

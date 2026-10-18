@@ -100,10 +100,14 @@
     {
       "file": "native-selected-network-profile.patch",
       "sha256": "3039055f2ff018e0946e10a517b270d88160a1561db427da3987735c574b73a1"
+    },
+    {
+      "file": "native-terminal-context-fixture.patch",
+      "sha256": "389b5db30b7b2ccd64af0fc5f928d71bf0abe30d5b10bb1d883880e325d19a0e"
     }
   ],
-  "sourceTree": "7876c1360f3610f33b91cf239d566636d284f787",
-  "localSourceCommit": "d8cc5471da23683065474f8eec7e66b3d59168ac",
+  "sourceTree": "6756fe4348d63966c33835ca848bb806750c4f10",
+  "localSourceCommit": "2ecca302b9044b569d82a808918b654c340ef8f9",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -133,7 +137,8 @@
     "30b5be3e0eb23c6d4acc6218be87a278e7954f49",
     "88240eb5125987afaadee7429df80cda315e257d",
     "5ad3d2fc441933f3e83b9532b486a98f44c84559",
-    "d8cc5471da23683065474f8eec7e66b3d59168ac"
+    "d8cc5471da23683065474f8eec7e66b3d59168ac",
+    "2ecca302b9044b569d82a808918b654c340ef8f9"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -143,7 +148,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "Retained twenty-three-patch inert native source plus selected-environment network-profile compile correction; no C2 metadata or child consumer.",
+    "scope": "Retained twenty-four-patch corrected inert native source plus explicitly approved two-test terminal compatibility/refusal correction; C2 metadata and child consumer excluded.",
     "localFocused": {
       "status": "new_linux_cases_not_run_on_mac",
       "newLinuxCases": 9,
@@ -151,7 +156,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_24_patch_source_after_23_patch_build_failure",
+      "status": "pending_25_patch_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -191,6 +196,11 @@
         },
         "nativeFixtureExecutionStarted": false,
         "testCountsAvailable": false
+      },
+      "previous24PatchRun": {
+        "run": 39132277931,
+        "sourceTree": "7876c1360f3610f33b91cf239d566636d284f787",
+        "statusAtPreparation": "running, no final native result inferred"
       }
     },
     "literalContract": {
@@ -230,7 +240,7 @@
       "hasChildConsumer": false,
       "hasFinalSessionCas": false,
       "sameRequestHookMetadataImplemented": false,
-      "guardianFixtureCorrectionIncluded": false,
+      "guardianFixtureCorrectionIncluded": true,
       "ordinaryPreparedRequestAuthorityEstablished": false,
       "sourceTreeReconstructedFromAll24Patches": true,
       "original23PatchChecksumsUnchanged": true,
@@ -242,6 +252,20 @@
         "regressionAuthoredFirst": true,
         "rustTestsExecuted": false,
         "compileQualificationPending": true
+      },
+      "original24PatchChecksumsUnchanged": true,
+      "sourceTreeReconstructedFromAll25Patches": true,
+      "guardianFixtureHumanApproval": {
+        "candidate": "5ec80c7aed37123b1bfab46352f259f9af0cd752",
+        "approvedPatchSha256": "389b5db30b7b2ccd64af0fc5f928d71bf0abe30d5b10bb1d883880e325d19a0e",
+        "explicitlyApprovedOn": "2026-10-18",
+        "scope": "Two-test correction: compatible unchanged filesystem context exercises actual current-turn Guardian; changed deny/cwd context refuses before stdin/Guardian/child effects",
+        "originalAssertionExceptionApproved": true,
+        "productionPermissionCodeChanged": false,
+        "originalParentDeniedReadsFixtureUnchanged": true,
+        "rootAndIndependentSourceReview": true,
+        "rustTestsExecuted": false,
+        "runtimeQualified": false
       }
     }
   },

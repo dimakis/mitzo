@@ -16,6 +16,9 @@ export function initializeTelosWorkSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS telos_work_attempts(seq INTEGER PRIMARY KEY,attempt_id TEXT NOT NULL UNIQUE,item_id TEXT NOT NULL REFERENCES items(id),data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS telos_work_commands(seq INTEGER PRIMARY KEY,actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,receipt TEXT NOT NULL,UNIQUE(actor_id,request_id));
     CREATE TABLE IF NOT EXISTS telos_work_role_setups(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,intent TEXT NOT NULL,receipt TEXT,PRIMARY KEY(actor_id,request_id));
+    CREATE TABLE IF NOT EXISTS telos_work_role_setup_rejections(request_id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,fingerprint TEXT NOT NULL,reason TEXT NOT NULL CHECK(reason IN ('work_revision','reviewed_context')));
+    CREATE TRIGGER IF NOT EXISTS telos_work_role_setup_rejections_no_update BEFORE UPDATE ON telos_work_role_setup_rejections BEGIN SELECT RAISE(ABORT,'Role rejection is terminal'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_role_setup_rejections_no_delete BEFORE DELETE ON telos_work_role_setup_rejections BEGIN SELECT RAISE(ABORT,'Role rejection is terminal'); END;
     CREATE TABLE IF NOT EXISTS telos_work_allocation_outbox(attempt_id TEXT PRIMARY KEY REFERENCES telos_work_attempts(attempt_id),actor_id TEXT NOT NULL,configuration TEXT NOT NULL,allocation_key TEXT NOT NULL UNIQUE,state TEXT NOT NULL CHECK(state IN ('requested','recorded')));
     CREATE TABLE IF NOT EXISTS telos_work_delegation_requests(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,attempt_id TEXT NOT NULL REFERENCES telos_work_attempts(attempt_id),intent TEXT NOT NULL,receipt TEXT,PRIMARY KEY(actor_id,request_id));
     CREATE INDEX IF NOT EXISTS telos_work_delegation_attempt ON telos_work_delegation_requests(attempt_id);

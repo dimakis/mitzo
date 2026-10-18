@@ -1484,6 +1484,14 @@ using canonical kinds rather than inferring kind from a child count. Fresh captu
 The expanded run passed 24 route scenarios plus two browser startup dependencies;
 the startup checks are not additional role journeys.
 
+A durable server proof that a reviewed request was rejected before allocation
+retains its original input in device history and enables Review updated brief in
+the same primary control. Reload does not review or allocate automatically. An
+explicit review precedes a fresh confirmation and new request identity. Unknown
+or late conflicts retain the original request for exact replay; failed device
+storage keeps replacement locked. These states reuse the existing alert text,
+primary control, ordinary settings and composer without a new surface or tokens.
+
 ## Retained Telos context readability
 
 `TelosLinkedContext` presents Overall goal, Parent outcome, This item and Done when
