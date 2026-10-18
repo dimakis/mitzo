@@ -290,8 +290,10 @@
           "job": 117796904135
         },
         "macos": {
-          "conclusion": "pending",
-          "testsExecuted": "unknown",
+          "conclusion": "failure",
+          "stage": "test compilation",
+          "errors": 3,
+          "testsExecuted": false,
           "job": 117796904391
         }
       },
@@ -1142,7 +1144,8 @@
         "linux": "failed test compilation: missing EventMsg import at two uses and non-structural CodexErr constant pattern",
         "nativeFixturesExecuted": false,
         "macosJob": 117796904391,
-        "macos": "still running; preserved"
+        "macos": "failed test compilation for the same three routing-test errors; no fixtures executed",
+        "bothPlatformsCompletedFailure": true
       }
     }
   ]

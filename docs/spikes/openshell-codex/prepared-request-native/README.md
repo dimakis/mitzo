@@ -54,12 +54,11 @@ contracts below still apply.
 
 The 46-patch run `39168656856` reached the fixture command, but Linux failed
 while compiling the test binary: the new routing-test module omitted `EventMsg`
-and used the structured `CodexErr::TurnAborted` constant as a pattern. No Linux
-fixtures executed. The 47th patch changes only that test module: it imports the
+and used the structured `CodexErr::TurnAborted` constant as a pattern. No native
+fixtures executed on either platform. The 47th patch changes only that test module: it imports the
 actual protocol types and checks `CodexErr.details()` for the same `TurnAborted`
 semantic error. Production code, fixture expectations, all earlier patches and
-workflow coverage are unchanged. macOS from that run remains pending until its
-own result is retained. This correction has scoped formatting and source proof;
+workflow coverage are unchanged. macOS failed test compilation for the same three errors. This correction has scoped formatting and source proof;
 new-source compilation and fixture execution remain CI work.
 
 ## Immutable request foundation
