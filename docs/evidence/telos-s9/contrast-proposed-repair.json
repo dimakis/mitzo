@@ -1,0 +1,357 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node/24.10.0/bin/node",
+      "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-ui-followup/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      "tests/integration/telos-s9/ui.playwright.config.ts",
+      "--grep",
+      "shared action foreground",
+      "--workers=1",
+      "--output=/tmp/s9-corrected-contrast-artifacts",
+      "--reporter=list,json"
+    ],
+    "configFile": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-ui-followup/tests/integration/telos-s9/ui.playwright.config.ts",
+    "rootDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-ui-followup/tests/integration/telos-s9",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/tmp/s9-corrected-contrast-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "browser-startup-0",
+        "name": "browser-startup-0",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-ui-followup/tests/support",
+        "testIgnore": [],
+        "testMatch": ["**/browser-startup.setup.ts"],
+        "timeout": 20000
+      },
+      {
+        "outputDir": "/tmp/s9-corrected-contrast-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "browser-startup-1",
+        "name": "browser-startup-1",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-ui-followup/tests/support",
+        "testIgnore": [],
+        "testMatch": ["**/browser-startup.setup.ts"],
+        "timeout": 20000
+      },
+      {
+        "outputDir": "/tmp/s9-corrected-contrast-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "desktop-chromium",
+        "name": "desktop-chromium",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-ui-followup/tests/integration/telos-s9",
+        "testIgnore": [],
+        "testMatch": ["ui.contract.ts"],
+        "timeout": 20000
+      },
+      {
+        "outputDir": "/tmp/s9-corrected-contrast-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "mobile-webkit",
+        "name": "mobile-webkit",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-ui-followup/tests/integration/telos-s9",
+        "testIgnore": [],
+        "testMatch": ["ui.contract.ts"],
+        "timeout": 20000
+      }
+    ],
+    "quiet": false,
+    "reporter": [["list"], ["json"]],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "../../support/browser-startup.setup.ts",
+      "file": "../../support/browser-startup.setup.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "browser startup",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "browser-startup-0",
+              "projectName": "browser-startup-0",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 533,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:06:25.256Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7104cce1e3aa52e2069d-181dcb86d99237e8af58",
+          "file": "../../support/browser-startup.setup.ts",
+          "line": 5,
+          "column": 1
+        },
+        {
+          "title": "browser startup",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "browser-startup-1",
+              "projectName": "browser-startup-1",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 846,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:06:26.273Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7104cce1e3aa52e2069d-49ceadd811755a9b6779",
+          "file": "../../support/browser-startup.setup.ts",
+          "line": 5,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "ui.contract.ts",
+      "file": "ui.contract.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "S9 shared action foreground preserves semantic contrast (dark)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-chromium",
+              "projectName": "desktop-chromium",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 809,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:06:27.558Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "computed-colors",
+                      "contentType": "application/json",
+                      "body": "eyJmb3JlZ3JvdW5kIjoicmdiKDE5LCAyMCwgMjIpIiwiYmFja2dyb3VuZCI6InJnYigxNzgsIDIyMiwgMTYxKSIsImV4cGVjdGVkIjoicmdiKDE5LCAyMCwgMjIpIiwiY29udHJhc3QiOjEyLjE2MTU4NTgxNDMxNzE0Nn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f0096583255a62f845d6-402c0dc6dded2bcfc0f0",
+          "file": "ui.contract.ts",
+          "line": 197,
+          "column": 3
+        },
+        {
+          "title": "S9 shared action foreground preserves semantic contrast (light)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-chromium",
+              "projectName": "desktop-chromium",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 613,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:06:28.494Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "computed-colors",
+                      "contentType": "application/json",
+                      "body": "eyJmb3JlZ3JvdW5kIjoicmdiKDI1MCwgMjQ5LCAyNDYpIiwiYmFja2dyb3VuZCI6InJnYigyMiwgMTA3LCA4OCkiLCJleHBlY3RlZCI6InJnYigyNTAsIDI0OSwgMjQ2KSIsImNvbnRyYXN0Ijo2LjA4NDU1NTc2ODIwMTM2NX0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f0096583255a62f845d6-048f2e81f3e82a16b4f9",
+          "file": "ui.contract.ts",
+          "line": 197,
+          "column": 3
+        },
+        {
+          "title": "S9 shared action foreground preserves semantic contrast (dark)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-webkit",
+              "projectName": "mobile-webkit",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 686,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:06:29.541Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "computed-colors",
+                      "contentType": "application/json",
+                      "body": "eyJmb3JlZ3JvdW5kIjoicmdiKDE5LCAyMCwgMjIpIiwiYmFja2dyb3VuZCI6InJnYigxNzgsIDIyMiwgMTYxKSIsImV4cGVjdGVkIjoicmdiKDE5LCAyMCwgMjIpIiwiY29udHJhc3QiOjEyLjE2MTU4NTgxNDMxNzE0Nn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f0096583255a62f845d6-493c78b862c16ca547e6",
+          "file": "ui.contract.ts",
+          "line": 197,
+          "column": 3
+        },
+        {
+          "title": "S9 shared action foreground preserves semantic contrast (light)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-webkit",
+              "projectName": "mobile-webkit",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 580,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:06:30.460Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "computed-colors",
+                      "contentType": "application/json",
+                      "body": "eyJmb3JlZ3JvdW5kIjoicmdiKDI1MCwgMjQ5LCAyNDYpIiwiYmFja2dyb3VuZCI6InJnYigyMiwgMTA3LCA4OCkiLCJleHBlY3RlZCI6InJnYigyNTAsIDI0OSwgMjQ2KSIsImNvbnRyYXN0Ijo2LjA4NDU1NTc2ODIwMTM2NX0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f0096583255a62f845d6-1138f5c4fc4e748ff408",
+          "file": "ui.contract.ts",
+          "line": 197,
+          "column": 3
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-17T23:06:24.608Z",
+    "duration": 6475.862,
+    "expected": 6,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

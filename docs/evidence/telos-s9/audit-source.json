@@ -1,0 +1,46 @@
+{
+  "acceptedMain": "fea33e215b0d1bcf29604aa13e793329588a2980",
+  "candidateComposition": "c6e55fb9b47df1726f4806fc5142e3e45811eaad",
+  "acceptedEvidencePrHeadBeforeExtension": "442fbb8be35d96bf4361bd2858898089b150230b",
+  "candidateHeads": {
+    "S7": "b101e78ee8f04cad93d1ffd90c2b3bb84a82f0a8",
+    "priority": "f5d54268a3a71b94d5d70b01c779df19389a2734",
+    "S5": "75a9937c2a4689186797e4772bfaea4c76e84293",
+    "foundationsPreparation": "ea40e9a281afe23dbb306b630cab3c4236954627"
+  },
+  "candidateStatus": "open_unaccepted_diagnostics_only",
+  "canonicalMgmt": "b4ad94541af3ed19e1a2c6fd1049fd98418016d0",
+  "compositionResolutions": [
+    "Preserved S7 TodoDetailView.tsx across priority conflict; missing priority integration remains a defect.",
+    "Retained current composition design document and reviewed-handler manifest at conflicts; no runtime qualification."
+  ],
+  "productionChangesIncludedInPR1018": false,
+  "candidateFiles": {
+    "server/app.ts": "88472736dde207262ba5f808ba9038b2806076c3425659dd78469b6e6208fc01",
+    "server/chat.ts": "29b6dd057f8f4bd92c7877b9bfee008b006f38abcc4c61078265e20302e954cb",
+    "server/codex-conversation.ts": "19ef053de76d46b5d0a6d724bd0a43526722f1468bde19c4d5f65908c72e687d",
+    "server/telos-work-role-host.ts": "29900a5554dc606e55d05a8e2ae40c09def476dc33c4837b2dd734cfe9ffb295",
+    "server/telos-work-role-setup.ts": "130380c2fdecaba2ec3c7d7d8cc6c073e90a19a4ecad454ce9073ddb839f5a28",
+    "server/telos-work-advisor-draft.ts": "a572995682705f98c47fffbdb11aff5eb0621f08d826e8584db542f8d89a28bb",
+    "server/telos-item-store.ts": "71e0414e15d24cf8c2856c14a739037024ba1657f2481dd2ede9634a25eee7f5",
+    "server/telos-work-delegation-host.ts": "3b9d4ece9b08133050d03eb806b75e59ddefbea0f00c81012a2a83ab52f9fc4a",
+    "server/task-orchestrator.ts": "438183522fcc774c2945367ea28a2a76793b71fdca0b718ab0445285381e099a",
+    "packages/protocol/src/telos-work.ts": "7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043",
+    "packages/client/src/telos-work-api.ts": "159f97f133f12e7a2e2b10def1d68726022c8966a8df7a26ab46d3a3828b5b91",
+    "frontend/src/hooks/useTelosRecords.ts": "901f8a8a3ebae99f375cc15fb5773f784eb4d1c57fe7a313e20a9b5c79a87ae3",
+    "frontend/src/hooks/useTelosRoleSetup.ts": "0747b5bdc0e4a0f1d524ec025b288f9a2f728a577bf46a8340b00ffc17d6967d",
+    "frontend/src/hooks/useTodoData.ts": "95a394b311128f7ffb9862cf628f69cc9931b094b200e868d12a44677c3c73f1",
+    "frontend/src/lib/todo-priority.ts": "7727912851c8c0a47492e77fef3b8ab1bfababda7cc241335a4746e08529cd1b",
+    "frontend/src/pages/TodoView.tsx": "5af14a8f3bc23508b61d3e29a212623a1350679047305d00c1b7d639144e6694",
+    "frontend/src/pages/TodoDetailView.tsx": "3a5d56e614a87b48b403db0fa1aedc2561f590ca391fc5bc21f943df0c5ced12",
+    "frontend/src/components/TelosItemWorkspace.tsx": "9d6e8047921df9db63089052543198334dc053cc9d6064d18e1eccea829536a9",
+    "frontend/src/components/WorkOutputs.tsx": "02408ca74e7c2902340fc2c1cc10cfa77e9079a3938d5cbd96e76360a1c71a2f",
+    "frontend/src/components/TelosWorkspace.css": "452fc9f3066224ba203ae0e50afdc0ebf7c7bac043c98f4fc1c9b21c9be9f3f8"
+  },
+  "reviewReferences": {
+    "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/TELOS-SYMPOSIUM-REVIEW-OWNERSHIP.txt": "ef38f54bb366283214e488c09321c2a1052c5b3c9fded3b3f4f6259d93d8a265",
+    "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a-2/TELOS-PARALLEL-REVIEW.txt": "f7cf2454b8c4fd369e99f1e24f578d51c48c8a552aabc706d6ff49be1820e57f",
+    "/Users/dsaridak/Documents/Codex/2026-10-17/i-want-you-to-have-a/session-audit/review-2026-10-17.txt": "781e02828e727def2c78988be1700c8aabe1075b3b9ac81b3dbc6ef6c6cbca9b",
+    "/Users/dsaridak/Documents/Codex/2026-10-17/let-s-update-telos-and-keep/mitzo/implementation-evidence/s5-source-interface-handover-75a9937c.md": "5dd65c8e355495d8dbd1a93ea2fd9fab378c65e1eb7abcfbb9e03a4019cd1078"
+  }
+}

@@ -1,0 +1,136 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9
+
+ ❯ tests/integration/telos-s9/canonical-advisor.red-contract.ts (4 tests | 4 failed) 2127ms
+   × CT01 full-route red: reviewed refine advisor saves through actual setup, capture, HTTP and typed client 671ms
+   × CT01 full-route red: reviewed child advisor saves through actual setup, capture, HTTP and typed client 444ms
+   × CT01 red: advisor refine writes the actual canonical schema without fixture-only columns 426ms
+   × CT01 red: advisor child writes the actual canonical schema without fixture-only columns 585ms
+ ❯ tests/integration/telos-s9/typed-recovery.red-contract.tsx (3 tests | 1 failed) 1445ms
+   × CT03 full-boundary red: definite real HTTP stale rejection permits fresh review of the same retained draft after reload 522ms
+   ✓ CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation  459ms
+   ✓ CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review  415ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/telos-s9/canonical-advisor.red-contract.ts > CT01 full-route red: reviewed refine advisor saves through actual setup, capture, HTTP and typed client
+ FAIL  tests/integration/telos-s9/canonical-advisor.red-contract.ts > CT01 full-route red: reviewed child advisor saves through actual setup, capture, HTTP and typed client
+AssertionError: promise rejected "Error: Ordinary role setup unavailable { …(2) }" instead of resolving
+ ❯ tests/integration/telos-s9/canonical-advisor.red-contract.ts:72:5
+     70|     await expect(
+     71|       f.api.saveAdvisorDraft({ ...proposal, previewSha256: preview.sha…
+     72|     ).resolves.toMatchObject({ actorId: 'operator:s9-offline-operator'…
+       |     ^
+     73|   },
+     74| );
+
+Caused by: Error: Ordinary role setup unavailable
+ ❯ TelosWorkApiClient.request packages/client/src/telos-work-api.ts:162:13
+ ❯ tests/integration/telos-s9/canonical-advisor.red-contract.ts:70:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { status: 503, code: 'unavailable' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/integration/telos-s9/canonical-advisor.red-contract.ts > CT01 red: advisor refine writes the actual canonical schema without fixture-only columns
+AssertionError: expected [Function] to not throw an error but 'SqliteError: no such column: categori…' was thrown
+
+- Expected:
+undefined
+
++ Received:
+"SqliteError: no such column: categories"
+
+ ❯ tests/integration/telos-s9/canonical-advisor.red-contract.ts:147:13
+    145|           () => {},
+    146|         ),
+    147|       ).not.toThrow();
+       |             ^
+    148|     } finally {
+    149|       work.close();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/integration/telos-s9/canonical-advisor.red-contract.ts > CT01 red: advisor child writes the actual canonical schema without fixture-only columns
+AssertionError: expected [Function] to not throw an error but 'SqliteError: table items has no colum…' was thrown
+
+- Expected:
+undefined
+
++ Received:
+"SqliteError: table items has no column named categories"
+
+ ❯ tests/integration/telos-s9/canonical-advisor.red-contract.ts:147:13
+    145|           () => {},
+    146|         ),
+    147|       ).not.toThrow();
+       |             ^
+    148|     } finally {
+    149|       work.close();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/integration/telos-s9/typed-recovery.red-contract.tsx > CT03 full-boundary red: definite real HTTP stale rejection permits fresh review of the same retained draft after reload
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/integration/telos-s9/typed-recovery.red-contract.tsx:53:47
+     51|   await act(async () => first.result.current.confirm());
+     52|   expect(f.ordinary.resolvePreparation).not.toHaveBeenCalled();
+     53|   expect.soft(first.result.current.uncertain).toBe(false);
+       |                                               ^
+     54|   expect.soft(first.result.current.locked).toBe(false);
+     55|   first.unmount();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/integration/telos-s9/typed-recovery.red-contract.tsx > CT03 full-boundary red: definite real HTTP stale rejection permits fresh review of the same retained draft after reload
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/integration/telos-s9/typed-recovery.red-contract.tsx:54:44
+     52|   expect(f.ordinary.resolvePreparation).not.toHaveBeenCalled();
+     53|   expect.soft(first.result.current.uncertain).toBe(false);
+     54|   expect.soft(first.result.current.locked).toBe(false);
+       |                                            ^
+     55|   first.unmount();
+     56|   const reloaded = renderHook(() => useTelosRoleSetup(options));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/integration/telos-s9/typed-recovery.red-contract.tsx > CT03 full-boundary red: definite real HTTP stale rejection permits fresh review of the same retained draft after reload
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/telos-s9/typed-recovery.red-contract.tsx:58:46
+     56|   const reloaded = renderHook(() => useTelosRoleSetup(options));
+     57|   await act(async () => reloaded.result.current.review());
+     58|   expect(reloaded.result.current.canConfirm).toBe(true);
+       |                                              ^
+     59|   expect(reloaded.result.current.context?.brief.revision).toBe(
+     60|     (await f.api.read('outcome')).revision,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  5 failed | 2 passed (7)
+   Start at  23:42:11
+   Duration  6.39s (transform 804ms, setup 0ms, import 2.63s, tests 3.57s, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/docs/evidence/telos-s9/audit-foundation-contracts.json
