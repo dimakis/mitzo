@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.323-ha-inventory.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.324-ha-inventory-profiles';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -253,8 +253,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1f5a4b6bd080363af3a1f77ea246be04894cb9893b0f021353d723658a9f10a7',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '4fbf0e9bd1cd4a5f48526e11a5b03949b687bcfb07e0be505fb4e71c94a319fe',
-  '../agent-tool-catalog.ts': 'd9012aafd60c531fee1f7508a9cd15aa9e08b84cf6b8e54c6682219154407a5a',
-  '../agent-tool-selection.ts': '6ef32b850ba81b4eadd6aded850988e2f29ecc4e5cf64692456447c53ba84105',
+  '../agent-tool-catalog.ts': '7053d8d0c130d63f492e22b7179aca7dfe49d41425d7f971a8794b68042e5cc8',
+  '../agent-tool-selection.ts': 'b1b6568bff8592fb0ef2dd192e31f948b70e6cad57c8749874ac49c8fc4b261d',
   '../../packages/protocol/src/agent-tools.ts':
     'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
   '../symposium-session-create.ts':

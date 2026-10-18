@@ -117,6 +117,7 @@ export function assertAgentToolAvailability(
   if (definition?.tools === undefined) return;
   const names = new Set(definition.tools.map((tool) => tool.id));
   const operations = [
+    'HomeAssistantInventory',
     'ConnectionRequest',
     'ConnectionWebSocket',
     'HomeAssistantDashboard',
@@ -137,6 +138,15 @@ export function assertAgentToolAvailability(
     if (!active.length)
       throw Error(
         `Selected tool ${selected[0]} requires an active connection. Configure it in Connections before starting this chat.`,
+      );
+    if (
+      names.has('mitzo:HomeAssistantInventory') &&
+      !active.some(
+        (connection) => connection.inventoryAvailable && connection.methods.includes('GET'),
+      )
+    )
+      throw Error(
+        'Selected inventory tool requires a configured HA spoke inventory and GET access',
       );
     if (
       names.has('mitzo:ConnectionWebSocket') &&

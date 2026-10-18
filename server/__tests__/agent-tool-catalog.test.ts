@@ -23,6 +23,39 @@ it('derives descriptions from real registrations and separates required tools fr
     /connection/i,
   );
 });
+
+it('classifies the HA spoke lookup as a read with an explicit connection dependency', () => {
+  expect(agentToolCatalog().find((tool) => tool.name === 'HomeAssistantInventory')).toMatchObject({
+    behavior: 'read',
+    requirement: expect.stringMatching(/configured connection/),
+    routes: ['local-api', 'codex'],
+  });
+});
+
+it('requires an inventory binding and approval tool in explicitly selected profiles', async () => {
+  const { assertAgentToolAvailability } = await import('../agent-tool-selection.js');
+  const runtime = await import('../credential-connections-runtime.js');
+  const previous = runtime.getCredentialConnectionsRuntime();
+  const tools = [
+    { id: 'mitzo:HomeAssistantInventory', version: 1 },
+    { id: 'mitzo:RequestConnectionAccess', version: 1 },
+  ];
+  try {
+    runtime.setCredentialConnectionsRuntime({
+      catalog: () => [{ status: 'active', methods: ['GET'], inventoryAvailable: false }],
+    } as never);
+    expect(() => assertAgentToolAvailability({ tools } as never, 'chat')).toThrow(/inventory/);
+    runtime.setCredentialConnectionsRuntime({
+      catalog: () => [{ status: 'active', methods: ['GET'], inventoryAvailable: true }],
+    } as never);
+    expect(() => assertAgentToolAvailability({ tools } as never, 'chat')).not.toThrow();
+    expect(() =>
+      assertAgentToolAvailability({ tools: tools.slice(0, 1) } as never, 'chat'),
+    ).toThrow(/RequestConnectionAccess/);
+  } finally {
+    runtime.setCredentialConnectionsRuntime(previous);
+  }
+});
 it('denies wrappers and aliases by exact identity and captures selection once', () => {
   const session = {};
   bindAgentToolSelection(session, {

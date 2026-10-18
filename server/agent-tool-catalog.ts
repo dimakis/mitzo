@@ -12,6 +12,7 @@ import { telosArtifactDefinitions } from './telos-artifact-tools.js';
 import { telosWorkDefinitions } from './telos-work-tools.js';
 
 const reads = new Set([
+  'HomeAssistantInventory',
   'Read',
   'GitHubRead',
   'ListConnections',
@@ -84,6 +85,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                 'ConnectionRequest',
                 'ConnectionWebSocket',
                 'HomeAssistantDashboard',
+                'HomeAssistantInventory',
                 'RequestConnectionAccess',
               ].includes(tool.name)
             ? 'Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access.'

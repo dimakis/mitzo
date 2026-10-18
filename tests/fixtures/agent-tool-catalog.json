@@ -132,6 +132,17 @@
     "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
   },
   {
+    "id": "mitzo:HomeAssistantInventory",
+    "version": 1,
+    "name": "HomeAssistantInventory",
+    "description": "Search the existing HA spoke hardware inventory by device name, model, generation, entity or area. Returns compact matches with freshness and truncation metadata. Use before broad HA state reads or compatibility research. Requires session connection approval and a host-configured inventory binding. Never accesses credentials; no live refresh is implied. A stale or missing inventory requires the spoke host refresh command.",
+    "source": "Connections",
+    "required": false,
+    "behavior": "read",
+    "routes": ["local-api", "codex"],
+    "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
+  },
+  {
     "id": "mitzo:GetConnectionGuide",
     "version": 1,
     "name": "GetConnectionGuide",
