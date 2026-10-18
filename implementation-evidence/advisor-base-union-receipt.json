@@ -1,0 +1,87 @@
+{
+  "priorFullyReviewedHead": "d2c47c71b9c7452d0d4bc9f4f5ffec3737ab371e",
+  "acceptedBase": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
+  "actualConflict": "server/connections/reviewed-handler-artifacts.ts",
+  "incomingFiles": 11,
+  "allIncomingFilesExactExceptManifest": true,
+  "acceptedCanonicalAdvisorFixAndFixturesPreserved": true,
+  "manifestEntries": 588,
+  "noDuplicateOrRegeneratedPins": true,
+  "allActualSourcePinsMatch": true,
+  "bothPinSetsPreserved": true,
+  "unchangedBSourceAndUi": [
+    "server/collaboration-forwarding.ts",
+    "server/__tests__/collaboration-forwarding.test.ts",
+    "server/collaboration-retained-artifact-source.ts",
+    "server/collaboration-context-source.ts",
+    "server/collaboration-context-compiler.ts",
+    "server/telos-artifact-store.ts",
+    "server/telos-artifact-routes.ts",
+    "frontend/src/components/SavedArtifactDialog.tsx",
+    "frontend/src/components/SavedArtifactDialog.css",
+    "frontend/src/components/WorkOutputs.tsx",
+    "frontend/src/components/SavedArtifactRouteDialog.tsx",
+    "frontend/src/lib/saved-artifact-location.ts"
+  ],
+  "approvedDesignAndPriorCapturesUnchanged": true,
+  "historicalFullFinalReview": {
+    "reviewId": 5562773551,
+    "head": "d2c47c71b9c7452d0d4bc9f4f5ffec3737ab371e",
+    "publishedAt": "2026-10-18T11:37:59Z",
+    "mergeRecommendation": true,
+    "newBlockers": 0,
+    "unresolvedBlockers": 0,
+    "job": {
+      "id": 4944,
+      "head": "d2c47c71b9c7452d0d4bc9f4f5ffec3737ab371e",
+      "revision": 1,
+      "status": "succeeded",
+      "stage": "complete",
+      "force_review": 1,
+      "force_follow_up": 0,
+      "auto_fix": 0
+    }
+  },
+  "historicalCleanRounds": [5561003331, 5562773551],
+  "currentHeadFinalReview": "Must be repeated on changed head after CI using existing authorized full-final admission, no duplicate request",
+  "historicalD2AppGate": "PENDING; no success inferred",
+  "modelTestOrStagingOrDeployment": false,
+  "checks": {
+    "forwardingArtifacts": {
+      "passed": 194,
+      "files": 7,
+      "skipped": 0
+    },
+    "canonicalAdvisorFirstRun": {
+      "passed": 24,
+      "failed": 7,
+      "failureKind": "all seven exceeded original5000ms timeout; no assertion mismatch reported",
+      "files": 3
+    },
+    "canonicalAdvisorUnchangedTargetedRetry": {
+      "passed": 7,
+      "intentionallyFilteredPreviouslyPassingCases": 24,
+      "retries": 1,
+      "assertionsAndTimeoutsUnchanged": true,
+      "firstPassClean": false,
+      "cause": "unresolved; timing observation is not proof of cause"
+    },
+    "design": {
+      "passed": 108,
+      "existingSkipped": 1
+    },
+    "protocolAndClientBuild": "pass",
+    "officialSourceClosure": "pass",
+    "workerCount": 1,
+    "heapMiB": 1024
+  },
+  "evidenceSha256": {
+    "advisor-base-focused.log": "44754e420c53556da46fc530e3475ace55370f3817642ba69b8ebc6eb4458571",
+    "advisor-base-seven-timeouts-diagnostic.log": "9a1c65c5bd847df68165586b5d4e62bc3a11315c2711b8fa5d2c4140f04c7a1a",
+    "advisor-base-protocol-client-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "advisor-base-source-closure.log": "b394a24bc0b655ca8e71c9b824625bbb2f6655f68ead6759e8513185cb8e11ba",
+    "advisor-base-manifest-red.log": "12cb98bc8ee123b1e3b3d349a82d6c52d19d4379364bf96e8e5281dd55a777c0",
+    "advisor-base-canonical-contract.log": "6cce6e8cf3600cfd3067863c036bca8944a850543ab326d00e1e3670f585cec5",
+    "advisor-base-design.log": "5a7c2849ae1dc482e59a4248122095f4e6e8ef23a1653f8597b5da177d7f3987"
+  }
+}

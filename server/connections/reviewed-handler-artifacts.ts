@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.317-telos-s5.1-symposium-forwarding.5';
+  'v1.0.318-telos-canonical-advisor.1-symposium-forwarding.5';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,22 +23,22 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../../frontend/src/lib/saved-artifact-location.ts':
-    'b884336c70dae85d63d955fb9d454f4a7cd28e8e9d2fca94e3839b7e6b6444a5',
-  '../../frontend/src/components/SavedArtifactRouteDialog.tsx':
-    '881995fbe98a6ae1a5b326bd5064d5e176aec0ca404aca81d0b6dc1e854e5057',
-  '../../frontend/src/types/retained-artifact.ts':
-    '6ef0a64da9c950556519d8625b0aea2fe8d9c94f9b84a68de9e9acfe9f75bb00',
-  '../../frontend/src/lib/retained-artifact-api.ts':
-    '4db9e055e7b8162399233c010387066a189ce94cb8e8396ef11134f6a2ec6e9c',
-  '../../frontend/src/components/SavedArtifactDialog.css':
-    'd42d2f0316e0c3f2e3828cc73bfad511e2bd7dab44dd826566fa39efca0fe982',
-  '../../frontend/src/components/SavedArtifactDialog.tsx':
-    'f2482a6a715ab47d4f5f7eabc7469a50f272371bad5f5bec33a7307bbd9d62cf',
-  '../collaboration-retained-artifact-source.ts':
-    'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
   '../collaboration-forwarding.ts':
     '6ba8b0e106ed300060e5b34f8083401fcd1a22d06e772e1dd36965c03954a30f',
+  '../collaboration-retained-artifact-source.ts':
+    'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
+  '../../frontend/src/components/SavedArtifactDialog.tsx':
+    'f2482a6a715ab47d4f5f7eabc7469a50f272371bad5f5bec33a7307bbd9d62cf',
+  '../../frontend/src/components/SavedArtifactDialog.css':
+    'd42d2f0316e0c3f2e3828cc73bfad511e2bd7dab44dd826566fa39efca0fe982',
+  '../../frontend/src/lib/retained-artifact-api.ts':
+    '4db9e055e7b8162399233c010387066a189ce94cb8e8396ef11134f6a2ec6e9c',
+  '../../frontend/src/types/retained-artifact.ts':
+    '6ef0a64da9c950556519d8625b0aea2fe8d9c94f9b84a68de9e9acfe9f75bb00',
+  '../../frontend/src/components/SavedArtifactRouteDialog.tsx':
+    '881995fbe98a6ae1a5b326bd5064d5e176aec0ca404aca81d0b6dc1e854e5057',
+  '../../frontend/src/lib/saved-artifact-location.ts':
+    'b884336c70dae85d63d955fb9d454f4a7cd28e8e9d2fca94e3839b7e6b6444a5',
   '../../frontend/src/components/AgentTaskProposal.tsx':
     'c431e4b77b6349b5f6f2b8d2d0040a5c970a2440c222d93577e0848451499f2a',
   '../../frontend/src/components/SymposiumProfilePicker.css':
@@ -166,7 +166,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/telos-work-api.ts':
     '159f97f133f12e7a2e2b10def1d68726022c8966a8df7a26ab46d3a3828b5b91',
   '../telos-work-schema.ts': '61e76d98894a22696b4f56332b090f763cbcb9576ff071885bb2e72efbc23436',
-  '../telos-work-store.ts': '0dafc8dc7cefce9c63f691b1931a645c4180b0f39d01172d89a00deb1b0c753a',
+  '../telos-work-store.ts': '97970f7a1bd191ce4af86fd98834fa52bcb5eba70afa8bfd79ea4b61696f8acb',
   '../../packages/protocol/src/telos-work-api.ts':
     '4cb6af6268bf48f775d21e3ff9bfeea0d77110e1a9a96e8f185f85a630c8e332',
   // Recoverable tool validation and confirmed Telos creation receipts.
