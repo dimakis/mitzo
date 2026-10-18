@@ -1,6 +1,7 @@
 import {
   SessionCollaborationIdSchema,
   SessionCollaborationSchema,
+  SessionCollaborationListQuerySchema,
   CollaborationBeginSchema,
   CollaborationPolicyUpdateSchema,
   CollaborationPolicySchema,
@@ -25,7 +26,7 @@ import {
   type CollaborationJoinInput,
   type CollaborationJoinReconcileInput,
 } from '@mitzo/protocol';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { ApiFetch } from './api-client.js';
 
 export class CollaborationApiError extends Error {
@@ -69,6 +70,33 @@ export class CollaborationApiClient {
       );
     }
     return schema.parse(await response.json());
+  }
+  /** One metadata page only; associations do not confer context access or execution authority. */
+  listForSession(sessionId: string, after?: string, signal?: AbortSignal) {
+    const query = SessionCollaborationListQuerySchema.parse({ sessionId, after });
+    const params = new URLSearchParams({ sessionId: query.sessionId });
+    if (query.after !== undefined) params.set('after', query.after);
+    const schema = z
+      .strictObject({
+        collaborations: z.array(SessionCollaborationSchema).max(50),
+        nextCursor: SessionCollaborationIdSchema.nullable(),
+      })
+      .refine((page) => {
+        let previous = query.after ?? '';
+        for (const row of page.collaborations) {
+          if (
+            row.collaborationId <= previous ||
+            !row.participantSessionIds.includes(query.sessionId)
+          )
+            return false;
+          previous = row.collaborationId;
+        }
+        return (
+          page.nextCursor === null ||
+          (page.collaborations.length === 50 && page.nextCursor === previous)
+        );
+      }, 'Collaboration association page changed');
+    return this.request(`/api/session-collaborations?${params}`, schema, signal);
   }
   view(id: string, signal?: AbortSignal) {
     return this.request(this.path(id, 'conversation'), CollaborationViewSchema, signal);
