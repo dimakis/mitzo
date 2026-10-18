@@ -29,13 +29,17 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
   if (error.message === 'Codex conversation binding unavailable or changed')
     return 'This chat has no matching native conversation binding. Its saved messages are preserved. Inspect startup recovery before continuing.';
   if (error instanceof CodexTransportError) {
+    if (error.diagnostic?.reason === 'frame_too_large')
+      return 'A Codex response exceeded Mitzo’s bounded transport limit. Saved work is preserved; inspect runtime history loading before retrying.';
+    if (error.diagnostic?.reason === 'notification_handler_failed')
+      return 'Mitzo could not process a Codex event. Inspect conversation recovery before retrying.';
     return {
       environment_pending:
         'Approved integration access is retained, but its workload environment is still pending. No new model turn was started. Retry when the provider environment has synchronized.',
       timeout: 'The Codex connection timed out. Inspect saved work before retrying.',
       connection: 'The Codex connection closed. Inspect conversation recovery before retrying.',
       protocol:
-        'The Codex connection returned an invalid response. Check runtime compatibility before retrying.',
+        'The Codex connection returned an invalid response. Inspect runtime diagnostics before retrying.',
     }[error.category];
   }
   if (!(error instanceof CodexRequestError)) return undefined;
@@ -72,7 +76,22 @@ export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown
   if (error.message === 'Codex conversation binding unavailable or changed')
     return { conversationBindingUnavailable: true };
   if (error instanceof ProviderFailureError) return providerFailureTelemetry(error.failure);
-  if (error instanceof CodexTransportError) return { transportErrorCategory: error.category };
+  if (error instanceof CodexTransportError) {
+    const diagnostic = error.diagnostic;
+    return {
+      transportErrorCategory: error.category,
+      ...(diagnostic ? { transportFailureReason: diagnostic.reason } : {}),
+      ...(diagnostic?.pendingRequestMethod && requestMethods.has(diagnostic.pendingRequestMethod)
+        ? { pendingRequestMethod: diagnostic.pendingRequestMethod }
+        : {}),
+      ...(Number.isSafeInteger(diagnostic?.frameBytes) && diagnostic!.frameBytes! >= 0
+        ? { transportFrameBytes: diagnostic!.frameBytes }
+        : {}),
+      ...(Number.isSafeInteger(diagnostic?.limitBytes) && diagnostic!.limitBytes! > 0
+        ? { transportFrameLimitBytes: diagnostic!.limitBytes }
+        : {}),
+    };
+  }
   if (!(error instanceof CodexRequestError)) return {};
   return {
     ...(requestMethods.has(error.method) ? { requestMethod: error.method } : {}),
