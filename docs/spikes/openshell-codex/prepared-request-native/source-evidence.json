@@ -188,10 +188,14 @@
     {
       "file": "native-parent-active-consumer.patch",
       "sha256": "eb0eee85b4557371330af70491d44a29ca5322ed00eb3ea94f9f1e697ebe627a"
+    },
+    {
+      "file": "native-parent-routing-test-compilation.patch",
+      "sha256": "2bae16b6a193c2189c393250005b5a6b69996bc25d3e87d1b31c450c94711f3c"
     }
   ],
-  "sourceTree": "5f034709e0a618d7d12ae44cb37c99b493efac41",
-  "localSourceCommit": "ccd98d9cd5895d589540c33c8854ee135a118245",
+  "sourceTree": "a18caf2a3c076637cd5dc83de174abe21f69d00c",
+  "localSourceCommit": "ef263974e5dc5ab280003282a8bbfb1a404a5ebf",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -243,7 +247,8 @@
     "f8025fc674efaa0a1cbaf6d274a8d67fbb927ca5",
     "254affbc47eea624efe422a14a8137b03902c279",
     "a464946411d6856eafe07e935f9b00c10bed026b",
-    "ccd98d9cd5895d589540c33c8854ee135a118245"
+    "ccd98d9cd5895d589540c33c8854ee135a118245",
+    "ef263974e5dc5ab280003282a8bbfb1a404a5ebf"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -253,7 +258,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "46-patch composed source: immutable Responses foundation and retained candidates plus actual ordinary lifetime-bound parent shell approval reuse through existing held owners. No prepared Responses consumer or installed runtime authority.",
+    "scope": "47-patch composed source, including a test-only correction for the current CI compile failure; ordinary parent-permission behavior unchanged",
     "localFocused": {
       "status": "source_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -262,7 +267,7 @@
       "allOrderedChecksumsReconstructExactTree": true
     },
     "ci": {
-      "status": "pending_46_patch_source",
+      "status": "pending_47_patch_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -274,22 +279,20 @@
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
       "newCIJobs": 0,
-      "previousRun": 39146186841,
-      "previousSourceTree": "fb843b07af4fb2d3ba6517811ff2d88bae1d5fcd",
+      "previousRun": 39168656856,
+      "previousSourceTree": "5f034709e0a618d7d12ae44cb37c99b493efac41",
       "previousObservedResults": {
         "linux": {
           "conclusion": "failure",
-          "run": 5764,
-          "passed": 5761,
-          "failed": 3,
-          "skipped": 11
+          "stage": "test compilation",
+          "errors": 3,
+          "testsExecuted": false,
+          "job": 117796904135
         },
         "macos": {
-          "conclusion": "failure",
-          "run": 5542,
-          "passed": 5539,
-          "failed": 3,
-          "skipped": 27
+          "conclusion": "pending",
+          "testsExecuted": "unknown",
+          "job": 117796904391
         }
       },
       "zeroNativeSkipsClaimed": false
@@ -319,6 +322,15 @@
       "installedRuntimeQualified": false,
       "applicationJoiningComplete": false,
       "liveCallsAuthorized": false
+    },
+    "testCompilationCorrection": {
+      "sourceCommit": "ef263974e5dc5ab280003282a8bbfb1a404a5ebf",
+      "paths": ["codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs"],
+      "changes": "import actual EventMsg and CodexErrorDetails; inspect existing CodexErr.details() for TurnAborted rather than using an associated constant pattern",
+      "productionCodeChanged": false,
+      "semanticCancellationAssertionRetained": true,
+      "scopedRustfmtPassed": true,
+      "compiledOrExecutedLocally": false
     }
   },
   "runtimeQualified": false,
@@ -1049,6 +1061,88 @@
             "originalTimestampOrExecutedRedClaimed": false
           }
         }
+      }
+    },
+    {
+      "sourceTree": "5f034709e0a618d7d12ae44cb37c99b493efac41",
+      "localSourceCommit": "ccd98d9cd5895d589540c33c8854ee135a118245",
+      "patchCount": 46,
+      "checks": {
+        "scope": "46-patch composed source: immutable Responses foundation and retained candidates plus actual ordinary lifetime-bound parent shell approval reuse through existing held owners. No prepared Responses consumer or installed runtime authority.",
+        "localFocused": {
+          "status": "source_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "dynamicGreenClaimed": false,
+          "allOrderedChecksumsReconstructExactTree": true
+        },
+        "ci": {
+          "status": "pending_46_patch_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-api",
+            "codex-state",
+            "codex-http-client",
+            "codex-guardian-reviewer"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "newCIJobs": 0,
+          "previousRun": 39146186841,
+          "previousSourceTree": "fb843b07af4fb2d3ba6517811ff2d88bae1d5fcd",
+          "previousObservedResults": {
+            "linux": {
+              "conclusion": "failure",
+              "run": 5764,
+              "passed": 5761,
+              "failed": 3,
+              "skipped": 11
+            },
+            "macos": {
+              "conclusion": "failure",
+              "run": 5542,
+              "passed": 5539,
+              "failed": 3,
+              "skipped": 27
+            }
+          },
+          "zeroNativeSkipsClaimed": false
+        },
+        "testCountsOverlap": true,
+        "ordinaryParentApproval": {
+          "hasActiveConsumer": true,
+          "sameInitialInvocationLifetimeOnly": true,
+          "originalLifetimeGuardNeverReopened": true,
+          "physicalDeniedReadRestrictionsPreserved": true,
+          "hooksAndContributorsPrecedencePreserved": true,
+          "allUserFallbackRevalidatedAfterAttempt": true,
+          "inheritedApprovalNotFreshUser": true,
+          "originalDeniedReadWholeFileBlob": "8d7761204a5fd12c7c2d2eb45e36ec187e89769d",
+          "allIntegrationSuiteFilesExactPrevious31": true,
+          "originalApprovedGuardianWholeFileBlob": "e22671bcf8033c245745ab680349a332a143ca0d",
+          "testOnlyPostNoneScheduler": true,
+          "knownPrivateStateTestAccessesCorrected": true,
+          "rootAndIndependentSourceReview": true,
+          "rustCompilationAndFixtures": "pending_existing_CI"
+        },
+        "preparedRequestAuthority": {
+          "hasActualPurePreSessionCapture": false,
+          "hasAppServerPreparationRPCs": false,
+          "hasOrdinaryPreparedDispatchConsumer": false,
+          "consumableAdmissionAvailable": false,
+          "installedRuntimeQualified": false,
+          "applicationJoiningComplete": false,
+          "liveCallsAuthorized": false
+        }
+      },
+      "observedResult": {
+        "run": 39168656856,
+        "linuxJob": 117796904135,
+        "linux": "failed test compilation: missing EventMsg import at two uses and non-structural CodexErr constant pattern",
+        "nativeFixturesExecuted": false,
+        "macosJob": 117796904391,
+        "macos": "still running; preserved"
       }
     }
   ]

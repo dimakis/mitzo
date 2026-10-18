@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 46 patches
+## Current composed source: 47 patches
 
-The 46 ordered patches reconstruct native tree
-`5f034709e0a618d7d12ae44cb37c99b493efac41` (local source `ccd98d9cd5895d589540c33c8854ee135a118245`).
+The 47 ordered patches reconstruct native tree
+`a18caf2a3c076637cd5dc83de174abe21f69d00c` (local source `ef263974e5dc5ab280003282a8bbfb1a404a5ebf`).
 The current source adds the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from
 the same still-active initial invocation. The original runtime lifetime flag is
@@ -51,6 +51,16 @@ This repairs ordinary shell permission compatibility. It creates no prepared
 Responses admission, request preparation RPC, provider send, application joining,
 installed runtime support or configured account qualification. Those remaining
 contracts below still apply.
+
+The 46-patch run `39168656856` reached the fixture command, but Linux failed
+while compiling the test binary: the new routing-test module omitted `EventMsg`
+and used the structured `CodexErr::TurnAborted` constant as a pattern. No Linux
+fixtures executed. The 47th patch changes only that test module: it imports the
+actual protocol types and checks `CodexErr.details()` for the same `TurnAborted`
+semantic error. Production code, fixture expectations, all earlier patches and
+workflow coverage are unchanged. macOS from that run remains pending until its
+own result is retained. This correction has scoped formatting and source proof;
+new-source compilation and fixture execution remain CI work.
 
 ## Immutable request foundation
 
