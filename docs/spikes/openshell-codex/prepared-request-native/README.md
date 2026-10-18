@@ -138,12 +138,12 @@ separate user authorizations described in the Symposium handover.
 
 ## Inert native approval source stages
 
-The ordered bundle now contains 25 patches. The original twenty-four checksums
+The ordered bundle now contains 26 patches. The original twenty-five checksums
 are unchanged. Patches 21–23 retain typed extension routing, fresh user provenance
 from the actual approval owner, and original configuration/policy plus actual
 restricted-launch bindings. Root and an independent reviewer inspected each
 stage; the corrected bundle reconstructs tree
-`6756fe4348d63966c33835ca848bb806750c4f10`.
+`d455f8008c7ee555fab63c458df136594fcc352b`.
 
 The production policy flags, hooks, contributors and permission guards remain.
 The original parent denied-read fixture remains unchanged. Only an actual fresh user approval can produce the sealed evidence;
@@ -179,6 +179,16 @@ test files change; the entire production Core tree is byte-identical before and
 after this patch. The original assertion exception is explicitly approved; no
 other assertion or guard waiver is implied. These tests have not run on the
 composed tree; exact-source CI remains required.
+
+The twenty-sixth patch fixes a second compiler error exposed by native run
+`39132277931`: both helper builds reject a borrow of `snapshot_credential_context`
+after its original ownership move (E0382). No native fixtures started, so that run
+has no test pass/fail/skip counts. The correction retains only an immutable
+presence boolean before the move and uses it in the original exclusion. The
+credential value still moves once through its unchanged owner; no credentials
+are cloned or recreated, and no guard or assertion changes. Root and independent
+source review missed this ownership error too; corrected compilation and fixture
+execution remain exact-source CI requirements.
 
 This ordinary shell compatibility work creates no prepared Responses capability,
 HTTP send, provider session, application joining or runtime adoption authority.
