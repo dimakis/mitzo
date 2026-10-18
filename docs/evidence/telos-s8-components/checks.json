@@ -10,10 +10,11 @@
   },
   "red": {
     "testFiles": ["TelosChatList.test.tsx", "TelosChatFrame.test.tsx"],
-    "result": "Failed to resolve the not-yet-created component imports; both suites failed before production files were added."
+    "result": "Failed to resolve the not-yet-created component imports; both suites failed before production files were added.",
+    "conversationChangeRegression": "Expected aria-expanded false after changing conversationId; received true. Fixed without remounting the composer."
   },
   "green": {
-    "componentTests": 6,
+    "componentTests": 7,
     "designTestsPassed": 108,
     "designTestsExistingSkipped": 1,
     "browserScenarios": 6,
@@ -28,5 +29,6 @@
     "No live backend, model, staging, deployment, worker allocation or role replacement"
   ],
   "ct15": "partial: selector/count/direct-entry rule, component callback separation, fixture Back and real composer draft persistence",
-  "ct16": "partial: current-vs-other role labels; execution/reconnect/priority projection not verified"
+  "ct16": "partial: current-vs-other role labels; execution/reconnect/priority projection not verified",
+  "componentCommits": ["c97de388", "859ac4cb"]
 }

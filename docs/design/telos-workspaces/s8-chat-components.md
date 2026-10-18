@@ -18,7 +18,7 @@ one available ordinary non-origin chat. Multiple conversations always require a
 choice. Origin-only items retain source inspection and explicit role setup.
 
 `TelosChatFrame` accepts the existing ordinary header and transcript/composer as
-slots. It adds one slim item/chats/work row. The tree starts closed, shares
+slots. It adds one slim item/chats/work row. The tree starts closed, resets on conversationId changes without remounting its slots, shares
 `MotionPresence`, and restores the trigger's focus on Close/Escape. Desktop gives
 the transcript its full column when closed. Below 48rem of available width the
 tree temporarily hides the mounted transcript; closing reveals the same composer.
@@ -48,8 +48,8 @@ to current links/assignments and reconnect refresh; adopt the actual work tree
 and accepted priority/execution projection; exercise repository-backed and non-code
 journeys through full `ResponsiveChatView`, including Resources, Access, settings,
 voice, attachments, commands and queued/interrupt/stop behavior. Keep the ordinary
-renderer and per-conversation settings/draft owners. Reset tree disclosure on an
-explicit conversation change without remounting the composer for a tree toggle.
+renderer and per-conversation settings/draft owners. Pass the actual ordinary conversationId so its disclosure resets on route changes;
+do not remount the composer for a tree toggle.
 
 Both CT15/CT16 and S8 remain open. Full build/browser CI, exact-head review and
 dependency acceptance remain separate from this component evidence. No staging,
