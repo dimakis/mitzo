@@ -32,6 +32,7 @@ export function ToolBuilderReview({
   const [publishedHere, setPublishedHere] = useState('');
   const opener = useRef<HTMLButtonElement>(null);
   const pending = useRef<AbortController | null>(null);
+  const requestedDraft = useRef<{ id: string; version: number } | null>(null);
   const run = useCallback(
     async (label: string, operation: (signal: AbortSignal) => Promise<void>) => {
       if (pending.current) return;
@@ -66,6 +67,7 @@ export function ToolBuilderReview({
       throw Error('Tool draft response is invalid');
     if (value.draft.id !== id || value.draft.version !== version)
       throw Error('Requested tool draft version changed. Reload before reviewing.');
+    requestedDraft.current = { id, version };
     setRecord(value);
     setInventory((current) =>
       current?.map((item) =>
@@ -77,8 +79,10 @@ export function ToolBuilderReview({
     setOffset(0);
   }, []);
   const load = useCallback(
-    (id?: string, version?: number) =>
-      run('Loading tool drafts…', async (signal) => {
+    (id?: string, version?: number) => {
+      if (id && version) requestedDraft.current = { id, version };
+      const target = requestedDraft.current;
+      return run('Loading tool drafts…', async (signal) => {
         const result = await request<{ drafts: ToolDraftSummary[]; nextOffset: number | null }>(
           '',
           signal,
@@ -86,13 +90,17 @@ export function ToolBuilderReview({
         if (!Array.isArray(result.drafts)) throw Error('Tool draft inventory is invalid');
         setInventory(result.drafts);
         setNextOffset(result.nextOffset);
-        if (id && version)
+        if (target)
           select(
-            await request<ToolDraftRecord>(`/drafts/${encodeURIComponent(id)}/${version}`, signal),
-            id,
-            version,
+            await request<ToolDraftRecord>(
+              `/drafts/${encodeURIComponent(target.id)}/${target.version}`,
+              signal,
+            ),
+            target.id,
+            target.version,
           );
-      }),
+      });
+    },
     [run, select],
   );
   useEffect(() => {
@@ -186,8 +194,11 @@ export function ToolBuilderReview({
           ref={opener}
           aria-expanded={open}
           onClick={() => {
-            setOpen(!open);
-            if (!open && !inventory) void load();
+            if (open) close();
+            else {
+              setOpen(true);
+              if (!inventory) void load();
+            }
           }}
         >
           Review tool drafts

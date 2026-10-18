@@ -189,23 +189,84 @@ it('refuses a response for another version before enabling review actions', asyn
   await screen.findByText('Requested tool draft version changed. Reload before reviewing.');
   expect(screen.queryByRole('button', { name: 'Accept review' })).toBeNull();
 });
-it('aborts pending publication on Escape, restores focus and retains the draft on reopening', async () => {
-  const { published } = setup({ ...record(), status: 'accepted' });
-  await screen.findByRole('heading', { name: 'Text length · v1' });
-  let signal: AbortSignal | undefined;
-  vi.mocked(apiFetch).mockImplementationOnce(async (_path, init) => {
-    signal = init!.signal as AbortSignal;
-    return new Promise((_resolve, reject) =>
-      signal!.addEventListener('abort', () => reject(Error('Aborted')), { once: true }),
+it.each(['escape', 'toggle', 'done'] as const)(
+  'aborts pending publication on %s, restores focus and retains the draft',
+  async (method) => {
+    const { published } = setup({ ...record(), status: 'accepted' });
+    await screen.findByRole('heading', { name: 'Text length · v1' });
+    let signal: AbortSignal | undefined;
+    vi.mocked(apiFetch).mockImplementationOnce(async (_path, init) => {
+      signal = init!.signal as AbortSignal;
+      return new Promise((_resolve, reject) =>
+        signal!.addEventListener('abort', () => reject(Error('Aborted')), { once: true }),
+      );
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish accepted tool' }));
+    await screen.findByText('Qualifying installed implementation…');
+    if (method === 'escape')
+      fireEvent.keyDown(screen.getByRole('region', { name: 'Tool draft review' }), {
+        key: 'Escape',
+      });
+    else
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: method === 'toggle' ? 'Review tool drafts' : 'Done reviewing',
+        }),
+      );
+    expect(signal?.aborted).toBe(true);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Review tool drafts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review tool drafts' }));
+    await screen.findByText('Request cancelled. Reload to confirm the saved state.');
+    expect(published).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Text length · v1' })).toBeTruthy();
+  },
+);
+
+it.each(['failed', 'cancelled'] as const)(
+  'retries an exact older deep link after the initial read is %s before a record exists',
+  async (action) => {
+    setup();
+    let reads = 0;
+    vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+      if (String(path).includes('/drafts/')) {
+        reads++;
+        expect(String(path).endsWith(`/drafts/${id}/1`)).toBe(true);
+        if (reads === 1) {
+          if (action === 'failed') return response({ error: 'Read unavailable' }, false);
+          const signal = init!.signal!;
+          return new Promise((_resolve, reject) =>
+            signal.addEventListener('abort', () => reject(Error('Aborted')), { once: true }),
+          );
+        }
+        return response({
+          ...record(),
+          status: 'rejected',
+          review: {
+            decision: 'rejected',
+            feedback: 'Use version two',
+            contractDigest: record().draft.contractDigest,
+            reviewer: 'operator',
+          },
+        });
+      }
+      return response({
+        drafts: [{ id, version: 2, name: 'Newer text length', status: 'submitted' }],
+        nextOffset: null,
+      });
+    });
+    await waitFor(() => expect(reads).toBe(1));
+    if (action === 'cancelled')
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel request' }));
+    await screen.findByText(
+      action === 'failed'
+        ? 'Read unavailable'
+        : 'Request cancelled. Reload to confirm the saved state.',
     );
-  });
-  fireEvent.click(screen.getByRole('button', { name: 'Publish accepted tool' }));
-  await screen.findByText('Qualifying installed implementation…');
-  fireEvent.keyDown(screen.getByRole('region', { name: 'Tool draft review' }), { key: 'Escape' });
-  expect(signal?.aborted).toBe(true);
-  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Review tool drafts' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Review tool drafts' }));
-  await screen.findByText('Request cancelled. Reload to confirm the saved state.');
-  expect(published).not.toHaveBeenCalled();
-  expect(screen.getByRole('heading', { name: 'Text length · v1' })).toBeTruthy();
-});
+    expect(screen.queryByRole('heading', { name: 'Text length · v1' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Reload tool drafts' }));
+    await screen.findByRole('heading', { name: 'Text length · v1' });
+    expect(reads).toBe(2);
+    expect(screen.getByText('Review feedback: Use version two')).toBeTruthy();
+    expect(screen.getByLabelText('Saved tool draft')).toHaveProperty('value', `${id}:1`);
+  },
+);

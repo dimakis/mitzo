@@ -30,6 +30,7 @@ for (const theme of ['dark', 'light'] as const) {
     let feedback = '';
     let published = false;
     let publishAttempts = 0;
+    let linkedReads = 0;
     const requests: Array<{ path: string; body: unknown }> = [];
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
@@ -126,6 +127,11 @@ for (const theme of ['dark', 'light'] as const) {
       if (url.pathname.startsWith('/api/agent-library/tool-builder/drafts/')) {
         if (route.request().method() === 'GET') {
           const requested = Number(url.pathname.split('/').at(-1));
+          if (requested === 1 && ++linkedReads === 1)
+            return route.fulfill({
+              status: 503,
+              json: { error: 'Exact draft read temporarily unavailable' },
+            });
           const value = requested === version ? draft() : history.get(requested);
           return route.fulfill({
             status: value ? 200 : 404,
@@ -169,7 +175,10 @@ for (const theme of ['dark', 'light'] as const) {
       });
     });
     await page.goto(`/agent-library?library=tools&toolDraft=${id}&draftVersion=1`);
+    await expect(page.getByRole('alert')).toContainText('Exact draft read temporarily unavailable');
+    await page.getByRole('button', { name: 'Reload tool drafts' }).click();
     await expect(page.getByRole('heading', { name: 'Text length · v1' })).toBeVisible();
+    expect(linkedReads).toBe(2);
     const builder = page.getByRole('link', { name: 'Build a tool' });
     await expect(builder).toHaveAttribute('href', /agentProfile=mitzo-tool-builder/);
     expect((await builder.boundingBox())!.height).toBeGreaterThanOrEqual(44);

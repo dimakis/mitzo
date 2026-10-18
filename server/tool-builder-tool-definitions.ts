@@ -49,7 +49,7 @@ export const toolBuilderToolSchemas = {
     id: z.uuid(),
     expectedVersion: z.number().int().positive(),
     request,
-    feedback: z.string().trim().min(1).max(4000),
+    feedback: z.string().max(4000),
     custom,
   }),
   ToolBuilderInspectDraft: z.strictObject({

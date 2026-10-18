@@ -330,80 +330,86 @@ it('refuses replacement of the approved worktree during awaited approval', async
   expect(f.store.list('user')).toEqual([]);
 });
 
-it('prepares a useful unpublished draft, retries exactly and incorporates independent feedback into a new version', async () => {
-  const f = await sessionFixture();
-  const signal = new AbortController().signal;
-  const body = { request: 'Count text characters', custom: f.custom };
-  const initial = result(
-    await f.tools.execute('ToolBuilderPrepareDraft', body, signal, identity('prepare')),
-  );
-  expect(initial).toMatchObject({
-    kind: 'draft',
-    draft: { version: 1, status: 'unpublished', tests: { passed: true, complete: true } },
-  });
-  expect(f.store.listTools('user')).toEqual([]);
-  expect(
-    await f.tools.execute('ToolBuilderPrepareDraft', body, signal, identity('prepare')),
-  ).toEqual({ content: JSON.stringify(initial), isError: false });
-  expect(f.executor.run).toHaveBeenCalledOnce();
-  const stored = f.store.read('user', initial.draft.id, 1)!;
-  expect(stored.draft.files).toEqual(f.custom.files);
-  expect(stored.sessionId).toBe('builder');
-  result(
-    await f.tools.execute(
-      'ToolBuilderSubmitReview',
-      { id: stored.draft.id, version: 1, contractDigest: stored.draft.contractDigest },
-      signal,
-      identity('submit'),
-    ),
-  );
-  f.store.review(
-    'user',
-    stored.draft.id,
-    1,
-    {
-      decision: 'rejected',
-      feedback: 'Clarify the output description',
-      contractDigest: stored.draft.contractDigest,
-    },
-    'operator',
-  );
-  const revised = result(
-    await f.tools.execute(
-      'ToolBuilderReviseDraft',
+it.each(['Clarify the output description', '', '  Clarify the output description\n', '   '])(
+  'prepares and revises exact stored feedback %j without changing accepted versions',
+  async (feedback) => {
+    const f = await sessionFixture();
+    const signal = new AbortController().signal;
+    const body = { request: 'Count text characters', custom: f.custom };
+    const initial = result(
+      await f.tools.execute('ToolBuilderPrepareDraft', body, signal, identity('prepare')),
+    );
+    expect(initial).toMatchObject({
+      kind: 'draft',
+      draft: { version: 1, status: 'unpublished', tests: { passed: true, complete: true } },
+    });
+    expect(f.store.listTools('user')).toEqual([]);
+    expect(
+      await f.tools.execute('ToolBuilderPrepareDraft', body, signal, identity('prepare')),
+    ).toEqual({ content: JSON.stringify(initial), isError: false });
+    expect(f.executor.run).toHaveBeenCalledOnce();
+    const stored = f.store.read('user', initial.draft.id, 1)!;
+    expect(stored.draft.files).toEqual(f.custom.files);
+    expect(stored.sessionId).toBe('builder');
+    result(
+      await f.tools.execute(
+        'ToolBuilderSubmitReview',
+        { id: stored.draft.id, version: 1, contractDigest: stored.draft.contractDigest },
+        signal,
+        identity('submit'),
+      ),
+    );
+    f.store.review(
+      'user',
+      stored.draft.id,
+      1,
       {
-        id: stored.draft.id,
-        expectedVersion: 1,
-        request: body.request,
-        feedback: 'Clarify the output description',
-        custom: { ...f.custom, description: 'Return text length as an integer.' },
+        decision: 'rejected',
+        feedback,
+        contractDigest: stored.draft.contractDigest,
       },
-      signal,
-      identity('revise'),
-    ),
-  );
-  expect(revised.draft.id).toBe(stored.draft.id);
-  expect(revised.draft.version).toBe(2);
-  expect(revised.draft.status).toBe('unpublished');
-  expect(f.store.read('user', stored.draft.id, 1)?.review?.decision).toBe('rejected');
-  expect(f.store.listTools('user')).toEqual([]);
-  expect(
-    await f.tools.execute(
-      'ToolBuilderPublish',
-      { id: stored.draft.id },
-      signal,
-      identity('publish'),
-    ),
-  ).toBeUndefined();
-  expect(
-    await f.tools.execute(
-      'ToolBuilderReview',
-      { decision: 'accepted' },
-      signal,
-      identity('approve'),
-    ),
-  ).toBeUndefined();
-});
+      'operator',
+    );
+    const revised = result(
+      await f.tools.execute(
+        'ToolBuilderReviseDraft',
+        {
+          id: stored.draft.id,
+          expectedVersion: 1,
+          request: body.request,
+          feedback,
+          custom: { ...f.custom, description: 'Return text length as an integer.' },
+        },
+        signal,
+        identity('revise'),
+      ),
+    );
+    expect(revised.draft.id).toBe(stored.draft.id);
+    expect(revised.draft.version).toBe(2);
+    expect(revised.draft.status).toBe('unpublished');
+    expect(f.store.read('user', stored.draft.id, 1)?.review).toMatchObject({
+      decision: 'rejected',
+      feedback,
+    });
+    expect(f.store.listTools('user')).toEqual([]);
+    expect(
+      await f.tools.execute(
+        'ToolBuilderPublish',
+        { id: stored.draft.id },
+        signal,
+        identity('publish'),
+      ),
+    ).toBeUndefined();
+    expect(
+      await f.tools.execute(
+        'ToolBuilderReview',
+        { decision: 'accepted' },
+        signal,
+        identity('approve'),
+      ),
+    ).toBeUndefined();
+  },
+);
 
 it.each(['deny', 'revoke', 'cancel', 'ask', 'unsupported-workspace', 'failed-tests'] as const)(
   'does not retain a draft or broaden authority after %s',
