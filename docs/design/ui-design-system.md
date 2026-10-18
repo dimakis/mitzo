@@ -1513,6 +1513,10 @@ not inherit the old fixed mobile page width after the focused-route migration.
 Kind labels never come from child counts or source profiles. Current-role links
 are read through the existing work client; the row enters the workspace Chat tab
 and the existing role owner performs setup. It never allocates from a tree read.
+Mounted conversation rows share the canonical record owner's refresh generation.
+Refresh Telos, item updates and visible resume recheck failed reads, assignments
+and kinds without remounting the row or creating another event subscription.
+Superseded reads remain abort-fenced, including transports that resolve after abort.
 
 `TelosItemWorkspace` retains the original brief beside its content on desktop and
 below it on phones. One Back chevron returns through item history or the retained

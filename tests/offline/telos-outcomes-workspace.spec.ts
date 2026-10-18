@@ -115,6 +115,9 @@ for (const theme of ['dark', 'light'])
     });
 
     let failRecords = false;
+    let failConversations = true;
+    let assignedLead = false;
+    const assignedFixture = createTelosWorkFixtures().leadWithUnstartedSlice;
     let rejectPriority = false;
     let releasePriority: (() => void) | undefined;
     let priorityGate: Promise<void> | undefined;
@@ -174,14 +177,24 @@ for (const theme of ['dark', 'light'])
           return failRecords
             ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
             : route.fulfill({ json: record });
+        if (record.itemId === records[0].itemId && failConversations)
+          return route.fulfill({ status: 503, json: { error: 'Conversations unavailable' } });
         const scenario = scenarios.find((s) => s.items.some((r) => r.itemId === record.itemId))!;
+        const assigned = record.itemId === records[0].itemId && assignedLead;
         const work = TelosWorkViewSchema.parse({
           itemId: record.itemId,
           kind: record.kind,
           parentId: record.parentId,
           revision: 'f'.repeat(64),
-          links: scenario.links.filter((l) => l.itemId === record.itemId),
-          assignments: [],
+          links: [
+            ...scenario.links.filter((l) => l.itemId === record.itemId),
+            ...(assigned
+              ? assignedFixture.links.filter((l) => l.itemId === record.itemId && l.role === 'lead')
+              : []),
+          ],
+          assignments: assigned
+            ? assignedFixture.assignments.filter((a) => a.itemId === record.itemId)
+            : [],
           sources: scenario.snapshots.filter((s) => s.itemId === record.itemId),
           attempts: [],
         });
@@ -273,6 +286,30 @@ for (const theme of ['dark', 'light'])
     });
     await navigate('/todos');
     await expect(page.getByRole('button', { name: 'All outcomes', exact: true })).toBeVisible();
+    const studioRow = page.locator('.telos-tree-row').filter({
+      has: page.getByRole('button', { name: records[0].summary, exact: true }),
+    });
+    await expect(studioRow.getByText('Conversations unavailable', { exact: true })).toBeVisible();
+    await studioRow.evaluate((element) => element.setAttribute('data-refresh-witness', 'mounted'));
+    failConversations = false;
+    assignedLead = true;
+    await page.getByRole('button', { name: 'Refresh Telos' }).click();
+    await expect(studioRow.getByRole('button', { name: 'Lead chat', exact: true })).toBeVisible();
+    await expect(studioRow).toHaveAttribute('data-refresh-witness', 'mounted');
+    assignedLead = false;
+    await page.evaluate(() =>
+      window.fixtureTodoEvents.dispatchEvent(new MessageEvent('todo_update', { data: '{}' })),
+    );
+    await expect(studioRow.getByRole('button', { name: 'Choose lead', exact: true })).toBeVisible();
+    assignedLead = true;
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(studioRow.getByRole('button', { name: 'Lead chat', exact: true })).toBeVisible();
+    assignedLead = false;
+    await page.evaluate(() =>
+      window.fixtureTodoEvents.dispatchEvent(new MessageEvent('todo_update', { data: '{}' })),
+    );
+    await expect(studioRow.getByRole('button', { name: 'Choose lead', exact: true })).toBeVisible();
+    await expect(studioRow).toHaveAttribute('data-refresh-witness', 'mounted');
     await page.getByRole('button', { name: 'Browse categories' }).click();
     await page.getByRole('button', { name: 'Pin Recording' }).click();
     await page.getByRole('button', { name: 'Browse categories' }).click();

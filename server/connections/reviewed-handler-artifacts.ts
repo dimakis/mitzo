@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.304-telos-s7-main-15090-integration';
+  'v1.0.305-telos-s7-conversation-refresh';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,21 +24,21 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosTreeConversationEntry.tsx':
-    'a563dbba334e0e4ec2ad57f475162db8336aee38afd643332668e21274ea9543',
+    'bebfed2ec3cec1f1c3788ffcd8e55f0ed8935b501b48479586a24754acac5ce6',
   '../../frontend/src/lib/telos-kind-label.ts':
     'a89a6bff28e8ac2fed83ac9bd19305185f6ee6d7a4f7efad196e3e5571a114b8',
   '../../frontend/src/hooks/useTelosRecords.ts':
-    '39d4bab9f1c986ae34428dec155454924d59da8c0013998679dcf28207cbe146',
+    '674f0cd52629afa64f40f6df8cf01e661f068204a9d5d43c4bd9a21ab04bbd49',
   '../../frontend/src/components/TelosWorkspace.css':
     '5faeb55ac0a68b9c7a658d24416daf44e0daccf14f7f7cbe36309d86d9ca2e32',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
     '5deb955ca8613a17fee3cca046dcbeae3c1ec690e5ace19c3466d52d2a30a2a5',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
-    'f08f73b02a2ce9abcf93b29f13221db9171316382ad96e66062504212a963e04',
+    '0fca81457016e2555a9d988ee316962858b9ba4fdabf6c9d17081228c83bfe8a',
   '../../frontend/src/pages/TodoWorkspace.tsx':
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/TodoView.tsx':
-    'b42bba26843ae932d6691eae88fe5c9f1c6d596ccee3eaa62826ad3b86982997',
+    'bcdf8120fd689f58e82f6ee77746d142a19931f536e14902c14462dc3d770b3f',
   '../../frontend/src/lib/saved-artifact-location.ts':
     'b884336c70dae85d63d955fb9d454f4a7cd28e8e9d2fca94e3839b7e6b6444a5',
   '../../frontend/src/components/SavedArtifactRouteDialog.tsx':

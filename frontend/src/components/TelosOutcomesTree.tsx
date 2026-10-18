@@ -49,6 +49,7 @@ export function TelosOutcomesTree({
   compact = false,
   loading = false,
   error,
+  refreshKey = 0,
 }: {
   records: TelosWorkItem[];
   onOpen(id: string, view?: 'Chat'): void;
@@ -57,6 +58,7 @@ export function TelosOutcomesTree({
   compact?: boolean;
   loading?: boolean;
   error?: string;
+  refreshKey?: string | number;
 }) {
   const [state, setState] = useState(() => restore(storageKey));
   const [browse, setBrowse] = useState(false);
@@ -166,6 +168,7 @@ export function TelosOutcomesTree({
                     <span className="telos-node-status">{record.status}</span>
                     <TelosTreeConversationEntry
                       itemId={record.itemId}
+                      refreshKey={refreshKey}
                       onOpenChat={() => onOpen(record.itemId, 'Chat')}
                     />
                   </div>

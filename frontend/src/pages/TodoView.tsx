@@ -426,6 +426,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
           )}
           <TelosOutcomesTree
             records={canonical.records}
+            refreshKey={canonical.refreshKey}
             loading={loading}
             error={error && canonical.records.length === 0 ? error : undefined}
             selectedId={selectedId}
