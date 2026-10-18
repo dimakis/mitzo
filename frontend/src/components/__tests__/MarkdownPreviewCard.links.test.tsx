@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { beforeEach } from 'vitest';
@@ -97,7 +97,9 @@ it('uses the resolved preview identity for sharing, Open and relative links', as
       <Location />
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
+  });
   await screen.findByRole('link', { name: 'details' });
   fireEvent.click(screen.getByRole('button', { name: 'File options' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Share file' }));
