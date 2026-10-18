@@ -2,7 +2,30 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
-Current resumed candidate aligns accepted main
+Current final-integration candidate combines prior C
+`7837ba55139da9462452c88cb65a1856375a2f6f` with accepted main
+`634048b1c7309a411dcfbf39dd2ae4e0308bdcfb` (#1030). Signed source merge
+`6f2f7e405cf0b32f1f37ba05adfdb25c6e440de0` has tree
+`f89fdcca485a508998456f6eee272bbbbad65b6f`. The clean merge preserves all241 prior C
+delta paths and all40 incoming accepted paths byte-for-byte, including both
+conditional welcome mounts, ordinary reviewed-context labels and existing CI
+metadata-resume coverage. All584 fingerprints match `v1.0.321-telos-reviewed-presentation.1`;
+protected Library assertions, timeouts and approved references are unchanged.
+[Source preservation proof](symposium-acceptance/accepted-634-final-integration/source-integration.json).
+
+Prior7837 is qualified by [CI39140231193](https://github.com/dimakis/mitzo/actions/runs/39140231193)
+(all eight jobs pass), explicit whole-PR final job4997/r1 and
+[clean report5563740917](https://github.com/dimakis/mitzo/pull/1022#pullrequestreview-5563740917),
+plus dedicated-App success56635609051. These remain source-bound history. Fresh
+CI, exact-head whole-PR final review and App approval are required for the new
+published head. The coordinator authorized this necessary strict/base integration;
+no actual merge slot is reserved during preparation. No broad local suite,
+browser launch, provider test, staging operation or production activation ran.
+Actual app/durable positive and omission/join/native/runtime/UX/iOS acceptance
+remain OPEN; accepted context metadata does not qualify those Symposium journeys.
+The canonical milestone remains active.
+
+Previous resumed candidate aligns accepted main
 `f39cbfdfa31f5e4c0d3413737827de2c8640d34e` (#1028) with prior C
 `c4068c06d583989728dacce95bd289f2d0cef241`. The clean signed source merge
 `541fc21d1ad6bbd8642e431e6c1ddd140e8bb370` has tree
