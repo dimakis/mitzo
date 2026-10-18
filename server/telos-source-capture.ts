@@ -533,6 +533,29 @@ export class TelosSourceCapture {
     const snapshot = this.options.work
       .read(itemId, actor)
       .sources.find((source) => source.snapshotId === snapshotId);
+    return this.readRetainedSource(itemId, snapshotId, actor, snapshot, (packet) =>
+      this.options.work.sourceCreationBinds(itemId, packet, actor),
+    );
+  }
+  /** Host-scoped retained custody proof. Never opens a transcript or grants
+   * source capture/adoption authority to the lead conversation. */
+  readForDelegation(leadConversationId: string, childItemId: string, snapshotId: string) {
+    this.options.assertAuthorized?.();
+    const actor: TelosWorkActor = { kind: 'conversation', id: leadConversationId };
+    const snapshot = this.options.work
+      .readDelegationTarget(leadConversationId, childItemId, childItemId)
+      .work.sources.find((source) => source.snapshotId === snapshotId);
+    return this.readRetainedSource(childItemId, snapshotId, actor, snapshot, (packet) =>
+      this.options.work.sourceCreationBindsForDelegation(leadConversationId, childItemId, packet),
+    );
+  }
+  private readRetainedSource(
+    itemId: string,
+    snapshotId: string,
+    actor: TelosWorkActor,
+    snapshot: TelosWorkSourceSnapshot | undefined,
+    creationBinds: (packet: TelosSourcePacket) => boolean,
+  ) {
     if (
       !snapshot ||
       snapshot.source?.namespace !== 'mitzo' ||
@@ -552,9 +575,7 @@ export class TelosSourceCapture {
       conflict();
     const packet = TelosSourcePacketSchema.parse(JSON.parse(artifact.bytes.toString('utf8')));
     if (
-      (packet.itemId === null
-        ? !this.options.work.sourceCreationBinds(itemId, packet, actor)
-        : packet.itemId !== itemId) ||
+      (packet.itemId === null ? !creationBinds(packet) : packet.itemId !== itemId) ||
       packet.context.sourceConversationId !== snapshot.source.conversationId ||
       packet.context.boundary.sequence !== snapshot.selection.throughSequence ||
       JSON.stringify(packet.context.messages.map((message) => message.messageId)) !==

@@ -1,6 +1,82 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { getToolTier, shouldAutoAllow } from '../tool-tiers.js';
 import { summarizeToolInput } from '../tool-summary.js';
+
+const registered = vi.hoisted(
+  () => new Map<string, (input: Record<string, unknown>) => Promise<unknown>>(),
+);
+vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
+  McpServer: class {
+    registerTool(name: string, _definition: unknown, run: never) {
+      registered.set(name, run);
+    }
+    async connect() {}
+  },
+}));
+vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({ StdioServerTransport: class {} }));
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+it('pins all task tool calls to the original host-captured session and task', async () => {
+  const previous = process.argv;
+  process.argv = [
+    'node',
+    'task',
+    '--base-url',
+    'http://offline',
+    '--client-id',
+    'client',
+    '--session-id',
+    'worker',
+    '--task-id',
+    'exact-task',
+  ];
+  vi.stubEnv('MITZO_INTERNAL_TOKEN', 'synthetic-token');
+  try {
+    await import('../task-mcp-server.js');
+    process.argv = ['node', 'task', '--session-id', 'rebound-session', '--task-id', 'another-task'];
+    const fetch = vi
+      .fn()
+      .mockImplementation(async () => new Response(JSON.stringify({ result: 'ok' })));
+    vi.stubGlobal('fetch', fetch);
+    for (const [name, input] of [
+      ['TaskStatus', {}],
+      ['TaskComplete', { summary: 'Done' }],
+      ['TaskBlock', { reason: 'Blocked' }],
+      ['TaskArtifact', { key: 'proof', value: 'result' }],
+      ['TaskSet', { tasks: [{ title: 'Subtask' }] }],
+    ] as const) {
+      await registered.get(name)!({ ...input, sessionId: 'forged-session', taskId: 'forged-task' });
+      expect(fetch.mock.calls.at(-1)![1].headers).toMatchObject({
+        'X-Client-Id': 'client',
+        'X-Task-Session-Id': 'worker',
+        'X-Task-Id': 'exact-task',
+      });
+    }
+    expect(fetch).toHaveBeenCalledTimes(5);
+  } finally {
+    process.argv = previous;
+  }
+});
+
+it('preserves legacy task transport without inventing scope from model input', async () => {
+  vi.resetModules();
+  const previous = process.argv;
+  process.argv = ['node', 'task', '--base-url', 'http://offline', '--client-id', 'legacy'];
+  vi.stubEnv('MITZO_INTERNAL_TOKEN', 'synthetic-token');
+  try {
+    await import('../task-mcp-server.js');
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ result: 'ok' })));
+    vi.stubGlobal('fetch', fetch);
+    await registered.get('TaskStatus')!({ sessionId: 'forged-session', taskId: 'forged-task' });
+    expect(fetch.mock.calls[0][1].headers).not.toHaveProperty('X-Task-Session-Id');
+    expect(fetch.mock.calls[0][1].headers).not.toHaveProperty('X-Task-Id');
+  } finally {
+    process.argv = previous;
+  }
+});
 
 describe('task-board MCP integration', () => {
   // --- Tool tiers ---
