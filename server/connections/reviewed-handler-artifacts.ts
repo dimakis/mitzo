@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.338-native-canonical-replay.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.339-ordinary-files.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../ordinary-workspace-artifact-root.ts':
+    'c8432fa77fc88b058c0a62a8357d0a816da8ce2d711fe09e6de7e6705fff570c',
   '../../packages/protocol/src/ordinary-workspace-public.ts':
     '5c734f39b24e515f18bea7ccfd7e703bb405e6e0b3f6e41c69986bd6dd45c06b',
   '../../packages/client/src/ordinary-workspace-api.ts':
@@ -588,7 +589,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '9be7ac80a7789a94e0e329cb31386b7f68df50fa5bd1f467c2d5786cd8f5685f',
+  '../app.ts': 'e52bd89df58465d364543a40634016d84c53e0757ea2950adb4dd70184a0a819',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':

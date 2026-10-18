@@ -1,3 +1,9 @@
+import { requireSameOriginJson } from './connections-router.js';
+import {
+  ordinaryWorkspaceArtifactRoot,
+  hasOrdinaryWorkspaceArtifactScope,
+} from './ordinary-workspace-artifact-root.js';
+import { hasPersistentRevocationAuthority, isAuthSessionCurrent } from './auth.js';
 import { createOrdinaryWorkspacePreparationRouter } from './ordinary-workspace-router.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import { getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
@@ -3443,6 +3449,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     wtId: meta.wtId,
     cwd: meta.cwd,
     repositoryWorkspaceId: meta.repositoryWorkspaceId,
+    ordinaryWorkspaceId: meta.ordinaryWorkspaceId,
     mode: meta.mode,
     isActive: meta.isActive,
     // Optional catalog refresh may yield while this conversation is deleted.
@@ -3758,6 +3765,8 @@ const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
 function isRemoteSessionArtifact(sessionId: string) {
   const meta = eventStore.getSession(sessionId);
+  // The ordinary owner is local and must fail closed there, never as a sandbox fallback.
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return false;
   if (!meta?.accountBinding)
     return Boolean(meta?.cwd?.startsWith('/sandbox/') && !isConfiguredAllowedPath(meta.cwd));
   if (!['openai', 'openai-codex'].includes(meta.accountBinding.provider)) return false;
@@ -3968,6 +3977,12 @@ function containsPath(root: string, target: string): boolean {
  */
 function sessionArtifactRoot(sessionId: string | undefined): string | null {
   if (!sessionId) return null;
+  const ordinary = ordinaryWorkspaceArtifactRoot(
+    eventStore,
+    () => getOrdinaryWorkspaces(true),
+    sessionId,
+  );
+  if (ordinary) return ordinary.root;
   const cwd = eventStore.getSession(sessionId)?.cwd;
   if (!cwd || !isAbsolute(cwd) || resolve(cwd) === dirname(resolve(cwd))) return null;
   return isConfiguredAllowedPath(cwd) ? cwd : null;
@@ -4011,6 +4026,7 @@ function sessionArtifactBrowserRoot(
   sessionId: string | undefined,
 ): string {
   const workspace = sessionArtifactRoot(sessionId);
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return workspace!;
   if (!workspace || !sessionId || !dir) return workspace ?? BASE_REPO;
   const target = resolveArtifactPath(dir, sessionId);
   if (containsPath(workspace, target)) return workspace;
@@ -4030,6 +4046,7 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
   const workspace = sessionArtifactRoot(sessionId);
   if (!isAbsolute(filePath)) return resolve(workspace ?? BASE_REPO, filePath);
   const requested = resolve(filePath);
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return requested;
   if (!workspace || existsSync(requested) || !isAllowedPath(requested, sessionId)) return requested;
 
   // Agents sometimes post the repository path after writing in its worktree.
@@ -4075,7 +4092,13 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
 
 function createAllowedPathChecker(sessionId?: string) {
   const isPrivate = privatePathSnapshot();
-  const artifactRoot = sessionArtifactRoot(sessionId);
+  const ordinary = hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId);
+  let artifactRoot: string | null;
+  try {
+    artifactRoot = sessionArtifactRoot(sessionId);
+  } catch {
+    return () => false;
+  }
   return (filePath: string): boolean => {
     try {
       if (isPrivate(filePath)) return false;
@@ -4083,7 +4106,7 @@ function createAllowedPathChecker(sessionId?: string) {
     } catch {
       return false;
     }
-    return isConfiguredAllowedPath(filePath);
+    return ordinary ? false : isConfiguredAllowedPath(filePath);
   };
 }
 export function isAllowedPath(filePath: string, sessionId?: string): boolean {
@@ -4122,8 +4145,48 @@ app.get(
   })),
 );
 
-app.get('/api/files/roots', (_req, res) => {
-  res.json(getRepoConfig().roots);
+// Browser file access adds no agent capability; internal artifact routes retain their own scopes.
+app.use('/api/files', (req, res, next) => {
+  const sessionId =
+    req.method === 'PUT' && typeof req.body?.sessionId === 'string'
+      ? req.body.sessionId
+      : req.method !== 'PUT' && typeof req.query.sessionId === 'string'
+        ? req.query.sessionId
+        : undefined;
+  if (!hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return next();
+  const auth = res.locals.authSession;
+  if (!auth || !hasPersistentRevocationAuthority() || !isAuthSessionCurrent(auth))
+    return res
+      .status(403)
+      .json({ error: 'A current interactive operator is required for this conversation’s files.' });
+  const validate = () => {
+    try {
+      ordinaryWorkspaceArtifactRoot(eventStore, () => getOrdinaryWorkspaces(true), sessionId);
+      res.setHeader('Cache-Control', 'private, no-store');
+      const unregister = registerAuthSession(auth, () => res.destroy());
+      res.once('close', unregister);
+      next();
+    } catch (error) {
+      res.status(409).json({
+        error:
+          error instanceof SessionArtifactUnavailableError
+            ? error.message
+            : 'This conversation’s workspace is unavailable.',
+      });
+    }
+  };
+  return req.method === 'PUT' ? requireSameOriginJson(req, res, validate) : validate();
+});
+app.get('/api/files/roots', (req, res) => {
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const ordinary = ordinaryWorkspaceArtifactRoot(
+    eventStore,
+    () => getOrdinaryWorkspaces(true),
+    sessionId,
+  );
+  res.json(
+    ordinary ? [{ label: 'Conversation files', path: ordinary.root }] : getRepoConfig().roots,
+  );
 });
 
 app.get('/api/files/list', (req, res) => {

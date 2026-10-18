@@ -33,17 +33,21 @@ import {
 /** Non-Git storage, real account/native readiness and ordinary owners; only RPC/provider effects are fake. */
 export async function ownedOrdinaryRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
-  options: { chatRoute?: boolean } = {},
+  options: { chatRoute?: boolean; separateConfiguredWorkspace?: boolean } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-ordinary-native-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const configuredWorkspace = options.separateConfiguredWorkspace
+    ? join(root, 'controller-workspace')
+    : root;
+  if (options.separateConfiguredWorkspace) await mkdir(configuredWorkspace, { mode: 0o700 });
   const loginRoot = join(root, 'login'),
     privateRoot = join(root, 'native-custody'),
     taskRoot = join(root, 'tasks');
   for (const path of [loginRoot, privateRoot, taskRoot]) await mkdir(path, { mode: 0o700 });
   if (options.chatRoute) {
-    await mkdir(join(root, '.mitzo'), { mode: 0o700 });
-    vi.stubEnv('REPO_PATH', root);
+    await mkdir(join(configuredWorkspace, '.mitzo'), { mode: 0o700 });
+    vi.stubEnv('REPO_PATH', configuredWorkspace);
     vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateRoot);
     vi.stubEnv('MITZO_ORDINARY_TASK_ROOT', taskRoot);
   }
@@ -114,7 +118,9 @@ export async function ownedOrdinaryRuntimeFixture(
     new OrdinaryLocalCodexHostRuntime(env).target(),
     'ordinary',
   );
-  const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
+  const eventPath = options.chatRoute
+    ? join(configuredWorkspace, '.mitzo', 'events.db')
+    : join(root, 'events.db');
   let events = new EventStore(eventPath),
     library = new AgentLibraryStore(eventPath);
   cleanups.push(
@@ -354,6 +360,7 @@ export async function ownedOrdinaryRuntimeFixture(
   }
   return {
     root,
+    configuredWorkspace,
     taskRoot,
     privateRoot,
     get events() {
