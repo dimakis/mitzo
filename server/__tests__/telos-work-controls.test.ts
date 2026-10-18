@@ -322,3 +322,70 @@ it('CT12: real HTTP control commands derive the current conversation and reject 
     await closeTestServer(server);
   }
 });
+
+it('CT12: the actual host denial boundary records only its exact recipient applied, while other workers remain pending', () => {
+  const f = fixture();
+  const c = f.request('safe_point');
+  expect(() => f.work.enforceControlAction('slice-1', 'safe_point', 'worker-1')).toThrow(/hold/i);
+  const view = f.work.readControl(c.controlId, f.actor);
+  expect(view.targets[0].workers[0].stage).toBe('applied');
+  expect(view.targets[0].stage).toBe('requested');
+  expect(view.targets[1].workers[0].stage).toBe('requested');
+  expect(() => f.work.enforceControlAction('slice-1', 'safe_point', 'job-worker')).toThrow();
+  expect(f.work.readControl(c.controlId, f.actor).history).toHaveLength(1);
+});
+it('CT12: a new dispatch consumes the coordinator hold before any allocation intent, and does not block an existing receipt lookup', () => {
+  const f = fixture();
+  const c = f.request('new_worker_dispatch');
+  expect(() => f.work.enforceControlAction('feature-1', 'new_worker_dispatch', 'lead-1')).toThrow(
+    /hold/i,
+  );
+  const view = f.work.readControl(c.controlId, f.actor);
+  // The lead gate is enforced, but its worker has not acknowledged/application evidence.
+  expect(view.targets[0].stage).toBe('acknowledged');
+  expect(view.targets[0].workers[0].stage).toBe('requested');
+  expect(() =>
+    f.work.enforceControlAction('feature-0', 'new_worker_dispatch', 'lead-0'),
+  ).not.toThrow();
+  expect(f.work.read('slice-1', f.actor).attempts).toHaveLength(0);
+});
+
+it('CT12: a nested coordinator cannot claim an applied subtree before its attached outcome lead and worker have host evidence', () => {
+  const f = fixture();
+  f.add('nested', 'coordinator', 'coordinator');
+  f.assign('nested', 'lead', 'nested-lead');
+  f.add('nested-outcome', 'nested', 'outcome');
+  f.assign('nested-outcome', 'lead', 'nested-outcome-lead');
+  f.add('nested-work', 'nested-outcome', 'work_item');
+  f.assign('nested-work', 'worker', 'nested-worker');
+  const c = f.work.requestControl(
+    {
+      requestId: 'nested-hold',
+      coordinatorItemId: 'coordinator',
+      priorityItemId: 'feature-0',
+      targetItemIds: ['nested'],
+      scope: 'safe_point',
+    },
+    f.actor,
+  );
+  const apply = (itemId: string, conversationId: string) =>
+    f.work.recordControlAppliedForHost(
+      {
+        controlId: c.controlId,
+        itemId,
+        conversationId,
+        assignmentRevision: 1,
+        evidenceRef: `host:${itemId}`,
+      },
+      () => true,
+    );
+  apply('nested', 'nested-lead');
+  expect(f.work.readControl(c.controlId, f.actor).targets[0].stage).toBe('acknowledged');
+  apply('nested-outcome', 'nested-outcome-lead');
+  expect(f.work.readControl(c.controlId, f.actor).stage).not.toBe('applied');
+  apply('nested-work', 'nested-worker');
+  expect(f.work.readControl(c.controlId, f.actor).stage).toBe('applied');
+  expect(f.work.readControl(c.controlId, f.actor).targets.every((t) => t.stage === 'applied')).toBe(
+    true,
+  );
+});

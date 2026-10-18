@@ -129,6 +129,14 @@ export class TelosWorkStore {
   assertControlAction(itemId: string, scope: TelosWorkControlScope, mainCommit?: string) {
     this.controls().assertAction(itemId, scope, mainCommit);
   }
+  enforceControlAction(
+    itemId: string,
+    scope: TelosWorkControlScope,
+    conversationId: string,
+    mainCommit?: string,
+  ) {
+    this.controls().enforceAction(itemId, scope, conversationId, mainCommit);
+  }
   recordControlAppliedForHost(
     raw: unknown,
     verify: Parameters<TelosWorkControls['recordApplied']>[1],

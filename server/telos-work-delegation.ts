@@ -66,6 +66,15 @@ export class TelosWorkDelegation {
     signal.throwIfAborted();
     let intent: TelosWorkDelegationIntent | undefined;
     try {
+      const existing =
+        this.deps.work.delegationRequestForHost(input.requestId, actor) ??
+        (input.mode === 'start' ? this.deps.work.latestDelegationForHost(input.childItemId) : null);
+      if (!existing || !this.deps.work.delegationCommittedForHost(existing.attemptId))
+        this.deps.work.enforceControlAction(
+          input.leadItemId,
+          'new_worker_dispatch',
+          input.leadConversationId,
+        );
       const retained = this.deps.work.prepareDelegation(
         input,
         actor,

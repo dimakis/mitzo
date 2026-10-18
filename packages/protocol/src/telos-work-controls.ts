@@ -42,7 +42,7 @@ export const TelosWorkControlViewSchema = z.strictObject({
   coordinatorConversationId: id,
   priorityItemId: id,
   scope: TelosWorkControlScopeSchema,
-  stage: z.enum(['requested', 'released']),
+  stage: z.enum(['requested', 'acknowledged', 'applied', 'released']),
   publicationRevalidation: z.enum(['not_applicable', 'required']),
   targets: z.array(
     z.strictObject({

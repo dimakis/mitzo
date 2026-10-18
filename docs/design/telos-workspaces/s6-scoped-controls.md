@@ -48,3 +48,20 @@ The tool cannot claim applied evidence or revalidate a publication. The held
 Telos profile catalog activation policy is preserved. Focused tool, MCP and
 native regressions pass (118 tests), including observed red transport and native
 registration failures before implementation.
+
+The ordinary host now records application evidence when it actually denies new
+worker dispatch or a new command at the safe-point boundary. The evidence commits
+outside the refused action transaction, so throwing cannot erase the receipt.
+The pure in-transaction denial fence remains a second check. A child/lead denial
+never marks other recipients applied. Nested coordinator aggregation requires
+all descendant leads and workers to have independent current evidence. Dedicated
+red/green tests cover these distinctions; the delegation/command boundary suites
+pass (39 tests). The server TypeScript check also passes under the 1 GiB limit.
+
+The approved publication scope is **publishing to shared main**. The current
+GitHub action creates/updates a feature branch and PR and has no main-merge
+operation. This implementation does not broaden a main-publication hold to block
+PR preparation or fabricate an applied main-publication receipt. Shared-main
+publication owner integration and its exact-head/current-main validation remain
+explicitly outstanding. The host guard/revalidation ledger is preparatory until
+that action owner is connected and tested.

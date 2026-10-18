@@ -177,6 +177,19 @@ export class TelosWorkControls {
           };
         }),
     );
+    for (const target of targets) {
+      if (target.stage !== 'applied') continue;
+      const descendants = new Set(this.descendants(target.itemId).map((w) => w.itemId));
+      if (
+        targets.some(
+          (other) =>
+            other.itemId !== target.itemId &&
+            descendants.has(other.itemId) &&
+            other.stage !== 'applied',
+        )
+      )
+        target.stage = 'acknowledged';
+    }
     return TelosWorkControlViewSchema.parse({
       version: 1,
       controlId: c.controlId,
@@ -184,7 +197,13 @@ export class TelosWorkControls {
       coordinatorConversationId: c.coordinatorConversationId,
       priorityItemId: c.input.priorityItemId,
       scope: c.input.scope,
-      stage: c.released ? 'released' : 'requested',
+      stage: c.released
+        ? 'released'
+        : targets.length && targets.every((t) => t.stage === 'applied')
+          ? 'applied'
+          : targets.length && targets.every((t) => t.stage !== 'requested')
+            ? 'acknowledged'
+            : 'requested',
       publicationRevalidation:
         c.released && c.input.scope === 'publication' ? 'required' : 'not_applicable',
       targets,
@@ -194,6 +213,7 @@ export class TelosWorkControls {
   read(id: string, actor: TelosWorkActor): TelosWorkControlView {
     return this.db.transaction(() => {
       const c = this.load(id);
+      this.attached(c);
       const view = this.project(c);
       if (actor.kind === 'operator' && actor.id.trim()) return view;
       const coordinator = this.work(c.input.coordinatorItemId).assignments.find(
@@ -418,6 +438,47 @@ export class TelosWorkControls {
           .run(c.controlId, proof.itemId, proof.mainCommit, workRevision, proof.evidenceRef);
       })
       .immediate();
+  }
+  /** The ordinary host calls this at the real action boundary, outside its
+   * mutation transaction. Persist denial evidence before throwing to its caller. */
+  enforceAction(
+    itemId: string,
+    scope: TelosWorkControlScope,
+    conversationId: string,
+    mainCommit?: string,
+  ): void {
+    try {
+      this.assertAction(itemId, scope, mainCommit);
+    } catch (error) {
+      let views: TelosWorkControlView[] = [];
+      try {
+        views = this.inbox(itemId, { kind: 'conversation', id: conversationId });
+      } catch {
+        /* Denial still holds when evidence cannot be attributed. */
+      }
+      for (const view of views) {
+        if (view.scope !== scope || view.stage === 'released') continue;
+        const target = view.targets.find(
+          (t) => t.itemId === itemId && t.leadConversationId === conversationId,
+        );
+        const worker = view.targets
+          .flatMap((t) => t.workers)
+          .find((w) => w.itemId === itemId && w.conversationId === conversationId);
+        const revision = target?.assignmentRevision ?? worker?.assignmentRevision;
+        if (revision === undefined) continue;
+        this.recordApplied(
+          {
+            controlId: view.controlId,
+            itemId,
+            conversationId,
+            assignmentRevision: revision,
+            evidenceRef: `host-denial:${scope}:${view.controlId}:${itemId}:${revision}`,
+          },
+          () => true,
+        );
+      }
+      throw error;
+    }
   }
   /** Denial-only host fence. A requested hold is already effective for admission;
    * it is never proof that a running worker has reached a safe point. */
