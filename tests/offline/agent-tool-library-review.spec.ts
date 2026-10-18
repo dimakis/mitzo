@@ -104,6 +104,8 @@ for (const theme of ['dark', 'light'])
     await page.screenshot({
       path: info.outputPath(`tool-library-loading-${theme}.png`),
       fullPage: true,
+      // Retain the whole catalog without exceeding WebKit's device-pixel limit.
+      scale: 'css',
     });
     releaseCatalog();
     await expect(library.getByRole('alert')).toContainText('Profile catalog unavailable');
@@ -111,6 +113,8 @@ for (const theme of ['dark', 'light'])
     await page.screenshot({
       path: info.outputPath(`tool-library-error-${theme}.png`),
       fullPage: true,
+      // Retain the whole catalog without exceeding WebKit's device-pixel limit.
+      scale: 'css',
     });
     await library.getByRole('button', { name: 'Retry profiles', exact: true }).click();
     await expect(library.getByRole('alert')).toHaveCount(0);
@@ -157,6 +161,8 @@ for (const theme of ['dark', 'light'])
     await page.screenshot({
       path: info.outputPath(`tool-library-review-${theme}.png`),
       fullPage: true,
+      // Retain the whole catalog without exceeding WebKit's device-pixel limit.
+      scale: 'css',
     });
     await search.fill('');
     await page.evaluate(() => {

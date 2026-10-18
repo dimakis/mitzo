@@ -18,6 +18,7 @@ import {
   LocalCodexFirstCommandSchema,
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISION,
+  TOOL_BUILDER_ID,
 } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
@@ -579,6 +580,7 @@ it('projects configuration-only eligible account tuples and published profiles w
       }),
       expect.objectContaining({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 2 }),
       expect.objectContaining({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 }),
+      expect.objectContaining({ kind: 'builtin', profileId: TOOL_BUILDER_ID }),
       eligible,
     ],
   });

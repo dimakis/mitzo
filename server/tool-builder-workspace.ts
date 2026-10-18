@@ -158,13 +158,20 @@ async function operation(input: Record<string, unknown>, signal: AbortSignal): P
 export async function createToolBuilderWorkspace(
   worktree: string,
   signal: AbortSignal,
+  approvedBase?: { dev: string; ino: string },
 ): Promise<ToolBuilderWorkspace> {
   signal.throwIfAborted();
   const base = realpathSync(worktree);
   const info = lstatSync(base, { bigint: true });
   const id = randomUUID();
   const name = `.mitzo-tool-builder-${id}`;
-  const request = { base, baseIdentity: { dev: String(info.dev), ino: String(info.ino) }, name };
+  const baseIdentity = { dev: String(info.dev), ino: String(info.ino) };
+  if (
+    approvedBase &&
+    (approvedBase.dev !== baseIdentity.dev || approvedBase.ino !== baseIdentity.ino)
+  )
+    throw Error('Approved development worktree changed');
+  const request = { base, baseIdentity: approvedBase ?? baseIdentity, name };
   // Allocation finishes before cancellation is observed, so the caller receives
   // an identity it can safely discard even when cancellation arrived mid-create.
   const rootIdentity = Identity.parse(

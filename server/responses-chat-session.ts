@@ -3,7 +3,10 @@ import { getApiToolCatalog } from './api-tool-runtime.js';
 import { getToolBuilderStore } from './tool-builder-runtime.js';
 import { admitCustomTools } from './custom-tool-admission.js';
 import { captureAgentLibraryOperation } from './agent-library-transport.js';
-import type { ToolBuilderStore } from './tool-builder-store.js';
+import {
+  sessionToolBuilderTools,
+  type ToolBuilderSessionOptions,
+} from './session-tool-builder-tools.js';
 import type { ApiToolCatalog } from './api-tool-catalog.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import { checkSkillPolicy } from '@mitzo/harness';
@@ -133,7 +136,7 @@ interface Options {
   /** Trusted offline seam, never client input. */
   apiTools?: { catalog: ApiToolCatalog };
   /** Trusted owner/test seam; never supplied through session or tool input. */
-  toolBuilder?: { store: ToolBuilderStore };
+  toolBuilder?: ToolBuilderSessionOptions;
   configuredTools?: Pick<
     ConfiguredCatalogOptions,
     'readSources' | 'connect' | 'assertRuntimeCurrent'
@@ -212,6 +215,17 @@ export async function openResponsesChat(options: Options) {
     assertRuntimeCurrent,
     assertRuntimeCurrentSync,
     !!options.commandAuthority,
+  );
+  const builderTools = sessionToolBuilderTools(
+    options.conversationId,
+    options.session,
+    options.registry,
+    {
+      ...options.toolBuilder,
+      sourceEnv: options.configuredSourceEnv,
+      assertRuntimeCurrent,
+      assertRuntimeCurrentSync,
+    },
   );
   signal.throwIfAborted();
   const privateStorage = options.store ?? getNativeResponsesStore();
@@ -411,6 +425,7 @@ export async function openResponsesChat(options: Options) {
   const definitions = structuredClone(
     filterAgentTools(options.session, [
       ...connectionTools.definitions,
+      ...builderTools.definitions,
       ...nativeToolDefinitions,
       ...mcp.definitions,
       ...(apiTools?.definitions ?? []),
@@ -476,6 +491,13 @@ export async function openResponsesChat(options: Options) {
         async (input, forcePrompt) => {
           if (options.commandAuthority)
             await options.commandAuthority.assertEffect(publishingTurnId);
+          const builderResult = await builderTools.execute(
+            block.name,
+            input,
+            AbortSignal.any([signal, options.session.abortController.signal]),
+            { turnId: publishingTurnId, callId: block.id, forcePrompt },
+          );
+          if (builderResult) return builderResult;
           const customResult = await customTools?.execute(
             block.name,
             input,

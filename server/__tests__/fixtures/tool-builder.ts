@@ -7,6 +7,7 @@ import {
   CustomToolDraftInputSchema,
   toolBuilderSourceDigest,
   toolBuilderContractDigest,
+  type ToolBuilderDraft,
 } from '../../tool-builder.js';
 
 export const toolBuilderFixtureId = 'c2f63831-e4bc-46c2-ab36-7b7850ad501a';
@@ -100,6 +101,36 @@ export function toolBuilderFixture(path = ':memory:', field: 'text' | 'file_path
     store,
     execute,
     qualify,
+    installDraft(draft: ToolBuilderDraft) {
+      const sourceFiles = Object.fromEntries(
+        draft.files.map((file) => [
+          file.path,
+          `../custom-tools/${draft.id}/v${draft.version}/${file.path}`,
+        ]),
+      );
+      const installed = {
+        ...entry,
+        id: `custom:${draft.id}`,
+        version: draft.version,
+        contractDigest: draft.contractDigest,
+        sourceFiles,
+        executorSource: sourceFiles['src/index.mts'],
+        qualifierSource: sourceFiles['test/qualify.mts'],
+      };
+      state = {
+        entries: [...state.entries, installed],
+        artifacts: {
+          ...state.artifacts,
+          ...Object.fromEntries(
+            draft.files.map((file) => [
+              sourceFiles[file.path],
+              createHash('sha256').update(file.content).digest('hex'),
+            ]),
+          ),
+        },
+        revision: state.revision + '-installed',
+      };
+    },
     drift: () => {
       state = { ...state, revision: 'fixture-v2' };
     },

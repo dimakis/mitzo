@@ -3,6 +3,8 @@ import {
   AgentLibraryVersionSchema,
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISIONS,
+  TOOL_BUILDER_ID,
+  TOOL_BUILDER_REVISION,
   type AgentLibraryVersion,
   type AgentProfileSelection,
 } from '@mitzo/protocol';
@@ -29,6 +31,11 @@ export function ordinaryCodexAgentProfiles(
   );
   return [
     ...builtins,
+    readBuiltinAgentLibraryProfile({
+      kind: 'builtin',
+      profileId: TOOL_BUILDER_ID,
+      revision: TOOL_BUILDER_REVISION,
+    })!,
     ...versions.filter(
       (profile) =>
         AgentLibraryVersionSchema.safeParse(profile).success &&

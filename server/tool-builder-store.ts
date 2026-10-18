@@ -56,7 +56,13 @@ export interface CustomToolPublication {
   binding: CustomToolBinding;
   qualification: Awaited<ReturnType<CustomToolRegistry['qualify']>>;
 }
-type Row = { data: string; session_id: string; status: Status; review: string | null };
+type Row = {
+  data: string;
+  session_id: string;
+  status: Status;
+  review: string | null;
+  request_hash?: string;
+};
 function testedDraft(raw: unknown): ToolBuilderDraft {
   const draft = DraftSchema.parse(raw);
   const schema = validateToolBuilderExamples(draft);
@@ -108,6 +114,11 @@ export class ToolBuilderStore {
         BEGIN SELECT RAISE(ABORT,'Tool publications are immutable'); END;
       CREATE TRIGGER IF NOT EXISTS immutable_custom_publication_delete BEFORE DELETE ON custom_tool_publications
         BEGIN SELECT RAISE(ABORT,'Tool publications are immutable'); END;`);
+    const columns = this.db.pragma('table_info(tool_builder_versions)') as { name: string }[];
+    if (!columns.some((column) => column.name === 'request_hash'))
+      this.db.exec(
+        "ALTER TABLE tool_builder_versions ADD COLUMN request_hash TEXT NOT NULL DEFAULT ''",
+      );
   }
   close() {
     this.lifetime.abort();
@@ -159,12 +170,14 @@ export class ToolBuilderStore {
     requestKey: string,
     raw: unknown,
     expectedVersion: number,
+    requestHash?: string,
   ): ToolBuilderRecord {
     Id.parse(owner);
     Id.parse(sessionId);
     Id.parse(requestKey);
     z.number().int().nonnegative().parse(expectedVersion);
     const draft = testedDraft(raw);
+    const inputHash = Digest.parse(requestHash ?? draft.contractDigest);
     return this.db
       .transaction(() => {
         const retry = this.db
@@ -173,7 +186,10 @@ export class ToolBuilderStore {
           )
           .get(owner, sessionId, requestKey) as Row | undefined;
         if (retry) {
-          if (canonicalJson(JSON.parse(retry.data)) !== canonicalJson(draft))
+          if (
+            (retry.request_hash && retry.request_hash !== inputHash) ||
+            canonicalJson(JSON.parse(retry.data)) !== canonicalJson(draft)
+          )
             throw Error('Conflicting draft request identity');
           return this.decode(retry);
         }
@@ -191,7 +207,9 @@ export class ToolBuilderStore {
         )
           throw Error('Tool draft session or review authority is unavailable');
         this.db
-          .prepare('INSERT INTO tool_builder_versions VALUES(?,?,?,?,?,?,?,NULL)')
+          .prepare(
+            'INSERT INTO tool_builder_versions(owner,id,version,session_id,request_key,data,status,review,request_hash) VALUES(?,?,?,?,?,?,?,NULL,?)',
+          )
           .run(
             owner,
             draft.id,
@@ -200,10 +218,22 @@ export class ToolBuilderStore {
             requestKey,
             JSON.stringify(draft),
             'unpublished',
+            inputHash,
           );
         return this.read(owner, draft.id, draft.version)!;
       })
       .immediate();
+  }
+  request(owner: string, sessionId: string, requestKey: string) {
+    Id.parse(owner);
+    Id.parse(sessionId);
+    Id.parse(requestKey);
+    const row = this.db
+      .prepare(
+        'SELECT * FROM tool_builder_versions WHERE owner=? AND session_id=? AND request_key=?',
+      )
+      .get(owner, sessionId, requestKey) as Row | undefined;
+    return row ? { record: this.decode(row), requestHash: row.request_hash ?? '' } : null;
   }
   submit(owner: string, sessionId: string, id: string, version: number, contractDigest: string) {
     Id.parse(sessionId);

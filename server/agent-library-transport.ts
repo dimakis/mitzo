@@ -2,12 +2,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   PROFILE_BUILDER_ID,
   profileBuilderDefinitionForRevision,
+  TOOL_BUILDER_ID,
+  TOOL_BUILDER_REVISION,
+  toolBuilderDefinition,
   AgentLibraryVersionSchema,
   type AgentProfileSelection,
 } from '@mitzo/protocol';
 import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
+import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
 
 const operators = new Map<string, AuthSession>();
 export function captureAgentLibraryAuthorization(connectionId?: string) {
@@ -67,12 +71,17 @@ export async function withAgentLibraryRecoveryAuthorization<T>(
 /** Builtin identity is code-owned and never resolved through the user Library. */
 export function readBuiltinAgentLibraryProfile(selection: AgentProfileSelection) {
   if (selection.kind === 'builtin') {
-    if (selection.profileId !== PROFILE_BUILDER_ID) return null;
-    const definition = profileBuilderDefinitionForRevision(selection.revision);
-    if (!definition) return null;
+    const builtinDefinition =
+      selection.profileId === PROFILE_BUILDER_ID
+        ? profileBuilderDefinitionForRevision(selection.revision)
+        : selection.profileId === TOOL_BUILDER_ID && selection.revision === TOOL_BUILDER_REVISION
+          ? toolBuilderDefinition
+          : undefined;
+    if (!builtinDefinition) return null;
+    const definition = PortableProfileDefinitionSchema.parse(builtinDefinition);
     return {
       kind: 'builtin' as const,
-      profileId: PROFILE_BUILDER_ID,
+      profileId: selection.profileId,
       revision: selection.revision,
       definition,
       contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),

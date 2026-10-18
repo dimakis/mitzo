@@ -5,8 +5,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { bindAgentLibraryTransport, readAgentLibraryProfile } from '../agent-library-transport.js';
+import { resolveChatAgentProfile } from '../agent-library-binding.js';
 import { revokeAuthSession } from '../auth.js';
+import { toolBuilderToolDefinitions } from '../tool-builder-tool-definitions.js';
+import { CustomToolDraftInputSchema, type ToolBuilderExecutor } from '../tool-builder.js';
 import { AsyncQueue } from '../async-queue.js';
 import { AgentLibraryStore } from '../agent-library-store.js';
 import { NativeResponsesStore } from '../native-responses-store.js';
@@ -57,6 +60,151 @@ afterEach(async () => {
   captured.approve.mockClear();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
+
+it.each(['openai', 'google-vertex'] as const)(
+  'runs the explicitly selected builder through actual %s chat without granting publication',
+  async (provider) => {
+    const f = fixture();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-builder-chat-'));
+    roots.push(root);
+    const registry = new SessionRegistry();
+    const library = new AgentLibraryStore(join(root, 'events.db'));
+    const native = new NativeResponsesStore(join(root, 'native.db'));
+    const unbind = bindAgentLibraryTransport('client', {
+      id: randomUUID(),
+      expiresAt: Date.now() + 60000,
+    });
+    try {
+      const published = await resolveChatAgentProfile({
+        requested: { kind: 'builtin', profileId: 'mitzo-tool-builder', revision: 1 },
+        provider,
+        toolRoute: 'local-api',
+        lookup: (selection) => readAgentLibraryProfile(selection, 'client'),
+      });
+      expect(library.list('user')).toMatchObject({ drafts: [], versions: [] });
+      registry.register('client', {
+        transport: { send() {}, isOpen: () => true },
+        abortController: new AbortController(),
+        sessionId: 'builder-chat',
+        cwd: root,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      const session = registry.get('client')!;
+      session.worktreePaths.set('primary', { path: root, wtId: 'test' });
+      const input = new AsyncQueue<{ message: { content: string } }>();
+      input.close();
+      const custom = CustomToolDraftInputSchema.strip().parse(f.draft);
+      const run = vi.fn<ToolBuilderExecutor['run']>(async () => ({
+        passed: true,
+        complete: true,
+        evidenceKind: 'trusted-executor',
+        summary: 'Offline fixture passed',
+        examples: custom.examples.map((example) => ({ passed: true, actual: example.expected })),
+      }));
+      const chat = await openResponsesChat({
+        conversationId: 'builder-chat',
+        binding: {
+          accountId: 'fake',
+          accountLabel: 'Fake',
+          provider,
+          model: 'offline-fixture',
+          profileRevision: 'fake',
+        },
+        session,
+        registry,
+        input,
+        systemPrompt: '',
+        env: {},
+        mcpServers: {},
+        store: native,
+        agentProfile: published,
+        toolBuilder: {
+          store: f.store,
+          catalog: { search: async () => [], readContract: async () => ({}) },
+          executor: { run },
+          privateRoots: () => [],
+        },
+        ...(provider === 'google-vertex'
+          ? {
+              gemini: {
+                accountId: 'fake',
+                projectId: 'fake',
+                region: 'global',
+                getAccessToken: async () => {
+                  throw Error('No live calls');
+                },
+              },
+            }
+          : { apiKey: 'fake-not-used' }),
+      });
+      try {
+        const runner = captured.options.at(-1)!;
+        expect(runner.tools.map((tool) => tool.name).sort()).toEqual(
+          ['AskUserQuestion', ...toolBuilderToolDefinitions.map((tool) => tool.name)].sort(),
+        );
+        const response = await runner.executeTool(
+          {
+            type: 'tool_use',
+            id: 'prepare',
+            name: 'ToolBuilderPrepareDraft',
+            input: { request: 'Count characters', custom },
+          },
+          session.abortController.signal,
+        );
+        expect(response.is_error).toBe(false);
+        const prepared = JSON.parse(String(response.content));
+        expect(prepared).toMatchObject({
+          kind: 'draft',
+          draft: { status: 'unpublished', version: 1 },
+        });
+        expect(run).toHaveBeenCalledOnce();
+        expect(f.store.listTools('user')).toEqual([]);
+        expect(
+          (
+            await runner.executeTool(
+              {
+                type: 'tool_use',
+                id: 'submit',
+                name: 'ToolBuilderSubmitReview',
+                input: {
+                  id: prepared.draft.id,
+                  version: 1,
+                  contractDigest: prepared.draft.contractDigest,
+                },
+              },
+              session.abortController.signal,
+            )
+          ).is_error,
+        ).toBe(false);
+        expect(f.store.read('user', prepared.draft.id)?.status).toBe('submitted');
+        for (const name of [
+          'ToolBuilderPublish',
+          'ToolBuilderReview',
+          'Bash',
+          'mitzo:ToolBuilderPrepareDraft',
+        ])
+          expect(
+            (
+              await runner.executeTool(
+                { type: 'tool_use', id: name, name, input: {} },
+                session.abortController.signal,
+              )
+            ).is_error,
+          ).toBe(true);
+      } finally {
+        chat.close();
+        session.abortController.abort();
+      }
+    } finally {
+      unbind();
+      registry.dispose();
+      native.close();
+      library.close();
+      f.store.close();
+    }
+  },
+);
 
 it.each([
   ['openai', 'text'],

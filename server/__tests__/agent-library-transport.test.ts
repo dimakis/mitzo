@@ -136,6 +136,31 @@ it('resolves the authenticated built-in builder as a pinned profile without cata
   ).toBeNull();
 });
 
+it('resolves the separate Tool Builder builtin with only bounded development capabilities', async () => {
+  cleanups.push(
+    bindAgentLibraryTransport('tool-builder', { id: 'login', expiresAt: Date.now() + 10000 }),
+  );
+  const selected = { kind: 'builtin' as const, profileId: 'mitzo-tool-builder', revision: 1 };
+  const builder = await readAgentLibraryProfile(selected, 'tool-builder');
+  expect(builder?.definition.name).toBe('Tool Builder');
+  expect(builder?.definition.tools?.map((tool) => tool.id)).toEqual([
+    'mitzo:ToolBuilderSearchCatalog',
+    'mitzo:ToolBuilderReadContract',
+    'mitzo:ToolBuilderPrepareDraft',
+    'mitzo:ToolBuilderReviseDraft',
+    'mitzo:ToolBuilderInspectDraft',
+    'mitzo:ToolBuilderSubmitReview',
+  ]);
+  expect(builder?.definition.instructions).toContain('ToolBuilderSearchCatalog');
+  expect(builder?.definition.instructions).toContain('src/index.mts');
+  expect(mocks.request).not.toHaveBeenCalled();
+  expect(await readAgentLibraryProfile({ ...selected, revision: 2 }, 'tool-builder')).toBeNull();
+  builder!.definition.instructions = 'Mutated';
+  expect(
+    (await readAgentLibraryProfile(selected, 'tool-builder'))?.definition.instructions,
+  ).not.toBe('Mutated');
+});
+
 it.each([1, 2])(
   'keeps catalog revision %s selectable when its ID matches the built-in',
   async (revision) => {

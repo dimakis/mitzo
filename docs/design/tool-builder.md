@@ -134,3 +134,28 @@ call. Publication does not select a tool for any profile or running session.
 Custom invocation fields are contract data. A field named `file_path` does not
 trigger native filesystem path resolution. Project pre/post hooks still run;
 their explicit input updates follow the normal validation and approval path.
+
+## Reusable Builder in ordinary chat
+
+The code-owned `mitzo-tool-builder` profile explicitly selects six bounded tools:
+catalog search, exact contract reads, draft preparation, immutable revision,
+inspection and submission. Missing tool selection retains legacy behavior and
+does not add these development capabilities. Only the ordinary local API chat
+adapter enrolls them. The same regular profile settings/composer are reused.
+
+Preparation binds the verified native turn/call identity and exact request hash;
+identical in-flight calls coalesce, durable exact retries return the original
+draft, and changed retries fail. Development requires a managed isolated primary
+worktree, the current authenticated operator, current skill/runtime authority,
+and exact request approval without remembered grants. Ask mode refuses mutation.
+Approval binds the worktree filesystem identity; descriptor-relative allocation
+and operations reject replacement, private-root overlap and revoked authority.
+
+The Builder writes and tests the complete approved source bundle in its isolated
+workspace. It receives no shell command, launch configuration, credential,
+connection, network destination, review decision or publication operation.
+Failure discards allocated source; successful tests followed by failed storage
+also discard it. Test provenance remains visible. Session-scoped inspection
+returns schemas, examples, file identities and bounded source pages. Operator
+feedback remains attached to the reviewed version; the next version records a
+fresh tested contract without replacing accepted source.

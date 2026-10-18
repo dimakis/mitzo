@@ -9,6 +9,7 @@ import { githubPublishingDefinition } from './github-publishing-tool.js';
 import { telosCreateOutcomeDefinition, telosAdoptSourceDefinition } from './telos-tool.js';
 import { telosItemDefinitions } from './telos-item-tools.js';
 import { telosArtifactDefinitions } from './telos-artifact-tools.js';
+import { toolBuilderToolDefinitions } from './tool-builder-tool-definitions.js';
 
 const reads = new Set([
   'Read',
@@ -19,6 +20,9 @@ const reads = new Set([
   'ListRepositories',
   'GetRepositoryChatPreparation',
   'SymposiumReadProfiles',
+  'ToolBuilderSearchCatalog',
+  'ToolBuilderReadContract',
+  'ToolBuilderInspectDraft',
   'AgentReadTasks',
   'TelosGetItem',
   'TelosFindArtifacts',
@@ -26,8 +30,8 @@ const reads = new Set([
 ]);
 const mixed = new Set(['Bash', 'ConnectionRequest', 'HomeAssistantDashboard']);
 /** Read-only projection of executable registrations. No server discovery or credential reads. */
-export function agentToolCatalog(): AgentToolCatalogEntry[] {
-  const groups = [
+function toolGroups() {
+  return [
     { source: 'Workspace', definitions: nativeToolDefinitions },
     { source: 'Connections', definitions: credentialConnectionToolDefinitions },
     { source: 'Repositories', definitions: repositoryChatToolDefinitions },
@@ -35,6 +39,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       source: 'Agent Library',
       definitions: [...profileToolDefinitions, ...agentTaskToolDefinitions],
     },
+    { source: 'Tool Builder', definitions: toolBuilderToolDefinitions },
     { source: 'Web', definitions: [webAccessDefinition] },
     { source: 'GitHub publishing', definitions: [githubPublishingDefinition] },
     {
@@ -47,7 +52,17 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       ],
     },
   ];
-  return groups.flatMap(({ source, definitions }) =>
+}
+export function readAgentToolContract(id: string, version: number) {
+  if (version !== 1) throw Error('Installed tool contract version was not found');
+  const definition = toolGroups()
+    .flatMap((group) => group.definitions)
+    .find((tool) => `mitzo:${tool.name}` === id);
+  if (!definition) throw Error('Installed tool contract was not found');
+  return JSON.parse(JSON.stringify(definition)) as typeof definition;
+}
+export function agentToolCatalog(): AgentToolCatalogEntry[] {
+  return toolGroups().flatMap(({ source, definitions }) =>
     definitions.map((tool) => ({
       id: `mitzo:${tool.name}`,
       version: 1,
@@ -93,7 +108,9 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                   ? 'Requires an available OS sandbox and existing workspace permissions; no network or credentials.'
                   : source === 'Web'
                     ? 'Requires supported provider web search and current approval.'
-                    : 'Existing session permissions, cancellation and runtime admission apply.',
+                    : source === 'Tool Builder'
+                      ? 'Local API chat only. Development requires an authorized isolated worktree and exact approval for fixed offline checks. Review, installed source, publication and assignment are separate.'
+                      : 'Existing session permissions, cancellation and runtime admission apply.',
     })),
   );
 }

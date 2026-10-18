@@ -1,11 +1,37 @@
 import { expect, it } from 'vitest';
 import { contextDigest } from '../agent-context-compiler.js';
+import { resolveChatAgentProfile } from '../agent-library-binding.js';
 import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
 import {
   readOrdinaryCodexAgentProfile,
   ordinaryCodexAgentProfiles,
   ordinaryCodexAgentProfileRouteProjection,
 } from '../ordinary-codex-agent-profile.js';
+
+it.each(['openai', 'google-vertex'])(
+  'admits the real pinned Tool Builder through %s profile resolution',
+  async (provider) => {
+    const selection = { kind: 'builtin' as const, profileId: 'mitzo-tool-builder', revision: 1 };
+    const profile = readOrdinaryCodexAgentProfile({ version: () => null }, selection)!;
+    const admitted = await resolveChatAgentProfile({
+      requested: selection,
+      provider,
+      toolRoute: 'local-api',
+      lookup: async () => profile,
+    });
+    expect(admitted?.definition.name).toBe('Tool Builder');
+    expect(admitted?.definition.tools).toHaveLength(6);
+    expect(
+      await resolveChatAgentProfile({
+        stored: admitted,
+        resume: true,
+        provider,
+        toolRoute: 'local-api',
+        lookup: async () => null,
+      }),
+    ).toEqual(admitted);
+  },
+);
 
 it('allows Local ContexGin and only explicitly configured OpenShell preset combinations', () => {
   const builtin = readOrdinaryCodexAgentProfile(
@@ -160,15 +186,45 @@ it('capabilities retain supported recipes and exclude native packs', () => {
   packs.contentHash = contextDigest(packs.definition);
   expect(
     ordinaryCodexAgentProfiles([workspace, packs]).map((profile) => profile.profileId),
-  ).toEqual([PROFILE_BUILDER_ID, PROFILE_BUILDER_ID, PROFILE_BUILDER_ID, 'workspace']);
+  ).toEqual([
+    PROFILE_BUILDER_ID,
+    PROFILE_BUILDER_ID,
+    PROFILE_BUILDER_ID,
+    'mitzo-tool-builder',
+    'workspace',
+  ]);
 });
 
 it('keeps historical Builder revision one eligible without replacing its captured definition', () => {
   const inventory = ordinaryCodexAgentProfiles([]);
-  expect(inventory.map(({ revision }) => revision)).toEqual([PROFILE_BUILDER_REVISION, 2, 1]);
+  expect(inventory.map(({ revision }) => revision)).toEqual([PROFILE_BUILDER_REVISION, 2, 1, 1]);
   const historical = inventory.find((profile) => profile.revision === 1)!;
   expect(historical.definition.instructions).not.toContain('AgentProposeTask');
   expect(
     ordinaryCodexAgentProfileRouteProjection(inventory, 'openai-codex', 'local').agentProfiles,
   ).toContainEqual({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 });
+});
+it('offers Tool Builder only on local API routes after native profile enrollment', () => {
+  const profiles = ordinaryCodexAgentProfiles([]);
+  const selection = { kind: 'builtin', profileId: 'mitzo-tool-builder', revision: 1 };
+  const api = ordinaryCodexAgentProfileRouteProjection(profiles, 'openai', 'local', undefined, {
+    contextRecipes: 'supported',
+    toolSelection: true,
+    toolRoute: 'local-api',
+  });
+  expect(api.agentProfiles).toContainEqual(selection);
+  for (const route of ['codex', 'codex-owned-local']) {
+    const native = ordinaryCodexAgentProfileRouteProjection(
+      profiles,
+      'openai',
+      'local',
+      undefined,
+      { contextRecipes: 'none', toolSelection: true, toolRoute: route },
+    );
+    expect(native.agentProfiles).not.toContainEqual(selection);
+    expect(native.agentProfileRejections).toContainEqual({
+      agent: selection,
+      reason: 'tool_selection_unavailable',
+    });
+  }
 });
