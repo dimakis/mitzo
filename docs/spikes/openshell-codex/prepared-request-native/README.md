@@ -138,12 +138,12 @@ separate user authorizations described in the Symposium handover.
 
 ## Inert native approval source stages
 
-The ordered bundle now contains 26 patches. The original twenty-five checksums
+The ordered bundle now contains 31 patches. The original twenty-six checksums
 are unchanged. Patches 21–23 retain typed extension routing, fresh user provenance
 from the actual approval owner, and original configuration/policy plus actual
 restricted-launch bindings. Root and an independent reviewer inspected each
 stage; the corrected bundle reconstructs tree
-`d455f8008c7ee555fab63c458df136594fcc352b`.
+`fb843b07af4fb2d3ba6517811ff2d88bae1d5fcd`.
 
 The production policy flags, hooks, contributors and permission guards remain.
 The original parent denied-read fixture remains unchanged. Only an actual fresh user approval can produce the sealed evidence;
@@ -152,8 +152,9 @@ tests use `exec_command_inner` and its real stored flag, including yield,
 future drop, process failure and retained polling. Configuration and manager-policy
 drift tests use their original owners. These new Rust tests have not run.
 
-This source has no child consumer, same-request hook-match metadata or final
-Session admission CAS. It cannot reuse parent approval yet. The existing
+This source has no child consumer or final Session admission CAS. It now retains
+same-request review routing and hook observations, but cannot reuse parent
+approval yet. The existing
 native CI job now includes the changed Guardian reviewer crate on both platforms;
 its shell-recording coverage passed 19 cases locally, which verifies package
 selection only. The 23-patch CI run `39125280789` failed on both platforms during helper
@@ -167,7 +168,8 @@ remain. A selected-environment regression and four-position matrix were authored
 first; only scoped formatting and source checks ran locally. Root and independent
 source review missed the original field error; neither review established compile
 qualification. Compilation and fixture qualification of the correction remain
-pending exact-source CI. Unpublished C2 metadata changes are excluded.
+pending exact-source CI for that historical composition. The C2 observations
+are now included by patch 28, described below.
 The twenty-fifth patch is the exact explicitly approved Guardian terminal-test
 correction (18 October, patch SHA
 `389b5db30b7b2ccd64af0fc5f928d71bf0abe30d5b10bb1d883880e325d19a0e`).
@@ -189,6 +191,34 @@ credential value still moves once through its unchanged owner; no credentials
 are cloned or recreated, and no guard or assertion changes. Root and independent
 source review missed this ownership error too; corrected compilation and fixture
 execution remain exact-source CI requirements.
+
+Run `39140112157` on the 26-patch tree built the standalone helpers on both
+platforms, then failed to compile the Core tests: five assertions in the new
+persistent-terminal refusal test had an ambiguous `assert_eq` macro (E0659).
+No native fixtures ran; no native pass/fail/skip counts are available. Patch 27
+adds the explicit `pretty_assertions::assert_eq` import used by its enclosing
+module. Removing that one import restores the entire approved test file
+byte-for-byte. The original 26 patch checksums, including the approved Guardian
+correction, remain unchanged.
+
+Patches 28–31 retain the existing review owner's actual selected configuration
+and hook observations, add read-only cached environment observations, retain the
+exact policy Arc used by the existing Unix evaluation, and fence intercepted
+manual approvals against their selected context. Preflight precedes callbacks;
+every UserPrompt result requires the configuration actually used by the one
+review-routing call before resolution or telemetry. Legacy reviewer APIs and
+decisive Hook/Guardian outcomes retain their original behavior. Actual-owner
+policy, environment, malformed-input and delayed-manual regressions are retained.
+
+Root and an independent reviewer inspected these stages, and the complete ordered
+bundle reconstructs the pinned tree. Only scoped formatting and source checks
+ran locally; no compilation or Rust test success is claimed for the combined
+source. The original environment-observation temporary test-first artifacts were
+lost; reconstructed Git bytes match all three hashes retained in the conversation,
+but do not establish original artifact custody or an executed RED. Other staged
+test-first artifacts remain retained separately. Physical child binding, locked
+one-use consumption and inherited parent approval remain unimplemented. These
+shell context checks do not establish cross-owner prepared-request authority.
 
 This ordinary shell compatibility work creates no prepared Responses capability,
 HTTP send, provider session, application joining or runtime adoption authority.

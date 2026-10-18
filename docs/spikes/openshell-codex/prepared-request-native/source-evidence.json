@@ -108,10 +108,30 @@
     {
       "file": "native-snapshot-credential-presence.patch",
       "sha256": "d5ddad6f1e85814c073c7d12c3c251b90c3d293ed165a1a36eac2fc675677893"
+    },
+    {
+      "file": "native-terminal-macro-import.patch",
+      "sha256": "0868d7e21836aaf022bb9239553f64b222d41657140724cdf63f1cedcca1ed24"
+    },
+    {
+      "file": "native-review-routing-observations.patch",
+      "sha256": "474bc0663eebcb58c4028295753e37ed0d176d2cde268441af55faa66d6d4afb"
+    },
+    {
+      "file": "native-environment-observation.patch",
+      "sha256": "8711d16de3628aa1b2026d0432fa336855f177b8a0a6206b32b101642c9a36fc"
+    },
+    {
+      "file": "native-intercepted-policy-custody.patch",
+      "sha256": "0b578a86c9d10f814167613ceef21584f44d1d7d265f74cd5d54d580df0ae469"
+    },
+    {
+      "file": "native-intercepted-context-fence.patch",
+      "sha256": "dc7ebed99875b4651d591ab23e588cf67273cfb3c61ddbecc6ba04e822ce5163"
     }
   ],
-  "sourceTree": "d455f8008c7ee555fab63c458df136594fcc352b",
-  "localSourceCommit": "745af30392946472d9554f5548fcdb211d1f4ec7",
+  "sourceTree": "fb843b07af4fb2d3ba6517811ff2d88bae1d5fcd",
+  "localSourceCommit": "dabb53cf52b814e930f15beaf4215608b52ab00d",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -143,7 +163,12 @@
     "5ad3d2fc441933f3e83b9532b486a98f44c84559",
     "d8cc5471da23683065474f8eec7e66b3d59168ac",
     "2ecca302b9044b569d82a808918b654c340ef8f9",
-    "745af30392946472d9554f5548fcdb211d1f4ec7"
+    "745af30392946472d9554f5548fcdb211d1f4ec7",
+    "e7bde19ee0c5cb5b823c37160cbec3706088a832",
+    "277869c78b99dc920fa848d6bd50cf8d8189b96d",
+    "3df7f3fcbed203daf8209aac6979d962430e3786",
+    "161ac371f636244bb4a5aa4da70f3b13ca8b5bb8",
+    "dabb53cf52b814e930f15beaf4215608b52ab00d"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -153,15 +178,15 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "Retained twenty-five-patch inert native source plus immutable snapshot-credential presence before ownership move; no C2 metadata or child consumer.",
+    "scope": "31-patch ordinary native source: retained 26 plus test macro import, actual review/hook observations, raw cached environment observation, evaluated PolicyArc custody and current intercepted manual-approval fences. No physical child consumer or prepared dispatch authority.",
     "localFocused": {
-      "status": "new_linux_cases_not_run_on_mac",
-      "newLinuxCases": 9,
-      "format": "Scoped Rust1.95 rustfmt check passed; original imports_granularity warning retained.",
+      "status": "source_and_scoped_format_only",
+      "rustTestsExecuted": false,
+      "compiled": false,
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_26_patch_source",
+      "status": "pending_31_patch_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -208,6 +233,13 @@
         "bothPlatforms": "helper compilation E0382 snapshot_credential_context borrowed after move",
         "nativeFixturesStarted": false,
         "testCountsAvailable": false
+      },
+      "previous26PatchRun": {
+        "run": 39140112157,
+        "sourceTree": "d455f8008c7ee555fab63c458df136594fcc352b",
+        "bothPlatforms": "standalone helper builds passed; codex-core test compilation failed five E0659 ambiguous assert_eq sites",
+        "nativeFixturesStarted": false,
+        "testCountsAvailable": false
       }
     },
     "literalContract": {
@@ -246,7 +278,7 @@
       "physicalEligibility": "Original RequireEscalated, requested concrete restricted sandbox with denied reads, Restricted network in selected/requested/canonical/transformed profiles; unsupported snapshots/grants/proxies/remote paths refuse optional provenance",
       "hasChildConsumer": false,
       "hasFinalSessionCas": false,
-      "sameRequestHookMetadataImplemented": false,
+      "sameRequestHookMetadataImplemented": true,
       "guardianFixtureCorrectionIncluded": true,
       "ordinaryPreparedRequestAuthorityEstablished": false,
       "sourceTreeReconstructedFromAll24Patches": true,
@@ -286,6 +318,34 @@
         "newInventedBooleanTests": false,
         "rootAndIndependentSourceReview": true,
         "rustExecuted": false
+      },
+      "original26PatchChecksumsUnchanged": true,
+      "sourceTreeReconstructedFromAll31Patches": true,
+      "currentContextStages": {
+        "reviewRoutingObservations": "277869c78b99dc920fa848d6bd50cf8d8189b96d",
+        "rawEnvironmentObservation": "3df7f3fcbed203daf8209aac6979d962430e3786",
+        "evaluatedPolicyCustody": "161ac371f636244bb4a5aa4da70f3b13ca8b5bb8",
+        "interceptedManualFence": "dabb53cf52b814e930f15beaf4215608b52ab00d",
+        "sourceReviewedByRootAndIndependentSol61": true,
+        "originalLegacyReviewerApiAndBodyPreserved": true,
+        "everyUserPromptRequiresActualC2Config": true,
+        "oneRoutingCallBeforeResolutionAndTelemetry": true,
+        "physicalBindingImplemented": false,
+        "globalRevocationOrPreparedAuthorityEstablished": false
+      },
+      "macroImportCorrection": {
+        "commit": "e7bde19ee0c5cb5b823c37160cbec3706088a832",
+        "candidate": "118d2aaec34b9e2df016beec8203a6a774cdbe25",
+        "soleAddedLine": "use pretty_assertions::assert_eq;",
+        "removingImportRestoresEntireApprovedFile": true,
+        "rootAndIndependentSourceReview": true,
+        "actualRedRun": 39140112157,
+        "compileGreen": false
+      },
+      "environmentTestFirstCustody": {
+        "originalTemporaryArtifactsMissing": true,
+        "gitReconstructedBytesMatchAllThreeConversationHashes": true,
+        "originalTimestampOrExecutedRedClaimed": false
       }
     }
   },
@@ -391,13 +451,21 @@
       "remainingNativeFailures": "Linux literal-glob sandbox construction and macOS current-permission/child-approval cases remain unresolved"
     },
     "scopedParentApproval": {
-      "sourceCommit": "5ad3d2fc441933f3e83b9532b486a98f44c84559",
-      "sourceTree": "b4f196081c383cf9dcf2062d10b8a7281fbd7819",
-      "stages": ["routing", "provenance", "bindings"],
+      "sourceCommit": "dabb53cf52b814e930f15beaf4215608b52ab00d",
+      "sourceTree": "fb843b07af4fb2d3ba6517811ff2d88bae1d5fcd",
+      "stages": [
+        "routing",
+        "provenance",
+        "bindings",
+        "review-routing-observations",
+        "raw-environment-observation",
+        "policy-custody",
+        "intercepted-manual-fence"
+      ],
       "inert": true,
       "originalApprovalAndPolicyBehaviorPreserved": true,
       "productionRequestConsumptionSupported": false,
-      "scope": "Metadata/provenance/physical custody only; C2 routing+hook observations and C3 locked child consumption remain unimplemented in this source."
+      "scope": "Actual current-child/manual callback context fences and inert original provenance. No physical child binding, final locked consumption or prepared request authority."
     }
   },
   "historicalFoundation": {
@@ -664,6 +732,158 @@
           "staticDiagnosis": "helper consumes TurnComplete before returning None; sole caller redundantly waits again"
         },
         "testCountsOverlap": true
+      }
+    },
+    {
+      "sourceTree": "d455f8008c7ee555fab63c458df136594fcc352b",
+      "localSourceCommit": "745af30392946472d9554f5548fcdb211d1f4ec7",
+      "patchCount": 26,
+      "checks": {
+        "scope": "Retained twenty-five-patch inert native source plus immutable snapshot-credential presence before ownership move; no C2 metadata or child consumer.",
+        "localFocused": {
+          "status": "new_linux_cases_not_run_on_mac",
+          "newLinuxCases": 9,
+          "format": "Scoped Rust1.95 rustfmt check passed; original imports_granularity warning retained.",
+          "dynamicGreenClaimed": false
+        },
+        "ci": {
+          "status": "failed_test_compilation_both_platforms",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-api",
+            "codex-state",
+            "codex-http-client",
+            "codex-guardian-reviewer"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "previousRun": 39100230330,
+          "previousSourceTree": "9553a064fd80dd4955028e79d66148d31f5c1f64",
+          "previousObservedResults": {
+            "linux": {
+              "passed": 5471,
+              "failed": 2,
+              "skipped": 8,
+              "skillFixture": "passed0.502s"
+            },
+            "macos": {
+              "conclusion": "cancelled90min",
+              "recordedPassed": 4478,
+              "selected": 5482,
+              "announcedSkipped": 27,
+              "finalSummary": false,
+              "remainingFixtureOutcomes": "unknown"
+            }
+          },
+          "zeroNativeSkipsClaimed": false,
+          "published20PatchRun": 39121183011,
+          "previous23PatchRun": {
+            "run": 39125280789,
+            "sourceTree": "b4f196081c383cf9dcf2062d10b8a7281fbd7819",
+            "platforms": {
+              "linux": "helper build E0609 before fixtures",
+              "macos": "helper build E0609 before fixtures"
+            },
+            "nativeFixtureExecutionStarted": false,
+            "testCountsAvailable": false
+          },
+          "previous24PatchRun": {
+            "run": 39132277931,
+            "sourceTree": "7876c1360f3610f33b91cf239d566636d284f787",
+            "bothPlatforms": "helper compilation E0382 snapshot_credential_context borrowed after move",
+            "nativeFixturesStarted": false,
+            "testCountsAvailable": false
+          },
+          "run": 39140112157,
+          "nativeFixturesStarted": false,
+          "testCountsAvailable": false,
+          "actualFailure": {
+            "error": "E0659 assert_eq ambiguous",
+            "sites": 5,
+            "standaloneHelpersBuiltBothPlatforms": true,
+            "linuxJob": 117712610184,
+            "macJob": 117712610376
+          }
+        },
+        "literalContract": {
+          "accepted": "Resolved UTF8 literal regular files or clean first absence after verified real directory prefixes; all aliases refuse.",
+          "unsupported": [
+            "directories",
+            "special files",
+            "braces or backslash in literal spelling",
+            "nonUTF8 paths",
+            "unexpected metadata errors"
+          ],
+          "sharedDeduplicatedBound": 8192,
+          "someZeroAndOriginalWildcardBehaviorPreserved": true,
+          "filesystemAtomicityClaimed": false,
+          "futureNameReservationClaimed": false
+        },
+        "independentReview": {
+          "reviewer": "native_safety_reaudit /gpt-6.1-sol",
+          "result": "No narrow source blocker under existing prelaunch-match contract; static only."
+        },
+        "testCountsOverlap": true,
+        "scopedParentApproval": {
+          "stages": {
+            "routing": "30b5be3e0eb23c6d4acc6218be87a278e7954f49",
+            "provenance": "88240eb5125987afaadee7429df80cda315e257d",
+            "bindings": "5ad3d2fc441933f3e83b9532b486a98f44c84559",
+            "selectedEnvironmentCorrection": "d8cc5471da23683065474f8eec7e66b3d59168ac"
+          },
+          "sourceReviewedByRootAndIndependentSol61": true,
+          "sourceTreeReconstructedFromAll23Patches": true,
+          "original20PatchChecksumsUnchanged": true,
+          "actualApprovalAndExecutionOwnerRegressionsAuthored": true,
+          "rustTestsExecutedOnTheseStages": false,
+          "compiled": false,
+          "newLocalChecks": "Scoped Rust1.95 formatting/source preservation only",
+          "physicalEligibility": "Original RequireEscalated, requested concrete restricted sandbox with denied reads, Restricted network in selected/requested/canonical/transformed profiles; unsupported snapshots/grants/proxies/remote paths refuse optional provenance",
+          "hasChildConsumer": false,
+          "hasFinalSessionCas": false,
+          "sameRequestHookMetadataImplemented": false,
+          "guardianFixtureCorrectionIncluded": true,
+          "ordinaryPreparedRequestAuthorityEstablished": false,
+          "sourceTreeReconstructedFromAll24Patches": true,
+          "original23PatchChecksumsUnchanged": true,
+          "compileCorrection": {
+            "candidate": "ff9a3f25c8e5e74e08e1a4973372b9a7a0d8fa72",
+            "integrated": "d8cc5471da23683065474f8eec7e66b3d59168ac",
+            "c2Excluded": true,
+            "scope": "Replace nonexistent EnvironmentConfig.permissions access with actual selected TurnEnvironment.permission_profile getter; all four network policies must be Restricted",
+            "regressionAuthoredFirst": true,
+            "rustTestsExecuted": false,
+            "compileQualificationPending": true
+          },
+          "original24PatchChecksumsUnchanged": true,
+          "sourceTreeReconstructedFromAll25Patches": true,
+          "guardianFixtureHumanApproval": {
+            "candidate": "5ec80c7aed37123b1bfab46352f259f9af0cd752",
+            "approvedPatchSha256": "389b5db30b7b2ccd64af0fc5f928d71bf0abe30d5b10bb1d883880e325d19a0e",
+            "explicitlyApprovedOn": "2026-10-18",
+            "scope": "Two-test correction: compatible unchanged filesystem context exercises actual current-turn Guardian; changed deny/cwd context refuses before stdin/Guardian/child effects",
+            "originalAssertionExceptionApproved": true,
+            "productionPermissionCodeChanged": false,
+            "originalParentDeniedReadsFixtureUnchanged": true,
+            "rootAndIndependentSourceReview": true,
+            "rustTestsExecuted": false,
+            "runtimeQualified": false
+          },
+          "sourceTreeReconstructedFromAll26Patches": true,
+          "original25PatchChecksumsUnchanged": true,
+          "snapshotCredentialMoveCorrection": {
+            "candidate": "2475b45e17bf332f3323f166b8ce6883cad12a56",
+            "integrated": "745af30392946472d9554f5548fcdb211d1f4ec7",
+            "scope": "Capture existing Option presence as an immutable bool immediately after original initializer, before original single move; preserve later exclusion",
+            "credentialCloneOrReconstruction": false,
+            "allOtherCredentialBranchesAndAssertionsPreserved": true,
+            "failingRegression": "actual native39132277931 helper compilation bothOS E0382 before any fixtures",
+            "newInventedBooleanTests": false,
+            "rootAndIndependentSourceReview": true,
+            "rustExecuted": false
+          }
+        }
       }
     }
   ]
