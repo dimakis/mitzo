@@ -1,3 +1,4 @@
+import { ordinaryWorkspacePreparedCommandStatus } from './ordinary-workspace-prepared-command.js';
 import { requireSameOriginJson } from './connections-router.js';
 import {
   ordinaryWorkspaceArtifactRoot,
@@ -3328,8 +3329,22 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     meta.sessionId,
     res.locals.authSession?.id,
   );
+  let routingMetadata: ReturnType<typeof ownedLocalCodexMetadata>;
+  try {
+    routingMetadata = ownedLocalCodexMetadata(
+      eventStore,
+      meta.sessionId,
+      continuationStatus.available,
+    );
+  } catch {
+    res.status(409).json({
+      error:
+        'The original conversation workspace identity is unavailable. Preserve this conversation and recover its original settings.',
+    });
+    return;
+  }
   const runtimeMetadata = {
-    ...ownedLocalCodexMetadata(eventStore, meta.sessionId, continuationStatus.available),
+    ...routingMetadata,
     ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
     ...(meta.accountBinding?.provider === 'google-vertex' &&
     eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'gemini'
@@ -3438,11 +3453,39 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.status(503).json({ error: 'Work conversation context unavailable' });
     return;
   }
+  const preparedController = new AbortController();
+  const abortPreparedStatus = () => preparedController.abort();
+  res.once('close', abortPreparedStatus);
+  const preparedStatus = await ordinaryWorkspacePreparedCommandStatus({
+    events: eventStore,
+    workspaces: () => getOrdinaryWorkspaces(true),
+    sessionId: meta.sessionId,
+    signal: preparedController.signal,
+    assertCurrent: () => {
+      const auth = res.locals.authSession;
+      if (
+        !auth ||
+        !hasPersistentRevocationAuthority() ||
+        !isAuthSessionCurrent(auth) ||
+        custodianControllerClient ||
+        custodianOwnerMode ||
+        process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+      )
+        throw Error('Current ordinary operator unavailable');
+    },
+  });
+  res.removeListener('close', abortPreparedStatus);
+  if (res.destroyed) return;
   res.json({
     sessionId: meta.sessionId,
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
     ...(telosWorkRolePresentation ? { telosWorkRolePresentation } : {}),
     ...runtimeMetadata,
+    ...(preparedStatus.prepared
+      ? { runtimeCommandScope: 'prepared-first-command', runtimeCommandReason: undefined }
+      : preparedStatus.reason
+        ? { runtimeCommandScope: 'first-command-only', runtimeCommandReason: preparedStatus.reason }
+        : {}),
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,
