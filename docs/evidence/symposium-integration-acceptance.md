@@ -2,7 +2,35 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
-Current final-integration candidate combines prior C
+Current accepted-artifact integration combines C `d1166ff0e903caddeb48c8174b41b3efcd2e2eb0` with
+accepted main `a7cef26f4de2050412e978e7c311107d5505ed5e` (#1020). Signed source merge
+`31e10441a50b5c1ae399d903aea9377439e68099` has tree
+`6ab84b44602054aadad9304e672c8aa28209a5c5`. The clean merge preserves all242 prior C
+paths and all158 accepted incoming paths exactly; all592 fingerprints match
+`v1.0.321-telos-reviewed-presentation-symposium-forwarding.1`. Approved references and the protected Library
+assertions/timeouts remain unchanged. B's privacy/currentness and exact saved-version
+owners are consumed directly from accepted main, without replaying a candidate patch.
+
+C's independent `--artifacts` harness passes **75tests/7files, zero failures/skips**,
+4.07seconds, one worker/1024MiB, on the clean source tree identical to that signed
+merge. Actual stores and ordinary serialization carry the exact saved v1 bytes and
+provenance after later edits; access and original-source privacy changes refuse
+before recorded dispatch. External account/native boundaries are recording fakes.
+No required app repro, browser, live model or provider/runtime qualification ran.
+[Source and focused actual-owner evidence](symposium-acceptance/accepted-artifact-a7/verification.json).
+
+Predecessor d116 [CI39144116165](https://github.com/dimakis/mitzo/actions/runs/39144116165)
+passes all eight jobs on checkout91ee017e/tree6dcb8e63, identical to that head.
+Core17908passes/31skips,1307files passed/9skipped,770.11seconds; WebKit259passes/
+12skips and all four original60s Library journeys pass. Counts overlap and are not
+summed. B landed during that run; C retained its complete source-bound CI packet
+and did not request an obsolete d116 manual final review or read its credential.
+Fresh final-head CI/whole-PR final/App gates and a coordinated actual merge slot
+remain required for this new candidate. Core's durable forward prepare/confirm/read
+receipts remain pending. Actual app/durable-positive+omission/join/native/runtime/
+fullUX/physical-iOS gaps remain OPEN; the canonical milestone remains active.
+
+Previous final-integration candidate combines prior C
 `7837ba55139da9462452c88cb65a1856375a2f6f` with accepted main
 `634048b1c7309a411dcfbf39dd2ae4e0308bdcfb` (#1030). Signed source merge
 `6f2f7e405cf0b32f1f37ba05adfdb25c6e440de0` has tree
