@@ -2,7 +2,30 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
-Current draft-PR browser-gate repair: C48e4 CI39101438934 failed only WebKit's
+Current acceptance source preparation integrates actual accepted recovery main
+`2b22bade2b1e612cc564661bf1e69b45a317e5eb` (#1029, including #1027) into prior C
+`ad74f30c32621f6d31c679c5220ed7bd2d1dd91a`. The clean signed source merge is
+`90a820dede75623e6690f2977eb8582d74827cdf`, tree
+`3c930e7defb93c7321771fd58762763ba4e354b9`. All231 prior C delta paths remain
+byte-identical at the merge; all27 incoming accepted paths match accepted main.
+All580 fingerprints match runtime source `v1.0.319-telos-role-recovery.1`, with zero
+mismatches. Approved references and the protected Library test remain unchanged.
+[Source integration proof](symposium-acceptance/accepted-recovery-2b22/source-integration.json).
+
+The published candidate adds this map/receipt update only. Its exact head/tree,
+normal CI, explicit whole-PR final admission/result and dedicated-App gate are
+recorded separately in task-root `implementation-evidence/accepted-recovery-integration/`
+and the guarded active milestone note. At this source-preparation checkpoint those
+new-head gates are pending; prior passes do not qualify an advanced head. No broad
+local suite, typecheck, browser launch or new application acceptance was attempted.
+
+Predecessor `ad74f30c` retains independently verified [CI39122888448](https://github.com/dimakis/mitzo/actions/runs/39122888448)
+(all eight jobs pass), explicit full-final job4956/r1 and [clean report5562875515](https://github.com/dimakis/mitzo/pull/1022#pullrequestreview-5562875515),
+plus dedicated-App success56631400738. These remain exact-source history. Original
+failed application/required joining checks, guarded omission limits and old render
+boundaries remain unchanged. Full-feature acceptance stays open.
+
+Historical draft-PR browser-gate repair: C48e4 CI39101438934 failed only WebKit's
 original unsplit Agent Library journey at its overall60s deadline. The Connections
 failure is an aggregate of that offline result; browser-interaction itself passed.
 C verified actual composed checkout52fec5e/tree17342c3c, trace source and final
@@ -102,7 +125,7 @@ import is deferred; fork is separate. No new plan or milestone tree was created.
 
 | Owner                                   | Agreed files/contracts                                                                                                                        | Current source and evidence classification                                                                                                                                                                                                                                |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Core — Continue Symposium after #1000   | Native capture/count/consume; application construction/auth/join/recovery/delivery/reply wiring; ledger/call sites; canonical plan/checkpoint | Core PR1023 6ddc2607 with accepted6de/nativef8/durable source;584 pins match. Current app attempt unqualified; last bounded app checkpoint420d. native distribution/account qualification remains separate.                                                               |
+| Core — Continue Symposium after #1000   | Native capture/count/consume; application construction/auth/join/recovery/delivery/reply wiring; ledger/call sites; canonical plan/checkpoint | C independently attempted core PR1023 source6ddc2607 with accepted6de/nativef8/durable source;584 pins match. Current app attempt unqualified; last bounded app checkpoint420d. native distribution/account qualification remains separate.                                                               |
 | A — Implement Symposium UI Workstream   | Shared transcript adapter, stable recipient controls, focused UI behavior/captures                                                            | A serif fixfe4f811b retained in420d; private/projection/header/recovery fixtures independently rerun as bounded protected/shared browser cases. No full backend app/native iOS claim.                                                                                     |
 | B — Implement Symposium Workstream      | Exact forwarding selection, retained-version adapter and artifact fixture                                                                     | Exact saved-version/custody producer and private selector/storage/refusal owners on420d reused, including original15 source save-fence cases; browser-safe extraction79e467da preserves Node custody in its explicit private entry. Public durable delivery remains open. |
 | C — Build Symposium Integration Harness | New scoped fixtures/tests, runner, this single map and independent defect reports                                                             | This branch; actual owners, new durable app case and guarded omission runner. Current startup evidence remains unqualified. No second dispatcher, native algorithm, scheduler, account catalog or artifact engine.                                                        |
@@ -1108,3 +1131,25 @@ qualifies exactly53a60578 and its identical CI tree, not a future head.
 The original Symposium app/omission/join/native/UX/iOS gaps and all historical
 source-specific checkpoints remain unchanged. This repair makes no product, model,
 live-target, staging, runtime or merge-to-main change.
+
+### Accepted recovery baseline2b22: source preservation and current-head gates
+
+The remote accepted ref was freshly verified before this integration. C combined
+only accepted main2b22 with its existing ad74 lineage; no A/B candidate branch or
+core application checkout was replayed. Git merge-tree and the actual merge agree
+on tree3c930e7d, with no conflict or manual product edit. The signed source merge
+retains both parents. The new documentation explains this source boundary and
+retains complete prior raw source/hash receipts. All prior harness assertions,
+timeouts, protected test/reference bytes and evidence artifacts survive unchanged.
+Incoming canonical-advisor schema/fixture and role-recovery controller/client/
+protocol/store changes remain byte-identical to accepted source.
+
+The source fingerprint check is identity evidence only. Normal CI and a genuinely
+missing explicit whole-PR final review target the final published C head, using
+the standing human authorization and normal authenticated admission with auto-fix
+disabled. Live queued/running jobs and published reviews must be checked first to
+reuse the matching revision and avoid duplicate or obsolete requests. Actual
+completed review, qualifying history, dedicated-App approval and strict/base
+readiness remain separate checks. Prior ad74 receipts are not approvals for this
+advanced candidate. No new account/runtime/device qualification or combined
+actual-app success is asserted.
