@@ -294,7 +294,7 @@ jobs:
 
   ci:
     needs: ordinary-journey
-    if: ${{ !cancelled() }}
+    if: always()
     runs-on: ubuntu-latest
 
     steps:
