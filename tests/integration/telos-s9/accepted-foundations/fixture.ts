@@ -24,6 +24,19 @@ import { TaskOrchestrator } from '../../../../server/task-orchestrator.js';
 import { createTelosWorkDelegationHost } from '../../../../server/telos-work-delegation-host.js';
 
 vi.mock('../../../../server/chat.js', () => ({ sendToChat: vi.fn(async () => true) }));
+// Auth remains real, but importing it must not load/create a host credential.
+// Operator middleware below supplies synthetic authority; no internal callback
+// token is accepted and this journey never starts a real provider callback.
+vi.mock('../../../../server/internal-token.js', () => ({
+  INTERNAL_TOKEN: 'a'.repeat(64),
+  TOKEN_LENGTH: 64,
+  isValidInternalToken: () => false,
+  isValidSignalCallbackToken: () => false,
+  createSignalCallbackToken: () => {
+    throw Error('S9 offline fixture cannot create provider callback credentials');
+  },
+  revokeSignalCallbackToken: () => {},
+}));
 
 const cleanups: (() => void)[] = [];
 export async function cleanupS9Fixtures() {

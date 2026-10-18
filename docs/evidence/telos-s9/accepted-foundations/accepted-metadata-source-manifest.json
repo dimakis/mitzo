@@ -2,7 +2,7 @@
   "acceptedCombinedSource": "634048b1c7309a411dcfbf39dd2ae4e0308bdcfb",
   "historicalManifest": "source-manifest.json (97054299/f39 snapshot; current hashes below)",
   "testFiles": {
-    "tests/integration/telos-s9/accepted-foundations/fixture.ts": "ae59acf5039a6cac07f672d1a6ceb0b1693c1bbec612b1f8689fd1f44f4fb090",
+    "tests/integration/telos-s9/accepted-foundations/fixture.ts": "1c30c49eac43c463490167d48a352e27aa72650012b9e4d5b5e4f2f1a7f0f4f7",
     "tests/integration/telos-s9/accepted-foundations/fixtures/canonical-schema-source.json": "d8f9d6c7393fa3f982babe886f6fa502cda0e929e18d45fdd2aae56d70745658",
     "tests/integration/telos-s9/accepted-foundations/fixtures/canonical-schema.sql": "d3c1c89e850731217b0cd66a57adc5832b2994e12b2f60b6f5c6cb3405cac7f7",
     "tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx": "49a3e250aec4732c076bf79d3a9fad04480fb293209d686eb718a8e727d50390",
@@ -41,5 +41,8 @@
   "workerPresentationFullContextHashAsserted": true,
   "tenPlannedGroupsFullyAccepted": false,
   "s9ParentRemainOpen": true,
-  "realModelCalls": 0
+  "realModelCalls": 0,
+  "hostCredentialLoaderFaked": true,
+  "qualifiedRun": "credential-isolated-qualified.json",
+  "previousRun": "accepted-metadata-qualified.json at0ac before credential-loader isolation"
 }

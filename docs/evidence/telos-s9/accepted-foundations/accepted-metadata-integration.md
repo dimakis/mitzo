@@ -39,3 +39,18 @@ evidence. It does not complete the ten planned adversarial/authorization/storage
 full-shell/settings/Resources and geometry groups from signed154d73d5. Those groups
 now have an accepted API source and remain pending S9 implementation/qualification.
 No browser, live provider/model, staging, deployment or production fallback ran.
+
+## Host credential boundary follow-up
+
+Inspection found that the real `auth.ts` import loads `internal-token.ts`, whose
+module initialization reads or creates a host credential. Earlier S9 requests used
+synthetic operator authority and never used that token, but the import effect was
+present, as also disclosed in the producer's retained limits. S9 now fakes only
+that external credential-loader module before importing the real owners. Internal
+token/callback validation returns false; creating a provider callback credential
+fails closed. The real auth/session core, routers, SQLite, ordinary workspace,
+event, task, context and presentation owners remain unchanged. No host token is
+needed by the current S9 tests. The final four-case run is retained as
+`credential-isolated-qualified.json` and `.log`; prior reports remain historical.
+This fixture change does not establish full application authentication or callback
+composition qualification, and the earlier HTTP failure remains unclassified.
