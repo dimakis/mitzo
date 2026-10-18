@@ -205,6 +205,31 @@ for (const theme of ['dark', 'light'] as const) {
     await expect
       .poll(() => page.getByLabel('Draft source').evaluate((element) => element.scrollTop))
       .toBeGreaterThan(0);
+    // WebKit can keep scrolling the page after the source's first scroll pixel.
+    // Wait for both positions to settle before targeting a physical click.
+    await page.getByLabel('Draft source').evaluate(
+      (element) =>
+        new Promise<void>((resolve) => {
+          let previous = '';
+          let stableSince = performance.now();
+          const check = () => {
+            const position = JSON.stringify([
+              window.scrollX,
+              window.scrollY,
+              element.scrollTop,
+              element.getBoundingClientRect().top,
+            ]);
+            const now = performance.now();
+            if (position !== previous) {
+              previous = position;
+              stableSince = now;
+            }
+            if (now - stableSince >= 150) resolve();
+            else requestAnimationFrame(check);
+          };
+          requestAnimationFrame(check);
+        }),
+    );
     await expect(page.getByRole('button', { name: 'Previous source page' })).toBeEnabled();
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download review bundle' }).click();
