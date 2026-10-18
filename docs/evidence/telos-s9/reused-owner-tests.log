@@ -1,0 +1,29 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9
+
+{"level":40,"time":1792274124259,"pid":85224,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792274124420,"pid":85224,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792274124580,"pid":85224,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+ ✓ server/__tests__/collaboration-ordinary-delivery.test.ts (24 tests) 1253ms
+ ✓ server/__tests__/ordinary-contributor-stop.test.ts (2 tests) 978ms
+{"level":30,"time":1792274127176,"pid":85278,"hostname":"Dimitris-MacBook-Pro","module":"ws-v2","connectionId":"browser","sessionId":"e0d1231e-8512-49ee-a892-14539dc51b22","msg":"stop"}
+{"level":30,"time":1792274127177,"pid":85278,"hostname":"Dimitris-MacBook-Pro","module":"ws-v2","connectionId":"browser","sessionId":"unowned","msg":"stop"}
+ ✓ server/__tests__/collaboration-joining-owner.test.ts (10 tests) 5707ms
+   ✓ confirms through real silent preparation and recovers linked joins without a command or second allocation  573ms
+   ✓ refuses unverified capacity and denied confirmation before any join or reservation  715ms
+   ✓ recovers crash after actual preparation before allocation recording from the original receipt  486ms
+   ✓ retains allocation when access changes during preparation and requires fresh recovery authority  436ms
+   ✓ preserves the allocated session when membership linking conflicts across restart  513ms
+   ✓ freezes caller and authority inputs across awaits  860ms
+   ✓ serializes identity through existing owners across concurrent coordinators  680ms
+   ✓ rejects settings absent from the retained assessment before recording a join  475ms
+   ✓ honors cancellation before authority and after resolver without preparing a session  394ms
+   ✓ reauthorizes after a host resolver await before reserving the ordinary session  575ms
+ ✓ server/__tests__/collaboration-ordinary-replies.test.ts (5 tests) 92ms
+
+ Test Files  4 passed (4)
+      Tests  41 passed (41)
+   Start at  22:55:22
+   Duration  11.66s (transform 1.92s, setup 0ms, import 3.13s, tests 8.03s, environment 0ms)
+
+JSON report written to /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/docs/evidence/telos-s9/reused-owner-tests.json

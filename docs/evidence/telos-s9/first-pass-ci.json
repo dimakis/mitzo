@@ -1,0 +1,57 @@
+{
+  "url": "https://github.com/dimakis/mitzo/actions/runs/39073216499",
+  "headSha": "72f8df4d9c0ff15bcac27a0424461c2a05ed4dc8",
+  "startedAt": "2026-10-17T21:59:38Z",
+  "updatedAt": "2026-10-17T22:16:42Z",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "name": "ci",
+      "conclusion": "success",
+      "startedAt": "2026-10-17T21:59:41Z",
+      "completedAt": "2026-10-17T22:16:41Z"
+    },
+    {
+      "name": "Select CI jobs",
+      "conclusion": "success",
+      "startedAt": "2026-10-17T21:59:41Z",
+      "completedAt": "2026-10-17T21:59:47Z"
+    },
+    {
+      "name": "Offline layouts (mobile-chromium)",
+      "conclusion": "success",
+      "startedAt": "2026-10-17T21:59:49Z",
+      "completedAt": "2026-10-17T22:08:53Z"
+    },
+    {
+      "name": "Native Swift tests and builds",
+      "conclusion": "success",
+      "startedAt": "2026-10-17T22:02:24Z",
+      "completedAt": "2026-10-17T22:11:54Z"
+    },
+    {
+      "name": "Offline layouts (desktop-chromium)",
+      "conclusion": "success",
+      "startedAt": "2026-10-17T21:59:49Z",
+      "completedAt": "2026-10-17T22:09:24Z"
+    },
+    {
+      "name": "Browser interaction tests",
+      "conclusion": "success",
+      "startedAt": "2026-10-17T21:59:49Z",
+      "completedAt": "2026-10-17T22:04:50Z"
+    },
+    {
+      "name": "Offline layouts (mobile-webkit)",
+      "conclusion": "success",
+      "startedAt": "2026-10-17T21:59:49Z",
+      "completedAt": "2026-10-17T22:10:05Z"
+    },
+    {
+      "name": "Connections browser regression",
+      "conclusion": "success",
+      "startedAt": "2026-10-17T22:10:29Z",
+      "completedAt": "2026-10-17T22:10:35Z"
+    }
+  ]
+}
