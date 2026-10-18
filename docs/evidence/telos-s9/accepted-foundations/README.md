@@ -1,5 +1,11 @@
 # Accepted canonical/recovery intake: S9 cross-boundary evidence
 
+**Final shared-source update:** accepted PR1020/a7cef26f is integrated after full
+green CI on ff6c9682. The same four contracts pass on that combined source. See
+[the final integration record](shared-source-integration.md) and
+[its current fingerprints](shared-source-manifest.json). Earlier634/f39 reports
+remain attributed to their executed source. Full S9/parent/live remain open.
+
 **Publication update:** accepted metadata PR1030 (`634048b1`) is now integrated.
 The S9 hook fixture mounts its actual review/setup-reviewed APIs and checks exact
 presentation-ref recovery; the created-child journey checks the worker's retained
