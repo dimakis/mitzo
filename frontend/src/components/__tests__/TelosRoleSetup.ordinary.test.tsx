@@ -15,7 +15,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
-function fixture(role: 'lead' | 'worker' | 'advisor' | 'reviewer' = 'lead') {
+function fixture(role: 'lead' | 'worker' | 'advisor' | 'reviewer' = 'lead', repository = false) {
   const inventory = localInventoryFixture(),
     account = inventory.accounts[0].account;
   inventory.agentProfiles[0].definition.name = 'People-work helper';
@@ -97,19 +97,25 @@ function fixture(role: 'lead' | 'worker' | 'advisor' | 'reviewer' = 'lead') {
       return new Response(
         JSON.stringify({ version: 1, selection: context, presentation, presentationRef }),
       );
-    if (path === '/api/telos/work/roles/ordinary/setup-reviewed') {
+    if (
+      path ===
+      (repository
+        ? '/api/telos/work/roles/setup-reviewed'
+        : '/api/telos/work/roles/ordinary/setup-reviewed')
+    ) {
       const wrapper = JSON.parse(String(init?.body));
-      expect(wrapper).toMatchObject({
-        version: 2,
-        presentationRef,
-        input: {
+      if (!repository)
+        expect(wrapper).toMatchObject({
           version: 2,
-          settings: {
+          presentationRef,
+          input: {
             version: 2,
-            workspace: { kind: 'ordinary', preparationId: prep.preparationId },
+            settings: {
+              version: 2,
+              workspace: { kind: 'ordinary', preparationId: prep.preparationId },
+            },
           },
-        },
-      });
+        });
       expect(
         JSON.parse(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')!).submission,
       ).toEqual(wrapper.input);
@@ -150,19 +156,20 @@ function fixture(role: 'lead' | 'worker' | 'advisor' | 'reviewer' = 'lead') {
     }
     throw Error('Unexpected route ' + path);
   });
-  const view = () => (
+  const view = (draftId = 'ordinary-draft', bound = onBound, itemId = 'studio') => (
     <MemoryRouter>
       <TelosRoleSetup
         intent={{
-          itemId: 'studio',
+          itemId,
           role,
           mode: ['lead', 'worker'].includes(role) ? 'assign' : 'additional',
           ...(role === 'advisor' ? { purpose: 'refine' } : {}),
         }}
         runtime={{ intent, inventory, reason: undefined } as never}
         mode="agent"
-        draftId="ordinary-draft"
-        onBound={onBound}
+        draftId={draftId}
+        repositoryWorkspaceId={repository ? '11111111-1111-4111-8111-111111111111' : undefined}
+        onBound={bound}
         onLocked={vi.fn()}
         beforeConfirm={() => true}
       />
@@ -239,3 +246,53 @@ it('retains unsupported OpenShell intent actionably before preparation or alloca
   expect(vi.mocked(apiFetch)).not.toHaveBeenCalled();
   expect(f.intent.execution.location).toBe('openshell');
 });
+
+it.each([false, true])(
+  'keeps a confirmed receipt with its draft across a failed handoff and same-mounted navigation (repository=%s)',
+  async (repository) => {
+    const f = fixture('lead', repository);
+    // A real confirmed receipt remains mounted when the caller cannot flush/bind the draft.
+    const failedHandoffA = vi.fn();
+    const mounted = render(f.view('ordinary-draft', failedHandoffA));
+    const button = () => screen.getByRole('button', { name: 'Assign lead & open chat' });
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button());
+    await waitFor(() => expect(failedHandoffA).toHaveBeenCalledWith('ordinary-bound'));
+    const originalA = localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')!;
+    const savedB = JSON.parse(originalA);
+    savedB.draftId = 'draft-b';
+    savedB.receipt = null;
+    savedB.submission.requestId = '22222222-2222-4222-8222-222222222222';
+    const originalB = JSON.stringify(savedB);
+    localStorage.setItem('mitzo-telos-role-setup:draft-b', originalB);
+    localStorage.setItem('fixture-unsent-draft-b', 'Newer unsent B draft');
+    const boundB = vi.fn();
+    const count = () =>
+      vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/setup-reviewed'))
+        .length;
+    const setupCount = count();
+    mounted.rerender(f.view('draft-b', boundB));
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    expect(boundB).not.toHaveBeenCalled();
+    expect(localStorage.getItem('mitzo-telos-role-setup:draft-b')).toBe(originalB);
+    expect(localStorage.getItem('fixture-unsent-draft-b')).toBe('Newer unsent B draft');
+    expect(count()).toBe(setupCount);
+    // Returning to A recovers only its exact retained chat and sends no replacement setup.
+    const recoveredA = vi.fn();
+    mounted.rerender(f.view('ordinary-draft', recoveredA));
+    await waitFor(() => expect(recoveredA).toHaveBeenCalledWith('ordinary-bound'));
+    expect(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')).toBe(originalA);
+    expect(boundB).not.toHaveBeenCalled();
+    expect(count()).toBe(setupCount);
+    const foreignIntent = vi.fn();
+    mounted.rerender(f.view('ordinary-draft', foreignIntent, 'another-item'));
+    expect(foreignIntent).not.toHaveBeenCalled();
+    expect(screen.queryByText('Linked work context')).toBeNull();
+    fireEvent.click(button());
+    expect(foreignIntent).not.toHaveBeenCalled();
+    expect(count()).toBe(setupCount);
+    expect(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')).toBe(originalA);
+    mounted.rerender(f.view('ordinary-draft', recoveredA));
+    await waitFor(() => expect(recoveredA).toHaveBeenCalledTimes(2));
+  },
+);

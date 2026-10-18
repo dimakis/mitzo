@@ -132,11 +132,10 @@ export function TelosRoleSetup({
   useEffect(() => setPreparationLocked(setup.locked), [setup.locked]);
   const reopened = useRef<string | null>(null);
   useEffect(() => {
-    if (!setup.boundConversationId) return;
-    const key = `${draftId}:${setup.boundConversationId}`;
+    const key = setup.boundConversationId ? `${draftId}:${setup.boundConversationId}` : null;
     if (reopened.current === key) return;
     reopened.current = key;
-    onBound(setup.boundConversationId);
+    if (setup.boundConversationId) onBound(setup.boundConversationId);
   }, [setup.boundConversationId, draftId, onBound]);
   const { pending, locked, uncertain, rejectedBeforeAllocation, review } = setup;
   const reviewKey = JSON.stringify({ intent, settings });

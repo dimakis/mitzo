@@ -312,14 +312,18 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
     draft.current = options.draftId;
     update(load(options.draftId));
   }, [options.draftId]);
-  const active = (operation: number, draftId: string) =>
-    alive.current && generation.current === operation && latest.current.draftId === draftId;
+  const active = (operation: number, draftId: string, intent: TelosRoleRouteIntent | null) =>
+    alive.current &&
+    generation.current === operation &&
+    latest.current.draftId === draftId &&
+    equal(latest.current.intent, intent);
   const review = async (
     selection?: Pick<TelosWorkRoleContextRequest, 'sourceSnapshotIds' | 'artifactRefs'>,
   ) => {
     const selected = latest.current;
     if (
       !selected.draftId ||
+      draft.current !== selected.draftId ||
       !selected.intent ||
       !selected.settings ||
       current.current.pending ||
@@ -337,7 +341,7 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
       const intent = IntentSchema.parse(structuredClone(selected.intent));
       const settings = RoleSettingsSchema.parse(structuredClone(selected.settings));
       const work = await selected.api.read(intent.itemId, abort.signal);
-      if (!active(operation, draftId)) return;
+      if (!active(operation, draftId, selected.intent)) return;
       const reviewed = work.sources.filter((source) => source.selection.kind === 'selected');
       const pinned = [
         ...new Map(
@@ -361,7 +365,7 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         const reviewed = TelosWorkRoleContextReviewSchema.parse(
           await selected.api.reviewRoleContext(contextRequest, abort.signal),
         );
-        if (!active(operation, draftId)) return;
+        if (!active(operation, draftId, selected.intent)) return;
         context = reviewed.selection;
         display = {
           presentationRef: reviewed.presentationRef,
@@ -375,7 +379,7 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         context = TelosWorkRoleContextSelectionSchema.parse(
           await selected.api.roleContext(contextRequest, abort.signal),
         );
-        if (!active(operation, draftId)) return;
+        if (!active(operation, draftId, selected.intent)) return;
       }
       if (
         context.itemId !== intent.itemId ||
@@ -403,7 +407,7 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
       persist(saved);
       update({ saved, pending: null, error: null, uncertain: false, storageError: false });
     } catch {
-      if (active(operation, draftId))
+      if (active(operation, draftId, selected.intent))
         update({
           ...current.current,
           pending: null,
@@ -414,7 +418,16 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
   const submit = async (retry: boolean) => {
     const selected = latest.current;
     const state = current.current;
-    if (!selected.draftId || state.pending || state.storageError || !state.saved?.review) return;
+    if (
+      !selected.draftId ||
+      draft.current !== selected.draftId ||
+      state.saved?.draftId !== selected.draftId ||
+      !equal(state.saved.intent, selected.intent) ||
+      state.pending ||
+      state.storageError ||
+      !state.saved.review
+    )
+      return;
     let saved = structuredClone(state.saved);
     if (!saved.submission) {
       if (
@@ -477,14 +490,14 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
           TelosWorkRoleSetupInputSchema.parse(structuredClone(saved.submission!)),
         );
       const receipt = TelosWorkCommandReceiptSchema.parse(result);
-      if (!active(operation, draftId)) return;
+      if (!active(operation, draftId, selected.intent)) return;
       const conversationId = boundConversation(receipt, saved);
       saved = { ...saved, receipt };
       persist(saved);
       update({ saved, pending: null, error: null, uncertain: false, storageError: false });
       latest.current.onBound?.(conversationId);
     } catch (error) {
-      if (!active(operation, draftId)) return;
+      if (!active(operation, draftId, selected.intent)) return;
       const recovery = TelosWorkRoleSetupRecoverySchema.safeParse(
         error instanceof TelosWorkApiError ? error.recovery : undefined,
       );
@@ -545,36 +558,48 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         });
     }
   };
+  // Effects load the next draft after commit. Never expose the previous render's
+  // receipt/context, or enable its actions, in the intervening render.
+  const ownsState =
+    draft.current === options.draftId &&
+    (!state.saved ||
+      (state.saved.draftId === options.draftId && equal(state.saved.intent, options.intent)));
+  const visibleState: State = ownsState
+    ? state
+    : { saved: null, pending: null, error: null, storageError: true, uncertain: false };
   let boundConversationId: string | null = null;
-  if (state.saved?.receipt) {
+  if (visibleState.saved?.receipt) {
     try {
-      boundConversationId = boundConversation(state.saved.receipt, state.saved);
+      boundConversationId = boundConversation(visibleState.saved.receipt, visibleState.saved);
     } catch {
       /* Preserve the original request for explicit recovery. */
     }
   }
   return {
-    retainedSettings: state.saved?.review?.settings ?? state.saved?.submission?.settings ?? null,
-    context: state.saved?.review?.context ?? null,
-    presentation: state.saved?.review?.presentation,
-    presentationRef: state.saved?.review?.presentationRef,
-    pending: state.pending,
-    error: state.error,
-    uncertain: state.uncertain,
+    retainedSettings:
+      visibleState.saved?.review?.settings ?? visibleState.saved?.submission?.settings ?? null,
+    context: visibleState.saved?.review?.context ?? null,
+    presentation: visibleState.saved?.review?.presentation,
+    presentationRef: visibleState.saved?.review?.presentationRef,
+    pending: visibleState.pending,
+    error: visibleState.error,
+    uncertain: visibleState.uncertain,
     rejectedBeforeAllocation:
-      !!state.saved?.rejections.length && !state.saved.review && !state.saved.submission,
-    locked: state.storageError || state.saved?.submission != null,
+      !!visibleState.saved?.rejections.length &&
+      !visibleState.saved.review &&
+      !visibleState.saved.submission,
+    locked: visibleState.storageError || visibleState.saved?.submission != null,
     canConfirm:
-      !state.pending &&
-      !state.storageError &&
-      !state.saved?.submission &&
-      state.saved?.review != null &&
-      equal(state.saved.intent, options.intent) &&
-      sameSettings(state.saved.review.settings, options.settings),
+      !visibleState.pending &&
+      !visibleState.storageError &&
+      !visibleState.saved?.submission &&
+      visibleState.saved?.review != null &&
+      equal(visibleState.saved.intent, options.intent) &&
+      sameSettings(visibleState.saved.review.settings, options.settings),
     boundConversationId,
     replacing:
-      state.saved?.intent.mode === 'assign' &&
-      (state.saved.review?.expectedAssignmentRevision ?? 0) > 0,
+      visibleState.saved?.intent.mode === 'assign' &&
+      (visibleState.saved.review?.expectedAssignmentRevision ?? 0) > 0,
     review,
     confirm: () => submit(false),
     retry: () => (current.current.saved?.submission ? submit(true) : review()),
