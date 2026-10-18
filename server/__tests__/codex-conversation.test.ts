@@ -19,7 +19,7 @@ import {
 } from '../openshell-runtime-migration.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
-import { CodexRequestError } from '../codex-app-server-client.js';
+import { CodexRequestError, CodexTransportError } from '../codex-app-server-client.js';
 import { tracer } from '../tracing.js';
 import {
   context,
@@ -695,6 +695,84 @@ async function setup(
     conversationOptions,
   };
 }
+
+it('resumes a large retained conversation without hydrating history or replaying completed commands', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'completed-command', prompt: 'Original task' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  f.c.close();
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    // The pinned native runtime returns the entire retained tool history unless
+    // excluded. A single completed turn can exceed the transport's frame bound.
+    if (method === 'thread/resume' && params.excludeTurns !== true)
+      throw new Error('Full-history resume exceeds the bounded transport');
+    return request(method, params);
+  });
+  const resumed = new CodexConversation(f.conversationOptions);
+  try {
+    await resumed.initialize();
+    expect(f.store.read('app', f.getBinding()).threadId).toBe(f.getProviderThread());
+    expect(resumed.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: 'completed-command', status: 'completed' },
+    ]);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    await resumed.send({ id: 'follow-up', prompt: 'Continue the same task' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+    expect(f.requests.at(-1)?.params.threadId).toBe(f.getProviderThread());
+  } finally {
+    resumed.close();
+  }
+});
+
+it('uses metadata-only resume for idle reconnect and web-search policy changes', async () => {
+  const f = await setup();
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/resume' && params.excludeTurns !== true)
+      throw new Error('Full-history resume exceeds the bounded transport');
+    return request(method, params);
+  });
+  await f.c.setWebSearchGrant(0, 'denied');
+  f.callbacks.onClose(new Error('Idle transport lost'));
+  await f.c.send({ id: 'after-idle-loss', prompt: 'Continue' });
+  const resumes = f.requests.filter(({ method }) => method === 'thread/resume');
+  expect(resumes).toHaveLength(2);
+  expect(resumes.every(({ params }) => params.excludeTurns === true)).toBe(true);
+});
+
+it('retains framing diagnostics without making an accepted turn eligible for replay', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'accepted', prompt: 'Perform the authorized task' });
+  f.callbacks.onClose(
+    new CodexTransportError('protocol', {
+      reason: 'frame_too_large',
+      frameBytes: 4_194_305,
+      limitBytes: 4_194_304,
+    }),
+  );
+  expect(f.onTransportClosed).toHaveBeenCalledWith(
+    expect.objectContaining({
+      activeTurn: true,
+      reason: 'protocol',
+      failure: {
+        transportErrorCategory: 'protocol',
+        transportFailureReason: 'frame_too_large',
+        transportFrameBytes: 4_194_305,
+        transportFrameLimitBytes: 4_194_304,
+      },
+    }),
+  );
+  expect(f.c.queue()).toContainEqual(
+    expect.objectContaining({ id: 'accepted', status: 'interrupted' }),
+  );
+  await expect(f.c.retryLatestFailed()).resolves.toBe('not_found');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
 
 it('preserves prior conversation text once when refreshing a stale tool surface', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-stale-tools-'));
