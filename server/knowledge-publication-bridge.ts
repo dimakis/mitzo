@@ -113,14 +113,24 @@ export class KnowledgePublicationBridge {
     this.url = url.origin;
   }
 
-  async reconcile(signal: AbortSignal): Promise<KnowledgeBundleSelection> {
+  reconcile(signal: AbortSignal): Promise<KnowledgeBundleSelection> {
+    return this.select(signal, true);
+  }
+
+  /** Conversion warmup observes only the publisher's existing snapshot. A command
+   * still performs its own freshness barrier and complete verification. */
+  prewarm(signal: AbortSignal): Promise<KnowledgeBundleSelection> {
+    return this.select(signal, false);
+  }
+
+  private async select(signal: AbortSignal, fresh: boolean): Promise<KnowledgeBundleSelection> {
     signal.throwIfAborted();
     let response: Response;
     try {
       response = await this.fetcher(
-        this.url + '/api/publications/' + this.config.source.id + '/reconcile',
+        this.url + '/api/publications/' + this.config.source.id + (fresh ? '/reconcile' : ''),
         {
-          method: 'POST',
+          method: fresh ? 'POST' : 'GET',
           redirect: 'error',
           headers: { authorization: 'Bearer ' + this.config.token },
           signal: AbortSignal.any([signal, AbortSignal.timeout(180000)]),

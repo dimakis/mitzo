@@ -51,6 +51,7 @@ const MgmtConfig = z.object({
 export interface KnowledgeStore {
   id: string;
   reconcile(signal: AbortSignal): Promise<KnowledgeBundleSelection>;
+  prewarm?(signal: AbortSignal): Promise<unknown>;
 }
 function json(path: string): unknown {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -231,5 +232,9 @@ export function knowledgeStoreFromEnvironment(env: NodeJS.ProcessEnv): Knowledge
     },
     mgmtKnowledgeAdapter(selected.adapter, source.url),
   );
-  return { id: selected.id, reconcile: (signal) => bridge.reconcile(signal) };
+  return {
+    id: selected.id,
+    reconcile: (signal) => bridge.reconcile(signal),
+    prewarm: (signal) => bridge.prewarm(signal),
+  };
 }
