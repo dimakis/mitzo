@@ -48,3 +48,12 @@ acceptance remains open; S5b runtime still requires accepted S5a.
 
 All evidence is synthetic/offline, with fake provider/external effects. No live
 model, staging, production or deployment qualification is claimed.
+
+Current CI capture inspection also found the empty-chat wordmark overlapping a
+mobile role setup preparation notice. Both ordinary views now omit that decorative
+component while a role intent is active, cancelling its existing animation through
+normal unmount cleanup. Shared animation/CSS, ordinary empty-chat appearance and
+frozen settings remain unchanged. The role browser fixture checks direct/reload,
+review/rejected/uncertain states and normal-motion in-app entry from an empty
+ordinary chat, including replay and preserved drafts. New current-head CI/captures
+remain required; the earlier green head does not qualify this repair.

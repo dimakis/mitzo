@@ -1526,6 +1526,12 @@ leave retained role selections, guidance and task hashes unchanged. Focused
 canonical-data mobile/desktop light/dark renders cover the labels and existing
 actions; whole-shell qualification and complete S5a acceptance remain separate.
 
+An active Telos role setup omits the empty-chat welcome decoration on both
+layouts. Its canvas/wordmark must not overlap the preparation notice, review or
+recovery controls, including when navigating from an ordinary empty chat with
+normal motion. The ordinary empty chat retains its existing replay animation;
+settings, composer and drafts keep their existing behavior.
+
 ## Telos numeric priority
 
 The approved additive priority amendment uses `TodoPrioritySelect` in the current

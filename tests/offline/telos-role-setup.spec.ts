@@ -547,6 +547,82 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       await page.reload();
       const assign = page.getByRole('button', { name: actionLabel });
       await expect(assign).toBeEnabled();
+      // The welcome animation belongs to an empty chat. Its absolute logo must
+      // not obscure the preparation notice or active role setup surface.
+      const welcome = page.getByRole('button', {
+        name: 'Replay Mitzo waterfall',
+        includeHidden: true,
+      });
+      await expect(welcome).toBeHidden();
+      if (journey === 'lead') {
+        const roleUrl = new URL(page.url());
+        const ordinaryUrl = new URL(roleUrl);
+        for (const key of [...ordinaryUrl.searchParams.keys()])
+          if (key.startsWith('telos')) ordinaryUrl.searchParams.delete(key);
+        const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+        await composer.fill('Keep this draft across ordinary-to-role navigation.');
+        await composer.blur();
+        await page.emulateMedia({ reducedMotion: 'no-preference' });
+        await page.evaluate(
+          (path) => window.fixtureNavigate!(path),
+          ordinaryUrl.pathname + ordinaryUrl.search,
+        );
+        await expect(welcome).toBeVisible();
+        await page.waitForLoadState('networkidle');
+        const waterfall = page.locator('.chat-welcome canvas');
+        await welcome.dblclick();
+        await expect(waterfall).toBeVisible();
+        await expect(welcome).toBeHidden();
+        await expect(welcome).toBeVisible({ timeout: 10000 });
+        await expect(waterfall).toBeHidden();
+        await page.screenshot({ path: info.outputPath(`role-ordinary-welcome-${theme}.png`) });
+        await page.evaluate(() => {
+          const collisions: string[] = [];
+          const observer = new MutationObserver(() => {
+            const roleCopy = [...document.querySelectorAll('p')].some((p) =>
+              p.textContent?.includes(
+                'Choose the ordinary chat settings above. Opening this chat does not send a message.',
+              ),
+            );
+            const overlay = document.querySelector<HTMLElement>('.chat-welcome');
+            if (
+              roleCopy &&
+              overlay &&
+              !overlay.hidden &&
+              getComputedStyle(overlay).display !== 'none'
+            )
+              collisions.push('Visible welcome overlay during active role setup');
+          });
+          observer.observe(document.documentElement, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+          });
+          Object.assign(window, {
+            roleWelcomeCollisions: collisions,
+            roleWelcomeObserver: observer,
+          });
+        });
+        await page.evaluate(
+          (path) => window.fixtureNavigate!(path),
+          roleUrl.pathname + roleUrl.search,
+        );
+        await expect(assign).toBeEnabled();
+        const collisions = await page.evaluate(() => {
+          const probe = window as Window & {
+            roleWelcomeCollisions: string[];
+            roleWelcomeObserver: MutationObserver;
+          };
+          probe.roleWelcomeObserver.disconnect();
+          return probe.roleWelcomeCollisions;
+        });
+        expect(collisions).toEqual([]);
+        await expect(welcome).toBeHidden();
+        await expect(composer).toHaveValue('Keep this draft across ordinary-to-role navigation.');
+        expect(calls).toHaveLength(0);
+        await page.screenshot({ path: info.outputPath(`role-transition-${theme}.png`) });
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+      }
       const settingsPanel = await settingsHome(page);
       await expect(settingsPanel.locator('[data-quick-setting="execution"]')).toBeVisible();
       await expect(settingsPanel.locator('[data-quick-setting="execution"]')).toContainText(
@@ -570,6 +646,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         await page.reload();
         await expect(review).toBeEnabled();
         await page.waitForLoadState('networkidle');
+        await expect(welcome).toBeHidden();
         expect(contextReviews).toBe(previousReviews);
         expect(calls).toHaveLength(1);
         await expect(composer).toHaveValue('Keep this unsent plan through reviewed-work recovery.');
@@ -581,6 +658,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         rejectBeforeAllocation = false;
         await review.press('Enter');
         await expect(assign).toBeEnabled();
+        await expect(welcome).toBeHidden();
         expect(contextReviews).toBe(previousReviews + 1);
         expect(calls).toHaveLength(1);
         await expect(composer).toHaveValue('Keep this unsent plan through reviewed-work recovery.');
@@ -592,6 +670,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       await expect(
         page.getByText('Setup could not be confirmed. Retry to recover the same request.'),
       ).toBeVisible();
+      await expect(welcome).toBeHidden();
       setupUnavailable = false;
       await page.waitForLoadState('networkidle');
       await page.reload();

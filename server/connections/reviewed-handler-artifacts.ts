@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.320-telos-reviewed-presentation.1';
+  'v1.0.320-telos-reviewed-presentation.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -406,9 +406,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     'f27a25d30f2890a67aa2b15c7da54ceedc73317aadced7bc2b27371287bbb98c',
   '../../frontend/src/pages/ChatView.tsx':
-    '8596144c67b071c3950646062e70ab2b50b6025b65afdf085ee689fe8bcb4a31',
+    '557d4eaae544a784468eff8de3253d742d5b1f414407e4a55c730f3671f59252',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'cae83a6f61d070f3d1e6e97a29b90b816784911dcc931000afe25c21b09fd724',
+    'a1cecb5dd74e3d0dad468a7c21c832e8c1c55d6060e9c26b103a78bcc39e2f40',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
