@@ -201,6 +201,7 @@ it('compares original contents before native same-thread resume, then proves clo
     'thread/resume',
     expect.objectContaining({
       threadId: 'same-thread',
+      excludeTurns: true,
       model: 'offline',
       modelProvider: 'openshell',
       allowProviderModelFallback: false,
