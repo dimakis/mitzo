@@ -159,3 +159,31 @@ it('CT04: another command endpoint cannot supply role-setup rejection authority'
   });
   expect(fetch).toHaveBeenCalledOnce();
 });
+it('CT03/05: reviewed setup carries its exact wrapper and validates recovery against the inner original request', async () => {
+  const fetch = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        code: 'conflict',
+        error: 'Stale reviewed context',
+        recovery: { version: 1, requestId, outcome: 'rejected_before_allocation' },
+      }),
+      { status: 409 },
+    ),
+  );
+  const api = new TelosWorkApiClient(fetch);
+  const wrapper = {
+    version: 1 as const,
+    input,
+    presentationRef: { id: '89b5166a-c549-4aa8-85f2-65dfbf0f2f81', sha256: 'c'.repeat(64) },
+  };
+  const error = await api.setupReviewedRole(wrapper).catch((cause: unknown) => cause);
+  expect(error).toBeInstanceOf(TelosWorkApiError);
+  expect(error).toMatchObject({
+    status: 409,
+    code: 'conflict',
+    recovery: { version: 1, requestId, outcome: 'rejected_before_allocation' },
+  });
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch.mock.calls[0][0]).toBe('/api/telos/work/roles/setup-reviewed');
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(wrapper);
+});

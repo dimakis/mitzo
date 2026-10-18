@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { offlineRoleReview } from '../support/telos-role-presentation';
 import type { TelosWorkRoleSetupInput } from '../../packages/protocol/src/telos-work-api';
 
 // Actual client, hook, setup component and ChatInput; all traffic intercepted.
@@ -30,6 +31,8 @@ for (const theme of ['dark', 'light'])
       unexpected: string[] = [];
     let revision = 'a'.repeat(64),
       reviews = 0;
+    const retainedReviews = new Map<string, ReturnType<typeof offlineRoleReview>>();
+    const wrappers: unknown[] = [];
     const work = () => ({
       itemId: 'item',
       kind: 'outcome',
@@ -55,31 +58,49 @@ for (const theme of ['dark', 'light'])
         const value = work();
         return route.fulfill({ json: value });
       }
-      if (path === '/api/telos/work/roles/context') {
+      if (path === '/api/telos/work/roles/review' || path === '/api/telos/work/roles/context') {
         reviews++;
-        return route.fulfill({
-          json: {
-            version: 1,
-            itemId: 'item',
-            role: 'lead',
-            brief: {
-              revision,
-              sha256: 'b'.repeat(64),
-              text: JSON.stringify({
-                summary: 'Record the first studio session',
-                intent: 'Keep the reviewed recording.',
-                acceptanceCriteria: ['Retain the recording.'],
-              }),
-            },
-            parentCriteria: [],
-            overallGoal: { itemId: 'item', revision, text: 'Make a comfortable recording space.' },
-            sources: [],
-            artifacts: [],
+        const selection = {
+          version: 1,
+          itemId: 'item',
+          role: 'lead',
+          brief: {
+            revision,
+            sha256: 'b'.repeat(64),
+            text: JSON.stringify({
+              summary: 'Record the first studio session',
+              intent: 'Keep the reviewed recording.',
+              acceptanceCriteria: ['Retain the recording.'],
+            }),
           },
+          parentCriteria: [],
+          overallGoal: { itemId: 'item', revision, text: 'Make a comfortable recording space.' },
+          sources: [],
+          artifacts: [],
+        };
+        if (path.endsWith('/roles/context')) return route.fulfill({ json: selection });
+        const reviewed = offlineRoleReview(selection, {
+          itemTitle: 'Record the first studio session',
+          goalTitle: 'Recording space',
+          materials: [],
         });
+        retainedReviews.set(reviewed.presentationRef.id, reviewed);
+        return route.fulfill({ json: reviewed });
       }
-      if (path === '/api/telos/work/roles/setup') {
-        const input = route.request().postDataJSON() as TelosWorkRoleSetupInput;
+      if (
+        path === '/api/telos/work/roles/setup' ||
+        path === '/api/telos/work/roles/setup-reviewed'
+      ) {
+        const body = route.request().postDataJSON();
+        const input = (
+          path.endsWith('/roles/setup-reviewed') ? body.input : body
+        ) as TelosWorkRoleSetupInput;
+        if (path.endsWith('/roles/setup-reviewed')) {
+          const reviewed = retainedReviews.get(body.presentationRef.id);
+          expect(reviewed?.presentationRef).toEqual(body.presentationRef);
+          expect(reviewed?.selection).toEqual(input.contextSelection);
+          wrappers.push(body);
+        }
         calls.push(input);
         if (calls.length === 1) {
           revision = 'e'.repeat(64);
@@ -185,6 +206,8 @@ for (const theme of ['dark', 'light'])
     ).toBeVisible();
     expect(calls).toHaveLength(3);
     expect(calls[2]).toEqual(calls[1]);
+    expect(wrappers).toHaveLength(3);
+    expect(wrappers[2]).toEqual(wrappers[1]);
     expect(reviews).toBe(2);
     await expect(composer).toHaveValue('Keep this unsent recording plan.');
     expect(unexpected).toEqual([]);

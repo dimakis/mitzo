@@ -33,6 +33,8 @@ export function createTelosWorkRouter(options: {
   ordinaryConversation(id: string): boolean;
   sourceConversation?(id: string): boolean;
   roleSetup?(request: TelosWorkRoleRequest): Promise<unknown>;
+  roleReview?(request: TelosWorkRoleRequest): Promise<unknown>;
+  roleSetupReviewed?(request: TelosWorkRoleRequest): Promise<unknown>;
   roleContext?(request: TelosWorkRoleRequest): Promise<unknown>;
   advisorPreview?(request: TelosWorkRoleRequest): Promise<unknown>;
   advisorSave?(request: TelosWorkRoleRequest): Promise<unknown>;
@@ -139,7 +141,9 @@ export function createTelosWorkRouter(options: {
   });
   for (const operation of [
     { path: 'roles/setup', host: options.roleSetup },
+    { path: 'roles/setup-reviewed', host: options.roleSetupReviewed },
     { path: 'roles/context', host: options.roleContext },
+    { path: 'roles/review', host: options.roleReview },
     { path: 'advisor/preview', host: options.advisorPreview },
     { path: 'advisor/save', host: options.advisorSave },
     { path: 'delegation/start', host: options.delegateSlice },
@@ -215,7 +219,7 @@ export function createTelosWorkRouter(options: {
                 ? 400
                 : 503;
           res.status(status).json({
-            ...(operation.path === 'roles/setup' &&
+            ...((operation.path === 'roles/setup' || operation.path === 'roles/setup-reviewed') &&
             status === 409 &&
             known &&
             error.code === 'conflict' &&

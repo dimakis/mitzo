@@ -34,6 +34,9 @@ import {
   TelosWorkRoleContextSelectionSchema,
   TelosWorkRoleSetupInputSchema,
   TelosWorkRoleSetupRecoverySchema,
+  TelosWorkRoleContextReviewSchema,
+  TelosWorkReviewedRoleSetupInputSchema,
+  type TelosWorkReviewedRoleSetupInput,
   type TelosWorkRoleSetupRecovery,
   type TelosWorkRoleContextRequest,
   TelosWorkAdvisorDraftPreviewRequestSchema,
@@ -86,6 +89,25 @@ export class TelosWorkApiClient {
       'advisor/save',
       TelosWorkCommandReceiptSchema,
       TelosWorkAdvisorDraftSaveRequestSchema.parse(input),
+    );
+  }
+  reviewRoleContext(input: TelosWorkRoleContextRequest, signal?: AbortSignal) {
+    return this.request(
+      'roles/review',
+      TelosWorkRoleContextReviewSchema,
+      TelosWorkRoleContextRequestSchema.parse(input),
+      signal,
+    );
+  }
+  setupReviewedRole(
+    input: TelosWorkReviewedRoleSetupInput,
+    signal?: AbortSignal,
+  ): Promise<TelosWorkCommandReceipt> {
+    return this.request(
+      'roles/setup-reviewed',
+      TelosWorkCommandReceiptSchema,
+      TelosWorkReviewedRoleSetupInputSchema.parse(input),
+      signal,
     );
   }
   roleContext(input: TelosWorkRoleContextRequest, signal?: AbortSignal) {
@@ -179,10 +201,16 @@ export class TelosWorkApiClient {
       const error = await response.json().catch(() => null);
       const code = typeof error?.code === 'string' ? error.code : 'unavailable';
       const parsed = TelosWorkRoleSetupRecoverySchema.safeParse(error?.recovery);
+      const candidate =
+        path === 'roles/setup-reviewed' && body && typeof body === 'object' && 'input' in body
+          ? body.input
+          : body;
       const requestId =
-        body && typeof body === 'object' && 'requestId' in body ? body.requestId : undefined;
+        candidate && typeof candidate === 'object' && 'requestId' in candidate
+          ? candidate.requestId
+          : undefined;
       const recovery =
-        path === 'roles/setup' &&
+        (path === 'roles/setup' || path === 'roles/setup-reviewed') &&
         parsed.success &&
         parsed.data.requestId === requestId &&
         (parsed.data.outcome === 'recover_original' ||
