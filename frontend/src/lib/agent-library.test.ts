@@ -1,10 +1,10 @@
 import { expect, it } from 'vitest';
 import { agentAdvisorPrompt, agentAdvisorHref } from './agent-library';
-import { profileBuilderDefinition } from '@mitzo/protocol';
+import { profileBuilderDefinition, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
 it('launches a pinned builder profile and keeps system guidance out of the user message', () => {
   const url = new URL(agentAdvisorHref, 'https://mitzo.example');
   expect(url.searchParams.get('agentProfile')).toBe('mitzo-profile-builder');
-  expect(url.searchParams.get('profileRevision')).toBe('1');
+  expect(url.searchParams.get('profileRevision')).toBe(String(PROFILE_BUILDER_REVISION));
   expect(url.searchParams.get('agentProfileKind')).toBe('builtin');
   expect(url.searchParams.get('prompt')).toBe('Help me create an agent.');
   expect(agentAdvisorPrompt.length).toBeLessThan(100);

@@ -1,3 +1,4 @@
+import type { TaskProposal } from '../lib/agent-task-proposal-link';
 import { SymposiumProfileRecipeEditor } from './SymposiumProfileRecipeEditor';
 import './SymposiumProfilePicker.css';
 import { useEffect, useRef, useState } from 'react';
@@ -325,13 +326,18 @@ export function SymposiumProfileProposals({
   useEffect(() => {
     let live = true;
     const refresh = () =>
-      readJson<Proposal[]>(
+      readJson<(Proposal | TaskProposal)[]>(
         `/api/symposium/profile-proposals?sessionId=${encodeURIComponent(sessionId)}`,
       )
         .then((rows) => {
           if (!Array.isArray(rows)) throw new Error('Profile proposals response is invalid');
           if (live) {
-            setProposals(rows.filter((row) => !dismissed.current.has(row.proposalId)));
+            setProposals(
+              rows.filter(
+                (row): row is Proposal =>
+                  !('kind' in row && row.kind === 'task') && !dismissed.current.has(row.proposalId),
+              ),
+            );
             setError('');
           }
         })

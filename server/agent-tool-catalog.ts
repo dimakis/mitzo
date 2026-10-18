@@ -1,3 +1,4 @@
+import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import type { AgentToolCatalogEntry } from '@mitzo/protocol';
 import { nativeToolDefinitions } from './native-tool-executor.js';
 import { credentialConnectionToolDefinitions } from './credential-connection-tools.js';
@@ -19,6 +20,7 @@ const reads = new Set([
   'ListRepositories',
   'GetRepositoryChatPreparation',
   'SymposiumReadProfiles',
+  'AgentReadTasks',
   'TelosGetItem',
   'TelosFindArtifacts',
   'TelosReadArtifact',
@@ -30,7 +32,10 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     { source: 'Workspace', definitions: nativeToolDefinitions },
     { source: 'Connections', definitions: credentialConnectionToolDefinitions },
     { source: 'Repositories', definitions: repositoryChatToolDefinitions },
-    { source: 'Agent Library', definitions: profileToolDefinitions },
+    {
+      source: 'Agent Library',
+      definitions: [...profileToolDefinitions, ...agentTaskToolDefinitions],
+    },
     { source: 'Web', definitions: [webAccessDefinition] },
     { source: 'GitHub publishing', definitions: [githubPublishingDefinition] },
     {

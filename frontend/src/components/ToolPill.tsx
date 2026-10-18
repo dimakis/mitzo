@@ -1,7 +1,7 @@
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useState, useCallback, useId } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
 import { getToolStatus, type ToolBlock } from '../lib/tool-status';
 import { SubagentCard } from './SubagentCard';
@@ -12,6 +12,7 @@ import { ConnectionSetupCard } from './ConnectionSetupCard';
 import { RepositoryChatSetupCard } from './RepositoryChatSetupCard';
 import { GoogleSearchResult } from './GoogleSearchResult';
 import { TelosWorkerReceiptCard } from './TelosWorkerReceiptCard';
+import { agentTaskProposalLink } from '../lib/agent-task-proposal-link';
 
 interface Props {
   block: ToolBlock;
@@ -98,9 +99,11 @@ function RawInputDetail({
 /** Render tool result with syntax highlighting when language is known. */
 function ToolResult({
   block,
+  sessionId,
   onPopOut,
 }: {
   block: StreamingBlock | FinishedBlock;
+  sessionId?: string;
   onPopOut?: (path: string) => void;
 }) {
   const hasText = block.toolResult !== undefined && block.toolResult.length > 0;
@@ -110,6 +113,7 @@ function ToolResult({
 
   const raw = block.rawInput;
   const isRead = raw?.type === 'read';
+  const taskReview = agentTaskProposalLink(block, sessionId);
 
   return (
     <div className="tool-pill-section">
@@ -125,7 +129,7 @@ function ToolResult({
           ))}
         </div>
       )}
-      {hasText && (
+      {hasText && !taskReview && (
         <CodeBlock
           code={block.toolResult!}
           language={raw?.language}
@@ -133,6 +137,11 @@ function ToolResult({
           maxHeight={400}
           onPopOut={isRead && raw?.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
         />
+      )}
+      {taskReview && (
+        <Link className="session-work-link" to={taskReview.url}>
+          Review task in Library
+        </Link>
       )}
     </div>
   );
@@ -201,7 +210,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
               <pre className="tool-pill-pre">{input}</pre>
             </div>
           )}
-          <ToolResult block={block} onPopOut={handlePopOut} />
+          <ToolResult block={block} sessionId={sessionId} onPopOut={handlePopOut} />
         </div>
       </MotionPresence>
       {block.subagent && (
