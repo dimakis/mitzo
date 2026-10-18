@@ -74,7 +74,7 @@ export function TelosRoleSetup({
     reopened.current = key;
     onBound(setup.boundConversationId);
   }, [setup.boundConversationId, draftId, onBound]);
-  const { pending, locked, uncertain, review } = setup;
+  const { pending, locked, uncertain, rejectedBeforeAllocation, review } = setup;
   const reviewKey = JSON.stringify({ intent, settings });
   const reviewed = useRef<string | null>(null);
   useEffect(() => {
@@ -82,10 +82,18 @@ export function TelosRoleSetup({
     return () => onLocked(false);
   }, [setup.locked, onLocked]);
   useEffect(() => {
-    if (!settings || pending || locked || uncertain || reviewed.current === reviewKey) return;
+    if (
+      !settings ||
+      pending ||
+      locked ||
+      uncertain ||
+      rejectedBeforeAllocation ||
+      reviewed.current === reviewKey
+    )
+      return;
     reviewed.current = reviewKey;
     void review();
-  }, [reviewKey, settings, pending, locked, uncertain, review]);
+  }, [reviewKey, settings, pending, locked, uncertain, rejectedBeforeAllocation, review]);
   const label =
     intent.mode === 'assign' && intent.role === 'lead'
       ? 'Assign lead & open chat'
@@ -147,11 +155,15 @@ export function TelosRoleSetup({
         }
         onClick={() => {
           if (setup.boundConversationId) onBound(setup.boundConversationId);
-          else if (beforeConfirm())
+          else if (beforeConfirm()) {
+            // Explicit review already owns this settings key. Do not immediately
+            // repeat it when the terminal-rejection state becomes reviewed.
+            if (setup.rejectedBeforeAllocation) reviewed.current = reviewKey;
             void (setup.uncertain || setup.error ? setup.retry() : setup.confirm());
+          }
         }}
       >
-        {label}
+        {setup.rejectedBeforeAllocation ? 'Review updated brief' : label}
       </button>
     </section>
   );

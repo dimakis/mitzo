@@ -11,10 +11,15 @@ import {
   TelosWorkAdvisorDraftPreviewRequestSchema,
   TelosWorkAdvisorDraftSaveRequestSchema,
 } from '../../packages/protocol/src/telos-work-advisor';
-import type { TelosWorkView } from '../../packages/protocol/src/telos-work-api';
+import type {
+  TelosWorkView,
+  TelosWorkRoleSetupInput,
+} from '../../packages/protocol/src/telos-work-api';
 import { TelosWorkRoleSetupInputSchema } from '../../packages/protocol/src/telos-work-api';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
+// Each lead case also covers rejection/reload and explicit fresh confirmation.
+test.setTimeout(60_000);
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-source-navigation.tsx')],
   bundle: true,
@@ -59,7 +64,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         kind: journey === 'leaf' ? 'work_item' : 'outcome',
         intent: 'Record clearly',
       };
-      const calls: unknown[] = [],
+      const calls: TelosWorkRoleSetupInput[] = [],
         unexpected: string[] = [],
         errors: string[] = [];
       const briefText = JSON.stringify({
@@ -69,6 +74,8 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       });
       let selectedContext: Record<string, unknown> | undefined;
       let setupUnavailable = false;
+      let rejectBeforeAllocation = false;
+      let contextReviews = 0;
       page.on('pageerror', (e) => errors.push(e.message));
       await page.setViewportSize({
         width: info.project.name.startsWith('mobile') ? 320 : 1280,
@@ -102,6 +109,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
           return route.fulfill({ json: savedWork });
         if (path === '/api/telos/work/items/studio') return route.fulfill({ json: work });
         if (path === '/api/telos/work/roles/context') {
+          contextReviews++;
           const request = route.request().postDataJSON();
           selectedContext = {
             version: 1,
@@ -123,6 +131,21 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         if (path === '/api/telos/work/roles/setup') {
           const input = TelosWorkRoleSetupInputSchema.parse(route.request().postDataJSON());
           calls.push(input);
+          if (rejectBeforeAllocation) {
+            work = { ...work, revision: 'e'.repeat(64) };
+            return route.fulfill({
+              status: 409,
+              json: {
+                code: 'conflict',
+                error: 'Work revision conflict',
+                recovery: {
+                  version: 1,
+                  requestId: input.requestId,
+                  outcome: 'rejected_before_allocation',
+                },
+              },
+            });
+          }
           if (setupUnavailable)
             return route.fulfill({ status: 503, json: { error: 'Offline interrupted response' } });
           const role = input.role,
@@ -496,6 +519,33 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       await settingsHome(page);
       await page.screenshot({ path: info.outputPath(`role-settings-${theme}.png`) });
       await settingsPanel.getByRole('button', { name: 'Done', exact: true }).click();
+      if (journey === 'lead') {
+        const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+        await composer.fill('Keep this unsent plan through reviewed-work recovery.');
+        rejectBeforeAllocation = true;
+        await assign.click();
+        const review = page.getByRole('button', { name: 'Review updated brief' });
+        await expect(review).toBeEnabled();
+        const previousReviews = contextReviews;
+        await page.waitForLoadState('networkidle');
+        await page.reload();
+        await expect(review).toBeEnabled();
+        await page.waitForLoadState('networkidle');
+        expect(contextReviews).toBe(previousReviews);
+        expect(calls).toHaveLength(1);
+        await expect(composer).toHaveValue('Keep this unsent plan through reviewed-work recovery.');
+        await review.focus();
+        await expect(review).toBeFocused();
+        const box = await review.boundingBox();
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+        await page.screenshot({ path: info.outputPath(`role-rejected-${theme}.png`) });
+        rejectBeforeAllocation = false;
+        await review.press('Enter');
+        await expect(assign).toBeEnabled();
+        expect(contextReviews).toBe(previousReviews + 1);
+        expect(calls).toHaveLength(1);
+        await expect(composer).toHaveValue('Keep this unsent plan through reviewed-work recovery.');
+      }
       setupUnavailable = true;
       await assign.focus();
       await expect(assign).toBeFocused();
@@ -508,8 +558,13 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       await page.reload();
       await page.getByRole('button', { name: actionLabel }).click();
       await expect(page).toHaveURL(new RegExp(`/chat/${boundId}$`));
-      expect(calls).toHaveLength(2);
-      expect(calls[1]).toEqual(calls[0]);
+      expect(calls).toHaveLength(journey === 'lead' ? 3 : 2);
+      expect(calls.at(-1)).toEqual(calls.at(-2));
+      if (journey === 'lead') {
+        expect(calls[1].requestId).not.toBe(calls[0].requestId);
+        expect(calls[1].expectedRevision).toBe('e'.repeat(64));
+        expect(calls[1].settings).toEqual(calls[0].settings);
+      }
       expect(work.sources).toEqual(data.work.sources);
       expect(work.attempts).toEqual([]);
       await expect(page.getByRole('link', { name: 'Home studio', exact: true })).toBeVisible();

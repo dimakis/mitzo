@@ -213,3 +213,281 @@ it('retains the exact UUID settings context and assignment revision through unce
   expect(f.api.roleContext).toHaveBeenCalledOnce();
   expect(f.onBound).not.toHaveBeenCalled();
 });
+
+// The original generic-409 review reproduction is retained in Telos; this
+// replacement requires positive same-request evidence, never status alone.
+it('CT03: a proven pre-allocation rejection permits fresh review of the retained draft', async () => {
+  const f = fixture();
+  const { TelosWorkApiError } = await import('@mitzo/client');
+  f.api.setupRole.mockImplementation(async (input) => {
+    throw Object.assign(new TelosWorkApiError(409, 'conflict', 'Work revision conflict'), {
+      recovery: { version: 1, requestId: input.requestId, outcome: 'rejected_before_allocation' },
+    });
+  });
+  const { result } = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => result.current.review());
+  await act(async () => result.current.confirm());
+  await act(async () => result.current.retry());
+  // A definite rejection before preparation needs a new review, not endless replay.
+  expect(f.api.roleContext).toHaveBeenCalledTimes(2);
+  expect(f.api.setupRole).toHaveBeenCalledOnce();
+  expect(result.current.canConfirm).toBe(true);
+  expect(f.options.settings).toEqual(settings);
+});
+
+it.each(['missing', 'recover_original', 'wrong_request'] as const)(
+  'CT04: %s recovery evidence retains exact replay through remount',
+  async (outcome) => {
+    const f = fixture();
+    const { TelosWorkApiError } = await import('@mitzo/client');
+    f.api.setupRole.mockImplementation(async (input) => {
+      throw Object.assign(
+        new TelosWorkApiError(409, 'conflict', 'Late setup conflict'),
+        outcome === 'missing'
+          ? {}
+          : {
+              recovery: {
+                version: 1,
+                requestId: outcome === 'wrong_request' ? 'unrelated-request' : input.requestId,
+                outcome: outcome === 'wrong_request' ? 'rejected_before_allocation' : outcome,
+              },
+            },
+      );
+    });
+    const first = renderHook(() => useTelosRoleSetup(f.options));
+    await act(async () => first.result.current.review());
+    await act(async () => first.result.current.confirm());
+    const original = structuredClone(f.api.setupRole.mock.calls[0][0]);
+    expect(first.result.current.locked).toBe(true);
+    expect(first.result.current.uncertain).toBe(true);
+    first.unmount();
+    f.options.settings.selection.model = 'changed-after-conflict';
+    const second = renderHook(() => useTelosRoleSetup(f.options));
+    await act(async () => second.result.current.retry());
+    expect(f.api.setupRole.mock.calls[1][0]).toEqual(original);
+    expect(f.api.roleContext).toHaveBeenCalledOnce();
+    expect(second.result.current.locked).toBe(true);
+    expect(f.onBound).not.toHaveBeenCalled();
+  },
+);
+
+it('CT03: proven rejection survives reload and confirms a newly reviewed revision with a new UUID', async () => {
+  const f = fixture();
+  const { TelosWorkApiError } = await import('@mitzo/client');
+  f.api.setupRole.mockImplementation(async (input) => {
+    throw Object.assign(new TelosWorkApiError(409, 'conflict', 'Work revision conflict'), {
+      recovery: { version: 1, requestId: input.requestId, outcome: 'rejected_before_allocation' },
+    });
+  });
+  const first = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => first.result.current.review());
+  await act(async () => first.result.current.confirm());
+  const rejected = structuredClone(f.api.setupRole.mock.calls[0][0]);
+  first.unmount();
+  const nextRevision = 'e'.repeat(64);
+  f.api.read.mockResolvedValue({
+    itemId: 'item',
+    kind: null,
+    parentId: null,
+    revision: nextRevision,
+    links: [],
+    assignments: [],
+    sources: [],
+    attempts: [],
+  });
+  f.api.roleContext.mockResolvedValue({
+    ...structuredClone(context),
+    brief: { ...context.brief, revision: nextRevision },
+    overallGoal: { ...context.overallGoal, revision: nextRevision },
+  });
+  const second = renderHook(() => useTelosRoleSetup(f.options));
+  expect(second.result.current.locked).toBe(false);
+  await act(async () => second.result.current.retry());
+  expect(f.api.setupRole).toHaveBeenCalledOnce();
+  expect(second.result.current.canConfirm).toBe(true);
+  await act(async () => second.result.current.confirm());
+  const fresh = f.api.setupRole.mock.calls[1][0];
+  expect(fresh.requestId).not.toBe(rejected.requestId);
+  expect(fresh.expectedRevision).toBe(nextRevision);
+  expect(fresh.settings).toEqual(rejected.settings);
+  expect(fresh.itemId).toBe(rejected.itemId);
+  expect(f.onBound).not.toHaveBeenCalled();
+});
+
+it('CT03: failed rejection persistence retains the original submission through reload', async () => {
+  const f = fixture();
+  const { TelosWorkApiError } = await import('@mitzo/client');
+  const failedRejectionWrite = vi.fn(() => {
+    throw new Error('device storage full');
+  });
+  f.api.setupRole.mockImplementationOnce(async (input) => {
+    // The original submission is already durable before this POST. Fail only
+    // the subsequent terminal-rejection write, not the pre-send safety fence.
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(failedRejectionWrite);
+    throw Object.assign(new TelosWorkApiError(409, 'conflict', 'Work revision conflict'), {
+      recovery: { version: 1, requestId: input.requestId, outcome: 'rejected_before_allocation' },
+    });
+  });
+  const first = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => first.result.current.review());
+  await act(async () => first.result.current.confirm());
+  const original = structuredClone(f.api.setupRole.mock.calls[0][0]);
+  expect(
+    JSON.parse(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')!).submission,
+  ).toEqual(original);
+  expect(first.result.current.locked).toBe(true);
+  expect(first.result.current.uncertain).toBe(true);
+  const rejectionError = first.result.current.error;
+  first.unmount();
+  vi.restoreAllMocks();
+
+  f.options.settings.selection.model = 'changed-after-storage-failure';
+  const second = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => second.result.current.retry());
+  expect(f.api.setupRole.mock.calls[1][0]).toEqual(original);
+  expect(f.api.roleContext).toHaveBeenCalledOnce();
+  expect(f.onBound).not.toHaveBeenCalled();
+  expect(failedRejectionWrite).toHaveBeenCalledOnce();
+  expect(rejectionError).toMatch(/storage/i);
+});
+
+it('CT03: terminal rejection history is durable before releasing the original request', async () => {
+  const f = fixture();
+  const { TelosWorkApiError } = await import('@mitzo/client');
+  f.api.setupRole.mockImplementationOnce(async (input) => {
+    throw Object.assign(new TelosWorkApiError(409, 'conflict', 'Reviewed work changed'), {
+      recovery: { version: 1, requestId: input.requestId, outcome: 'rejected_before_allocation' },
+    });
+  });
+  const h = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => h.result.current.review());
+  await act(async () => h.result.current.confirm());
+  const original = f.api.setupRole.mock.calls[0][0];
+  const stored = JSON.parse(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')!);
+  expect(stored.submission).toBeNull();
+  expect(stored.review).toBeNull();
+  expect(stored.rejections).toContainEqual({
+    submission: original,
+    recovery: { version: 1, requestId: original.requestId, outcome: 'rejected_before_allocation' },
+  });
+  expect(h.result.current.locked).toBe(false);
+  expect(f.onBound).not.toHaveBeenCalled();
+});
+it('CT04: a late old rejection cannot clear a newer explicitly confirmed request in another tab', async () => {
+  const f = fixture();
+  const { TelosWorkApiError } = await import('@mitzo/client');
+  let rejectFirst!: (cause: Error) => void;
+  f.api.setupRole.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectFirst = reject;
+      }),
+  );
+  f.api.setupRole.mockImplementationOnce(async (input) => {
+    throw Object.assign(new TelosWorkApiError(409, 'conflict', 'Reviewed work changed'), {
+      recovery: { version: 1, requestId: input.requestId, outcome: 'rejected_before_allocation' },
+    });
+  });
+  f.api.setupRole.mockRejectedValueOnce(new Error('New request response lost'));
+  const first = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => first.result.current.review());
+  let pending!: Promise<void>;
+  await act(async () => {
+    pending = first.result.current.confirm();
+    await Promise.resolve();
+  });
+  const original = structuredClone(f.api.setupRole.mock.calls[0][0]);
+  const second = renderHook(() => useTelosRoleSetup(f.options));
+  try {
+    await act(async () => second.result.current.retry());
+    expect(second.result.current.locked).toBe(false);
+    await act(async () => second.result.current.retry());
+    await act(async () => second.result.current.confirm());
+    const newer = structuredClone(f.api.setupRole.mock.calls[2][0]);
+    expect(newer.requestId).not.toBe(original.requestId);
+    await act(async () => {
+      rejectFirst(
+        Object.assign(new TelosWorkApiError(409, 'conflict', 'Late rejected request'), {
+          recovery: {
+            version: 1,
+            requestId: original.requestId,
+            outcome: 'rejected_before_allocation',
+          },
+        }),
+      );
+      await pending;
+    });
+    expect(
+      JSON.parse(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')!).submission,
+    ).toEqual(newer);
+    expect(first.result.current.locked).toBe(true);
+    expect(first.result.current.uncertain).toBe(true);
+    expect(f.api.setupRole).toHaveBeenCalledTimes(3);
+    expect(f.onBound).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => {
+      rejectFirst(new Error('Finish isolated pending request'));
+      await pending;
+    });
+    first.unmount();
+    second.unmount();
+  }
+});
+it('CT04: a late old rejection cannot erase a newer explicit review before confirmation in another tab', async () => {
+  const f = fixture();
+  const { TelosWorkApiError } = await import('@mitzo/client');
+  let rejectFirst!: (cause: Error) => void;
+  f.api.setupRole.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectFirst = reject;
+      }),
+  );
+  f.api.setupRole.mockImplementationOnce(async (input) => {
+    throw new TelosWorkApiError(409, 'conflict', 'Reviewed work changed', {
+      version: 1,
+      requestId: input.requestId,
+      outcome: 'rejected_before_allocation',
+    });
+  });
+  const first = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => first.result.current.review());
+  let pending!: Promise<void>;
+  await act(async () => {
+    pending = first.result.current.confirm();
+    await Promise.resolve();
+  });
+  const original = structuredClone(f.api.setupRole.mock.calls[0][0]);
+  const second = renderHook(() => useTelosRoleSetup(f.options));
+  try {
+    await act(async () => second.result.current.retry());
+    await act(async () => second.result.current.retry());
+    const latest = JSON.parse(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')!);
+    expect(latest.review).not.toBeNull();
+    await act(async () => {
+      rejectFirst(
+        new TelosWorkApiError(409, 'conflict', 'Late original response', {
+          version: 1,
+          requestId: original.requestId,
+          outcome: 'rejected_before_allocation',
+        }),
+      );
+      await pending;
+    });
+    expect(JSON.parse(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')!)).toEqual(
+      latest,
+    );
+    expect(first.result.current.locked).toBe(true);
+    expect(first.result.current.uncertain).toBe(true);
+    expect(second.result.current.canConfirm).toBe(true);
+    expect(f.api.setupRole).toHaveBeenCalledTimes(2);
+    expect(f.onBound).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => {
+      rejectFirst(new Error('Finish isolated pending request'));
+      await pending;
+    });
+    first.unmount();
+    second.unmount();
+  }
+});
