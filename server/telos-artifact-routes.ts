@@ -1,8 +1,14 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { isDeepStrictEqual } from 'node:util';
 import { TelosUserUploadInput, validateUserUpload } from './telos-user-upload.js';
 import { Router, json, type Request, type RequestHandler, type Response } from 'express';
-import { TelosArtifactStore, MAX_TELOS_ARTIFACT_BYTES } from './telos-artifact-store.js';
+import {
+  TelosArtifactStore,
+  MAX_TELOS_ARTIFACT_BYTES,
+  describeTelosArtifactDocument,
+  type TelosArtifactMetadata,
+} from './telos-artifact-store.js';
 import {
   TelosSaveArtifactInput,
   TelosFindArtifactsInput,
@@ -45,6 +51,30 @@ export function createTelosArtifactRouter(options: {
     if (error instanceof Error && error.message === 'Artifact exceeds 5 MB') return 413;
     return 503;
   };
+  const assertResponseEligibility = (
+    store: TelosArtifactStore,
+    metadata: TelosArtifactMetadata,
+  ) => {
+    // Scoped source packets keep their existing interactive operator read path.
+    if (metadata.sourceKind !== 'source_capture' && !store.userUploadAllowed(metadata.itemId))
+      throw Object.assign(new Error('Saved artifact unavailable'), { status: 403 });
+  };
+  const readResponseArtifact = (store: TelosArtifactStore, expected: TelosArtifactMetadata) => {
+    assertResponseEligibility(store, expected);
+    const current = store.readBoundedRevision(
+      expected.id,
+      expected.revision,
+      MAX_TELOS_ARTIFACT_BYTES,
+    );
+    const { bytes, ...metadata } = current;
+    if (
+      !isDeepStrictEqual(metadata, expected) ||
+      createHash('sha256').update(bytes).digest('hex') !== expected.sha256
+    )
+      throw new Error('Saved artifact custody changed');
+    assertResponseEligibility(store, metadata);
+    return current;
+  };
   const authorizeSourceRead = async (req: Request, res: Response) => {
     let authorized = false;
     if (options.operatorAuth)
@@ -57,6 +87,60 @@ export function createTelosArtifactRouter(options: {
       res.status(403).json({ error: 'Interactive operator authentication is required' });
     return authorized;
   };
+  router.get(
+    '/api/telos/artifacts/:id/versions',
+    options.operatorAuth ??
+      ((_req, res) => {
+        res.status(403).json({ error: 'Interactive operator authentication is required' });
+      }),
+    (req, res) => {
+      if (typeof res.locals.authSession?.id !== 'string' || !res.locals.authSession.id.trim()) {
+        res.status(403).json({ error: 'Interactive operator authentication is required' });
+        return;
+      }
+      const id = documentId.safeParse(req.params.id);
+      const query = z
+        .strictObject({
+          beforeRevision: z
+            .string()
+            .regex(/^[1-9][0-9]*$/)
+            .transform(Number)
+            .pipe(documentRevision)
+            .optional(),
+          limit: z
+            .string()
+            .regex(/^[1-9][0-9]*$/)
+            .transform(Number)
+            .pipe(z.number().int().min(1).max(50))
+            .optional(),
+        })
+        .safeParse(req.query);
+      if (!id.success || !query.success) {
+        res.status(400).json({ error: 'Invalid artifact history reference' });
+        return;
+      }
+      let store: TelosArtifactStore | undefined;
+      try {
+        store = new TelosArtifactStore(options.dbPath());
+        const page = store.revisionPage(id.data, query.data);
+        // Authentication may have awaited; current item policy also remains a final local fence.
+        if (
+          page.artifacts.some(
+            (row) => row.sourceKind === 'source_capture' || !store!.userUploadAllowed(row.itemId),
+          )
+        ) {
+          res.status(403).json({ error: 'Saved artifact history unavailable' });
+          return;
+        }
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.json(page);
+      } catch (error) {
+        res.status(errorStatus(error)).json({ error: 'Saved artifact history unavailable' });
+      } finally {
+        store?.close();
+      }
+    },
+  );
   router.get('/api/telos/artifacts/:id/document', async (req, res) => {
     const id = documentId.safeParse(req.params.id);
     const revision =
@@ -72,13 +156,20 @@ export function createTelosArtifactRouter(options: {
     let store: TelosArtifactStore | undefined;
     try {
       store = new TelosArtifactStore(options.dbPath());
-      if (
-        store.read(id.data, revision?.data).sourceKind === 'source_capture' &&
-        !(await authorizeSourceRead(req, res))
-      )
+      const metadata = revision
+        ? store.metadataForRevision(id.data, revision.data!)
+        : store.latestMetadata(id.data);
+      assertResponseEligibility(store, metadata);
+      if (metadata.sourceKind === 'source_capture' && !(await authorizeSourceRead(req, res)))
         return;
+      const artifact = readResponseArtifact(store, metadata);
+      const document = describeTelosArtifactDocument(
+        artifact,
+        artifact.sourceKind !== 'source_capture' && store.userUploadAllowed(artifact.itemId),
+      );
+      assertResponseEligibility(store, metadata);
       res.setHeader('Cache-Control', 'private, no-store');
-      res.json(store.document(id.data, revision?.data));
+      res.json(document);
     } catch (error) {
       res.status(errorStatus(error)).json({ error: 'Telos document unavailable' });
     } finally {
@@ -311,9 +402,14 @@ export function createTelosArtifactRouter(options: {
     let store: TelosArtifactStore | undefined;
     try {
       store = new TelosArtifactStore(options.dbPath());
-      const artifact = store.read(input.data.id, input.data.revision);
-      if (artifact.sourceKind === 'source_capture' && !(await authorizeSourceRead(req, res)))
+      const metadata =
+        input.data.revision === undefined
+          ? store.latestMetadata(input.data.id)
+          : store.metadataForRevision(input.data.id, input.data.revision);
+      assertResponseEligibility(store, metadata);
+      if (metadata.sourceKind === 'source_capture' && !(await authorizeSourceRead(req, res)))
         return;
+      const artifact = readResponseArtifact(store, metadata);
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader(
         'Content-Disposition',

@@ -1,0 +1,66 @@
+{
+  "priorHead": "cd9508eade117de7d21df6404189320f970cdfd2",
+  "acceptedBase": "2b22bade2b1e612cc564661bf1e69b45a317e5eb",
+  "actualConflict": "server/connections/reviewed-handler-artifacts.ts",
+  "incomingFiles": 18,
+  "allIncomingAcceptedFilesExactExceptManifestAndAdditiveDesignUnion": true,
+  "allChangedAcceptedAndExistingBPinsPreserved": true,
+  "manifestEntries": 588,
+  "noDuplicateOrRegeneratedPins": true,
+  "officialAllSourceFingerprintsPass": true,
+  "unchangedBSourceAndUiFromFullyReviewedD2": [
+    "server/collaboration-forwarding.ts",
+    "server/__tests__/collaboration-forwarding.test.ts",
+    "server/collaboration-retained-artifact-source.ts",
+    "server/collaboration-context-source.ts",
+    "server/collaboration-context-compiler.ts",
+    "server/telos-artifact-store.ts",
+    "server/telos-artifact-routes.ts",
+    "frontend/src/components/SavedArtifactDialog.tsx",
+    "frontend/src/components/SavedArtifactDialog.css",
+    "frontend/src/components/WorkOutputs.tsx",
+    "frontend/src/components/SavedArtifactRouteDialog.tsx",
+    "frontend/src/lib/saved-artifact-location.ts"
+  ],
+  "rawCurrentAndIncomingApprovedDesignTextPreserved": true,
+  "checks": {
+    "protocolClientBuild": "pass",
+    "focused": {
+      "passed": 192,
+      "failed": 2,
+      "failureKind": "original5000ms timeout; no reported assertion mismatch",
+      "filesPassed": 5,
+      "filesFailed": 2,
+      "skipped": 0,
+      "reruns": 0,
+      "firstPassClean": false,
+      "qualification": "pending combined-source CI; timeout cause unresolved"
+    },
+    "design": {
+      "passed": 108,
+      "existingSkipped": 1
+    },
+    "heapMiB": 1024,
+    "workers": 1
+  },
+  "priorAdvisorEvidence": "advisor-base-union-receipt.json; retained24passes/7timeouts/oneunchanged7casepassdiagnostic; not this head qualification",
+  "historicalFullReview": 5562773551,
+  "historicalFullReviewHead": "d2c47c71b9c7452d0d4bc9f4f5ffec3737ab371e",
+  "historicalAppSuccess": 56631391764,
+  "historicalCleanRounds": [5561003331, 5562773551],
+  "currentHeadGates": "NewCI/fullfinal/Apprequired under existingstandinghumanreviewauthorization; no duplicate or additionalpermissionquestion",
+  "sequencingErrorRecovered": "Initial generatedmanifest before merge completed was refused by Git; only own generated file restored, actual merge finished before resolution; source check rerun correctly passes",
+  "modelTestOrStagingOrDeployment": false,
+  "unchangedFailedTestFiles": [
+    "frontend/src/components/__tests__/WorkOutputs.test.tsx",
+    "frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx"
+  ],
+  "evidenceSha256": {
+    "role-base-vm-stat.log": "2fa5c595ce772456aeba687e02bb1ae687c5873f954dbf58523f4c6b8eb3b615",
+    "role-base-design.log": "bb3c932657d1b98a494648bd19f641377133f9f43b9cc079d1cc57db88a03afd",
+    "role-base-manifest-red.log": "0daa25528c60c54992967916388a1539622904c8cca74e5644f9f9bdd32ff0c9",
+    "role-base-source-closure.log": "131317fe644b40e81fe99033806f8e27391ad78e47506ac1470c072f4133625a",
+    "role-base-focused.log": "1dbe3f02bb2dbb752d8f70a0742a512de8a097f5706735103d436c32baae8111",
+    "role-base-protocol-client-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

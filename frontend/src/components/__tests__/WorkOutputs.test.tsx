@@ -1,7 +1,16 @@
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactElement } from 'react';
 import type { TodoOutput } from '../../types/todo';
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderComponent,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { Capacitor } from '@capacitor/core';
 import { WorkOutputs } from '../WorkOutputs';
 import { apiFetch } from '../../lib/api-fetch';
@@ -12,6 +21,9 @@ vi.mock('../../lib/share-file', () => ({
   shareTelosArtifact: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => false } }));
+function render(element: ReactElement) {
+  return renderComponent(element, { wrapper: MemoryRouter });
+}
 const notes = {
   id: 'a'.repeat(32),
   itemId: 'work',
@@ -146,4 +158,35 @@ it('keeps retained source packets separate from produced outputs and their count
   await screen.findByText('1 saved file');
   expect(screen.getByText('notes.md')).toBeTruthy();
   expect(screen.queryByText('Reviewed origin packet')).toBeNull();
+});
+
+it('opens the real saved-version preview from the Work output without dispatching', async () => {
+  const { installDialogStub } = await import('./dialog-stub');
+  installDialogStub();
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).includes('/versions'))
+      return {
+        ok: true,
+        json: async () => ({ artifacts: [notes], cursor: null, hasMore: false }),
+      } as Response;
+    if (String(url).includes('/document'))
+      return {
+        ok: true,
+        json: async () => ({
+          path: notes.url,
+          name: 'notes.md',
+          ext: '.md',
+          revision: 2,
+          content: '# Saved research\n\nRetained bytes.',
+          previewUnavailable: false,
+        }),
+      } as Response;
+    return response();
+  });
+  render(<WorkOutputs itemId="work" />);
+  await screen.findByText('notes.md');
+  fireEvent.click(screen.getByRole('link', { name: 'Research notes' }));
+  await screen.findByRole('heading', { name: 'Saved research' });
+  expect(shareTelosArtifact).not.toHaveBeenCalled();
+  expect(downloadFile).not.toHaveBeenCalled();
 });
