@@ -1,4 +1,3 @@
-import { createOwnedOrdinaryWorkspaceCommandRouter } from './ordinary-local-codex-entry.js';
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
 import { startWarmPoolHost } from './openshell-warm-pool-host.js';
@@ -159,6 +158,7 @@ import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
 import { createChatRestRouter } from './chat-rest-handler.js';
+import { createOwnedOrdinaryWorkspaceCommandRouter } from './ordinary-local-codex-entry.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 
 const log = createLogger('server');
