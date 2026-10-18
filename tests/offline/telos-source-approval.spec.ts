@@ -223,6 +223,11 @@ for (const theme of ['dark', 'light'] as const)
                 host.actor,
               ),
             });
+          const record = path.match(/^\/api\/telos\/work\/items\/([^/]+)\/record$/);
+          if (record)
+            return route.fulfill({
+              json: host.work.readRecord(decodeURIComponent(record[1]), host.actor),
+            });
           const work = path.match(/^\/api\/telos\/work\/items\/([^/]+)$/);
           if (work)
             return route.fulfill({ json: host.work.read(decodeURIComponent(work[1]), host.actor) });

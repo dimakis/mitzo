@@ -1,0 +1,221 @@
+{
+  "ownerHead": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+  "ownerTree": "a606aa2ba6bb0175f0c2ac8318f66691a2d26289",
+  "capturedSource": "fe4f811b0245f5911cd45a74939c8b855d095830",
+  "metadataSha256": "fe914eb86191049e753eda952ae9aef98b836a985ca5e9f5d2aa70df305cb24c",
+  "referenceSha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+  "protectedTest": {
+    "path": "tests/offline/symposium-approved-design.spec.ts",
+    "sha256": "9ac87c581b795a899a5d137d56ae0f0ba3cdd196b3369987b93dfe1dd084aea1",
+    "unchanged": true
+  },
+  "protectedTestUnchangedFromHead": "77ce9a27037c737066b83eeb229b6dc5bf6de09b",
+  "captures": [
+    {
+      "sourcePath": "docs/design/assets/symposium-serif-header-mobile-webkit-320-dark.png",
+      "retainedPath": "symposium-serif-header-mobile-webkit-320-dark.png",
+      "sha256": "ae6c35c3b62c55c95c394f614d432bfb6442af149c4c6f2e07ea3948e92963a3",
+      "bytes": 8218
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-serif-header-mobile-webkit-390-dark.png",
+      "retainedPath": "symposium-serif-header-mobile-webkit-390-dark.png",
+      "sha256": "b9042d6408f18ff93f15d7280af6aabb3a357a8af1c6e51ec91ca5575b949a0e",
+      "bytes": 11350
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-serif-header-mobile-webkit-320-light.png",
+      "retainedPath": "symposium-serif-header-mobile-webkit-320-light.png",
+      "sha256": "ff9ea6cf6441e463e22892faed30f9f8d83990bb0ee34344074dceb17ded9df4",
+      "bytes": 8290
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-serif-header-mobile-webkit-390-light.png",
+      "retainedPath": "symposium-serif-header-mobile-webkit-390-light.png",
+      "sha256": "bf9ffdc366a8b283434a2a95a31953a4c12cec2a30d0544a94a6f61680f590b3",
+      "bytes": 11795
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-serif-header-mobile-chromium-320-dark.png",
+      "retainedPath": "symposium-serif-header-mobile-chromium-320-dark.png",
+      "sha256": "aec8b23ee8421c7070b56e632832dc150a48574e62908f83d9a22f8e5f29a9dc",
+      "bytes": 5767
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-serif-header-mobile-chromium-390-dark.png",
+      "retainedPath": "symposium-serif-header-mobile-chromium-390-dark.png",
+      "sha256": "61f49b7a6ae6604f08ac674d97694ea8671114463a2ff384dd4a6df7d47229bf",
+      "bytes": 8565
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-serif-header-mobile-chromium-320-light.png",
+      "retainedPath": "symposium-serif-header-mobile-chromium-320-light.png",
+      "sha256": "04d2d1a89692b77ceacee111d5f8707a20e832f8a76a1f061b36c30b2083fefe",
+      "bytes": 5737
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-serif-header-mobile-chromium-390-light.png",
+      "retainedPath": "symposium-serif-header-mobile-chromium-390-light.png",
+      "sha256": "2cd896b5c9dfcf359391fb969a5c101dbec0db0b9403f08b508f227ef51a593f",
+      "bytes": 8559
+    }
+  ],
+  "inspectedAtUtc": "2026-10-18T00:31:46.272151+00:00",
+  "inspectorSession": "01a14bdc-d152-7912-84d4-c0012e9d5206",
+  "inspection": "view_image of all eight retained, exact committed PNG crops",
+  "observations": [
+    "All four 320px engine/theme crops show Architect +2; no second visible name.",
+    "All four 390px engine/theme crops show Architect \u00b7 Reviewer +1.",
+    "Visible names and counts are readable, adjacent and separated from the right chevron; no visible ellipsis, overlap or duplicated remaining count.",
+    "Dark and light crops preserve the same visible-name/count rule across both mobile engines."
+  ],
+  "producerReportedDomMeasurements": [
+    {
+      "project": "mobile-webkit",
+      "theme": "dark",
+      "measurements": [
+        {
+          "width": 320,
+          "nameTrackWidth": 64,
+          "countGap": 4,
+          "fontFamily": "Times New Roman, serif",
+          "fontSize": "16px",
+          "glyphWidth": 63.671875
+        },
+        {
+          "width": 390,
+          "nameTrackWidth": 140.96875,
+          "countGap": 4,
+          "fontFamily": "Times New Roman, serif",
+          "fontSize": "16px",
+          "glyphWidth": 63.671875
+        }
+      ]
+    },
+    {
+      "project": "mobile-webkit",
+      "theme": "light",
+      "measurements": [
+        {
+          "width": 320,
+          "nameTrackWidth": 64,
+          "countGap": 4,
+          "fontFamily": "Times New Roman, serif",
+          "fontSize": "16px",
+          "glyphWidth": 63.671875
+        },
+        {
+          "width": 390,
+          "nameTrackWidth": 140.96875,
+          "countGap": 4,
+          "fontFamily": "Times New Roman, serif",
+          "fontSize": "16px",
+          "glyphWidth": 63.671875
+        }
+      ]
+    },
+    {
+      "project": "mobile-chromium",
+      "theme": "dark",
+      "measurements": [
+        {
+          "width": 320,
+          "nameTrackWidth": 64,
+          "countGap": 4,
+          "fontFamily": "\"Times New Roman\", serif",
+          "fontSize": "16px",
+          "glyphWidth": 63.671875
+        },
+        {
+          "width": 390,
+          "nameTrackWidth": 140.984375,
+          "countGap": 4,
+          "fontFamily": "\"Times New Roman\", serif",
+          "fontSize": "16px",
+          "glyphWidth": 63.671875
+        }
+      ]
+    },
+    {
+      "project": "mobile-chromium",
+      "theme": "light",
+      "measurements": [
+        {
+          "width": 320,
+          "nameTrackWidth": 64,
+          "countGap": 4,
+          "fontFamily": "\"Times New Roman\", serif",
+          "fontSize": "16px",
+          "glyphWidth": 63.671875
+        },
+        {
+          "width": 390,
+          "nameTrackWidth": 140.984375,
+          "countGap": 4,
+          "fontFamily": "\"Times New Roman\", serif",
+          "fontSize": "16px",
+          "glyphWidth": 63.671875
+        }
+      ]
+    }
+  ],
+  "domMeasurementsIndependentlyVerified": false,
+  "olderCaptureBytesUnchangedAtOwnerHead": [
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-mobile-webkit-header-390-light.png",
+      "sha256": "41a1c96078080d6464b9045010e837fd45286deaed1874dfb1b7e4ea0c2ed0ad"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-desktop-chromium-header-desktop-column-320-dark.png",
+      "sha256": "4a5ca4e9f0533713f86f3527c58b80d95b1ce45308e4de8c1da827d89e74c427"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-mobile-webkit-policy-refusal-dark.png",
+      "sha256": "5cdb435c1b9d934ebe8db6a5ea414e38e6cf001a3f0dc7d6da7cea6129ff5b9d"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-desktop-chromium-shared-light.png",
+      "sha256": "d515e57aad9da7d45dd65e53a17ca2b419e13bf75e5f06ce8e3771d86ed33bab"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-mobile-webkit-shared-dark.png",
+      "sha256": "c9d734b01b2d37d306483e1741febdac5748351cd9218c5bbb1acf9a74167090"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-mobile-webkit-policy-pending-light.png",
+      "sha256": "e7589896f5ee13e6b43357a7dad3f200490c97388ba9aa8375d8002ccf12031c"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-desktop-chromium-policy-refusal-light.png",
+      "sha256": "1d45cc0ec542c9a3ae6e6e37f6e98a444b84e68b51e204d6f31b2de350b32bef"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-dark.png",
+      "sha256": "46278e66902411672522ce4eea31af7a943b18b5d7b2931a3a5d21a73385ff77"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-light.png",
+      "sha256": "827c3f3d8b80ab611726a95ecdcfe376b5ea210d2b1ab115d1770f6d7faffadc"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-dark.png",
+      "sha256": "585a66cc7bcda22b711b8e661e5883364bb0b7d1a06f456e03e0ac06c48f94ec"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-light.png",
+      "sha256": "b1d84d521fae0bd36071f599d100fd8c0f145be9e0ef6f2d566f4be1e35f83d4"
+    }
+  ],
+  "olderCaptureBounds": "Byte custody only: the eleven prior renders retain their originally recorded captured-source bounds; unchanged files do not establish a new render at this head.",
+  "limits": [
+    "Static crops do not independently verify 64px track width, 63.671875px glyph width, 4px gap, font computation, viewport/container DOM geometry or keyboard behavior.",
+    "Producer DOM measurements and reported protected/browser test passes are owner evidence; C did not rerun browser or model tests.",
+    "These A crops are not actual mounted-application evidence on corecb32 or later source.",
+    "Full Add agent/join/finalized reply, combined UX, physical iOS and runtime qualification remain open."
+  ],
+  "browserRerun": false,
+  "referenceImagesChanged": false,
+  "fullCombinedUxAccepted": false,
+  "frozenReferenceBytesVerified": true,
+  "approvedReferenceFilesUnchangedFromPriorHead": true
+}

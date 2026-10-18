@@ -1,0 +1,12 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/mitzo
+
+{"level":40,"time":1792275043193,"pid":16299,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792275043346,"pid":16299,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792275043500,"pid":16299,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+
+ Test Files  12 passed (12)
+      Tests  106 passed (106)
+   Start at  23:10:31
+   Duration  15.84s (transform 951ms, setup 0ms, import 4.20s, tests 10.43s, environment 1ms)
+
