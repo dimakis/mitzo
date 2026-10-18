@@ -1254,6 +1254,65 @@
       "reviewExecutionBlock": "Denied credential/reviewPOST remains held pending valid direct current-chat technical approval; no retry/delegation around guard, secret read or manual queue mutation. This accepted-source integration is independent necessary work, not a workaround. Obsolete prepared42ad request remains unsubmitted.",
       "meaningfulHistory": "Retain actual80231/b98 clean rounds;976 full5562752163/4949r1 and App56631308268success;08e full5563606448/4982r1LGTMmerge0new+unresolved/followups. No current changed-head fullfinal/App qualification yet.",
       "nextGate": "Verify latest actualmain then publish once; new exact-head CI/fullfinal/App and coordinated slot required. No actual merge slot held. Source/API execution guards remain intact."
+    },
+    "acceptedS7BaseIntegration": {
+      "source": "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
+      "sourceTree": "23c3dea508772c93555890518347fe697d4d5f5d",
+      "parents": [
+        "f66b78e2cb7a98452ced4036b61bcf74d4f20c15",
+        "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21"
+      ],
+      "manifest": {
+        "previousHead": "f66b78e2cb7a98452ced4036b61bcf74d4f20c15",
+        "acceptedMain": "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21",
+        "acceptedTree": "dc0faf268d2862b6e003b8197553924c7429f584",
+        "acceptedParents": ["9ec6ccd3e003e38895fefb5263048910ed47f0ef"],
+        "acceptedRuntimeRevision": "v1.0.328-telos-s7-saved-reference-return",
+        "runtimeRevision": "v1.0.328-telos-s7-saved-reference-return-symposium-shared-ui.4",
+        "aPinCount": 596,
+        "acceptedPinCount": 600,
+        "unionPinCount": 604,
+        "mismatches": 0,
+        "conflict": "Two manifest hunks: runtime revision and A-only4-key block; no production source-file conflict",
+        "resolution": [
+          "accepted runtime revision plusA suffix",
+          "all4 A-only source pins retained; accepted removal of unrelated neutral-spares comment preserved"
+        ],
+        "aOnlyKeysRetained": [
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/conversation-presentation.ts"
+        ],
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFilesByteIdentical": 352,
+        "acceptedSource": "All accepted S7 UX/saved-reference-return state, Bprivacy/currentness/exactrevision backend, Csinglemap/protectedLibraryjourneys and S9harness/evidence retained byte-for-byte. No old patch replay.",
+        "reviewContract": "Retain thorough08e baseline plus actual targeted integration verification/current exactheadLGTM/App, not full solelySHA/cap.",
+        "reviewExecution": "HELD for valid direct current-chat approval. No credential read/reviewPOSTretry/modechange/continuityaction/proxy or duplicated question.",
+        "localExecution": "Focused source/blob/pin checks and normal hooks only; fresh remote CI for actual combined head.",
+        "postHooksProof": "All604 pins,all11 A modules/fixtures/protected/34captures,and352 accepted nonmanifest source/evidence blobs verified after normal hooks."
+      },
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed with one-GiB Node heap.",
+      "actualConflict": "Actual accepted4bac S7 merge-tree conflicted in two generated-manifest hunks. The revision uses acceptedS7+Asuffix; all4 A-only module pins retained and all accepted keys/hashes preserved. Initial single-hunk guard stopped before writing/staging a resolution; explicit hunk/key union used. No blanket parent selection.",
+      "preservedAcceptedUi": "All accepted S7 workspace/tree/discovery, SavedArtifactDialog/RouteDialog/WorkOutputs/FileViewer location.state/return behavior and scoped workspace styles retained. Bbackendprivacy/currentness/exactrevision, Csinglemap/unchangedprotectedLibraryjourneys and S9tests/evidence all imported byte-identically.",
+      "approvedA": "All11 A modules and owned fixtures/protected spec/34captures remain byte-identical to precedingf66; earlier direct baseline08 equality proof retained. No A redesign/reference/assertion change.",
+      "priorValidation": "f66 exactCI39146013202 all8 workflowjobsSUCCESS and source596pins/11A proof remain source-bound. PriorC/S9 clean simulations do not describe currentS7 union. New combined source needs its own CI.",
+      "reviewContract": "Current land-pr retains actual thorough08e report5563606448/4982r1 baseline plus verified integration followup or applicable trusted continuity. Generated resolutions and shared S7/Bnavigation/style/caller assumptions need real targeted review, currentexactheadLGTM/App; no full merelySHA/cap and no own inference from greenCI/disjointpaths.",
+      "executionHold": "Denied credential+reviewPOST remains held for valid direct currentchat approval. No credential read, POST retry, review-mode change, continuity action, proxy or duplicated question. Independent source work only.",
+      "localExecution": "Static pin/blob/union checks and normal hooks only; no broad/local unit/browser/native run, fresh remote CI required.",
+      "landing": "No actualslot or global preparationhold. Final current-main strictalignment/CI/exactheadreview/App required; no merge/runtime claim."
     }
   },
   "integrationHandoff": {
@@ -1285,8 +1344,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "a7cef26f4de2050412e978e7c311107d5505ed5e",
-  "acceptedMainMerge": "e4186e5694cb18f27935ae005c9c9c811ad52fe3",
+  "latestAcceptedMain": "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21",
+  "acceptedMainMerge": "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1420,9 +1479,9 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "a7cef26f4de2050412e978e7c311107d5505ed5e",
-  "baseRefresh": "Verified actual sole generated-manifest conflict with accepted B#1020 maina7cef26f, not base movement alone.596-pin union, all11 A modules/fixtures/protected/captures unchanged;157 accepted nonmanifest source/audit/evidence files byte-identical after hooks. B runtime tag retained with A suffix. All source privacy/currentness/exact revision and approved UI preserved. a8c CI stayed source-bound; review execution remains held for direct chat approval. New CI/fullfinal/App required.",
-  "latestValidation": "checks.acceptedArtifactBaseIntegration",
+  "integratedAcceptedBase": "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21",
+  "baseRefresh": "Actual acceptedS7 4bac conflict requires integration.604-pin source union with explicit revision+A4-key resolution,all11 A modules/protected/captures unchanged,352 accepted files includingS7/B/C/S9 preserved after hooks. f66 greenCI/old08e baseline retained scoped; new currentCI and targetedintegrationreview/App required. Deniedreviewcredential action staysheld.",
+  "latestValidation": "checks.acceptedS7BaseIntegration",
   "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
@@ -1435,6 +1494,7 @@
     "2b7340791b7894716615a744d68cf9094fc13682",
     "bf604fa061e3414d1e173ca99f0899602bbdd297",
     "4a61e824cd2eb2aa15959cf6a02f3e3f02ed54c9",
-    "e4186e5694cb18f27935ae005c9c9c811ad52fe3"
+    "e4186e5694cb18f27935ae005c9c9c811ad52fe3",
+    "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23"
   ]
 }
