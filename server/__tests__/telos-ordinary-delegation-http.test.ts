@@ -1,3 +1,5 @@
+import { loadAccountProfiles } from '../account-profiles.js';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -105,10 +107,13 @@ async function fixture() {
     broadcastTasks: vi.fn(),
   });
   let unsupported = false;
-  const resolve = async () => {
+  const resolve = async (settings = input.settings) => {
     if (!isAuthSessionCurrent(f.native.auth)) throw Error('Revoked operator');
     return {
-      binding: f.native.binding,
+      binding: loadAccountProfiles().resolve(
+        settings.binding.account.accountId,
+        settings.selection.model,
+      ),
       agentProfile: f.native.first.reserved.agentProfile,
       taskRoot: f.native.taskRoot,
       requiredCapabilities: unsupported
@@ -135,10 +140,10 @@ async function fixture() {
         throw Error('Repository dispatcher forbidden');
       },
       ordinary: {
-        resolvePreparation: resolve,
-        qualifySettings: resolve,
-        authorizeSettings: async () => {
-          await resolve();
+        resolvePreparation: (scope) => resolve(scope.settings),
+        qualifySettings: (scope) => resolve(scope.input.settings),
+        authorizeSettings: async (scope) => {
+          await resolve(scope.settings);
         },
         dispatch: (owner, actor, input, signal) =>
           orchestrator.delegateSlice(owner, actor, input, signal),
@@ -302,4 +307,69 @@ it('keeps repository V1 endpoints and the lead selector strict against caller-ch
   expect(tool.status).toBe(400);
   expect(x.f.work.read('slice', x.f.actor).attempts).toEqual([]);
   expect(x.f.native.events.listSessions()).toHaveLength(before);
+});
+
+it('typed HTTP default-start aliases recover original settings even when a new request selects another valid account and model', async () => {
+  const x = await fixture();
+  const original = await x.api.delegateOrdinarySlice(x.input);
+  const path = process.env.MITZO_ACCOUNT_PROFILES_FILE!,
+    configured = JSON.parse(readFileSync(path, 'utf8'));
+  configured.push({
+    ...configured[0],
+    id: 'ordinary-alternate',
+    label: 'Alternate offline account',
+    models: [
+      {
+        id: 'fixture-alternate-model',
+        label: 'Offline alternate model',
+        reasoningEfforts: ['low'],
+      },
+    ],
+  });
+  writeFileSync(path, JSON.stringify(configured));
+  const binding = loadAccountProfiles().resolve('ordinary-alternate', 'fixture-alternate-model');
+  const prepared = await x.f.native.workspaces.prepareOrdinaryWorkspace({
+    binding,
+    selection: {
+      runOn: 'local',
+      runtime: {
+        account: {
+          accountId: binding.accountId,
+          provider: 'openai-codex',
+          profileRevision: binding.profileRevision,
+        },
+        harness: 'codex',
+        targetId: x.input.settings.binding.execution.targetId,
+      },
+    },
+    signal: x.f.native.signal.signal,
+  });
+  const settings = {
+    ...structuredClone(x.input.settings),
+    binding: prepared.runtimeBinding,
+    workspace: { kind: 'ordinary' as const, preparationId: prepared.preparationId },
+    selection: { ...x.input.settings.selection, model: binding.model },
+  };
+  await x.f.native.workspaces.qualifyOrdinaryWorkspace({
+    preparationId: prepared.preparationId,
+    binding,
+    settings,
+    agentProfile: x.f.native.first.reserved.agentProfile,
+    signal: x.f.native.signal.signal,
+  });
+  const before = x.f.native.events.listSessions().length,
+    reserve = vi.spyOn(x.f.native.workspaces, 'reserveOrdinaryWorkspace');
+  await expect(x.api.delegateOrdinarySlice({ ...x.input, settings })).rejects.toMatchObject({
+    status: 409,
+  });
+  expect(
+    await x.api.delegateOrdinarySlice({ ...x.input, requestId: randomUUID(), settings }),
+  ).toEqual(original);
+  expect(x.f.native.events.listSessions()).toHaveLength(before);
+  expect(x.tasks.getTree()).toHaveLength(1);
+  expect(reserve).not.toHaveBeenCalled();
+  expect(x.f.native.events.getSession(original.workerConversationId)?.accountBinding).toEqual(
+    x.f.native.binding,
+  );
+  expect(x.f.native.first.launch).not.toHaveBeenCalled();
 });

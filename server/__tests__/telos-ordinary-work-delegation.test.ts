@@ -1,3 +1,4 @@
+import { loadAccountProfiles } from '../account-profiles.js';
 import { mkdirSync, renameSync, symlinkSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
@@ -93,12 +94,18 @@ async function fixture() {
   let tasks = new TaskStore(join(f.native.root, 'execution-tasks.db'));
   cleanup.push(() => tasks.close());
   let requiredCapabilities: readonly string[] = ['ordinary_conversation', 'task_execution'];
-  const resolve = () => {
+  const resolve = (settings = input.settings) => {
     if (!isAuthSessionCurrent(f.native.auth)) throw Error('Revoked operator');
     return {
-      binding: f.native.binding,
+      binding: loadAccountProfiles().resolve(
+        settings.binding.account.accountId,
+        settings.selection.model,
+      ),
       agentProfile: f.native.first.reserved.agentProfile,
-      taskRoot: f.native.taskRoot,
+      taskRoot:
+        settings.binding.account.accountId === f.native.binding.accountId
+          ? f.native.taskRoot
+          : join(f.native.root, 'alternate-tasks'),
       requiredCapabilities,
     };
   };
@@ -109,13 +116,13 @@ async function fixture() {
       events: f.native.events,
       tasks,
       workspaces: f.native.workspaces,
-      qualifyOrdinarySettings: async () => resolve(),
-      resolvePreparation: async () => resolve(),
-      authorize: async () => {
-        resolve();
+      qualifyOrdinarySettings: async (scope) => resolve(scope.input.settings),
+      resolvePreparation: async (scope) => resolve(scope.settings),
+      authorize: async (scope) => {
+        resolve(scope.settings);
       },
-      assertBeforeApply: () => {
-        resolve();
+      assertBeforeApply: (scope) => {
+        resolve(scope.settings);
       },
     });
   return {
@@ -567,3 +574,84 @@ it.each(['abort', 'revoke'] as const)(
     expect(f.native.workspaces.getOrdinaryWorkspaceForConversation(conversationId)).toBeDefined();
   },
 );
+
+it('recovers the canonical default-start attempt when a new request selects another genuinely valid account, model and task root', async () => {
+  const f = await fixture();
+  const original = await f.delegation.delegate(f.actor, f.input, f.native.signal.signal);
+  const profilesPath = process.env.MITZO_ACCOUNT_PROFILES_FILE!;
+  const configured = JSON.parse(readFileSync(profilesPath, 'utf8'));
+  configured.push({
+    ...configured[0],
+    id: 'ordinary-alternate',
+    label: 'Alternate offline account',
+    models: [
+      {
+        id: 'fixture-alternate-model',
+        label: 'Offline alternate model',
+        reasoningEfforts: ['low'],
+      },
+    ],
+  });
+  writeFileSync(profilesPath, JSON.stringify(configured));
+  const binding = loadAccountProfiles().resolve('ordinary-alternate', 'fixture-alternate-model');
+  const prepared = await f.native.workspaces.prepareOrdinaryWorkspace({
+    binding,
+    selection: {
+      runOn: 'local',
+      runtime: {
+        account: {
+          accountId: binding.accountId,
+          provider: 'openai-codex',
+          profileRevision: binding.profileRevision,
+        },
+        harness: 'codex',
+        targetId: f.input.settings.binding.execution.targetId,
+      },
+    },
+    signal: f.native.signal.signal,
+  });
+  const taskRoot = join(f.native.root, 'alternate-tasks');
+  mkdirSync(taskRoot, { mode: 0o700 });
+  const settings = {
+    ...structuredClone(f.input.settings),
+    binding: prepared.runtimeBinding,
+    workspace: { kind: 'ordinary' as const, preparationId: prepared.preparationId },
+    selection: { ...f.input.settings.selection, model: binding.model },
+  };
+  // Prove the changed incoming selection is genuinely eligible, not malformed intent.
+  await f.native.workspaces.qualifyOrdinaryWorkspace({
+    preparationId: prepared.preparationId,
+    binding,
+    settings,
+    agentProfile: f.native.first.reserved.agentProfile,
+    signal: f.native.signal.signal,
+  });
+  const sessions = f.native.events.listSessions().length;
+  const reserve = vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace');
+  // Exact command identity still forbids changing settings; only a distinct
+  // default-start alias may recover the already canonical attempt.
+  await expect(
+    f.delegation.delegate(
+      f.actor,
+      { ...structuredClone(f.input), settings },
+      f.native.signal.signal,
+    ),
+  ).rejects.toThrow();
+  const requestId = randomUUID();
+  expect(
+    await f.delegation.delegate(
+      f.actor,
+      { ...structuredClone(f.input), requestId, settings },
+      f.native.signal.signal,
+    ),
+  ).toEqual(original);
+  expect(f.native.events.listSessions()).toHaveLength(sessions);
+  expect(f.tasks.getTree()).toHaveLength(1);
+  expect(reserve).not.toHaveBeenCalled();
+  expect(f.work.ordinaryDelegationRequestForHost(requestId, f.actor)?.input.settings).toEqual(
+    f.input.settings,
+  );
+  expect(
+    f.native.workspaces.getOrdinaryWorkspaceForConversation(original.workerConversationId)?.binding,
+  ).toEqual(f.native.binding);
+});
