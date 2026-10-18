@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { z } from 'zod';
-import type { TelosWorkRoleContextSelection } from '@mitzo/protocol';
+import type {
+  TelosWorkRoleContextSelection,
+  TelosWorkRolePresentation,
+  TelosWorkRolePresentationRef,
+} from '@mitzo/protocol';
 import { shareTelosArtifact } from '../lib/share-file';
+import { readTelosRolePresentation } from '../lib/telos-role-presentation';
 
 const BriefFields = z.strictObject({
   summary: z.string(),
@@ -11,15 +16,33 @@ const BriefFields = z.strictObject({
   acceptanceCriteria: z.array(z.string()),
   taskHint: z.string().default(''),
 });
+function recordedDate(value: string) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleDateString(undefined, { dateStyle: 'medium' })
+    : 'Recorded date unavailable';
+}
 /** A presentation of retained selections; opening this disclosure reads no new sources. */
 export function TelosLinkedContext({
   context,
   summary = 'Linked brief · goal & parent context',
+  presentation,
+  presentationRef,
 }: {
   context: TelosWorkRoleContextSelection;
   summary?: string;
+  presentation?: TelosWorkRolePresentation;
+  presentationRef?: TelosWorkRolePresentationRef;
 }) {
   const [error, setError] = useState<string | null>(null);
+  let labels: TelosWorkRolePresentation | undefined;
+  if (presentation !== undefined || presentationRef !== undefined) {
+    try {
+      labels = readTelosRolePresentation(context, presentation, presentationRef);
+    } catch {
+      return <p role="status">Reviewed context labels unavailable.</p>;
+    }
+  }
   let fields: z.infer<typeof BriefFields> | undefined;
   try {
     const parsed = BriefFields.safeParse(JSON.parse(context.brief.text));
@@ -46,6 +69,7 @@ export function TelosLinkedContext({
     <details className="composer-session-details chat-launch-prompt">
       <summary>{summary}</summary>
       <h3>Overall goal</h3>
+      {labels?.overallGoal.title && <h4>{labels.overallGoal.title}</h4>}
       <p>{context.overallGoal.text}</p>
       <p>
         <Link
@@ -56,11 +80,11 @@ export function TelosLinkedContext({
         </Link>
       </p>
       {!!context.parentCriteria.length && <h3>Parent outcome</h3>}
-      {context.parentCriteria.map((parent) => (
+      {context.parentCriteria.map((parent, index) => (
         <section key={parent.itemId}>
           <p>
             <Link className="session-work-link" to={`/todos/${encodeURIComponent(parent.itemId)}`}>
-              Parent item
+              {labels?.parents[index].title || 'Parent item'}
             </Link>
           </p>
           <ul>
@@ -99,11 +123,22 @@ export function TelosLinkedContext({
           )}
         </>
       ) : (
-        <p>{context.brief.text}</p>
+        <>
+          {labels?.item.title && <h4>{labels.item.title}</h4>}
+          <p>{context.brief.text}</p>
+        </>
       )}
       {!!context.sources.length && <h4>Sources</h4>}
-      {context.sources.map((source) => (
+      {context.sources.map((source, index) => (
         <section key={source.snapshotId}>
+          {labels?.sources[index].title && <p>{labels.sources[index].title}</p>}
+          {labels?.sources[index].createdAt && (
+            <p>
+              <time dateTime={labels.sources[index].createdAt!}>
+                {recordedDate(labels.sources[index].createdAt!)}
+              </time>
+            </p>
+          )}
           {source.source && source.selection.kind === 'selected' ? (
             source.source.namespace === 'mitzo' ? (
               <Link
@@ -129,9 +164,26 @@ export function TelosLinkedContext({
         </section>
       ))}
       {!!materials.length && <h4>Materials</h4>}
-      {materials.map((material) => (
+      {materials.map((material, index) => (
         <section key={`${material.artifactId}:${material.revision}`}>
-          <p>Retained material · Revision {material.revision}</p>
+          {labels ? (
+            <>
+              <p>{labels.artifacts[index].title || 'Retained material'}</p>
+              <p>
+                {labels.artifacts[index].sourceKind === 'source_capture'
+                  ? 'Reviewed source record'
+                  : labels.artifacts[index].filename}{' '}
+                · Revision {material.revision}
+              </p>
+              <p>
+                <time dateTime={labels.artifacts[index].createdAt}>
+                  {recordedDate(labels.artifacts[index].createdAt)}
+                </time>
+              </p>
+            </>
+          ) : (
+            <p>Retained material · Revision {material.revision}</p>
+          )}
           <button
             className="home-secondary"
             type="button"

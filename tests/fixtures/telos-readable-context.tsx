@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import type { TelosWorkRoleContextSelection } from '@mitzo/protocol';
+import type { TelosWorkRoleContextSelection, TelosWorkRoleContextReview } from '@mitzo/protocol';
 import { TelosLinkedContext } from '../../frontend/src/components/TelosLinkedContext';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
 import '../../frontend/src/styles/tokens.css';
@@ -54,17 +54,28 @@ const context: TelosWorkRoleContextSelection = {
   artifacts: [{ artifactId: 'e'.repeat(32), revision: 2, sha256: 'f'.repeat(64) }],
 };
 
+const reviewed = (window as Window & { __TELOS_REVIEW__?: TelosWorkRoleContextReview })
+  .__TELOS_REVIEW__;
 createRoot(document.getElementById('root')!).render(
   <MemoryRouter>
     <main className="chat-page workspace-chat">
       <div className="telos-chat-context">
-        <TelosLinkedContext context={context} />
+        <TelosLinkedContext
+          context={reviewed?.selection ?? context}
+          presentation={reviewed?.presentation}
+          presentationRef={reviewed?.presentationRef}
+        />
       </div>
       <div className="chat-area">
         <p>The conversation and composer remain available while you review the linked context.</p>
       </div>
       <div className="conversation-composer">
-        <ChatInput running={false} onSend={() => false} onStop={() => {}} />
+        <ChatInput
+          running={false}
+          onSend={() => false}
+          onStop={() => {}}
+          draftStorageKey={reviewed ? 'reviewed-context-draft' : undefined}
+        />
       </div>
     </main>
   </MemoryRouter>,
