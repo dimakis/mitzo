@@ -1,4 +1,13 @@
 import {
+  TelosOrdinaryWorkDelegationInputSchema,
+  TelosOrdinaryWorkDelegationIntentSchema,
+  TelosLegacyWorkDelegationIntentSchema,
+  TelosWorkDelegationRequestIntentSchema,
+  type TelosWorkDelegationRequest,
+  type TelosWorkDelegationRequestIntent,
+  type TelosOrdinaryWorkDelegationIntent,
+} from '@mitzo/protocol';
+import {
   TelosWorkRoleSetupIntentSchema,
   TelosOrdinaryWorkRoleSetupInputSchema,
   TelosOrdinaryWorkRoleSetupIntentSchema,
@@ -1207,7 +1216,7 @@ export class TelosWorkStore {
     }));
   }
   /** Scoped host capability: a bound lead may request only its exact child. */
-  assertDelegationAuthority(intent: TelosWorkDelegationIntent, actor: TelosWorkActor) {
+  assertDelegationAuthority(intent: TelosWorkDelegationRequestIntent, actor: TelosWorkActor) {
     const input = intent.input;
     if (
       !actor.id.trim() ||
@@ -1248,7 +1257,22 @@ export class TelosWorkStore {
         'SELECT intent FROM telos_work_delegation_requests WHERE actor_id=? AND request_id=?',
       )
       .get(`${actor.kind}:${actor.id}`, requestId) as { intent: string } | undefined;
-    return row ? (JSON.parse(row.intent) as TelosWorkDelegationIntent) : null;
+    if (!row) return null;
+    const intent = TelosWorkDelegationRequestIntentSchema.parse(JSON.parse(row.intent));
+    return 'version' in intent.input ? null : TelosLegacyWorkDelegationIntentSchema.parse(intent);
+  }
+  ordinaryDelegationRequestForHost(
+    requestId: string,
+    actor: TelosWorkActor,
+  ): TelosOrdinaryWorkDelegationIntent | null {
+    const row = this.db
+      .prepare(
+        'SELECT intent FROM telos_work_delegation_requests WHERE actor_id=? AND request_id=?',
+      )
+      .get(`${actor.kind}:${actor.id}`, requestId) as { intent: string } | undefined;
+    if (!row) return null;
+    const intent = TelosWorkDelegationRequestIntentSchema.parse(JSON.parse(row.intent));
+    return 'version' in intent.input ? TelosOrdinaryWorkDelegationIntentSchema.parse(intent) : null;
   }
   delegationCommittedForHost(attemptId: string): boolean {
     return !!this.db
@@ -1270,7 +1294,19 @@ export class TelosWorkStore {
         'SELECT d.intent FROM telos_work_attempts a JOIN telos_work_delegation_requests d ON d.attempt_id=a.attempt_id WHERE a.item_id=? ORDER BY a.seq DESC LIMIT 1',
       )
       .get(childItemId) as { intent: string } | undefined;
-    return row ? (JSON.parse(row.intent) as TelosWorkDelegationIntent) : null;
+    if (!row) return null;
+    const intent = TelosWorkDelegationRequestIntentSchema.parse(JSON.parse(row.intent));
+    return 'version' in intent.input ? null : TelosLegacyWorkDelegationIntentSchema.parse(intent);
+  }
+  latestOrdinaryDelegationForHost(childItemId: string): TelosOrdinaryWorkDelegationIntent | null {
+    const row = this.db
+      .prepare(
+        'SELECT d.intent FROM telos_work_attempts a JOIN telos_work_delegation_requests d ON d.attempt_id=a.attempt_id WHERE a.item_id=? ORDER BY a.seq DESC LIMIT 1',
+      )
+      .get(childItemId) as { intent: string } | undefined;
+    if (!row) return null;
+    const intent = TelosWorkDelegationRequestIntentSchema.parse(JSON.parse(row.intent));
+    return 'version' in intent.input ? TelosOrdinaryWorkDelegationIntentSchema.parse(intent) : null;
   }
   prepareDelegation(
     raw: unknown,
@@ -1278,7 +1314,38 @@ export class TelosWorkStore {
     assertBeforeApply: (intent: TelosWorkDelegationIntent) => void = () => {},
     capturePresentation?: (intent: TelosWorkDelegationIntent) => TelosWorkRolePresentation,
   ): { intent: TelosWorkDelegationIntent; receipt: TelosWorkDelegationReceipt | null } {
-    const input = TelosWorkDelegationInputSchema.parse(raw);
+    const result = this.prepareDelegationRequest(
+      TelosWorkDelegationInputSchema.parse(raw),
+      actor,
+      (intent) => assertBeforeApply(TelosLegacyWorkDelegationIntentSchema.parse(intent)),
+      capturePresentation
+        ? (intent) => capturePresentation(TelosLegacyWorkDelegationIntentSchema.parse(intent))
+        : undefined,
+    );
+    return { ...result, intent: TelosLegacyWorkDelegationIntentSchema.parse(result.intent) };
+  }
+  prepareOrdinaryDelegation(
+    raw: unknown,
+    actor: TelosWorkActor,
+    assertBeforeApply: (intent: TelosOrdinaryWorkDelegationIntent) => void = () => {},
+    capturePresentation?: (intent: TelosOrdinaryWorkDelegationIntent) => TelosWorkRolePresentation,
+  ): { intent: TelosOrdinaryWorkDelegationIntent; receipt: TelosWorkDelegationReceipt | null } {
+    const result = this.prepareDelegationRequest(
+      TelosOrdinaryWorkDelegationInputSchema.parse(raw),
+      actor,
+      (intent) => assertBeforeApply(TelosOrdinaryWorkDelegationIntentSchema.parse(intent)),
+      capturePresentation
+        ? (intent) => capturePresentation(TelosOrdinaryWorkDelegationIntentSchema.parse(intent))
+        : undefined,
+    );
+    return { ...result, intent: TelosOrdinaryWorkDelegationIntentSchema.parse(result.intent) };
+  }
+  private prepareDelegationRequest(
+    input: TelosWorkDelegationRequest,
+    actor: TelosWorkActor,
+    assertBeforeApply: (intent: TelosWorkDelegationRequestIntent) => void,
+    capturePresentation?: (intent: TelosWorkDelegationRequestIntent) => TelosWorkRolePresentation,
+  ): { intent: TelosWorkDelegationRequestIntent; receipt: TelosWorkDelegationReceipt | null } {
     const actorId = `${actor.kind}:${actor.id}`;
     const fingerprint = hash(input);
     return this.db
@@ -1292,7 +1359,7 @@ export class TelosWorkStore {
         if (saved) {
           if (saved.fingerprint !== fingerprint)
             conflict('Delegation request identity reused with different input');
-          const intent = JSON.parse(saved.intent) as TelosWorkDelegationIntent;
+          const intent = TelosWorkDelegationRequestIntentSchema.parse(JSON.parse(saved.intent));
           this.assertDelegationAuthority(intent, actor);
           assertBeforeApply(intent);
           return {
@@ -1322,8 +1389,9 @@ export class TelosWorkStore {
             )
             .get(previous.attempt_id) as { intent: string; receipt: string | null } | undefined;
           if (!retained) conflict('Existing attempt requires its original allocation recovery');
-          const intent = JSON.parse(retained.intent) as TelosWorkDelegationIntent;
+          const intent = TelosWorkDelegationRequestIntentSchema.parse(JSON.parse(retained.intent));
           if (
+            'version' in intent.input !== 'version' in input ||
             intent.input.leadConversationId !== input.leadConversationId ||
             intent.input.leadItemId !== input.leadItemId
           )
@@ -1360,7 +1428,7 @@ export class TelosWorkStore {
           ...input.contextSelection.parentCriteria.map((p) => p.itemId),
           input.contextSelection.overallGoal.itemId,
         ]);
-        const intent: TelosWorkDelegationIntent = {
+        const intent = TelosWorkDelegationRequestIntentSchema.parse({
           actorId,
           input,
           attemptId: randomUUID(),
@@ -1370,7 +1438,7 @@ export class TelosWorkStore {
             itemId,
             sha256: hash(this.item(itemId)),
           })),
-        };
+        });
         this.assertDelegationAuthority(intent, actor);
         assertBeforeApply(intent);
         // Capture before adding the attempt advances this item's revision. The
@@ -1423,7 +1491,7 @@ export class TelosWorkStore {
   }
   /** Host-only display read after exact existing S5 authority is requalified. */
   rolePresentationForDelegation(
-    intent: TelosWorkDelegationIntent,
+    intent: TelosWorkDelegationRequestIntent,
     actor: TelosWorkActor,
   ): TelosWorkRoleContextReview | undefined {
     this.assertDelegationAuthority(intent, actor);
@@ -1459,7 +1527,7 @@ export class TelosWorkStore {
       .immediate();
   }
   completeDelegation(
-    intent: TelosWorkDelegationIntent,
+    intent: TelosWorkDelegationRequestIntent,
     actor: TelosWorkActor,
     result: {
       workerConversationId: string;

@@ -45,17 +45,24 @@ export const TelosOrdinaryWorkDelegationInputSchema = z
       ctx.addIssue({ code: 'custom', message: 'Retry requires an explicit predecessor attempt' });
   });
 const intentFields = {
-  actorId: TelosWorkIdSchema,
-  attemptId: z.uuid(),
-  allocationOperationId: z.uuid(),
+  attemptId: TelosWorkIdSchema,
+  allocationOperationId: TelosWorkIdSchema,
   contextSnapshotId: TelosWorkIdSchema,
   recordRevisions: z.array(
     z.strictObject({ itemId: TelosWorkIdSchema, sha256: z.string().regex(/^[a-f0-9]{64}$/) }),
   ),
 };
-export const TelosOrdinaryWorkDelegationIntentSchema = z.strictObject({
+export const TelosLegacyWorkDelegationIntentSchema = z.strictObject({
+  actorId: TelosWorkIdSchema,
+  input: TelosWorkDelegationInputSchema,
   ...intentFields,
+});
+export const TelosOrdinaryWorkDelegationIntentSchema = z.strictObject({
+  actorId: TelosWorkIdSchema,
   input: TelosOrdinaryWorkDelegationInputSchema,
+  ...intentFields,
+  attemptId: z.uuid(),
+  allocationOperationId: z.uuid(),
 });
 /** Strict readers for the existing journal; no alternate table or request owner. */
 export const TelosWorkRoleSetupRequestSchema = z.union([
@@ -71,7 +78,7 @@ export const TelosWorkDelegationRequestSchema = z.union([
   TelosOrdinaryWorkDelegationInputSchema,
 ]);
 export const TelosWorkDelegationRequestIntentSchema = z.union([
-  z.strictObject({ ...intentFields, input: TelosWorkDelegationInputSchema }),
+  TelosLegacyWorkDelegationIntentSchema,
   TelosOrdinaryWorkDelegationIntentSchema,
 ]);
 export type TelosOrdinaryWorkRoleSetupInput = z.infer<typeof TelosOrdinaryWorkRoleSetupInputSchema>;
