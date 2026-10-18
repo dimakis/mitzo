@@ -2,8 +2,8 @@
 
 Parent `85e8444019a4ae4a`; S5a `9dab491c72f0494e`. This independent correction
 starts from accepted Mitzo 13669901. The current S5 producer's changed-file
-inventory does not include `TelosLinkedContext`; allocation, dispatch, role
-context schemas, fingerprints, recovery and persistence remain with their owners.
+inventory does not include `TelosLinkedContext`; allocation, dispatch, role-context
+schemas and fingerprints, recovery and persistence remain with their owners.
 
 The existing disclosure now explains Overall goal, Parent outcome, This item and
 Done when in the approved order. Raw snapshot/message/block IDs and hashes remain
@@ -27,6 +27,21 @@ and raw authority identifiers appeared as the explanation. The original three
 context/source/material checks still passed. The correction passes those checks,
 the new regressions and the existing role-setup component checks: seven total.
 The design suite passes 108 with one existing skip.
+
+The reviewed-source registry records the changed component fingerprint and a
+distinct `reviewedConnectionsRuntimeImplementationRevision` for this intentional
+correction. Shared ownership was coordinated with the S5 reviewer; every other
+source entry and both integrity assertions remain intact. The two source guards
+failed before the registration update, then all 20 checks in the registry/role
+artifact files passed. This is source provenance, separate from the frozen mock
+and approved-design ledger, which remain unchanged.
+
+Full CI also exposed an existing briefing-recovery fixture race: immediately
+after Today navigation it could click the old chat banner's same-named,
+revision-pinned Read briefing link. The retained trace proves that target. The
+fixture now waits for Today's exact date-only href before clicking; all original
+URL, allocation, response-loss, registration and retained-draft assertions stay.
+The corrected full journey and new-head broad checks require CI verification.
 
 The focused offline fixture uses the actual component, ordinary ChatInput and
 their existing styles. Six scenarios pass across mobile WebKit, mobile Chromium

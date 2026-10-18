@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.286-codex-agent-tools-sandbox-review.1';
+  'v1.0.286-codex-agent-tools-sandbox-review.1-telos-context.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1002,7 +1002,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosRoleSetup.tsx':
     '0a911c0fd1ce944d8c4ed2ca11cb97af919e0487190e017244bcd7cb6760aa4e',
   '../../frontend/src/components/TelosLinkedContext.tsx':
-    '5b3347d560bb9456932c7df250583ecc05326147c52e0972c0f0a649c187accf',
+    'c24010f87574f428c8d954c4bf8b73e62d9d8a88a925bd634b8f0233b8966c36',
   '../../frontend/src/components/TelosItemRoleEntries.tsx':
     'd5cb3a3ccde005cc25050f96c60fbd4f573c18eb00a8ee2a8b131be0bd33eb3d',
   '../../frontend/src/components/TelosAdvisorDraft.tsx':
