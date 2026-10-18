@@ -689,3 +689,327 @@ it('requires current synchronous operator authority and never replaces the origi
   ).rejects.toThrow('Operator source access revoked');
   expect(original).toHaveBeenCalledTimes(1);
 });
+
+it('exposes a private synchronous material fence for the existing save owner without reopening sources', async () => {
+  const input = selection();
+  const output = store.registerSessionOutput('source', {
+    requestId: 'save-fence-ref',
+    title: 'Selected',
+    source: {
+      messageId: 'answer',
+      blockId: 'chosen',
+      messageEndSeq: input.boundary.sequence,
+      sha256: input.messages[0].blocks[0].sha256,
+    },
+  });
+  const open = vi.spyOn(store, 'openCollaborationVisibleSource');
+  const result = await prepareCollaborationForward(
+    {
+      ...input,
+      messages: [],
+      artifacts: [
+        {
+          kind: 'transcript_reference',
+          artifactId: output.outputId,
+          revision: 1,
+          sha256: output.source.sha256,
+        },
+      ],
+    },
+    deps(),
+  );
+  const before = authorizeSource.mock.calls.length;
+  expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+  expect(authorizeSource).toHaveBeenCalledTimes(before);
+  expect(result.packet).not.toHaveProperty('assertLocalMaterialCurrent');
+  const fault = new Database(path);
+  fault
+    .prepare('DELETE FROM session_output_references WHERE session_id=? AND output_id=?')
+    .run('source', output.outputId);
+  fault.close();
+  expect(() => result.assertLocalMaterialCurrent()).toThrow();
+  expect(open).toHaveBeenCalledTimes(1);
+});
+
+it('renews retained material privacy synchronously for the existing save owner', async () => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const f = createCollaborationRetainedArtifactFixture();
+  try {
+    const saved = f.store.save({
+      itemId: f.itemId,
+      filename: 'retained.md',
+      title: 'Retained',
+      bytes: Buffer.from('EXACT MATERIAL'),
+      sessionId: 'gone',
+    });
+    const input = {
+      ...selection(),
+      sourceConversationId: null,
+      boundary: null,
+      messages: [],
+      artifacts: [
+        { kind: 'retained_artifact', artifactId: saved.id, revision: 1, sha256: saved.sha256 },
+      ],
+    };
+    const result = await prepareCollaborationForward(input, {
+      authorizeTarget,
+      retainedArtifacts: createRetainedCollaborationArtifactSource({
+        store: f.store,
+        authorizeArtifact: async () => {},
+      }),
+    });
+    expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+    const fault = new Database(f.path);
+    fault.prepare('UPDATE items SET profile=? WHERE id=?').run('LifeOps', f.itemId);
+    fault.close();
+    expect(() => result.assertLocalMaterialCurrent()).toThrow();
+  } finally {
+    f.close();
+  }
+});
+
+it.each(['promise', 'value'] as const)(
+  'refuses a %s retained material custody callback',
+  async (kind) => {
+    const { createCollaborationRetainedArtifactFixture } =
+      await import('./fixtures/collaboration-retained-artifacts.js');
+    const { createRetainedCollaborationArtifactSource } =
+      await import('../collaboration-retained-artifact-source.js');
+    const f = createCollaborationRetainedArtifactFixture();
+    try {
+      const saved = f.store.save({
+        itemId: f.itemId,
+        filename: 'retained.md',
+        title: 'Retained',
+        bytes: Buffer.from('EXACT MATERIAL'),
+        sessionId: 'gone',
+      });
+      const original = createRetainedCollaborationArtifactSource({
+        store: f.store,
+        authorizeArtifact: async () => {},
+      });
+      const retainedArtifacts = {
+        read: async (pin: Parameters<typeof original.read>[0]) => ({
+          ...(await original.read(pin)),
+          assertCurrent: kind === 'promise' ? async () => {} : () => true,
+        }),
+      };
+      await expect(
+        prepareCollaborationForward(
+          {
+            ...selection(),
+            sourceConversationId: null,
+            boundary: null,
+            messages: [],
+            artifacts: [
+              {
+                kind: 'retained_artifact',
+                artifactId: saved.id,
+                revision: 1,
+                sha256: saved.sha256,
+              },
+            ],
+          },
+          { authorizeTarget, retainedArtifacts },
+        ),
+      ).rejects.toMatchObject({ code: 'snapshot_changed' });
+    } finally {
+      f.close();
+    }
+  },
+);
+
+it.each(
+  (['last source', 'last target', 'outer continuation'] as const).flatMap((point) =>
+    (['content', 'access'] as const).map((change) => ({ point, change })),
+  ),
+)(
+  'renews messages-only $change after the $point await using the original source',
+  async ({ point, change }) => {
+    const input = selection();
+    let allowed = true;
+    function assertOperator() {
+      if (!allowed) throw Error('Source operator access revoked');
+    }
+    const source = createCollaborationContextSource({
+      store,
+      authorizeConversation: async (id) => {
+        await authorizeSource(id);
+        assertOperator();
+      },
+      assertConversationCurrent: assertOperator,
+    });
+    const openWitness = vi.spyOn(store, 'openCollaborationVisibleSource');
+    function revoke() {
+      if (change === 'access') {
+        allowed = false;
+        return;
+      }
+      const fault = new Database(path);
+      fault
+        .prepare(
+          "UPDATE events SET payload=json_set(payload,'$.delta',?) WHERE session_id=? AND type='block_delta' AND json_extract(payload,'$.blockId')=?",
+        )
+        .run('CHANGED AFTER ORIGINAL WITNESS CHECK', 'source', 'chosen');
+      fault.close();
+    }
+    let calls = 0;
+    if (point === 'last target')
+      authorizeTarget.mockImplementation(async () => {
+        await Promise.resolve();
+        if (++calls === 3) revoke();
+      });
+    else {
+      const open = source.openConversation.bind(source);
+      source.openConversation = async (selected) => {
+        const opened = await open(selected);
+        const check = opened.assertCurrent.bind(opened);
+        opened.assertCurrent = async () => {
+          await check();
+          if (++calls !== 3) return;
+          if (point === 'outer continuation') queueMicrotask(() => queueMicrotask(revoke));
+          else revoke();
+        };
+        return opened;
+      };
+    }
+    await expect(prepareCollaborationForward(input, { source, authorizeTarget })).rejects.toThrow();
+    expect(openWitness).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each(['missing', 'promise', 'value', 'missing operator owner'] as const)(
+  'refuses a messages-only source with %s synchronous renewal',
+  async (kind) => {
+    const input = selection();
+    const original =
+      kind === 'missing operator owner'
+        ? createCollaborationContextSource({ store, authorizeConversation: authorizeSource })
+        : deps().source;
+    const source =
+      kind === 'missing operator owner'
+        ? original
+        : {
+            ...original,
+            assertCurrentAtSave:
+              kind === 'missing'
+                ? undefined
+                : kind === 'promise'
+                  ? async () => {
+                      throw Error('An async source check cannot be used as a local fence');
+                    }
+                  : () => true,
+          };
+    await expect(
+      prepareCollaborationForward(input, { source, authorizeTarget }),
+    ).rejects.toMatchObject({ code: 'snapshot_changed' });
+  },
+);
+
+it.each(['content', 'access'] as const)(
+  'returned local/save check renews messages-only %s without new async authorization',
+  async (change) => {
+    const input = selection();
+    let allowed = true;
+    const source = createCollaborationContextSource({
+      store,
+      authorizeConversation: authorizeSource,
+      assertConversationCurrent() {
+        if (!allowed) throw Error('Source operator access revoked');
+      },
+    });
+    const original = vi.spyOn(store, 'openCollaborationVisibleSource');
+    const result = await prepareCollaborationForward(input, { source, authorizeTarget });
+    const calls = authorizeSource.mock.calls.length;
+    expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+    if (change === 'access') allowed = false;
+    else {
+      const fault = new Database(path);
+      fault
+        .prepare(
+          "UPDATE events SET payload=json_set(payload,'$.delta',?) WHERE session_id=? AND type='block_delta' AND json_extract(payload,'$.blockId')=?",
+        )
+        .run('CHANGED AFTER PREPARATION', 'source', 'chosen');
+      fault.close();
+    }
+    expect(() => result.assertLocalMaterialCurrent()).toThrow();
+    expect(authorizeSource).toHaveBeenCalledTimes(calls);
+    expect(original).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('keeps retained-only local renewal independent of an unavailable supplied source', async () => {
+  const { createCollaborationRetainedArtifactFixture } =
+    await import('./fixtures/collaboration-retained-artifacts.js');
+  const { createRetainedCollaborationArtifactSource } =
+    await import('../collaboration-retained-artifact-source.js');
+  const f = createCollaborationRetainedArtifactFixture();
+  try {
+    const saved = f.store.save({
+      itemId: f.itemId,
+      filename: 'independent.md',
+      title: 'Independent',
+      bytes: Buffer.from('RETAINED WITHOUT CHAT'),
+      sessionId: 'gone',
+    });
+    const source = deps().source;
+    const opened = vi
+      .spyOn(source, 'openConversation')
+      .mockRejectedValue(Error('Source unavailable'));
+    const renewed = vi.spyOn(source, 'assertCurrentAtSave').mockImplementation(() => {
+      throw Error('Source unavailable');
+    });
+    const result = await prepareCollaborationForward(
+      {
+        ...selection(),
+        sourceConversationId: null,
+        boundary: null,
+        messages: [],
+        artifacts: [
+          { kind: 'retained_artifact', artifactId: saved.id, revision: 1, sha256: saved.sha256 },
+        ],
+      },
+      {
+        source,
+        authorizeTarget,
+        retainedArtifacts: createRetainedCollaborationArtifactSource({
+          store: f.store,
+          authorizeArtifact: async () => {},
+        }),
+      },
+    );
+    expect(result.assertLocalMaterialCurrent()).toBeUndefined();
+    expect(result.packet.sourceIdentity).toBeNull();
+    expect(opened).not.toHaveBeenCalled();
+    expect(renewed).not.toHaveBeenCalled();
+    expect(authorizeSource).not.toHaveBeenCalled();
+  } finally {
+    f.close();
+  }
+});
+
+it.each(['promise', 'value'] as const)(
+  'returned messages-only local check refuses a later %s source renewal',
+  async (kind) => {
+    const input = selection();
+    const original = deps().source;
+    let invalid = false;
+    const source = {
+      ...original,
+      assertCurrentAtSave() {
+        original.assertCurrentAtSave();
+        return invalid
+          ? kind === 'promise'
+            ? Promise.reject(Error('Invalid async source renewal'))
+            : true
+          : undefined;
+      },
+    };
+    const result = await prepareCollaborationForward(input, { source, authorizeTarget });
+    invalid = true;
+    expect(() => result.assertLocalMaterialCurrent()).toThrow();
+  },
+);
