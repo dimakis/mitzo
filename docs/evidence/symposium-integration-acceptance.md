@@ -1,11 +1,23 @@
 # Symposium integration acceptance evidence
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
+
+Current draft-PR browser-gate repair: C48e4 CI39101438934 failed only WebKit's
+original unsplit Agent Library journey at its overall60s deadline. The Connections
+failure is an aggregate of that offline result; browser-interaction itself passed.
+C verified actual composed checkout52fec5e/tree17342c3c, trace source and final
+successful attribute read after all four appearance capture sets. Accepted main
+d5d3 is now normally integrated with the exact existing owner3440 one-file fix;
+all117 assertions/12 screenshot calls/78 navigation calls and60000ms remain.
+Local WebKit startup failed before the four cases ran, so it remains unqualified;
+combined CI on the resulting C source is pending.
+[Failure, source and adoption diagnosis](symposium-acceptance/48e4-library-gate/diagnosis.json).
+
 Milestone `358d56cb7e4352ff`, parent `c0851ba23fcc5d04`; both remain active.
 This map succeeds core's frozen `requirements-and-reassessment.json` seed. Core
 owns the shared implementation plan/checkpoint; this is scoped acceptance evidence.
 
-Latest independently attempted source is core `6ddc2607e36d4d4a90f06f173bb840678d5c8b4c`,
+Latest independently attempted Symposium production-app source is core `6ddc2607e36d4d4a90f06f173bb840678d5c8b4c`,
 product tree `d4fa91befaeed24934acf3766498f72e9daa9fa7`, plus C overlay
 `365eb55b7ce4c0948018803bb322539259111e77`, tree
 `2a42999f92d791cf897f09e0874e50a60192ff50`. It is **UNQUALIFIED** for actual app
@@ -1018,3 +1030,66 @@ eight exact raw-log line numbers and uncompressed/compressed hashes. No producti
 reference, assertion, timeout, workflow, runtime or model call changed in this
 read-only evidence update. C's sole map and the active canonical milestone remain
 separate from the root implementation plan and final feature acceptance.
+
+### C48e4 failed browser gate: exact composed source and existing owner repair
+
+C independently fetched [run39101438934](https://github.com/dimakis/mitzo/actions/runs/39101438934)
+job metadata, failed WebKit log and failure artifact12126454923. WebKit records
+247passes/1failure/12skips: the original unsplit Agent Library journey exceeded its
+60000ms test limit. The separate browser-interaction job passed; Connections is
+its dependency aggregate failing because the offline matrix failed, not evidence
+of a second browser defect. Original failed logs and counts are preserved.
+
+The actual CI checkout is `52fec5e80a4de081f2ed0853421977c961c86ea0`, tree
+`17342c3c1db9e18e640d83066b938aa272ae9d44`, composing old C48e4 with accepted main
+`d5d3aa0322b55e9e2c8589efc568c7330f0530a8`. C normally integrated that exact accepted
+source and verified identical tree bytes. The trace embeds test source hash
+`1f3b6e8a931e8f1514d0b3dd7e2ff686e722962ed437ece84a0bb376c23e994c`, identical to
+the composed test and accepted6de parent of the existing owner fix. This explains
+CI's line33 rather than the older C-head line9. No attribution was made from the
+PR head blob alone.
+
+[Diagnosis](symposium-acceptance/48e4-library-gate/diagnosis.json), exact
+[trace source](symposium-acceptance/48e4-library-gate/raw/failed-agent-library.spec.ts.raw),
+[error context](symposium-acceptance/48e4-library-gate/raw/error-context.md.raw) and
+[inspected failure screenshot](symposium-acceptance/48e4-library-gate/failure.png)
+are retained. Trace assets show all four appearance sets and final `/chat` handoff.
+The last recorded action reads Workspace controls' `aria-expanded=false` successfully
+in401.735ms; teardown follows at the overall deadline. This establishes an overall
+test-budget failure, without a separate long-stalled action or source/host-load/flake
+cause claim. Full171MB artifact and33MB trace remain in C's task evidence directory,
+with absolute paths/SHA-256 and original download API recorded in the diagnosis;
+the compact relevant evidence is versioned here. No original diagnostic is deleted.
+
+C consumed the existing signed owner commit
+`3440ea283508e8fce45b5cf795a692f4d9b61c4d`, sole parent accepted6de, with **only**
+`tests/offline/agent-library.spec.ts` changed. Local adoption
+`fda8320ad400743663d759aac030c07442e778a2`, tree
+`3f589ef6626da53bd6f5e22045f30bff42b2ce2c`, has test hash
+`ee566459d7b39c0d2de9354ccb71cb55882a7c29935bceb61c81248efeee15d0`, byte-identical
+to the owner and already consumed core39a. No health helper, S7 runtime or unrelated
+branch was imported. Product bytes relative to the failed composed checkout are
+unchanged. C's independent AST inventories preserve117 assertions,12 screenshot
+calls,78 navigation calls, the original60000ms timeout and the equivalent four
+appearance combinations (original nested Cartesian product, now explicit cases).
+Each case retains the complete journey and original final handoff; fresh fixture
+state now runs the same retained-task conflict checks in every appearance. No check,
+screenshot path, navigation or tolerance was removed or rewritten by C.
+
+Local listing initially found the borrowed protocol package lacked its compiled
+entry. C built only its own protocol package and temporarily selected that package
+through a C-local dependency wrapper, leaving foreign source/builds untouched.
+The original dependency link was restored exactly. Listing then passed, but approved
+outside-Seatbelt focused WebKit execution recorded **0passes/1startup failure/4skips**,
+zero retries,42.10seconds. The unchanged browser-startup test exceeded30000ms before
+any appearance case executed. This is **UNQUALIFIED**, not a repaired-gate pass.
+No launch retry, browser switch or `CODEX_SANDBOX` bypass was attempted; raw report,
+source/tree, stderr and dependency-restoration receipt are retained. Source format
+and ESLint pass.
+
+Accepted-main and exact-owner commits are composed on an isolated signed C source
+with their ancestry retained, matching the audited fixed tree. Combined CI on the
+resulting published C head is **PENDING**; other consumers' passing CI is not its gate.
+The original Symposium app/omission/join/native/UX/iOS gaps and all historical
+source-specific checkpoints remain unchanged. This repair makes no product, model,
+live-target, staging, runtime or merge-to-main change.
