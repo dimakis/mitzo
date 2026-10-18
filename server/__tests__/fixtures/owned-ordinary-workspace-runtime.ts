@@ -371,6 +371,7 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
       legacyLookup = vi.spyOn(workspaces, 'getHostReservation');
     },
     auth,
+    token,
     signal,
     first: await prepareSession(),
     prepareSibling: prepareSession,
