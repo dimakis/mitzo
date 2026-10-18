@@ -1,0 +1,7 @@
+{
+  "head": "accepted2b22-source-merge",
+  "implementationRevision": "v1.0.319-telos-role-recovery.1",
+  "pins": 580,
+  "mismatches": [],
+  "scope": "Source hash verification only; no runtime or application qualification."
+}

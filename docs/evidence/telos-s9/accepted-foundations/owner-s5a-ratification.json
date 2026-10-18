@@ -1,0 +1,51 @@
+{
+  "slice": "9dab491c72f0494e",
+  "parent": "85e8444019a4ae4a",
+  "decision": "S5a accepted for its owned CT01-CT06 scope after actual source acceptance",
+  "acceptedCommit": "634048b1c7309a411dcfbf39dd2ae4e0308bdcfb",
+  "acceptedTree": "fab6f87ff63ce6f0b828cc057338f448d62db994",
+  "reviewedHead": "411d0efb777da85bdc5c18c76bcf8fb805aee71f",
+  "mergedAt": "2026-10-18T15:55:38Z",
+  "soleParent": "f39cbfdfa31f5e4c0d3413737827de2c8640d34e",
+  "verifiedDependencyChain": [
+    "f39cbfdfa31f5e4c0d3413737827de2c8640d34e",
+    "2b22bade2b1e612cc564661bf1e69b45a317e5eb",
+    "117783fdf920f13e5e3b710d04d17f9cd46f5782",
+    "fdd95797499a3a6dcad3322af303e958fdbfed19"
+  ],
+  "acceptedMgmt": "3077b7b4dcdf0ef097062794b2ab93d33c1d89ad",
+  "ct01ToCt06": "Implementation and required offline evidence met; original owning criteria assessed independently and ratified by root after accepted-tree/dependency check.",
+  "criteriaReports": [
+    "s5a-411d0efb-ct01-ct04-acceptance-assessment.txt",
+    "s5a-411d0efb-ct05-ct06-acceptance-assessment.txt"
+  ],
+  "ciRun": 39139466199,
+  "actualPassedTests": 17901,
+  "actualSkippedTests": 31,
+  "fullFinalReview": 5563727278,
+  "cleanFullAncestorReview": 5563618365,
+  "cleanCurrentAutomaticReview": 5563696853,
+  "actualAppStatus": 56635352099,
+  "appId": 5169606,
+  "strictAdminProtectionVerified": true,
+  "unresolvedThreads": 0,
+  "acceptedAndReviewedTreesEqual": true,
+  "scopeStates": {
+    "s5aCodeMerged": true,
+    "s5aOwnedOfflineIntegrationAccepted": true,
+    "s5aOwnedContextUiCt05Accepted": true,
+    "fullParentUxAccepted": false,
+    "fullParentOfflineAcceptance": false,
+    "liveRuntimeQualified": false,
+    "s5bImplemented": false,
+    "s5bMayBeginExistingApprovedImplementation": true
+  },
+  "retainedLimits": [
+    "CT06 real-owner early journey uses custom callback adapter and manually simulated provider effects; actual full app callback composition and runtime remain downstream acceptance.",
+    "Auth import host-token-loader effect retained; synthetic token used for fixture requests.",
+    "UI evidence is scoped component/full-shell samples, not all parent UX01-UX24.",
+    "Interrupted local run stays unrun; CI supplies actual current-source execution.",
+    "No staging, deployment, production or live/model test action authorized."
+  ],
+  "actualMergeSlot": "Released after independent actual MERGED/tree/parent/main verification."
+}

@@ -1,0 +1,32 @@
+{
+  "conclusion": "failure",
+  "head_sha": "6b8f9f974bb0224fba51fa0bbf0d2c9dc2c2ba76",
+  "name": "ci",
+  "run_id": 39084737528,
+  "steps": [
+    { "conclusion": "success", "name": "Set up job" },
+    { "conclusion": "success", "name": "Run actions/checkout@v7" },
+    { "conclusion": "success", "name": "Run actions/setup-node@v7" },
+    { "conclusion": "success", "name": "Run npm install --global npm@11.18.0" },
+    { "conclusion": "success", "name": "Install dependencies" },
+    { "conclusion": "success", "name": "Verify native knowledge write boundary" },
+    { "conclusion": "success", "name": "Build workspace packages" },
+    { "conclusion": "success", "name": "Verify reviewed daily quote catalogue" },
+    { "conclusion": "success", "name": "Lint" },
+    { "conclusion": "failure", "name": "Format check" },
+    { "conclusion": "success", "name": "Design token contract" },
+    { "conclusion": "success", "name": "Type check (server)" },
+    { "conclusion": "success", "name": "Type check (frontend)" },
+    { "conclusion": "success", "name": "Test" },
+    { "conclusion": "success", "name": "Test count guard" },
+    { "conclusion": "success", "name": "Audit" },
+    { "conclusion": "success", "name": "Secret scan" },
+    { "conclusion": "success", "name": "Build MCP server" },
+    { "conclusion": "success", "name": "Build" },
+    { "conclusion": "success", "name": "Bundle size" },
+    { "conclusion": "failure", "name": "Summary" },
+    { "conclusion": "skipped", "name": "Post Run actions/setup-node@v7" },
+    { "conclusion": "success", "name": "Post Run actions/checkout@v7" },
+    { "conclusion": "success", "name": "Complete job" }
+  ]
+}

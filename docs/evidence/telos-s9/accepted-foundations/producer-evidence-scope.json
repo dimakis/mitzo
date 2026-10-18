@@ -1,0 +1,28 @@
+{
+  "canonicalAcceptedReceipt": "1c96820d3c64f59fcf30fc718f5e1ab6@r1",
+  "canonicalPremergeEvidence": {
+    "artifact": "363255453b330aa300002ab62b2ee22e@r1",
+    "headAtCapture": "1d18a996d219749c9d1610f91c01a56e520ce98d",
+    "sourceAcceptedAtCapture": false,
+    "canonicalFocused": {
+      "passed": 49,
+      "failed": 0,
+      "includes": "Both schemas, all six named fault injections, actual reopen/replay and17 advisor regressions"
+    },
+    "httpTypedClient": {
+      "passed": 4,
+      "failed": 0
+    },
+    "note": "These retained premerge owner results are not an S9 rerun, not counted in S9 totals and not projected wholesale to f39."
+  },
+  "pythonOwnerProof": "12c12c50a5b62ffe15c7f82d14034ab0@r1",
+  "schemaRegenerationProof": "c04adb70433f1ce5a1117c450b85ed20@r1",
+  "recoveryAcceptedReceipt": "46b3047552bbf2af577fafe9c5b769d3@r1",
+  "recoveryReadyPacket": {
+    "artifact": "c1c461ef4944c67ed6e69edc624e2424@r1",
+    "head": "04c56875ac2a8ab7b96db27d11c8dcd47fb5cf61",
+    "ciRun": 39128658778,
+    "newFullReviewIds": [5563130130, 5563150209],
+    "note": "Ready packet is a premerge snapshot; actual merge independently verified separately. No old review-round reuse."
+  }
+}
