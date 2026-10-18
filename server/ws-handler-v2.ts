@@ -717,6 +717,10 @@ export function handleSendV2(
       'ws.dispatch_wait_ms': delivery?.dispatchWaitMs ?? 0,
     },
     async (span) => {
+      // Admission rejection and the startup stream describe the same failed
+      // attempt. Whichever reports first owns delivery, including delayed
+      // stream fallout; unrelated runtime errors retain their normal path.
+      let startupFailure: { reported: boolean } | undefined;
       try {
         if (msg.sessionId)
           assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'send');
@@ -746,8 +750,10 @@ export function handleSendV2(
         let skillInvoked = false;
         let initialPromptDelivered = false;
         const onStartupAdmission = (error?: unknown) => {
-          if (error) rejectStartupAdmission?.(error);
-          else {
+          if (error) {
+            if (startupAdmission) startupFailure ??= { reported: false };
+            rejectStartupAdmission?.(error);
+          } else {
             if (!skillInvoked) {
               emitSkillInvoked();
               skillInvoked = true;
@@ -759,6 +765,10 @@ export function handleSendV2(
           attachmentIdentity: getTransportAttachmentIdentity(transport),
           isOpen: () => transport.isOpen(),
           send: (event) => {
+            if (event.type === 'error' && startupFailure) {
+              if (startupFailure.reported) return;
+              startupFailure.reported = true;
+            }
             if (event.type === 'user_message' && event.messageId === msg.clientMsgId)
               initialPromptDelivered = true;
             const acceptedRuntimeError =
@@ -1186,13 +1196,14 @@ export function handleSendV2(
             agentProfile: msg.agentProfile,
             operatorConnectionId: connectionId,
             userIntent,
-          }).catch((err: unknown) =>
-            transport.send({
+          }).catch((err: unknown) => {
+            onStartupAdmission(err);
+            startupTransport.send({
               type: 'error',
               clientMsgId: msg.clientMsgId,
               error: err instanceof Error ? err.message : 'Session startup failed',
-            }),
-          );
+            });
+          });
           applySkillPolicy(sessionClientId);
         } else {
           const startupSessionId = msg.repositoryWorkspaceId
@@ -1258,13 +1269,14 @@ export function handleSendV2(
             agentProfile: msg.agentProfile,
             operatorConnectionId: connectionId,
             userIntent,
-          }).catch((err: unknown) =>
-            transport.send({
+          }).catch((err: unknown) => {
+            onStartupAdmission(err);
+            startupTransport.send({
               type: 'error',
               clientMsgId: msg.clientMsgId,
               error: err instanceof Error ? err.message : 'Session startup failed',
-            }),
-          );
+            });
+          });
           applySkillPolicy(sessionClientId);
         }
         await startupAdmission;
@@ -1273,11 +1285,14 @@ export function handleSendV2(
         const message = err instanceof Error ? err.message : String(err);
         span.recordException(err instanceof Error ? err : new Error(message));
         span.setStatus({ code: SpanStatusCode.ERROR, message });
-        transport.send({
-          type: 'error',
-          clientMsgId: msg.clientMsgId,
-          error: err instanceof Error ? err.message : 'Send failed',
-        });
+        if (!startupFailure?.reported) {
+          if (startupFailure) startupFailure.reported = true;
+          transport.send({
+            type: 'error',
+            clientMsgId: msg.clientMsgId,
+            error: err instanceof Error ? err.message : 'Send failed',
+          });
+        }
         if (
           delivery?.awaitStartupAdmission &&
           (err instanceof ExecutionAdmissionError ||

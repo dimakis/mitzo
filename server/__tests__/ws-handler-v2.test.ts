@@ -8,6 +8,8 @@ import type { SessionTransport } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { V2SendMessage } from '@mitzo/protocol';
+import { EventStore } from '../event-store.js';
+import { acceptSendCommandAsync } from '../send-command.js';
 
 vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
@@ -6030,6 +6032,113 @@ it('correlates a delayed new-session assignment with its original launch command
       clientMsgId: 'launch-id',
     }),
   );
+});
+
+it.each(['before', 'after'] as const)(
+  'reports one startup failure when the stream reports it %s admission rejection is handled',
+  async (order) => {
+    const ctx = createContext();
+    ctx.eventStore.hasUserMessage = vi.fn().mockReturnValue(false);
+    const transport = mockTransport();
+    ctx.connRegistry.register('startup-conn', transport);
+    let report!: () => void;
+    vi.mocked(startChat).mockImplementationOnce(
+      async (startupTransport, _clientId, _prompt, options) => {
+        startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+        options?.onStartupAdmission?.(new Error('Startup failed'));
+        report = () =>
+          startupTransport.send({
+            type: 'error',
+            sessionId: 'startup-session',
+            error: 'Startup failed',
+          });
+        if (order === 'before') report();
+      },
+    );
+    await handleSendV2(
+      'startup-conn',
+      transport,
+      { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+      ctx,
+      { awaitStartupAdmission: true },
+    );
+    if (order === 'after') report();
+    const errors = transport.sent.filter((event) => event.type === 'error');
+    expect(errors).toEqual([
+      expect.objectContaining({ error: 'Startup failed', clientMsgId: 'launch-id' }),
+    ]);
+  },
+);
+
+it('persists one startup error and keeps a failed receipt from dispatching again', async () => {
+  const store = new EventStore(':memory:');
+  const ctx = createContext({ eventStore: store });
+  const transport = mockTransport();
+  const message = {
+    type: 'send' as const,
+    sessionId: null,
+    prompt: 'Continue research',
+    clientMsgId: 'durable-startup-failure',
+  };
+  vi.mocked(startChat).mockImplementationOnce(async (startupTransport, _client, _prompt, opts) => {
+    startupTransport.send({ type: 'session_id', sessionId: opts.initialSessionId });
+    opts.onStartupAdmission?.(new Error('Bounded transport failure'));
+    startupTransport.send({
+      type: 'error',
+      sessionId: opts.initialSessionId,
+      error: 'Bounded transport failure',
+    });
+  });
+  const dispatch = vi.fn(async (command: typeof message, sessionId: string) => {
+    await handleSendV2(
+      'offline-receipt',
+      {
+        isOpen: () => true,
+        send(event) {
+          const durable = { ...event, sessionId };
+          store.append(sessionId, String(event.type), durable);
+          if (event.type === 'error')
+            store.failSendCommand(command.clientMsgId, String(event.error));
+          transport.send(durable);
+        },
+      },
+      command,
+      ctx,
+      { initialSessionId: sessionId, awaitStartupAdmission: true, receiptAdmitted: true },
+    );
+  });
+  try {
+    await expect(async () => acceptSendCommandAsync(store, message, dispatch)).rejects.toThrow(
+      'Bounded transport failure',
+    );
+    const sessionId = store.getSendCommand(message.clientMsgId)!.sessionId!;
+    expect(
+      store.getSessionEvents(sessionId).filter((event) => event.type === 'error'),
+    ).toHaveLength(1);
+    await expect(async () => acceptSendCommandAsync(store, message, dispatch)).rejects.toThrow(
+      'Bounded transport failure',
+    );
+    expect(dispatch).toHaveBeenCalledOnce();
+  } finally {
+    ctx.connRegistry.dispose();
+    store.close();
+  }
+});
+
+it('settles admission when the startup launcher rejects before invoking its callback', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  vi.mocked(startChat).mockRejectedValueOnce(new Error('Startup launcher failed'));
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-rejected' },
+    ctx,
+    { awaitStartupAdmission: true },
+  );
+  expect(transport.sent.filter((event) => event.type === 'error')).toEqual([
+    expect.objectContaining({ error: 'Startup launcher failed', clientMsgId: 'launch-rejected' }),
+  ]);
 });
 
 it('correlates a caught startup error after assigning the launch session', async () => {
