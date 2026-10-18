@@ -1,0 +1,134 @@
+{
+  "originalComposition": "c6e55fb9b47df1726f4806fc5142e3e45811eaad",
+  "proposedRepairComposition": "e2525c19a0a46d6cc9493c42159feef752549afd",
+  "S7Consumer": "187811f9d4648b1039515e53aa66c7cc256207e3",
+  "sharedViewerProducer": "f94099780e0950e17bb036017d7b9337150ba4ed",
+  "candidateStatus": "unaccepted_diagnostic_only",
+  "currentTestSha256": "7fc4d92a04de9e1e7f5b2273cd45470a9decd3950372e5687fbe5e4aa08b6d95",
+  "repairedRunSuiteSha256": "3f2c40cfa9348180408450b3d82dbe87c4954af21bb21d2fc3dbbb1081068833",
+  "contrastCaseSourceSha256": "218310f861676ab642cb938ac489122d9dc5231e856a96c03988242a44ea1b10",
+  "sameContrastCaseSourceInBothRuns": true,
+  "historicalAuditTestSource": "207901b4f02cdbc06b6f049c0a94e4e401d38856:tests/integration/telos-s9/ui.contract.ts",
+  "reports": {
+    "contrast-original.json": {
+      "stats": {
+        "startTime": "2026-10-17T23:05:48.578Z",
+        "duration": 9156.25,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 4,
+        "flaky": 0
+      },
+      "colorCases": [
+        {
+          "project": "desktop-chromium",
+          "test": "S9 shared action foreground preserves semantic contrast (dark)",
+          "colors": {
+            "foreground": "rgb(242, 242, 245)",
+            "background": "rgb(178, 222, 161)",
+            "expected": "rgb(19, 20, 22)",
+            "contrast": 1.3564243263890676
+          },
+          "status": "unexpected"
+        },
+        {
+          "project": "desktop-chromium",
+          "test": "S9 shared action foreground preserves semantic contrast (light)",
+          "colors": {
+            "foreground": "rgb(32, 33, 39)",
+            "background": "rgb(22, 107, 88)",
+            "expected": "rgb(250, 249, 246)",
+            "contrast": 2.5057118244298087
+          },
+          "status": "unexpected"
+        },
+        {
+          "project": "mobile-webkit",
+          "test": "S9 shared action foreground preserves semantic contrast (dark)",
+          "colors": {
+            "foreground": "rgb(242, 242, 245)",
+            "background": "rgb(178, 222, 161)",
+            "expected": "rgb(19, 20, 22)",
+            "contrast": 1.3564243263890676
+          },
+          "status": "unexpected"
+        },
+        {
+          "project": "mobile-webkit",
+          "test": "S9 shared action foreground preserves semantic contrast (light)",
+          "colors": {
+            "foreground": "rgb(32, 33, 39)",
+            "background": "rgb(22, 107, 88)",
+            "expected": "rgb(250, 249, 246)",
+            "contrast": 2.5057118244298087
+          },
+          "status": "unexpected"
+        }
+      ]
+    },
+    "contrast-proposed-repair.json": {
+      "stats": {
+        "startTime": "2026-10-17T23:06:24.608Z",
+        "duration": 6475.862,
+        "expected": 6,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "colorCases": [
+        {
+          "project": "desktop-chromium",
+          "test": "S9 shared action foreground preserves semantic contrast (dark)",
+          "colors": {
+            "foreground": "rgb(19, 20, 22)",
+            "background": "rgb(178, 222, 161)",
+            "expected": "rgb(19, 20, 22)",
+            "contrast": 12.161585814317146
+          },
+          "status": "expected"
+        },
+        {
+          "project": "desktop-chromium",
+          "test": "S9 shared action foreground preserves semantic contrast (light)",
+          "colors": {
+            "foreground": "rgb(250, 249, 246)",
+            "background": "rgb(22, 107, 88)",
+            "expected": "rgb(250, 249, 246)",
+            "contrast": 6.084555768201365
+          },
+          "status": "expected"
+        },
+        {
+          "project": "mobile-webkit",
+          "test": "S9 shared action foreground preserves semantic contrast (dark)",
+          "colors": {
+            "foreground": "rgb(19, 20, 22)",
+            "background": "rgb(178, 222, 161)",
+            "expected": "rgb(19, 20, 22)",
+            "contrast": 12.161585814317146
+          },
+          "status": "expected"
+        },
+        {
+          "project": "mobile-webkit",
+          "test": "S9 shared action foreground preserves semantic contrast (light)",
+          "colors": {
+            "foreground": "rgb(250, 249, 246)",
+            "background": "rgb(22, 107, 88)",
+            "expected": "rgb(250, 249, 246)",
+            "contrast": 6.084555768201365
+          },
+          "status": "expected"
+        }
+      ]
+    }
+  },
+  "checksums": {
+    "docs/evidence/telos-s9/contrast-original.json": "38609dc453078ae0c8b7e9c9a87ab61ec4297831f329b2819902c3328724a7b6",
+    "docs/evidence/telos-s9/contrast-proposed-repair.json": "d3dbea19b94b42a7b11ef83428afd01371bead74839dd26eeba9e69888c69caa",
+    "docs/evidence/telos-s9/contrast-validation.md": "9a815d5c02484133eb664bac76b3e471e09ffbb9ba6da3f5a12a08c246e8fa48",
+    "docs/evidence/telos-s9/contrast-proposed-repair.log": "4a0619807be34607b7ed3c1c8b87308c76ce775b6f808bd8771cc054da281cec",
+    "docs/evidence/telos-s9/contrast-original.log": "32fd0969f0359c871ea7f5bf1bae17ce0a4064af8c41fcfcae67ea7a4fdacc8c",
+    "tests/integration/telos-s9/ui.contract.ts": "7fc4d92a04de9e1e7f5b2273cd45470a9decd3950372e5687fbe5e4aa08b6d95"
+  }
+}
