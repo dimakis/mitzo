@@ -2273,7 +2273,10 @@ async function exerciseBriefingReloadRecovery(
   }
   // Stay in the same app process while the restored acknowledgement remains pending.
   await page.getByRole('link', { name: 'Today', exact: true }).click();
-  await page.getByRole('link', { name: 'Read briefing', exact: true }).click();
+  // Today loads lazily; the old chat banner has a same-named, revision-pinned link.
+  const todayBriefing = page.getByRole('link', { name: 'Read briefing', exact: true });
+  await expect(todayBriefing).toHaveAttribute('href', `/briefings/${binding.date}`);
+  await todayBriefing.click();
   await page.getByRole('button', { name: 'Ask Jeeves', exact: true }).click();
   const waitingPicker = page.getByRole('dialog');
   await waitingPicker.getByRole('button', { name: 'Use selection', exact: true }).click();

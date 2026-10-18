@@ -12,6 +12,8 @@ import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './a
 import { requireSameOriginJson } from './connections-router.js';
 import { AgentAdviceBody, type AgentLibraryAdviser } from './agent-library-adviser.js';
 import { custodianRequestSignal } from './symposium-custodian-authority.js';
+import { createToolBuilderRouter } from './tool-builder-router.js';
+import type { ToolBuilderStore } from './tool-builder-store.js';
 
 const OWNER = 'user'; // Stable authenticated subject, never the rotating login JTI.
 function failure(res: Response, error: unknown) {
@@ -30,6 +32,7 @@ export function createAgentLibraryRouter(
   store: AgentLibraryStore,
   options: {
     apiTools?: () => ApiToolOwner | undefined;
+    toolBuilder?: () => ToolBuilderStore | undefined;
     workspaceRoot?: string;
     contexginUrl?: string;
     contextPacks?: (signal: AbortSignal) => Promise<AuthorizedContextPacks>;
@@ -46,6 +49,7 @@ export function createAgentLibraryRouter(
     next();
   });
   router.use('/api-tools', createApiToolRouter(options.apiTools ?? (() => undefined)));
+  router.use('/tool-builder', createToolBuilderRouter(options.toolBuilder ?? (() => undefined)));
   router.get('/', (_req, res) => {
     try {
       res.json(store.list(OWNER));
@@ -106,7 +110,14 @@ export function createAgentLibraryRouter(
           };
         }
       }) ?? [];
-    return { tools: [...builtins, ...saved, ...published] };
+    return {
+      tools: [
+        ...builtins,
+        ...saved,
+        ...published,
+        ...(options.toolBuilder?.()?.listTools(OWNER) ?? []),
+      ],
+    };
   }
   router.get('/tools', (_req, res) => {
     try {

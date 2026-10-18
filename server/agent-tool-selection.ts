@@ -34,6 +34,10 @@ export function assertAgentToolRoute(
     );
   const catalog = agentToolCatalog();
   for (const ref of definition.tools) {
+    if (ref.id.startsWith('custom:')) {
+      if (route === 'local-api') continue; // Exact installed publication admission remains mandatory.
+      throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
+    }
     if (ref.id.startsWith('mcp:')) {
       if (['local-api', 'codex', 'codex-owned-local'].includes(route)) continue;
       throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
@@ -48,6 +52,7 @@ export function assertAgentToolRoute(
   }
 }
 export function agentToolReferenceSupportsRoute(ref: AgentToolReference, route: string): boolean {
+  if (ref.id.startsWith('custom:')) return route === 'local-api';
   if (ref.id.startsWith('mcp:')) return ['local-api', 'codex', 'codex-owned-local'].includes(route);
   if (ref.id.startsWith('api:')) return ['local-api', 'codex'].includes(route);
   return agentToolCatalog().some(

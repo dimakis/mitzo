@@ -104,3 +104,44 @@ it('uses the retained external original URL and reports an exact material openin
     'Retained material unavailable.',
   );
 });
+
+it('CT05: retains exact authority in source and material actions without presenting raw identifiers as the explanation', async () => {
+  const selected = context();
+  selected.sources[0].snapshotId = 'retained-snapshot-opaque-id';
+  selected.sources[0].selection = {
+    kind: 'selected',
+    messageIds: ['retained-message-opaque-id'],
+    blockIds: ['retained-block-opaque-id'],
+    throughSequence: 12,
+  };
+  const original = structuredClone(selected);
+  render(
+    <MemoryRouter>
+      <TelosLinkedContext context={selected} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByText('Linked brief · goal & parent context'));
+  expect(screen.getByRole('link', { name: 'Open original chat' }).getAttribute('href')).toBe(
+    '/chat/planning?telosItem=item&telosSource=retained-snapshot-opaque-id',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Open material revision 2' }));
+  await waitFor(() =>
+    expect(shareTelosArtifact).toHaveBeenCalledWith(
+      `/api/telos/artifacts/${artifact.artifactId}?revision=2`,
+    ),
+  );
+  expect(selected).toEqual(original);
+  for (const value of [
+    artifact.artifactId,
+    artifact.sha256,
+    selected.brief.sha256,
+    'retained-snapshot-opaque-id',
+    'retained-message-opaque-id',
+    'retained-block-opaque-id',
+  ]) {
+    expect(screen.queryByText(value)).toBeNull();
+  }
+  expect(screen.queryByText('Source snapshot')).toBeNull();
+  expect(screen.queryByText('SHA-256')).toBeNull();
+  expect(screen.queryByText('Brief SHA-256')).toBeNull();
+});
