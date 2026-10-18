@@ -1,0 +1,40 @@
+{
+  "ownerCommit": "3440ea283508e8fce45b5cf795a692f4d9b61c4d",
+  "parent": "6de2a67cad4dbea3518f7181599aab252d725d0e",
+  "currentSourceSha256": "ee566459d7b39c0d2de9354ccb71cb55882a7c29935bceb61c81248efeee15d0",
+  "byteIdenticalToOwner": true,
+  "inventory": {
+    "assertions": 117,
+    "screenshots": 12,
+    "navigation": 78,
+    "timeouts": 1,
+    "appearances": 4
+  },
+  "exactAstInventoriesEqual": true,
+  "timeoutCalls": [
+    "test.setTimeout(60000)"
+  ],
+  "appearances": [
+    [
+      "dark",
+      "lavender",
+      "system"
+    ],
+    [
+      "dark",
+      "teal",
+      "georgia"
+    ],
+    [
+      "light",
+      "lavender",
+      "system"
+    ],
+    [
+      "light",
+      "teal",
+      "georgia"
+    ]
+  ],
+  "scope": "C independently compares complete assertion/screenshot/navigation/timeout/appearance AST inventories; owner full-AST/consumer audits remain separately attributed. Only existing owner isolation patch consumed."
+}

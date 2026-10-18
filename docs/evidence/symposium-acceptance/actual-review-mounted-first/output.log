@@ -1,0 +1,48 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+{"level":30,"time":1792278162596,"pid":39427,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+{"level":30,"time":1792278162868,"pid":39427,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (2 tests | 2 failed) 3376ms
+   × reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity 3363ms
+   × requires actual joining and finalized reply owners after the observational review 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+AssertionError: {"error":"Repository preview unavailable. Check the selected account, GitHub connection and repository access."}: expected 409 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 409
+
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:240:56
+    238|     },
+    239|   });
+    240|   expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+       |                                                        ^
+    241|   const previewId = z.object({ id: z.uuid() }).parse(preview.body).id;
+    242|   const prepared = await http!.request('POST', `/api/repository-worksp…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires actual joining and finalized reply owners after the observational review
+Error: BLOCKED: actual app review prerequisite failed
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:356:11
+    354| it('requires actual joining and finalized reply owners after the obser…
+    355|   if (!reviewedSnapshot || !reviewedSettings)
+    356|     throw Error('BLOCKED: actual app review prerequisite failed');
+       |           ^
+    357|   const snapshot = reviewedSnapshot;
+    358|   const view = await api.view(group);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 8 passed (9)
+      Tests  2 failed | 56 passed (58)
+   Start at  00:02:38
+   Duration  7.81s (transform 2.10s, setup 0ms, import 2.57s, tests 4.36s, environment 0ms)
+

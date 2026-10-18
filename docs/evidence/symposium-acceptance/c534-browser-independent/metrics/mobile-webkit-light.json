@@ -1,0 +1,18 @@
+[
+  {
+    "width": 320,
+    "nameTrackWidth": 64,
+    "countGap": 4,
+    "fontFamily": "Times New Roman, serif",
+    "fontSize": "16px",
+    "glyphWidth": 63.671875
+  },
+  {
+    "width": 390,
+    "nameTrackWidth": 140.96875,
+    "countGap": 4,
+    "fontFamily": "Times New Roman, serif",
+    "fontSize": "16px",
+    "glyphWidth": 63.671875
+  }
+]

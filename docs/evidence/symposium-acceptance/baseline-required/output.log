@@ -1,0 +1,42 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/mitzo
+
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (1 test | 1 skipped) 4ms
+ ❯ tests/acceptance/symposium-reader-reply.repro.ts (1 test | 1 failed) 46ms
+   × retains an authorized finalized reply for the silent reader before its next explicit turn 45ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts [ tests/acceptance/symposium-application-wiring.repro.ts ]
+Error: BLOCKED: core safe app import/teardown seam unavailable; actual app was not imported
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:35:11
+     33|     !application.includes('closeApplicationResources')
+     34|   )
+     35|     throw Error(
+       |           ^
+     36|       'BLOCKED: core safe app import/teardown seam unavailable; actual…
+     37|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-reader-reply.repro.ts > retains an authorized finalized reply for the silent reader before its next explicit turn
+AssertionError: Authorized readers must retain replies as well as prompts: expected [] to include 'architect'
+ ❯ tests/acceptance/symposium-reader-reply.repro.ts:18:86
+     16|   const reply = f.finalizedReply(prompt);
+     17|   expect(reply.author).toEqual({ sessionId: 'reviewer' });
+     18|   expect(reply.readers, 'Authorized readers must retain replies as wel…
+       |                                                                                      ^
+     19|     'architect',
+     20|   );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 3 passed (5)
+      Tests  1 failed | 6 passed | 1 skipped (8)
+   Start at  23:04:54
+   Duration  3.29s (transform 703ms, setup 0ms, import 2.58s, tests 227ms, environment 0ms)
+
