@@ -1,0 +1,51 @@
+{
+  "attempt": 1,
+  "conclusion": "success",
+  "headSha": "64afaaafa0f9520d453d0bc424aa089f18b160bb",
+  "jobs": [
+    {
+      "conclusion": "success",
+      "id": 117644165969,
+      "name": "Select CI jobs",
+      "status": "completed"
+    },
+    { "conclusion": "success", "id": 117644166181, "name": "ci", "status": "completed" },
+    {
+      "conclusion": "success",
+      "id": 117644200111,
+      "name": "Browser interaction tests",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 117644200127,
+      "name": "Native Swift tests and builds",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 117644200142,
+      "name": "Offline layouts (mobile-webkit)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 117644200179,
+      "name": "Offline layouts (desktop-chromium)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 117644200194,
+      "name": "Offline layouts (mobile-chromium)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 117647270672,
+      "name": "Connections browser regression",
+      "status": "completed"
+    }
+  ],
+  "status": "completed"
+}

@@ -1,0 +1,52 @@
+{
+  "acceptedBase": "6de2a67cad4dbea3518f7181599aab252d725d0e",
+  "priorGreenHead": "7813295edfc742b620fa7e71453f8203dfc34b46",
+  "onlyConflict": "server/connections/reviewed-handler-artifacts.ts",
+  "manifestEntries": 571,
+  "acceptedChangedPinsExact": true,
+  "allExistingBPinsPreserved": true,
+  "allSourceFingerprintsMatch": true,
+  "incomingFiles": 78,
+  "incomingFilesByteIdenticalExceptManifestAndAdditiveDesignUnion": true,
+  "producerTestsAndArtifactUiByteIdentical": [
+    "server/collaboration-forwarding.ts",
+    "server/__tests__/collaboration-forwarding.test.ts",
+    "frontend/src/components/SavedArtifactDialog.tsx",
+    "frontend/src/components/SavedArtifactDialog.css",
+    "frontend/src/components/WorkOutputs.tsx"
+  ],
+  "approvedDesignContentPreserved": true,
+  "modelOrRuntimeOperations": false,
+  "checks": {
+    "focused": {
+      "passed": 194,
+      "files": 7,
+      "skipped": 0
+    },
+    "design": {
+      "passed": 108,
+      "existingSkipped": 1
+    },
+    "protocolBuild": "pass",
+    "officialSourceFingerprintCheck": "pass"
+  },
+  "initialRedEvidence": "Unresolved manifest compiler TS1185; initial tsx attempt hit sandbox IPC EPERM and is not counted as contract red",
+  "priorGreenCi": {
+    "head": "7813295edfc742b620fa7e71453f8203dfc34b46",
+    "run": 39091742497,
+    "attempt": 2,
+    "successfulJobs": 8,
+    "firstNativeCleanupFailureRetained": true,
+    "targetedNativeRetries": 1
+  },
+  "newHeadGates": "Pending ordinary CI, trusted current-head whole-PR review and required App5169606 status; original review history preserved",
+  "evidenceSha256": {
+    "agent-builder-base-manifest-red.log": "fa925c2c3ffeabe7b6862a598d81cb4a7c5e68ca125dde52b60b138c91f39fbc",
+    "agent-builder-base-design.log": "7a742eee7ca012347b368c6896dd9d7dae3a0c9f47a160c6a27672bf75730940",
+    "agent-builder-base-manifest-conflict-red.log": "9b98f2c823f87ade6549bd0876ad7d73d7873fcfd3b068e9f52c99a8f2c96041",
+    "agent-builder-base-navigation.log": "1c1a97e214d857b69047d321026df565ba2f10785303f681c9ddc6624f3ea6ac",
+    "agent-builder-base-protocol-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "agent-builder-base-source-closure.log": "0e57724192636b0e8353f6fdab9d1576347be526be398974be427fe97a73e15b",
+    "agent-builder-base-focused.log": "fca401eb4cfb11fb79390848d7759ab9078bf5a0048b7e2a793abdef446a241e"
+  }
+}

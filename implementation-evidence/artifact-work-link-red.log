@@ -1,0 +1,383 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+ ❯ frontend/src/components/__tests__/SavedArtifactDialog.test.tsx (7 tests | 1 failed) 279ms
+   × links only the actual retained Work item without creating an association 31ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/components/__tests__/SavedArtifactDialog.test.tsx > links only the actual retained Work item without creating an association
+TestingLibraryElementError: Unable to find an accessible element with the role "link" and name "Open Work item"
+
+Here are the accessible roles:
+
+  dialog:
+
+  Name "Plan":
+  [36m<dialog[39m
+    [33maria-label[39m=[32m"Plan"[39m
+    [33mclass[39m=[32m"home-dialog saved-artifact-dialog"[39m
+    [33mopen[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  banner:
+
+  Name "":
+  [36m<header />[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Plan":
+  [36m<h2 />[39m
+
+  Name "Version 1":
+  [36m<h1 />[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Close":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Close"[39m
+    [33mclass[39m=[32m"home-secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "File options":
+  [36m<button[39m
+    [33maria-busy[39m=[32m"false"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"File options"[39m
+    [33mclass[39m=[32m"share-btn file-options-trigger"[39m
+    [33mtitle[39m=[32m"File options"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Done":
+  [36m<button[39m
+    [33mclass[39m=[32m"home-secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"saved-artifact-kind"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  Name "":
+  [36m<p />[39m
+
+  --------------------------------------------------
+  combobox:
+
+  Name "Version":
+  [36m<select[39m
+    [33maria-label[39m=[32m"Version"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  option:
+
+  Name "Saved version 3 · latest":
+  [36m<option[39m
+    [33mvalue[39m=[32m"3"[39m
+  [36m/>[39m
+
+  Name "Saved version 2":
+  [36m<option[39m
+    [33mvalue[39m=[32m"2"[39m
+  [36m/>[39m
+
+  Name "Saved version 1":
+  [36m<option[39m
+    [33mvalue[39m=[32m"1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Sharing":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Sharing"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong />[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "":
+  [36m<details />[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd />[39m
+
+  Name "":
+  [36m<dd />[39m
+
+  Name "":
+  [36m<dd />[39m
+
+  Name "":
+  [36m<dd />[39m
+
+  Name "":
+  [36m<dd />[39m
+
+  --------------------------------------------------
+  contentinfo:
+
+  Name "":
+  [36m<footer />[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body[39m
+  [33mstyle[39m=[32m"overflow: hidden;"[39m
+[36m>[39m
+  [36m<div />[39m
+  [36m<dialog[39m
+    [33maria-label[39m=[32m"Plan"[39m
+    [33mclass[39m=[32m"home-dialog saved-artifact-dialog"[39m
+    [33mopen[39m=[32m""[39m
+  [36m>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"home-dialog-content"[39m
+    [36m>[39m
+      [36m<header>[39m
+        [36m<h2>[39m
+          [0mPlan[0m
+        [36m</h2>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Close"[39m
+          [33mclass[39m=[32m"home-secondary"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"close"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m6 6 12 12M6 18 18 6"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</button>[39m
+      [36m</header>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"saved-artifact-surface"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"saved-artifact-body"[39m
+        [36m>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"saved-artifact-kind"[39m
+          [36m>[39m
+            [0mSaved artifact · Saved under Work[0m
+          [36m</p>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"saved-artifact-version"[39m
+          [36m>[39m
+            [36m<span>[39m
+              [0mVersion[0m
+            [36m</span>[39m
+            [36m<select[39m
+              [33maria-label[39m=[32m"Version"[39m
+            [36m>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"3"[39m
+              [36m>[39m
+                [0mSaved version [0m
+                [0m3[0m
+                [0m · latest[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"2"[39m
+              [36m>[39m
+                [0mSaved version [0m
+                [0m2[0m
+              [36m</option>[39m
+              [36m<option[39m
+                [33mvalue[39m=[32m"1"[39m
+              [36m>[39m
+                [0mSaved version [0m
+                [0m1[0m
+              [36m</option>[39m
+            [36m</select>[39m
+            [36m<small>[39m
+              [0mA version is a saved change to this document, independent of chats and turns.[0m
+            [36m</small>[39m
+          [36m</label>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"saved-artifact-preview"[39m
+          [36m>[39m
+            [36m<h1>[39m
+              [0mVersion 1[0m
+            [36m</h1>[39m
+            [0m
+[0m
+            [36m<p>[39m
+              [0mExact saved text 1.[0m
+            [36m</p>[39m
+          [36m</div>[39m
+          [36m<section[39m
+            [33maria-label[39m=[32m"Sharing"[39m
+          [36m>[39m
+            [36m<strong>[39m
+              [0mShared with[0m
+            [36m</strong>[39m
+            [36m<p>[39m
+              [0mDelivery information is not recorded here.[0m
+            [36m</p>[39m
+            [36m<small>[39m
+              [0mSaving under Work does not deliver content to every agent.[0m
+            [36m</small>[39m
+          [36m</section>[39m
+          [36m<details>[39m
+            [36m<summary>[39m
+              [0mProvenance[0m
+            [36m</summary>[39m
+            [36m<dl>[39m
+              [36m<dt>[39m
+                [0mFilename[0m
+              [36m</dt>[39m
+              [36m<dd>[39m
+                [0mplan.md[0m
+              [36m</dd>[39m
+              [36m<dt>[39m
+                [0mSaved version[0m
+              [36m</dt>[39m
+              [36m<dd>[39m
+                [0m1[0m
+              [36m</dd>[39m
+              [36m<dt>[39m
+                [0mSource[0m
+              [36m</dt>[39m
+              [36m<dd>[39m
+                [0mgone-source[0m
+              [36m</dd>[39m
+              [36m<dt>[39m
+                [0mSaved[0m
+              [36m</dt>[39m
+              [36m<dd>[39m
+                [0m2026-10-17T10:00:00Z[0m
+              [36m</dd>[39m
+              [36m<dt>[39m
+                [0mContent hash[0m
+              [36m</dt>[39m
+              [36m<dd>[39m
+                [0m1111111111111111111111111111111111111111111111111111111111111111[0m
+              [36m</dd>[39m
+            [36m</dl>[39m
+            [36m<p>[39m
+              [0mSaved bytes remain distinct from discussion, publication and outcome completion.[0m
+            [36m</p>[39m
+          [36m</details>[39m
+        [36m</div>[39m
+        [36m<footer>[39m
+          [36m<button[39m
+            [33maria-busy[39m=[32m"false"[39m
+            [33maria-expanded[39m=[32m"false"[39m
+            [33maria-haspopup[39m=[32m"dialog"[39m
+            [33maria-label[39m=[32m"File options"[39m
+            [33mclass[39m=[32m"share-btn file-options-trigger"[39m
+            [33mtitle[39m=[32m"File options"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ui-icon"[39m
+              [33mdata-icon[39m=[32m"more"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"home-secondary"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mDone[0m
+          [36m</button>[39m
+        [36m</footer>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</dialog>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ frontend/src/components/__tests__/SavedArtifactDialog.test.tsx:178:17
+    176|   render(<SavedArtifactDialog artifact={version(1)} onClose={vi.fn()} …
+    177|   await screen.findByRole('heading', { name: 'Version 1' });
+    178|   expect(screen.getByRole('link', { name: 'Open Work item' }).getAttri…
+       |                 ^
+    179|   expect(vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.met…
+    180| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  23:52:15
+   Duration  1.37s (transform 232ms, setup 0ms, import 489ms, tests 279ms, environment 498ms)
+

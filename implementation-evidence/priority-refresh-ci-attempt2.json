@@ -1,0 +1,64 @@
+{
+  "attempt": 2,
+  "conclusion": "success",
+  "headSha": "7813295edfc742b620fa7e71453f8203dfc34b46",
+  "jobs": [
+    {
+      "active": [],
+      "conclusion": "success",
+      "id": 117573636425,
+      "name": "Native Swift tests and builds",
+      "status": "completed"
+    },
+    {
+      "active": [],
+      "conclusion": "success",
+      "id": 117573637281,
+      "name": "Offline layouts (desktop-chromium)",
+      "status": "completed"
+    },
+    {
+      "active": [],
+      "conclusion": "success",
+      "id": 117573637436,
+      "name": "Offline layouts (mobile-webkit)",
+      "status": "completed"
+    },
+    {
+      "active": [],
+      "conclusion": "success",
+      "id": 117573637844,
+      "name": "Connections browser regression",
+      "status": "completed"
+    },
+    {
+      "active": [],
+      "conclusion": "success",
+      "id": 117573653729,
+      "name": "Browser interaction tests",
+      "status": "completed"
+    },
+    {
+      "active": [],
+      "conclusion": "success",
+      "id": 117573655183,
+      "name": "ci",
+      "status": "completed"
+    },
+    {
+      "active": [],
+      "conclusion": "success",
+      "id": 117573657024,
+      "name": "Select CI jobs",
+      "status": "completed"
+    },
+    {
+      "active": [],
+      "conclusion": "success",
+      "id": 117573663648,
+      "name": "Offline layouts (mobile-chromium)",
+      "status": "completed"
+    }
+  ],
+  "status": "completed"
+}

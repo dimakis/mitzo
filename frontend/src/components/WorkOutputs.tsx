@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { apiFetch } from '../lib/api-fetch';
 import { downloadFile, shareTelosArtifact } from '../lib/share-file';
+import { SavedArtifactRouteDialog } from './SavedArtifactRouteDialog';
+import { Link, useLocation } from 'react-router-dom';
+import { savedArtifactLocationUrl } from '../lib/saved-artifact-location';
 import { UserOutputUpload } from './UserOutputUpload';
 import type { TodoOutput } from '../types/todo';
 
@@ -14,6 +17,7 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
     limit: number;
     error?: string;
   } | null>(null);
+  const location = useLocation();
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -108,7 +112,12 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
                   <UiIcon name="file" size={16} />
                 </span>
                 <div className="output-row-copy">
-                  <strong>{output.title}</strong>
+                  <Link
+                    className="output-open"
+                    to={savedArtifactLocationUrl(location.pathname + location.search, output)}
+                  >
+                    <strong>{output.title}</strong>
+                  </Link>
                   <span className="todo-detail-output-filename">{output.filename}</span>
                   <span className="todo-detail-output-meta">
                     Revision {output.revision} · {output.size.toLocaleString()} bytes
@@ -116,6 +125,21 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
                     {output.sourceKind === 'user_edit' && ' · Edited by user'}
                     {output.sourceKind === 'external_codex_report' && ' · External Codex report'}
                   </span>
+                  <details className="output-provenance">
+                    <summary>Provenance</summary>
+                    <dl>
+                      <dt>SHA-256</dt>
+                      <dd>{output.sha256}</dd>
+                      <dt>Saved revision date</dt>
+                      <dd>{output.createdAt ?? 'Unknown'}</dd>
+                      <dt>Source conversation</dt>
+                      <dd>{output.sessionId ?? 'Unknown'}</dd>
+                      <dt>Source path</dt>
+                      <dd>{output.sourcePath ?? 'Unknown'}</dd>
+                      <dt>Author</dt>
+                      <dd>Author not recorded</dd>
+                    </dl>
+                  </details>
                 </div>
                 <div className="todo-detail-output-actions">
                   {!Capacitor.isNativePlatform() && (
@@ -149,6 +173,7 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
         </>
       )}
       {actionError && <p role="alert">{actionError}</p>}
+      <SavedArtifactRouteDialog itemId={itemId} />
     </section>
   );
 }
