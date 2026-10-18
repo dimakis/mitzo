@@ -1,0 +1,32 @@
+{
+  "slice": "b47a0c568f1d98ba",
+  "parent": "85e8444019a4ae4a",
+  "acceptedBase": "4bac7e8f",
+  "approvedMock": {
+    "artifactId": "9d0559132154b92d0bbb427a982a0002",
+    "revision": 1,
+    "sha256": "97efd217cdd8246ee868a7165d2f0272b1d0b0fe76982d02dbb9f48abcfae4ab",
+    "verified": true
+  },
+  "red": {
+    "testFiles": ["TelosChatList.test.tsx", "TelosChatFrame.test.tsx"],
+    "result": "Failed to resolve the not-yet-created component imports; both suites failed before production files were added."
+  },
+  "green": {
+    "componentTests": 6,
+    "designTestsPassed": 108,
+    "designTestsExistingSkipped": 1,
+    "browserScenarios": 6,
+    "browserStartupChecks": 2,
+    "eslint": "pass"
+  },
+  "scope": "Independent Telos presentation components; actual ChatArea and ChatInput in intercepted adoption fixture. No production call site changed.",
+  "limits": [
+    "Not full ResponsiveChatView integration or full-shell conformance",
+    "Fixture account labels and pending-review/P7 text are synthetic, not proof of real settings, execution or priority projection",
+    "S5b and shared Symposium source acceptance/adoption remain dependencies",
+    "No live backend, model, staging, deployment, worker allocation or role replacement"
+  ],
+  "ct15": "partial: selector/count/direct-entry rule, component callback separation, fixture Back and real composer draft persistence",
+  "ct16": "partial: current-vs-other role labels; execution/reconnect/priority projection not verified"
+}
