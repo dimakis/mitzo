@@ -1,0 +1,33 @@
+{
+  "fixture": "Canonical TodoStore-created backup plus supported artifact initialization, synthetic only",
+  "before": {
+    "status": 200,
+    "editable": true
+  },
+  "afterProfile": "lifeops",
+  "directStoreEditable": false,
+  "preview": {
+    "status": 403,
+    "body": {
+      "error": "Telos document unavailable"
+    }
+  },
+  "download": {
+    "status": 403,
+    "body": {
+      "error": "Telos artifact unavailable"
+    }
+  },
+  "edit": {
+    "status": 403,
+    "body": {
+      "error": "LifeOps documents require private case storage."
+    }
+  },
+  "retained": {
+    "revision": 1,
+    "sha256": "1223fcefccd1ce246319f7fe60ab6b0f4361c1153848813948bb83da30d32c0f",
+    "exactOriginalBytes": true
+  },
+  "interpretation": "Shared routes deny the whole private read; response is an error, not an editable:false document. Direct document-owner read-only semantics, save403 and immutable original bytes are preserved."
+}

@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+
+ Test Files  6 passed (6)
+      Tests  191 passed (191)
+   Start at  04:30:26
+   Duration  6.87s (transform 830ms, setup 0ms, import 2.16s, tests 2.80s, environment 1.18s)
+

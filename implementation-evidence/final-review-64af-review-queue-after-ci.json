@@ -1,0 +1,42 @@
+{
+  "snapshotOnly": true,
+  "liveCompletenessUnknown": true,
+  "jobs": [
+    {
+      "id": 4940,
+      "head_sha": "64afaaafa0f9520d453d0bc424aa089f18b160bb",
+      "stage": "review",
+      "status": "queued",
+      "attempts": 0,
+      "last_error": "Waiting for CI: ci, github-actions check suite",
+      "force_review": 0,
+      "force_follow_up": 0,
+      "force_reason": null,
+      "revision": 0
+    },
+    {
+      "id": 4907,
+      "head_sha": "6f2f61b7140d28b71d4074f139b81f59a48e5349",
+      "stage": "review",
+      "status": "skipped",
+      "attempts": 1,
+      "last_error": "review cycle cap reached (2/2)",
+      "force_review": 0,
+      "force_follow_up": 0,
+      "force_reason": null,
+      "revision": 0
+    },
+    {
+      "id": 4896,
+      "head_sha": "7813295edfc742b620fa7e71453f8203dfc34b46",
+      "stage": "review",
+      "status": "skipped",
+      "attempts": 1,
+      "last_error": "PR head advanced while waiting for CI",
+      "force_review": 0,
+      "force_follow_up": 0,
+      "force_reason": null,
+      "revision": 0
+    }
+  ]
+}

@@ -1,0 +1,548 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts (49 tests | 10 failed) 638ms
+   × renews messages-only 'content' after the 'last source' await using the original source 15ms
+   × renews messages-only 'access' after the 'last source' await using the original source 12ms
+   × renews messages-only 'content' after the 'outer continuation' await using the original source 11ms
+   × renews messages-only 'access' after the 'outer continuation' await using the original source 11ms
+   × refuses a messages-only source with missing synchronous renewal 14ms
+   × refuses a messages-only source with promise synchronous renewal 11ms
+   × refuses a messages-only source with value synchronous renewal 11ms
+   × refuses a messages-only source with missing operator owner synchronous renewal 11ms
+   × returned local/save check renews messages-only content without new async authorization 12ms
+   × returned local/save check renews messages-only access without new async authorization 11ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > renews messages-only 'content' after the 'last source' await using the original source
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [
++       {
++         "author": {
++           "sessionId": "source",
++         },
++         "blocks": [
++           {
++             "blockId": "chosen",
++             "content": "  Exact
++ π answer  ",
++             "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++           },
++         ],
++         "conversationId": "source",
++         "messageId": "answer",
++         "sequence": 12,
++         "source": null,
++       },
++     ],
++     "mode": "context_only",
++     "requestId": "fa7eafc0-afda-456a-b028-d97ec13eeaa3",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "87e7a808-bf1e-4c78-9d46-19115f431c6f",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "b707e7db446e4c951b78ba42d64e920d7712ac7aa614a64763dc522d0b5aeaa4",
++   "serialized": "{\"version\":1,\"requestId\":\"fa7eafc0-afda-456a-b028-d97ec13eeaa3\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"87e7a808-bf1e-4c78-9d46-19115f431c6f\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[{\"conversationId\":\"source\",\"messageId\":\"answer\",\"sequence\":12,\"author\":{\"sessionId\":\"source\"},\"source\":null,\"blocks\":[{\"blockId\":\"chosen\",\"content\":\"  Exact\\r\\nπ answer  \",\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\"}]}],\"artifacts\":[]}",
++   "sha256": "1869429552337cb0e4d7869ce36ae9fc4c7bd630a0e26e9fc0562dacce414a7d",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:879:81
+    877|       };
+    878|     }
+    879|     await expect(prepareCollaborationForward(input, { source, authoriz…
+       |                                                                                 ^
+    880|     expect(openWitness).toHaveBeenCalledTimes(1);
+    881|   },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > renews messages-only 'access' after the 'last source' await using the original source
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [
++       {
++         "author": {
++           "sessionId": "source",
++         },
++         "blocks": [
++           {
++             "blockId": "chosen",
++             "content": "  Exact
++ π answer  ",
++             "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++           },
++         ],
++         "conversationId": "source",
++         "messageId": "answer",
++         "sequence": 12,
++         "source": null,
++       },
++     ],
++     "mode": "context_only",
++     "requestId": "31195617-bbae-4d93-894b-f72c164471a2",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "96d0cdb5-139a-479b-a7d0-9a06468f9bb4",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "18a5708ec484cd06c6d321ebdf2cdd2d2d4c4299da17276a7ec050f7fd388597",
++   "serialized": "{\"version\":1,\"requestId\":\"31195617-bbae-4d93-894b-f72c164471a2\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"96d0cdb5-139a-479b-a7d0-9a06468f9bb4\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[{\"conversationId\":\"source\",\"messageId\":\"answer\",\"sequence\":12,\"author\":{\"sessionId\":\"source\"},\"source\":null,\"blocks\":[{\"blockId\":\"chosen\",\"content\":\"  Exact\\r\\nπ answer  \",\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\"}]}],\"artifacts\":[]}",
++   "sha256": "12edbd9e5922aff2ee04c9b01e2eac1f6e02a5025ff02ded5f5c5123e3f0f956",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:879:81
+    877|       };
+    878|     }
+    879|     await expect(prepareCollaborationForward(input, { source, authoriz…
+       |                                                                                 ^
+    880|     expect(openWitness).toHaveBeenCalledTimes(1);
+    881|   },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > renews messages-only 'content' after the 'outer continuation' await using the original source
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [
++       {
++         "author": {
++           "sessionId": "source",
++         },
++         "blocks": [
++           {
++             "blockId": "chosen",
++             "content": "  Exact
++ π answer  ",
++             "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++           },
++         ],
++         "conversationId": "source",
++         "messageId": "answer",
++         "sequence": 12,
++         "source": null,
++       },
++     ],
++     "mode": "context_only",
++     "requestId": "31459c9b-1574-42e5-90d5-f413c551fbf8",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "082f074d-2c89-4b46-a1ce-a2c2383c9b89",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "dd51b584263e06e2d988edcae7b0e1625a47fd566c42bd3264418ecf71033e1d",
++   "serialized": "{\"version\":1,\"requestId\":\"31459c9b-1574-42e5-90d5-f413c551fbf8\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"082f074d-2c89-4b46-a1ce-a2c2383c9b89\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[{\"conversationId\":\"source\",\"messageId\":\"answer\",\"sequence\":12,\"author\":{\"sessionId\":\"source\"},\"source\":null,\"blocks\":[{\"blockId\":\"chosen\",\"content\":\"  Exact\\r\\nπ answer  \",\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\"}]}],\"artifacts\":[]}",
++   "sha256": "326748acdcd380d30f08fc6866f77c6a5ca6ca9268e912359a9f2f32db0f4a0b",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:879:81
+    877|       };
+    878|     }
+    879|     await expect(prepareCollaborationForward(input, { source, authoriz…
+       |                                                                                 ^
+    880|     expect(openWitness).toHaveBeenCalledTimes(1);
+    881|   },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > renews messages-only 'access' after the 'outer continuation' await using the original source
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [
++       {
++         "author": {
++           "sessionId": "source",
++         },
++         "blocks": [
++           {
++             "blockId": "chosen",
++             "content": "  Exact
++ π answer  ",
++             "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++           },
++         ],
++         "conversationId": "source",
++         "messageId": "answer",
++         "sequence": 12,
++         "source": null,
++       },
++     ],
++     "mode": "context_only",
++     "requestId": "7315b344-7f6b-433a-9934-171059e78440",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "e05cf154-a8c8-4a28-b7c3-f41fc6b70bae",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "cb44bca71b5d7736fd4b16a56675400365500d6a7f6a8ace16ab41272b87b905",
++   "serialized": "{\"version\":1,\"requestId\":\"7315b344-7f6b-433a-9934-171059e78440\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"e05cf154-a8c8-4a28-b7c3-f41fc6b70bae\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[{\"conversationId\":\"source\",\"messageId\":\"answer\",\"sequence\":12,\"author\":{\"sessionId\":\"source\"},\"source\":null,\"blocks\":[{\"blockId\":\"chosen\",\"content\":\"  Exact\\r\\nπ answer  \",\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\"}]}],\"artifacts\":[]}",
++   "sha256": "b2b5bcd7fd2af4b2f5d26cf0a84e3955f2875b2d61af2835be85dd3aa2f4754e",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:879:81
+    877|       };
+    878|     }
+    879|     await expect(prepareCollaborationForward(input, { source, authoriz…
+       |                                                                                 ^
+    880|     expect(openWitness).toHaveBeenCalledTimes(1);
+    881|   },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses a messages-only source with missing synchronous renewal
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [
++       {
++         "author": {
++           "sessionId": "source",
++         },
++         "blocks": [
++           {
++             "blockId": "chosen",
++             "content": "  Exact
++ π answer  ",
++             "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++           },
++         ],
++         "conversationId": "source",
++         "messageId": "answer",
++         "sequence": 12,
++         "source": null,
++       },
++     ],
++     "mode": "context_only",
++     "requestId": "41a61ac9-c40e-4736-8542-44325f0fd79f",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "a3a8da63-618b-424b-81e9-6574f4fc6f27",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "a500930329e4c72ab64f85df9077983a5f3a36f0f302cf37e85132f18be4338d",
++   "serialized": "{\"version\":1,\"requestId\":\"41a61ac9-c40e-4736-8542-44325f0fd79f\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"a3a8da63-618b-424b-81e9-6574f4fc6f27\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[{\"conversationId\":\"source\",\"messageId\":\"answer\",\"sequence\":12,\"author\":{\"sessionId\":\"source\"},\"source\":null,\"blocks\":[{\"blockId\":\"chosen\",\"content\":\"  Exact\\r\\nπ answer  \",\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\"}]}],\"artifacts\":[]}",
++   "sha256": "d09d932ef9a57fe0f6dddf6c22402db0aea403888889606aff19d0dc1c95210c",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:908:5
+    906|     await expect(
+    907|       prepareCollaborationForward(input, { source, authorizeTarget }),
+    908|     ).rejects.toMatchObject({ code: 'snapshot_changed' });
+       |     ^
+    909|   },
+    910| );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses a messages-only source with promise synchronous renewal
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [
++       {
++         "author": {
++           "sessionId": "source",
++         },
++         "blocks": [
++           {
++             "blockId": "chosen",
++             "content": "  Exact
++ π answer  ",
++             "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++           },
++         ],
++         "conversationId": "source",
++         "messageId": "answer",
++         "sequence": 12,
++         "source": null,
++       },
++     ],
++     "mode": "context_only",
++     "requestId": "82677da6-d8ab-4974-bc82-ce8f55cee48a",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "5ea37235-6f72-466d-bbb3-8bb76ce2d0e9",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "516b19c810122bf92c07d3535832e8b44e40b7c9bbe631858611ba4285832118",
++   "serialized": "{\"version\":1,\"requestId\":\"82677da6-d8ab-4974-bc82-ce8f55cee48a\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"5ea37235-6f72-466d-bbb3-8bb76ce2d0e9\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[{\"conversationId\":\"source\",\"messageId\":\"answer\",\"sequence\":12,\"author\":{\"sessionId\":\"source\"},\"source\":null,\"blocks\":[{\"blockId\":\"chosen\",\"content\":\"  Exact\\r\\nπ answer  \",\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\"}]}],\"artifacts\":[]}",
++   "sha256": "c15cd5c8de6ea358bc4e4e71d9cbbb500a4e71290e22b10d3661dc0a01701101",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:908:5
+    906|     await expect(
+    907|       prepareCollaborationForward(input, { source, authorizeTarget }),
+    908|     ).rejects.toMatchObject({ code: 'snapshot_changed' });
+       |     ^
+    909|   },
+    910| );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses a messages-only source with value synchronous renewal
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [
++       {
++         "author": {
++           "sessionId": "source",
++         },
++         "blocks": [
++           {
++             "blockId": "chosen",
++             "content": "  Exact
++ π answer  ",
++             "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++           },
++         ],
++         "conversationId": "source",
++         "messageId": "answer",
++         "sequence": 12,
++         "source": null,
++       },
++     ],
++     "mode": "context_only",
++     "requestId": "d5d076ef-e812-4c9f-8272-89351d062924",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "3053b3c1-a416-4f31-8460-27e807dea7a2",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "95fba2d2fb2ca529b883ea5558d83632f1ec965e8d66763fd8d3a2d00deb071e",
++   "serialized": "{\"version\":1,\"requestId\":\"d5d076ef-e812-4c9f-8272-89351d062924\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"3053b3c1-a416-4f31-8460-27e807dea7a2\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[{\"conversationId\":\"source\",\"messageId\":\"answer\",\"sequence\":12,\"author\":{\"sessionId\":\"source\"},\"source\":null,\"blocks\":[{\"blockId\":\"chosen\",\"content\":\"  Exact\\r\\nπ answer  \",\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\"}]}],\"artifacts\":[]}",
++   "sha256": "fd45659e581295ec1613ba286ca7d59a286aaf969818a1cf8561c78d9655b457",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:908:5
+    906|     await expect(
+    907|       prepareCollaborationForward(input, { source, authorizeTarget }),
+    908|     ).rejects.toMatchObject({ code: 'snapshot_changed' });
+       |     ^
+    909|   },
+    910| );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses a messages-only source with missing operator owner synchronous renewal
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [],
++     "boundary": {
++       "messageId": "answer",
++       "sequence": 12,
++     },
++     "messages": [
++       {
++         "author": {
++           "sessionId": "source",
++         },
++         "blocks": [
++           {
++             "blockId": "chosen",
++             "content": "  Exact
++ π answer  ",
++             "sha256": "cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890",
++           },
++         ],
++         "conversationId": "source",
++         "messageId": "answer",
++         "sequence": 12,
++         "source": null,
++       },
++     ],
++     "mode": "context_only",
++     "requestId": "07b71160-b88f-40ae-96fd-a4a34eb869e4",
++     "sourceConversationId": "source",
++     "sourceIdentity": "91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e",
++     "target": {
++       "collaborationId": "467765a0-6bec-4aba-a338-d5bfc375e7f0",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "cf5de4037ba38f1334f05dd951df40969423b82a40c60c3c4d98337fe3306b31",
++   "serialized": "{\"version\":1,\"requestId\":\"07b71160-b88f-40ae-96fd-a4a34eb869e4\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"467765a0-6bec-4aba-a338-d5bfc375e7f0\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":\"source\",\"sourceIdentity\":\"91bca3612ca88da0c5f7664520657b443d3290da03ea3d2a57f6c1901bf94c0e\",\"boundary\":{\"sequence\":12,\"messageId\":\"answer\"},\"messages\":[{\"conversationId\":\"source\",\"messageId\":\"answer\",\"sequence\":12,\"author\":{\"sessionId\":\"source\"},\"source\":null,\"blocks\":[{\"blockId\":\"chosen\",\"content\":\"  Exact\\r\\nπ answer  \",\"sha256\":\"cf9e83d0a5c3a4447f7ed831330af3b4bcb61abd4e460e9a01c27e6ef9f96890\"}]}],\"artifacts\":[]}",
++   "sha256": "1a977f97b37f89e38fa5476c69f79b6a346d35bb644bd61b97e0173525921c69",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:908:5
+    906|     await expect(
+    907|       prepareCollaborationForward(input, { source, authorizeTarget }),
+    908|     ).rejects.toMatchObject({ code: 'snapshot_changed' });
+       |     ^
+    909|   },
+    910| );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > returned local/save check renews messages-only content without new async authorization
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > returned local/save check renews messages-only access without new async authorization
+AssertionError: expected [Function] to throw an error
+ ❯ server/__tests__/collaboration-forwarding.test.ts:938:55
+    936|       fault.close();
+    937|     }
+    938|     expect(() => result.assertLocalMaterialCurrent()).toThrow();
+       |                                                       ^
+    939|     expect(authorizeSource).toHaveBeenCalledTimes(calls);
+    940|     expect(original).toHaveBeenCalledTimes(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 39 passed (49)
+   Start at  02:24:55
+   Duration  1.13s (transform 255ms, setup 0ms, import 378ms, tests 638ms, environment 0ms)
+
