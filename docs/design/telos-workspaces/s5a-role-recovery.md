@@ -35,8 +35,9 @@ review's settings key to prevent an immediate automatic duplicate review.
 
 All checks use synthetic databases/fake ports or intercepted browser traffic, one
 worker and a 1 GiB Node heap. No staging, production configuration or real model
-test is involved. The canonical parent is separately published as PR1027; this
-follow-on is unpublished until its accepted parent is integrated.
+test is involved. The canonical parent is accepted as `117783fdf920f13e5e3b710d04d17f9cd46f5782`
+(PR1027). Its integration preserves the recovery source tree byte for byte.
+Recovery has its own review and CI gates; complete S5a acceptance remains open.
 
 The expanded unchanged-source baseline was 34 cases: 23 passed and 11 failed.
 The component guard had an additional failing-before test. Focused recovery then
