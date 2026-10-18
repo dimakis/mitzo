@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.353-ordinary-chat-consumer.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.354-compact-agents-label.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -237,7 +237,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.tsx':
     '48696180754aca127bb0224121302a9453f262ff7cb85b78762bd2ed33d7ffe1',
   '../../frontend/src/components/ConversationAgents.css':
-    '67b0a7dfde19ce25f31fc5ff2571fa111f20ca323bf8220d86906899ca5eae16',
+    '02d20ccd4e85798aced218aa32236cd59a748656a0367538b4f173cdaa3eca35',
   '../../frontend/src/components/ComposerResponders.tsx':
     '947179a55df150bc220a2b3d8434504c9e9668220155db5d2fd863440faba06d',
   '../../frontend/src/components/ComposerResponders.css':

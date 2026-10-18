@@ -1476,6 +1476,9 @@ future model/thinking choices then use the existing continuation controls. Unkno
 delivery keeps the original command and draft for explicit recovery in More options.
 Workspace details say Conversation files and show that a Git branch does not apply.
 No new settings, storage owner or motion pattern is introduced.
+The shared compact Agents control clips its flex label with the existing ellipsis
+pattern, preserving its full accessible name, fixed icon space and shared control
+height at narrow widths and large text sizes.
 
 The scoped offline role fixture checks source-only lead setup, full refinement/child
 advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,

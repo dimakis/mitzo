@@ -315,6 +315,11 @@
 .conversation-participants-trigger > svg {
   flex: none;
 }
+.conversation-agents-entry .conversation-participants-trigger > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .conversation-participants-trigger strong,
 .conversation-participants-trigger small {
   display: block;
