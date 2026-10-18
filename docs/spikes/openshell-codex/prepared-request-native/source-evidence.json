@@ -84,10 +84,22 @@
     {
       "file": "native-linux-literal-globs.patch",
       "sha256": "ed346421178aa1144668d4d0ab2613391140095ab13ecdd8d89208974e6ea685"
+    },
+    {
+      "file": "native-parent-routing.patch",
+      "sha256": "419fc94cdaad066f2be3e992cc25fde8c088f26cd4cd22e4371520ea1e22548c"
+    },
+    {
+      "file": "native-parent-provenance.patch",
+      "sha256": "f6b555b0b41e8776bb35dc645cbed95ac0461ab64ce24ae3b1f8a1b9c457c45e"
+    },
+    {
+      "file": "native-parent-bindings.patch",
+      "sha256": "8ba1a20b76d04bfabefb8f3cca93d55148362d73e7cccc7f12b5d969eb9eaa33"
     }
   ],
-  "sourceTree": "6e9df0a9a29a18d4982c49b13457eb9bcfaab690",
-  "localSourceCommit": "a984645f8b34d706242e981c72dd3e5f9429fec7",
+  "sourceTree": "b4f196081c383cf9dcf2062d10b8a7281fbd7819",
+  "localSourceCommit": "5ad3d2fc441933f3e83b9532b486a98f44c84559",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -113,7 +125,10 @@
     "c9cd0bf42dbc37e6c31e4bf58117fc8de3f11afd",
     "476400255d18e172d6579a49cfe071538d8fecff",
     "a55dca6698828e414e0ebd316bb8bf3ff2943b8c",
-    "a984645f8b34d706242e981c72dd3e5f9429fec7"
+    "a984645f8b34d706242e981c72dd3e5f9429fec7",
+    "30b5be3e0eb23c6d4acc6218be87a278e7954f49",
+    "88240eb5125987afaadee7429df80cda315e257d",
+    "5ad3d2fc441933f3e83b9532b486a98f44c84559"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -123,7 +138,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "Conservative Linux launch-time literal GlobPattern expansion in actual bwrap owner; no changes to original wildcard matching, per-read policy, original Core approval fixtures or guards.",
+    "scope": "Retained twenty-patch source plus typed native approval routing, inert fresh-user provenance, original configuration/policy bindings and first restricted-launch custody; no child consumer.",
     "localFocused": {
       "status": "new_linux_cases_not_run_on_mac",
       "newLinuxCases": 9,
@@ -131,9 +146,15 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_new_source",
+      "status": "pending_23_patch_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
-      "scope": ["codex-core", "codex-api", "codex-state", "codex-http-client"],
+      "scope": [
+        "codex-core",
+        "codex-api",
+        "codex-state",
+        "codex-http-client",
+        "codex-guardian-reviewer"
+      ],
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
       "previousRun": 39100230330,
@@ -154,7 +175,8 @@
           "remainingFixtureOutcomes": "unknown"
         }
       },
-      "zeroNativeSkipsClaimed": false
+      "zeroNativeSkipsClaimed": false,
+      "published20PatchRun": 39121183011
     },
     "literalContract": {
       "accepted": "Resolved UTF8 literal regular files or clean first absence after verified real directory prefixes; all aliases refuse.",
@@ -174,7 +196,27 @@
       "reviewer": "native_safety_reaudit /gpt-6.1-sol",
       "result": "No narrow source blocker under existing prelaunch-match contract; static only."
     },
-    "testCountsOverlap": true
+    "testCountsOverlap": true,
+    "scopedParentApproval": {
+      "stages": {
+        "routing": "30b5be3e0eb23c6d4acc6218be87a278e7954f49",
+        "provenance": "88240eb5125987afaadee7429df80cda315e257d",
+        "bindings": "5ad3d2fc441933f3e83b9532b486a98f44c84559"
+      },
+      "sourceReviewedByRootAndIndependentSol61": true,
+      "sourceTreeReconstructedFromAll23Patches": true,
+      "original20PatchChecksumsUnchanged": true,
+      "actualApprovalAndExecutionOwnerRegressionsAuthored": true,
+      "rustTestsExecutedOnTheseStages": false,
+      "compiled": false,
+      "newLocalChecks": "Scoped Rust1.95 formatting/source preservation only",
+      "physicalEligibility": "Original RequireEscalated, requested concrete restricted sandbox with denied reads, Restricted network in requested/canonical/transformed profiles; unsupported snapshots/grants/proxies/remote paths refuse optional provenance",
+      "hasChildConsumer": false,
+      "hasFinalSessionCas": false,
+      "sameRequestHookMetadataImplemented": false,
+      "guardianFixtureCorrectionIncluded": false,
+      "ordinaryPreparedRequestAuthorityEstablished": false
+    }
   },
   "runtimeQualified": false,
   "installed": false,
@@ -276,6 +318,15 @@
       "assertionsPreserved": 6,
       "independentReadOnlyReview": "native_safety_reaudit: None proves TurnComplete consumed; second wait is not an idle/process-exit fence",
       "remainingNativeFailures": "Linux literal-glob sandbox construction and macOS current-permission/child-approval cases remain unresolved"
+    },
+    "scopedParentApproval": {
+      "sourceCommit": "5ad3d2fc441933f3e83b9532b486a98f44c84559",
+      "sourceTree": "b4f196081c383cf9dcf2062d10b8a7281fbd7819",
+      "stages": ["routing", "provenance", "bindings"],
+      "inert": true,
+      "originalApprovalAndPolicyBehaviorPreserved": true,
+      "productionRequestConsumptionSupported": false,
+      "scope": "Metadata/provenance/physical custody only; C2 routing+hook observations and C3 locked child consumption remain unimplemented in this source."
     }
   },
   "historicalFoundation": {
