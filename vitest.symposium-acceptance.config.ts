@@ -14,6 +14,7 @@ export default mergeConfig(base, {
             'server/__tests__/collaboration-retained-artifact-source.test.ts',
             'packages/protocol/__tests__/collaboration-forward-storage.test.ts',
             'server/__tests__/collaboration-forward-contract.test.ts',
+            'server/__tests__/collaboration-forward-browser-boundary.test.ts',
             'server/__tests__/collaboration-forward-ordinary-delivery.test.ts',
           ]
         : []),

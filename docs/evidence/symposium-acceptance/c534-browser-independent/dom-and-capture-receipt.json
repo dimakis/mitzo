@@ -1,0 +1,306 @@
+{
+  "coreCommit": "c534f3d717a34198fbd0639643b027d2c67879b4",
+  "candidateHead": "b580e7f46ecc368dca213645afc8de28f9b1ab4e",
+  "candidateTree": "6f793776857def8215d6e2b9b07e0d05445b5077",
+  "measuredBy": "independent C execution of unchanged protected/shared Playwright specs",
+  "metricFiles": 6,
+  "measurements": [
+    {
+      "project": "desktop-chromium",
+      "theme": "light",
+      "width": 320,
+      "nameTrackWidth": 64,
+      "countGap": 4,
+      "fontFamily": "\"Times New Roman\", serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "desktop-chromium",
+      "theme": "light",
+      "width": 390,
+      "nameTrackWidth": 140.984375,
+      "countGap": 4,
+      "fontFamily": "\"Times New Roman\", serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "mobile-chromium",
+      "theme": "light",
+      "width": 320,
+      "nameTrackWidth": 64,
+      "countGap": 4,
+      "fontFamily": "\"Times New Roman\", serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "mobile-chromium",
+      "theme": "light",
+      "width": 390,
+      "nameTrackWidth": 140.984375,
+      "countGap": 4,
+      "fontFamily": "\"Times New Roman\", serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "mobile-webkit",
+      "theme": "light",
+      "width": 320,
+      "nameTrackWidth": 64,
+      "countGap": 4,
+      "fontFamily": "Times New Roman, serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "mobile-webkit",
+      "theme": "light",
+      "width": 390,
+      "nameTrackWidth": 140.96875,
+      "countGap": 4,
+      "fontFamily": "Times New Roman, serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "desktop-chromium",
+      "theme": "dark",
+      "width": 320,
+      "nameTrackWidth": 64,
+      "countGap": 4,
+      "fontFamily": "\"Times New Roman\", serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "desktop-chromium",
+      "theme": "dark",
+      "width": 390,
+      "nameTrackWidth": 140.984375,
+      "countGap": 4,
+      "fontFamily": "\"Times New Roman\", serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "mobile-chromium",
+      "theme": "dark",
+      "width": 320,
+      "nameTrackWidth": 64,
+      "countGap": 4,
+      "fontFamily": "\"Times New Roman\", serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "mobile-chromium",
+      "theme": "dark",
+      "width": 390,
+      "nameTrackWidth": 140.984375,
+      "countGap": 4,
+      "fontFamily": "\"Times New Roman\", serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "mobile-webkit",
+      "theme": "dark",
+      "width": 320,
+      "nameTrackWidth": 64,
+      "countGap": 4,
+      "fontFamily": "Times New Roman, serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    },
+    {
+      "project": "mobile-webkit",
+      "theme": "dark",
+      "width": 390,
+      "nameTrackWidth": 140.96875,
+      "countGap": 4,
+      "fontFamily": "Times New Roman, serif",
+      "fontSize": "16px",
+      "glyphWidth": 63.671875
+    }
+  ],
+  "width320Tracks": [64],
+  "countGaps": [4],
+  "captures": [
+    {
+      "sourcePath": "/private/tmp/symposium-c534-independent-6KZAZS/symposium-approved-design--bb622-ents-and-fresh-setup-light--desktop-chromium/fresh-setup-1280-light.png",
+      "retainedPath": "captures/desktop-chromium-fresh-setup-1280-light.png",
+      "project": "desktop-chromium",
+      "sha256": "1880b2ea504397fc500098e42d2c6a40782104f76f334f056ad922245f636478",
+      "bytes": 179586
+    },
+    {
+      "sourcePath": "/private/tmp/symposium-c534-independent-6KZAZS/symposium-approved-design--28619-gents-and-fresh-setup-dark--mobile-webkit/fresh-setup-320-dark.png",
+      "retainedPath": "captures/mobile-webkit-fresh-setup-320-dark.png",
+      "project": "mobile-webkit",
+      "sha256": "793ee2f11a7511e95ac8766360875c4ef3db2f3f6a8cefcc1a5c4467e6a083bf",
+      "bytes": 306363
+    },
+    {
+      "sourcePath": "/private/tmp/symposium-c534-independent-6KZAZS/symposium-approved-design--bb622-ents-and-fresh-setup-light--mobile-webkit/large-text-320-light.png",
+      "retainedPath": "captures/mobile-webkit-large-text-320-light.png",
+      "project": "mobile-webkit",
+      "sha256": "0cbd8594aad60226406618fe283634fbcc82b7ffd88ce7cec284ae048818bebf",
+      "bytes": 216049
+    },
+    {
+      "sourcePath": "/private/tmp/symposium-c534-independent-6KZAZS/symposium-shared-conversat-9bf98-s-Defaults-and-drafts-dark--mobile-webkit/header-serif-320-dark.png",
+      "retainedPath": "captures/mobile-webkit-header-serif-320-dark.png",
+      "project": "mobile-webkit",
+      "sha256": "ae6c35c3b62c55c95c394f614d432bfb6442af149c4c6f2e07ea3948e92963a3",
+      "bytes": 8218
+    },
+    {
+      "sourcePath": "/private/tmp/symposium-c534-independent-6KZAZS/symposium-shared-conversat-06f73--Defaults-and-drafts-light--mobile-chromium/header-serif-390-light.png",
+      "retainedPath": "captures/mobile-chromium-header-serif-390-light.png",
+      "project": "mobile-chromium",
+      "sha256": "2cd896b5c9dfcf359391fb969a5c101dbec0db0b9403f08b508f227ef51a593f",
+      "bytes": 8559
+    },
+    {
+      "sourcePath": "/private/tmp/symposium-c534-independent-6KZAZS/symposium-shared-conversat-06f73--Defaults-and-drafts-light--mobile-webkit/policy-refusal-light.png",
+      "retainedPath": "captures/mobile-webkit-policy-refusal-light.png",
+      "project": "mobile-webkit",
+      "sha256": "caffb384dbf8cb0d5da8ea31427cb4f894eee150588d71590ca9ebea25428be6",
+      "bytes": 253220
+    },
+    {
+      "sourcePath": "/private/tmp/symposium-c534-independent-6KZAZS/symposium-shared-conversat-9bf98-s-Defaults-and-drafts-dark--mobile-webkit/policy-refresh-needed-dark.png",
+      "retainedPath": "captures/mobile-webkit-policy-refresh-needed-dark.png",
+      "project": "mobile-webkit",
+      "sha256": "46278e66902411672522ce4eea31af7a943b18b5d7b2931a3a5d21a73385ff77",
+      "bytes": 239805
+    },
+    {
+      "sourcePath": "/private/tmp/symposium-c534-independent-6KZAZS/symposium-shared-conversat-9bf98-s-Defaults-and-drafts-dark--mobile-webkit/shared-dark.png",
+      "retainedPath": "captures/mobile-webkit-shared-dark.png",
+      "project": "mobile-webkit",
+      "sha256": "c9d734b01b2d37d306483e1741febdac5748351cd9218c5bbb1acf9a74167090",
+      "bytes": 198777
+    }
+  ],
+  "inspectedImages": true,
+  "fullAppOwners": false,
+  "fullJoiningUxAccepted": false,
+  "nativeIosQualified": false,
+  "inspection": "view_image of eight retained independent-run captures",
+  "observations": [
+    "Setup/large-text dialogs retain readable content, body scroll and visible Cancel/Review joining brief footer in inspected states.",
+    "Visible setup footer strings match the frozen approved Add agent markup.",
+    "Independent serif320 crop shows Architect +2; serif390 crop shows Architect \u00b7 Reviewer +1.",
+    "Saved-policy/failed-confirmation and membership-refusal explanations remain visible with Refresh sharing; successful Architect reply stays beside independent uncertain/pending receipts."
+  ],
+  "testResults": [
+    {
+      "title": "browser startup",
+      "project": "browser-startup-0",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "browser startup",
+      "project": "browser-startup-1",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "Symposium approved design: real chat, Agents and fresh setup (dark)",
+      "project": "mobile-webkit",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "Symposium approved design: real chat, Agents and fresh setup (light)",
+      "project": "mobile-webkit",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "Symposium approved design: real chat, Agents and fresh setup (dark)",
+      "project": "mobile-chromium",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "Symposium approved design: real chat, Agents and fresh setup (light)",
+      "project": "mobile-chromium",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "Symposium approved design: real chat, Agents and fresh setup (dark)",
+      "project": "desktop-chromium",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "Symposium approved design: real chat, Agents and fresh setup (light)",
+      "project": "desktop-chromium",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (dark)",
+      "project": "mobile-webkit",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (light)",
+      "project": "mobile-webkit",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (dark)",
+      "project": "mobile-chromium",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (light)",
+      "project": "mobile-chromium",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (dark)",
+      "project": "desktop-chromium",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    },
+    {
+      "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (light)",
+      "project": "desktop-chromium",
+      "expectedStatus": "passed",
+      "statuses": ["passed"],
+      "retries": [0]
+    }
+  ],
+  "limits": [
+    "All browser API/transport responses are intercepted synthetic fixtures; this is not the actual backend app journey.",
+    "Before joining/refreeze/silent allocation and finalized application reply remain unavailable; large-text screenshots show a disabled setup state.",
+    "DOM metrics are independently rerun here, while older A static receipts retain their historical measurement limitations.",
+    "No physical iOS, native request/admission, live model, runtime or deployment qualification."
+  ]
+}
