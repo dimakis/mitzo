@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.310-tool-builder-agent.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.311-tool-builder-ui.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,22 +22,34 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../../frontend/src/components/SandboxBatchCleanup.tsx':
-    'af232871b17f95cfe1cee1bcd7031236cad69ba7db51645af07e084823e247c3',
-  '../../frontend/src/components/SandboxOwnershipReview.tsx':
-    '64e5c10201281d54c61e62bf06b1260aff990939f38cb1b4052ba6335d001e0b',
+  '../../frontend/src/lib/file-metadata.ts':
+    '111a9916ee7c46e3b9caea165397e47b0f84b4d70bc9feeeff33d00382566dd0',
+  '../../frontend/src/lib/native-file-share.ts':
+    '429b53ccf9df948b73301d6bbc556f29f30b279f998cf297baede4fb27ace09a',
+  '../../frontend/src/lib/share-file.ts':
+    '584a4c534772d590933f4cb279330719d82f9727833db16f4c18d7deadf3108d',
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
-  '../../packages/protocol/src/tool-summary.ts':
-    '69f553304211b38f926b4f4fe81aeae04b177432ccc0002ab95d3258ef07f90b',
-  '../../frontend/src/lib/web-access-outcome.ts':
-    '89b884c09d8c7b6b4c236bc4cba6fb4b2a775823e55a893f56241b488f39d803',
-  '../../frontend/src/components/AgentActivity.tsx':
-    '82f33060080e2755cd12ba66b5fccb069284459281b35ff37971e63aba0e0461',
-  '../github-read-summary.ts': 'a0484745af976ccee6b840e3955824509669d0fedb1561d6a6ce35c31ebadc2d',
-  '../research-instructions.ts': '0847d737a765fd2b1c3707d44909d92b186167b6ab34782ea2deb878dc1488a2',
+  '../../frontend/src/components/SandboxOwnershipReview.tsx':
+    '64e5c10201281d54c61e62bf06b1260aff990939f38cb1b4052ba6335d001e0b',
+  '../../frontend/src/components/SandboxBatchCleanup.tsx':
+    'af232871b17f95cfe1cee1bcd7031236cad69ba7db51645af07e084823e247c3',
   '../symposium-access-tools.ts':
     'f5ee50c9bea25c0453b52941eb186f43e8de6efa674736eab22348ac08b59032',
+  '../research-instructions.ts': '0847d737a765fd2b1c3707d44909d92b186167b6ab34782ea2deb878dc1488a2',
+  '../github-read-summary.ts': 'a0484745af976ccee6b840e3955824509669d0fedb1561d6a6ce35c31ebadc2d',
+  '../../frontend/src/components/AgentActivity.tsx':
+    '82f33060080e2755cd12ba66b5fccb069284459281b35ff37971e63aba0e0461',
+  '../../frontend/src/lib/web-access-outcome.ts':
+    '89b884c09d8c7b6b4c236bc4cba6fb4b2a775823e55a893f56241b488f39d803',
+  '../../packages/protocol/src/tool-summary.ts':
+    '69f553304211b38f926b4f4fe81aeae04b177432ccc0002ab95d3258ef07f90b',
+  '../../frontend/src/lib/agent-library.ts':
+    '4363297b9ef2c6cd4da74ea081730baa62577405dd7f2c57b0407e59765cb3ba',
+  '../../frontend/src/lib/tool-builder-api.ts':
+    '2aaf45b414922f748bdb0d86190ac919dc51144b8cb6eecac0112a13c825ebad',
+  '../../frontend/src/components/ToolBuilderReview.tsx':
+    '2466489bab84ba1045b73efe5a799f15c34120142ad88debb6b73ccbc041ba59',
   '../../packages/protocol/src/tool-builder.ts':
     '32d7ee6cd22ce116c032165823299f7612e71cd4bdb4188582b19b224b0b22ed',
   '../tool-builder-tool-definitions.ts':
@@ -346,7 +358,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AccountModelPicker.tsx':
     '9eceb83413e6ae50d00b1aaf4f3fd9547f3289a2ead0acae764df25c3de8c3e3',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
-    '4e31288412968cd38828169c6f1d17ada0e27d30393758bef86df45542685b62',
+    '8c63f0f81655d6e6ee4618ad2a1845b6de1bde5aba5a31c6278595ed7af78915',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '09e817e4b6a0b2447c97f8dbad2b1aa9537d0b8958d87819dd5ca7600d219ff6',
   '../../frontend/src/lib/keyboard.ts':
@@ -584,14 +596,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentCreationAdvisor.tsx':
     '872b88cbc121b4627be5078f2b73ed079b0a72dec3a1c41c3dcc2e44fc8c4a3f',
   '../../frontend/src/pages/AgentLibrary.tsx':
-    '2b831e4c18ebc2385118fefb76f415c4b9b5dc656856c453ac36e8f877590a43',
+    'ccfc1c9eaa320702159591024494e1625a3522687f02c5ce450478e05ec71608',
   // Read-only tool catalog cards and their shared visual presentation.
   '../../frontend/src/components/ToolLibraryCatalog.tsx':
     'e287ccd9d36b3def7b49918a955866d8e6466e576742b885b65d7898e03c3037',
   '../../frontend/src/styles/tool-library.css':
     '23c76aa73788e21c161004a3b06a2b413b909a6d03c277a24817f04ea45e0c7d',
   '../../frontend/src/styles/agent-library.css':
-    '8470dabf7f2f8e3084dd513815a02b8ce709a6d976e8696bb12da7237f2bea67',
+    'f7c974087659c698fe404e4682ad9b95fa8ab6ac98f5ed0a45a66008dc81b05d',
 
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':

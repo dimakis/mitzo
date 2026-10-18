@@ -69,6 +69,20 @@ it('shows named agents and descriptors in a separate library', async () => {
     'profileRevision=3',
   );
 });
+it('opens the Tool Builder through regular chat with a pinned builtin and no submission', async () => {
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Tool library' }));
+  const link = screen.getByRole('link', { name: 'Build a tool' });
+  const url = new URL(link.getAttribute('href')!, 'https://mitzo.example');
+  expect(url.pathname).toBe('/chat');
+  expect(url.searchParams.get('agentProfile')).toBe('mitzo-tool-builder');
+  expect(url.searchParams.get('agentProfileKind')).toBe('builtin');
+  expect(url.searchParams.get('profileRevision')).toBe('1');
+  expect(url.searchParams.get('prompt')).toBe('Help me create a tool.');
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
+  ).toBe(true);
+});
 it('saves identity edits as a draft and publishes only that saved version', async () => {
   let drafts: unknown[] = [];
   let versions = [published];
