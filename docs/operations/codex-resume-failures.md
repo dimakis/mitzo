@@ -45,6 +45,8 @@ Replacement-owner races and failures while delivering an error were reproduced
 in offline regressions; they are not claims that either happened in the incident.
 Cleanup now runs even if reporting fails, and late completion notifications do
 not forget a replacement owner. Startup admission itself is a one-shot outcome.
+It settles before skill notification delivery, so an observer failure cannot
+strand the HTTP admission waiter.
 
 ## Runtime contract
 

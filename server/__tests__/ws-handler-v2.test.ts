@@ -6141,6 +6141,50 @@ it('settles admission when the startup launcher rejects before invoking its call
   ]);
 });
 
+it('settles admitted startup even when its skill notification cannot be delivered', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  vi.mocked(resolveSlashCommand).mockReturnValueOnce({
+    type: 'skill',
+    name: 'commit',
+    renderedPrompt: 'Create a commit',
+    allowedTools: ['Bash'],
+    arguments: '',
+  });
+  const deliver = transport.send.bind(transport);
+  transport.send = (event) => {
+    if (event.type === 'skill_invoked') throw new Error('Offline notification delivery');
+    deliver(event);
+  };
+  vi.mocked(startChat).mockImplementationOnce(async (startupTransport, _client, _prompt, opts) => {
+    try {
+      opts.onStartupAdmission?.();
+    } catch {
+      // The driver has already settled its one-shot admission observer. Its
+      // normal failure path reports the delivery problem through the stream.
+      startupTransport.send({ type: 'error', error: 'Startup notification failed' });
+    }
+  });
+  let settled = false;
+  const handling = handleSendV2(
+    'notification-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: '/commit', clientMsgId: 'notification-failed' },
+    ctx,
+    { awaitStartupAdmission: true },
+  ).then(() => {
+    settled = true;
+  });
+  await vi.waitFor(() => expect(settled).toBe(true));
+  await handling;
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      error: 'Startup notification failed',
+    }),
+  );
+});
+
 it('keeps runtime errors independent after startup admission has already succeeded', async () => {
   const ctx = createContext();
   const transport = mockTransport();

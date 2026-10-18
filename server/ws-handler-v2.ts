@@ -756,12 +756,15 @@ export function handleSendV2(
               startupFailure ??= { reported: false };
             rejectStartupAdmission?.(error);
           } else {
-            if (!skillInvoked) {
-              emitSkillInvoked();
-              skillInvoked = true;
-            }
+            // Admission is durable execution state; delivering its skill
+            // notification is an observer and must not leave the HTTP waiter
+            // pending if that delivery throws.
             startupAdmissionSucceeded = true;
             resolveStartupAdmission?.();
+            if (!skillInvoked) {
+              skillInvoked = true;
+              emitSkillInvoked();
+            }
           }
         };
         const startupTransport: SessionTransport = {
