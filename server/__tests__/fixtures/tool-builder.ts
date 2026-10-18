@@ -10,23 +10,26 @@ import {
 } from '../../tool-builder.js';
 
 export const toolBuilderFixtureId = 'c2f63831-e4bc-46c2-ab36-7b7850ad501a';
-const input = z.object({ text: z.string() }).strict();
 const output = z.object({ length: z.number().int() }).strict();
-export function toolBuilderFixture(path = ':memory:') {
+export function toolBuilderFixture(path = ':memory:', field: 'text' | 'file_path' = 'text') {
   const id = toolBuilderFixtureId;
+  const input = z
+    .object({ [field]: field === 'file_path' ? z.string().max(5) : z.string() })
+    .strict();
+  const example = field === 'file_path' ? 'a.txt' : 'abc';
   const contract = CustomToolDraftInputSchema.parse({
     name: 'Text length',
     description: 'Count text characters',
     inputSchema: JSON.parse(JSON.stringify(z.toJSONSchema(input))),
     outputSchema: JSON.parse(JSON.stringify(z.toJSONSchema(output))),
-    examples: [{ input: { text: 'abc' }, expected: { length: 3 } }],
+    examples: [{ input: { [field]: example }, expected: { length: example.length } }],
     permissions: { behavior: 'read', requiredConnections: [] },
     compatibility: { routes: ['local-api'] },
     testProfile: 'unit',
     files: [
       {
         path: 'src/index.mts',
-        content: 'export const runTool = ({text}: {text:string}) => ({length: text.length});\n',
+        content: `export const runTool = ({${field}}: {${field}:string}) => ({length: ${field}.length});\n`,
       },
       {
         path: 'test/index.test.mts',
@@ -35,8 +38,7 @@ export function toolBuilderFixture(path = ':memory:') {
       },
       {
         path: 'test/qualify.mts',
-        content:
-          'import assert from "node:assert/strict";import {runTool} from "../src/index.mts";export async function qualify(){assert.deepEqual(runTool({text:"abc"}),{length:3});}\n',
+        content: `import assert from "node:assert/strict";import {runTool} from "../src/index.mts";export async function qualify(){assert.deepEqual(runTool({${field}:"${example}"}),{length:${example.length}});}\n`,
       },
     ],
   });
@@ -57,12 +59,12 @@ export function toolBuilderFixture(path = ':memory:') {
       evidenceKind: 'trusted-executor' as const,
       sourceDigest,
       contractDigest,
-      examples: [{ ...contract.examples[0], actual: { length: 3 } }],
+      examples: [{ ...contract.examples[0], actual: { length: example.length } }],
     },
   };
   const qualify = vi.fn(async (_signal: AbortSignal) => {});
   const execute = vi.fn(async (value: Record<string, unknown>) => ({
-    length: String(value.text).length,
+    length: String(value[field]).length,
   }));
   const sourceFiles = Object.fromEntries(
     contract.files.map((file) => [file.path, `../custom-tools/${id}/${file.path}`]),

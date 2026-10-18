@@ -440,6 +440,7 @@ export async function openResponsesChat(options: Options) {
     }
   }
   const admittedNames = new Set(definitions.map((tool) => tool.name));
+  const customToolNames = new Set(customTools?.definitions.map((tool) => tool.name));
   const runner = new NativeResponsesRunner({
     commandAuthority: options.commandAuthority,
     conversationId: options.conversationId,
@@ -541,6 +542,8 @@ export async function openResponsesChat(options: Options) {
           })({ ...block, input }, signal);
           return { content: result.content, isError: !!result.is_error };
         },
+        // A custom contract can use file_path as ordinary computation data.
+        { normalizeFilePath: !customToolNames.has(block.name) },
       );
       return {
         type: 'tool_result',
