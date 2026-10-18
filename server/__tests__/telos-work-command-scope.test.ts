@@ -13,6 +13,7 @@ import {
 } from '../telos-work-role-context.js';
 import { resolveTelosWorkCommandScope } from '../telos-work-command-scope.js';
 import { handleTaskComplete, handleTaskStatus } from '../task-tools.js';
+import { resolveTelosWorkTaskToolContext } from '../telos-work-execution-authority.js';
 
 const cleanups: (() => void)[] = [];
 afterEach(() =>
@@ -184,6 +185,8 @@ function fixture(delegation = true, withRole = true, marker?: string) {
   };
   return {
     account,
+    command,
+    actor,
     meta,
     binding,
     settings,
@@ -324,4 +327,63 @@ it('uses the proven worker task for TaskStatus and leaves TaskComplete pending i
   );
   expect(f.tasks.get(taskId)?.status).toBe('pending_review');
   expect(f.tasks.get(unrelated.id)?.status).toBe('pending');
+});
+
+it('CT11: a replaced worker loses command and completion authority while its original attempt remains attributable after restart', () => {
+  const f = fixture();
+  const taskId = f.complete();
+  const original = f.work.executionTaskBinding(taskId, 'worker');
+  f.events.upsertSession({ sessionId: 'replacement' });
+  f.command('child', {
+    operation: 'link',
+    role: 'worker',
+    conversation: { namespace: 'mitzo', conversationId: 'replacement' },
+  });
+  f.command('child', {
+    operation: 'assign',
+    role: 'worker',
+    conversationId: 'replacement',
+    expectedAssignmentRevision: 0,
+  });
+  f.reopen();
+  expect(f.work.executionTaskBinding(taskId, 'worker')).toEqual(original);
+  expect(() => resolveTelosWorkCommandScope(f.owners(), 'worker', f.account)).toThrow(
+    /superseded/i,
+  );
+  expect(() =>
+    resolveTelosWorkTaskToolContext(
+      f.owners(),
+      { sessionId: 'worker', taskId, accountBinding: f.account },
+      { sessionId: 'worker', taskId },
+    ),
+  ).toThrow(/superseded/i);
+  expect(f.tasks.get(taskId)?.status).toBe('pending');
+});
+
+it('CT11: replacing a lead changes current routing without rewriting or revoking an already delegated worker', () => {
+  const f = fixture();
+  const taskId = f.complete();
+  const original = f.work.executionTaskBinding(taskId, 'worker');
+  f.events.upsertSession({ sessionId: 'new-lead' });
+  f.command('outcome', {
+    operation: 'link',
+    role: 'lead',
+    conversation: { namespace: 'mitzo', conversationId: 'new-lead' },
+  });
+  f.command('outcome', {
+    operation: 'assign',
+    role: 'lead',
+    conversationId: 'new-lead',
+    expectedAssignmentRevision: 1,
+  });
+  f.reopen();
+  expect(resolveTelosWorkCommandScope(f.owners(), 'worker', f.account)).toEqual({
+    currentTaskId: taskId,
+    goalId: taskId,
+  });
+  expect(f.work.executionTaskBinding(taskId, 'worker')).toEqual(original);
+  expect(() => f.work.readDelegationTarget('lead', 'child', 'outcome')).toThrow(/lead/i);
+  expect(f.work.read('outcome', f.actor).assignments[0].conversation.conversationId).toBe(
+    'new-lead',
+  );
 });

@@ -1472,13 +1472,26 @@ export class TelosWorkStore {
   executionTaskBinding(
     executionTaskId: string,
     workerConversationId: string,
+    requireCurrentAuthority = false,
   ): TelosWorkAttempt | null {
     const row = this.db
       .prepare(
         "SELECT data FROM telos_work_attempts WHERE json_extract(data,'$.executionTaskId')=? AND json_extract(data,'$.workerConversationId')=?",
       )
       .get(executionTaskId, workerConversationId) as JsonRow | undefined;
-    return row ? TelosWorkAttemptSchema.parse(JSON.parse(row.data)) : null;
+    const attempt = row ? TelosWorkAttemptSchema.parse(JSON.parse(row.data)) : null;
+    if (attempt && requireCurrentAuthority) {
+      const child = this.snapshot(attempt.childItemId);
+      const assigned = child.assignments.find((assignment) => assignment.role === 'worker');
+      const latest = child.attempts.at(-1);
+      if (
+        !this.policy.ordinaryConversation(workerConversationId) ||
+        latest?.attemptId !== attempt.attemptId ||
+        (assigned && assigned.conversation.conversationId !== workerConversationId)
+      )
+        throw new TelosWorkError('unauthorized', 'Worker execution authority has been superseded');
+    }
+    return attempt;
   }
   /** Host-only task-owner reconciliation. This binds retained allocation authority;
    * it does not start execution, assign a worker, or rewrite role context.
