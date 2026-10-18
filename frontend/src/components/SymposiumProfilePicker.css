@@ -93,3 +93,22 @@
   height: 1rem;
   margin: 0;
 }
+
+/* The shared task editor spans the proposal card's responsive review grid. */
+.symposium-profile-proposal > .agent-library-detail,
+.symposium-profile-proposal > details {
+  grid-column: 1 / -1;
+}
+
+.symposium-profile-proposal .agent-task-proposal-source {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.symposium-profile-proposals > p,
+.symposium-profile-proposal > p {
+  overflow-wrap: anywhere;
+}

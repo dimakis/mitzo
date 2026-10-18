@@ -1443,7 +1443,11 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
     },
   };
   await seed(page, { 'mitzo-chat-draft:meeting-launch': JSON.stringify(draft) });
-  await page.goto('/chat?draft=meeting-launch');
+  // Finish each document's passive health read before its next unload. WebKit
+  // reports an intercepted fetch cancelled by reload as an access-control error.
+  await waitForNewFixtureReads(page, ['/api/service-health'], () =>
+    page.goto('/chat?draft=meeting-launch'),
+  );
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
   await chooseSetting(page, 'Account', account.id);
   await chooseSetting(page, 'Model', 'luna-alternate');
@@ -1456,7 +1460,7 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
       ),
     )
     .toEqual({ accountId: account.id, model: 'luna-alternate', reasoningEffort: 'high' });
-  await page.reload();
+  await waitForNewFixtureReads(page, ['/api/service-health'], () => page.reload());
   const controls = page.getByRole('button', { name: /^Workspace controls/ });
   if ((await controls.getAttribute('aria-expanded')) === 'false') await controls.click();
   await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'luna-alternate');

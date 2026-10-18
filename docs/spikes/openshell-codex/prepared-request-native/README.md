@@ -75,7 +75,8 @@ skipped/filtered counts and run without automatic test retries.
 
 The eighteenth patch updates only the remote-environment test server for the real
 `fs/open` / `fs/readBlock` / `fs/close` instruction-reader protocol, retaining its
-original assertions. Corrected exact-source CI remains pending. The prior
+original assertions. Corrected exact-source CI now reaches the complete fixture
+phase on both platforms, but still fails; see the recorded results below. The prior
 17-patch CI run `39076917374` reported green jobs while `tee` hid upstream test
 failures: Linux had 5,088 passes, 385 failures and 8 skips; Mac had 5,173 passes,
 309 failures and 27 skips. Those jobs do not qualify the source. Their original
@@ -153,7 +154,9 @@ certificate and no-replay assertions remain.
 
 Run39083668664 on native tree7407c99d failed on both platforms before native test execution: building the real code-mode helper enabled V8, and standalone Cargo tried unavailable Deno archives. Pinned upstream already supplies the supported `ptrcomp_sandbox_release` archive and its matching Rust bindings through `scripts/codex_package/v8.py`. CI now calls that unchanged owner with the reconstructed source root, verifies its source-pinned manifest and both artifact hashes, and publishes both Cargo paths together. It refuses unsupported/ambiguous hosts, verifier failure and a source-build bypass. The native source tree and eighteen patches are unchanged.
 
-Sixteen recorded workflow regressions and twelve unchanged upstream offline dependency-helper tests pass. They are build-preparation evidence and are not added to native crate counts. Run `39087651210` on application source `542400d2` has now completed verified artifact preparation and helper builds on both platforms. Full corrected native fixtures are still running; this is not a passing fixture result or qualification of a later application head. Historical masked failures and their skipped counts remain retained above.
+Sixteen recorded workflow regressions and twelve unchanged upstream offline dependency-helper tests pass. They are build-preparation evidence and are not added to native crate counts. Run `39087651210` on application source `542400d2` completed verified artifact preparation and helper builds on both platforms, then failed the native fixture phase. Linux executed 5,473 tests: 5,470 passed, 3 failed and 8 additional tests were skipped. Mac executed 5,482 tests: 5,479 passed, 3 failed and 27 additional tests were skipped. These platform counts overlap and must not be added. Native formatting was skipped after the fixture failures. Full logs, JUnit, source reconstruction and verified V8 artifact receipts were retained by that run. Historical masked failures remain retained above.
+
+The failing test names match across platforms: the skill declared-permissions case, persistent-terminal current-turn Guardian review, and parent approval with denied reads. Their failure causes differ. Linux refuses two cases while loading AGENTS.md because the sandbox helper cannot expand the fixture's literal deny glob. Mac reaches the approval flow: the persistent terminal refuses changed filesystem restrictions, and the parent-approval case receives an unexpected child approval. The skill case times out on both platforms. Read-only source inspection identifies a consumed completion event followed by a second wait in that fixture, but static inspection does not replace an executed upstream control. The relevant permission/helper/fixture owners are unchanged from pinned upstream; reachable integration changes still require comparison. No assertion, sandbox fence or skip guard has been relaxed. This run does not qualify the composed source or any installed runtime.
 
 ### Public schema and ordinary metadata audit, 18 October
 

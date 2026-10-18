@@ -1,3 +1,4 @@
+import { openToolLibrary } from '../support/agent-library';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -137,7 +138,7 @@ for (const theme of ['dark', 'light'])
       });
     });
     await page.goto('/');
-    await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+    await openToolLibrary(page);
     const open = page.getByRole('button', { name: 'Configure API tool', exact: true });
     await open.click();
     const editor = page.getByRole('region', { name: 'API tool configuration' });

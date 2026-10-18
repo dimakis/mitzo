@@ -4,6 +4,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { getRawInput, summarizeToolInput } from '@mitzo/protocol';
 import { ToolPill } from '../ToolPill';
+import { ToolGroup } from '../ToolGroup';
 import type { FinishedBlock } from '../../types/chat';
 
 afterEach(() => cleanup());
@@ -13,6 +14,84 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('ToolPill', () => {
+  const taskProposal: FinishedBlock = {
+    blockId: 'task-call',
+    blockType: 'tool_use',
+    content: '',
+    toolName: 'AgentProposeTask',
+    toolResult: JSON.stringify({
+      proposalId: 'proposal/one',
+      status: 'awaiting_user_review',
+      taskId: 'task:one',
+      expectedRevision: 3,
+    }),
+  };
+  it('opens exact task review from its native result disclosure without an inline editor', () => {
+    function Location() {
+      const location = useLocation();
+      return <output data-testid="location">{location.pathname + location.search}</output>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/chat/builder']}>
+        <ToolPill block={taskProposal} sessionId="builder/one" />
+        <Location />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('link', { name: 'Review task in Library' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /AgentProposeTask/ }));
+    expect(screen.queryByText(taskProposal.toolResult!)).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Task editor' })).toBeNull();
+    fireEvent.click(screen.getByRole('link', { name: 'Review task in Library' }));
+    const url = new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test');
+    expect(url.pathname).toBe('/agent-library');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      proposal: 'proposal/one',
+      session: 'builder/one',
+      task: 'task:one',
+      revision: '3',
+    });
+  });
+
+  it('keeps task review reachable inside the ordinary grouped call disclosure', () => {
+    render(
+      wrap(
+        <ToolGroup
+          tools={[
+            {
+              blockId: 'read',
+              blockType: 'tool_use',
+              content: '',
+              toolName: 'AgentReadTasks',
+              toolResult: '{}',
+            },
+            taskProposal,
+          ]}
+          sessionId="builder"
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /2 tool calls/ }));
+    fireEvent.click(screen.getByRole('button', { name: /AgentProposeTask/ }));
+    expect(screen.getAllByRole('link', { name: 'Review task in Library' })).toHaveLength(1);
+  });
+
+  it.each([
+    { toolError: true },
+    { toolName: 'AgentReadTasks' },
+    { toolResult: 'unconfirmed' },
+    { toolResult: undefined },
+  ])('does not offer task navigation for an unsuccessful or unrelated result %j', (patch) => {
+    render(wrap(<ToolPill block={{ ...taskProposal, ...patch }} sessionId="builder" />));
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.queryByRole('link', { name: 'Review task in Library' })).toBeNull();
+  });
+
+  it('does not infer the originating session from a provider tool identifier', () => {
+    render(wrap(<ToolPill block={{ ...taskProposal, toolId: 'builder' }} />));
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.queryByRole('link', { name: 'Review task in Library' })).toBeNull();
+  });
+
   it('keeps Google grounding and unchanged suggestions visible while tool details are collapsed', () => {
     const renderedContent =
       '<div><a href="https://www.google.com/search?q=Revenue" target="_blank">Revenue</a></div>';
