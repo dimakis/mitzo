@@ -114,6 +114,13 @@ it.each([
   'missing-directory',
   'foreign-directory',
   'aliased-directory',
+  'cached',
+  'cached-file-tamper',
+  'cached-extra-file',
+  'cached-mode-tamper',
+  'cached-metadata-tamper',
+  'cached-new-revision',
+  'cached-config-change',
 ])('requires a %s publications directory while running the pinned adapter', async (kind) => {
   const f = fixture();
   const release = join(f.root, 'release');
@@ -130,10 +137,15 @@ p.add_argument('--once', action='store_true')
 p.add_argument('--published-revision')
 a=p.parse_args()
 c=json.loads(pathlib.Path(a.config).read_text())
-root=pathlib.Path(c['root'])/'publications'
+state_root=pathlib.Path(c['root'])
+counter=state_root/'adapter-calls'
+counter.write_text(str(int(counter.read_text())+1 if counter.exists() else 1))
+root=state_root/'publications'
 bundle=root/('release-'+a.published_revision)
 (bundle/'mgmt').mkdir(parents=True, exist_ok=True)
-baseline={'startingCommit':a.published_revision,'payloadSha256':'f'*64}
+(bundle/'mgmt/AGENTS.md').write_text('accepted instructions')
+(bundle/'mgmt/AGENTS.md').chmod(0o600)
+baseline={'startingCommit':a.published_revision,'payloadSha256':'f'*64,'files':{'AGENTS.md':{'sha256':hashlib.sha256(b'accepted instructions').hexdigest(),'mode':'0600'}}}
 raw=json.dumps(baseline)
 (bundle/'baseline.json').write_text(raw)
 receipt={'sourceCommit':a.published_revision,'builderCommit':c['builderCommit'],'payloadSha256':'f'*64,'baselineSha256':hashlib.sha256(raw.encode()).hexdigest()}
@@ -142,6 +154,7 @@ current=bundle
 if c.get('fixtureMode')=='advanced-current':
  current=root/'later-release'
  current.mkdir()
+if (root/'current').is_symlink(): (root/'current').unlink()
 (root/'current').symlink_to(current)
 output={'status':'current','publishedCommit':a.published_revision,'receipt':receipt,'publicationDirectory':str(bundle)}
 if c.get('fixtureMode')=='missing-directory': del output['publicationDirectory']
@@ -149,6 +162,8 @@ if c.get('fixtureMode')=='foreign-directory': output['publicationDirectory']=str
 if c.get('fixtureMode')=='aliased-directory':
  (root/'alias').symlink_to(bundle)
  output['publicationDirectory']=str(root/'alias')
+output.update(builderCommit=c['builderCommit'],publishedSourceUrl=c['sourceUrl'])
+(state_root/'state.json').write_text(json.dumps(output))
 print(json.dumps(output))
 `,
   );
@@ -199,6 +214,34 @@ print(json.dumps(output))
     baselineSha256: JSON.parse(readFileSync(join(result.seed, '..', 'publication.json'), 'utf8'))
       .baselineSha256,
   });
+  if (kind.startsWith('cached')) {
+    const file = join(result.seed, 'AGENTS.md');
+    if (kind === 'cached-file-tamper') writeFileSync(file, 'unaccepted instructions');
+    if (kind === 'cached-extra-file') writeFileSync(join(result.seed, 'extra.md'), 'extra');
+    if (kind === 'cached-mode-tamper') chmodSync(file, 0o777);
+    if (kind === 'cached-metadata-tamper')
+      writeFileSync(join(result.seed, '..', 'baseline.json'), '{}');
+    if (kind === 'cached-config-change')
+      writeFileSync(
+        f.adapterConfig,
+        JSON.stringify({ ...adapterConfiguration, builderCommit: 'd'.repeat(40) }),
+      );
+    if (
+      kind.includes('tamper') ||
+      kind === 'cached-extra-file' ||
+      kind === 'cached-config-change'
+    ) {
+      await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow();
+      expect(readFileSync(join(f.root, 'adapter/adapter-calls'), 'utf8')).toBe('1');
+      return;
+    }
+    const nextRevision = kind === 'cached-new-revision' ? 'd'.repeat(40) : revision;
+    const next = await adapter({ revision: nextRevision }, AbortSignal.timeout(5000));
+    expect(next.sourceCommit).toBe(nextRevision);
+    expect(readFileSync(join(f.root, 'adapter/adapter-calls'), 'utf8')).toBe(
+      kind === 'cached-new-revision' ? '2' : '1',
+    );
+  }
   writeFileSync(join(release, 'dirty.md'), 'unreviewed adapter code');
   await expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects.toThrow(
     'clean pinned detached release',
