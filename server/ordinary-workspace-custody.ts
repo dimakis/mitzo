@@ -375,6 +375,15 @@ export class OrdinaryWorkspaceCustody {
     sameDirectory(directory, record.taskIdentity.root);
     return record;
   }
+  /** Synchronous custody fence for retained receipts and final work commits. */
+  validateRetained(conversationId: string) {
+    const record = this.forConversation(conversationId);
+    if (!record || !['reserved', 'claimed'].includes(record.state))
+      throw Error('Ordinary workspace claim is uncertain; preserve its original identity');
+    sameDirectory(record.hostReservation.taskRoot, record.hostReservation.rootIdentity);
+    if (record.state === 'claimed') this.validate(conversationId, record.directory);
+    return record;
+  }
   /** Recheck an existing reservation without allocation or materialization. */
   async revalidate(input: OrdinaryWorkspaceClaimInput) {
     const original = this.get(input.id);
@@ -389,7 +398,7 @@ export class OrdinaryWorkspaceCustody {
     );
     this.unchanged(original);
     this.assertClaimScope(original, input);
-    if (original.state === 'claimed') this.validate(original.conversationId, original.directory);
+    this.validateRetained(original.conversationId);
     return original;
   }
   async claim(input: OrdinaryWorkspaceClaimInput) {

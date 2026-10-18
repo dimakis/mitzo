@@ -1,10 +1,11 @@
+import { mkdirSync, renameSync, symlinkSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createTelosOrdinaryWorkFixture } from './fixtures/telos-ordinary-work.js';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { eventStore as startupStore } from '../chat.js';
-import { setAuthRevocationStore } from '../auth.js';
+import { setAuthRevocationStore, revokeAuthSession } from '../auth.js';
 // Isolate chat's legacy startup metadata before imports. This is not a Git source
 // or an admitted workspace; every actual task must use its separate private ID/cwd.
 const startup = await vi.hoisted(async () => {
@@ -205,5 +206,101 @@ it.each(['unavailable', null])(
     } finally {
       db.close();
     }
+  },
+);
+
+it.each([
+  'claiming',
+  'replaced-directory',
+  'symlink-directory',
+  'replaced-root',
+  'symlink-root',
+] as const)(
+  'refuses committed role replay with %s while retaining original allocation',
+  async (damage) => {
+    const f = await fixture();
+    const original = await f.owner.setup(f.actor, f.input, f.native.signal.signal);
+    const conversationId = original.work.links.find((link) => link.role === 'lead')!.conversation
+      .conversationId;
+    const record = f.native.workspaces.getOrdinaryWorkspaceForConversation(conversationId)!;
+    const sessions = f.native.events.listSessions().length;
+    if (damage === 'claiming') {
+      const db = new Database(join(f.native.root, 'workspace-owner', 'workspaces.db'));
+      try {
+        db.prepare('UPDATE ordinary_workspaces SET record=? WHERE id=?').run(
+          JSON.stringify({ ...record, state: 'claiming' }),
+          record.id,
+        );
+      } finally {
+        db.close();
+      }
+    } else if (damage.endsWith('directory')) {
+      await f.native.workspaces.claimOrdinaryWorkspace({
+        id: record.id,
+        conversationId,
+        binding: f.native.binding,
+        taskRoot: f.native.taskRoot,
+        signal: f.native.signal.signal,
+      });
+      renameSync(record.directory, record.directory + '-retained');
+      if (damage === 'replaced-directory') mkdirSync(record.directory, { mode: 0o700 });
+      else symlinkSync(record.directory + '-retained', record.directory);
+    } else {
+      renameSync(f.native.taskRoot, f.native.taskRoot + '-retained');
+      if (damage === 'replaced-root') mkdirSync(f.native.taskRoot, { mode: 0o700 });
+      else symlinkSync(f.native.taskRoot + '-retained', f.native.taskRoot);
+    }
+    await expect(f.owner.setup(f.actor, f.input, f.native.signal.signal)).rejects.toThrow();
+    expect(f.native.events.listSessions()).toHaveLength(sessions);
+    expect(f.native.workspaces.getOrdinaryWorkspaceForConversation(conversationId)?.id).toBe(
+      record.id,
+    );
+    expect(f.native.first.launch).not.toHaveBeenCalled();
+    expect(f.db.prepare('SELECT count(*) AS n FROM telos_work_role_setups').get()).toEqual({
+      n: 1,
+    });
+  },
+);
+
+it('replays the same claimed role workspace while preserving legitimate files', async () => {
+  const f = await fixture();
+  const original = await f.owner.setup(f.actor, f.input, f.native.signal.signal);
+  const conversationId = original.work.links.find((link) => link.role === 'lead')!.conversation
+    .conversationId;
+  const record = f.native.workspaces.getOrdinaryWorkspaceForConversation(conversationId)!;
+  await f.native.workspaces.claimOrdinaryWorkspace({
+    id: record.id,
+    conversationId,
+    binding: f.native.binding,
+    taskRoot: f.native.taskRoot,
+    signal: f.native.signal.signal,
+  });
+  const file = join(record.directory, 'retained-plan.txt');
+  writeFileSync(file, 'Studio plan');
+  const identity = statSync(record.directory).ino;
+  expect(await f.owner.setup(f.actor, f.input, f.native.signal.signal)).toEqual(original);
+  expect(statSync(record.directory).ino).toBe(identity);
+  expect(readFileSync(file, 'utf8')).toBe('Studio plan');
+});
+it.each(['abort', 'revoke'] as const)(
+  'rechecks role authority after custody readiness: %s',
+  async (change) => {
+    const f = await fixture();
+    const original = await f.owner.setup(f.actor, f.input, f.native.signal.signal);
+    const conversationId = original.work.links.find((link) => link.role === 'lead')!.conversation
+      .conversationId;
+    const before = f.native.events.listSessions().length;
+    const revalidate = f.native.workspaces.revalidateOrdinaryWorkspace.bind(f.native.workspaces);
+    vi.spyOn(f.native.workspaces, 'revalidateOrdinaryWorkspace').mockImplementationOnce(
+      async (input) => {
+        const result = await revalidate(input);
+        if (change === 'abort') f.native.signal.abort();
+        else revokeAuthSession(f.native.auth);
+        return result;
+      },
+    );
+    await expect(f.owner.setup(f.actor, f.input, f.native.signal.signal)).rejects.toThrow();
+    expect(f.native.events.listSessions()).toHaveLength(before);
+    expect(f.native.workspaces.getOrdinaryWorkspaceForConversation(conversationId)).toBeDefined();
   },
 );

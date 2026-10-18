@@ -70,7 +70,7 @@ export class TelosOrdinaryWorkRoleSetup {
       return selected;
     };
     // Unsupported settings/readiness fail before a role or allocation intent exists.
-    await qualify();
+    const qualified = await qualify();
     return runTelosWorkRoleSetup(actor, input, signal, {
       prepare: () => this.deps.work.prepareOrdinaryRoleSetup(input, actor),
       authorize: (scope, signal) => this.deps.authorize(scope, signal),
@@ -78,9 +78,21 @@ export class TelosOrdinaryWorkRoleSetup {
         const receipt = this.deps.events.getOrdinaryWorkspaceSessionPreparation(
           scope.setup.allocationOperationId,
         );
-        const session = receipt && this.deps.events.getSession(receipt.sessionId);
-        const workspace =
+        const original =
           receipt && this.deps.workspaces.getOrdinaryWorkspaceForConversation(receipt.sessionId);
+        if (!receipt || !original)
+          throw new TelosWorkError('conflict', 'Original ordinary role custody required');
+        await this.deps.workspaces.revalidateOrdinaryWorkspace({
+          id: original.id,
+          conversationId: receipt.sessionId,
+          binding: qualified.binding,
+          taskRoot: qualified.taskRoot,
+          signal,
+        });
+        signal.throwIfAborted();
+        this.deps.assertBeforeApply({ ...scope, conversationId: receipt.sessionId });
+        const session = this.deps.events.getSession(receipt.sessionId);
+        const workspace = this.deps.workspaces.validateRetainedOrdinaryWorkspace(receipt.sessionId);
         if (
           !receipt ||
           !session ||

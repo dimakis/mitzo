@@ -93,6 +93,7 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
     input.contextSelection = TelosWorkRoleContextSelectionSchema.parse(input.contextSelection);
     renderTelosWorkRoleContext(input.contextSelection);
     signal.throwIfAborted();
+    let ordinarySelection: Preparation | undefined;
     if (ordinary) {
       if (!this.deps.qualifyOrdinarySettings)
         throw new TelosWorkError(
@@ -103,6 +104,7 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
         await this.deps.qualifyOrdinarySettings(structuredClone({ actor, input }), signal),
       );
       assertAgentToolRoute(selected.agentProfile.definition, 'codex-owned-local');
+      ordinarySelection = selected;
       await this.deps.workspaces.qualifyOrdinaryWorkspace({
         ...selected,
         preparationId: OrdinaryWorkspaceSettingsSchema.parse(input.settings).workspace
@@ -259,6 +261,20 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
       const workerWorkspaceId = ordinary
         ? receipt.workspaceId
         : CollaborationSettingsSchema.parse(workerSettings).repositoryWorkspaceId;
+      if (ordinary) {
+        const record =
+          this.deps.workspaces.getOrdinaryWorkspaceForConversation(workerConversationId);
+        if (!record || !ordinarySelection)
+          throw new TelosWorkError('conflict', 'Original ordinary worker custody required');
+        await this.deps.workspaces.revalidateOrdinaryWorkspace({
+          id: record.id,
+          conversationId: workerConversationId,
+          binding: ordinarySelection.binding,
+          taskRoot: ordinarySelection.taskRoot,
+          signal,
+        });
+        assertCurrent(workerSettings);
+      }
       const assertPreparation = () => {
         const current = getReceipt();
         const session = this.deps.events.getSession(workerConversationId);
@@ -298,10 +314,7 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
               'conflict',
               'Original available ordinary worker custody required',
             );
-          if (record.state === 'claimed')
-            this.deps.workspaces.validateOrdinaryWorkspace(workerConversationId, record.directory);
-          else if (record.state !== 'reserved')
-            throw new TelosWorkError('conflict', 'Ordinary worker workspace claim is uncertain');
+          this.deps.workspaces.validateRetainedOrdinaryWorkspace(workerConversationId);
         }
         if (retained.receipt && current.firstCommandId !== null) {
           // A committed allocation remains the same allocation after ordinary
