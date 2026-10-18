@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { chooseSetting, openChatSetting, settingsHome } from '../support/chat-settings';
+import { chooseSetting, settingsHome } from '../support/chat-settings';
 import { build } from 'esbuild';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -623,7 +623,15 @@ async function reviewSource(page: Page, name: string, screenshotPath?: string) {
   return snapshot;
 }
 
-test('Diagnostic health: Library recovers the original uncertain command after its ordinary draft is discarded', async ({
+async function editableProfileName(page: Page) {
+  const field = page.getByLabel('Agent name', { exact: true });
+  const edit = page.getByText('Edit profile', { exact: true });
+  await expect(field.or(edit).first()).toBeVisible();
+  if (!(await field.isVisible())) await edit.click();
+  return field;
+}
+
+test('Library recovers the original uncertain command after its ordinary draft is discarded', async ({
   page,
   isMobile,
 }, info) => {
