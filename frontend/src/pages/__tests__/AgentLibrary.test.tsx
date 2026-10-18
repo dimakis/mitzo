@@ -1221,8 +1221,8 @@ it('retains a newly assigned task after leaving a saved task link, reload and ro
     );
   const first = open('/agent-library?task=saved-task');
   expect(await screen.findByLabelText('Task name')).toHaveProperty('value', 'Original saved task');
-  fireEvent.click(screen.getByRole('tab', { name: 'Profiles', exact: true }));
-  fireEvent.click(screen.getByRole('button', { name: 'Assign task', exact: true }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Profiles' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Assign task' }));
   fireEvent.change(screen.getByLabelText('Task name'), {
     target: { value: 'Independent new draft' },
   });
