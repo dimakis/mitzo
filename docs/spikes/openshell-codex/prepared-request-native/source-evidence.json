@@ -192,10 +192,14 @@
     {
       "file": "native-parent-routing-test-compilation.patch",
       "sha256": "2bae16b6a193c2189c393250005b5a6b69996bc25d3e87d1b31c450c94711f3c"
+    },
+    {
+      "file": "native-parent-routing-cwd-compilation.patch",
+      "sha256": "7bcc571141dcbffb65c8df2489aa272985a1ada531248473c1099bac5fff4694"
     }
   ],
-  "sourceTree": "a18caf2a3c076637cd5dc83de174abe21f69d00c",
-  "localSourceCommit": "ef263974e5dc5ab280003282a8bbfb1a404a5ebf",
+  "sourceTree": "e635e99946f7517c2dce54158d8f4241b718f56a",
+  "localSourceCommit": "e9fc12cf08308bce459bc706402f1b61c1f4e965",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -248,7 +252,8 @@
     "254affbc47eea624efe422a14a8137b03902c279",
     "a464946411d6856eafe07e935f9b00c10bed026b",
     "ccd98d9cd5895d589540c33c8854ee135a118245",
-    "ef263974e5dc5ab280003282a8bbfb1a404a5ebf"
+    "ef263974e5dc5ab280003282a8bbfb1a404a5ebf",
+    "e9fc12cf08308bce459bc706402f1b61c1f4e965"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -258,7 +263,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "47-patch composed source, including a test-only correction for the current CI compile failure; ordinary parent-permission behavior unchanged",
+    "scope": "48-patch composed source; test-only exact cwd representation correction after both current47 CI jobs failed compilation. Production permission behavior unchanged.",
     "localFocused": {
       "status": "source_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -267,7 +272,7 @@
       "allOrderedChecksumsReconstructExactTree": true
     },
     "ci": {
-      "status": "pending_47_patch_source",
+      "status": "pending_48_patch_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -279,25 +284,47 @@
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
       "newCIJobs": 0,
-      "previousRun": 39168656856,
-      "previousSourceTree": "5f034709e0a618d7d12ae44cb37c99b493efac41",
+      "previousRun": 39172947853,
+      "previousSourceTree": "a18caf2a3c076637cd5dc83de174abe21f69d00c",
       "previousObservedResults": {
         "linux": {
           "conclusion": "failure",
           "stage": "test compilation",
-          "errors": 3,
+          "errors": 1,
+          "errorCode": "E0308",
           "testsExecuted": false,
-          "job": 117796904135
+          "job": 117809637948
         },
         "macos": {
           "conclusion": "failure",
           "stage": "test compilation",
-          "errors": 3,
+          "errors": 1,
+          "errorCode": "E0308",
           "testsExecuted": false,
-          "job": 117796904391
+          "job": 117809637985
         }
       },
-      "zeroNativeSkipsClaimed": false
+      "zeroNativeSkipsClaimed": false,
+      "historical46PatchCompilation": {
+        "previousRun": 39168656856,
+        "previousSourceTree": "5f034709e0a618d7d12ae44cb37c99b493efac41",
+        "previousObservedResults": {
+          "linux": {
+            "conclusion": "failure",
+            "stage": "test compilation",
+            "errors": 3,
+            "testsExecuted": false,
+            "job": 117796904135
+          },
+          "macos": {
+            "conclusion": "failure",
+            "stage": "test compilation",
+            "errors": 3,
+            "testsExecuted": false,
+            "job": 117796904391
+          }
+        }
+      }
     },
     "testCountsOverlap": true,
     "ordinaryParentApproval": {

@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 47 patches
+## Current composed source: 48 patches
 
-The 47 ordered patches reconstruct native tree
-`a18caf2a3c076637cd5dc83de174abe21f69d00c` (local source `ef263974e5dc5ab280003282a8bbfb1a404a5ebf`).
+The 48 ordered patches reconstruct native tree
+`e635e99946f7517c2dce54158d8f4241b718f56a` (local source `e9fc12cf08308bce459bc706402f1b61c1f4e965`).
 The current source adds the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from
 the same still-active initial invocation. The original runtime lifetime flag is
@@ -60,6 +60,15 @@ actual protocol types and checks `CodexErr.details()` for the same `TurnAborted`
 semantic error. Production code, fixture expectations, all earlier patches and
 workflow coverage are unchanged. macOS failed test compilation for the same three errors. This correction has scoped formatting and source proof;
 new-source compilation and fixture execution remain CI work.
+
+The 47-patch run `39172947853` also failed test compilation on both platforms,
+before any fixtures executed. Its sole diagnostic was `E0308`: the exact cwd
+assertion compared public `LegacyAppPathString` with `AbsolutePathBuf`. Patch 48
+converts the expected cwd using the ordinary approval event owner's public path
+representation. It preserves exact path equality, all other assertions and
+production source. Root and the existing independent reviewer inspected the
+complete routing-test module and actual type/owner contracts; scoped formatting
+passes. Compilation and fixture execution for this new tree remain CI work.
 
 ## Immutable request foundation
 
