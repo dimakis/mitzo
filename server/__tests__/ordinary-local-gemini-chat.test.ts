@@ -40,6 +40,13 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   },
 }));
 vi.mock('../account-use-store.js', () => ({ getAccountUseStore: () => ({ record() {} }) }));
+function phaseSignal() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
@@ -96,6 +103,10 @@ it.each([false, true, 'cold-queue'] as const)(
         type: 'authorized_user',
         client_id: 'offline-client',
       });
+      if (!prepared && requests.length === 4) {
+        queuedTokenStarted.resolve();
+        await queuedTokenGate.promise;
+      }
       return 'offline-google-token';
     });
     const chat = await import('../chat.js');
@@ -108,6 +119,10 @@ it.each([false, true, 'cold-queue'] as const)(
       native.close();
     });
     const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const queuedTokenStarted = phaseSignal();
+    const queuedTokenGate = phaseSignal();
+    const fifthRequest = phaseSignal();
+    cleanups.push(() => queuedTokenGate.resolve());
     let hold = false;
     let release: () => void = () => {};
     const fetch = vi.fn(async (url: unknown, init: RequestInit) => {
@@ -117,6 +132,7 @@ it.each([false, true, 'cold-queue'] as const)(
       expect(init.headers).toMatchObject({ Authorization: 'Bearer offline-google-token' });
       const body = JSON.parse(String(init.body));
       requests.push({ url: String(url), body });
+      if (requests.length === 5) fifthRequest.resolve();
       const receipt = chat.eventStore.getLatestOrdinaryCommandAdmission(
         f.reservation.conversationId,
       );
@@ -566,7 +582,24 @@ it.each([false, true, 'cold-queue'] as const)(
       'queued',
     );
     release();
-    await vi.waitFor(() => expect(requests).toHaveLength(5));
+    if (!prepared) {
+      // Credential/context qualification precedes the provider request. Hold
+      // that real phase explicitly; four requests does not mean a lost queue.
+      await queuedTokenStarted.promise;
+      expect(requests).toHaveLength(4);
+      expect(native.queue(f.reservation.conversationId, f.reservation.binding)).toMatchObject({
+        active: 'queued',
+        queued: [],
+      });
+      expect(chat.eventStore.getOrdinaryLocalResponsesCommandAdmission('queued')).toMatchObject({
+        state: 'consumed',
+      });
+      queuedTokenGate.resolve();
+    }
+    // Wait for the fake provider's actual fifth request under the unchanged
+    // 60s case budget, then retain the exact count, signed history and idle checks.
+    await fifthRequest.promise;
+    expect(requests).toHaveLength(5);
     await vi.waitFor(() =>
       expect(native.status(f.reservation.conversationId, f.reservation.binding)).toBe('idle'),
     );
