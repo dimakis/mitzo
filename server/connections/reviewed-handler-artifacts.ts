@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.332-ordinary-delegation-http.1';
+  'v1.0.337-delegation-canonical-replay.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1093,7 +1093,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-store.ts': 'd8db46138a28be13c612601c1e1435352c1e05b1d6c47deb785804ab397cbbc0',
   '../task-tools.ts': '93b692c7fce06cf22a4ceb8ea66a0f6d287140a79bac4e23cf2c88aabeff5d0a',
   '../task-context.ts': '12de60337242e138d161b29de87fe4132204e7cf4b1547b6e0e52e48ae910f35',
-  '../telos-work-delegation.ts': '77318c1f005b8a1af4d3e05924d65ab6c84bd069846a2f93243cdf5255af8fac',
+  '../telos-work-delegation.ts': '7010abd60bcf10dcc051d1cc982b9fea4e9c0cb72aee6c77aec54eac3e72c78a',
   '../telos-work-delegation-host.ts':
     'f80204bc86526b806ae42d144bcffacc07aba609925698d300a6ebeeb20aa9ee',
   '../telos-work-command-scope.ts':
