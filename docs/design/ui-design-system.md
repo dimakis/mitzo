@@ -1574,3 +1574,38 @@ large text, keyboard activation and reduced motion. Inspected captures show
 [mobile activity](assets/research-activity-mobile-dark.png) and
 [desktop activity](assets/research-activity-desktop-light.png). These isolated
 renders use intercepted traffic and no backend, credentials or model calls.
+
+## Telos worker creation receipt
+
+`TelosWorkerReceiptCard` renders the frozen Telos mock's worker material row inside
+its originating lead transcript: message icon, child title, retained profile/account/
+model/target metadata, creation provenance and the approved arrow to the worker conversation.
+The complete row links to the exact ordinary worker conversation; rendering it
+keeps the user and composer in the lead. Creation provenance describes the event
+without asserting current worker execution status. There is no execution action
+or automatic navigation.
+
+The row preserves the mock's `messagesSquare` and `arrowUpRight` shapes through
+`UiIcon`, with shared semantic colors, typography, spacing, focus and
+control-height tokens. Historical receipts without display metadata show a generic
+worker title. Wrong lead/child identities, malformed or failed results,
+and noncanonical paths produce no link. The intercepted actual-ToolPill fixture
+covers mobile/desktop, dark Mint/System and light Teal/Georgia, wrapping, keyboard
+navigation, retained lead draft and reduced motion without a backend or model.
+Implementation captures are review evidence, not a claim of pixel equivalence.
+
+Focused checks pass: 53 receipt/ToolPill/ChatArea unit checks, 108 design checks (one existing
+skip), and six intercepted browser scenarios plus two startup checks. Mobile
+WebKit/Chromium use actual touch navigation; desktop Chromium checks Tab/Enter.
+Inspected captures: [320px dark mobile](assets/telos-worker-receipt-mobile-dark.png)
+and [light desktop with Georgia](assets/telos-worker-receipt-desktop-light.png).
+The fixture renders the actual ChatArea, ToolPill and receipt components with a synthetic
+lead draft; full application shell and broad production build acceptance remain
+separate CI checks.
+
+The receipt's own row preserves the frozen `mock.r1:81–84` structural measurements:
+10px gap, 13px vertical padding, and a 30×36px icon enclosure with 6px corners.
+These bounded reference dimensions are a structural exception to the usual shared
+spacing/radius scale; they do not establish a new palette, font or reusable scale.
+Browser assertions protect these exact dimensions while shared control-height and
+focus rules remain effective.
