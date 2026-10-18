@@ -1,0 +1,41 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+{"level":30,"time":1792290921868,"pid":77137,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (2 tests | 2 failed) 3616ms
+   × reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity 3604ms
+   × requires actual joining and finalized reply owners after the observational review 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity
+Error: Collaboration unavailable
+ ❯ CollaborationApiClient.request packages/client/src/collaboration-api.ts:66:13
+     64|     if (!response.ok) {
+     65|       const body = await response.json().catch(() => null);
+     66|       throw new CollaborationApiError(
+       |             ^
+     67|         response.status,
+     68|         typeof body?.code === 'string' ? body.code : 'unavailable',
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:250:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires actual joining and finalized reply owners after the observational review
+Error: BLOCKED: actual app review prerequisite failed
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:447:11
+    445| it('requires actual joining and finalized reply owners after the obser…
+    446|   if (!reviewedSnapshot || !reviewedSettings)
+    447|     throw Error('BLOCKED: actual app review prerequisite failed');
+       |           ^
+    448|   const snapshot = reviewedSnapshot;
+    449|   const view = await api.view(group);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  2 failed | 8 passed (10)
+   Start at  03:35:17
+   Duration  6.28s (transform 2.32s, setup 0ms, import 1.83s, tests 3.87s, environment 0ms)
+

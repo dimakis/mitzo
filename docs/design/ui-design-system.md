@@ -1601,6 +1601,116 @@ large text, keyboard activation and reduced motion. Inspected captures show
 [desktop activity](assets/research-activity-desktop-light.png). These isolated
 renders use intercepted traffic and no backend, credentials or model calls.
 
+## Telos outcomes and item workspace (S7)
+
+The approved r1 Telos tree remains pinned by artifact identity and SHA-256 in
+[telos-workspaces/README.md](telos-workspaces/README.md). `TelosOutcomesTree` uses
+shared `UiIcon`, semantic tokens, spacing/type/radius scales, control height and
+keyboard focus. All outcomes stays first; category pins, discovery, query and
+expansion persist on this device. Categories come from canonical records, while
+legacy profile filtering remains available in the explicit original-record fallback.
+That fallback fills the desktop shell with one compact heading/action bar; it does
+not inherit the old fixed mobile page width after the focused-route migration.
+Kind labels never come from child counts or source profiles. Current-role links
+are read through the existing work client; the row enters the workspace Chat tab
+and the existing role owner performs setup. It never allocates from a tree read.
+Canonical discovery reads the full collection independently of the legacy profile
+filter. Recovery, direct navigation state and item Back retain cross-profile All
+outcomes while the filtered fallback keeps its own profile preference. Refresh
+rechecks both cache-backed collection owners; identical URLs share one HTTP read.
+
+Mounted conversation rows in the collection and the focused item's Overview/Work
+child trees share the canonical record owner's refresh generation. This prop is
+required through the detail workspace, tree and row so omitted callers fail typing.
+Refresh Telos, item updates and visible resume recheck failed reads, assignments
+and kinds without remounting the row or creating another event subscription.
+Superseded reads remain abort-fenced, including transports that resolve after abort.
+
+`TelosItemWorkspace` retains the original brief beside its content on desktop and
+below it on phones. One Back chevron returns through item history or the retained
+collection. Back retains the expanded collection's scroll offset after discovery
+and canonical records hydrate, including later row layout growth. Restoration
+stops on user input and does not restart for the same collection visit. The item trail is retained for this session independently of artifact-selector
+route state, so Files/dialog reloads preserve Back to the originating item. A fresh
+collection entry resets that trail. The focused desktop item stays inside `DesktopShell`; `MobileShell`
+continues to own collection branding/navigation. Parent kinds and legacy unclassified records with actual children expose Work; leaves
+expose Overview, Chat and Materials. Existing role, source and saved-output owners
+supply those entry points. Source exchanges, retained bytes and external links
+remain distinct. The shared output title selects one exact ID/revision/hash dialog on the Work URL.
+The workspace owns this dialog independently of the selected tab, so direct saved
+links also open or report unavailable versions with Chat or Work remembered. Closing
+removes only the saved selector and retains the current tab. The output list retains
+its route owner by default for legacy detail views; canonical tabs share exactly one
+workspace owner. Its File options Open bridges to the existing Files editor and preserves that Work
+selection on Back. Output title/selector/version/close navigation and Files URL updates
+carry the same collection scroll/profile/item-history state. Saving a new revision
+in Files retains the original pinned return selector. Explicit saved-document references continue to use Files links and carry the same
+collection return state through Files Back and item Back.
+The output disclosure shows exact revision/hash, recorded save
+time and source identity; unavailable author/date facts remain explicit. The original Context
+section is a native, initially collapsed disclosure with populated readable labels.
+New item restores an unsent planning prompt in the full ordinary chat composer.
+Canonical record views invalidate on item events and visible resume. The published
+priority owner supplies the selector, numeric projection and ordered confirmed-save
+notifications; S7 consumes them in the header and P<n> tree badges, fences older
+reads and retains acknowledged values through failed record refresh. The first
+successful read admitted after acknowledgement reconciles that value even when
+another client has since changed it. The existing work router promises private,
+no-store responses from a fresh canonical transaction; synchronous invalidation
+fences every earlier read. Numeric equality and timestamp guessing are not used as
+a convergence condition. On phones the
+priority control occupies a separate header row rather than collapsing beside long titles.
+The item itself is a query container: below 48rem of available reading width, the
+20rem brief stacks beneath the work area, including constrained desktop shells and
+enlarged text. The boundary leaves room for both reading columns plus gutters;
+viewport width alone cannot establish that room. Controls are checked against their
+main-column bounds so clipped overflow cannot hide an overlap.
+
+The brief's 20rem column is structural reading geometry. Search wraps before the
+actions at phone widths and uses five shared control heights as its preferred
+basis. Output actions move below the copy so full hashes cannot squeeze titles.
+On phones the existing row metadata/actions may wrap onto another line; short
+priority/status tokens remain intact rather than shrinking into split words beside
+a longer coordinator entry. Type size, indents and shared control height are retained.
+Category discovery and recursive branches use shared `MotionPresence` disclosures; Escape restores the category trigger focus. Native output disclosures require no extra animation lifecycle. No palette, typography,
+shared settings reference or frozen approval changed.
+
+Inspected all-intercept captures: [phone tree](assets/telos-s7-tree-mobile-dark.png),
+[desktop tree](assets/telos-s7-tree-desktop-light.png),
+[phone materials](assets/telos-s7-materials-mobile-light.png),
+[desktop materials](assets/telos-s7-materials-desktop-light.png) and
+[repository-backed brief](assets/telos-s7-software-desktop-dark.png) and
+[900px shell with enlarged text](assets/telos-s7-workspace-narrow-enlarged-light.png),
+[desktop retained-version dialog](assets/telos-s7-dialog-desktop-dark.png) and
+[phone retained-version dialog](assets/telos-s7-dialog-mobile-light.png).
+The focused fixture exercises actual pages/shells, schema-validated record/work
+DTOs and the accepted canonical projector, with an inert protocol transport.
+Checks cover 320px WebKit/Chromium, 1280px Chromium, light/dark, Mint/System and
+Teal/Georgia, touch geometry, bounded copy/search, failure/retry, empty states,
+recursive context search, pin persistence, navigation and reload. It makes no
+backend, credential or model calls. These captures document interim implementation,
+not a new approval or final CT13 acceptance.
+
+Accepted MGMT `3077b7b4` fresh/upgraded schema exports are pinned in the narrow
+S7 accepted-owner read test. It exercises the actual record router/client with
+synthetic rows, preserving original IDs/dates, ordered categories and priorities
+1–10. This proves read-side compatibility, with no live migration or new writer.
+
+Accepted dependencies now include priority #1009, canonical records #1027,
+recovery #1029, incident handling #1028, S5a reviewed presentation #1030 and
+Shared B saved-artifact/privacy fences #1020. The consumer preserves their
+published contracts; role setup and runtime ownership remain with foundation.
+S5a owned CT01–06 acceptance does not establish parent UX or live runtime acceptance.
+
+Open integration boundaries include the accepted S5b runtime contract, final CT14
+persistence and independent acceptance on the combined sources, the work API's
+missing authoritative attention classification (Needs you stays unavailable),
+collection-wide record/category projection (currently bounded per-record reads),
+and coordinator setup from its existing owner. S8 owns the chooser, ordinary
+header and collapsible chat tree. Full application builds and browser checks run
+in CI under the host resource limits. S7 and parent acceptance remain open; the
+fixture evidence does not establish staging, production or live runtime qualification.
+
 ## Retained artifact inspection
 
 Work output titles open the shared `SavedArtifactDialog` through an exact

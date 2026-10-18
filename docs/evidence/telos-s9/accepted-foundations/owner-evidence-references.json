@@ -1,0 +1,44 @@
+[
+  {
+    "id": "1c96820d3c64f59fcf30fc718f5e1ab6",
+    "revision": 1,
+    "itemId": "9dab491c72f0494e",
+    "filename": "canonical-advisor-1027-accepted-receipt.json",
+    "sha256": "8707d576583fad092e455b27a827988bdd8ab98b351280c440e80e7df15b3ae9"
+  },
+  {
+    "id": "363255453b330aa300002ab62b2ee22e",
+    "revision": 1,
+    "itemId": "9dab491c72f0494e",
+    "filename": "canonical-advisor-repair-evidence.json",
+    "sha256": "20337fd58b9b80223fa7d385202a24ba00886065cd65d3a0e4151dce31cbc46e"
+  },
+  {
+    "id": "12c12c50a5b62ffe15c7f82d14034ab0",
+    "revision": 1,
+    "itemId": "9dab491c72f0494e",
+    "filename": "canonical-python-owner-roundtrip.json",
+    "sha256": "e2c3029fc0c2a01ca5f931ac946a2ee0749f15cbcef5193ab4968af7d5c0a38c"
+  },
+  {
+    "id": "c04adb70433f1ce5a1117c450b85ed20",
+    "revision": 1,
+    "itemId": "9dab491c72f0494e",
+    "filename": "canonical-schema-regeneration-proof.json",
+    "sha256": "5058cb0fb7a1856bd5a64fb490749930fa611ce33f4bab6b13efcb3de74c1d84"
+  },
+  {
+    "id": "46b3047552bbf2af577fafe9c5b769d3",
+    "revision": 1,
+    "itemId": "9dab491c72f0494e",
+    "filename": "recovery-1029-accepted-receipt.json",
+    "sha256": "aa49007becbba1d39916ea6872894fd06b3045e0af72953b6c1a943b12ce84e6"
+  },
+  {
+    "id": "c1c461ef4944c67ed6e69edc624e2424",
+    "revision": 1,
+    "itemId": "9dab491c72f0494e",
+    "filename": "recovery-ready-landing-packet.json",
+    "sha256": "59caa9982931cf82b5fd02f3585a0dd387ec9c1d9881ea7c7758724dfb721797"
+  }
+]

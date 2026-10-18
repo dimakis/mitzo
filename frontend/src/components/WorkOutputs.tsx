@@ -10,7 +10,16 @@ import { UserOutputUpload } from './UserOutputUpload';
 import type { TodoOutput } from '../types/todo';
 
 /** Browse durable output bytes even after the producing agent and sandbox are gone. */
-export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: string }) {
+export function WorkOutputs({
+  itemId,
+  profile,
+  ownsSavedArtifactRoute = true,
+}: {
+  itemId: string;
+  profile?: string;
+  /** A workspace with tab-independent routing owns its dialog outside this list. */
+  ownsSavedArtifactRoute?: boolean;
+}) {
   const [result, setResult] = useState<{
     itemId: string;
     artifacts: TodoOutput[];
@@ -115,6 +124,7 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
                   <Link
                     className="output-open"
                     to={savedArtifactLocationUrl(location.pathname + location.search, output)}
+                    state={location.state}
                   >
                     <strong>{output.title}</strong>
                   </Link>
@@ -173,7 +183,7 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
         </>
       )}
       {actionError && <p role="alert">{actionError}</p>}
-      <SavedArtifactRouteDialog itemId={itemId} />
+      {ownsSavedArtifactRoute && <SavedArtifactRouteDialog itemId={itemId} />}
     </section>
   );
 }
