@@ -124,6 +124,7 @@ for (const theme of ['dark', 'light'])
       url: '/api/telos/artifacts/' + 'e'.repeat(32) + '?revision=' + revision,
     });
 
+    let recordReadGate: Promise<void> | undefined;
     let failRecords = false;
     let failConversations = true;
     let failChildConversations = false;
@@ -197,6 +198,7 @@ for (const theme of ['dark', 'light'])
       const match = url.pathname.match(/^\/api\/telos\/work\/items\/([^/]+)(\/record)?$/);
       if (match) {
         const record = records.find((r) => r.itemId === match[1])!;
+        if (match[2] && recordReadGate) await recordReadGate;
         if (match[2])
           return failRecords
             ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
@@ -775,6 +777,81 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByText('Unclassified · active', { exact: true })).toBeVisible();
     expect(records[0].kind).toBeNull();
     await page.getByRole('button', { name: 'Back', exact: true }).click();
+    // CT14: a focused item unmounts this deeply expanded collection. Back must
+    // wait past its short legacy fallback and later conversation-row growth.
+    records[0] = { ...records[0], kind: 'outcome' };
+    const scrollTemplate = records.find((record) => record.itemId === 'fixture-studio-slice')!;
+    const scrollItems = Array.from({ length: 40 }, (_, index) =>
+      TelosWorkItemSchema.parse({
+        ...scrollTemplate,
+        itemId: `fixture-scroll-${index + 1}`,
+        parentId: 'fixture-studio',
+        summary: `Scroll work item ${String(index + 1).padStart(2, '0')}`,
+      }),
+    );
+    records.push(...scrollItems);
+    const scrollRecordsLoaded = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/telos/work/items/fixture-scroll-40/record' &&
+        response.status() === 200,
+    );
+    await page.getByRole('button', { name: 'Refresh Telos', exact: true }).click();
+    await scrollRecordsLoaded;
+    await expect(page.getByRole('region', { name: 'Outcomes tree', exact: true })).toBeVisible();
+    await page.getByRole('searchbox').fill('');
+    await page
+      .getByLabel('Pinned categories', { exact: true })
+      .getByRole('button', { name: 'All', exact: true })
+      .click();
+    await page.getByRole('button', { name: 'Expand all', exact: true }).click();
+    const scrollRows = page
+      .getByRole('button', { name: /^Scroll work item/ })
+      .locator('xpath=ancestor::li[1]');
+    await expect(
+      scrollRows.getByRole('button', { name: 'Choose worker', exact: true }),
+    ).toHaveCount(40);
+    const lastScrollItem = page.getByRole('button', { name: 'Scroll work item 40', exact: true });
+    await lastScrollItem.scrollIntoViewIfNeeded();
+    const savedScroll = await page.locator('.todo-scroll').evaluate((element) => element.scrollTop);
+    expect(savedScroll).toBeGreaterThan(500);
+    await lastScrollItem.click();
+    await expect(
+      page
+        .locator('.telos-item-workspace')
+        .getByRole('heading', { name: 'Scroll work item 40', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page
+        .locator('.telos-item-workspace')
+        .getByRole('button', { name: 'Choose worker', exact: true }),
+    ).toBeVisible();
+    let releaseScrollRecords: (() => void) | undefined;
+    recordReadGate = new Promise<void>((resolve) => {
+      releaseScrollRecords = resolve;
+    });
+    try {
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
+      await expect(page.locator('.telos-legacy-page')).toBeVisible();
+      await expect(page.locator('.todo-scroll')).toHaveJSProperty('scrollTop', 0);
+    } finally {
+      recordReadGate = undefined;
+      releaseScrollRecords?.();
+    }
+    await expect(
+      scrollRows.getByRole('button', { name: 'Choose worker', exact: true }),
+    ).toHaveCount(40);
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await page.locator('.todo-scroll').evaluate((element) => element.scrollTop)) -
+            savedScroll,
+        ),
+      )
+      .toBeLessThanOrEqual(2);
+    await page.screenshot({
+      path: info.outputPath(`scroll-restored-${theme}.png`),
+      fullPage: true,
+    });
     await page.getByRole('button', { name: 'New item', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
       /Help me plan a new Telos outcome/,

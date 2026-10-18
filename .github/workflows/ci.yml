@@ -167,7 +167,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: telos-saved-navigation-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: test-results/offline/telos-outcomes-workspace*/saved-link-*.png
+          path: |
+            test-results/offline/telos-outcomes-workspace*/saved-link-*.png
+            test-results/offline/telos-outcomes-workspace*/scroll-restored-*.png
           retention-days: 7
           if-no-files-found: ignore
 

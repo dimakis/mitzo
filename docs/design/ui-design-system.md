@@ -1602,7 +1602,9 @@ Superseded reads remain abort-fenced, including transports that resolve after ab
 
 `TelosItemWorkspace` retains the original brief beside its content on desktop and
 below it on phones. One Back chevron returns through item history or the retained
-collection. The item trail is retained for this session independently of artifact-selector
+collection. Back retains the expanded collection's scroll offset after discovery
+and canonical records hydrate, including later row layout growth. Restoration
+stops on user input and does not restart for the same collection visit. The item trail is retained for this session independently of artifact-selector
 route state, so Files/dialog reloads preserve Back to the originating item. A fresh
 collection entry resets that trail. The focused desktop item stays inside `DesktopShell`; `MobileShell`
 continues to own collection branding/navigation. Parent kinds and legacy unclassified records with actual children expose Work; leaves

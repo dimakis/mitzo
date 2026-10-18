@@ -4,7 +4,7 @@ import { TelosOutcomesTree } from '../components/TelosOutcomesTree';
 import { useTelosRecords } from '../hooks/useTelosRecords';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { TodoCard } from '../components/TodoCard';
 import { EmptyState } from '../components/EmptyState';
@@ -350,13 +350,45 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     canonical.refresh();
   }
 
-  // Restore scroll position when returning from detail view
-  useEffect(() => {
+  // A short fallback or rows still growing cannot yet hold the saved offset.
+  // Keep this navigation's target through layout changes until user input owns it.
+  const restoredLocation = useRef<string | null>(null);
+  const scrollContentReady = !discovery.loading && !canonical.loading;
+  useLayoutEffect(() => {
+    if (restoredLocation.current === location.key) return;
     const saved = (location.state as { scrollTop?: number } | null)?.scrollTop;
-    if (saved && scrollRef.current) {
-      scrollRef.current.scrollTop = saved;
+    const container = scrollRef.current;
+    if (typeof saved !== 'number' || !Number.isFinite(saved) || saved < 0 || !container) return;
+    const inputScope = container.parentElement ?? container;
+    const inputs = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+    let watching = true;
+    let observer: ResizeObserver | undefined;
+    function cleanup() {
+      watching = false;
+      observer?.disconnect();
+      for (const input of inputs) inputScope.removeEventListener(input, takeControl);
     }
-  }, [location.state]);
+    function takeControl() {
+      restoredLocation.current = location.key;
+      cleanup();
+    }
+    const restore = () => {
+      if (!watching) return;
+      container.scrollTop = saved;
+      if (Math.abs(container.scrollTop - saved) <= 1) restoredLocation.current = location.key;
+    };
+    if (scrollContentReady && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(restore);
+      observer.observe(container);
+      for (const child of container.children) observer.observe(child);
+    }
+    for (const input of inputs) inputScope.addEventListener(input, takeControl, { passive: true });
+    if (scrollContentReady) {
+      restore();
+      if (!observer) takeControl();
+    }
+    return cleanup;
+  }, [location.key, location.state, scrollContentReady]);
 
   const saveScrollPosition = useCallback(() => {
     return scrollRef.current?.scrollTop ?? 0;
