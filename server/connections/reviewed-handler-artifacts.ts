@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.286-codex-agent-tools-sandbox-review.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.303-tool-builder-core.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,13 +22,16 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../sandbox-ownership-review.ts':
-    '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
-  '../../frontend/src/components/SandboxOwnershipReview.tsx':
-    '64e5c10201281d54c61e62bf06b1260aff990939f38cb1b4052ba6335d001e0b',
   '../../frontend/src/components/SandboxBatchCleanup.tsx':
     'af232871b17f95cfe1cee1bcd7031236cad69ba7db51645af07e084823e247c3',
-
+  '../../frontend/src/components/SandboxOwnershipReview.tsx':
+    '64e5c10201281d54c61e62bf06b1260aff990939f38cb1b4052ba6335d001e0b',
+  '../sandbox-ownership-review.ts':
+    '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
+  '../tool-builder-schema.ts': 'b55fb292b80f3f1c5ad9376a27abaf62b901cdf07e5fb62ce07cf7fbc17a419f',
+  '../tool-builder.ts': '5820f9e284cb3156d30b5e378bf2d2eb50e58909dc04cfbf9b216017261bed99',
+  '../symposium-access-tools.ts':
+    'f5ee50c9bea25c0453b52941eb186f43e8de6efa674736eab22348ac08b59032',
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':
