@@ -30,7 +30,7 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
     return 'This chat has no matching native conversation binding. Its saved messages are preserved. Inspect startup recovery before continuing.';
   if (error instanceof CodexTransportError) {
     if (error.diagnostic?.reason === 'frame_too_large')
-      return 'A Codex response exceeded Mitzo’s bounded transport limit. Saved work is preserved; inspect runtime history loading before retrying.';
+      return 'A Codex response exceeded Mitzo’s bounded transport limit. Saved work is preserved; inspect runtime diagnostics before retrying.';
     if (error.diagnostic?.reason === 'notification_handler_failed')
       return 'Mitzo could not process a Codex event. Inspect conversation recovery before retrying.';
     return {
@@ -78,17 +78,19 @@ export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown
   if (error instanceof ProviderFailureError) return providerFailureTelemetry(error.failure);
   if (error instanceof CodexTransportError) {
     const diagnostic = error.diagnostic;
+    const frameBytes = diagnostic?.frameBytes;
+    const limitBytes = diagnostic?.limitBytes;
     return {
       transportErrorCategory: error.category,
       ...(diagnostic ? { transportFailureReason: diagnostic.reason } : {}),
       ...(diagnostic?.pendingRequestMethod && requestMethods.has(diagnostic.pendingRequestMethod)
         ? { pendingRequestMethod: diagnostic.pendingRequestMethod }
         : {}),
-      ...(Number.isSafeInteger(diagnostic?.frameBytes) && diagnostic!.frameBytes! >= 0
-        ? { transportFrameBytes: diagnostic!.frameBytes }
+      ...(typeof frameBytes === 'number' && Number.isSafeInteger(frameBytes) && frameBytes >= 0
+        ? { transportFrameBytes: frameBytes }
         : {}),
-      ...(Number.isSafeInteger(diagnostic?.limitBytes) && diagnostic!.limitBytes! > 0
-        ? { transportFrameLimitBytes: diagnostic!.limitBytes }
+      ...(typeof limitBytes === 'number' && Number.isSafeInteger(limitBytes) && limitBytes > 0
+        ? { transportFrameLimitBytes: limitBytes }
         : {}),
     };
   }

@@ -37,6 +37,7 @@ import { CodexSessionEvents } from './codex-session-events.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
 import { tracer } from './tracing.js';
 import { createLogger } from './logger.js';
+import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 const log = createLogger('codex-conversation');
 import {
   resolveWebSearchPolicy,
@@ -233,6 +234,7 @@ export interface CodexConversationOptions {
   onTransportClosed?: (diagnostic: {
     activeTurn: boolean;
     reason: 'closed' | 'timeout' | 'protocol';
+    failure?: Record<string, unknown>;
   }) => void;
 }
 
@@ -389,9 +391,13 @@ export class CodexConversation {
   }
   private transportClosed(generation: number, error: Error, requireRecoveryPersistence = false) {
     if (this.closed || generation !== this.transportGeneration) return;
+    const failure =
+      error instanceof CodexTransportError && error.diagnostic
+        ? { failure: codexRuntimeErrorTelemetry(error) }
+        : {};
     if (this.opts.transportClosure === 'terminal') {
       try {
-        this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed' });
+        this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed', ...failure });
       } finally {
         // Use the existing terminal owner: cancel host work, retain ambiguous
         // provider state, and notify the adapter so its stream and MCPs close.
@@ -440,6 +446,7 @@ export class CodexConversation {
     this.opts.onQueueChange?.();
     this.opts.onTransportClosed?.({
       activeTurn: !!active,
+      ...failure,
       reason:
         error.message === 'Codex request timed out; retry explicitly'
           ? 'timeout'

@@ -6141,6 +6141,27 @@ it('settles admission when the startup launcher rejects before invoking its call
   ]);
 });
 
+it('keeps runtime errors independent after startup admission has already succeeded', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  vi.mocked(startChat).mockImplementationOnce(async (startupTransport, _client, _prompt, opts) => {
+    opts.onStartupAdmission?.();
+    // The outer chat catch may report a later runtime failure through the same
+    // callback. It cannot turn an accepted startup into a failed admission.
+    opts.onStartupAdmission?.(new Error('Late runtime failure'));
+    startupTransport.send({ type: 'error', error: 'Runtime failure one' });
+    startupTransport.send({ type: 'error', error: 'Runtime failure two' });
+  });
+  await handleSendV2(
+    'runtime-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Run', clientMsgId: 'accepted-runtime' },
+    ctx,
+    { awaitStartupAdmission: true },
+  );
+  expect(transport.sent.filter((event) => event.type === 'error')).toHaveLength(2);
+});
+
 it('correlates a caught startup error after assigning the launch session', async () => {
   const ctx = createContext();
   const transport = mockTransport();

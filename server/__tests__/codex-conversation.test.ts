@@ -19,7 +19,7 @@ import {
 } from '../openshell-runtime-migration.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
-import { CodexRequestError } from '../codex-app-server-client.js';
+import { CodexRequestError, CodexTransportError } from '../codex-app-server-client.js';
 import { tracer } from '../tracing.js';
 import {
   context,
@@ -743,6 +743,35 @@ it('uses metadata-only resume for idle reconnect and web-search policy changes',
   const resumes = f.requests.filter(({ method }) => method === 'thread/resume');
   expect(resumes).toHaveLength(2);
   expect(resumes.every(({ params }) => params.excludeTurns === true)).toBe(true);
+});
+
+it('retains framing diagnostics without making an accepted turn eligible for replay', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'accepted', prompt: 'Perform the authorized task' });
+  f.callbacks.onClose(
+    new CodexTransportError('protocol', {
+      reason: 'frame_too_large',
+      frameBytes: 4_194_305,
+      limitBytes: 4_194_304,
+    }),
+  );
+  expect(f.onTransportClosed).toHaveBeenCalledWith(
+    expect.objectContaining({
+      activeTurn: true,
+      reason: 'protocol',
+      failure: {
+        transportErrorCategory: 'protocol',
+        transportFailureReason: 'frame_too_large',
+        transportFrameBytes: 4_194_305,
+        transportFrameLimitBytes: 4_194_304,
+      },
+    }),
+  );
+  expect(f.c.queue()).toContainEqual(
+    expect.objectContaining({ id: 'accepted', status: 'interrupted' }),
+  );
+  await expect(f.c.retryLatestFailed()).resolves.toBe('not_found');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
 });
 
 it('preserves prior conversation text once when refreshing a stale tool surface', async () => {

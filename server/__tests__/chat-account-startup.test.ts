@@ -220,12 +220,13 @@ it.each([false, true])(
   },
 );
 it.each([
-  [false, false],
-  [true, false],
-  [true, true],
+  [false, false, false],
+  [true, false, false],
+  [true, true, false],
+  [true, false, true],
 ])(
-  'links a startup error to safe logged diagnostics and the saved session (resume=%s, replaced=%s)',
-  async (resume, replaced) => {
+  'links a startup error to safe logged diagnostics and the saved session (resume=%s, replaced=%s, deliveryFails=%s)',
+  async (resume, replaced, deliveryFails) => {
     vi.resetModules();
     const root = await mkdtemp(join(tmpdir(), 'mitzo-startup-error-reference-'));
     vi.stubEnv('REPO_PATH', root);
@@ -286,6 +287,8 @@ it.each([
     );
     const chat = await import('../chat.js');
     const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
+    const onSessionChange = vi.fn();
+    chat.setSessionChangeCallback(onSessionChange);
     if (resume) {
       chat.eventStore.upsertSession({
         sessionId,
@@ -295,10 +298,12 @@ it.each([
       });
       chat.eventStore.append(sessionId, 'message_end', { type: 'message_end', id: 'saved-answer' });
     }
-    const send = vi.fn();
+    const send = vi.fn((event) => {
+      if (deliveryFails && event.type === 'error') throw new Error('Offline error delivery failed');
+    });
     const onStartupAdmission = vi.fn();
     try {
-      await chat.startChat({ send, isOpen: () => true }, 'error-reference', 'hello', {
+      const startup = chat.startChat({ send, isOpen: () => true }, 'error-reference', 'hello', {
         cwd: root,
         isolation: false,
         accountId: 'personal',
@@ -307,6 +312,8 @@ it.each([
         ...(resume ? { resume: sessionId } : { initialSessionId: sessionId }),
         onStartupAdmission,
       });
+      if (deliveryFails) await expect(startup).rejects.toThrow('Offline error delivery failed');
+      else await startup;
       const errors = send.mock.calls
         .map(([message]) => message)
         .filter((message) => message.type === 'error');
@@ -337,6 +344,7 @@ it.each([
         expect(chat.registry.get('error-reference')?.abortController).toBe(replacementAbort);
         expect(replacementAbort?.signal.aborted).toBe(false);
         expect(chat.eventStore.getSession(sessionId)?.state).toBe('ACTIVE');
+        expect(onSessionChange).not.toHaveBeenCalledWith('error-reference', 'end', sessionId);
       } else {
         expect(chat.registry.get('error-reference')).toBeUndefined();
         expect(chat.eventStore.getSession(sessionId)?.state).toBe('ENDED');

@@ -749,15 +749,18 @@ export function handleSendV2(
         let emitSkillInvoked = () => {};
         let skillInvoked = false;
         let initialPromptDelivered = false;
+        let startupAdmissionSucceeded = false;
         const onStartupAdmission = (error?: unknown) => {
           if (error) {
-            if (startupAdmission) startupFailure ??= { reported: false };
+            if (startupAdmission && !startupAdmissionSucceeded)
+              startupFailure ??= { reported: false };
             rejectStartupAdmission?.(error);
           } else {
             if (!skillInvoked) {
               emitSkillInvoked();
               skillInvoked = true;
             }
+            startupAdmissionSucceeded = true;
             resolveStartupAdmission?.();
           }
         };
