@@ -1,3 +1,4 @@
+import { openProfileTools, openToolLibrary } from '../support/agent-library';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -174,7 +175,7 @@ for (const theme of ['dark', 'light'])
       });
     });
     await page.goto('/');
-    await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+    await openToolLibrary(page);
     const refresh = page.getByRole('button', { name: 'Refresh configured servers', exact: true });
     await refresh.click();
     await expect(page.getByRole('alert')).toContainText('Discovery fixture unavailable');
@@ -197,7 +198,7 @@ for (const theme of ['dark', 'light'])
       animations: 'disabled',
     });
     await page.getByRole('button', { name: 'Agent library', exact: true }).click();
-    await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+    await openProfileTools(page);
     await page.getByRole('button', { name: 'Choose specific tools', exact: true }).click();
     await page.getByRole('button', { name: 'Add tools', exact: true }).click();
     await page.getByRole('searchbox', { name: 'Search tools', exact: true }).fill('search');
@@ -214,7 +215,7 @@ for (const theme of ['dark', 'light'])
     ]);
     await page.getByRole('button', { name: 'Export profile', exact: true }).click();
     await expect(page.getByLabel('Portable profile export')).toContainText(configured[0].revision);
-    await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+    await openToolLibrary(page);
     await refresh.click();
     await expect(card).toContainText('Selection unavailable');
     await card.locator('.tool-library-details > summary').click();

@@ -14,6 +14,53 @@ function setup(hooks: unknown) {
   writeFileSync(join(root, '.claude/settings.json'), JSON.stringify({ hooks }));
   return new NativeHooks(root, 'app', { PATH: '/usr/bin:/bin' });
 }
+it.each([true, false])(
+  'preserves ordinary custom data in hooks and execution (enabled=%s)',
+  async (enabled) => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-hooks-data-'));
+    roots.push(root);
+    const hooks = new NativeHooks(root, 'app', {}, enabled);
+    const run = vi.spyOn(hooks, 'run');
+    const execute = vi.fn(async (input: Record<string, unknown>) => ({
+      content: JSON.stringify(input),
+      isError: false,
+    }));
+    const signal = new AbortController().signal;
+    expect(
+      await hooks.executeTool('CustomData', { file_path: 'a.txt' }, signal, execute, {
+        normalizeFilePath: false,
+      }),
+    ).toEqual({ content: '{"file_path":"a.txt"}', isError: false });
+    expect(execute).toHaveBeenCalledWith({ file_path: 'a.txt' }, false);
+    expect(run).toHaveBeenNthCalledWith(
+      1,
+      'PreToolUse',
+      {
+        tool_name: 'CustomData',
+        tool_input: { file_path: 'a.txt' },
+      },
+      signal,
+    );
+    expect(run).toHaveBeenNthCalledWith(
+      2,
+      'PostToolUse',
+      {
+        tool_name: 'CustomData',
+        tool_input: { file_path: 'a.txt' },
+        tool_response: '{"file_path":"a.txt"}',
+      },
+      signal,
+    );
+  },
+);
+it('retains filesystem path normalization by default', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-hooks-path-'));
+  roots.push(root);
+  const hooks = new NativeHooks(root, 'app', {}, false);
+  const execute = vi.fn(async () => ({ content: 'read', isError: false }));
+  await hooks.executeTool('Read', { file_path: 'a.txt' }, new AbortController().signal, execute);
+  expect(execute).toHaveBeenCalledWith({ file_path: join(root, 'a.txt') }, false);
+});
 it('enforces tool-hook denial and matcher boundaries', async () => {
   const hooks = setup({
     PreToolUse: [

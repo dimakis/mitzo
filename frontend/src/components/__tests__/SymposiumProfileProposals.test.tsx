@@ -5,6 +5,11 @@ import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumProfileProposals } from '../SymposiumProfileProposals';
 import { symposiumProfileTemplates } from '../../lib/symposium-profile-templates';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../AgentTaskProposal', () => ({
+  AgentTaskProposal: () => (
+    <section aria-label="Agent task proposal">Task editor duplicate</section>
+  ),
+}));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -103,6 +108,39 @@ it('surfaces pending drafts without setup fields or manual profile identifiers',
 });
 it('keeps ordinary chats quiet when there are no pending proposals', async () => {
   vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify([])));
+  render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  await waitFor(() => expect(screen.queryByRole('complementary')).toBeNull());
+});
+
+it.each(['pending', 'saved'])(
+  'keeps %s tasks out of the profile proposal tail while preserving profiles',
+  async (state) => {
+    const definition = symposiumProfileTemplates[1].definition;
+    vi.mocked(apiFetch).mockImplementation(
+      async (path) =>
+        ({
+          ok: true,
+          json: async () =>
+            path.includes('profile-proposals')
+              ? [
+                  { kind: 'task', proposalId: 'task-proposal', state },
+                  { proposalId: 'profile-proposal', suggestedProfileId: 'security', definition },
+                ]
+              : [],
+        }) as Response,
+    );
+    render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
+    await screen.findByLabelText('Reviewer template');
+    expect(screen.queryByRole('region', { name: 'Agent task proposal' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save reusable profile' })).toBeTruthy();
+  },
+);
+
+it('keeps the ordinary profile tail quiet when only task proposals exist', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify([{ kind: 'task', proposalId: 'task-proposal', state: 'pending' }])),
+  );
   render(<SymposiumProfileProposals sessionId="chat" pendingOnly />);
   await waitFor(() => expect(apiFetch).toHaveBeenCalled());
   await waitFor(() => expect(screen.queryByRole('complementary')).toBeNull());

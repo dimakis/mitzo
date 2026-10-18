@@ -83,6 +83,7 @@ export class NativeResponsesStore {
       profileHash: string;
       tools: ToolDefinition[];
       apiTools?: { wireName: string; reference: import('@mitzo/protocol').AgentToolReference }[];
+      customTools?: { wireName: string; reference: import('@mitzo/protocol').AgentToolReference }[];
       configuredTools?: {
         wireName: string;
         reference: import('@mitzo/protocol').AgentToolReference;

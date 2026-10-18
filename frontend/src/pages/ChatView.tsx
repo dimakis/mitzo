@@ -35,7 +35,7 @@ import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
 import {
   PROFILE_BUILDER_ID,
-  PROFILE_BUILDER_REVISION,
+  profileBuilderDefinitionForRevision,
   type AgentProfileSelection,
 } from '@mitzo/protocol';
 import { UiIcon } from '../components/UiIcon';
@@ -215,7 +215,7 @@ export function ChatView() {
     !activeSessionId && builderSources?.some((source) => source.kind === 'agent-library')
       ? searchParams.get('agentProfile') !== PROFILE_BUILDER_ID ||
         searchParams.get('agentProfileKind') !== 'builtin' ||
-        searchParams.get('profileRevision') !== String(PROFILE_BUILDER_REVISION)
+        !profileBuilderDefinitionForRevision(Number(searchParams.get('profileRevision')))
         ? 'Choose Agent Builder to use this reviewed Library context, or start a new chat.'
         : undefined
       : undefined;
