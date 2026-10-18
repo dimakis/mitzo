@@ -1,0 +1,166 @@
+{
+  "parent": "85e8444019a4ae4a",
+  "marker": "Approved corrective amendment 2026-10-17",
+  "tests": [
+    {
+      "id": "CT01",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Advisor refine and child creation on canonical schemas",
+      "assertions": "Use the actual MGMT schema/migrations with synthetic rows: fresh and pre-change upgrade fixtures. No test-only categories column. Required first_seen/last_seen and creation/history semantics hold. Save/refine round-trip all fields through real Mitzo routes and canonical read paths.",
+      "boundary": "MGMT persistence -> Telos work store/routes -> typed client projection",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT02",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Atomic advisor save and replay",
+      "assertions": "Inject failure after item, source and receipt writes; roll back or recover according to the owning transaction contract. Repeat identical request returns original identities; changed input under the same request identity fails without mutation. No orphan source or false receipt.",
+      "boundary": "Canonical items/sources/history and material/receipt owners",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT03",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Stale review rejected before allocation",
+      "assertions": "Change the item after review. Definite rejection permits fresh context review while preserving user draft/settings; retry uses the new revision; reload cannot trap the draft. Assert no allocator/model call on rejected request.",
+      "boundary": "Actual HTTP error contract -> useTelosRoleSetup -> setup UI",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT04",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Unknown allocation/commit outcome and reload",
+      "assertions": "Drop response after allocation and after durable commit; restart/reload then retry. Preserve original request identity, chat and assignment, with no duplicate allocation. Do not indiscriminately unlock every 409; prove pre-allocation rejection differs from uncertain/post-allocation outcomes.",
+      "boundary": "Role setup host/store receipts -> frontend persistence",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT05",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Readable approved linked context",
+      "assertions": "Render overall goal, parent outcome, this item, done when and readable source/revision labels from actual DTOs. Keep immutable IDs/hashes correct without making them the primary explanation. Compare desktop/mobile light/dark and narrow width with frozen approval; preserve approved settings sheet.",
+      "boundary": "Real projection -> TelosLinkedContext and offline intercepted browser",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT06",
+      "owner": "9dab491c72f0494e",
+      "scenario": "Early repository-backed vertical journey",
+      "assertions": "Synthetic origin/material -> advisor save -> lead setup -> exact child delegation -> ordinary worker/task -> saved output -> pending_review -> explicit verified completion. Use real stores/routes/dispatcher boundaries with fake provider/external side effects. Assert independent worker workspace and pinned revision, no sibling dispatch, no implicit model turn, no readiness-as-completion.",
+      "boundary": "Accepted S5 + S5a combined integration, no live backend/model",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT07",
+      "owner": "df0d5bb2ec46416b",
+      "scenario": "Ordinary non-code workspace admission",
+      "assertions": "Home studio/people-work item can review context and create applicable advisor/lead/worker without repository selection. Stable workspace identity and capability contract reuse ordinary runtime owners. Unsupported operations fail before allocation with an actionable reason; never fabricate a repository.",
+      "boundary": "Repository-free admission -> ordinary allocator -> role/work bindings",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT08",
+      "owner": "df0d5bb2ec46416b",
+      "scenario": "Repository-free exact delegation and recovery",
+      "assertions": "Exactly one requested child gets its own ordinary workspace/chat/task. Retry, concurrent duplicate requests and restart preserve original identities and draft/settings/history; no workspace sharing by accident. Repository-backed revision pinning remains unchanged.",
+      "boundary": "S5 delegation receipts + new non-code workspace capability",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT09",
+      "owner": "df0d5bb2ec46416b",
+      "scenario": "Non-code vertical journey",
+      "assertions": "Origin -> item -> advisor/lead -> worker -> retained material/output -> pending_review -> verified completion using synthetic persistence and fake provider. Ordinary chat resources and drafts survive navigation and reattach. No repository is secretly supplied by fixtures.",
+      "boundary": "Actual stores/routes/client contract and offline browser",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT10",
+      "owner": "335551581dbf1e93",
+      "scenario": "Brief changes during queued/running work",
+      "assertions": "Specify adoption boundary before coding. Running attempt retains its immutable reviewed context; a later eligible command explicitly adopts a new revision under the chosen contract. No silent rewriting of history or stale queued dispatch. Test change before dispatch, during execution and after restart.",
+      "boundary": "Context snapshots -> command admission -> task dispatcher",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT11",
+      "owner": "335551581dbf1e93",
+      "scenario": "Lead replacement and superseded worker authority",
+      "assertions": "Define current routing/control separately from historical attribution. Replace lead during pending control and after worker launch; replace worker before late completion. Reject stale authority/receipts; retain original outputs and ownership; do not route new control to retired role holders.",
+      "boundary": "Role assignment history -> scoped controls -> completion callbacks",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT12",
+      "owner": "335551581dbf1e93",
+      "scenario": "Scoped hold/release with delayed acknowledgement",
+      "assertions": "Exact attached leads/workers only; unrelated outcomes continue; pending/acknowledged/applied remain distinct. Duplicate, delayed and out-of-order acknowledgements and restart cannot falsely hold/release unknown workers. Nested coordinator cannot broaden scope or create cycles.",
+      "boundary": "Existing coordination owner and ordinary command queue",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT13",
+      "owner": "57b0894e0379ab95",
+      "scenario": "Tree/workspace projection against canonical DTO",
+      "assertions": "Preserve tree kinds, categories/pins, original fields, dated provenance and separate material/source/external links. Empty, unavailable and stale states stay truthful; recursive navigation and reload preserve selection. Include repository-backed and non-code fixtures.",
+      "boundary": "Canonical persistence -> API/client -> actual outcomes/workspace UI",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT14",
+      "owner": "57b0894e0379ab95",
+      "scenario": "Approved priority 1\u201310 amendment",
+      "assertions": "After authoritative priority changes are accepted, round-trip every allowed priority through schema/API/client/UI; selector and P<n> badge agree after reload. Preserve migration/default behavior and reject invalid values. Reference that amendment, not a unilateral frozen-mock rewrite.",
+      "boundary": "MGMT priority owner + Mitzo projection + approved selector/badge",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT15",
+      "owner": "b47a0c568f1d98ba",
+      "scenario": "Chat chooser and independent ordinary chat state",
+      "assertions": "Multiple chats list first with no preselection; single-chat entry remains direct. New chat and Change worker differ; Back returns correctly; drafts/settings/history/resources remain per chat. Compact header and collapsed tree match approved mobile/desktop behavior.",
+      "boundary": "Role/work links -> router/client state -> actual ordinary chat screen",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT16",
+      "owner": "b47a0c568f1d98ba",
+      "scenario": "Truthful status and priority in chat/work tree",
+      "assertions": "Readiness, queued/running, saved output, worker-reported done pending review and verified completion remain separate after reconnect. Preserve historical role attribution and current assignment. Display accepted priority projection consistently wherever the approved UI calls for it.",
+      "boundary": "Execution/work events -> work tree/header/chat projection",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT17",
+      "owner": "b896d14d79d52682",
+      "scenario": "Combined accepted-main offline acceptance",
+      "assertions": "Run both complete journeys and recovery cases against the final combined accepted branch, including current Symposium changes affecting shared owners. No mocks that bypass the actual persistence/route/projection contracts being tested. Link every UX01\u2013UX24 row to owner, exact commit, test and visual evidence.",
+      "boundary": "Canonical data + accepted shared session/task/material/context owners",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT18",
+      "owner": "b896d14d79d52682",
+      "scenario": "Telos/Symposium isolation and coexistence offline",
+      "assertions": "Use existing Symposium source guide/contracts to construct synthetic sessions/commands. Exercise shared context, queue, task, artifact and session owners; prove no cross-session role/control/receipt/output leakage and no cancellation or completion misattribution. Reuse existing tests where they prove the boundary.",
+      "boundary": "Shared owners only; no new Symposium parent or superseded phase work",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT19",
+      "owner": "b896d14d79d52682",
+      "scenario": "Single-runtime live qualification gate",
+      "assertions": "Pending separately selected and explicitly authorized target/window: exercise Telos and Symposium sequentially on one feasible runtime. Record exact accepted revisions, workspace/runtime identity, observed dispatch/recovery/output behavior and cross-feature isolation. No per-feature staging stacks, retired staging revival or automatic production fallback. Offline green cannot satisfy this row.",
+      "boundary": "Actual Podman/OpenShell runtime; NOT AUTHORIZED OR RUN by this amendment",
+      "evidenceStatus": "required_not_yet_verified"
+    },
+    {
+      "id": "CT20",
+      "owner": "b896d14d79d52682",
+      "scenario": "Final visual and lifecycle acceptance",
+      "assertions": "Compare final implementation with frozen approved artifacts plus explicit approved amendments at desktop/mobile widths and themes. Preserve settings/resources/navigation and lifecycle recovery. Record code merged, offline integration verified, UX accepted and live runtime qualified separately. Any unresolved required evidence keeps parent acceptance open.",
+      "boundary": "Final combined branch and acceptance evidence ledger",
+      "evidenceStatus": "required_not_yet_verified"
+    }
+  ]
+}
