@@ -873,6 +873,55 @@
       "reviewBounds": "Two actual clean reports retained as historical source evidence. Neither approves the forthcoming head. A full final current-head trusted report/App gate and current CI remain required.",
       "authorization": "One earlier human approval question for credential-backed full-review queue update remains pending after automatic approval rejection. That rejected command never executed; no credential read, queue mutation, retry, bypass or duplicate/obsolete review request. Completed old4863 is not a target for another obsolete b98 review. Normal automatic scheduling may proceed on new head; no manual upgrade is performed.",
       "remaining": "Verify fresh exact-head CI/automatic queue after push; preserve full final review/approval gate. No merge/live/runtime/staging/deployment authority."
+    },
+    "catalogContextAcceptedBaseIntegration": {
+      "source": "383caf4e5323d9b9641f10613666bc98117a9fbd",
+      "sourceTree": "01934fdbd56e2012aa8f3e3fa8c41086e43eeb06",
+      "parents": [
+        "e28a48013b264d3331ef7e5f6a97c87662424bf6",
+        "09276da4ac8f21ff748d2d80ecf136cc47ce0d5b"
+      ],
+      "manifest": {
+        "previousHead": "e28a48013b264d3331ef7e5f6a97c87662424bf6",
+        "acceptedMain": "09276da4ac8f21ff748d2d80ecf136cc47ce0d5b",
+        "acceptedPins": 566,
+        "aPins": 562,
+        "unionPins": 570,
+        "mismatches": 0,
+        "aOwnedPreserved": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "runtime": "v1.0.314-custom-tool-catalog.1-telos-context.1-symposium-shared-ui.4",
+        "aComponentFixtureAndProtectedBytesUnchanged": true,
+        "ledgerUnchanged": true,
+        "localTests": "Not launched under observed host load102.25/105.03/88.06; fresh remote CI required.",
+        "newManualReviewRequest": false
+      },
+      "staticChecks": "Full source-pin union and every selected A/protected/reference/capture byte verified before and after normal merge hooks. All accepted non-A pins match accepted parent; all11 A-owned pins match A parent.",
+      "hooks": "Normal ESLint/prettier on accepted merge sources and gitleaks passed; one-GiB Node heap.",
+      "localExecution": "No local test suite, typecheck or browser launched for this merge under directly observed host load102.25/105.03/88.06. This is not a current-head test pass; normal remote CI is required.",
+      "priorValidationBounds": "e28 ordinary CI jobs all succeeded. Earlier358/33 local source results,2 existing opt-in skips, and source-specific producer/C render/DOM receipts retain exact historical bounds; none is relabelled as a new-head result.",
+      "dependencies": "Accepted ChatView/DesktopChatView, Agent Builder/task/profile-picker, ToolPill, native/catalog/custom-tool and TelosLinkedContext dependency changes retained. A direct component/fixture bytes unchanged does not prove the entire accepted dependency graph renders identically; no new UX acceptance claim.",
+      "reviewState": "Actual80231 and b98 clean reports remain historical. Existing normal jobs may resume after Centaur recovery. No manual enqueue/replacement, credential read/retry, forced upgrade, duplicate or obsolete review request. One existing specific approval question stays separate and pending.",
+      "nextGate": "After push verify current-head mergeability/normal CI/automatic queue. New head still requires current CI, full final exact-head trusted report and App gate; no merge authority."
+    },
+    "rootCombinedVisualReadonlyInspection": {
+      "source": "5ee4962e43895f0e823ba4ff1129246f9049fce9",
+      "rawReport": "/private/tmp/symposium-0a048-browser.json",
+      "taskReceipt": "root-0a048-browser-readonly-inspection.json",
+      "status": "Failed/incomplete:5 timeouts,1 interrupted,6 unrun,2 startup pass.",
+      "finding": "Read-only trace/source inspection isolated no concrete selector/rendering defect. Broad slow page/goto/screenshot operations; Chromium Cancel error recorded after teardown starts. Hostload plausibility is not causality or a flake exception.",
+      "bounds": "No new test/browser/source/reference/timeout action; root and owning reviewer received report. Root actual joining/native qualification remains independent; native permission-fixture failures belong to core owners."
     }
   },
   "integrationHandoff": {
@@ -904,8 +953,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "0a048b5b0ef096e181a7ddb09b088c956870aab8",
-  "acceptedMainMerge": "209385f5c988abfc524b59812053ac15eae40f57",
+  "latestAcceptedMain": "09276da4ac8f21ff748d2d80ecf136cc47ce0d5b",
+  "acceptedMainMerge": "383caf4e5323d9b9641f10613666bc98117a9fbd",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1039,14 +1088,15 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "0a048b5b0ef096e181a7ddb09b088c956870aab8",
-  "baseRefresh": "Integrated actual0a048b5b: accepted priority#1009 and bounded Tool Builder development#1011. Sole conflict generated runtime revision. Full accepted558 + A553 maps union562 pins, zero mismatch. A components/fixtures/protected test/capture bytes preserved; incoming accepted priority ledger addition and scoped global styles retained exactly, all prior ledger entries preserved. Core receives ancestry/manifest delta only.",
-  "latestValidation": "checks.priorityAcceptedBaseIntegration",
+  "integratedAcceptedBase": "09276da4ac8f21ff748d2d80ecf136cc47ce0d5b",
+  "baseRefresh": "Verified real merge conflict against accepted09276da4 (#1004 Agent Builder tasks, #1014 immutable local custom publications, #1024 readable context), not GitHub metadata alone. Sole conflict generated runtime revision; complete accepted566+A562 maps union570 pins, zero mismatch. A-owned modules/fixtures/protected/ref/capture bytes preserved; accepted dependency/callsite/catalog changes retained. Core receives ancestry/manifest delta only.",
+  "latestValidation": "checks.catalogContextAcceptedBaseIntegration",
   "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
     "163f74748e4c9e782e1f27db7179987fdcb903aa",
     "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc",
-    "209385f5c988abfc524b59812053ac15eae40f57"
+    "209385f5c988abfc524b59812053ac15eae40f57",
+    "383caf4e5323d9b9641f10613666bc98117a9fbd"
   ]
 }
