@@ -12,7 +12,13 @@ import { hasPersistentRevocationAuthority } from './auth.js';
 import { createOrdinaryOpenShellCodexEntryOwner } from './ordinary-openshell-codex-entry-owner.js';
 import { OrdinaryLocalCodexCommandRequestSchema } from './ordinary-local-codex-admission.js';
 import { getCodexConversationStore, getCodexRuntime } from './codex-chat-session.js';
-import { eventStore, registry, prepareOwnedCodexChat, echoOwnedCodexCommand } from './chat.js';
+import {
+  eventStore,
+  registry,
+  prepareOwnedCodexChat,
+  echoOwnedCodexCommand,
+  resolveOwnedTelosWorkCommandScope,
+} from './chat.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 
 export const OrdinaryOpenShellCodexCommandRequestSchema = OrdinaryCodexFirstCommandSchema.refine(
@@ -73,8 +79,10 @@ export async function sendOwnedOpenShellCodexCommand(input: {
     session?.ownedLocalAuthSessionId !== captured.auth.id
   )
     throw unavailable();
+  resolveOwnedTelosWorkCommandScope(input.sessionId);
   const result = await owner.admit(structuredClone(input.command), input.signal);
   captured.assertCurrent();
+  resolveOwnedTelosWorkCommandScope(input.sessionId);
   if (result.dispatched) {
     const native = getCodexRuntime(session);
     if (!native) throw unavailable();
@@ -120,6 +128,7 @@ export async function startOwnedOpenShellCodexCommand(
   const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
   captured.assertCurrent();
   const sessionId = input.meta.sessionId;
+  resolveOwnedTelosWorkCommandScope(sessionId);
   const account = structuredClone(input.meta.accountBinding);
   const nativeStore = getCodexConversationStore();
   const assertRoleCurrent = () => resolveTelosWorkRoleContext(eventStore, sessionId, account);
@@ -170,7 +179,9 @@ export async function startOwnedOpenShellCodexCommand(
       (liveOwner.initialResume ?? false) !== resume
     )
       throw unavailable();
-    return { ...(await liveOwner.retryInitial(input.command)), sessionId };
+    const result = await liveOwner.retryInitial(input.command);
+    resolveOwnedTelosWorkCommandScope(sessionId);
+    return { ...result, sessionId };
   }
   try {
     composed = createOrdinaryOpenShellCodexEntryOwner({
@@ -193,6 +204,7 @@ export async function startOwnedOpenShellCodexCommand(
       },
       dispatch: async (dispatch) => {
         assertRoleCurrent();
+        resolveOwnedTelosWorkCommandScope(sessionId);
         if (prepared || closed) throw unavailable();
         prepared = await prepareOwnedCodexChat(transport, clientId, dispatch, {
           ownerConnectionId: input.ownerConnectionId,
@@ -200,9 +212,11 @@ export async function startOwnedOpenShellCodexCommand(
           onEnded: close,
         });
         assertRoleCurrent();
+        resolveOwnedTelosWorkCommandScope(sessionId);
       },
       dispatchContinuation: async (dispatch) => {
         assertRoleCurrent();
+        resolveOwnedTelosWorkCommandScope(sessionId);
         const live = registry.findBySessionId(sessionId)?.session;
         const native = live && getCodexRuntime(live);
         if (closed || !live || !native || live.ownedLocalAuthSessionId !== captured.auth.id)
@@ -224,6 +238,7 @@ export async function startOwnedOpenShellCodexCommand(
             : live.abortController.signal,
         );
         dispatch.preparationSignal?.throwIfAborted();
+        resolveOwnedTelosWorkCommandScope(sessionId);
         echoOwnedCodexCommand(sessionId, dispatch.commandId, dispatch.payload);
       },
       close,
@@ -241,6 +256,7 @@ export async function startOwnedOpenShellCodexCommand(
       return result;
     }
     assertRoleCurrent();
+    resolveOwnedTelosWorkCommandScope(sessionId);
     const session = registry.findBySessionId(sessionId)?.session;
     if (!session || !prepared || closed) throw unavailable();
     const driver = composed.driver;
@@ -252,10 +268,12 @@ export async function startOwnedOpenShellCodexCommand(
       initialPreparationOperationId: preparationOperationId,
       initialResume: resume,
       admit: (raw, signal) => {
+        resolveOwnedTelosWorkCommandScope(sessionId);
         const next = derive(raw);
         return driver.admit(next.meta, next.command, signal);
       },
       retryInitial: (raw) => {
+        resolveOwnedTelosWorkCommandScope(sessionId);
         const next = derive(raw);
         return preparationOperationId !== undefined
           ? driver.admitPreparedFirst(preparationOperationId, next.meta, next.command)

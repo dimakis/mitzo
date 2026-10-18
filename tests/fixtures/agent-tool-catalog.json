@@ -339,5 +339,16 @@
     "behavior": "read",
     "routes": [],
     "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+  },
+  {
+    "id": "mitzo:TelosStartSlice",
+    "version": 1,
+    "name": "TelosStartSlice",
+    "description": "Allocate or recover one ordinary worker chat for the exact explicitly selected child of this lead. Returns its retained worker link while staying in the lead chat; does not start a model turn or complete work. Use start to recover existing work; retry requires an explicit user request and the exact predecessor attempt. Reuse requestId after uncertain responses. Never guess an ambiguous child or start siblings.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "write",
+    "routes": [],
+    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
   }
 ]

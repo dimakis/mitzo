@@ -23,6 +23,37 @@ afterEach(() => {
 });
 
 describe('TaskStore', () => {
+  it('creates and recovers one immutable Task Board node for an exact Telos attempt', () => {
+    const binding = {
+      attemptId: 'attempt-1',
+      childItemId: 'slice-1',
+      leadConversationId: 'lead-chat',
+      workerConversationId: 'worker-chat',
+      contextSnapshotId: 'brief-r4',
+      contextHash: 'a'.repeat(64),
+    };
+    const first = store.createOrRecoverTelosExecutionTask(
+      { title: 'Slice one', description: 'Pinned reviewed brief' },
+      binding,
+    );
+    expect(store.getTelosExecutionBinding(first.id)).toEqual(binding);
+    expect(first.sessionPolicy).toBe('reuse');
+
+    const replay = store.createOrRecoverTelosExecutionTask(
+      { title: 'Changed title must not replace retained task' },
+      binding,
+    );
+    expect(replay).toEqual(first);
+    expect(store.getTree()).toMatchObject([{ id: first.id, title: 'Slice one' }]);
+    expect(() =>
+      store.createOrRecoverTelosExecutionTask(
+        { title: 'Different scope' },
+        { ...binding, childItemId: 'slice-2' },
+      ),
+    ).toThrow(/scope conflict/i);
+    expect(store.getTree()).toHaveLength(1);
+  });
+
   // --- Create ---
 
   it('creates a root task with defaults', () => {
