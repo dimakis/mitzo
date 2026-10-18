@@ -1,0 +1,8 @@
+{
+  "conclusion": "success",
+  "databaseId": 39132081011,
+  "headSha": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
+  "status": "completed",
+  "url": "https://github.com/dimakis/mitzo/actions/runs/39132081011",
+  "workflowName": "Centaur merge gate"
+}

@@ -1,0 +1,36 @@
+{
+  "id": 5562773551,
+  "node_id": "PRR_kwDOR2Rn9s8AAAABS5EwLw",
+  "user": {
+    "login": "dimakis",
+    "id": 28638411,
+    "node_id": "MDQ6VXNlcjI4NjM4NDEx",
+    "avatar_url": "https://avatars.githubusercontent.com/u/28638411?u=f93cbb89898d69245d8eae144373c1c25ac64c01&v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/dimakis",
+    "html_url": "https://github.com/dimakis",
+    "followers_url": "https://api.github.com/users/dimakis/followers",
+    "following_url": "https://api.github.com/users/dimakis/following{/other_user}",
+    "gists_url": "https://api.github.com/users/dimakis/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/dimakis/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/dimakis/subscriptions",
+    "organizations_url": "https://api.github.com/users/dimakis/orgs",
+    "repos_url": "https://api.github.com/users/dimakis/repos",
+    "events_url": "https://api.github.com/users/dimakis/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/dimakis/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "body": "<!-- centaur:sha:d2c47c71b9c7452d0d4bc9f4f5ffec3737ab371e -->\n## Centaur Review\n\nLGTM — no issues found.\n\n### Convergence\n**Recommendation:** `merge` — No blocking in-scope findings remain.\n\n- New blocking findings: 0\n- Unresolved blocking findings: 0\n- Non-blocking follow-ups: 0\n- Repeated/deferred findings: 0\n- Verified resolved findings: 0\n\n\n<!-- centaur:job:dimakis/mitzo:1020:d2c47c71b9c7452d0d4bc9f4f5ffec3737ab371e:1 -->",
+  "state": "COMMENTED",
+  "html_url": "https://github.com/dimakis/mitzo/pull/1020#pullrequestreview-5562773551",
+  "pull_request_url": "https://api.github.com/repos/dimakis/mitzo/pulls/1020",
+  "author_association": "OWNER",
+  "_links": {
+    "html": { "href": "https://github.com/dimakis/mitzo/pull/1020#pullrequestreview-5562773551" },
+    "pull_request": { "href": "https://api.github.com/repos/dimakis/mitzo/pulls/1020" }
+  },
+  "submitted_at": "2026-10-18T11:37:59Z",
+  "commit_id": "d2c47c71b9c7452d0d4bc9f4f5ffec3737ab371e"
+}

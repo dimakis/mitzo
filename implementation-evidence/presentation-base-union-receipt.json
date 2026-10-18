@@ -1,0 +1,30 @@
+{
+  "priorHead": "00220e910d851cc76b2744949f9b4644986b6476",
+  "acceptedBase": "634048b1c7309a411dcfbf39dd2ae4e0308bdcfb",
+  "actualConflict": "server/connections/reviewed-handler-artifacts.ts",
+  "incomingFiles": 40,
+  "allIncomingExactExceptManifestAndAdditiveDesignContract": true,
+  "manifestEntries": 592,
+  "actualHashesMatch": true,
+  "bothPinSetsPreservedWithThreeWayChangedPins": true,
+  "unchangedBModules": [
+    "server/collaboration-forwarding.ts",
+    "server/__tests__/collaboration-forwarding.test.ts",
+    "server/collaboration-retained-artifact-source.ts",
+    "server/collaboration-context-source.ts",
+    "server/collaboration-context-compiler.ts",
+    "server/telos-artifact-store.ts",
+    "server/telos-artifact-routes.ts",
+    "frontend/src/components/SavedArtifactDialog.tsx",
+    "frontend/src/components/SavedArtifactDialog.css",
+    "frontend/src/components/WorkOutputs.tsx",
+    "frontend/src/components/SavedArtifactRouteDialog.tsx",
+    "frontend/src/lib/saved-artifact-location.ts"
+  ],
+  "humanMergeApproval": "Direct B-chat I approve, turn01a14fba-9949-7b82-96a5-ae89371c8219; fresh gates and renewed coordinated slot required",
+  "historical002Review": 5563720011,
+  "historical002App": 56635284249,
+  "historical002Ci": 39139690595,
+  "noReviewTransfer": true,
+  "runtimeAdoptionDeploymentStagingOrLiveTests": false
+}
