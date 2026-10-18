@@ -795,6 +795,84 @@
         "bounds": "One actual clean historical report retained. New combined head requires current CI and a full final exact-head trusted review; no human merge authority."
       },
       "remaining": "After push verify normal exact-head CI and review queue; request the missing full final whole-PR review through the existing authenticated service without duplicate job/model configuration changes. Draft remains unqualified for landing."
+    },
+    "priorityAcceptedBaseIntegration": {
+      "source": "209385f5c988abfc524b59812053ac15eae40f57",
+      "previousHead": "b98ff330481b6224e31a6b02714c50ade7855f49",
+      "acceptedMain": "0a048b5b0ef096e181a7ddb09b088c956870aab8",
+      "manifest": {
+        "previousHead": "b98ff330481b6224e31a6b02714c50ade7855f49",
+        "acceptedMain": "0a048b5b0ef096e181a7ddb09b088c956870aab8",
+        "acceptedPins": 558,
+        "aPins": 553,
+        "unionPins": 562,
+        "mismatches": 0,
+        "aOwnedPreserved": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "runtime": "v1.0.306-telos-priority-tool-development-symposium-shared-ui.4",
+        "protectedTestUnchanged": true,
+        "acceptedLedgerPreservedExactly": true,
+        "allPriorLedgerEntriesPreserved": true,
+        "globalStyles": "Incoming global.css adds only scoped .todo priority controls/badges/error classes; A component/fixture bytes unchanged."
+      },
+      "unit": {
+        "passed": 358,
+        "files": 33,
+        "skipped": 2,
+        "failed": 0,
+        "unhandledErrors": 0,
+        "seconds": 29.12,
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx vitest run <prior27 files plus tool-builder-installation, tool-builder-test-runner, tool-builder-workspace, todo-priority-schema, TodoPrioritySelect, todo-priority> --maxWorkers=1",
+        "execution": "Outside Seatbelt for disposable Supertest listeners; one worker/1GiB.",
+        "skipReason": "Two accepted OS-development-runner cases use existing MITZO_SANDBOX_INTEGRATION opt-in; that mode was not selected or enabled. No test/condition changed.",
+        "counts": "Historical323/27 and earlier totals overlap; do not add."
+      },
+      "design": {
+        "passed": 108,
+        "existingCiBaseRefSkip": 1,
+        "seconds": 3.04
+      },
+      "types": "Focused source/fixture TypeScript passed",
+      "lint": "Focused manifest ESLint plus all accepted merge sources through normal hooks passed",
+      "renderBounds": "No additional rerender solely for accepted-base merge. A UI/fixture/spec bytes unchanged. Incoming global.css adds only .todo priority classes; no A selectors/type/spacing tokens altered. Earlier producer/C actual renders/DOM evidence retain their exact source bounds; normal new-head CI validates current composition.",
+      "protectedEvidence": "Accepted ledger matches0a048b5b exactly, including newly approved priority surface; every prior ledger entry equal to old source. Symposium protected test/reference/capture bytes retained; no approval or assertion amendment by A.",
+      "cleanHistoricalReports": [
+        {
+          "id": "PRR_kwDOR2Rn9s8AAAABS3R8WA",
+          "commit": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+          "submittedAt": "2026-10-18T01:09:59Z",
+          "state": "COMMENTED",
+          "recommendation": "merge",
+          "newBlocking": 0,
+          "unresolvedBlocking": 0
+        },
+        {
+          "id": "PRR_kwDOR2Rn9s8AAAABS3cUvA",
+          "commit": "b98ff330481b6224e31a6b02714c50ade7855f49",
+          "submittedAt": "2026-10-18T02:09:46Z",
+          "state": "COMMENTED",
+          "recommendation": "merge",
+          "newBlocking": 0,
+          "unresolvedBlocking": 0,
+          "job": 4863,
+          "jobState": "complete/succeeded/attempt1/revision0/force0",
+          "ci": "All10 listed ordinary/workflow checks succeeded; final LGTM context pending."
+        }
+      ],
+      "reviewBounds": "Two actual clean reports retained as historical source evidence. Neither approves the forthcoming head. A full final current-head trusted report/App gate and current CI remain required.",
+      "authorization": "One earlier human approval question for credential-backed full-review queue update remains pending after automatic approval rejection. That rejected command never executed; no credential read, queue mutation, retry, bypass or duplicate/obsolete review request. Completed old4863 is not a target for another obsolete b98 review. Normal automatic scheduling may proceed on new head; no manual upgrade is performed.",
+      "remaining": "Verify fresh exact-head CI/automatic queue after push; preserve full final review/approval gate. No merge/live/runtime/staging/deployment authority."
     }
   },
   "integrationHandoff": {
@@ -826,8 +904,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "9767edf8c1b8f220627ed30837ae65ab9cc45a85",
-  "acceptedMainMerge": "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc",
+  "latestAcceptedMain": "0a048b5b0ef096e181a7ddb09b088c956870aab8",
+  "acceptedMainMerge": "209385f5c988abfc524b59812053ac15eae40f57",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -961,13 +1039,14 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "9767edf8c1b8f220627ed30837ae65ab9cc45a85",
-  "baseRefresh": "Integrated freshly verified9767edf8 (#1017 foundations, #1018 S9, #1007/#1008 Tool Builder). Sole conflict was generated runtime revision. Preserved full accepted+A manifest union;553 pins/zero mismatches. A UI/controller/draft/projection/fixtures/protected tests/reference/capture bytes unchanged. Core already consumed80231; it receives ancestry/manifest delta only.",
-  "latestValidation": "checks.toolBuilderAcceptedBaseIntegration",
+  "integratedAcceptedBase": "0a048b5b0ef096e181a7ddb09b088c956870aab8",
+  "baseRefresh": "Integrated actual0a048b5b: accepted priority#1009 and bounded Tool Builder development#1011. Sole conflict generated runtime revision. Full accepted558 + A553 maps union562 pins, zero mismatch. A components/fixtures/protected test/capture bytes preserved; incoming accepted priority ledger addition and scoped global styles retained exactly, all prior ledger entries preserved. Core receives ancestry/manifest delta only.",
+  "latestValidation": "checks.priorityAcceptedBaseIntegration",
   "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
     "163f74748e4c9e782e1f27db7179987fdcb903aa",
-    "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc"
+    "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc",
+    "209385f5c988abfc524b59812053ac15eae40f57"
   ]
 }
