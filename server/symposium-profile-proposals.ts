@@ -2,6 +2,9 @@ import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
+import { AgentTaskProposalInputSchema, AgentTaskRecordSchema } from '@mitzo/protocol';
+import { AgentTaskStore } from './agent-task-store.js';
+import { AgentTaskService } from './agent-task-service.js';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 
 const Id = z.string().trim().min(1).max(128);
@@ -26,6 +29,9 @@ type ProposalRow = {
   saved_revision: number | null;
   saved_request_hash: string | null;
   request_hash: string;
+  kind: 'profile' | 'task';
+  task_request: string | null;
+  saved_task_record: string | null;
 };
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const publicRow = (row: ProposalRow) => ({
@@ -43,6 +49,7 @@ const publicRow = (row: ProposalRow) => ({
 export class SymposiumProfileProposalStore {
   private readonly db: Database.Database;
   private readonly profiles: SymposiumProfileStore;
+
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
@@ -68,6 +75,18 @@ export class SymposiumProfileProposalStore {
       )
     )
       this.db.exec('ALTER TABLE symposium_profile_proposals ADD COLUMN saved_request_hash TEXT');
+    for (const [name, declaration] of [
+      ['kind', "TEXT NOT NULL DEFAULT 'profile'"],
+      ['task_request', 'TEXT'],
+      ['saved_task_record', 'TEXT'],
+    ]) {
+      if (
+        !(this.db.pragma('table_info(symposium_profile_proposals)') as { name: string }[]).some(
+          (column) => column.name === name,
+        )
+      )
+        this.db.exec(`ALTER TABLE symposium_profile_proposals ADD COLUMN ${name} ${declaration}`);
+    }
     this.profiles = new SymposiumProfileStore(dbPath, this.db);
   }
   close() {
@@ -90,7 +109,7 @@ export class SymposiumProfileProposalStore {
           )
           .get(owner, sessionId, idempotencyKey) as ProposalRow | undefined;
         if (retry) {
-          if (retry.request_hash !== requestHash)
+          if (retry.kind !== 'profile' || retry.request_hash !== requestHash)
             throw new Error('Conflicting proposal idempotency key');
           return publicRow(retry);
         }
@@ -117,6 +136,127 @@ export class SymposiumProfileProposalStore {
       .immediate();
   }
 
+  private taskRow(owner: string, sessionId: string, proposalId: string) {
+    Id.parse(owner);
+    Id.parse(sessionId);
+    Id.parse(proposalId);
+    return this.db
+      .prepare(
+        `SELECT * FROM symposium_profile_proposals WHERE owner=? AND session_id=? AND proposal_id=? AND kind='task'`,
+      )
+      .get(owner, sessionId, proposalId) as ProposalRow | undefined;
+  }
+  private publicTask(row: ProposalRow) {
+    const input = AgentTaskProposalInputSchema.parse(JSON.parse(row.task_request!));
+    return {
+      kind: 'task' as const,
+      proposalId: row.proposal_id,
+      sessionId: row.session_id,
+      ...input,
+      state: row.state,
+      createdAt: row.created_at,
+      savedTask: row.saved_task_record
+        ? AgentTaskRecordSchema.parse(JSON.parse(row.saved_task_record))
+        : null,
+    };
+  }
+  proposeTask(owner: string, sessionId: string, idempotencyKey: string, input: unknown) {
+    Id.parse(owner);
+    Id.parse(sessionId);
+    Id.parse(idempotencyKey);
+    const request = AgentTaskProposalInputSchema.parse(input);
+    const requestHash = hash({ kind: 'task', ...request });
+    return this.db
+      .transaction(() => {
+        const retry = this.db
+          .prepare(
+            `SELECT * FROM symposium_profile_proposals WHERE owner=? AND session_id=? AND idempotency_key=?`,
+          )
+          .get(owner, sessionId, idempotencyKey) as ProposalRow | undefined;
+        if (retry) {
+          if (retry.kind !== 'task' || retry.request_hash !== requestHash)
+            throw Error('Conflicting proposal idempotency key');
+          return this.publicTask(retry);
+        }
+        const proposalId = randomUUID();
+        this.db
+          .prepare(
+            `INSERT INTO symposium_profile_proposals (owner,proposal_id,session_id,idempotency_key,request_hash,definition,state,created_at,kind,task_request) VALUES (?,?,?,?,?,?,'pending',?,'task',?)`,
+          )
+          .run(
+            owner,
+            proposalId,
+            sessionId,
+            idempotencyKey,
+            requestHash,
+            JSON.stringify(request.definition),
+            Date.now(),
+            JSON.stringify(request),
+          );
+        return this.publicTask(this.taskRow(owner, sessionId, proposalId)!);
+      })
+      .immediate();
+  }
+  listTaskProposals(owner: string, sessionId: string) {
+    Id.parse(owner);
+    Id.parse(sessionId);
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM symposium_profile_proposals WHERE owner=? AND session_id=? AND kind='task' AND state IN ('pending','saved') ORDER BY created_at,proposal_id`,
+        )
+        .all(owner, sessionId) as ProposalRow[]
+    ).map((row) => this.publicTask(row));
+  }
+  saveTask(owner: string, sessionId: string, proposalId: string, input: unknown) {
+    const request = AgentTaskProposalInputSchema.parse(input);
+    const requestHash = hash(request);
+    return this.db
+      .transaction(() => {
+        const row = this.taskRow(owner, sessionId, proposalId);
+        if (!row) throw Error('Task proposal not found');
+        if (row.state === 'saved') {
+          if (row.saved_request_hash !== requestHash)
+            throw Error('Conflicting task proposal save request');
+          return AgentTaskRecordSchema.parse(JSON.parse(row.saved_task_record!));
+        }
+        if (row.state !== 'pending') throw Error('Task proposal was discarded');
+        const original = AgentTaskProposalInputSchema.parse(JSON.parse(row.task_request!));
+        if (
+          request.taskId !== original.taskId ||
+          request.expectedRevision !== original.expectedRevision
+        )
+          throw Error('Task proposal identity or revision conflict');
+        const tasks = new AgentTaskService(new AgentTaskStore(this.db.name, this.db));
+        const saved = tasks.save(owner, {
+          ...request,
+          idempotencyKey: `task-proposal:${proposalId}`,
+        });
+        this.db
+          .prepare(
+            `UPDATE symposium_profile_proposals SET state='saved',saved_request_hash=?,saved_task_record=? WHERE owner=? AND session_id=? AND proposal_id=? AND state='pending'`,
+          )
+          .run(requestHash, JSON.stringify(saved), owner, sessionId, proposalId);
+        return saved;
+      })
+      .immediate();
+  }
+  discardTask(owner: string, sessionId: string, proposalId: string) {
+    return this.db
+      .transaction(() => {
+        const row = this.taskRow(owner, sessionId, proposalId);
+        if (!row) throw Error('Task proposal not found');
+        if (row.state === 'saved') throw Error('Saved task proposal cannot be discarded');
+        this.db
+          .prepare(
+            `UPDATE symposium_profile_proposals SET state='discarded' WHERE owner=? AND session_id=? AND proposal_id=? AND state='pending'`,
+          )
+          .run(owner, sessionId, proposalId);
+        return this.publicTask(this.taskRow(owner, sessionId, proposalId)!);
+      })
+      .immediate();
+  }
+
   get(owner: string, sessionId: string, proposalId: string) {
     Id.parse(owner);
     Id.parse(sessionId);
@@ -124,7 +264,7 @@ export class SymposiumProfileProposalStore {
     const row = this.db
       .prepare(
         `SELECT * FROM symposium_profile_proposals
-      WHERE owner = ? AND session_id = ? AND proposal_id = ?`,
+      WHERE owner = ? AND session_id = ? AND proposal_id = ? AND kind = 'profile'`,
       )
       .get(owner, sessionId, proposalId) as ProposalRow | undefined;
     return row ? publicRow(row) : null;
@@ -137,7 +277,7 @@ export class SymposiumProfileProposalStore {
       this.db
         .prepare(
           `SELECT * FROM symposium_profile_proposals
-      WHERE owner = ? AND session_id = ? AND state = 'pending' ORDER BY created_at, proposal_id`,
+      WHERE owner = ? AND session_id = ? AND kind = 'profile' AND state = 'pending' ORDER BY created_at, proposal_id`,
         )
         .all(owner, sessionId) as ProposalRow[]
     ).map(publicRow);
@@ -173,7 +313,7 @@ export class SymposiumProfileProposalStore {
         const proposal = this.db
           .prepare(
             `SELECT * FROM symposium_profile_proposals
-        WHERE owner = ? AND session_id = ? AND proposal_id = ?`,
+        WHERE owner = ? AND session_id = ? AND proposal_id = ? AND kind = 'profile'`,
           )
           .get(owner, sessionId, proposalId) as ProposalRow | undefined;
         if (!proposal) throw new Error('Profile proposal not found');

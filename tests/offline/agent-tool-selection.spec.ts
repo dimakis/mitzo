@@ -1,3 +1,4 @@
+import { openProfileTools, openToolLibrary } from '../support/agent-library';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -122,7 +123,7 @@ for (const theme of ['dark', 'light'])
       });
     });
     await page.goto('/');
-    await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+    await openProfileTools(page);
     await expect(page.getByText(/Legacy behavior: this profile/)).toBeVisible();
     await page.getByRole('button', { name: 'Choose specific tools', exact: true }).click();
     await expect(page.getByText(/No optional tools selected/)).toBeVisible();
@@ -150,7 +151,7 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Done adding tools', exact: true }).click();
     page.once('dialog', (dialog) => dialog.accept());
     await page.reload();
-    await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+    await openProfileTools(page);
     await expect(page.getByRole('button', { name: 'Remove Read', exact: true })).toBeVisible();
     await page
       .locator('.agent-library-detail')
@@ -170,7 +171,7 @@ for (const theme of ['dark', 'light'])
       { id: 'mitzo:GetConnectionGuide', version: 1 },
       { id: 'mitzo:Read', version: 1 },
     ]);
-    await page.getByRole('button', { name: 'Tool library', exact: true }).click();
+    await openToolLibrary(page);
     await expect(page.getByRole('button', { name: 'New agent', exact: true })).toHaveCount(0);
     await page
       .getByRole('searchbox', { name: 'Search tool library', exact: true })
@@ -202,7 +203,7 @@ for (const theme of ['dark', 'light'])
     );
     toolFailure = true;
     await page.reload();
-    await page.getByRole('tab', { name: 'Tools', exact: true }).click();
+    await openProfileTools(page);
     await expect(page.getByRole('alert')).toContainText('Tool catalog unavailable');
     toolFailure = false;
     await page.getByRole('button', { name: 'Retry tools', exact: true }).click();

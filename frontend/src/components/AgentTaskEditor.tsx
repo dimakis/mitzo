@@ -1,4 +1,5 @@
 import type { AgentLibraryVersion } from '@mitzo/protocol';
+import type { ReactNode } from 'react';
 import type { AgentTaskWorkingCopy } from '../lib/agent-task-working-copy';
 import { AgentTaskSettings } from './AgentTaskSettings';
 
@@ -8,12 +9,18 @@ export function AgentTaskEditor({
   update,
   save,
   busy,
+  disabled = false,
+  onClose,
+  footerActions,
 }: {
   copy: AgentTaskWorkingCopy;
   versions: AgentLibraryVersion[];
   update(copy: AgentTaskWorkingCopy): void;
   save(): void;
   busy: boolean;
+  disabled?: boolean;
+  onClose?(): void;
+  footerActions?: ReactNode;
 }) {
   const change = (patch: Partial<AgentTaskWorkingCopy>) => {
     if (JSON.stringify({ ...copy, ...patch }) === JSON.stringify(copy)) return;
@@ -29,12 +36,21 @@ export function AgentTaskEditor({
     .filter((v) => v.profileId === copy.profile.profileId)
     .sort((a, b) => b.revision - a.revision)[0];
   return (
-    <section className="agent-library-detail" aria-label="Task editor">
-      <h2>{copy.expectedRevision ? 'Task settings' : 'Assign a task'}</h2>
-      <p>
-        {profile?.definition.name ?? copy.profile.profileId} · Profile r{copy.profile.revision}
-        {!profile && ' · Unavailable published revision'}
-      </p>
+    <section className="agent-library-detail agent-task-editor" aria-label="Task editor">
+      <header className="agent-task-editor-heading">
+        <div>
+          <h2>{copy.expectedRevision ? 'Task settings' : 'Assign a task'}</h2>
+          <p>
+            {profile?.definition.name ?? copy.profile.profileId} · Profile r{copy.profile.revision}
+            {!profile && ' · Unavailable published revision'}
+          </p>
+        </div>
+        {onClose && (
+          <button type="button" aria-label="Close task editor" disabled={busy} onClick={onClose}>
+            Close
+          </button>
+        )}
+      </header>
       {newest && newest.revision > copy.profile.revision && (
         <p>r{newest.revision} available. Choose it below to update this task deliberately.</p>
       )}
@@ -44,7 +60,7 @@ export function AgentTaskEditor({
           save();
         }}
       >
-        <fieldset disabled={busy} className="agent-task-fields">
+        <fieldset disabled={busy || disabled} className="agent-task-fields">
           <label>
             Agent profile
             <select
@@ -135,7 +151,8 @@ export function AgentTaskEditor({
                 </label>
               )}
               <p>
-                Saved paused. Schedule execution and next-run calculation are not available yet.
+                Schedules are saved paused. Execution and next-run calculation are not available
+                yet.
               </p>
             </>
           )}
@@ -143,7 +160,7 @@ export function AgentTaskEditor({
             key={copy.taskId}
             id={copy.taskId}
             value={copy.runtime}
-            resolveSavedTarget={copy.expectedRevision > 0}
+            resolveSavedTarget={copy.execution !== null}
             retainedExecution={copy.execution}
             profileLabel={profile?.definition.name ?? copy.profile.profileId}
             onChange={(runtime, execution) => {
@@ -164,53 +181,71 @@ export function AgentTaskEditor({
                 update({ ...copy, runtime });
               } else change({ runtime, execution: nextExecution ?? null });
             }}
-            disabled={busy}
+            disabled={busy || disabled}
           />
-          <label>
-            Workspace reference
-            <input
-              value={copy.workspaceId}
-              onChange={(e) => change({ workspaceId: e.target.value })}
-            />
-          </label>
-          <label>
-            Source references (one per line)
-            <textarea
-              rows={2}
-              value={copy.sourceRefs}
-              onChange={(e) => change({ sourceRefs: e.target.value })}
-            />
-          </label>
-          <p>
-            Workspace references are saved as intent. They are checked when task execution becomes
-            available.
+          <p className="agent-task-independent-note">
+            This task’s execution settings are independent of the profile and Agent Builder.
           </p>
-          <label>
-            Notifications
-            <select
-              value={copy.notificationPolicy}
-              onChange={(e) =>
-                change({
-                  notificationPolicy: e.target.value as AgentTaskWorkingCopy['notificationPolicy'],
-                })
-              }
-            >
-              <option value="results">Results</option>
-              <option value="failures">Failures only</option>
-              <option value="none">None</option>
-            </select>
-          </label>
-          <div className="agent-library-actions">
-            <button type="submit">{busy ? 'Saving task…' : 'Save task'}</button>
-            <span>
-              {copy.dirty ? 'Unsaved task input' : `Saved task · revision ${copy.expectedRevision}`}
-            </span>
-          </div>
+          <details className="agent-task-advanced">
+            <summary>Workspace and notifications</summary>
+            <div>
+              <label>
+                Workspace reference
+                <input
+                  value={copy.workspaceId}
+                  onChange={(e) => change({ workspaceId: e.target.value })}
+                />
+              </label>
+              <label>
+                Source references (one per line)
+                <textarea
+                  rows={2}
+                  value={copy.sourceRefs}
+                  onChange={(e) => change({ sourceRefs: e.target.value })}
+                />
+              </label>
+              <p>
+                Workspace references are saved as intent. They are checked when task execution
+                becomes available.
+              </p>
+              <label>
+                Notifications
+                <select
+                  value={copy.notificationPolicy}
+                  onChange={(e) =>
+                    change({
+                      notificationPolicy: e.target
+                        .value as AgentTaskWorkingCopy['notificationPolicy'],
+                    })
+                  }
+                >
+                  <option value="results">Results</option>
+                  <option value="failures">Failures only</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+            </div>
+          </details>
         </fieldset>
+        <footer className="agent-task-editor-footer">
+          <div className="agent-task-editor-actions">
+            <button type="submit" disabled={busy || disabled}>
+              {busy ? 'Saving task…' : 'Save task'}
+            </button>
+            {onClose && (
+              <button type="button" disabled={busy} onClick={onClose}>
+                Cancel
+              </button>
+            )}
+          </div>
+          {footerActions}
+          <span>
+            {copy.dirty ? 'Unsaved task input' : `Saved task · revision ${copy.expectedRevision}`}
+          </span>
+        </footer>
       </form>
-      <p>
-        Incomplete settings are retained on this device. Execution and schedules are not available
-        yet; saving does not start work.
+      <p className="agent-task-independent-note">
+        Saving does not start work. Schedules stay paused.
       </p>
     </section>
   );
