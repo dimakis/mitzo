@@ -100,7 +100,7 @@ export function toolBuilderSourceDigest(files: CustomInput['files']) {
 }
 /** Includes schemas, examples, permissions, compatibility and the chosen test profile. */
 export function toolBuilderContractDigest(input: CustomInput) {
-  const contract = CustomToolDraftInputSchema.parse(input);
+  const contract = CustomToolDraftInputSchema.strip().parse(input);
   return digest({ ...contract, files: sortedFiles(contract.files) });
 }
 const TestResult = z.strictObject({

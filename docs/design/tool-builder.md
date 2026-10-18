@@ -75,3 +75,40 @@ catalog unchanged. Selection resolves an exact accepted identity/version and
 current runtime support; labels and aliases never resolve a draft. Promotion,
 credentials, broader permissions, and agent assignment require separate
 explicit user actions.
+
+## Installing a reviewed custom implementation
+
+Custom source installation is a normal reviewed application source change.
+There is no upload-to-execution path. A code-owned registration names the draft's
+opaque identity, implementation version and exact contract digest, supplies
+compiled input/output validators and a statically imported executor, and maps
+every draft file to its registered reviewed-source artifact. The executing
+module and independent qualification module must be among those files.
+Publication invokes only accepted installed qualification code, validates every
+example through the installed validators, and compares actual results in the
+trusted owner. Candidate output cannot certify this step. Publication checks the exact source hashes,
+schemas and full current source closure; no caller can supply registrations
+through the operator API. A missing registration remains unpublished.
+
+The first custom runtime contract supports read-only computation on invocation
+input on `local-api`. It supplies no filesystem, connection, credential, shell
+or request capability. Drafts can describe other requirements for review, but
+those requirements cannot publish through this runtime. Implementing another
+runtime or permission contract needs a reviewed source change.
+
+The private ledger uses the existing stable operator subject. Builder operations
+are scoped to their originating session and create immutable version rows with
+optimistic version fences and retry identities. Only the separate authenticated,
+same-origin operator route can accept/reject a submitted version or publish an
+accepted installed version. Operator identity is supplied by the route, never
+the request body. Rejection retains feedback. Cancellation before publication
+prevents publication. Exact publication retries return the original opaque
+receipt. Accepted older versions remain resolvable while later drafts change;
+source closure drift requires deliberate review, installation, publication,
+selection and a new session.
+
+Qualification rechecks operator, cancellation, version and source authority
+after each awaited operation and immediately before inserting the publication.
+A newer qualification supersedes an older attempt; failure or cancellation
+cannot leave a new publication. Exact retries of an existing publication verify
+its current binding and return the original receipt without executing again.
