@@ -70,7 +70,9 @@ const startup = await vi.hoisted(async () => {
   vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_OWNER', undefined);
   return { root, remove: () => fs.rmSync(root, { recursive: true, force: true }) };
 });
-beforeEach(async () => {
+const interruptedDelegationCase =
+  'refuses an incomplete V2 delegation before role retention through actual ordinary HTTP, including workspace owner reopen';
+beforeEach(async ({ task }) => {
   vi.resetModules();
   nativeClosed = false;
   lifecycle = undefined;
@@ -83,7 +85,10 @@ beforeEach(async () => {
   );
   const { ownedOrdinaryRuntimeFixture } =
     await import('./fixtures/owned-ordinary-workspace-runtime.js');
-  f = await ownedOrdinaryRuntimeFixture(cleanup, { chatRoute: true });
+  f = await ownedOrdinaryRuntimeFixture(cleanup, {
+    chatRoute: true,
+    ...(task.name === interruptedDelegationCase ? { delegationAttemptId: randomUUID() } : {}),
+  });
   services.workspace = f.workspaces;
   chat = await import('../chat.js');
   native = await import('../codex-app-server-client.js');
@@ -420,4 +425,29 @@ it('refuses a consumed continuation acknowledgement after its claimed ordinary d
   await expect(api.continueCommand(next)).rejects.toMatchObject({ status: 409 });
   expect(chat.eventStore.getOrdinaryCommandAdmission(next.clientMsgId)).toEqual(retained);
   expect(native.CodexAppServerClient.launchIsolated).toHaveBeenCalledOnce();
+});
+
+it(interruptedDelegationCase, async () => {
+  await mount();
+  const input = first(),
+    original = chat.eventStore.getOrdinaryWorkspaceSessionPreparation(
+      f.first.receipt.allocationOperationId,
+    )!;
+  expect(original.delegationAttemptId).toBeTruthy();
+  expect(chat.eventStore.getSessionEvents(input.sessionId)).toEqual([]);
+  const before = chat.eventStore.listSessions().length;
+  await expect(api.firstCommand(input)).rejects.toMatchObject({ status: 409 });
+  expect(native.CodexAppServerClient.launchIsolated).not.toHaveBeenCalled();
+  expect(chat.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)).toBeUndefined();
+  expect(f.workspaces.getOrdinaryWorkspace(input.workspace.workspaceId).state).toBe('reserved');
+  await expect(access(f.first.reserved.directory)).rejects.toThrow();
+  f.reopenWorkspaceOwner();
+  services.workspace = f.workspaces;
+  await expect(api.firstCommand(input)).rejects.toMatchObject({ status: 409 });
+  expect(
+    chat.eventStore.getOrdinaryWorkspaceSessionPreparation(f.first.receipt.allocationOperationId),
+  ).toEqual(original);
+  expect(chat.eventStore.listSessions()).toHaveLength(before);
+  expect(native.CodexAppServerClient.launchIsolated).not.toHaveBeenCalled();
+  expect(chat.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)).toBeUndefined();
 });
