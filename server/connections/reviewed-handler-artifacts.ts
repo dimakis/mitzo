@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.372-role-ui-metadata-integration.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.373-role-production-outbox.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -225,7 +224,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/collaboration-projection.ts':
     '21028cd31c292b11f9e70e2cac476d478f90d2b278c28b07d942aa153f09060a',
   '../../packages/client/src/index.ts':
-    'ff991e163bbcac2b9721efdef5c466a851f492437d589b51c56d1505a5b11f8a',
+    '0cf62447cb182a9943c919aeaba30c149ccf033bd97cdcebc5f7dc3aea652727',
   // Configurable neutral spares: durable claims, protected controls and explicit host enrollment.
   '../openshell-cli-environment.ts':
     '77f66ceaffb019038fe06479459505dbb37480b7791c596c8e869bef14c2b456',
@@ -407,7 +406,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/explicit-local-chat.ts':
     'd7d0cc38945d801628db8d05c4d8d62e6866dd9045c59002d4a3fd47e9129108',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
-    'f27a25d30f2890a67aa2b15c7da54ceedc73317aadced7bc2b27371287bbb98c',
+    '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
     '557d4eaae544a784468eff8de3253d742d5b1f414407e4a55c730f3671f59252',
   '../../frontend/src/pages/DesktopChatView.tsx':
