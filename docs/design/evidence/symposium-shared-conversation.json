@@ -645,7 +645,14 @@
         "Fixed Times New Roman header mobile WebKit320dark: first name+2, readable area64px vs63.671875 glyph;4px count gap.",
         "Fixed mobile Chromium390light: first two names+1, complete text,4px count gap."
       ],
-      "remaining": "Fresh exact-head CI and trusted review required; C independent new-crop inspection and core combined app/native iOS acceptance remain separate. Core alone repairs its combined AUTH_LOST_EVENT mock/header fixture issues."
+      "remaining": "Fresh exact-head CI and trusted review required; C independent new-crop inspection and core combined app/native iOS acceptance remain separate. Core alone repairs its combined AUTH_LOST_EVENT mock/header fixture issues.",
+      "latestAcceptedInspection": {
+        "main": "95ead865732f0351e8aaa64af5e387e9deea76e5",
+        "change": "Accepted#1017 adds Telos canonical foundation fixtures/docs and a narrow draft browser fixture correction; no production sources or A-owned files changed.",
+        "mergeTree": "e389fb9daa65ed9b56797d6803e8bded620d9871",
+        "conflicts": 0,
+        "action": "Retain integrated13669901 base because no dependency/conflict requires another merge; final normal CI validates the proposed merge."
+      }
     }
   },
   "integrationHandoff": {
@@ -677,7 +684,7 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
+  "latestAcceptedMain": "95ead865732f0351e8aaa64af5e387e9deea76e5",
   "acceptedMainMerge": "163f74748e4c9e782e1f27db7179987fdcb903aa",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
