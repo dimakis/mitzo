@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.323-telos-s7-codex-resume';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.324-telos-s7-output-return';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -109,7 +109,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
-    '961b774369b26a74d2f1a83806befa792a0a7a993cb4ccef2106ccbde0c05965',
+    '47933708c3613e0815b1fae093eb0239b8e8905edcc09faddc409b7ee13d6140',
   '../../frontend/src/components/TelosSourceWorkLink.tsx':
     '46de398745ec3f05f613ec1d16fecab5d22a844a67179e47eb35d3e56b21d647',
   '../../frontend/src/components/TelosItemSources.tsx':
@@ -1026,7 +1026,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/saved-artifact-location.ts':
     'b884336c70dae85d63d955fb9d454f4a7cd28e8e9d2fca94e3839b7e6b6444a5',
   '../../frontend/src/components/SavedArtifactRouteDialog.tsx':
-    '881995fbe98a6ae1a5b326bd5064d5e176aec0ca404aca81d0b6dc1e854e5057',
+    '60d77cfbcd42e901886260edce142a0a533d8123fa51a7d62c630753a7d09165',
   '../../frontend/src/types/retained-artifact.ts':
     '6ef0a64da9c950556519d8625b0aea2fe8d9c94f9b84a68de9e9acfe9f75bb00',
   '../../frontend/src/lib/retained-artifact-api.ts':
@@ -1034,11 +1034,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SavedArtifactDialog.css':
     'd42d2f0316e0c3f2e3828cc73bfad511e2bd7dab44dd826566fa39efca0fe982',
   '../../frontend/src/components/SavedArtifactDialog.tsx':
-    'f2482a6a715ab47d4f5f7eabc7469a50f272371bad5f5bec33a7307bbd9d62cf',
+    '4f3cb5204c11db0ce409eb7469e359cbbd5440c63a09b0ab9ad91b3e99a70ce8',
   '../collaboration-retained-artifact-source.ts':
     'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
   '../collaboration-forwarding.ts':
     '6ba8b0e106ed300060e5b34f8083401fcd1a22d06e772e1dd36965c03954a30f',
   '../openshell-runtime-migration-adapter.ts':
     '80de415c99219bfa5f4b371ef3ab6b247f22211610418bce69e2980dae58e431',
+  '../../frontend/src/pages/FileViewer.tsx':
+    'eb145dff42d666e388a1fe81dbafe37e3d840874bf4a99b945c57d74edd53157',
 });

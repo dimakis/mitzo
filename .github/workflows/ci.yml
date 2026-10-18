@@ -170,6 +170,7 @@ jobs:
           path: |
             test-results/offline/telos-outcomes-workspace*/saved-link-*.png
             test-results/offline/telos-outcomes-workspace*/scroll-restored-*.png
+            test-results/offline/telos-outcomes-workspace*/output-return-*.png
           retention-days: 7
           if-no-files-found: ignore
 

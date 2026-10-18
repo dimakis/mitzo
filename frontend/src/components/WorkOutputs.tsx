@@ -124,6 +124,7 @@ export function WorkOutputs({
                   <Link
                     className="output-open"
                     to={savedArtifactLocationUrl(location.pathname + location.search, output)}
+                    state={location.state}
                   >
                     <strong>{output.title}</strong>
                   </Link>

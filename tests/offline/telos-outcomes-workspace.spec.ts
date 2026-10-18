@@ -124,6 +124,14 @@ for (const theme of ['dark', 'light'])
       url: '/api/telos/artifacts/' + 'e'.repeat(32) + '?revision=' + revision,
     });
 
+    const scrollArtifact = (revision: number) => ({
+      ...artifactVersion(revision),
+      id: 'f'.repeat(32),
+      itemId: 'fixture-scroll-40',
+      title: 'Saved scroll return plan',
+      url: '/api/telos/artifacts/' + 'f'.repeat(32) + '?revision=' + revision,
+    });
+
     let recordReadGate: Promise<void> | undefined;
     let failRecords = false;
     let failConversations = true;
@@ -238,9 +246,37 @@ for (const theme of ['dark', 'light'])
               ? [artifactVersion(3)]
               : url.pathname.includes('/fixture-studio/')
                 ? [outcomeArtifact(3)]
-                : [],
+                : url.pathname.includes('/fixture-scroll-40/')
+                  ? [scrollArtifact(3)]
+                  : [],
           },
         });
+      if (url.pathname === '/api/telos/artifacts/' + 'f'.repeat(32) + '/versions') {
+        const before = Number(url.searchParams.get('beforeRevision') || Number.MAX_SAFE_INTEGER);
+        return route.fulfill({
+          json: {
+            artifacts: [scrollArtifact(4), scrollArtifact(3)].filter(
+              (row) => row.revision < before,
+            ),
+            cursor: null,
+            hasMore: false,
+          },
+        });
+      }
+      if (url.pathname === '/api/telos/artifacts/' + 'f'.repeat(32) + '/document') {
+        const revision = Number(url.searchParams.get('revision'));
+        return route.fulfill({
+          json: {
+            path: scrollArtifact(revision).url,
+            name: 'plan.md',
+            ext: '.md',
+            content: '# Retained scroll return plan r' + revision,
+            revision,
+            editable: true,
+            previewUnavailable: false,
+          },
+        });
+      }
       if (url.pathname === '/api/telos/artifacts/' + 'e'.repeat(32) + '/versions') {
         if (denyArtifact) return route.fulfill({ status: 403, json: { error: 'Access revoked' } });
         const before = Number(url.searchParams.get('beforeRevision') || Number.MAX_SAFE_INTEGER);
@@ -852,6 +888,54 @@ for (const theme of ['dark', 'light'])
       .toBeLessThanOrEqual(2);
     await page.screenshot({
       path: info.outputPath(`scroll-restored-${theme}.png`),
+      fullPage: true,
+    });
+    // Output selector/version/Files navigation must retain this same collection return.
+    const outputReturnScroll = await page
+      .locator('.todo-scroll')
+      .evaluate((element) => element.scrollTop);
+    await lastScrollItem.click();
+    await expect(
+      page
+        .locator('.telos-item-workspace')
+        .getByRole('heading', { name: 'Scroll work item 40', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Materials', exact: true }).click();
+    await page.getByRole('link', { name: 'Saved scroll return plan', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Retained scroll return plan r3', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('combobox', { name: 'Version', exact: true }).selectOption('4');
+    await expect(
+      page.getByRole('heading', { name: 'Retained scroll return plan r4', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'File options', exact: true }).click();
+    await page.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(
+      page
+        .locator('.viewer-page')
+        .getByRole('heading', { name: 'Retained scroll return plan r4', exact: true }),
+    ).toBeVisible();
+    await page.locator('.viewer-page').getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Retained scroll return plan r4', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(
+      scrollRows.getByRole('button', { name: 'Choose worker', exact: true }),
+    ).toHaveCount(40);
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await page.locator('.todo-scroll').evaluate((element) => element.scrollTop)) -
+            outputReturnScroll,
+        ),
+      )
+      .toBeLessThanOrEqual(2);
+    await page.screenshot({
+      path: info.outputPath('output-return-' + theme + '.png'),
       fullPage: true,
     });
     await page.getByRole('button', { name: 'New item', exact: true }).click();
