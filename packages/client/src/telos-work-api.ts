@@ -38,6 +38,10 @@ import {
   TelosWorkAdvisorDraftSaveRequestSchema,
   type TelosWorkAdvisorDraftPreviewRequest,
   type TelosWorkAdvisorDraftSaveRequest,
+  TelosWorkDelegationInputSchema,
+  TelosWorkDelegationReceiptSchema,
+  type TelosWorkDelegationInput,
+  type TelosWorkDelegationReceipt,
 } from '@mitzo/protocol';
 import type { ApiFetch } from './api-client.js';
 
@@ -50,11 +54,22 @@ export class TelosWorkApiError extends Error {
     super(message);
   }
 }
-/** Explicit reads and commands. No allocation, implicit retries, model turn or
- * setting changes. Callers retain their original request ID on uncertain results.
+/** Explicit reads and commands, including reviewed worker provisioning. No hidden
+ * retries, model turn or setting changes. Retain request IDs on uncertain results.
  */
 export class TelosWorkApiClient {
   constructor(private readonly fetch: ApiFetch) {}
+  delegateSlice(
+    input: TelosWorkDelegationInput,
+    signal?: AbortSignal,
+  ): Promise<TelosWorkDelegationReceipt> {
+    return this.request(
+      'delegation/start',
+      TelosWorkDelegationReceiptSchema,
+      TelosWorkDelegationInputSchema.parse(input),
+      signal,
+    );
+  }
   previewAdvisorDraft(input: TelosWorkAdvisorDraftPreviewRequest, signal?: AbortSignal) {
     return this.request(
       'advisor/preview',

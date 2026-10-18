@@ -4,6 +4,9 @@ import {
   TelosWorkCommandSchema,
   TelosWorkIdSchema,
   TelosSourceConversationReferenceSchema,
+  TelosWorkDelegationInputSchema,
+  TelosWorkDelegationReceiptSchema,
+  TelosStartSliceInputSchema,
 } from '@mitzo/protocol';
 import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
 import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
@@ -33,6 +36,7 @@ export function createTelosWorkRouter(options: {
   roleContext?(request: TelosWorkRoleRequest): Promise<unknown>;
   advisorPreview?(request: TelosWorkRoleRequest): Promise<unknown>;
   advisorSave?(request: TelosWorkRoleRequest): Promise<unknown>;
+  delegateSlice?(request: TelosWorkRoleRequest): Promise<unknown>;
   assertRoleAssignment?(itemId: string, role: 'lead' | 'worker', conversationId: string): void;
 }) {
   const router = Router();
@@ -116,6 +120,10 @@ export function createTelosWorkRouter(options: {
       res.status(400).json({ code: 'invalid', error: 'Use ordinary role setup' });
       return;
     }
+    if (input.data.operation === 'request_attempt') {
+      res.status(400).json({ code: 'invalid', error: 'Use exact delegation' });
+      return;
+    }
     if (input.data.operation === 'assign') {
       const selected = input.data;
       run(res, (store) => {
@@ -134,6 +142,7 @@ export function createTelosWorkRouter(options: {
     { path: 'roles/context', host: options.roleContext },
     { path: 'advisor/preview', host: options.advisorPreview },
     { path: 'advisor/save', host: options.advisorSave },
+    { path: 'delegation/start', host: options.delegateSlice },
   ])
     router.post(
       `/api/telos/work/${operation.path}`,
@@ -143,11 +152,19 @@ export function createTelosWorkRouter(options: {
         const authority = actor(res);
         if (!authority) return;
         const host = operation.host;
+        const delegation = operation.path === 'delegation/start';
         if (!host) {
           res.status(503).json({
             code: 'unavailable',
-            error: 'Ordinary role setup is unavailable for this route',
+            error: delegation
+              ? 'Ordinary work delegation unavailable'
+              : 'Ordinary role setup is unavailable for this route',
           });
+          return;
+        }
+        const parsed = delegation ? TelosWorkDelegationInputSchema.safeParse(req.body) : undefined;
+        if (parsed && !parsed.success) {
+          res.status(400).json({ code: 'invalid', error: 'Invalid work delegation' });
           return;
         }
         const auth = res.locals.authSession as AuthSession;
@@ -177,12 +194,16 @@ export function createTelosWorkRouter(options: {
           const result = await host({
             actor: authority,
             authorization: retained,
-            raw: structuredClone(req.body),
+            raw: structuredClone(parsed?.success ? parsed.data : req.body),
             signal: controller.signal,
             assertAuthorized,
           });
           assertAuthorized();
-          res.json(result);
+          if (delegation) {
+            const receipt = TelosWorkDelegationReceiptSchema.safeParse(result);
+            if (!receipt.success) throw new Error('Ordinary delegation receipt unavailable');
+            res.json(receipt.data);
+          } else res.json(result);
         } catch (error) {
           if (res.destroyed) return;
           const known = error instanceof TelosWorkError;
@@ -202,11 +223,13 @@ export function createTelosWorkRouter(options: {
                   : status === 400
                     ? 'invalid'
                     : 'unavailable',
-            error: known
-              ? error.message
-              : status === 403
-                ? 'Operator authorization expired or was revoked'
-                : 'Ordinary role setup unavailable',
+            error: delegation
+              ? delegationError(status)
+              : known
+                ? error.message
+                : status === 403
+                  ? 'Operator authorization expired or was revoked'
+                  : 'Ordinary role setup unavailable',
           });
         } finally {
           clearTimeout(timer);
@@ -243,5 +266,94 @@ export function createTelosWorkRouter(options: {
     }
     run(res, (store) => store.read(input.data.itemId, { kind: 'conversation', id }));
   });
+  const internalDelegation = z.strictObject({
+    clientId: TelosWorkIdSchema,
+    sessionId: TelosWorkIdSchema,
+    input: TelosStartSliceInputSchema,
+  });
+  router.post('/api/internal/telos/work/delegate', async (req, res) => {
+    if (!options.verifyInternal(req)) {
+      res.status(401).json({ code: 'unauthorized', error: 'Internal token required' });
+      return;
+    }
+    const parsed = internalDelegation.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ code: 'invalid', error: 'Invalid work delegation' });
+      return;
+    }
+    const selected = structuredClone(parsed.data);
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    const close = () => {
+      if (!res.writableEnded) cancel();
+    };
+    req.once('aborted', cancel);
+    res.once('close', close);
+    const timer = setTimeout(cancel, 120000);
+    const assertAuthorized = () => {
+      controller.signal.throwIfAborted();
+      if (
+        !options.verifyInternal(req) ||
+        req.headers['x-client-id'] !== selected.clientId ||
+        options.sessionId(selected.clientId) !== selected.sessionId ||
+        !options.ordinaryConversation(selected.sessionId)
+      )
+        throw new TelosWorkError('unauthorized', 'Exact ordinary lead identity required');
+    };
+    try {
+      assertAuthorized();
+      if (!options.delegateSlice) {
+        res.status(503).json({ code: 'unavailable', error: delegationError(503) });
+        return;
+      }
+      const result = await options.delegateSlice({
+        actor: { kind: 'conversation', id: selected.sessionId },
+        raw: selected.input,
+        signal: controller.signal,
+        assertAuthorized,
+      });
+      assertAuthorized();
+      const receipt = TelosWorkDelegationReceiptSchema.safeParse(result);
+      if (!receipt.success) throw new Error('Ordinary delegation receipt unavailable');
+      res.json(receipt.data);
+    } catch (error) {
+      if (res.destroyed) return;
+      const status =
+        error instanceof TelosWorkError
+          ? { not_found: 404, unauthorized: 403, conflict: 409, invalid: 400 }[error.code]
+          : error instanceof z.ZodError
+            ? 400
+            : 503;
+      res.status(status).json({
+        code:
+          status === 403
+            ? 'unauthorized'
+            : status === 404
+              ? 'not_found'
+              : status === 409
+                ? 'conflict'
+                : status === 400
+                  ? 'invalid'
+                  : 'unavailable',
+        error: delegationError(status),
+      });
+    } finally {
+      clearTimeout(timer);
+      req.off('aborted', cancel);
+      res.off('close', close);
+    }
+  });
   return router;
+}
+
+function delegationError(status: number): string {
+  return status === 403
+    ? 'Work delegation authority unavailable'
+    : status === 400
+      ? 'Invalid work delegation'
+      : status === 404
+        ? 'Selected work unavailable'
+        : status === 409
+          ? 'Work delegation conflicts with retained state'
+          : 'Ordinary work delegation unavailable';
 }

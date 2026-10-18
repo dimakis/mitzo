@@ -21,6 +21,10 @@ import {
   type TelosWorkAttempt,
   type TelosWorkItem,
   type TelosSourcePacket,
+  TelosWorkDelegationInputSchema,
+  TelosWorkDelegationReceiptSchema,
+  type TelosWorkDelegationIntent,
+  type TelosWorkDelegationReceipt,
 } from '@mitzo/protocol';
 import { initializeTelosWorkSchema } from './telos-work-schema.js';
 import { projectTelosWorkRecord } from './telos-work-record.js';
@@ -380,20 +384,51 @@ export class TelosWorkStore {
   readRecord(itemId: string, actor: TelosWorkActor): TelosWorkItem {
     return this.db.transaction(() => {
       this.authorizeRead(itemId, actor);
-      const item = this.item(itemId);
-      const kind = this.db
-        .prepare('SELECT kind FROM telos_work_kinds WHERE item_id=?')
-        .get(itemId) as { kind: TelosWorkItem['kind'] } | undefined;
-      const rows = (table: 'sources' | 'links') =>
-        this.db
-          .prepare(`SELECT * FROM ${table} WHERE item_id=? ORDER BY rowid`)
-          .all(itemId) as Record<string, unknown>[];
-      try {
-        return projectTelosWorkRecord(item, rows('sources'), rows('links'), kind?.kind ?? null);
-      } catch (cause) {
-        // Invalid stored data is an unavailable read, not invalid operator input.
-        throw new Error('Stored Telos record unavailable', { cause });
+      return this.projectRecord(itemId);
+    })();
+  }
+  private projectRecord(itemId: string): TelosWorkItem {
+    const item = this.item(itemId);
+    const kind = this.db
+      .prepare('SELECT kind FROM telos_work_kinds WHERE item_id=?')
+      .get(itemId) as { kind: TelosWorkItem['kind'] } | undefined;
+    const rows = (table: 'sources' | 'links') =>
+      this.db
+        .prepare(`SELECT * FROM ${table} WHERE item_id=? ORDER BY rowid`)
+        .all(itemId) as Record<string, unknown>[];
+    try {
+      return projectTelosWorkRecord(item, rows('sources'), rows('links'), kind?.kind ?? null);
+    } catch (cause) {
+      // Invalid stored data is an unavailable read, not invalid operator input.
+      throw new Error('Stored Telos record unavailable', { cause });
+    }
+  }
+  /** Bounded host read: a current outcome lead sees only this child and its
+   * canonical ancestry. This grants no ordinary conversation read or mutation. */
+  readDelegationTarget(leadConversationId: string, childItemId: string, itemId: string) {
+    return this.db.transaction(() => {
+      const child = this.item(childItemId);
+      if (!child.parent_id || this.snapshot(childItemId).kind !== 'work_item')
+        invalid('Delegation requires one exact child work item');
+      const parent = this.snapshot(child.parent_id);
+      const lead = parent.assignments.find((assignment) => assignment.role === 'lead');
+      if (
+        parent.kind !== 'outcome' ||
+        lead?.conversation.conversationId !== leadConversationId ||
+        !this.policy.ordinaryConversation(leadConversationId)
+      )
+        throw new TelosWorkError('unauthorized', 'Current ordinary outcome lead required');
+      const allowed = new Set<string>();
+      let selected: string | null = childItemId;
+      while (selected !== null) {
+        if (allowed.has(selected) || allowed.size >= 100)
+          throw new TelosWorkError('unauthorized', 'Delegation ancestry unavailable');
+        allowed.add(selected);
+        selected = this.item(selected).parent_id;
       }
+      if (!allowed.has(itemId))
+        throw new TelosWorkError('unauthorized', 'Outside exact delegation scope');
+      return { record: this.projectRecord(itemId), work: this.snapshot(itemId) };
     })();
   }
   /** One consistent brief/relationship boundary for a source preview. */
@@ -569,6 +604,17 @@ export class TelosWorkStore {
   }
   sourceCreationBinds(itemId: string, packet: TelosSourcePacket, actor: TelosWorkActor) {
     this.operator(actor);
+    return this.sourceCreationProof(itemId, packet);
+  }
+  sourceCreationBindsForDelegation(
+    leadConversationId: string,
+    childItemId: string,
+    packet: TelosSourcePacket,
+  ) {
+    this.readDelegationTarget(leadConversationId, childItemId, childItemId);
+    return this.sourceCreationProof(childItemId, packet);
+  }
+  private sourceCreationProof(itemId: string, packet: TelosSourcePacket) {
     if (!packet.creation || packet.itemId !== null) return false;
     const row = this.db
       .prepare(
@@ -910,6 +956,367 @@ export class TelosWorkStore {
       allocationKey: row.allocation_key,
       state: row.state,
     }));
+  }
+  /** Scoped host capability: a bound lead may request only its exact child. */
+  assertDelegationAuthority(intent: TelosWorkDelegationIntent, actor: TelosWorkActor) {
+    const input = intent.input;
+    if (
+      !actor.id.trim() ||
+      (actor.kind === 'conversation' && actor.id !== input.leadConversationId)
+    )
+      throw new TelosWorkError('unauthorized', 'Exact lead delegation authority required');
+    const child = this.item(input.childItemId);
+    const parent = this.snapshot(input.leadItemId);
+    if (
+      child.parent_id !== input.leadItemId ||
+      this.snapshot(input.childItemId).kind !== 'work_item' ||
+      parent.kind !== 'outcome'
+    )
+      invalid('Delegation requires one exact child work item of the selected outcome');
+    const lead = parent.assignments.find((assignment) => assignment.role === 'lead');
+    if (
+      lead?.conversation.conversationId !== input.leadConversationId ||
+      !this.policy.ordinaryConversation(input.leadConversationId)
+    )
+      throw new TelosWorkError('unauthorized', 'Current ordinary outcome lead required');
+    const receipt = this.db
+      .prepare(
+        'SELECT 1 FROM telos_work_delegation_requests WHERE attempt_id=? AND receipt IS NOT NULL LIMIT 1',
+      )
+      .get(intent.attemptId);
+    if (!receipt)
+      for (const pin of intent.recordRevisions) {
+        if (hash(this.item(pin.itemId)) !== pin.sha256)
+          conflict('Reviewed delegation context changed');
+      }
+  }
+  delegationRequestForHost(
+    requestId: string,
+    actor: TelosWorkActor,
+  ): TelosWorkDelegationIntent | null {
+    const row = this.db
+      .prepare(
+        'SELECT intent FROM telos_work_delegation_requests WHERE actor_id=? AND request_id=?',
+      )
+      .get(`${actor.kind}:${actor.id}`, requestId) as { intent: string } | undefined;
+    return row ? (JSON.parse(row.intent) as TelosWorkDelegationIntent) : null;
+  }
+  delegationCommittedForHost(attemptId: string): boolean {
+    return !!this.db
+      .prepare(
+        'SELECT 1 FROM telos_work_delegation_requests WHERE attempt_id=? AND receipt IS NOT NULL LIMIT 1',
+      )
+      .get(attemptId);
+  }
+  delegationAllocationForHost(allocationOperationId: string): boolean {
+    return !!this.db
+      .prepare(
+        "SELECT 1 FROM telos_work_delegation_requests WHERE json_extract(intent,'$.allocationOperationId')=? LIMIT 1",
+      )
+      .get(allocationOperationId);
+  }
+  latestDelegationForHost(childItemId: string): TelosWorkDelegationIntent | null {
+    const row = this.db
+      .prepare(
+        'SELECT d.intent FROM telos_work_attempts a JOIN telos_work_delegation_requests d ON d.attempt_id=a.attempt_id WHERE a.item_id=? ORDER BY a.seq DESC LIMIT 1',
+      )
+      .get(childItemId) as { intent: string } | undefined;
+    return row ? (JSON.parse(row.intent) as TelosWorkDelegationIntent) : null;
+  }
+  prepareDelegation(
+    raw: unknown,
+    actor: TelosWorkActor,
+    assertBeforeApply: (intent: TelosWorkDelegationIntent) => void = () => {},
+  ): { intent: TelosWorkDelegationIntent; receipt: TelosWorkDelegationReceipt | null } {
+    const input = TelosWorkDelegationInputSchema.parse(raw);
+    const actorId = `${actor.kind}:${actor.id}`;
+    const fingerprint = hash(input);
+    return this.db
+      .transaction(() => {
+        const saved = this.db
+          .prepare(
+            'SELECT fingerprint,intent,receipt FROM telos_work_delegation_requests WHERE actor_id=? AND request_id=?',
+          )
+          .get(actorId, input.requestId) as
+          { fingerprint: string; intent: string; receipt: string | null } | undefined;
+        if (saved) {
+          if (saved.fingerprint !== fingerprint)
+            conflict('Delegation request identity reused with different input');
+          const intent = JSON.parse(saved.intent) as TelosWorkDelegationIntent;
+          this.assertDelegationAuthority(intent, actor);
+          assertBeforeApply(intent);
+          return {
+            intent,
+            receipt: saved.receipt
+              ? TelosWorkDelegationReceiptSchema.parse(JSON.parse(saved.receipt))
+              : null,
+          };
+        }
+        if (
+          this.db
+            .prepare(
+              'SELECT 1 FROM telos_work_delegation_requests WHERE request_id=? AND actor_id<>?',
+            )
+            .get(input.requestId, actorId)
+        )
+          conflict('Delegation request belongs to another actor');
+        const previous = this.db
+          .prepare(
+            'SELECT attempt_id FROM telos_work_attempts WHERE item_id=? ORDER BY seq DESC LIMIT 1',
+          )
+          .get(input.childItemId) as { attempt_id: string } | undefined;
+        if (input.mode === 'start' && previous) {
+          const retained = this.db
+            .prepare(
+              'SELECT intent,receipt FROM telos_work_delegation_requests WHERE attempt_id=? LIMIT 1',
+            )
+            .get(previous.attempt_id) as { intent: string; receipt: string | null } | undefined;
+          if (!retained) conflict('Existing attempt requires its original allocation recovery');
+          const intent = JSON.parse(retained.intent) as TelosWorkDelegationIntent;
+          if (
+            intent.input.leadConversationId !== input.leadConversationId ||
+            intent.input.leadItemId !== input.leadItemId
+          )
+            conflict('Existing worker belongs to its original lead; explicit retry required');
+          this.assertDelegationAuthority(intent, actor);
+          assertBeforeApply(intent);
+          this.db
+            .prepare('INSERT INTO telos_work_delegation_requests VALUES(?,?,?,?,?,?)')
+            .run(
+              actorId,
+              input.requestId,
+              fingerprint,
+              intent.attemptId,
+              retained.intent,
+              retained.receipt,
+            );
+          return {
+            intent,
+            receipt: retained.receipt
+              ? TelosWorkDelegationReceiptSchema.parse(JSON.parse(retained.receipt))
+              : null,
+          };
+        }
+        if ((previous?.attempt_id ?? null) !== input.predecessorAttemptId)
+          conflict('Retry predecessor conflict');
+        if (
+          this.snapshot(input.childItemId).revision !== input.expectedRevision ||
+          input.contextSelection.brief.revision !== input.expectedRevision
+        )
+          conflict('Reviewed child work revision changed');
+        const contextSnapshotId = `delegation:${hash(input.contextSelection)}`;
+        const itemIds = new Set([
+          input.childItemId,
+          ...input.contextSelection.parentCriteria.map((p) => p.itemId),
+          input.contextSelection.overallGoal.itemId,
+        ]);
+        const intent: TelosWorkDelegationIntent = {
+          actorId,
+          input,
+          attemptId: randomUUID(),
+          allocationOperationId: randomUUID(),
+          contextSnapshotId,
+          recordRevisions: [...itemIds].map((itemId) => ({
+            itemId,
+            sha256: hash(this.item(itemId)),
+          })),
+        };
+        this.assertDelegationAuthority(intent, actor);
+        assertBeforeApply(intent);
+        const attempt = TelosWorkAttemptSchema.parse({
+          version: 1,
+          requestId: input.requestId,
+          attemptId: intent.attemptId,
+          predecessorAttemptId: input.predecessorAttemptId,
+          leadConversationId: input.leadConversationId,
+          childItemId: input.childItemId,
+          contextSnapshotId,
+          state: 'requested',
+          workerConversationId: null,
+          allocationReceiptId: null,
+          executionTaskId: null,
+          accountingGoalId: null,
+          turnCommandId: null,
+        });
+        this.db
+          .prepare('INSERT INTO telos_work_attempts(attempt_id,item_id,data) VALUES(?,?,?)')
+          .run(intent.attemptId, input.childItemId, JSON.stringify(attempt));
+        this.db
+          .prepare('INSERT INTO telos_work_allocation_outbox VALUES(?,?,?,?,?)')
+          .run(
+            intent.attemptId,
+            actorId,
+            JSON.stringify(input.settings),
+            intent.attemptId,
+            'requested',
+          );
+        this.db
+          .prepare('INSERT INTO telos_work_delegation_requests VALUES(?,?,?,?,?,NULL)')
+          .run(actorId, input.requestId, fingerprint, intent.attemptId, JSON.stringify(intent));
+        return { intent, receipt: null };
+      })
+      .immediate();
+  }
+  markDelegationUncertain(attemptId: string) {
+    this.db
+      .transaction(() => {
+        const attempt = this.attemptForHost(attemptId);
+        if (!attempt || attempt.state === 'chat_ready') return;
+        this.db
+          .prepare('UPDATE telos_work_attempts SET data=? WHERE attempt_id=?')
+          .run(JSON.stringify({ ...attempt, state: 'allocation_uncertain' }), attemptId);
+      })
+      .immediate();
+  }
+  completeDelegation(
+    intent: TelosWorkDelegationIntent,
+    actor: TelosWorkActor,
+    result: {
+      workerConversationId: string;
+      executionTaskId: string;
+      workerDisplay?: TelosWorkDelegationReceipt['workerDisplay'];
+    },
+    verify: () => boolean,
+    assertBeforeApply: () => void,
+  ): TelosWorkDelegationReceipt {
+    return this.db
+      .transaction(() => {
+        const saved = this.db
+          .prepare(
+            'SELECT intent,receipt FROM telos_work_delegation_requests WHERE attempt_id=? LIMIT 1',
+          )
+          .get(intent.attemptId) as { intent: string; receipt: string | null } | undefined;
+        if (!saved || saved.intent !== JSON.stringify(intent))
+          conflict('Delegation intent changed');
+        this.assertDelegationAuthority(intent, actor);
+        assertBeforeApply();
+        if (saved.receipt) return TelosWorkDelegationReceiptSchema.parse(JSON.parse(saved.receipt));
+        if (!verify()) invalid('Verified exact ordinary allocation and task receipt required');
+        this.recordAllocation(
+          intent.attemptId,
+          {
+            workerConversationId: result.workerConversationId,
+            allocationReceiptId: intent.allocationOperationId,
+          },
+          () => verify(),
+        );
+        const attempt = this.recordExecutionTask(
+          intent.attemptId,
+          {
+            childItemId: intent.input.childItemId,
+            leadConversationId: intent.input.leadConversationId,
+            workerConversationId: result.workerConversationId,
+            executionTaskId: result.executionTaskId,
+          },
+          () => verify(),
+        );
+        assertBeforeApply();
+        const receipt = TelosWorkDelegationReceiptSchema.parse({
+          version: 1,
+          state: 'chat_ready',
+          attempt,
+          workerConversationId: result.workerConversationId,
+          workerPath: `/chat/${encodeURIComponent(result.workerConversationId)}`,
+          itemPath: `/todos/${encodeURIComponent(intent.input.childItemId)}`,
+          leadPath: `/chat/${encodeURIComponent(intent.input.leadConversationId)}`,
+          execution: 'not_started',
+          ...(result.workerDisplay ? { workerDisplay: result.workerDisplay } : {}),
+        });
+        this.db
+          .prepare('UPDATE telos_work_delegation_requests SET receipt=? WHERE attempt_id=?')
+          .run(JSON.stringify(receipt), intent.attemptId);
+        return receipt;
+      })
+      .immediate();
+  }
+  /** Host-only reconciliation read; never exposed by the operator/conversation API. */
+  attemptForHost(attemptId: string): TelosWorkAttempt | null {
+    const row = this.json<TelosWorkAttempt>(
+      'SELECT data FROM telos_work_attempts WHERE attempt_id=?',
+      attemptId,
+    )[0];
+    return row ?? null;
+  }
+  /** Host-only durable authority lookup for the exact task and worker pair.
+   * Retained attribution survives conversation availability and role changes.
+   */
+  executionTaskBinding(
+    executionTaskId: string,
+    workerConversationId: string,
+  ): TelosWorkAttempt | null {
+    const row = this.db
+      .prepare(
+        "SELECT data FROM telos_work_attempts WHERE json_extract(data,'$.executionTaskId')=? AND json_extract(data,'$.workerConversationId')=?",
+      )
+      .get(executionTaskId, workerConversationId) as JsonRow | undefined;
+    return row ? TelosWorkAttemptSchema.parse(JSON.parse(row.data)) : null;
+  }
+  /** Host-only task-owner reconciliation. This binds retained allocation authority;
+   * it does not start execution, assign a worker, or rewrite role context.
+   * The caller verifies the task owner's exact immutable worker/item/lead scope.
+   */
+  recordExecutionTask(
+    attemptId: string,
+    binding: {
+      childItemId: string;
+      leadConversationId: string;
+      workerConversationId: string;
+      executionTaskId: string;
+    },
+    verify: (evidence: {
+      attemptId: string;
+      childItemId: string;
+      leadConversationId: string;
+      workerConversationId: string;
+      executionTaskId: string;
+      allocationReceiptId: string;
+    }) => boolean,
+  ): TelosWorkAttempt {
+    return this.db
+      .transaction(() => {
+        const row = this.json<TelosWorkAttempt>(
+          'SELECT data FROM telos_work_attempts WHERE attempt_id=?',
+          attemptId,
+        )[0];
+        if (!row) throw new TelosWorkError('not_found', 'Attempt not found');
+        if (row.state !== 'chat_ready' || !row.workerConversationId || !row.allocationReceiptId)
+          invalid('Execution binding requires a verified chat_ready attempt');
+        if (
+          !binding.executionTaskId.trim() ||
+          binding.childItemId !== row.childItemId ||
+          binding.leadConversationId !== row.leadConversationId ||
+          binding.workerConversationId !== row.workerConversationId ||
+          binding.workerConversationId === row.leadConversationId
+        )
+          invalid('Execution task scope differs from the verified worker attempt');
+        if (row.executionTaskId !== null) {
+          if (row.executionTaskId !== binding.executionTaskId)
+            conflict('Execution task binding conflict');
+          return row;
+        }
+        if (
+          this.db
+            .prepare(
+              "SELECT 1 FROM telos_work_attempts WHERE json_extract(data,'$.executionTaskId')=? AND attempt_id<>?",
+            )
+            .get(binding.executionTaskId, attemptId)
+        )
+          conflict('Execution task already bound to another attempt: conflict');
+        if (
+          !this.policy.ordinaryConversation(binding.workerConversationId) ||
+          !verify({ attemptId, ...binding, allocationReceiptId: row.allocationReceiptId })
+        )
+          invalid('Verified exact worker execution task required');
+        const attempt = TelosWorkAttemptSchema.parse({
+          ...row,
+          executionTaskId: binding.executionTaskId,
+        });
+        this.db
+          .prepare('UPDATE telos_work_attempts SET data=? WHERE attempt_id=?')
+          .run(JSON.stringify(attempt), attemptId);
+        return attempt;
+      })
+      .immediate();
   }
   /** Host-only reconciliation seam. Caller verifies the ordinary allocator's
    * retained receipt for this exact allocation key/session. No HTTP equivalent.
