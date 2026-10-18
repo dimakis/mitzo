@@ -130,9 +130,11 @@ edits use the existing review cards and authenticated save/publication lifecycle
 The saved source is visible in ordinary chat context without placing the complete
 profile JSON in the editable user message.
 
-The built-in **Agent Builder** chat profile remains at revision 1. Its guidance
+The built-in **Agent Builder** chat profile is at revision 2. Its guidance
 is resolved through authenticated profile selection, hashed and pinned in session
 metadata like a user profile; no setup guidance is pasted into the transcript.
+Retained revision 1 drafts continue to resolve their exact original code-owned
+guidance, and resumed conversations retain their captured definition.
 Selections without the builtin marker still resolve saved catalog content,
 including an identical profile ID. The legacy inference-only advice endpoint is
 retained for compatibility, with its existing authority and cancellation limits;
@@ -141,6 +143,21 @@ it is no longer the Library's creation/refinement entry.
 The builder inspects saved profiles with `SymposiumReadProfiles` and creates one complete, portable draft per `SymposiumProposeProfile` call. These tools are registered on ordinary OpenAI Responses, Gemini/Vertex, Claude SDK and Codex chats. Host-bound session and call identities fence draft creation, retry keys deduplicate tool retries, and current skill policy and cancellation remain enforced. In custodian mode, reads and draft creation go to the retained catalog owner using middleware-verified operator authentication, with no local fallback.
 
 Draft cards appear after the transcript in its existing scroll area while Workspace is closed. Review and edit the name, descriptor, instructions, expected output and success criteria, then select **Save reusable profile**. New profiles receive an opaque ID automatically; intentional revisions retain the suggested existing profile identity and conflict checks. Save confirms that the profile is available in Agent Library and links there. The model creates durable review drafts; the authenticated Save action persists the usable catalog revision. No manual JSON import is required. Creating or saving a profile does not grant runtime access or replace an active agent’s revision.
+
+Task definitions can also be read and proposed through `AgentReadTasks` and
+`AgentProposeTask` on ordinary routes with verified turn/call identities. They
+create durable proposals. The ordinary tool result opens detailed review in the
+Library's existing task editor, with a return link to the originating conversation.
+The transcript does not contain another task form or editing dialog. Review preserves
+exact profile pins, independent task execution settings, the expected task revision
+and paused schedule intent. Opening review performs no save or task creation.
+Explicit Save task uses the original proposal save route and Library task owner and
+shows its exact saved task/revision receipt with a Library link, including after
+reload. A proposal is not a save, and a save starts no run or scheduler. Failed or
+uncertain saves retain their original request for retry. Proposal review and manual
+Library drafts keep separate retained input; navigating between them cannot advance
+the proposal's expected revision. Unsupported tool routes
+stay unavailable. See [task contracts](agent-tasks.md#ordinary-builder-task-proposals).
 
 The built-in guidance revision is part of the application source. Change its revision when changing its behavior; resumed conversations retain their captured snapshot. It does not create or overwrite user catalog entries.
 

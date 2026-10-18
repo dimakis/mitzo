@@ -3,6 +3,7 @@ import {
   AgentLibrarySourceSnapshotSchema,
   PROFILE_BUILDER_ID,
   PROFILE_BUILDER_REVISION,
+  profileBuilderDefinitionForRevision,
 } from '@mitzo/protocol';
 import { apiFetch } from './api-fetch';
 import { sha256Hex } from './browser-crypto';
@@ -17,9 +18,12 @@ import { briefingCommandHandoff } from './briefing-registration';
 import type { AgentLibraryEditor } from './agent-library-working-copy';
 
 const prefix = 'mitzo-agent-builder-chat:';
-function retained(
-  revision: string,
-): { draftId: string; sessionId?: string; pendingCommandId?: string } | null {
+function retained(revision: string): {
+  draftId: string;
+  sessionId?: string;
+  pendingCommandId?: string;
+  profileRevision?: number;
+} | null {
   const raw = localStorage.getItem(prefix + revision);
   if (!raw) return null;
   const value: unknown = JSON.parse(raw);
@@ -29,10 +33,18 @@ function retained(
     !('draftId' in value) ||
     typeof value.draftId !== 'string' ||
     ('sessionId' in value && typeof value.sessionId !== 'string') ||
-    ('pendingCommandId' in value && typeof value.pendingCommandId !== 'string')
+    ('pendingCommandId' in value && typeof value.pendingCommandId !== 'string') ||
+    ('profileRevision' in value &&
+      (typeof value.profileRevision !== 'number' ||
+        !profileBuilderDefinitionForRevision(value.profileRevision)))
   )
     throw Error('Could not read the retained Agent Builder conversation. Retry.');
-  return value as { draftId: string; sessionId?: string; pendingCommandId?: string };
+  return value as {
+    draftId: string;
+    sessionId?: string;
+    pendingCommandId?: string;
+    profileRevision?: number;
+  };
 }
 /** Save the exact reviewed Library input before entering the ordinary composer. */
 export async function openAgentBuilderChat(
@@ -106,15 +118,19 @@ export async function openAgentBuilderChat(
   if (prior) draft.id = prior.draftId;
   draft.text = editor.definition.name ? 'Help me refine this agent.' : 'Help me create an agent.';
   draft.settings.sourceSnapshots = [source];
+  const guidanceRevision = prior?.profileRevision ?? (prior ? 1 : PROFILE_BUILDER_REVISION);
   draft.settings.search = new URLSearchParams({
     agentProfile: PROFILE_BUILDER_ID,
     agentProfileKind: 'builtin',
-    profileRevision: String(PROFILE_BUILDER_REVISION),
+    profileRevision: String(guidanceRevision),
   }).toString();
   if (!saveChatDraft(draft))
     throw Error('Could not save the Agent Builder draft. Your profile edits were kept.');
   try {
-    localStorage.setItem(prefix + source.revision, JSON.stringify({ ...prior, draftId: draft.id }));
+    localStorage.setItem(
+      prefix + source.revision,
+      JSON.stringify({ ...prior, draftId: draft.id, profileRevision: guidanceRevision }),
+    );
   } catch {
     throw Error('Could not retain the Agent Builder conversation. Your profile edits were kept.');
   }
@@ -127,7 +143,10 @@ export function markAgentBuilderAssigned(draft: ChatDraft, sessionId: string): v
   const prior = retained(source.revision);
   if (!prior || prior.draftId !== draft.id || (prior.sessionId && prior.sessionId !== sessionId))
     return;
-  localStorage.setItem(prefix + source.revision, JSON.stringify({ draftId: draft.id, sessionId }));
+  localStorage.setItem(
+    prefix + source.revision,
+    JSON.stringify({ draftId: draft.id, sessionId, profileRevision: prior.profileRevision }),
+  );
 }
 
 const commandPrefix = prefix + 'command:';
@@ -215,7 +234,10 @@ export const agentBuilderCommandHandoff = {
     // Write the historical receipt first. If the source write fails, its pending
     // identity remains and the exact outbox retry completes that assignment.
     localStorage.setItem(commandPrefix + clientMsgId, JSON.stringify({ revision, sessionId }));
-    localStorage.setItem(prefix + revision, JSON.stringify({ draftId: prior.draftId, sessionId }));
+    localStorage.setItem(
+      prefix + revision,
+      JSON.stringify({ draftId: prior.draftId, sessionId, profileRevision: prior.profileRevision }),
+    );
   },
   reject(clientMsgId: string): void {
     const receipt = commandReceipt(clientMsgId);
@@ -231,6 +253,7 @@ export const agentBuilderCommandHandoff = {
         prefix + revision,
         JSON.stringify({
           draftId: prior.draftId,
+          profileRevision: prior.profileRevision,
           ...(prior.sessionId ? { sessionId: prior.sessionId } : {}),
         }),
       );
