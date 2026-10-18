@@ -494,6 +494,24 @@ for (const theme of ['dark', 'light'])
       await row.getByRole('button', { name: 'Plan the recording setup', exact: true }).click();
       await expect(priority).toHaveValue(String(value));
     }
+    // Settle the departing item's read owners before replacing its document.
+    // The next document retains its independent loading/handoff coverage.
+    const departingItem = page.locator('.telos-item-workspace');
+    await expect(departingItem).toBeVisible();
+    await expect(
+      departingItem.getByRole('button', { name: 'Choose worker', exact: true }),
+    ).toBeVisible();
+    await expect(
+      departingItem
+        .getByRole('region', { name: 'Outputs', exact: true })
+        .getByText('1 saved file', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      departingItem
+        .getByRole('region', { name: 'Sources', exact: true })
+        .getByText('Originating conversation', { exact: true })
+        .first(),
+    ).toBeVisible();
     await reload();
     await expect(priority).toHaveValue('10');
     rejectPriority = true;
