@@ -1,0 +1,42 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+ ❯ frontend/src/components/__tests__/WorkOutputs.test.tsx (15 tests | 1 failed) 21777ms
+     × shows saved Markdown and archive outputs with revision information 15273ms
+ ❯ frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx (3 tests | 1 failed) 7631ms
+   × opens one title link and preserves exact revision, route filters and provenance 5287ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx > opens one title link and preserves exact revision, route filters and provenance
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx:74:1
+     72| });
+     73| afterEach(cleanup);
+     74| it('opens one title link and preserves exact revision, route filters a…
+       | ^
+     75|   view();
+     76|   const open = await screen.findByRole('link', { name: 'Studio plan' }…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  frontend/src/components/__tests__/WorkOutputs.test.tsx > WorkOutputs > shows saved Markdown and archive outputs with revision information
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ frontend/src/components/__tests__/WorkOutputs.test.tsx:54:3
+     52| });
+     53| describe('WorkOutputs', () => {
+     54|   it('shows saved Markdown and archive outputs with revision informati…
+       |   ^
+     55|     render(<WorkOutputs itemId="work" />);
+     56|     expect(screen.getByRole('heading', { name: 'Outputs' })).toBeTruth…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 5 passed (7)
+      Tests  2 failed | 192 passed (194)
+   Start at  14:44:41
+   Duration  168.37s (transform 38.02s, setup 0ms, import 79.10s, tests 42.38s, environment 29.86s)
+
