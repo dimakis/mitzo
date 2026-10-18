@@ -47,6 +47,10 @@ it('CT03 accepted-source full boundary: definite real HTTP stale rejection permi
   const first = renderHook(() => useTelosRoleSetup(options));
   await act(async () => first.result.current.review());
   expect(first.result.current.canConfirm).toBe(true);
+  expect(first.result.current.presentationRef).toMatchObject({
+    id: expect.any(String),
+    sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+  });
   f.changeBrief();
   await act(async () => first.result.current.confirm());
   expect(f.ordinary.resolvePreparation).not.toHaveBeenCalled();
@@ -67,6 +71,8 @@ it('CT03 accepted-source full boundary: definite real HTTP stale rejection permi
 it('CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation', async () => {
   const f = await createS9Fixture(),
     onBound = vi.fn();
+  const setup = vi.spyOn(f.api, 'setupReviewedRole');
+  const legacySetup = vi.spyOn(f.api, 'setupRole');
   const options = {
     draftId: 'uncertain-retained-draft',
     intent,
@@ -76,19 +82,28 @@ it('CT04 real committed response loss stays uncertain until exact hook/client/HT
   };
   const first = renderHook(() => useTelosRoleSetup(options));
   await act(async () => first.result.current.review());
+  const presentation = structuredClone(first.result.current.presentation);
+  const presentationRef = structuredClone(first.result.current.presentationRef);
+  expect(presentationRef).toBeDefined();
   f.loseNextSetupResponse();
   await act(async () => first.result.current.confirm());
   expect(first.result.current.uncertain).toBe(true);
   expect(first.result.current.locked).toBe(true);
+  const submitted = structuredClone(setup.mock.calls[0][0]);
+  expect(submitted).toMatchObject({ version: 1, presentationRef });
   const original = (await f.api.read('outcome')).assignments[0].conversation.conversationId;
   first.unmount();
   f.restart();
   f.ordinary.resolvePreparation.mockClear();
   const reloaded = renderHook(() => useTelosRoleSetup(options));
+  expect(reloaded.result.current.presentation).toEqual(presentation);
+  expect(reloaded.result.current.presentationRef).toEqual(presentationRef);
   await act(async () => reloaded.result.current.retry());
   expect(reloaded.result.current.boundConversationId).toBe(original);
   expect(reloaded.result.current.uncertain).toBe(false);
   expect(onBound).toHaveBeenCalledExactlyOnceWith(original);
+  expect(setup.mock.calls[1][0]).toEqual(submitted);
+  expect(legacySetup).not.toHaveBeenCalled();
   expect(f.ordinary.resolvePreparation).not.toHaveBeenCalled();
   expect(f.events.listSessions()).toHaveLength(2);
 });
@@ -103,7 +118,7 @@ it('CT04 post-intent HTTP conflict retains the original request across reload an
     f.changeBrief();
     return prepared;
   });
-  const setup = vi.spyOn(f.api, 'setupRole');
+  const setup = vi.spyOn(f.api, 'setupReviewedRole');
   const options = {
     draftId: 'post-intent-conflict',
     intent,

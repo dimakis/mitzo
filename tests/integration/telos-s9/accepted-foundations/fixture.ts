@@ -140,6 +140,8 @@ export async function createS9Fixture(options: { seedChild?: boolean } = {}) {
         sessionId: () => undefined,
         roleContext: (input) => host().context(input),
         roleSetup: (input) => host().setup(input),
+        roleReview: (input) => host().review(input),
+        roleSetupReviewed: (input) => host().setupReviewed(input),
         advisorPreview: (input) => advisor(input, 'preview'),
         advisorSave: (input) => advisor(input, 'save'),
         delegateSlice: delegate,
@@ -175,7 +177,18 @@ export async function createS9Fixture(options: { seedChild?: boolean } = {}) {
     const result = await (
       init?.method === 'POST' ? agent.post(url).send(JSON.parse(String(init.body))) : agent.get(url)
     ).set('x-s9-operator', 'synthetic');
-    if (loseResponse && url.endsWith('/roles/setup') && result.status === 200) {
+    if (result.status >= 400 && typeof result.body?.error !== 'string')
+      console.error('S9 HTTP boundary diagnostic', {
+        url,
+        status: result.status,
+        contentType: result.headers['content-type'],
+        text: result.text,
+      });
+    if (
+      loseResponse &&
+      (url.endsWith('/roles/setup') || url.endsWith('/roles/setup-reviewed')) &&
+      result.status === 200
+    ) {
       loseResponse = false;
       throw Error('synthetic response loss after commit');
     }

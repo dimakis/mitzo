@@ -3,6 +3,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { createS9Fixture, cleanupS9Fixtures } from './fixture';
 import { resolveTelosWorkRoleContext } from '../../../../server/telos-work-role-context';
+import { resolveTelosWorkRolePresentation } from '../../../../server/telos-work-role-presentation';
 import { handleTaskArtifact, handleTaskComplete } from '../../../../server/task-tools';
 vi.mock('../../../../server/chat.js', () => ({ sendToChat: vi.fn(async () => true) }));
 import { sendToChat } from '../../../../server/chat';
@@ -197,6 +198,21 @@ it('CT06/17/18 partial: origin and actual advisor-created child reach accepted d
   expect(resolveTelosWorkRoleContext(f.events, worker.sessionId, worker.accountBinding!)).toEqual(
     context,
   );
+  const display = resolveTelosWorkRolePresentation(
+    f.events,
+    worker.sessionId,
+    worker.accountBinding!,
+  );
+  expect(display).toMatchObject({
+    presentation: {
+      contextSha256: binding!.contextHash,
+      item: {
+        itemId: childId,
+        revision: context.brief.revision,
+        title: 'Actual reviewed child',
+      },
+    },
+  });
   expect(worker.cwd).not.toBe(leadBefore?.cwd);
   expect(worker.cwd).not.toBe(memberBefore?.cwd);
   expect(f.events.getSession(leadId)).toEqual(leadBefore);
@@ -222,6 +238,9 @@ it('CT06/17/18 partial: origin and actual advisor-created child reach accepted d
   f.restart();
   expect(f.tasks.get(taskId)?.status).toBe('done');
   expect(f.tasks.getTelosExecutionBinding(taskId)).toEqual(binding);
+  expect(
+    resolveTelosWorkRolePresentation(f.events, worker.sessionId, worker.accountBinding!),
+  ).toEqual(display);
   expect(f.canonicalStatus(childId)).toBe('active');
   expect(f.canonicalStatus('outcome')).toBe('active');
   expect(f.events.getOrdinaryInitialCommandId(worker.sessionId)).toBeUndefined();

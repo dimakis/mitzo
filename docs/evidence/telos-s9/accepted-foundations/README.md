@@ -1,5 +1,15 @@
 # Accepted canonical/recovery intake: S9 cross-boundary evidence
 
+**Publication update:** accepted metadata PR1030 (`634048b1`) is now integrated.
+The S9 hook fixture mounts its actual review/setup-reviewed APIs and checks exact
+presentation-ref recovery; the created-child journey checks the worker's retained
+presentation against its original task/context hash. See
+[the accepted-base integration record](accepted-metadata-integration.md). The
+source manifest and results below remain the original `97054299`/f39 snapshots;
+the current manifest and results are separate. No historical record is relabeled.
+S5a's own CT01–CT06 ratification is separate from full S9 acceptance. All ten
+planned metadata groups still need their complete S9 qualification.
+
 S9 `b896d14d79d52682`, parent `85e8444019a4ae4a`: active. Actual accepted canonical
 PR1027 merge117783fd and recovery PR1029 merge2b22bade were independently verified
 with exact reviewed trees and parent chain. The isolated combined source is selected
