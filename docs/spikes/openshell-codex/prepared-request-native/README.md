@@ -6,6 +6,54 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
+## Current composed source: 46 patches
+
+The 46 ordered patches reconstruct native tree
+`5f034709e0a618d7d12ae44cb37c99b493efac41` (local source `ccd98d9cd5895d589540c33c8854ee135a118245`).
+The current source adds the actual ordinary child-approval consumer to the retained
+immutable-request foundation. It reuses only a genuine fresh user approval from
+the same still-active initial invocation. The original runtime lifetime flag is
+never reopened, and returning/yielding from that invocation closes reuse. The
+existing physical sandbox and denied-read restrictions remain enforced.
+
+Actual hooks and reviewer contributors run through their existing owners and keep
+their precedence. Only the exact default User route without a fresh-review
+requirement and with zero matching hooks can attempt reuse. The consumer holds
+the existing provider-policy, Session, task, settings, policy-manager and
+selected-environment owners while it checks current identity and the original
+runtime flag. An unsuccessful attempt revalidates the retained child context
+before any manual prompt. Explicit AskUser, hook decisions, Guardian review,
+unsupported physical contexts and changed authority keep their existing behavior
+or refuse. Inherited approval is private and never recorded as a new User grant.
+
+The additional source includes full actual-manager regressions for immediate
+reuse, an already-returned initial invocation, post-attempt context drift and
+matching decline/error/async/deny hooks. A narrowly gated test-only scheduler
+makes the post-attempt drift deterministic; it is absent from production. The
+original denied-read regression and the explicitly approved Guardian fixture
+remain intact. Separate fixture corrections establish a Tokio test boundary and
+configure the hook fixture before its actual ordinary setup.
+
+All ordered patches and their checksums must reconstruct the exact source tree
+recorded in `source-evidence.json`. Root and the original independent reviewer
+reviewed each added source stage. Local checks are source reconstruction and
+scoped formatting only; no local Rust compilation or test execution is claimed.
+The existing Linux/Mac workflow is the compilation and fixture gate for this new
+tree, with no extra CI job or disabled coverage.
+
+The preceding 31-patch run `39146186841` failed on both platforms: Linux ran
+5,764 tests (5,761 passed, 3 failed, 11 skipped); Mac ran 5,542 (5,539 passed,
+3 failed, 27 skipped). Platform counts overlap and must not be added. Both jobs
+completed with failure; neither is qualification of the new source. New-source
+CI results remain pending until recorded against its actual application head.
+
+This repairs ordinary shell permission compatibility. It creates no prepared
+Responses admission, request preparation RPC, provider send, application joining,
+installed runtime support or configured account qualification. Those remaining
+contracts below still apply.
+
+## Immutable request foundation
+
 The patches retain these source primitives:
 
 - A private immutable public Responses HTTP body with a documented input-count
@@ -136,9 +184,9 @@ native consumption; consumable admission remains unavailable for those changes
 until that ordering is proved. Live calls, activation and deployment require their
 separate user authorizations described in the Symposium handover.
 
-## Inert native approval source stages
+## Historical 31-patch approval checkpoint
 
-The ordered bundle now contains 31 patches. The original twenty-six checksums
+At this historical checkpoint, the ordered bundle contained 31 patches. The original twenty-six checksums
 are unchanged. Patches 21–23 retain typed extension routing, fresh user provenance
 from the actual approval owner, and original configuration/policy plus actual
 restricted-launch bindings. Root and an independent reviewer inspected each
