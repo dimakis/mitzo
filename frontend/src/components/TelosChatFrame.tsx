@@ -6,6 +6,7 @@ import './TelosChat.css';
 /** Layout slots deliberately retain the ordinary header, transcript and composer.
  * The shared chat owners adopt this frame after their integration dependencies. */
 export function TelosChatFrame({
+  conversationId,
   itemTitle,
   chatCount,
   onItem,
@@ -14,6 +15,7 @@ export function TelosChatFrame({
   tree,
   children,
 }: {
+  conversationId: string;
   itemTitle: string;
   chatCount: number;
   onItem(): void;
@@ -22,7 +24,12 @@ export function TelosChatFrame({
   tree: ReactNode;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [disclosure, setDisclosure] = useState({ conversationId, open: false });
+  // A route may reuse the ordinary screen for another conversation. Reset only
+  // this disclosure; keying the whole frame would remount the ordinary composer.
+  if (disclosure.conversationId !== conversationId) setDisclosure({ conversationId, open: false });
+  const open = disclosure.conversationId === conversationId && disclosure.open;
+  const setOpen = (value: boolean) => setDisclosure({ conversationId, open: value });
   const trigger = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   function close() {

@@ -62,7 +62,7 @@ function Fixture() {
   const reviewer = conversationId === 'reviewer';
   return (
     <TelosChatFrame
-      key={conversationId}
+      conversationId={conversationId}
       itemTitle={title}
       chatCount={3}
       onItem={() => setSelected(null)}
