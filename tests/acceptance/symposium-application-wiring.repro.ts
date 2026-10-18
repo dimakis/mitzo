@@ -1,4 +1,5 @@
 import { afterAll, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,7 +7,7 @@ import { join } from 'node:path';
 import type { Express } from 'express';
 import type { EventStore } from '../../server/event-store.js';
 import { createApplicationHttpTransport } from '../../server/__tests__/fixtures/symposium-application-http.js';
-import { CollaborationApiClient } from '@mitzo/client';
+import { CollaborationApiClient, MitzoApiClient } from '@mitzo/client';
 import {
   CollaborationSnapshotSchema,
   CollaborationSettingsSchema,
@@ -440,6 +441,121 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
   expect(readFileSync(join(root!, 'internal-token'), 'utf8')).toBe(internalToken);
   expect(events.listSessions()).toHaveLength(sessionsBefore);
   expect(events.getOrdinaryInitialCommandId('existing-chat')).toBe(commandBefore);
+}, 20000);
+
+it('reads exact completed durable source through actual production injection and typed client without restore or allocation', async () => {
+  if (!http) throw Error('BLOCKED: actual app prerequisite failed');
+  const sessionId = 'retained-durable-source';
+  const userText = '\uFEFF  Selected π\r\n\t';
+  const answerText = '  Finalized answer π\r\n';
+  const privateText = 'PRIVATE_DURABLE_PROVIDER';
+  events.upsertSession({ sessionId, conversationSource: 'mitzo' });
+  const question = events.append(sessionId, 'user_message', {
+    messageId: 'question',
+    text: userText,
+    credential: privateText,
+  });
+  events.append(sessionId, 'message_start', { messageId: 'answer', providerTurnId: privateText });
+  for (const [blockId, blockType, delta] of [
+    ['reasoning', 'thinking', privateText],
+    ['tool', 'tool_use', privateText],
+    ['visible', 'text', answerText],
+  ]) {
+    events.append(sessionId, 'block_start', { messageId: 'answer', blockId, blockType });
+    events.append(sessionId, 'block_delta', { messageId: 'answer', blockId, delta });
+    events.append(sessionId, 'block_end', { messageId: 'answer', blockId });
+  }
+  const completed = events.append(sessionId, 'message_end', {
+    messageId: 'answer',
+    provider: privateText,
+  });
+  const expected = {
+    sourceConversationId: sessionId,
+    boundary: { sequence: completed, messageId: 'answer' },
+    messages: [
+      {
+        conversationId: sessionId,
+        messageId: 'question',
+        sequence: question,
+        author: 'operator',
+        source: null,
+        blocks: [
+          {
+            blockId: 'user-question',
+            content: userText,
+            sha256: createHash('sha256').update(userText).digest('hex'),
+          },
+        ],
+      },
+      {
+        conversationId: sessionId,
+        messageId: 'answer',
+        sequence: completed,
+        author: { sessionId },
+        source: null,
+        blocks: [
+          {
+            blockId: 'visible',
+            content: answerText,
+            sha256: createHash('sha256').update(answerText).digest('hex'),
+          },
+        ],
+      },
+    ],
+  };
+  const path = `/api/sessions/${sessionId}/messages?transcript=durable`;
+  const requests: string[] = [];
+  const durableApi = new MitzoApiClient(async (url, init) => {
+    // A legacy/SDK restore request cannot satisfy this positive source check.
+    expect(url).toBe(path);
+    expect(init?.credentials).toBe('include');
+    init?.signal?.throwIfAborted();
+    requests.push(url);
+    const result = await http!.request('GET', url, { headers: { cookie } });
+    return new Response(JSON.stringify(result.body), { status: result.status });
+  });
+  const method = Reflect.get(durableApi, 'getDurableSessionTranscript');
+  expect(typeof method).toBe('function');
+  const read = () => Reflect.apply(method, durableApi, [sessionId]);
+  const before = events.getSessionEvents(sessionId);
+  const sessionsBefore = events
+    .listSessions()
+    .map((row) => row.sessionId)
+    .sort();
+  expect((await http.request('GET', path)).status).toBe(401);
+  const replay = vi.spyOn(events, 'getSessionEvents');
+  try {
+    await expect(read()).resolves.toEqual(expected);
+    expect(replay).not.toHaveBeenCalled();
+  } finally {
+    replay.mockRestore();
+  }
+  expect(requests).toEqual([path]);
+  expect(events.getSessionEvents(sessionId)).toEqual(before);
+  expect(
+    events
+      .listSessions()
+      .map((row) => row.sessionId)
+      .sort(),
+  ).toEqual(sessionsBefore);
+  expect(events.getOrdinaryInitialCommandId(sessionId)).toBeUndefined();
+  expect(JSON.stringify(expected)).not.toContain(privateText);
+  await restartApplication();
+  await expect(read()).resolves.toEqual(expected);
+  expect(requests).toEqual([path, path]);
+  expect(events.getSessionEvents(sessionId)).toEqual(before);
+  expect(
+    events
+      .listSessions()
+      .map((row) => row.sessionId)
+      .sort(),
+  ).toEqual(sessionsBefore);
+  expect(events.getOrdinaryInitialCommandId(sessionId)).toBeUndefined();
+  events.hideSession(sessionId);
+  const hidden = await http!.request('GET', path, { headers: { cookie } });
+  expect(hidden).toMatchObject({ status: 500, body: { error: 'Session transcript unavailable' } });
+  await expect(read()).rejects.toThrow('Session transcript unavailable');
+  expect(requests).toEqual([path, path, path]);
 }, 20000);
 
 it('requires actual joining and finalized reply owners after the observational review', async () => {

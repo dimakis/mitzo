@@ -1,0 +1,8 @@
+{
+  "control": "Historical exact420d/0c9a required-only application comparator on same Mac and task-local dependencies; original20s timeout unchanged",
+  "sourceHead": "0c9a4704cbe2b4aa74c6cc3ac98b6788f6b6f64f",
+  "restoredHead": "365eb55b7ce4c0948018803bb322539259111e77",
+  "restoredBranch": "test/symposium-acceptance-core-6ddc",
+  "exitCode": 1,
+  "scope": "Separate source/time envelope. Neither result alone proves a source defect or host-load cause; new durable case is absent at historical source."
+}

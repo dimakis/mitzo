@@ -30,6 +30,11 @@ export default mergeConfig(base, {
             'packages/protocol/__tests__/collaboration-conversation.test.ts',
             'packages/client/src/__tests__/collaboration-conversation.test.ts',
             'packages/client/src/__tests__/collaboration-associations.test.ts',
+            'packages/client/__tests__/durable-transcript.test.ts',
+            'packages/protocol/__tests__/collaboration-durable-transcript.test.ts',
+            'packages/protocol/__tests__/collaboration-visible-source.test.ts',
+            'server/__tests__/session-durable-transcript.test.ts',
+            'server/__tests__/collaboration-context-source.test.ts',
           ]
         : []),
       ...(process.env.SYMPOSIUM_REQUIRED_JOURNEYS === '1' ? ['tests/acceptance/*.repro.ts'] : []),
