@@ -72,7 +72,12 @@ describe('approved S8 conversation selection', () => {
   });
   it('deduplicates role links and source snapshots by namespace and conversation', () => {
     const view = work();
-    view.links.push({ ...view.links[1], linkId: 'worker-advisor', role: 'advisor' });
+    view.links.push({
+      ...view.links[1],
+      linkId: 'worker-advisor',
+      role: 'advisor',
+      conversation: { namespace: 'mitzo', conversationId: 'worker' },
+    });
     view.sources.push({
       version: 1,
       snapshotId: 'source',
