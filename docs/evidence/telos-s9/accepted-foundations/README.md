@@ -1,5 +1,13 @@
 # Accepted canonical/recovery intake: S9 cross-boundary evidence
 
+**Acceptance-harness base update:** accepted C PR1022/d4660966 is integrated for
+strict landing protection. It changes tests/evidence and dedicated runners only.
+All four S9 test bodies, the credential-isolated fixture and selected production
+owners remain byte-identical to qualified522/a7. No new local execution is claimed;
+[the source-equivalence and C boundary record](accepted-c-source-equivalence.json)
+retains exact pins and open gaps. Fresh updated-head CI/full final review are
+required. Accepted harness source does not close full app/native/S9/parent/live.
+
 **Final shared-source update:** accepted PR1020/a7cef26f is integrated after full
 green CI on ff6c9682. The same four contracts pass on that combined source. See
 [the final integration record](shared-source-integration.md) and
