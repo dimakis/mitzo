@@ -1,0 +1,42 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+{"level":30,"time":1792275907212,"pid":52844,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (1 test | 1 failed) 5796ms
+   × requires real app authentication and refuses to count a missing source/join/delivery owner as a working journey 5783ms
+{"level":30,"time":1792275907107,"pid":52844,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/symposium-actual-app-Ddi2dp/.mitzo/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792275907108,"pid":52844,"hostname":"Dimitris-MacBook-Pro","module":"workload-store","msg":"WorkloadStore initialized (shared DB)"}
+{"level":40,"time":1792275907148,"pid":52844,"hostname":"Dimitris-MacBook-Pro","module":"server","route":"/api/auth/login","method":"POST","status":200,"durationMs":23.89,"aborted":true,"msg":"API request failed"}
+{"level":40,"time":1792275907204,"pid":52844,"hostname":"Dimitris-MacBook-Pro","module":"server","route":"unmatched","method":"GET","status":401,"durationMs":0.37,"aborted":true,"msg":"API request failed"}
+{"level":40,"time":1792275907206,"pid":52844,"hostname":"Dimitris-MacBook-Pro","module":"server","route":"/:id/conversation","method":"GET","status":200,"durationMs":2.47,"aborted":true,"msg":"API request failed"}
+{"level":40,"time":1792275907209,"pid":52844,"hostname":"Dimitris-MacBook-Pro","module":"server","route":"/:id/snapshots","method":"POST","status":503,"durationMs":1.21,"aborted":true,"msg":"API request failed"}
+{"level":30,"time":1792275907212,"pid":52844,"hostname":"Dimitris-MacBook-Pro","module":"session-sse","streams":0,"msg":"Destroying SessionSseRegistry"}
+{"level":40,"time":1792275907217,"pid":52844,"hostname":"Dimitris-MacBook-Pro","module":"server","route":"unmatched","method":"GET","status":503,"durationMs":2.69,"aborted":true,"msg":"API request failed"}
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires real app authentication and refuses to count a missing source/join/delivery owner as a working journey
+AssertionError: {"code":"execution_unavailable","error":"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.","execution":{"enabled":false,"reason":"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started."}}: expected 503 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 503
+
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:145:58
+    143|     },
+    144|   });
+    145|   expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(200);
+       |                                                          ^
+    146|   const snapshot = CollaborationSnapshotSchema.parse(reviewed.body);
+    147|   // These gates deliberately use the SAME actual app/client/store. A …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 6 passed (7)
+      Tests  1 failed | 10 passed (11)
+   Start at  23:24:57
+   Duration  13.34s (transform 5.41s, setup 0ms, import 6.20s, tests 6.40s, environment 0ms)
+

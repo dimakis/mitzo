@@ -1,0 +1,11 @@
+{
+  "instrumentation": "C test timing-only phase observers; no timeout/assertion/production changes",
+  "originalTestSha256": "55917949bb6857d07e8b40bc1aae68a168e4cb1f0625d837e2f2e95a03f3d691",
+  "restoredTestSha256": "55917949bb6857d07e8b40bc1aae68a168e4cb1f0625d837e2f2e95a03f3d691",
+  "restoredByteForByte": true,
+  "exitCode": 1,
+  "scope": "Diagnostic source diff recorded by runner; distinguish from prior clean overlay source.",
+  "observerPatchSha256": "aabb03ce1b5a8a7a42559629d18805058a5e2669876817014a5bc3c5abf9c64f",
+  "runnerTrackedDiffSha256": "c09e4f5314fa0ea51b4c314d93914b372ae9a2eef34881497d87bab093e5e817",
+  "observerPatchFile": "instrumentation.patch"
+}

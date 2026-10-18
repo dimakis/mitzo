@@ -1,0 +1,21 @@
+{
+  "command": [
+    "node",
+    "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate/scripts/run-symposium-durable-injection-control.mjs",
+    "--positive-evidence-dir",
+    "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/mitzo/docs/evidence/symposium-acceptance/6ddc-actual-app-narrowed",
+    "--evidence-dir",
+    "/tmp/symposium-6ddc-feature-injection-control-not-created"
+  ],
+  "featureCoreCommit": "6ddc2607e36d4d4a90f06f173bb840678d5c8b4c",
+  "candidateHead": "365eb55b7ce4c0948018803bb322539259111e77",
+  "scriptSha256": "10135eb3a6da17e85754a84fed9efbd90f7e3057b5af425ad0ddd51f2974b180",
+  "exitCode": 1,
+  "result": "refused unqualified baseline before source mutation or execution",
+  "applicationSha256Before": "9217fdbc9b78e6e402c8d86aca9d38fd3d2758feaf0310e3c66361659f054365",
+  "applicationSha256After": "9217fdbc9b78e6e402c8d86aca9d38fd3d2758feaf0310e3c66361659f054365",
+  "sourceUnchanged": true,
+  "temporaryScriptRemoved": true,
+  "outputDirectoryCreated": false,
+  "actualOmissionExecution": "NOT RUN; positive durable app baseline unavailable"
+}

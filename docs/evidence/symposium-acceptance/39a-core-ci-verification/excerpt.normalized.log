@@ -1,0 +1,8 @@
+2026-10-18T05:09:36.2023340Z  * [new ref]           4a233b922d072cfc3ee17d721335ca02152a1e4d -> pull/1023/merge
+2026-10-18T05:09:36.2039135Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1023/merge
+2026-10-18T05:09:36.5417449Z HEAD is now at 4a233b92 Merge 39a308cf5cd4673a90e9058600394fae51c66de6 into c6ad4bafd294aab34f6a780b6d49144a5cfaa471
+2026-10-18T05:09:36.5513594Z 4a233b922d072cfc3ee17d721335ca02152a1e4d
+2026-10-18T05:16:47.9748667Z  ✓ server/__tests__/collaboration-application-review.test.ts (29 tests) 6843ms
+2026-10-18T05:18:06.8690319Z  ✓ tests/integration/symposium-application-review-recovery.test.tsx (3 tests) 1639ms
+2026-10-18T05:23:00.6223956Z  Test Files  1336 passed | 9 skipped (1345)
+2026-10-18T05:23:00.6312260Z       Tests  18349 passed | 31 skipped (18380)
