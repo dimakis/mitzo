@@ -1,0 +1,45 @@
+{
+  "selectedAcceptedCombinedSource": "f39cbfdfa31f5e4c0d3413737827de2c8640d34e",
+  "canonicalMerge": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
+  "recoveryMerge": "2b22bade2b1e612cc564661bf1e69b45a317e5eb",
+  "schemaOwner": "3077b7b4dcdf0ef097062794b2ab93d33c1d89ad",
+  "newChildIsCreatedThroughRealAdvisorRoutes": true,
+  "historicalRecoveryAssertionLogicUnchanged": true,
+  "recoveryFileAdaptations": [
+    "relative frontend import path",
+    "test title changes red to accepted-source label",
+    "isolated accepted-source fixture composition"
+  ],
+  "testFiles": {
+    "tests/integration/telos-s9/accepted-foundations/fixture.ts": "7365bf857c6702d1ab5b42f2db4c7f2d4274e2ad355800c21828fd8443363c29",
+    "tests/integration/telos-s9/accepted-foundations/fixtures/canonical-schema-source.json": "d8f9d6c7393fa3f982babe886f6fa502cda0e929e18d45fdd2aae56d70745658",
+    "tests/integration/telos-s9/accepted-foundations/fixtures/canonical-schema.sql": "d3c1c89e850731217b0cd66a57adc5832b2994e12b2f60b6f5c6cb3405cac7f7",
+    "tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx": "d46ba2c671f297486d0f1d3546ad2ed7a751f3c5405bddb53cdd7854f87da76e",
+    "tests/integration/telos-s9/accepted-foundations/vertical.contract.ts": "c10770a9aaab3fb3d9e8affdc9d5e49ea38298c5e06826c17d5f9cee3b7f3dc0",
+    "tests/integration/telos-s9/accepted-foundations/vitest.config.ts": "a010f390df1d0b7835f887b80723a658a02273069e7cf61eacc06e9258f25345"
+  },
+  "ownerFiles": {
+    "server/telos-work-store.ts": "8af828b05c2e1373ed5eea7e08fcfe9f62d4daabe98d9b51ed767ebed4b7bbcb",
+    "server/telos-work-advisor-draft.ts": "a572995682705f98c47fffbdb11aff5eb0621f08d826e8584db542f8d89a28bb",
+    "server/telos-work-role-host.ts": "11fb9f3b62997d844f810c11ebc65ee27832f7efeec013690948b9ed19a6d86e",
+    "server/telos-work-role-setup.ts": "130380c2fdecaba2ec3c7d7d8cc6c073e90a19a4ecad454ce9073ddb839f5a28",
+    "server/telos-work-routes.ts": "375f2f62e1e4f3f544dc4b2857d0f336f03ff27886509847ffe466b04cf83607",
+    "server/telos-work-delegation-host.ts": "3b9d4ece9b08133050d03eb806b75e59ddefbea0f00c81012a2a83ab52f9fc4a",
+    "server/telos-work-delegation.ts": "4d808051b84a865425900ed925b1adc28d88b5b758293982431b8d4dc985c8be",
+    "server/telos-work-role-context.ts": "35dec116d6e955cfa836f92f8c414f0ec9179ff960160f107b690da7e9825d77",
+    "server/telos-source-capture.ts": "9b42d3f627e7923a29b0b22fb44e6b46eea5e9b2466a5faa95ae835f9b91b641",
+    "server/task-store.ts": "d8db46138a28be13c612601c1e1435352c1e05b1d6c47deb785804ab397cbbc0",
+    "server/task-orchestrator.ts": "0c25385bc6ace3c9ef225b336379e41d47ecc99ba9f383dcf4f1cdd705c2fff7",
+    "server/task-tools.ts": "93b692c7fce06cf22a4ceb8ea66a0f6d287140a79bac4e23cf2c88aabeff5d0a",
+    "server/repository-workspaces.ts": "37bcfb19928c278199f936f4a62f4ed803b976a035e5e18b215912b75e0c2ac7",
+    "packages/client/src/telos-work-api.ts": "5ec12c86cd7c0bb925388a4bf078536aec02eb18c50e76dc7fa26ea15d0793f1",
+    "packages/protocol/src/telos-work-api.ts": "e24a6d7142cb5bef3910ec37b750b05dece5814d85e35d8bcbdc2f3813270176",
+    "packages/protocol/src/telos-work-role-context.ts": "ea9809b17a41366e3f272d39044a1564ac636db1c5016b2b964c118dcd71ae3e",
+    "frontend/src/hooks/useTelosRoleSetup.ts": "406736d2e0e31ffc9e612595c6364ebbcc958cd8f6b7937c99db74a2a0217974",
+    "server/__tests__/fixtures/collaboration-joining.ts": "fa59de4f03c7610b660584a11aef638da36ab2f361f0875f69182ab6d4a95c8d",
+    "docs/features/symposium.md": "1acc68f9cc9f62337af94103b5090febb2560a0ccf8fcfdda3b7876b3c2c9da4"
+  },
+  "metadata1030ApiAdopted": false,
+  "signedPlanning154d73d5Preserved": true,
+  "historicalRootB4FixtureUnchanged": true
+}

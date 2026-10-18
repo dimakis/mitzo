@@ -1,0 +1,35 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+{"level":30,"time":1792276716879,"pid":76515,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+{"level":30,"time":1792276717079,"pid":76515,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (1 test | 1 failed) 3816ms
+   × requires real app authentication and refuses to count a missing source/join/delivery owner as a working journey 3809ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires real app authentication and refuses to count a missing source/join/delivery owner as a working journey
+AssertionError: {"code":"execution_unavailable","error":"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.","execution":{"enabled":false,"reason":"Fresh-agent preparation and ordinary delivery are not wired. No session or model is started."}}: expected 503 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 503
+
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:192:58
+    190|     },
+    191|   });
+    192|   expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(200);
+       |                                                          ^
+    193|   const snapshot = CollaborationSnapshotSchema.parse(reviewed.body);
+    194|   // These gates deliberately use the SAME actual app/client/store. A …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 6 passed (7)
+      Tests  1 failed | 10 passed (11)
+   Start at  23:38:32
+   Duration  7.13s (transform 2.52s, setup 0ms, import 2.31s, tests 4.16s, environment 0ms)
+

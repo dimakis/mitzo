@@ -1,0 +1,39 @@
+{
+  "slice": "b896d14d79d52682",
+  "parent": "85e8444019a4ae4a",
+  "acceptedCombinedSource": "f39cbfdfa31f5e4c0d3413737827de2c8640d34e",
+  "acceptedCanonical": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
+  "acceptedRecovery": "2b22bade2b1e612cc564661bf1e69b45a317e5eb",
+  "tests": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "newActualCreatedChildJourney": 1,
+    "priorS9RealHttpRecoveryCases": 3
+  },
+  "foundationOwnerSuitesRerun": false,
+  "productionOrOwnerUnitTestsChanged": false,
+  "newProductDefects": [],
+  "firstAttempt": {
+    "passed": 3,
+    "failed": 1,
+    "classification": "S9 fixture reused the advisors prepared repository for the lead. Existing ordinary owner correctly refused; fixture corrected to select an independent prepared workspace before lead confirmation. No allocator or production fix and no changed identity within an existing attempted request."
+  },
+  "preservedHistory": "OriginalS9seven-case4/3 and owner eight-case2/6 remain pinned historical runs. New f39 scopes do not replace or sum them.",
+  "workers": 1,
+  "nodeHeapMiB": 1024,
+  "realModelCalls": 0,
+  "liveBackend": false,
+  "deploymentOrStaging": false,
+  "fullCt05MetadataApis": "unaccepted1030; no adoption; ten154d73d5 groups remain pending",
+  "limits": [
+    "One synthetic fresh-schema repository-backed journey; not all upgrades/history/atomicity cases. Owner suites reused by exact retained references.",
+    "Provider proposal/result effects are deterministic. Actual worker first-command/native/provider execution not run; result enters real task artifact/completion handlers.",
+    "Task approval reaches done; canonical child/outcome remain active, no verified canonical completion claimed.",
+    "No new S9 browser/visual acceptance; headless hook checks are not full shell/UX.",
+    "Shared fresh Symposium joining uses fake authority/capacity; production application joining/native capacity/runtime qualification not implied.",
+    "Full S5a/S5b/non-code/S6/S7/S8/UX/CT19 and parent/S9 stay open.",
+    "No new PR, merge slot, CI or Centaur acceptance claimed for this local follow-up."
+  ]
+}
