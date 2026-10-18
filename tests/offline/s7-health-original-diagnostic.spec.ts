@@ -118,20 +118,17 @@ const bundle = build({
             const replacements = [
               [
                 'const poll = async (nativeForeground = false) => {',
-                'const poll = async (nativeForeground = false) => { globalThis.dispatchEvent(new CustomEvent("fixture-health-diagnostic", {detail:{kind:"poll-entry",active,blocked,receivedSse,pending:Boolean(pending)}}));',
+                'const poll = async (nativeForeground = false) => { __s7HealthLog({kind:"poll-entry",active,blocked,receivedSse,pending:Boolean(pending)});',
               ],
               [
                 '} catch {\n        /* Retain the last observed health while the server is unreachable. */',
-                '} catch (error) { globalThis.dispatchEvent(new CustomEvent("fixture-health-diagnostic", {detail:{kind:"poll-caught",error:String(error)}}));\n        /* Retain the last observed health while the server is unreachable. */',
+                '} catch (error) { __s7HealthLog({kind:"poll-caught",error:String(error)});\n        /* Retain the last observed health while the server is unreachable. */',
               ],
               [
                 'const startup = setTimeout(() => void poll(), SSE_FALLBACK_DELAY_MS);',
-                'const startup = setTimeout(() => { globalThis.dispatchEvent(new CustomEvent("fixture-health-diagnostic", {detail:{kind:"startup-fired"}})); void poll(); }, SSE_FALLBACK_DELAY_MS);',
+                'const startup = setTimeout(() => { __s7HealthLog({kind:"startup-fired"}); void poll(); }, SSE_FALLBACK_DELAY_MS);',
               ],
-              [
-                'stopHealth = () => {',
-                'stopHealth = () => { globalThis.dispatchEvent(new CustomEvent("fixture-health-diagnostic", {detail:{kind:"owner-stop"}}));',
-              ],
+              ['stopHealth = () => {', 'stopHealth = () => { __s7HealthLog({kind:"owner-stop"});'],
             ];
             for (const [from, to] of replacements) {
               if (!code.includes(from)) throw Error('Diagnostic source anchor differs');
@@ -142,10 +139,14 @@ const bundle = build({
             if (!code.includes(from)) throw Error('Diagnostic helper anchor differs');
             code = code.replace(
               from,
-              '  } catch (error) { if (path === "/api/service-health") globalThis.dispatchEvent(new CustomEvent("fixture-health-diagnostic", {detail:{kind:"helper-caught",error:String(error)}})); throw error; } finally {\n    clearTimeout(timeout);',
+              '  } catch (error) { if (path === "/api/service-health") __s7HealthLog({kind:"helper-caught",error:String(error)}); throw error; } finally {\n    clearTimeout(timeout);',
             );
           }
-          return { contents: code, loader: 'ts' };
+          // Catch only telemetry delivery failures; application errors keep
+          // their original catch/rethrow path even if the document is disposed.
+          const logger =
+            'const __s7HealthLog = (detail: Record<string, unknown>) => { try { globalThis.dispatchEvent(new CustomEvent("fixture-health-diagnostic", { detail })); } catch { /* diagnostic delivery only */ } };\n';
+          return { contents: logger + code, loader: 'ts' };
         });
       },
     },
