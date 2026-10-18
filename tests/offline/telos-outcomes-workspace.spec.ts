@@ -733,7 +733,19 @@ for (const theme of ['dark', 'light'])
         fullPage: true,
       });
       denyArtifact = true;
+      // Reload first renders the legacy fallback, then joins the outcome's
+      // canonical child records. Keep denial until that workspace owns the dialog.
+      const childRecordLoaded = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname ===
+            '/api/telos/work/items/fixture-studio-slice/record' && response.status() === 200,
+      );
       await reload();
+      await childRecordLoaded;
+      await expect(page.getByRole('button', { name: tab, exact: true })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
       await expect(
         page.getByRole('alert').filter({ hasText: 'no longer available to you' }),
       ).toBeVisible();
