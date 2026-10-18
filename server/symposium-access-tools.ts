@@ -55,7 +55,13 @@ export class SymposiumAccessRequests {
   >();
   constructor(
     path: string,
-    private deps: Dependencies = { resolve: resolveApprovedUrl, fetch: fetchApprovedUrl },
+    private deps: Dependencies = {
+      resolve: resolveApprovedUrl,
+      // Seats have no full-view input. Preserve their bounded complete response
+      // rather than applying an ordinary-chat summary they cannot recover from.
+      fetch: (url, target, signal) =>
+        fetchApprovedUrl(url, target, signal, undefined, undefined, 'full'),
+    },
   ) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');

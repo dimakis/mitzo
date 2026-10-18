@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.286-codex-agent-tools-sandbox-review.1-telos-s5.1';
+  'v1.0.303-tool-builder-core.1-telos-s5.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../tool-builder-schema.ts': 'b55fb292b80f3f1c5ad9376a27abaf62b901cdf07e5fb62ce07cf7fbc17a419f',
+  '../tool-builder.ts': '5820f9e284cb3156d30b5e378bf2d2eb50e58909dc04cfbf9b216017261bed99',
+  '../symposium-access-tools.ts':
+    'f5ee50c9bea25c0453b52941eb186f43e8de6efa674736eab22348ac08b59032',
   '../openshell-lifecycle-production.ts':
     '1dc01f97b7785277923c16f90982a69c73d482f541fe8d081a4c1927e40a761d',
   '../sandbox-ownership-review.ts':
