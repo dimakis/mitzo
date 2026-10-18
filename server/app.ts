@@ -117,6 +117,7 @@ import { createTelosWorkRoleHost } from './telos-work-role-host.js';
 import { createTelosWorkDelegationHost } from './telos-work-delegation-host.js';
 import type { TelosWorkDelegationScope } from './telos-work-delegation.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
+import { resolveTelosWorkRolePresentation } from './telos-work-role-presentation.js';
 import { resolveTelosWorkTaskToolContext } from './telos-work-execution-authority.js';
 import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
 import { TelosWorkAdvisorDraft } from './telos-work-advisor-draft.js';
@@ -2192,12 +2193,14 @@ function telosRoleHost(operatorConnectionId?: string) {
       authorizeTelosOrdinaryPreparation(scope.setup.input.settings, signal, operatorConnectionId),
   });
 }
-async function setupTelosRole(request: TelosWorkRoleRequest) {
+async function setupTelosRole(request: TelosWorkRoleRequest, reviewed = false) {
   request.assertAuthorized();
   if (!request.authorization)
     throw new TelosWorkError('unauthorized', 'Interactive operator required');
   return withAgentLibraryRecoveryAuthorization(request.authorization, (connectionId) =>
-    telosRoleHost(connectionId).setup(request),
+    reviewed
+      ? telosRoleHost(connectionId).setupReviewed(request)
+      : telosRoleHost(connectionId).setup(request),
   );
 }
 async function delegateTelosSlice(request: TelosWorkRoleRequest) {
@@ -2291,8 +2294,10 @@ app.use(
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
     roleSetup: setupTelosRole,
+    roleSetupReviewed: (request) => setupTelosRole(request, true),
     delegateSlice: delegateTelosSlice,
     roleContext: (request) => telosRoleHost().context(request),
+    roleReview: (request) => telosRoleHost().review(request),
     advisorPreview: (request) => saveTelosAdvisorDraft('preview', request),
     advisorSave: (request) => saveTelosAdvisorDraft('save', request),
     assertRoleAssignment: (itemId, role, conversationId) => {
@@ -3317,8 +3322,14 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     }
   }
   let telosWorkRoleContext: ReturnType<typeof resolveTelosWorkRoleContext>;
+  let telosWorkRolePresentation: ReturnType<typeof resolveTelosWorkRolePresentation>;
   try {
     telosWorkRoleContext = resolveTelosWorkRoleContext(
+      eventStore,
+      meta.sessionId,
+      meta.accountBinding ?? undefined,
+    );
+    telosWorkRolePresentation = resolveTelosWorkRolePresentation(
       eventStore,
       meta.sessionId,
       meta.accountBinding ?? undefined,
@@ -3360,6 +3371,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     sessionId: meta.sessionId,
     ...(repositoryContext ? { repositoryContext } : {}),
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
+    ...(telosWorkRolePresentation ? { telosWorkRolePresentation } : {}),
     ...runtimeMetadata,
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,

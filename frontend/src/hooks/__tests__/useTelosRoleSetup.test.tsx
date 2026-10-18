@@ -491,3 +491,138 @@ it('CT04: a late old rejection cannot erase a newer explicit review before confi
     second.unmount();
   }
 });
+
+async function presentationFixture() {
+  const f = fixture();
+  const { sha256Hex } = await import('../../lib/browser-crypto');
+  const presentation = {
+    version: 1 as const,
+    contextSha256: sha256Hex(JSON.stringify(context)),
+    reviewedAt: '2026-10-18T10:00:00Z',
+    item: { itemId: context.itemId, revision: context.brief.revision, title: 'Reviewed work' },
+    overallGoal: {
+      itemId: context.overallGoal.itemId,
+      revision: context.overallGoal.revision,
+      title: 'Reviewed goal',
+    },
+    parents: [],
+    sources: [],
+    artifacts: [],
+  };
+  const presentationRef = {
+    id: '89b5166a-c549-4aa8-85f2-65dfbf0f2f81',
+    sha256: sha256Hex(JSON.stringify(presentation)),
+  };
+  const reviewRoleContext = vi.fn(async () => ({
+    version: 1 as const,
+    selection: structuredClone(context),
+    presentation: structuredClone(presentation),
+    presentationRef,
+  }));
+  const setupReviewedRole = vi.fn(async (_wrapper: unknown) => {
+    throw Error('Offline wrapper response lost');
+  });
+  Object.assign(f.api, { reviewRoleContext, setupReviewedRole });
+  return { ...f, presentation, presentationRef, reviewRoleContext, setupReviewedRole };
+}
+
+it('CT05: retains the exact reviewed presentation through uncertain wrapper retry without fetching replacement labels', async () => {
+  const f = await presentationFixture();
+  const { presentationRef, reviewRoleContext, setupReviewedRole } = f;
+  const first = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => first.result.current.review());
+  await act(async () => first.result.current.confirm());
+  expect(setupReviewedRole).toHaveBeenCalledOnce();
+  expect(reviewRoleContext).toHaveBeenCalledOnce();
+  expect(f.api.roleContext).not.toHaveBeenCalled();
+  expect(f.api.setupRole).not.toHaveBeenCalled();
+  const original = structuredClone(setupReviewedRole.mock.calls[0][0]);
+  expect(original).toMatchObject({
+    version: 1,
+    presentationRef,
+    input: { contextSelection: context, settings },
+  });
+  first.unmount();
+  f.options.settings.selection.model = 'Different currently selected model';
+  const second = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => second.result.current.retry());
+  expect(setupReviewedRole).toHaveBeenCalledTimes(2);
+  expect(setupReviewedRole.mock.calls[1][0]).toEqual(original);
+  expect(reviewRoleContext).toHaveBeenCalledOnce();
+  expect(second.result.current.locked).toBe(true);
+  expect(second.result.current.uncertain).toBe(true);
+  expect(f.onBound).not.toHaveBeenCalled();
+});
+
+it('CT05: terminal rejection retains its original display bytes and ref before explicit review, including after reload', async () => {
+  const f = await presentationFixture();
+  const { TelosWorkApiError } = await import('@mitzo/client');
+  f.setupReviewedRole.mockImplementationOnce(async (raw) => {
+    const wrapper = raw as { input: TelosWorkRoleSetupInput };
+    throw new TelosWorkApiError(409, 'conflict', 'Reviewed work changed', {
+      version: 1,
+      requestId: wrapper.input.requestId,
+      outcome: 'rejected_before_allocation',
+    });
+  });
+  const first = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => first.result.current.review());
+  await act(async () => first.result.current.confirm());
+  const original = f.setupReviewedRole.mock.calls[0][0] as { input: TelosWorkRoleSetupInput };
+  const retained = JSON.parse(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')!);
+  expect(retained.submission).toBeNull();
+  expect(retained.review).toBeNull();
+  expect(retained.rejections).toEqual([
+    {
+      submission: original.input,
+      recovery: {
+        version: 1,
+        requestId: original.input.requestId,
+        outcome: 'rejected_before_allocation',
+      },
+      presentation: f.presentation,
+      presentationRef: f.presentationRef,
+    },
+  ]);
+  first.unmount();
+  const second = renderHook(() => useTelosRoleSetup(f.options));
+  expect(second.result.current.rejectedBeforeAllocation).toBe(true);
+  expect(f.reviewRoleContext).toHaveBeenCalledOnce();
+  expect(f.setupReviewedRole).toHaveBeenCalledOnce();
+  await act(async () => second.result.current.retry());
+  expect(f.reviewRoleContext).toHaveBeenCalledTimes(2);
+  expect(f.setupReviewedRole).toHaveBeenCalledOnce();
+  expect(second.result.current.canConfirm).toBe(true);
+  expect(
+    JSON.parse(localStorage.getItem('mitzo-telos-role-setup:ordinary-draft')!).rejections,
+  ).toEqual(retained.rejections);
+  await act(async () => second.result.current.confirm());
+  const next = f.setupReviewedRole.mock.calls[1][0] as { input: TelosWorkRoleSetupInput };
+  expect(next.input.requestId).not.toBe(original.input.requestId);
+  expect(f.api.setupRole).not.toHaveBeenCalled();
+  expect(f.onBound).not.toHaveBeenCalled();
+});
+
+it('CT05: changed saved display bytes cannot trigger replay, replacement review or allocation', async () => {
+  const f = await presentationFixture();
+  const first = renderHook(() => useTelosRoleSetup(f.options));
+  await act(async () => first.result.current.review());
+  await act(async () => first.result.current.confirm());
+  first.unmount();
+  const storageKey = 'mitzo-telos-role-setup:ordinary-draft';
+  const retained = JSON.parse(localStorage.getItem(storageKey)!);
+  retained.review.presentation.overallGoal.title = 'Unreviewed replacement goal';
+  localStorage.setItem(storageKey, JSON.stringify(retained));
+  const bytes = localStorage.getItem(storageKey);
+  const second = renderHook(() => useTelosRoleSetup(f.options));
+  expect(second.result.current.locked).toBe(true);
+  expect(second.result.current.error).toContain('could not be read');
+  await act(async () => second.result.current.retry());
+  await act(async () => second.result.current.review());
+  await act(async () => second.result.current.confirm());
+  expect(f.reviewRoleContext).toHaveBeenCalledOnce();
+  expect(f.setupReviewedRole).toHaveBeenCalledOnce();
+  expect(f.api.setupRole).not.toHaveBeenCalled();
+  expect(localStorage.getItem(storageKey)).toBe(bytes);
+  expect(f.onBound).not.toHaveBeenCalled();
+});

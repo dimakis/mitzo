@@ -394,7 +394,7 @@ export async function ownedRuntimeFixture(
     return { rpc, launch, dispatch, dependencies, create };
   }
   const owner = commandFixture(reservation, request);
-  const prepareSibling = async () => {
+  const prepareRepository = async () => {
     const preview = await workspace.preview(
       binding,
       'fixture-github',
@@ -409,7 +409,10 @@ export async function ownedRuntimeFixture(
         },
       },
     );
-    const ready = await workspace.prepare(preview.id, binding, signal.signal);
+    return workspace.prepare(preview.id, binding, signal.signal);
+  };
+  const prepareSibling = async () => {
+    const ready = await prepareRepository();
     const resolved = catalog.resolve(request.runtime);
     if (resolved.status !== 'compatible') throw Error('Offline runtime unavailable');
     const prepared = await workspace.prepareOrdinarySession(
@@ -443,6 +446,8 @@ export async function ownedRuntimeFixture(
   };
   return {
     ...owner,
+    commandFor: commandFixture,
+    prepareRepository,
     prepareSibling,
     request,
     events,
