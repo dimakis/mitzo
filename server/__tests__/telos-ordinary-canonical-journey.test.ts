@@ -1,6 +1,6 @@
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { access, writeFile, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Response } from 'express';
@@ -344,6 +344,52 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   const saved = await api.saveAdvisorDraft({ ...draft, previewSha256: preview.sha256 });
   expect(await api.saveAdvisorDraft({ ...draft, previewSha256: preview.sha256 })).toEqual(saved);
   const childId = saved.work.itemId;
+  expect(saved.work.sources).toHaveLength(1);
+  const originalSource = saved.work.sources[0];
+  expect(originalSource).toMatchObject({
+    itemId: childId,
+    source: { namespace: 'mitzo', conversationId: advisorId },
+    selection: {
+      kind: 'selected',
+      messageIds: ['reviewed'],
+      blockIds: [],
+      throughSequence: sequence,
+    },
+  });
+  expect(originalSource.artifacts).toContainEqual(material);
+  const assertOriginalSource = async () => {
+    expect((await api.read(childId)).sources).toEqual([originalSource]);
+    const retainedSource = await api.readSource(childId, originalSource.snapshotId);
+    expect(retainedSource.snapshot).toEqual(originalSource);
+    expect(retainedSource.packet).toEqual(preview.packet);
+    expect(retainedSource.packet.selection).toEqual(draft.selection);
+    expect(retainedSource.packet.context.sourceConversationId).toBe(advisorId);
+    expect(retainedSource.packet.context.boundary).toEqual(draft.selection.boundary);
+    expect(retainedSource.packet.context.messages).toHaveLength(1);
+    expect(retainedSource.packet.context.messages[0]).toMatchObject({
+      conversationId: advisorId,
+      messageId: 'reviewed',
+      sequence,
+      author: 'operator',
+      blocks: [
+        { content: 'Retain this reviewed acoustic plan; execution is a separate decision.' },
+      ],
+    });
+    expect(createHash('sha256').update(JSON.stringify(retainedSource.packet)).digest('hex')).toBe(
+      preview.sha256,
+    );
+    const originalMaterial = retainedSource.packet.context.artifacts.find(
+      (pin) => pin.artifactId === material.artifactId,
+    )!;
+    expect(originalMaterial).toMatchObject(material);
+    const retainedMaterial = canonical.artifacts.read(material.artifactId, material.revision);
+    expect(retainedMaterial.sha256).toBe(material.sha256);
+    expect(retainedMaterial.bytes.toString()).toBe('The reviewed panel layout.');
+    expect(Buffer.from(originalMaterial.contentBase64!, 'base64')).toEqual(retainedMaterial.bytes);
+    expect(createHash('sha256').update(retainedMaterial.bytes).digest('hex')).toBe(material.sha256);
+  };
+  await assertOriginalSource();
+
   expect(
     canonical.db.prepare('SELECT first_seen,last_seen FROM items WHERE id=?').get(childId),
   ).toEqual({ first_seen: expect.any(String), last_seen: expect.any(String) });
@@ -420,6 +466,19 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     expect(session.ordinaryWorkspaceId).toBeTruthy();
     expect(session.cwd!.startsWith(f.taskRoot + '/')).toBe(true);
   }
+  const { resolveTelosWorkRoleContext } = await import('../telos-work-role-context.js');
+  const workerContext = resolveTelosWorkRoleContext(
+    chat.eventStore,
+    workerId,
+    chat.eventStore.getSession(workerId)!.accountBinding!,
+  );
+  expect(workerContext).toMatchObject({
+    itemId: childId,
+    role: 'worker',
+    leadConversationId: leadId,
+  });
+  expect(workerContext!.sources).toEqual([originalSource]);
+  expect(workerContext!.artifacts).toContainEqual(material);
   const workerCommand = command(workerId);
   expect(await ordinary.firstCommand(workerCommand)).toMatchObject({
     state: 'consumed',
@@ -427,6 +486,9 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   });
   const worker = chat.registry.findBySessionId(workerId)!;
   const workerNative = nativeSessions[1];
+  const workerTurnStarts = () =>
+    workerNative.rpc.request.mock.calls.filter(([method]) => method === 'turn/start').length;
+  expect(workerTurnStarts()).toBe(1);
   expect(worker.session.taskContext?.currentTaskId).toBe(taskId);
   expect(nativeSessions).toHaveLength(2);
   const directory = chat.eventStore.getSession(workerId)!.cwd!;
@@ -542,11 +604,14 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   const transport = worker.session.transport;
   expect(chat.detachChatIfCurrentTransport(worker.clientId, transport)).toBe(true);
   expect(chat.reattachChat(worker.clientId, { send: vi.fn(), isOpen: () => true })).toBe(true);
+  const turnsBeforeReplay = workerTurnStarts();
+  expect(turnsBeforeReplay).toBe(1);
   expect(await ordinary.firstCommand(workerCommand)).toMatchObject({
     state: 'consumed',
     dispatched: false,
   });
   expect(nativeSessions).toHaveLength(2);
+  expect(workerTurnStarts()).toBe(turnsBeforeReplay);
   for (const id of [leadId, workerId])
     chat.stopOrdinaryChat(chat.registry.findBySessionId(id)!.clientId);
   await vi.waitFor(() => {
@@ -575,6 +640,14 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     reopenedTasks.close();
   }
   canonical.restartOwners();
+  await assertOriginalSource();
+  expect(
+    resolveTelosWorkRoleContext(
+      chat.eventStore,
+      workerId,
+      chat.eventStore.getSession(workerId)!.accountBinding!,
+    ),
+  ).toEqual(workerContext);
   expect(canonical.artifacts.read(output.id, output.revision).bytes.toString()).toBe(report);
   expect(items.read(childId).status).toBe('completed');
   expect(chat.eventStore.getOrdinaryInitialCommandId(f.first.receipt.sessionId)).toBeUndefined();
