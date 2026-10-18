@@ -127,7 +127,8 @@ it('recovers a failed conversation read through the actual Refresh Telos action 
   refresh();
   await screen.findByRole('button', { name: 'Lead chat' });
   expect(row()).toBe(mounted);
-  expect(collection().refresh).toHaveBeenCalledOnce();
+  // This fixture shares one spy between the full discovery and legacy owners.
+  expect(collection().refresh).toHaveBeenCalledTimes(2);
   expect(read).toHaveBeenCalledTimes(2);
   expect(screen.queryByText('Conversations unavailable')).toBeNull();
 });

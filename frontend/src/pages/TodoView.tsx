@@ -265,6 +265,9 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const location = useLocation();
   const restoredProfile = (location.state as { activeProfile?: string } | null)?.activeProfile;
   const [activeProfile, setActiveProfile] = useState<string | undefined>(restoredProfile);
+  // Canonical discovery covers every profile; the legacy selection remains a
+  // fallback preference, including when restored through item navigation.
+  const discovery = useTodoData();
   const { loading, error, items, profiles, ack, done, create, createOutcome, refresh } =
     useTodoData(activeProfile);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
@@ -339,8 +342,13 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
       collectIds(item.children);
     }
   }
-  collectIds(items);
+  collectIds(discovery.items);
   const canonical = useTelosRecords(recordIds);
+  function refreshWorkspace() {
+    discovery.refresh();
+    refresh();
+    canonical.refresh();
+  }
 
   // Restore scroll position when returning from detail view
   useEffect(() => {
@@ -377,7 +385,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     setCreating({ parentId });
   }
 
-  if (canonical.records.length > 0 || items.length === 0)
+  if (canonical.records.length > 0 || (discovery.items.length === 0 && items.length === 0))
     return (
       <div className="todo-page telos-canonical-page">
         <div className="todo-collection-heading">
@@ -391,10 +399,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
                 </button>
                 <button
                   className="todo-refresh"
-                  onClick={() => {
-                    refresh();
-                    canonical.refresh();
-                  }}
+                  onClick={refreshWorkspace}
                   aria-label="Refresh Telos"
                 >
                   <UiIcon name="retry" size={16} />
@@ -416,8 +421,8 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             />
           )}
 
-          {error && canonical.records.length > 0 && (
-            <p role="alert">{error} Displayed records may be stale.</p>
+          {discovery.error && canonical.records.length > 0 && (
+            <p role="alert">{discovery.error} Displayed records may be stale.</p>
           )}
           {canonical.unavailable.length > 0 && (
             <p role="alert">
@@ -427,8 +432,8 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
           <TelosOutcomesTree
             records={canonical.records}
             refreshKey={canonical.refreshKey}
-            loading={loading}
-            error={error && canonical.records.length === 0 ? error : undefined}
+            loading={discovery.loading}
+            error={discovery.error && canonical.records.length === 0 ? discovery.error : undefined}
             selectedId={selectedId}
             onOpen={(id, view) => {
               if (view) {
@@ -465,10 +470,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
               </button>
               <button
                 className="todo-refresh"
-                onClick={() => {
-                  refresh();
-                  canonical.refresh();
-                }}
+                onClick={refreshWorkspace}
                 aria-label="Refresh Telos"
               >
                 <UiIcon name="retry" size={16} />
@@ -480,7 +482,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
 
       <div className="todo-scroll" ref={scrollRef}>
         {planningError && <p role="alert">{planningError}</p>}
-        {canonical.unavailable.length > 0 && (
+        {(canonical.unavailable.length > 0 || discovery.error) && (
           <p role="alert">
             Outcome workspace records unavailable. Original Telos fields remain available below.
           </p>

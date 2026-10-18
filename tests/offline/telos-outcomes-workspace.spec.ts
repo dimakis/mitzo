@@ -64,10 +64,12 @@ for (const theme of ['dark', 'light'])
         TelosWorkItemSchema.parse({
           ...r,
           priority: 5,
+          profile: fixtures.homeStudio.items.some((item) => item.itemId === r.itemId)
+            ? 'manual'
+            : 'work',
           categories: i === 0 ? ['Recording'] : r.categories,
         }),
       );
-    const todos = records.filter((r) => !r.parentId).map((r) => legacy(r));
     function legacy(record: (typeof records)[number]): unknown {
       return {
         id: record.itemId,
@@ -158,7 +160,20 @@ for (const theme of ['dark', 'light'])
         return collectionMode === 'error'
           ? route.fulfill({ status: 503, json: { error: 'Unavailable' } })
           : route.fulfill({
-              json: { profiles: ['manual'], items: collectionMode === 'empty' ? [] : todos },
+              json: {
+                profiles: ['manual', 'work'],
+                items:
+                  collectionMode === 'empty'
+                    ? []
+                    : records
+                        .filter(
+                          (record) =>
+                            !record.parentId &&
+                            (!url.searchParams.get('profile') ||
+                              record.profile === url.searchParams.get('profile')),
+                        )
+                        .map(legacy),
+              },
             });
       const action = url.pathname.match(/^\/api\/todos\/([^/]+)\/action$/);
       if (action && route.request().method() === 'POST') {
@@ -597,9 +612,23 @@ for (const theme of ['dark', 'light'])
     await expect(
       page.getByRole('alert').filter({ hasText: 'Outcome workspace records unavailable' }),
     ).toBeVisible();
+    // A legacy filter is still usable during failure, but cannot restrict the
+    // canonical tree after recovery or hide another profile's known outcomes.
+    await page.locator('.todo-filters').getByRole('button', { name: 'work', exact: true }).click();
+    await expect(page.getByText(records[0].summary, { exact: true })).toHaveCount(0);
     failRecords = false;
     await page.getByRole('button', { name: 'Refresh Telos' }).click();
     await expect(page.getByRole('button', { name: 'All outcomes', exact: true })).toBeVisible();
+    await expect(search).toHaveValue('frontend/src/pages/TodoView.tsx');
+    await search.fill('');
+    await page
+      .getByLabel('Pinned categories', { exact: true })
+      .getByRole('button', { name: 'All', exact: true })
+      .click();
+    await expect(page.getByRole('button', { name: records[0].summary, exact: true })).toBeVisible();
+    const workRoot = records.find((record) => !record.parentId && record.profile === 'work')!;
+    await expect(page.getByRole('button', { name: workRoot.summary, exact: true })).toBeVisible();
+    await expect(page.locator('.todo-filters')).toHaveCount(0);
     collectionMode = 'empty';
     await reload();
     await expect(page.getByText('No outcomes yet.')).toBeVisible();

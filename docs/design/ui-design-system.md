@@ -1513,6 +1513,11 @@ not inherit the old fixed mobile page width after the focused-route migration.
 Kind labels never come from child counts or source profiles. Current-role links
 are read through the existing work client; the row enters the workspace Chat tab
 and the existing role owner performs setup. It never allocates from a tree read.
+Canonical discovery reads the full collection independently of the legacy profile
+filter. Recovery, direct navigation state and item Back retain cross-profile All
+outcomes while the filtered fallback keeps its own profile preference. Refresh
+rechecks both cache-backed collection owners; identical URLs share one HTTP read.
+
 Mounted conversation rows in the collection and the focused item's Overview/Work
 child trees share the canonical record owner's refresh generation. This prop is
 required through the detail workspace, tree and row so omitted callers fail typing.
