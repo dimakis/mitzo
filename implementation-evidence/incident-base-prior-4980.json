@@ -1,0 +1,12 @@
+{
+  "id": 4980,
+  "head_sha": "70776eabc851fabe586c40ec21bc4569673ac96d",
+  "status": "queued",
+  "stage": "review",
+  "revision": 1,
+  "attempts": 0,
+  "last_error": "PR base or merge commit changed while reading CI",
+  "force_review": 1,
+  "force_follow_up": 0,
+  "auto_fix": 0
+}

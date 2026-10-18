@@ -8,6 +8,8 @@ import type { SessionTransport } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { V2SendMessage } from '@mitzo/protocol';
+import { EventStore } from '../event-store.js';
+import { acceptSendCommandAsync } from '../send-command.js';
 
 vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
@@ -6030,6 +6032,178 @@ it('correlates a delayed new-session assignment with its original launch command
       clientMsgId: 'launch-id',
     }),
   );
+});
+
+it.each(['before', 'after'] as const)(
+  'reports one startup failure when the stream reports it %s admission rejection is handled',
+  async (order) => {
+    const ctx = createContext();
+    ctx.eventStore.hasUserMessage = vi.fn().mockReturnValue(false);
+    const transport = mockTransport();
+    ctx.connRegistry.register('startup-conn', transport);
+    let report!: () => void;
+    vi.mocked(startChat).mockImplementationOnce(
+      async (startupTransport, _clientId, _prompt, options) => {
+        startupTransport.send({ type: 'session_id', sessionId: 'startup-session' });
+        options?.onStartupAdmission?.(new Error('Startup failed'));
+        report = () =>
+          startupTransport.send({
+            type: 'error',
+            sessionId: 'startup-session',
+            error: 'Startup failed',
+          });
+        if (order === 'before') report();
+      },
+    );
+    await handleSendV2(
+      'startup-conn',
+      transport,
+      { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-id' },
+      ctx,
+      { awaitStartupAdmission: true },
+    );
+    if (order === 'after') report();
+    const errors = transport.sent.filter((event) => event.type === 'error');
+    expect(errors).toEqual([
+      expect.objectContaining({ error: 'Startup failed', clientMsgId: 'launch-id' }),
+    ]);
+  },
+);
+
+it('persists one startup error and keeps a failed receipt from dispatching again', async () => {
+  const store = new EventStore(':memory:');
+  const ctx = createContext({ eventStore: store });
+  const transport = mockTransport();
+  const message = V2SendMessage.parse({
+    type: 'send',
+    sessionId: null,
+    prompt: 'Continue research',
+    clientMsgId: 'durable-startup-failure',
+  });
+  vi.mocked(startChat).mockImplementationOnce(async (startupTransport, _client, _prompt, opts) => {
+    startupTransport.send({ type: 'session_id', sessionId: opts.initialSessionId });
+    opts.onStartupAdmission?.(new Error('Bounded transport failure'));
+    startupTransport.send({
+      type: 'error',
+      sessionId: opts.initialSessionId,
+      error: 'Bounded transport failure',
+    });
+  });
+  const dispatch = vi.fn(async (command: typeof message, sessionId: string) => {
+    await handleSendV2(
+      'offline-receipt',
+      {
+        isOpen: () => true,
+        send(event) {
+          const durable = { ...event, sessionId };
+          store.append(sessionId, String(event.type), durable);
+          if (event.type === 'error')
+            store.failSendCommand(command.clientMsgId, String(event.error));
+          transport.send(durable);
+        },
+      },
+      command,
+      ctx,
+      { initialSessionId: sessionId, awaitStartupAdmission: true, receiptAdmitted: true },
+    );
+  });
+  try {
+    await expect(async () => acceptSendCommandAsync(store, message, dispatch)).rejects.toThrow(
+      'Bounded transport failure',
+    );
+    const sessionId = store.getSendCommand(message.clientMsgId)!.sessionId!;
+    expect(
+      store.getSessionEvents(sessionId).filter((event) => event.type === 'error'),
+    ).toHaveLength(1);
+    await expect(async () => acceptSendCommandAsync(store, message, dispatch)).rejects.toThrow(
+      'Bounded transport failure',
+    );
+    expect(dispatch).toHaveBeenCalledOnce();
+  } finally {
+    ctx.connRegistry.dispose();
+    store.close();
+  }
+});
+
+it('settles admission when the startup launcher rejects before invoking its callback', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  vi.mocked(startChat).mockRejectedValueOnce(new Error('Startup launcher failed'));
+  await handleSendV2(
+    'startup-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Launch', clientMsgId: 'launch-rejected' },
+    ctx,
+    { awaitStartupAdmission: true },
+  );
+  expect(transport.sent.filter((event) => event.type === 'error')).toEqual([
+    expect.objectContaining({ error: 'Startup launcher failed', clientMsgId: 'launch-rejected' }),
+  ]);
+});
+
+it('settles admitted startup even when its skill notification cannot be delivered', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  vi.mocked(resolveSlashCommand).mockReturnValueOnce({
+    type: 'skill',
+    name: 'commit',
+    renderedPrompt: 'Create a commit',
+    allowedTools: ['Bash'],
+    arguments: '',
+  });
+  const deliver = transport.send.bind(transport);
+  transport.send = (event) => {
+    if (event.type === 'skill_invoked') throw new Error('Offline notification delivery');
+    deliver(event);
+  };
+  vi.mocked(startChat).mockImplementationOnce(async (startupTransport, _client, _prompt, opts) => {
+    try {
+      opts.onStartupAdmission?.();
+    } catch {
+      // The driver has already settled its one-shot admission observer. Its
+      // normal failure path reports the delivery problem through the stream.
+      startupTransport.send({ type: 'error', error: 'Startup notification failed' });
+    }
+  });
+  let settled = false;
+  const handling = handleSendV2(
+    'notification-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: '/commit', clientMsgId: 'notification-failed' },
+    ctx,
+    { awaitStartupAdmission: true },
+  ).then(() => {
+    settled = true;
+  });
+  await vi.waitFor(() => expect(settled).toBe(true));
+  await handling;
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({
+      type: 'error',
+      error: 'Startup notification failed',
+    }),
+  );
+});
+
+it('keeps runtime errors independent after startup admission has already succeeded', async () => {
+  const ctx = createContext();
+  const transport = mockTransport();
+  vi.mocked(startChat).mockImplementationOnce(async (startupTransport, _client, _prompt, opts) => {
+    opts.onStartupAdmission?.();
+    // The outer chat catch may report a later runtime failure through the same
+    // callback. It cannot turn an accepted startup into a failed admission.
+    opts.onStartupAdmission?.(new Error('Late runtime failure'));
+    startupTransport.send({ type: 'error', error: 'Runtime failure one' });
+    startupTransport.send({ type: 'error', error: 'Runtime failure two' });
+  });
+  await handleSendV2(
+    'runtime-conn',
+    transport,
+    { type: 'send', sessionId: null, prompt: 'Run', clientMsgId: 'accepted-runtime' },
+    ctx,
+    { awaitStartupAdmission: true },
+  );
+  expect(transport.sent.filter((event) => event.type === 'error')).toHaveLength(2);
 });
 
 it('correlates a caught startup error after assigning the launch session', async () => {
