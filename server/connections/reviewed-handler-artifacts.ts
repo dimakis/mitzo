@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.288-telos-priority-remount';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.289-telos-priority-publication';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -903,7 +904,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useSessionList.ts':
     '8da1fb05d820785afec8e7ab671b10ed83b84c67ffff1317d5fd5ce677f2a4c7',
   '../../frontend/src/hooks/useTodoData.ts':
-    '214f049b45aa0a9ea516aa5a0d42c621bef4b606fdacb8b24faf5610cdecabfe',
+    '0792adfba908bde71c3e9e296a1610ec64060c81dcb76cece44973adfcabe4f6',
   '../../frontend/src/lib/api-fetch.ts':
     '39ae0be32bfda66e5135dbe287eecb5cb5bce0c74d3e823897d6363d040bf9ff',
   '../../frontend/src/lib/api-json-read.ts':

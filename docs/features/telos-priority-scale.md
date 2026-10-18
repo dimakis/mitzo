@@ -59,6 +59,8 @@ the item is absent from the unfiltered snapshot and reads fail. Confirmed writes
 and newly admitted reads update this memory; rejected or superseded reads cannot.
 Later authoritative reads replace earlier confirmations, and only matching item
 identities use a fallback value. Authentication loss/restoration clears it.
+List consumers publish through their cache subscription only; finishing an older
+read promise cannot replay its data over a newer confirmed save.
 
 The added database column participates in the existing item revision snapshots.
 Ordinary role/delegation owners retain their existing revision conflict checks;

@@ -135,9 +135,11 @@ export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDa
         },
         rememberPriorities,
       )
-      .then((result: TodoData) => {
+      .then(() => {
         if (!cancelled) {
-          setData(result);
+          // The cache subscription publishes admitted reads and confirmed
+          // mutations in order. Promise completion must not replay an older
+          // read over a write acknowledged after that read's admission.
           setError(null);
           setLoading(false);
           setRefreshing(false);
