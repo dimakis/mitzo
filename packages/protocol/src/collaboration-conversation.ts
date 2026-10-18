@@ -229,6 +229,54 @@ export const CollaborationSnapshotMessageSchema = z.strictObject({
   source: CollaborationMessageSourceSchema.nullable(),
   blocks: z.array(block).min(1).max(100),
 });
+/** Completed ordinary visible text at one durable read boundary. This carries
+ * no private source witness, provider identity, admission or joining authority. */
+export const COLLABORATION_DURABLE_TRANSCRIPT_MAX_MATERIAL_BYTES = 512 * 1024;
+// IDs have at most 200 UTF-16 code units. JSON control-character escaping
+// costs at most six bytes per unit; the largest safe sequence has 16 digits.
+// Charge this fixed public envelope separately from the existing message budget.
+export const COLLABORATION_DURABLE_TRANSCRIPT_MAX_WIRE_BYTES =
+  COLLABORATION_DURABLE_TRANSCRIPT_MAX_MATERIAL_BYTES +
+  new TextEncoder().encode(
+    JSON.stringify({
+      sourceConversationId: '\u0000'.repeat(200),
+      boundary: { sequence: Number.MAX_SAFE_INTEGER - 1, messageId: '\u0000'.repeat(200) },
+      messages: [],
+    }),
+  ).byteLength -
+  2;
+export const CollaborationDurableTranscriptSchema = z
+  .strictObject({
+    sourceConversationId: id,
+    boundary: z.strictObject({ sequence: sequence.min(1), messageId: id }),
+    messages: z.array(CollaborationSnapshotMessageSchema).min(1).max(500),
+  })
+  .superRefine((value, context) => {
+    let previous = 0;
+    const seen = new Set<string>();
+    for (const message of value.messages) {
+      if (
+        message.conversationId !== value.sourceConversationId ||
+        (message.author !== 'operator' &&
+          message.author.sessionId !== value.sourceConversationId) ||
+        message.source !== null ||
+        message.sequence <= previous ||
+        message.sequence > value.boundary.sequence ||
+        seen.has(message.messageId)
+      )
+        context.addIssue({ code: 'custom', message: 'Durable source identity changed' });
+      previous = message.sequence;
+      seen.add(message.messageId);
+    }
+    if (value.messages.at(-1)?.messageId !== value.boundary.messageId)
+      context.addIssue({ code: 'custom', message: 'Durable source boundary changed' });
+    if (
+      new TextEncoder().encode(JSON.stringify(value.messages)).byteLength >
+      COLLABORATION_DURABLE_TRANSCRIPT_MAX_MATERIAL_BYTES
+    )
+      context.addIssue({ code: 'custom', message: 'Durable source exceeds byte limit' });
+  });
+export type CollaborationDurableTranscript = z.infer<typeof CollaborationDurableTranscriptSchema>;
 const artifact = z.strictObject({
   artifactId: id,
   revision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),

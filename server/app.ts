@@ -3014,6 +3014,7 @@ app.get('/api/sessions/:id/context', (req, res) => {
 app.get(
   '/api/sessions/:id/messages',
   createSessionMessagesHandler({
+    getDurableSessionTranscript: (sessionId) => eventStore.getDurableSessionTranscript(sessionId),
     getMessages: (sessionId) => getMessages(sessionId),
     getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),
     getReconnectTranscript: (sessionId, cursor) => getReconnectTranscript(sessionId, cursor),

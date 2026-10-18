@@ -4,14 +4,17 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   CollaborationContractError,
+  COLLABORATION_DURABLE_TRANSCRIPT_MAX_MATERIAL_BYTES,
+  CollaborationDurableTranscriptSchema,
   CollaborationSnapshotMessageSchema,
 } from './collaboration-conversation.js';
+import { SymposiumProvenanceSchema } from './symposium.js';
 
 type Message = z.infer<typeof CollaborationSnapshotMessageSchema>;
 type Boundary = { sequence: number; messageId: string | null };
 type Pin = { artifactId: string; revision: number; sha256: string };
 type Anchor = { seq: number; type: string; messageId: string };
-const maxBytes = 512 * 1024;
+const maxBytes = COLLABORATION_DURABLE_TRANSCRIPT_MAX_MATERIAL_BYTES;
 // Bound SQL scalar projections before SQLite transfers them into JavaScript.
 const boundedId = (expression: string) => `CASE WHEN typeof(${expression})='text'
  AND length(CAST(${expression} AS BLOB))<=800 AND length(${expression}) BETWEEN 1 AND 200
@@ -23,6 +26,16 @@ function fail(): never {
 }
 function overflow(): never {
   throw new CollaborationContractError('capacity_refused');
+}
+function decodeSourceText(value: unknown): string {
+  if (!Buffer.isBuffer(value)) fail();
+  try {
+    // SQLite can extract unsupported surrogate encodings from escaped JSON.
+    // Decode exact scalar bytes, never silently replace them or undercharge.
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(value);
+  } catch {
+    fail();
+  }
 }
 // Presence, including explicit JSON null, must match the canonical renderer's attribution fence.
 const ordinary = (alias = '') => {
@@ -38,6 +51,111 @@ const anchors = `session_id=@session AND seq<=@through AND ${ordinary()} AND
  AND b.type='block_start' AND ${ordinary('b')}
  AND json_extract(b.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
  AND json_extract(b.payload,'$.blockType')='text')))`;
+
+/** Capture from retained events only. The highwater and completed anchor belong
+ * to the same SQLite read transaction as every bounded visible-text projection.
+ * No lifecycle recovery, SDK discovery, provider payload or event replay is used. */
+export function captureCollaborationDurableTranscript(
+  db: Database.Database,
+  session: string,
+  initialPrompt?: string | null,
+) {
+  CollaborationDurableTranscriptSchema.shape.sourceConversationId.parse(session);
+  return db.transaction(() => {
+    const { through } = db
+      .prepare('SELECT MAX(seq) AS through FROM events WHERE session_id=?')
+      .get(session) as { through: number | null };
+    if (through === null || !Number.isSafeInteger(through) || through < 1) fail();
+    const args = { session, through };
+    // Native seat rows are never ordinary context. Before excluding them,
+    // validate their retained mapping like canonical replay; no payload is read.
+    const attributed = `session_id=@session AND seq<=@through
+      AND (seat_id IS NOT NULL OR symposium_provenance IS NOT NULL)`;
+    const inventory = db
+      .prepare(
+        `SELECT count(*) AS n,
+          COALESCE(sum(length(CAST(seat_id AS BLOB))+length(CAST(symposium_provenance AS BLOB))),0) AS bytes,
+          COALESCE(sum(CASE WHEN typeof(seat_id)!='text' OR typeof(symposium_provenance)!='text'
+            OR length(seat_id) NOT BETWEEN 1 AND 200 OR length(CAST(seat_id AS BLOB))>800
+            THEN 1 ELSE 0 END),0) AS invalid
+         FROM events WHERE ${attributed}`,
+      )
+      .get(args) as { n: number; bytes: number; invalid: number };
+    if (inventory.invalid) fail();
+    if (!Number.isSafeInteger(inventory.bytes) || inventory.bytes > maxBytes) overflow();
+    let remaining = maxBytes;
+    let afterMapping = 0;
+    let observed = 0;
+    while (observed < inventory.n) {
+      // Seq-keyset scalar metadata only: no DISTINCT/raw-JSON sort and no
+      // unbounded list or provenance hydration before aggregate admission.
+      const page = db
+        .prepare(
+          `SELECT seq,length(CAST(seat_id AS BLOB)) AS seatBytes,
+            length(CAST(symposium_provenance AS BLOB)) AS bytes
+           FROM events WHERE ${attributed} AND seq>@after ORDER BY seq LIMIT 50`,
+        )
+        .all({ ...args, after: afterMapping }) as Array<{
+        seq: number;
+        seatBytes: number;
+        bytes: number;
+      }>;
+      if (!page.length) fail();
+      for (const item of page) {
+        if (item.bytes + item.seatBytes > remaining) overflow();
+        const mapping = db
+          .prepare(
+            `SELECT CAST(${boundedId('seat_id')} AS BLOB) AS seat,
+              CASE WHEN length(CAST(symposium_provenance AS BLOB))<=@remaining
+                THEN CAST(symposium_provenance AS BLOB) END AS provenance
+             FROM events WHERE session_id=@session AND seq=@seq`,
+          )
+          .get({ session, seq: item.seq, remaining: remaining - item.seatBytes }) as
+          | {
+              seat: unknown;
+              provenance: unknown;
+            }
+          | undefined;
+        if (!mapping) fail();
+        const seat = decodeSourceText(mapping.seat);
+        const provenance = decodeSourceText(mapping.provenance);
+        let raw: unknown;
+        try {
+          raw = JSON.parse(provenance);
+        } catch {
+          fail();
+        }
+        const parsed = SymposiumProvenanceSchema.safeParse(raw);
+        if (!parsed.success || parsed.data.seatId !== seat) fail();
+        remaining -= item.bytes + item.seatBytes;
+        afterMapping = item.seq;
+        if (++observed > inventory.n) fail();
+      }
+    }
+    const last = db
+      .prepare(
+        `SELECT ${messageIdProjection} AS messageId FROM events WHERE ${anchors} ORDER BY seq DESC LIMIT 1`,
+      )
+      .get(args) as { messageId: unknown } | undefined;
+    if (!last || typeof last.messageId !== 'string') fail();
+    const boundary = { sequence: through, messageId: last.messageId };
+    const source = openCollaborationVisibleSource(db, session, boundary, initialPrompt);
+    // Enforce full-prefix count and aggregate byte bounds before paging, so
+    // neither an empty result nor truncation can qualify an incomplete source.
+    source.readPrefixWitness();
+    const messages: Message[] = [];
+    let after = 0;
+    for (;;) {
+      const page = source.readPage(after, 50);
+      messages.push(...page.messages);
+      if (!page.hasMore) break;
+      after = page.throughSequence;
+    }
+    const result = { sourceConversationId: session, boundary, messages };
+    if (Buffer.byteLength(JSON.stringify(messages)) > maxBytes) overflow();
+    return CollaborationDurableTranscriptSchema.parse(result);
+  })();
+}
 
 /** Borrows EventStore's connection. This capability neither grants session access nor dispatches.
  * Read projections have explicit event/text bounds and never hydrate arbitrary JSON payloads.
@@ -134,10 +252,15 @@ export function openCollaborationVisibleSource(
     if (typeof anchor.messageId !== 'string' || !anchor.messageId) fail();
     const exact = db
       .prepare(
-        `SELECT type,${messageIdProjection} AS messageId FROM events WHERE ${anchors} AND seq=@seq`,
+        `SELECT type,CAST(${messageIdProjection} AS BLOB) AS messageId FROM events WHERE ${anchors} AND seq=@seq`,
       )
-      .get({ ...args, seq: anchor.seq }) as { type: string; messageId: string } | undefined;
-    if (!exact || exact.type !== anchor.type || exact.messageId !== anchor.messageId) fail();
+      .get({ ...args, seq: anchor.seq }) as { type: string; messageId: unknown } | undefined;
+    if (
+      !exact ||
+      exact.type !== anchor.type ||
+      decodeSourceText(exact.messageId) !== anchor.messageId
+    )
+      fail();
     const blocks: Message['blocks'] = [];
     const envelope = {
       conversationId: session,
@@ -154,19 +277,26 @@ export function openCollaborationVisibleSource(
     };
     charge(0);
     if (anchor.type === 'user_message') {
+      const blockId = `user-${anchor.messageId}`;
+      charge(Buffer.byteLength(JSON.stringify({ blockId, content: '', sha256: '0'.repeat(64) })));
       const row = db
         .prepare(
-          `SELECT length(CAST(json_extract(payload,'$.text') AS BLOB)) AS bytes,
-        CASE WHEN length(CAST(json_extract(payload,'$.text') AS BLOB))<=?
-        THEN json_extract(payload,'$.text') END AS text FROM events WHERE session_id=? AND seq=? AND ${ordinary()}`,
+          `SELECT length(CAST(json_quote(json_extract(payload,'$.text')) AS BLOB))-2 AS bytes,
+        CASE WHEN json_type(payload,'$.text')='text'
+          AND length(CAST(json_quote(json_extract(payload,'$.text')) AS BLOB))-2<=?
+        THEN CAST(json_extract(payload,'$.text') AS BLOB) END AS text
+        FROM events WHERE session_id=? AND seq=? AND ${ordinary()}`,
         )
-        .get(remainingBytes - bytes, session, anchor.seq) as { text: unknown; bytes: number };
+        .get(remainingBytes - bytes, session, anchor.seq) as
+        { text: unknown; bytes: number } | undefined;
+      if (!row) fail();
       if (row.bytes > remainingBytes - bytes) overflow();
-      if (typeof row.text !== 'string') fail();
+      const text = decodeSourceText(row.text);
+      charge(Buffer.byteLength(JSON.stringify(text)) - 2);
       blocks.push({
-        blockId: `user-${anchor.messageId}`,
-        content: row.text,
-        sha256: hash(row.text),
+        blockId,
+        content: text,
+        sha256: hash(text),
       });
     } else {
       const start = db
@@ -176,59 +306,70 @@ export function openCollaborationVisibleSource(
         )
         .get(session, anchor.seq, anchor.messageId) as { seq: number } | undefined;
       if (!start) fail();
-      type Row = { type: string; blockId: unknown; blockType: unknown; delta: unknown };
+      type Row = {
+        seq: number;
+        type: string;
+        blockId: unknown;
+        blockType: unknown;
+        deltaType: unknown;
+        deltaBytes: number;
+      };
       const rows = db
         .prepare(
-          `SELECT type,${boundedId("json_extract(payload,'$.blockId')")} AS blockId,
+          `SELECT seq,type,CAST(${boundedId("json_extract(payload,'$.blockId')")} AS BLOB) AS blockId,
         ${boundedId("json_extract(payload,'$.blockType')")} AS blockType,
-        length(CAST(json_extract(payload,'$.delta') AS BLOB)) AS deltaBytes,
-        CASE WHEN EXISTS (SELECT 1 FROM events text_block WHERE text_block.session_id=events.session_id
-          AND text_block.seq>? AND text_block.seq<events.seq AND text_block.type='block_start'
-          AND ${ordinary('text_block')}
-          AND json_extract(text_block.payload,'$.messageId')=json_extract(events.payload,'$.messageId')
-          AND json_extract(text_block.payload,'$.blockId')=json_extract(events.payload,'$.blockId')
-          AND json_extract(text_block.payload,'$.blockType')='text')
-        AND length(CAST(json_extract(payload,'$.delta') AS BLOB))<=524288 THEN json_extract(payload,'$.delta') END AS delta
+        json_type(payload,'$.delta') AS deltaType,
+        length(CAST(json_quote(json_extract(payload,'$.delta')) AS BLOB))-2 AS deltaBytes
         FROM events WHERE session_id=? AND seq>? AND seq<? AND ${ordinary()}
         AND json_extract(payload,'$.messageId')=? AND type IN ('block_start','block_delta','block_end')
         ORDER BY seq LIMIT 20001`,
         )
-        .iterate(start.seq, session, start.seq, anchor.seq, anchor.messageId) as IterableIterator<
-        Row & { deltaBytes: number }
-      >;
+        .iterate(session, start.seq, anchor.seq, anchor.messageId) as IterableIterator<Row>;
       const opened = new Map<string, { content: string; closed: boolean; visible: boolean }>();
       let eventCount = 0;
       let visibleBlocks = 0;
       for (const row of rows) {
         if (++eventCount > 20000) overflow();
-        if (typeof row.blockId !== 'string') fail();
+        const blockId = decodeSourceText(row.blockId);
         if (row.type === 'block_start') {
           if (typeof row.blockType !== 'string') fail();
-          if (opened.has(row.blockId)) fail();
+          if (opened.has(blockId)) fail();
           if (row.blockType === 'text')
             charge(
               Buffer.byteLength(
                 JSON.stringify({
-                  blockId: row.blockId,
+                  blockId,
                   content: '',
                   sha256: '0'.repeat(64),
                 }),
               ) + (visibleBlocks++ ? 1 : 0),
             );
-          opened.set(row.blockId, {
+          opened.set(blockId, {
             content: '',
             closed: false,
             visible: row.blockType === 'text',
           });
         } else {
-          const block = opened.get(row.blockId);
+          const block = opened.get(blockId);
           if (!block || block.closed) fail();
           if (row.type === 'block_end') block.closed = true;
           else if (block.visible) {
+            if (row.deltaType !== 'text') fail();
             if (row.deltaBytes > remainingBytes - bytes) overflow();
-            if (typeof row.delta !== 'string') fail();
-            charge(Buffer.byteLength(JSON.stringify(row.delta)) - 2);
-            block.content += row.delta;
+            const projected = db
+              .prepare(
+                `SELECT CASE WHEN json_type(payload,'$.delta')='text'
+                AND length(CAST(json_quote(json_extract(payload,'$.delta')) AS BLOB))-2<=?
+                THEN CAST(json_extract(payload,'$.delta') AS BLOB) END AS delta
+               FROM events WHERE session_id=? AND seq=? AND type='block_delta' AND ${ordinary()}
+                AND json_extract(payload,'$.messageId')=? AND json_extract(payload,'$.blockId')=?`,
+              )
+              .get(remainingBytes - bytes, session, row.seq, anchor.messageId, blockId) as
+              { delta: unknown } | undefined;
+            if (!projected) fail();
+            const delta = decodeSourceText(projected.delta);
+            charge(Buffer.byteLength(JSON.stringify(delta)) - 2);
+            block.content += delta;
           }
         }
       }
