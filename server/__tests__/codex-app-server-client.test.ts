@@ -5,6 +5,10 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { verifiedRuntimeServiceEnvironment } from '../openshell-runtime-policy.js';
 import { tracer } from '../tracing.js';
+import {
+  codexRuntimeErrorTelemetry,
+  codexRuntimeDiagnostic,
+} from '../codex-runtime-diagnostics.js';
 import { SpanStatusCode, type Span } from '@opentelemetry/api';
 import { base, fixture } from './fixtures/effective-runtime-policy.js';
 import {
@@ -312,6 +316,93 @@ describe('Codex app-server transport', () => {
       await pending;
       expect(child.kill).toHaveBeenCalled();
     }
+  });
+
+  it.each([
+    ['{PRIVATE-TOKEN}\n', 'invalid_json'],
+    ['[]\n', 'invalid_envelope'],
+    ['x'.repeat(65), 'frame_too_large'],
+  ] as const)(
+    'classifies framing failures without retaining their contents (%s)',
+    async (frame, reason) => {
+      const { child } = processStub();
+      const client = new CodexAppServerClient(child, { maxFrameBytes: 64 });
+      const pending = client.initialize();
+      const check = expect(pending).rejects.toMatchObject({
+        category: 'protocol',
+        diagnostic: { reason, pendingRequestMethod: 'initialize' },
+      });
+      child.stdout.write(frame);
+      await check;
+      const error = await pending.catch((error: Error) => error);
+      expect(codexRuntimeErrorTelemetry(error as Error)).toMatchObject({
+        transportErrorCategory: 'protocol',
+        transportFailureReason: reason,
+        pendingRequestMethod: 'initialize',
+      });
+      expect(JSON.stringify(error)).not.toContain('PRIVATE-TOKEN');
+      if (reason === 'frame_too_large') {
+        expect(codexRuntimeErrorTelemetry(error as Error)).toMatchObject({
+          transportFrameBytes: 65,
+          transportFrameLimitBytes: 64,
+        });
+        expect(codexRuntimeDiagnostic(error as Error)).toContain('transport limit');
+        expect(codexRuntimeDiagnostic(error as Error)).not.toContain('compatibility');
+      }
+    },
+  );
+
+  it('classifies a throwing event handler as an application delivery failure, not malformed protocol', async () => {
+    const { child, sent, reply } = processStub();
+    const onClose = vi.fn();
+    const client = new CodexAppServerClient(child, {
+      lifecycle: {
+        onClose,
+        onRequest: vi.fn(),
+        onNotification: () => {
+          throw new Error('PRIVATE-CALLBACK-TOKEN');
+        },
+      },
+    });
+    const ready = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await ready;
+    const pending = client.request('thread/resume', { threadId: 'retained', excludeTurns: true });
+    const check = expect(pending).rejects.toMatchObject({
+      category: 'connection',
+      diagnostic: { reason: 'notification_handler_failed', pendingRequestMethod: 'thread/resume' },
+    });
+    reply({ method: 'thread/status/changed', params: { threadId: 'retained' } });
+    await check;
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(JSON.stringify(onClose.mock.calls)).not.toContain('PRIVATE-CALLBACK-TOKEN');
+    expect(child.kill).toHaveBeenCalledOnce();
+  });
+
+  it('parses fragmented UTF-8 and coalesced frames without applying the limit to the whole chunk', async () => {
+    const { child, sent, reply } = processStub();
+    const notifications: unknown[] = [];
+    const client = new CodexAppServerClient(child, {
+      maxFrameBytes: 96,
+      lifecycle: {
+        onClose: vi.fn(),
+        onRequest: vi.fn(),
+        onNotification: (_method, params) => {
+          notifications.push(params);
+        },
+      },
+    });
+    const ready = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await ready;
+    const frame = Buffer.from(
+      JSON.stringify({ method: 'notice', params: { text: 'λ🙂'.repeat(5) } }) + '\n',
+    );
+    for (const byte of frame) child.stdout.write(Buffer.from([byte]));
+    child.stdout.write(Buffer.concat([frame, frame]));
+    expect(notifications).toEqual(Array.from({ length: 3 }, () => ({ text: 'λ🙂'.repeat(5) })));
+    expect(child.kill).not.toHaveBeenCalled();
+    client.close();
   });
 
   it('reports a failed server-request reply as a connection failure without exposing details', async () => {
