@@ -938,6 +938,59 @@ for (const theme of ['dark', 'light'])
       path: info.outputPath('output-return-' + theme + '.png'),
       fullPage: true,
     });
+    // A short status must not be squeezed into multiple lines by the longer
+    // coordinator entry at 320px, including the light fixture's enlarged font.
+    const coordinatorRow = page
+      .getByRole('button', { name: 'Portfolio coordination', exact: true })
+      .locator('xpath=ancestor::li[1]')
+      .locator(':scope > .telos-tree-row');
+    await coordinatorRow.scrollIntoViewIfNeeded();
+    await expect(
+      coordinatorRow.getByRole('button', { name: 'View coordinator', exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: info.outputPath('coordinator-labels-' + theme + '.png'),
+      fullPage: true,
+    });
+    const coordinatorGeometry = await coordinatorRow.evaluate((row) => {
+      const bounds = row.getBoundingClientRect();
+      const tokens = [...row.querySelectorAll('.todo-priority-badge, .telos-node-status')].map(
+        (token) => {
+          const range = document.createRange();
+          range.selectNodeContents(token);
+          const rects = [...range.getClientRects()].filter((rect) => rect.width && rect.height);
+          return {
+            text: token.textContent?.trim(),
+            lines: new Set(rects.map((rect) => Math.round(rect.top))).size,
+            left: Math.min(...rects.map((rect) => rect.left)),
+            right: Math.max(...rects.map((rect) => rect.right)),
+          };
+        },
+      );
+      const action = row.querySelector('.telos-tree-conversation button')!;
+      const actionBounds = action.getBoundingClientRect();
+      return {
+        tokens,
+        left: bounds.left,
+        right: bounds.right,
+        action: {
+          left: actionBounds.left,
+          right: actionBounds.right,
+          height: actionBounds.height,
+          overflow: action.scrollWidth - action.clientWidth,
+        },
+      };
+    });
+    expect(coordinatorGeometry.tokens.map((token) => token.text)).toEqual(['P5', 'active']);
+    for (const token of coordinatorGeometry.tokens) {
+      expect(token.lines, token.text + ' stays on one readable line').toBe(1);
+      expect(token.left).toBeGreaterThanOrEqual(coordinatorGeometry.left - 1);
+      expect(token.right).toBeLessThanOrEqual(coordinatorGeometry.right + 1);
+    }
+    expect(coordinatorGeometry.action.height).toBeGreaterThanOrEqual(44);
+    expect(coordinatorGeometry.action.overflow).toBeLessThanOrEqual(1);
+    expect(coordinatorGeometry.action.left).toBeGreaterThanOrEqual(coordinatorGeometry.left - 1);
+    expect(coordinatorGeometry.action.right).toBeLessThanOrEqual(coordinatorGeometry.right + 1);
     await page.getByRole('button', { name: 'New item', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
       /Help me plan a new Telos outcome/,
