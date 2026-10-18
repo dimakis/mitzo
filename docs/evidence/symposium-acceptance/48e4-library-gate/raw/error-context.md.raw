@@ -1,0 +1,81 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: agent-library.spec.ts >> edits and publishes named agents while preserving Agents navigation
+- Location: tests/offline/agent-library.spec.ts:33:1
+
+# Error details
+
+```
+Test timeout of 60000ms exceeded.
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=f15e2]:
+  - generic [ref=f15e3]:
+    - generic [ref=f15e4]:
+      - heading "New chat" [level=1] [ref=f15e5]
+      - generic [ref=f15e6]:
+        - generic [ref=f15e7]:
+          - link "Back to chats" [ref=f15e8]:
+            - /url: /sessions
+          - generic [ref=f15e11]:
+            - strong [ref=f15e12]: New chat
+            - generic [ref=f15e13]: Mitzo · Choose account · OpenShell
+          - button "Workspace controls, Settings, Mitzo, Choose account, openshell" [expanded] [ref=f15e14] [cursor=pointer]
+          - generic [ref=f15e17]: Needs review
+          - button "Access" [ref=f15e18] [cursor=pointer]
+          - button "New chat" [ref=f15e21] [cursor=pointer]
+        - region "Agent settings" [ref=f15e24]:
+          - generic [ref=f15e25]:
+            - button "Back to chat settings" [ref=f15e26] [cursor=pointer]
+            - strong [ref=f15e29]: Agent
+            - button "Close agent settings" [ref=f15e30] [cursor=pointer]
+          - region "Agent options" [ref=f15e36]:
+            - generic [ref=f15e37]:
+              - generic [ref=f15e38]:
+                - text: Agent
+                - combobox "Agent" [active] [ref=f15e39] [cursor=pointer]:
+                  - option "Choose published agent" [selected]
+              - link "Library" [ref=f15e40]:
+                - /url: /agent-library
+          - generic [ref=f15e41]:
+            - generic [ref=f15e42]: For this chat
+            - button "Done" [ref=f15e43] [cursor=pointer]
+    - button "Replay Mitzo waterfall" [ref=f15e46] [cursor=pointer]
+    - generic [ref=f15e50]:
+      - status [ref=f15e51]: Choose an agent to start.
+      - generic [ref=f15e52]:
+        - textbox "Message Mitzo" [ref=f15e53]:
+          - /placeholder: Message Mitzo...
+        - generic [ref=f15e54]:
+          - generic [ref=f15e55]:
+            - button "More composer actions" [ref=f15e57] [cursor=pointer]
+            - button "Choose File" [ref=f15e60]
+            - button "Open session tray" [ref=f15e61] [cursor=pointer]
+            - button "Symposium collaboration" [disabled] [ref=f15e64]
+          - generic [ref=f15e67]:
+            - button "Token usage" [ref=f15e69] [cursor=pointer]:
+              - img [aria-hidden] [ref=f15e70]:
+                - generic [ref=f15e72]: "?"
+              - generic [ref=f15e73]: Context usage not reported
+            - button "Start session" [disabled] [ref=f15e74]
+  - navigation "Main navigation" [ref=f15e77]:
+    - link "Today" [ref=f15e78]:
+      - /url: /
+    - link "Chats" [ref=f15e82]:
+      - /url: /sessions
+    - link "Inbox" [ref=f15e86]:
+      - /url: /inbox
+    - link "Work" [ref=f15e90]:
+      - /url: /todos
+    - link "More" [ref=f15e94]:
+      - /url: /more
+```

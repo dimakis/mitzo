@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/mitzo
+
+
+ Test Files  4 passed (4)
+      Tests  7 passed (7)
+   Start at  00:05:55
+   Duration  3.13s (transform 977ms, setup 0ms, import 2.46s, tests 208ms, environment 0ms)
+
