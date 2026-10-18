@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.309-tool-builder-ui.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.311-tool-builder-ui.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -49,12 +49,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/tool-builder-api.ts':
     '2aaf45b414922f748bdb0d86190ac919dc51144b8cb6eecac0112a13c825ebad',
   '../../frontend/src/components/ToolBuilderReview.tsx':
-    'e6f4bc03887b705296d7017401e8e718ed99c6dd5932fd3d2e2a6babdf41802a',
+    '2466489bab84ba1045b73efe5a799f15c34120142ad88debb6b73ccbc041ba59',
   '../../packages/protocol/src/tool-builder.ts':
     '32d7ee6cd22ce116c032165823299f7612e71cd4bdb4188582b19b224b0b22ed',
   '../tool-builder-tool-definitions.ts':
-    '3a2b6862b8fd8ba3147a13ca996ef634ce26cbfd289fde1199cff88cb5bbe3c8',
-  '../tool-builder-catalog.ts': 'acb79e9dc8126622007121cba055a0f7a23f8af50f2d89279357346ac8b9fda2',
+    'b2df61b1c5aea323e1b0b3df895c79f257a70d80fc8fbb8e3f5e12954fcb8494',
+  '../tool-builder-catalog.ts': '998b23bf287c4f46cdfcc1b028ee56eaf17859cc5b1d3f04f9a688ad8218925e',
   '../session-tool-builder-tools.ts':
     '1561309a179730e92cded01cf564d4ba20c062d6e527e20d8da90f6ea814fcf9',
   '../tool-builder-runtime.ts': 'b854fbfa534a8d47f249e1ba8edf65009719ece8c2718d213f29589001e47f05',
