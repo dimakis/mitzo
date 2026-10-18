@@ -38,26 +38,43 @@ function fixture() {
     });
   });
 }
-it('discovers only the selected ordinary session roots and never loads Git/worktrees', async () => {
-  fixture();
-  const { result } = renderHook(() =>
-    useFileNavigation(new URLSearchParams({ sessionId: 'ordinary-a' }), vi.fn()),
-  );
-  await waitFor(() =>
-    expect(result.current.state.roots).toEqual([
-      { label: 'Conversation files', path: '/private/ordinary-a' },
-    ]),
-  );
-  await waitFor(() => expect(result.current.state.loading).toBe(false));
-  expect(result.current.state.gitInfo).toBeNull();
-  expect(result.current.state.canLoadWorktrees).toBe(false);
-  await act(async () => result.current.loadWorktrees());
-  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).startsWith('/api/git/'))).toBe(
-    false,
-  );
-  expect(apiFetch).toHaveBeenCalledWith('/api/files/roots?sessionId=ordinary-a');
-  expect(result.current.state.currentDir).toBe('/private/ordinary-a');
-});
+it.each([undefined, 'prepared-first-command'])(
+  'discovers only the selected ordinary session roots and never loads Git/worktrees: %s',
+  async (scope) => {
+    fixture();
+    if (scope) {
+      const original = vi.mocked(apiFetch).getMockImplementation()!;
+      vi.mocked(apiFetch).mockImplementation((url, ...args) =>
+        String(url).endsWith('/meta')
+          ? Promise.resolve(
+              reply({
+                sessionId: 'ordinary-a',
+                ordinaryWorkspaceId: id,
+                runtimeCommandScope: scope,
+              }),
+            )
+          : original(url, ...args),
+      );
+    }
+    const { result } = renderHook(() =>
+      useFileNavigation(new URLSearchParams({ sessionId: 'ordinary-a' }), vi.fn()),
+    );
+    await waitFor(() =>
+      expect(result.current.state.roots).toEqual([
+        { label: 'Conversation files', path: '/private/ordinary-a' },
+      ]),
+    );
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    expect(result.current.state.gitInfo).toBeNull();
+    expect(result.current.state.canLoadWorktrees).toBe(false);
+    await act(async () => result.current.loadWorktrees());
+    expect(
+      vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).startsWith('/api/git/')),
+    ).toBe(false);
+    expect(apiFetch).toHaveBeenCalledWith('/api/files/roots?sessionId=ordinary-a');
+    expect(result.current.state.currentDir).toBe('/private/ordinary-a');
+  },
+);
 it('hides the old roots and content synchronously on session navigation and ignores delayed responses', async () => {
   fixture();
   const original = vi.mocked(apiFetch).getMockImplementation()!;
@@ -215,6 +232,11 @@ it.each([
   { sessionId: 'selected', runtimeBinding: { version: 2 } },
   { sessionId: 'selected', repositoryWorkspaceId: 'bad' },
   { sessionId: 'selected', repositoryWorkspaceId: {} },
+  {
+    sessionId: 'selected',
+    repositoryWorkspaceId: id,
+    runtimeCommandScope: 'prepared-first-command',
+  },
 ])(
   'does not expose a scoped roots response as a fallback for unverified metadata: %j',
   async (metadata) => {

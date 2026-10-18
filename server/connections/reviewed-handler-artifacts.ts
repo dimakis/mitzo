@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.356-ordinary-files-partial-runtime.1';
+  'v1.0.357-ordinary-files-prepared-scope.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -455,7 +455,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/explicit-local-chat.ts':
     'd7d0cc38945d801628db8d05c4d8d62e6866dd9045c59002d4a3fd47e9129108',
   '../../frontend/src/hooks/useFileNavigation.ts':
-    '80dbfbe2b061cf47c95b17f55d0cca27280a204730442f995b8608abab61a666',
+    '2d0a2969210ac8947dbee201b20d6270f835c8a5d1e466b44bd1b299c13e41c1',
   '../../frontend/src/pages/FileViewer.tsx':
     '3ce5fca74fcc1b28fe5eb1253fa744a4f29480f81564f13fadcc9c8eda7f4c70',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':

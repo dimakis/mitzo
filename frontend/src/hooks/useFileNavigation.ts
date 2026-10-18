@@ -174,6 +174,7 @@ export function useFileNavigation(
             );
           return id.success && body.repositoryWorkspaceId == null ? 'ordinary' : 'unknown';
         }
+        if (body.runtimeCommandScope === 'prepared-first-command') return 'unknown';
         if (body.repositoryWorkspaceId != null)
           return LocalCodexFirstCommandSchema.shape.repositoryWorkspaceId.safeParse(
             body.repositoryWorkspaceId,
