@@ -965,6 +965,73 @@
       "integration": "Core receives ancestry/manifest delta and exact accepted ChatArea addition only. No A/header patch replay; core owns mounting/joining/native/reader composition.",
       "reviewState": "Fresh exact-head CI, full final trusted review and App gate required. Normal automatic scheduling only. Existing credential-action approval question remains separate; no credential read, manual enqueue/replacement/upgrade/retry or new permission question.",
       "authorization": "No merge, runtime, model-call, staging, activation or deployment authority."
+    },
+    "canonicalAdvisorAcceptedBaseIntegration": {
+      "source": "8c291a207760fce5fd436ccfcb47f9e6a8dabcfe",
+      "sourceTree": "3851fb1620b7177da987e01bb1f8fa94ce0f2efe",
+      "parents": [
+        "976750b775fc346babb96b9e34cf1a249eec417e",
+        "117783fdf920f13e5e3b710d04d17f9cd46f5782"
+      ],
+      "manifest": {
+        "previousHead": "976750b775fc346babb96b9e34cf1a249eec417e",
+        "acceptedMain": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
+        "acceptedMainTree": "22fd17ffdc936f0aec570cd726bae9e5711870dd",
+        "acceptedMainParents": ["fdd95797499a3a6dcad3322af303e958fdbfed19"],
+        "aPinCount": 584,
+        "acceptedPinCount": 580,
+        "unionPinCount": 584,
+        "mismatches": 0,
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "protectedSpecAndLedgerUnchanged": true,
+        "acceptedChangedNonManifestFilesByteIdentical": 10,
+        "runtimeRevision": "v1.0.318-telos-canonical-advisor.1-symposium-shared-ui.4",
+        "conflict": "Generated runtime revision only",
+        "localExecution": "No local test/typecheck/browser under observed hostload138.62/150.51/132.40; fresh remote CI required.",
+        "postHooksProof": "All584 pins match;11 A modules/fixtures/protected/ref/captures and10 accepted non-manifest changed files verified byte-identical after normal hooks."
+      },
+      "staticChecks": "All584 pins match;11 A modules/fixtures/protected/ref/captures and10 accepted non-manifest changed files verified byte-identical after normal hooks.",
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed with one-GiB Node heap. Initial hook caught duplicate manifest declaration introduced during resolution; removed before successful commit.",
+      "localExecution": "No local test/typecheck/browser under observed hostload138.62/150.51/132.40; fresh remote CI required.",
+      "priorValidationBounds": "All10 ordinary checks at976750b7 succeeded (CI39119662531). Actual full-final job4949r1 completed/succeeded and trusted report5562752163 LGTM/merge zero new+unresolved blockers; final LGTM App context was still pending. Source-specific prior UI/DOM and unit receipts stay historical; no new-head test/UX approval claim.",
+      "actualPriorFullFinalReview": {
+        "id": 5562752163,
+        "nodeId": "PRR_kwDOR2Rn9s8AAAABS5Dcow",
+        "commit": "976750b775fc346babb96b9e34cf1a249eec417e",
+        "submittedAt": "2026-10-18T11:33:53Z",
+        "author": "dimakis",
+        "state": "COMMENTED",
+        "recommendation": "merge",
+        "newBlocking": 0,
+        "unresolvedBlocking": 0,
+        "job": {
+          "id": 4949,
+          "head_sha": "976750b775fc346babb96b9e34cf1a249eec417e",
+          "status": "succeeded",
+          "stage": "complete",
+          "attempts": 1,
+          "revision": 1,
+          "force_review": 1,
+          "force_follow_up": 0,
+          "auto_fix": 0
+        },
+        "bounds": "Actual clean full-final history at976750b7, not approval of the new changed head."
+      },
+      "authorization": "Directly verified human user message01a14eb9-9c08-7681-8108-466c4a5d1634 resolves credential use for genuinely missing qualifying final reviews. No duplicate or obsoletehead request, model/config/cap/row/status change or new approval question. No merge/runtime/live/staging authority.",
+      "nextGate": "Fresh exact-head CI then current whole-PR full final normal admission after live job/review/head guards, preserving all actual clean history. Final App5169606 gate still required.",
+      "integration": "Core receives ancestry/manifest delta only. No originalA/header replay; A source and evidence unchanged, accepted canonical advisor store/schema/fixture repair intact."
     }
   },
   "integrationHandoff": {
@@ -996,8 +1063,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "fdd95797499a3a6dcad3322af303e958fdbfed19",
-  "acceptedMainMerge": "23f29466835d9288505f5948549d7222d58ca0aa",
+  "latestAcceptedMain": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
+  "acceptedMainMerge": "8c291a207760fce5fd436ccfcb47f9e6a8dabcfe",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1131,9 +1198,9 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "fdd95797499a3a6dcad3322af303e958fdbfed19",
-  "baseRefresh": "Verified actual conflict with accepted S5 fdd95797 (#1013). Preserved complete accepted580+A570 maps in584-pin union, zero mismatch. ChatArea composes exactly accepted receipt import/keepVisible additions with A behavior; all other10 A modules, fixtures, protected test and captures unchanged. Accepted custody/receipt and ledger retained. No local execution under observed hostload149; fresh remote CI/full final review/App gates required.",
-  "latestValidation": "checks.s5AcceptedBaseIntegration",
+  "integratedAcceptedBase": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
+  "baseRefresh": "Actual manifest conflict with accepted117783fd (#1027 canonical advisor schema). Sole resolution generated runtime version;584 combined pins match; all11 A modules, fixtures/protected/design-ledger/captures unchanged;10 accepted non-manifest files byte-identical. No local execution underload138.62/150.51/132.40. Prior976 full-final actual LGTM preserved as history; new CI/current full-final/App gates required.",
+  "latestValidation": "checks.canonicalAdvisorAcceptedBaseIntegration",
   "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
@@ -1141,6 +1208,7 @@
     "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc",
     "209385f5c988abfc524b59812053ac15eae40f57",
     "383caf4e5323d9b9641f10613666bc98117a9fbd",
-    "23f29466835d9288505f5948549d7222d58ca0aa"
+    "23f29466835d9288505f5948549d7222d58ca0aa",
+    "8c291a207760fce5fd436ccfcb47f9e6a8dabcfe"
   ]
 }
