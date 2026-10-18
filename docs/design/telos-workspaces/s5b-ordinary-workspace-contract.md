@@ -135,3 +135,20 @@ second scheduler is introduced.
 
 These private adapters remain dependent, unaccepted source. Public HTTP/client/UI
 adoption and the complete CT07–CT09 journeys are still separate requirements.
+
+## Bound ordinary first-command source handoff
+
+A validated, matching consumed V2 first-command acknowledgement finalizes the
+original Agent Builder source handoff through its existing durable owner. The
+prepared conversation already exists, so this acknowledgement does not assign a
+launch draft, switch the active conversation or invoke session-assignment UI
+observers. A continuation, retained409 observation or mismatched202 is not a
+first-command source assignment. Unknown delivery and failed durable source
+writes retain the exact original command for explicit retry; recovered delivery
+completes the same source receipt after navigation or store recreation.
+
+The focused regression uses the actual Builder source/draft/receipt stores,
+shared client store and SendOutbox, with synthetic HTTP/SSE and the outbox storage
+interface backed directly by localStorage. Production bootstrap storage adapter
+adoption is separately covered by the ordinary-chat consumer tests. No source
+storage keys, retry owner, server permission or model invocation changes here.
