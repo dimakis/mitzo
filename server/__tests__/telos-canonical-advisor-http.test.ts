@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { TelosWorkApiClient } from '../../packages/client/src/telos-work-api.js';
+import { TelosWorkApiClient } from '@mitzo/client';
 import { createTelosWorkRouter } from '../telos-work-routes.js';
 import { createCanonicalAdvisorFixture } from './fixtures/telos-canonical-advisor.js';
 
