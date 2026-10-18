@@ -1,0 +1,55 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations
+
+{"level":30,"time":1792339266442,"pid":52090,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-I2XaPs/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339266936,"pid":52090,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-ohlO8z/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339266994,"pid":52090,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-ohlO8z/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339267385,"pid":52090,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-7ibzhY/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339267412,"pid":52090,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-7ibzhY/tasks.db","msg":"TaskStore initialized"}
+ ✓ tests/integration/telos-s9/accepted-foundations/recovery.test.tsx (3 tests) 1460ms
+   ✓ CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload  546ms
+   ✓ CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation  457ms
+   ✓ CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review  415ms
+{"level":30,"time":1792339268522,"pid":52265,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-WbYCEo/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339268676,"pid":52265,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-WbYCEo/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339269067,"pid":52265,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-WbYCEo/tasks.db","msg":"TaskStore initialized"}
+ ❯ tests/integration/telos-s9/accepted-foundations/vertical.test.ts (1 test | 1 failed) 1181ms
+   × CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child 1180ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/telos-s9/accepted-foundations/vertical.test.ts > CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child
+AssertionError: expected { …(2) } to match object { presentation: { …(2) } }
+(13 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "presentation": {
+      "contextSha256": "592972f747d0b366570738dbce12fdf92a76889c7431d9ebd7dedba0275d98cb",
+      "item": {
+        "itemId": "1834b19488182dfc",
+-       "name": "Actual reviewed child",
+        "revision": "e0a5f5b0fd0516624d520641e62dbcc9fdc05319164a83bd56be88a1361d755c",
+      },
+    },
+  }
+
+ ❯ tests/integration/telos-s9/accepted-foundations/vertical.contract.ts:206:19
+    204|     worker.accountBinding!,
+    205|   );
+    206|   expect(display).toMatchObject({
+       |                   ^
+    207|     presentation: {
+    208|       contextSha256: binding!.contextHash,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 3 passed (4)
+   Start at  17:01:04
+   Duration  5.00s (transform 741ms, setup 0ms, import 2.17s, tests 2.64s, environment 0ms)
+
+JSON report written to /tmp/s9-1032-accepted-metadata-after-adapter.json
