@@ -65,6 +65,12 @@ passes: the dedicated opt-in config executes all four cases. Historical b4 fixtu
 original44UX/CT rows, approved mock and plannedS1 evidence remain unchanged. No
 production or producer unit-test files are modified.
 
+The publication follow-up adds `vertical.test.ts` and `recovery.test.tsx` as default
+Vitest discovery entry points. They import the same retained contract bodies, so
+ordinary `npm test` in CI executes these four assertions without changing the
+historical evidence or requiring a separate workflow. The opt-in config continues
+to execute the contract files directly, once each.
+
 ## Remaining scope
 
 This adds bounded CT03/CT04 and partial CT06/CT17/CT18 evidence. Full immutable human
