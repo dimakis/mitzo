@@ -12,16 +12,46 @@ import { admitProviderDispatch } from '../provider-execution.js';
 const calls = vi.hoisted(() => ({
   options: [] as Record<string, unknown>[],
   prompts: [] as unknown[],
+  taskInput: {} as Record<string, unknown>,
+  taskResults: [] as Array<{ content: string; is_error: boolean }>,
   interrupt: vi.fn(),
   releaseInterruptedRun: undefined as (() => void) | undefined,
 }));
 vi.mock('../native-responses-runner.js', () => ({
   NativeResponsesRunner: class {
-    constructor(opts: Record<string, unknown>) {
+    constructor(private readonly opts: Record<string, unknown>) {
       calls.options.push(opts);
     }
     async *run(prompt: unknown) {
       calls.prompts.push(prompt);
+      if (prompt === 'task-route-proposal') {
+        const execute = this.opts.executeTool as (
+          block: unknown,
+          signal: AbortSignal,
+        ) => Promise<{ content: string; is_error: boolean }>;
+        const block = {
+          type: 'tool_use',
+          id: 'task-provider-call',
+          name: 'AgentProposeTask',
+          input: calls.taskInput,
+        };
+        const signal = new AbortController().signal;
+        calls.taskResults.push(await execute(block, signal));
+        calls.taskResults.push(await execute(block, signal));
+        const definition = calls.taskInput.definition as Record<string, unknown>;
+        calls.taskResults.push(
+          await execute(
+            {
+              ...block,
+              input: {
+                ...calls.taskInput,
+                definition: { ...definition, name: 'Changed under same call' },
+              },
+            },
+            signal,
+          ),
+        );
+      }
       if (prompt === 'wait-for-interrupt') {
         await new Promise<void>((_, reject) => {
           calls.releaseInterruptedRun = () => reject(new Error('interrupted'));
@@ -2394,6 +2424,132 @@ it.each(['openai', 'google-vertex'] as const)(
       privateStore.close();
       library.close();
       events.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each([true, false])(
+  'advertises task tools only for qualified Responses runtime owners (qualified=%s)',
+  async (qualified) => {
+    const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+    const { SymposiumProfileProposalStore } = await import('../symposium-profile-proposals.js');
+    const { default: Database } = await import('better-sqlite3');
+    const root = mkdtempSync(join(tmpdir(), 'task-api-route-'));
+    vi.stubEnv('REPO_PATH', root);
+    const registry = new SessionRegistry();
+    registry.register('task-api-client', {
+      transport: { send() {}, isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId: 'task-api-chat',
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    const release = bindAgentLibraryTransport('task-api-client', {
+      id: `task-api-login-${qualified}`,
+      expiresAt: Date.now() + 60000,
+    });
+    const input = new AsyncQueue<{ message: { content: string }; mitzoMessageId: string }>();
+    if (qualified)
+      input.push({
+        message: { content: 'task-route-proposal' },
+        mitzoMessageId: 'task-api-command',
+      });
+    input.close();
+    const authority = {
+      assertPrepare: vi.fn(),
+      assertStart: vi.fn(),
+      assertEffect: vi.fn(async () => {}),
+    };
+    calls.taskInput = {
+      taskId: 'daily',
+      expectedRevision: 0,
+      definition: {
+        name: 'Daily',
+        objective: '',
+        profile: { profileId: 'trace', revision: 3, contentHash: 'a'.repeat(64) },
+        execution: null,
+        workspace: null,
+        schedule: { cron: '0 9 * * *', timezone: 'Europe/Dublin', state: 'paused' },
+        notificationPolicy: 'results',
+        outputPolicy: 'session',
+      },
+    };
+    calls.taskResults = [];
+    let chat: Awaited<ReturnType<typeof openResponsesChat>> | undefined;
+    try {
+      chat = await openResponsesChat({
+        conversationId: 'task-api-chat',
+        binding: {
+          accountId: 'fixture',
+          accountLabel: 'Offline fixture',
+          provider: 'openai',
+          model: 'offline-model',
+          profileRevision: 'fixture-r1',
+        },
+        getApiKey: async () => 'offline-fixture',
+        session: registry.get('task-api-client')!,
+        registry,
+        input,
+        systemPrompt: '',
+        env: { PATH: '/usr/bin:/bin' },
+        mcpServers: {},
+        store: {} as never,
+        ...(qualified ? { commandAuthority: authority, assertStartupCurrent: vi.fn() } : {}),
+      });
+      const toolNames = (calls.options.at(-1)!.tools as Array<{ name: string }>).map(
+        ({ name }) => name,
+      );
+      for (const name of ['AgentReadTasks', 'AgentProposeTask'])
+        expect(toolNames.includes(name)).toBe(qualified);
+      for await (const event of chat) expect(event).toBeDefined();
+      if (qualified) {
+        expect(calls.taskResults[0]).toMatchObject({ is_error: false });
+        expect(calls.taskResults[1]).toEqual(calls.taskResults[0]);
+        expect(calls.taskResults[2]).toMatchObject({
+          is_error: true,
+          content: expect.stringMatching(/conflict/i),
+        });
+        const receipt = JSON.parse(calls.taskResults[0].content);
+        expect(receipt).toMatchObject({
+          status: 'awaiting_user_review',
+          taskId: 'daily',
+          expectedRevision: 0,
+        });
+        expect(authority.assertEffect).toHaveBeenCalledWith('task-api-command');
+        expect(authority.assertStart).toHaveBeenCalledWith('task-api-command');
+        const proposals = new SymposiumProfileProposalStore(join(root, '.mitzo', 'events.db'));
+        try {
+          expect(proposals.listTaskProposals('user', 'task-api-chat')).toHaveLength(1);
+        } finally {
+          proposals.close();
+        }
+        const db = new Database(join(root, '.mitzo', 'events.db'), { readonly: true });
+        try {
+          expect(
+            db
+              .prepare("SELECT idempotency_key FROM symposium_profile_proposals WHERE kind='task'")
+              .get(),
+          ).toEqual({
+            idempotency_key: createHash('sha256')
+              .update(
+                JSON.stringify(['task', 'task-api-chat', 'task-api-command', 'task-provider-call']),
+              )
+              .digest('hex'),
+          });
+          expect(
+            db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'agent_task_%'").all(),
+          ).toEqual([]);
+        } finally {
+          db.close();
+        }
+      }
+    } finally {
+      chat?.close();
+      release();
+      registry.dispose();
+      vi.unstubAllEnvs();
       rmSync(root, { recursive: true, force: true });
     }
   },
