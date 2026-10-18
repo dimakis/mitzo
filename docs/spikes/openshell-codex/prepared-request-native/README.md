@@ -187,3 +187,22 @@ or claiming a fresh-session tool inventory from an existing session's discovery
 snapshot does not close this boundary. No public-success policy, pure pre-session
 capture, selected-account capacity or consumable dispatch is established by this
 audit.
+
+### Skill fixture completion correction
+
+The nineteenth patch changes only the skill fixture's redundant second wait for
+`TurnComplete`. Its existing approval helper consumes that event before returning
+`None`; the unchanged `approval.is_none()` assertion already establishes that
+completion was observed. The second wait is replaced with an explanatory comment.
+All six assertions, helper behavior, configuration, skip guards, output checks and
+filesystem checks remain byte-identical. Independent source review found no
+counterexample in this single-turn fixture. No native production source changes.
+
+Run `39094032703` on the preceding eighteen-patch tree repeated the per-platform
+failures and counts of `39087651210`: Linux 5,470 passed / 3 failed / 8 skipped;
+Mac 5,479 passed / 3 failed / 27 skipped. The skill timeout is an executed failing
+regression; attribution to the duplicate wait is source analysis, not dynamic
+isolation. The nineteenth-patch tree requires new exact-source CI. The Linux
+literal-glob sandbox construction and Mac permission/child-approval failures
+remain unresolved. No permission rule, assertion or guard is relaxed, and no
+runtime qualification or upstream comparison is inferred.
