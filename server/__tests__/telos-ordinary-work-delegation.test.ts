@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -390,4 +391,84 @@ it('fails closed when the existing task-binding inventory cannot be read and pre
   expect(
     f.native.workspaces.getOrdinaryWorkspaceForConversation(receipt.workerConversationId)?.state,
   ).toBe('reserved');
+});
+
+it.each([
+  'missing_binding',
+  'empty_restored_database',
+  'mismatched_binding',
+  'mismatched_task_session',
+] as const)(
+  'refuses committed replay with readable %s inventory without creating a replacement task',
+  async (state) => {
+    const f = await fixture();
+    const receipt = await f.delegation.delegate(f.actor, f.input, f.native.signal.signal);
+    const retained = f.canonical.artifacts.save({
+      itemId: 'slice',
+      filename: 'original-task-plan.md',
+      title: 'Original task plan',
+      bytes: Buffer.from('Retain this original output'),
+      sessionId: receipt.workerConversationId,
+    });
+    const originalWorkspace = f.native.workspaces.getOrdinaryWorkspaceForConversation(
+      receipt.workerConversationId,
+    )!;
+    const db = new Database(join(f.native.root, 'execution-tasks.db'));
+    try {
+      if (state === 'missing_binding' || state === 'empty_restored_database')
+        db.prepare('DELETE FROM task_telos_execution_bindings WHERE task_id=?').run(
+          receipt.attempt.executionTaskId,
+        );
+      if (state === 'empty_restored_database')
+        db.prepare('DELETE FROM tasks WHERE id=?').run(receipt.attempt.executionTaskId);
+      if (state === 'mismatched_binding')
+        db.prepare(
+          "UPDATE task_telos_execution_bindings SET worker_conversation_id='foreign-worker' WHERE task_id=?",
+        ).run(receipt.attempt.executionTaskId);
+      if (state === 'mismatched_task_session')
+        db.prepare("UPDATE tasks SET session_id='foreign-worker' WHERE id=?").run(
+          receipt.attempt.executionTaskId,
+        );
+      const before = db.prepare('SELECT count(*) AS n FROM tasks').get();
+      f.restart();
+      const outcome = await f.delegation.delegate(f.actor, f.input, f.native.signal.signal).then(
+        () => 'accepted',
+        () => 'rejected',
+      );
+      expect({ outcome, taskRows: db.prepare('SELECT count(*) AS n FROM tasks').get() }).toEqual({
+        outcome: 'rejected',
+        taskRows: before,
+      });
+      expect(f.work.attemptForHost(receipt.attempt.attemptId)).toEqual(receipt.attempt);
+      expect(
+        f.native.workspaces.getOrdinaryWorkspaceForConversation(receipt.workerConversationId),
+      ).toEqual(originalWorkspace);
+      expect(f.canonical.artifacts.read(retained.id, retained.revision).bytes.toString()).toBe(
+        'Retain this original output',
+      );
+      expect(
+        f.native.events.getOrdinaryInitialCommandId(receipt.workerConversationId),
+      ).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  },
+);
+it('requires the owning original-task verifier even when the canonical delegation receipt is already committed', async () => {
+  const f = await fixture();
+  const receipt = await f.delegation.delegate(f.actor, f.input, f.native.signal.signal);
+  const intent = f.work.latestOrdinaryDelegationForHost('slice')!;
+  expect(() =>
+    f.work.completeDelegation(
+      intent,
+      f.actor,
+      {
+        workerConversationId: receipt.workerConversationId,
+        executionTaskId: receipt.attempt.executionTaskId!,
+      },
+      () => false,
+      () => {},
+    ),
+  ).toThrow();
+  expect(f.work.attemptForHost(intent.attemptId)).toEqual(receipt.attempt);
 });

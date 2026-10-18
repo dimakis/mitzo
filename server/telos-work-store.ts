@@ -1548,7 +1548,16 @@ export class TelosWorkStore {
           conflict('Delegation intent changed');
         this.assertDelegationAuthority(intent, actor);
         assertBeforeApply();
-        if (saved.receipt) return TelosWorkDelegationReceiptSchema.parse(JSON.parse(saved.receipt));
+        if (saved.receipt) {
+          const receipt = TelosWorkDelegationReceiptSchema.parse(JSON.parse(saved.receipt));
+          if (
+            receipt.workerConversationId !== result.workerConversationId ||
+            receipt.attempt.executionTaskId !== result.executionTaskId ||
+            !verify()
+          )
+            invalid('Verified original ordinary allocation and execution task required');
+          return receipt;
+        }
         if (!verify()) invalid('Verified exact ordinary allocation and task receipt required');
         this.recordAllocation(
           intent.attemptId,

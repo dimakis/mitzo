@@ -409,10 +409,31 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
         // A retained plain-text brief is valid; its first line supplies the title.
       }
       assertCurrent(workerSettings);
-      const task = this.deps.tasks.createOrRecoverTelosExecutionTask(
-        { title: title || 'Work item', description: brief },
-        binding,
-      );
+      const readExactTask = (id: string) => {
+        const task = this.deps.tasks.get(id);
+        if (
+          !task ||
+          (task.sessionId !== null && task.sessionId !== workerConversationId) ||
+          !isDeepStrictEqual(this.deps.tasks.getTelosExecutionBinding(id), binding)
+        )
+          return null;
+        return task;
+      };
+      let task;
+      if (retained.receipt) {
+        const originalTaskId = retained.receipt.attempt.executionTaskId;
+        task = originalTaskId ? readExactTask(originalTaskId) : null;
+        if (!task)
+          throw new TelosWorkError(
+            'conflict',
+            'Original committed execution task and exact binding unavailable; preserve the worker',
+          );
+      } else {
+        task = this.deps.tasks.createOrRecoverTelosExecutionTask(
+          { title: title || 'Work item', description: brief },
+          binding,
+        );
+      }
       const verify = () => {
         assertPreparation();
         const currentContext = resolveTelosWorkRoleContext(
@@ -421,7 +442,7 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
           this.deps.events.getSession(workerConversationId)?.accountBinding ?? undefined,
         );
         return (
-          isDeepStrictEqual(this.deps.tasks.getTelosExecutionBinding(task.id), binding) &&
+          readExactTask(task.id) !== null &&
           isDeepStrictEqual(currentContext, selected.input.contextSelection)
         );
       };

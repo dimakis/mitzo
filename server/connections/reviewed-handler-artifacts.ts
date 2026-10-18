@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.328-ordinary-workspace-exact-delegation.1';
+  'v1.0.329-committed-task-inventory-fence.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -188,7 +188,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/telos-work-api.ts':
     '9dc3a4c550598560008127b8de2985f934c49280ae67963a81f8276f36e782c2',
   '../telos-work-schema.ts': '51d23d7e4e2f6af0076901a5e5748b203d4f07238f60b69755a79c8c9671a24e',
-  '../telos-work-store.ts': '195c4e13b7c0a83fdf4a8228e18291666c77b670c5db5ba0f3ef99fee64ebcb1',
+  '../telos-work-store.ts': '14aa8744581a0234e4398908aa5250dc346eb76608e4bab4fbd747514eccdc76',
   '../../packages/protocol/src/telos-work-api.ts':
     'e24a6d7142cb5bef3910ec37b750b05dece5814d85e35d8bcbdc2f3813270176',
   // Recoverable tool validation and confirmed Telos creation receipts.
@@ -1085,7 +1085,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-store.ts': 'd8db46138a28be13c612601c1e1435352c1e05b1d6c47deb785804ab397cbbc0',
   '../task-tools.ts': '93b692c7fce06cf22a4ceb8ea66a0f6d287140a79bac4e23cf2c88aabeff5d0a',
   '../task-context.ts': '12de60337242e138d161b29de87fe4132204e7cf4b1547b6e0e52e48ae910f35',
-  '../telos-work-delegation.ts': '68dd8912ac337a0986e8a870fb24e1c2c90a2f34410a9ca024e97158c872acc9',
+  '../telos-work-delegation.ts': '66fe03c11abf54163e3132d3d7a40e4e7fdc847287c718a8906845ce5c77c8b7',
   '../telos-work-delegation-host.ts':
     'cdda7dc57cf51c6980f4d444da7325bf94a766d1c911c3d5053b1ffd97b8c946',
   '../telos-work-command-scope.ts':
