@@ -1,0 +1,85 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-accepted-foundations
+
+{"level":30,"time":1792339207033,"pid":49704,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-3c2ce0/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339207438,"pid":49704,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-SjlguJ/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339207846,"pid":49704,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-ZGIHhC/tasks.db","msg":"TaskStore initialized"}
+ ❯ tests/integration/telos-s9/accepted-foundations/recovery.test.tsx (3 tests | 3 failed) 1283ms
+   × CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload 451ms
+   × CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation 378ms
+   × CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review 410ms
+{"level":30,"time":1792339208779,"pid":49919,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-CElOof/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339208924,"pid":49919,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-CElOof/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339209320,"pid":49919,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-CElOof/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339209366,"pid":49919,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-CElOof/tasks.db","msg":"TaskStore initialized"}
+{"level":30,"time":1792339209366,"pid":49919,"hostname":"Dimitris-MacBook-Pro","module":"task-orchestrator","taskId":"aa4227a8-98ad-4f68-9929-a6c8981972f8","msg":"task approved"}
+{"level":30,"time":1792339209369,"pid":49919,"hostname":"Dimitris-MacBook-Pro","module":"task-store","dbPath":"/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/telos-s9-CElOof/tasks.db","msg":"TaskStore initialized"}
+ ✓ tests/integration/telos-s9/accepted-foundations/vertical.test.ts (1 test) 994ms
+   ✓ CT06/17/18 partial: origin and actual advisor-created child reach accepted delegation, retained result and explicit task review without pre-seeding the child  993ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/telos-s9/accepted-foundations/recovery.test.tsx > CT03 accepted-source full boundary: definite real HTTP stale rejection permits fresh review of the same retained draft after reload
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx:49:43
+     47|   const first = renderHook(() => useTelosRoleSetup(options));
+     48|   await act(async () => first.result.current.review());
+     49|   expect(first.result.current.canConfirm).toBe(true);
+       |                                           ^
+     50|   f.changeBrief();
+     51|   await act(async () => first.result.current.confirm());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/telos-s9/accepted-foundations/recovery.test.tsx > CT04 real committed response loss stays uncertain until exact hook/client/HTTP replay recovers the original allocation
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx:81:42
+     79|   f.loseNextSetupResponse();
+     80|   await act(async () => first.result.current.confirm());
+     81|   expect(first.result.current.uncertain).toBe(true);
+       |                                          ^
+     82|   expect(first.result.current.locked).toBe(true);
+     83|   const original = (await f.api.read('outcome')).assignments[0].conver…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/integration/telos-s9/accepted-foundations/recovery.test.tsx > CT04 post-intent HTTP conflict retains the original request across reload and cannot start a fresh review
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/telos-s9/accepted-foundations/recovery.contract.tsx:115:43
+    113|   const first = renderHook(() => useTelosRoleSetup(options));
+    114|   await act(async () => first.result.current.review());
+    115|   expect(first.result.current.canConfirm).toBe(true);
+       |                                           ^
+    116|   await act(async () => first.result.current.confirm());
+    117|   await expect(setup.mock.results[0].value).rejects.toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 1 passed (4)
+   Start at  17:00:04
+   Duration  4.98s (transform 834ms, setup 0ms, import 2.51s, tests 2.28s, environment 0ms)
+
+JSON report written to /tmp/s9-1032-accepted-metadata-before-adapter.json

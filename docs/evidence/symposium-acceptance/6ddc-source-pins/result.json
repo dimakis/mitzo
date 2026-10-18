@@ -1,0 +1,16 @@
+{
+  "coreCommit": "6ddc2607e36d4d4a90f06f173bb840678d5c8b4c",
+  "coreTree": "d4fa91befaeed24934acf3766498f72e9daa9fa7",
+  "candidateHead": "365eb55b7ce4c0948018803bb322539259111e77",
+  "candidateTree": "2a42999f92d791cf897f09e0874e50a60192ff50",
+  "status": "?? node_modules",
+  "command": "node mitzo/node_modules/tsx/dist/cli.mjs implementation-evidence/verify-6ddc-source-pins.mts",
+  "implementationRevision": "v1.0.307-symposium-integration.16",
+  "sourcePins": 584,
+  "mismatches": [],
+  "productionChanges": [],
+  "compiledChecker": {
+    "result": "Not rerun: no broad dist build attempted; actual source manifest/function checked through tsx. Prior cb32 missing-dist diagnostic remains historical."
+  },
+  "runtimeQualification": "not performed; source hashes only"
+}

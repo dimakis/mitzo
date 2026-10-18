@@ -1,0 +1,29 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+{"level":30,"time":1792278232733,"pid":41164,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+{"level":30,"time":1792278233219,"pid":41164,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (2 tests | 1 failed) 4317ms
+   × requires actual joining and finalized reply owners after the observational review 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires actual joining and finalized reply owners after the observational review
+Error: Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.
+ ❯ CollaborationApiClient.request packages/client/src/collaboration-api.ts:60:13
+     58|     if (!response.ok) {
+     59|       const body = await response.json().catch(() => null);
+     60|       throw new CollaborationApiError(
+       |             ^
+     61|         response.status,
+     62|         typeof body?.code === 'string' ? body.code : 'unavailable',
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:363:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 8 passed (9)
+      Tests  1 failed | 57 passed (58)
+   Start at  00:03:48
+   Duration  8.59s (transform 2.54s, setup 0ms, import 2.51s, tests 5.23s, environment 0ms)
+

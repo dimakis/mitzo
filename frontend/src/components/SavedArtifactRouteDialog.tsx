@@ -52,13 +52,14 @@ export function SavedArtifactRouteDialog({ itemId }: { itemId: string }) {
       onClose={() =>
         navigate(withoutSavedArtifactLocation(location.pathname + location.search), {
           replace: true,
+          state: location.state,
         })
       }
       onVersionChange={(artifact) => {
         const url = savedArtifactLocationUrl(location.pathname + location.search, artifact);
         const pin = readSavedArtifactLocation(new URL(url, 'http://local.invalid').search);
         setReady({ key: JSON.stringify([itemId, pin]), artifact });
-        navigate(url, { replace: true });
+        navigate(url, { replace: true, state: location.state });
       }}
     />
   );

@@ -1,0 +1,387 @@
+.telos-item-workspace {
+  container-type: inline-size;
+}
+.telos-outcomes,
+.telos-item-workspace {
+  min-width: 0;
+  color: var(--color-text);
+  font-family: var(--font-ui);
+}
+.telos-outcomes button,
+.telos-item-workspace button {
+  min-height: var(--control-height);
+  font: inherit;
+  cursor: pointer;
+}
+.telos-outcomes button,
+.telos-item-heading button,
+.telos-tabs button {
+  color: inherit;
+}
+.telos-outcomes button:disabled {
+  cursor: default;
+  color: var(--color-muted);
+}
+.telos-outcomes button:focus-visible,
+.telos-item-workspace button:focus-visible,
+.telos-search:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.telos-tabs,
+.telos-pins,
+.telos-tree-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.telos-tabs {
+  border-bottom: 1px solid var(--color-border);
+}
+.telos-tabs button,
+.telos-pins button,
+.telos-tree-toolbar button,
+.telos-category-browser button {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+}
+.telos-tabs button[aria-pressed='true'] {
+  color: var(--color-accent);
+  box-shadow: inset 0 -2px var(--color-accent);
+}
+.telos-pins button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+}
+.telos-pins button[aria-pressed='true'] {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.telos-category-browser {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  padding: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.telos-category-browser > div {
+  display: flex;
+  justify-content: space-between;
+}
+.telos-search {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+}
+.telos-search input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  font: inherit;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+.telos-tree-label,
+.telos-node-meta {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.telos-tree-label {
+  justify-content: space-between;
+  margin-block: var(--space-3);
+}
+.telos-tree {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.telos-tree .telos-tree {
+  margin-left: var(--space-4);
+  border-left: 1px solid var(--color-border);
+}
+.telos-tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+.telos-tree-row[aria-current='page'] {
+  background: var(--color-surface);
+}
+.telos-disclosure {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height);
+  background: transparent;
+  border: 0;
+}
+.telos-node-icon {
+  color: var(--color-muted);
+}
+.telos-node-copy {
+  min-width: 0;
+  flex: 1;
+}
+.telos-node-title {
+  display: block;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-weight: 600 !important;
+  overflow-wrap: anywhere;
+}
+.telos-node-meta > span:first-child {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding-inline: var(--space-1);
+}
+.telos-node-status {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  padding-inline: var(--space-2);
+}
+.telos-item-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--page-gutter);
+}
+.telos-item-heading > .todo-priority-control {
+  min-width: max-content;
+}
+.telos-item-heading button {
+  background: transparent;
+  border: 0;
+}
+.telos-item-heading h1 {
+  font-size: var(--text-xl);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.telos-item-workspace > .telos-tabs {
+  padding-inline: var(--page-gutter);
+}
+.telos-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
+  gap: var(--space-6);
+  padding: var(--page-gutter);
+}
+.telos-dashboard > * {
+  min-width: 0;
+}
+.telos-brief {
+  border-left: 1px solid var(--color-border);
+  padding-left: var(--space-5);
+}
+.telos-brief h2 {
+  font-size: var(--text-sm);
+  margin-top: var(--space-5);
+}
+.telos-brief p,
+.telos-brief dd,
+.telos-brief li {
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.telos-brief dl {
+  font-size: var(--text-xs);
+}
+.telos-brief dt {
+  color: var(--color-muted);
+  margin-top: var(--space-3);
+}
+.telos-brief dd {
+  margin: 0;
+}
+@media (max-width: 767px) {
+  .telos-dashboard {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .telos-brief {
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+    padding: 0;
+  }
+  .telos-node-icon {
+    display: none;
+  }
+  .telos-tree-row-end > .todo-priority-badge,
+  .telos-tree-row-end > .telos-node-status {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
+
+/* Keep search usable when actions wrap at phone width. */
+.telos-search {
+  flex-basis: calc(var(--control-height) * 5);
+}
+.telos-tabs button,
+.telos-pins button,
+.telos-tree-toolbar button {
+  font-size: var(--text-sm);
+}
+.telos-tabs {
+  gap: var(--space-1);
+}
+.telos-tabs button {
+  padding-inline: var(--space-2);
+}
+.output-provenance summary {
+  min-height: var(--control-height);
+  display: list-item;
+  align-content: center;
+  cursor: pointer;
+}
+.output-provenance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.output-provenance dt {
+  margin-top: var(--space-2);
+  color: var(--color-muted);
+}
+@media (max-width: 767px) {
+  .telos-search {
+    flex-basis: 100%;
+  }
+}
+
+/* The approved desktop item uses the shell's available width, alongside its brief. */
+.telos-canonical-page {
+  width: 100%;
+  max-width: none;
+}
+.telos-item-workspace .todo-detail-output-list li {
+  grid-template-columns: var(--control-height) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+.telos-item-workspace .todo-detail-output-actions {
+  grid-column: 2;
+}
+@media (min-width: 768px) {
+  .desktop-shell .telos-canonical-page {
+    max-width: none;
+    padding-inline: var(--page-gutter);
+  }
+}
+@media (min-width: 768px) {
+  .desktop-shell .telos-canonical-page {
+    position: relative;
+    inset: auto;
+    height: 100%;
+    min-height: 0;
+  }
+}
+.telos-tree-row-end {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-1);
+}
+.telos-tree-conversation {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-1);
+}
+.telos-tree-conversation button {
+  border: 0;
+  background: transparent;
+  padding: 0 var(--space-2);
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+}
+@media (max-width: 767px) {
+  .telos-item-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .telos-item-heading > .todo-priority-control {
+    grid-column: 2;
+    min-width: 0;
+  }
+  .telos-tree-row {
+    flex-wrap: wrap;
+  }
+  .telos-tree-row-end {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding-left: var(--control-height);
+  }
+  .telos-tree-conversation {
+    justify-items: start;
+  }
+}
+.telos-brief-context {
+  margin-top: var(--space-5);
+}
+.telos-brief-context summary {
+  min-height: var(--control-height);
+  align-content: center;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* Keep the approved brief beside the work only while both retain reading room. */
+@container (max-width: 48rem) {
+  .telos-dashboard {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .telos-brief {
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+    padding: 0;
+  }
+  .telos-item-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .telos-item-heading > .todo-priority-control {
+    grid-column: 2;
+    min-width: 0;
+  }
+}
+
+@media (min-width: 768px) {
+  .desktop-shell .telos-legacy-page {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    padding-inline: var(--page-gutter);
+  }
+  .desktop-shell .telos-legacy-page .todo-collection-heading {
+    padding-block: var(--space-3);
+  }
+  .desktop-shell .telos-legacy-page .workspace-page-heading {
+    margin-bottom: 0;
+  }
+  .desktop-shell .telos-legacy-page .workspace-page-heading > p {
+    display: none;
+  }
+}
