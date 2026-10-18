@@ -1,0 +1,16 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../../..",
+    "rootDir": "../../..",
+    "paths": {
+      "@mitzo/protocol": ["packages/protocol/src/index.ts"],
+      "@mitzo/protocol/database-backup": ["packages/protocol/src/database-backup.ts"],
+      "@mitzo/protocol/event-store": ["packages/protocol/src/event-store.ts"],
+      "@mitzo/client": ["packages/client/src/index.ts"],
+      "@mitzo/client/hooks": ["packages/client/src/hooks/index.ts"],
+      "@mitzo/harness": ["packages/harness/src/index.ts"]
+    }
+  },
+  "include": ["./ui*.ts", "./ui-fixture.tsx"]
+}
