@@ -26,7 +26,7 @@ function render(element: ReactElement) {
   return renderComponent(element, { wrapper: MemoryRouter });
 }
 const id = 'a'.repeat(32);
-const version = (revision: number) => ({
+const version = (revision: number): TodoOutput => ({
   id,
   itemId: 'work',
   filename: 'plan.md',
@@ -36,7 +36,7 @@ const version = (revision: number) => ({
   size: 40,
   url: `/api/telos/artifacts/${id}?revision=${revision}`,
   sessionId: 'gone-source',
-  sourceKind: 'session_artifact' as const,
+  sourceKind: 'session_artifact',
   sourcePath: '/retained/plan.md',
   createdAt: '2026-10-17T10:00:00Z',
 });

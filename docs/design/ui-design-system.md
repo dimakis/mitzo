@@ -1692,18 +1692,20 @@ S7 accepted-owner read test. It exercises the actual record router/client with
 synthetic rows, preserving original IDs/dates, ordered categories and priorities
 1–10. This proves read-side compatibility, with no live migration or new writer.
 
-Open integration boundaries: accepted Mitzo S5a/S5b; CT14 accepted-source persistence
-and independent acceptance after the priority producer is accepted; the shared
-artifact producer accepted-source/CI qualification (published `f9409978` is composed
-for offline consumer verification); the priority protection amendment for legacy
-collection assertions (the active protected file remains unchanged); the work API's missing authoritative attention classification (Needs you
-stays unavailable); collection-wide record/category projection (currently bounded
-per-record reads); coordinator setup from its existing owner; and S8's chooser,
-ordinary header and collapsible chat tree. Full frontend type checking exceeded
-this Mac's prescribed 1 GiB heap; full build/application coverage remains CI.
-S7 and parent acceptance remain open pending real persistence/API integration and
-approved visual/contract acceptance on the combined sources. No staging or runtime
-qualification is implied by these fixtures.
+Accepted dependencies now include priority #1009, canonical records #1027,
+recovery #1029, incident handling #1028, S5a reviewed presentation #1030 and
+Shared B saved-artifact/privacy fences #1020. The consumer preserves their
+published contracts; role setup and runtime ownership remain with foundation.
+S5a owned CT01–06 acceptance does not establish parent UX or live runtime acceptance.
+
+Open integration boundaries include the accepted S5b runtime contract, final CT14
+persistence and independent acceptance on the combined sources, the work API's
+missing authoritative attention classification (Needs you stays unavailable),
+collection-wide record/category projection (currently bounded per-record reads),
+and coordinator setup from its existing owner. S8 owns the chooser, ordinary
+header and collapsible chat tree. Full application builds and browser checks run
+in CI under the host resource limits. S7 and parent acceptance remain open; the
+fixture evidence does not establish staging, production or live runtime qualification.
 
 ## Retained artifact inspection
 

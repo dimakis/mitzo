@@ -1,11 +1,11 @@
 # Symposium saved-artifact handoff
 
 Producer: workstream B, draft PR [#1020](https://github.com/dimakis/mitzo/pull/1020).
-Final implementation source `f8b3b289c4f4ab0cbc2ade851a925583fdf97aa2`, tree
+Product and transcript-custody baseline `f8b3b289c4f4ab0cbc2ade851a925583fdf97aa2`, tree
 `dc892c2aa52c7eb882efee833443012951c08e19`. It includes accepted main
 `13669901` (#1010). Artifact UI implementation remains byte-identical to the
-rendered UI at `fcefea95ad6837e8bc2dd2bb7f1ca7bf431ec8a0`. The subsequent evidence commit
-changes only documentation, captures and focused test assertions.
+rendered UI at `fcefea95ad6837e8bc2dd2bb7f1ca7bf431ec8a0`. Evidence commit `f9409978` changes only documentation, captures and focused test
+assertions. Subsequent save-hook/callback contract changes are recorded below.
 
 ## Final shared behavior and consumption
 
@@ -100,3 +100,43 @@ this newer UI source or close application, capacity, runtime or mixed-recipient 
 C should consume this source and rerun the matching actual-owner cases. Core owns
 final integration; the Symposium reviewer routes the S7 consumer reconciliation.
 No merge, parent closure, accepted UX, live runtime or deployment is claimed here.
+
+## Core contract follow-up, 18 October
+
+Core has selected these existing-owner endpoints for implementation; the types,
+receipts and handlers are still pending a committed source handoff. Participant
+controls stay unavailable until then. These are proposal details, not implemented
+B endpoints:
+
+- `POST /:group/forwards/prepare`: exact B selection plus a bounded note. Middleware
+  supplies actor identity; the target group must match the route. Reserve the original
+  actor/request fingerprint before async reads. Exact retries recover retained bytes.
+- `POST /:group/forwards/:forwardId/confirm`: separate retained confirmation request ID,
+  selection fingerprint, packet hash, original membership revision and `requestReply:false`.
+  First confirmation atomically creates selected recipients' context-only pending receipts.
+- `GET /:group/forwards/:forwardId`: original preparation reference and independent
+  recipient outcomes. Read/retry is observational; lost-response retries keep the original
+  request/body and cannot upgrade saved content or create another delivery.
+
+Preparation/confirmation performs no allocation, model call or automatic turn/queue.
+The next independently admitted explicit command may receive supported text through
+ordinary context owners. Unsupported binary/media and `requestReply:true` remain
+unavailable. B's strict selection parser does not accept an arbitrary note field;
+core owns its envelope, note retention/bounds and combined request fingerprint.
+
+B additionally exposes private `assertLocalMaterialCurrent():void` on the prepared
+result. It reuses the held artifact checks synchronously without re-opening sources,
+awaiting, changing selected bytes or creating a receipt. Core must combine it with
+genuine synchronous target/membership, original source/operator and retained-access
+checks inside its existing save transaction. The artifact-only callback is not
+complete authorization, including for message-only packets, and grants no dispatch
+permit. Two actual-owner red/green tests cover post-preparation transcript-reference
+removal and retained-item privacy changes; missing/async/value transcript callbacks
+continue to refuse through the earlier regressions.
+
+The save-hook follow-up also rejects Promise/value-returning retained-artifact
+callbacks (the transcript path already refused them). Two more actual-owner red/green
+cases cover this contract. The final focused forwarding/retained-source set passes
+50 checks in two files, with strict types and source fingerprints verified. The earlier
+175-check combined receipt and C's separately reported 55-check consumption remain
+scoped to their recorded source; no new full-application acceptance is inferred.
