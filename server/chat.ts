@@ -2927,16 +2927,20 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         error: publicMessage,
       });
     }
-    if (newSdkSessionId) {
-      // Retain its binding: the SDK may have written history before startup failed.
-      eventStore.setSessionState(newSdkSessionId, 'ENDED', {
-        clientId,
-        reason: 'startup_failed',
-      });
-    }
     const failedSession = registry.get(clientId);
-    if (failedSession) cleanupSessionWorktrees(failedSession);
-    registry.abort(clientId);
+    if (failedSession === session) {
+      // A resumed startup also entered CREATED. Retire its driver state while
+      // retaining native history, bindings and uncertainty records. A replaced
+      // registry owner must never be ended or aborted by this attempt's cleanup.
+      const failedSessionId = newSdkSessionId ?? session.sessionId;
+      if (failedSessionId)
+        eventStore.setSessionState(failedSessionId, 'ENDED', {
+          clientId,
+          reason: 'startup_failed',
+        });
+      cleanupSessionWorktrees(failedSession);
+      registry.abort(clientId);
+    }
   } finally {
     _onSessionChange?.(clientId, 'end', session.sessionId);
   }
