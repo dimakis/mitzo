@@ -3,6 +3,20 @@ import { createCredentialConnectionTools } from '../credential-connection-tools.
 import { DashboardRequestError } from '../home-assistant-dashboard.js';
 import { ConnectionRequestError } from '../connection-request-error.js';
 
+it('reports an unconfigured inventory before asking for connection approval', async () => {
+  const f = setup();
+  f.service.catalog.mockReturnValue([
+    { ...f.service.catalog()[0], inventoryAvailable: false },
+  ] as never);
+  const result = await f.tools.execute(
+    'HomeAssistantInventory',
+    { connectionId: 'ha', search: 'echo' },
+    new AbortController().signal,
+  );
+  expect(JSON.parse(result!.content).error.code).toBe('inventory_unavailable');
+  expect(f.approve).not.toHaveBeenCalled();
+});
+
 it('returns structured safe errors with retry guidance to the model', async () => {
   const f = setup();
   f.service.request.mockRejectedValueOnce(new ConnectionRequestError('response_too_large'));
@@ -15,6 +29,35 @@ it('returns structured safe errors with retry guidance to the model', async () =
   expect(JSON.parse(result!.content)).toMatchObject({
     error: { code: 'response_too_large', retry: 'after_change', mayHaveApplied: false },
   });
+});
+
+it('routes cached HA inventory through approval and read permissions without accepting file paths', async () => {
+  const f = setup();
+  const inventory = vi.fn(async () => ({ status: 'ok', devices: [] }));
+  Object.assign(f.service, { inventory });
+  const result = await f.tools.execute(
+    'HomeAssistantInventory',
+    { connectionId: 'ha', search: 'echo' },
+    new AbortController().signal,
+  );
+  expect(result?.isError).toBe(false);
+  expect(f.service.grant).toHaveBeenCalled();
+  expect(inventory).toHaveBeenCalledWith(
+    'session-a',
+    'ha',
+    expect.objectContaining({ search: 'echo' }),
+    expect.any(AbortSignal),
+    expect.any(Function),
+    undefined,
+  );
+  const invalid = await f.tools.execute(
+    'HomeAssistantInventory',
+    { connectionId: 'ha', path: '/private/file' },
+    new AbortController().signal,
+  );
+  expect(invalid?.isError).toBe(true);
+  expect(inventory).toHaveBeenCalledOnce();
+  expect(f.service.request).not.toHaveBeenCalled();
 });
 
 it('prepares secret-free setup and reads only setup belonging to the owning chat', async () => {

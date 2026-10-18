@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.322-connection-errors';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.323-ha-inventory';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -44,6 +44,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '70c76d0f835dbf625cb6ea0100d1a3c03b938f7564823e42240f3afd239ad558',
   '../../packages/protocol/src/telos-work-role-presentation.ts':
     '99736d144a8086119d3defb90b79a0b1b8635772a2c8d70fc96034df59421417',
+  '../home-assistant-inventory.ts':
+    '0b135e6d375db363af35af342a9926320fd5b5d92995b68b63545b919c28164c',
   '../connection-request-error.ts':
     '2c5b07c9c52fcc4f5e4be3f0e1750c2713e042c164611284c60f725388d158e4',
   // Bounded native resume, including retained-runtime migration validation.
@@ -652,7 +654,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-verification-error.ts':
     'd4fefb2652ec0bd00b24aac257b31a028b597dc20dd7101c77d527fe4505973d',
   '../credential-setup.ts': '8dfd54d1b4cb4408d52c9ca09f5cc220ba69adf6dc6181bc7de6803fee38f69c',
-  '../connection-guide.ts': 'fcbc53ad1654e6360ba0fab9287393387cd94a666fbeaecd597deb501443756d',
+  '../connection-guide.ts': '4f9e2bfefa638df63e998135186b1e5b6825a756f6afe40b7d870bc481d5e153',
   '../credential-setup-continuation.ts':
     '6cb81428bb08fa2cf6b79e762573e34dc87f281cfc5d0be70b5316ce66fdd493',
   '../credential-setup-application.ts':
@@ -665,13 +667,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../home-assistant-dashboard.ts':
     '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
-    '64e01889e28000d0fe3348e55badf01ca781b2444f28e141198f6f053458993e',
+    '4232ba7b7aef0b3f5bfd501427c4145c7d38964656722e748fafde06c0961029',
   '../credential-connections-router.ts':
     '6d7b779ff5ba148b6aea43483f4003da0d9ed4908e551a273de5906140c7b96b',
   '../credential-connection-tools.ts':
-    '32e6c50c81678dc8147d4d69c99d3eb880697c6c6ea7375497cbb7d75d79e808',
+    '795a3abecb1481a862080864d55f9d90be4ce5ff91faf5496f4af44a087731b0',
   '../credential-connections-runtime.ts':
-    '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
+    'c75fe9cbc09bb4542517f23dd236d8fbbaec57f51b87dd1e9f9132868f4e8883',
   '../credential-http.ts': 'ad803bdedddd64babd20711b076ac9b1e51cf7215136c1a04f6519d1c0e6e748',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-tools.ts': '45d500312c188a2a00b3115c1ec4d2aa5045f775147b5f97eb80e130849b708d',

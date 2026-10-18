@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CredentialVerificationError } from '../credential-verification-error.js';
+import { HomeAssistantInventories } from '../home-assistant-inventory.js';
 import {
   CredentialConnections,
   CredentialConnectionStore,
@@ -33,6 +34,42 @@ function setup() {
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
 
 describe('credential connections', () => {
+  it('fences cached inventory reads by session approval, revocation and runtime authority without reading credentials', async () => {
+    const f = setup();
+    const inventories = new HomeAssistantInventories({ ha: '/unused' });
+    const read = vi.spyOn(inventories, 'read').mockResolvedValue({ status: 'ok' } as never);
+    const service = new CredentialConnections(
+      f.store,
+      f.vault,
+      f.send,
+      undefined,
+      undefined,
+      inventories,
+    );
+    const c = await service.create(input, { secret: 'fixture' });
+    await expect(service.inventory('a', c.id, {}, new AbortController().signal)).rejects.toThrow(
+      'Session approval required',
+    );
+    expect(read).not.toHaveBeenCalled();
+    service.grant('a', c.id, c.revision);
+    read.mockImplementationOnce(async () => {
+      service.revokeSession('a', c.id);
+      return { status: 'ok' } as never;
+    });
+    await expect(service.inventory('a', c.id, {}, new AbortController().signal)).rejects.toThrow(
+      'Session approval required',
+    );
+    service.grant('a', c.id, c.revision);
+    const authority = vi.fn(async () => {
+      throw new Error('revoked');
+    });
+    await expect(
+      service.inventory('a', c.id, {}, new AbortController().signal, () => true, authority),
+    ).rejects.toThrow('revoked');
+    expect(read).toHaveBeenCalledOnce();
+    expect(f.vault.read).not.toHaveBeenCalled();
+    expect(f.send).not.toHaveBeenCalled();
+  });
   it('preserves safe size, authentication, permission and availability failures without response bodies', async () => {
     const { service, send } = setup();
     const c = await service.create(input, { secret: 'fixture' });

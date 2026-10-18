@@ -5,6 +5,7 @@ import { CredentialConnections, CredentialConnectionStore } from './credential-c
 import { KeychainController } from './keychain-controller.js';
 import { MacKeychainVault } from './keychain-vault.js';
 import { sendConnectionRequest } from './credential-http.js';
+import { HomeAssistantInventories } from './home-assistant-inventory.js';
 
 let service: CredentialConnections | null = null;
 export function getCredentialConnectionsRuntime() {
@@ -42,6 +43,9 @@ export function keychainConnectionConfig(
     directory,
     namespace,
     requirement: `identifier "com.mitzo.keychain-helper" and anchor apple generic and certificate leaf[subject.OU] = "${team}"`,
+    ...(env.MITZO_HA_INVENTORY_FILES
+      ? { inventoryFiles: homeAssistantInventoryFiles(env.MITZO_HA_INVENTORY_FILES) }
+      : {}),
   };
 }
 export function createCredentialConnectionsRuntime(
@@ -87,8 +91,34 @@ export function createCredentialConnectionsRuntime(
         new KeychainController(undefined, config.namespace),
       ),
       sendConnectionRequest,
+      undefined,
+      undefined,
+      new HomeAssistantInventories(config.inventoryFiles ?? {}),
     ),
   };
+}
+
+/** Explicit connection-id bindings are trusted host configuration, never model arguments. */
+function homeAssistantInventoryFiles(value: string | undefined): Record<string, string> {
+  if (!value) return {};
+  try {
+    const files = JSON.parse(value);
+    if (
+      !files ||
+      Array.isArray(files) ||
+      typeof files !== 'object' ||
+      Object.keys(files).length > 64 ||
+      Object.entries(files).some(
+        ([id, path]) => !id || id.length > 128 || typeof path !== 'string' || !isAbsolute(path),
+      )
+    )
+      throw new Error();
+    return files;
+  } catch {
+    throw new Error(
+      'Invalid MITZO_HA_INVENTORY_FILES; use connection-id to absolute inventory-file bindings',
+    );
+  }
 }
 
 /** Fence every ancestor against replacement by another OS user. Root-owned

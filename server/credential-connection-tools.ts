@@ -1,5 +1,6 @@
 import { WebSocketRequestSchema, ConnectionWebSocketError } from './credential-websocket.js';
 import { ConnectionRequestError } from './connection-request-error.js';
+import { HomeAssistantInventoryQuerySchema } from './home-assistant-inventory.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -26,6 +27,7 @@ export const credentialConnectionSchemas = {
   ConnectionRequest: ConnectionRequestSchema.extend({ connectionId: id }).strict(),
   ConnectionWebSocket: WebSocketRequestSchema.extend({ connectionId: id }).strict(),
   HomeAssistantDashboard: DashboardRequestSchema.extend({ connectionId: id }).strict(),
+  HomeAssistantInventory: HomeAssistantInventoryQuerySchema.extend({ connectionId: id }).strict(),
   GetConnectionGuide: z
     .object({ topic: z.enum(['connect', 'use', 'troubleshoot']).default('connect') })
     .strict(),
@@ -33,6 +35,8 @@ export const credentialConnectionSchemas = {
   GetConnectionSetup: z.object({ setupId: id }).strict(),
 };
 const descriptions = {
+  HomeAssistantInventory:
+    'Search the existing HA spoke hardware inventory by device name, model, generation, entity or area. Returns compact matches with freshness and truncation metadata. Use before broad HA state reads or compatibility research. Requires session connection approval and a host-configured inventory binding. Never accesses credentials; no live refresh is implied. A stale or missing inventory requires the spoke host refresh command.',
   ListConnections:
     'Discover configured service connections and access for this chat. Never returns credentials. If the needed service is missing, use GetConnectionGuide and PrepareConnectionSetup to help the user connect it within this task.',
   GetConnectionGuide:
@@ -192,6 +196,20 @@ export function createCredentialConnectionTools(
         if (!('connectionId' in parsed.data))
           return { content: 'Invalid connection tool input', isError: true };
         const connectionId = parsed.data.connectionId;
+        const inventory =
+          name === 'HomeAssistantInventory'
+            ? HomeAssistantInventoryQuerySchema.parse({
+                search: input.search,
+                limit: input.limit,
+                maxAgeHours: input.maxAgeHours,
+              })
+            : undefined;
+        if (
+          inventory &&
+          service.catalog(sessionId).find((item) => item.id === connectionId)
+            ?.inventoryAvailable === false
+        )
+          throw new ConnectionRequestError('inventory_unavailable');
         const request =
           name === 'ConnectionRequest'
             ? ConnectionRequestSchema.parse({
@@ -263,7 +281,18 @@ export function createCredentialConnectionTools(
             content: 'Connection tool is unavailable under current session permissions',
             isError: true,
           };
-        if (access.isError || (!request && !dashboard && !websocket)) return access;
+        if (access.isError || (!request && !dashboard && !websocket && !inventory)) return access;
+        if (inventory) {
+          const result = await service.inventory(
+            sessionId,
+            connectionId,
+            inventory,
+            signal,
+            () => stillAllowed(name, 'GET'),
+            assertRuntimeCurrent,
+          );
+          return { content: JSON.stringify(result), isError: false };
+        }
         if (websocket) {
           const content = await service.websocketRequest(
             sessionId,

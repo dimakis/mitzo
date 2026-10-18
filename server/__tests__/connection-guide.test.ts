@@ -4,6 +4,14 @@ import { connectionGuide } from '../connection-guide.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from '../session-credential-tools.js';
 
 describe('runtime-owned connection guidance', () => {
+  it('routes hardware identity through the spoke cache and distinguishes stale data from absence', () => {
+    const guide = connectionGuide('use', credentialConnectionToolDefinitions);
+    expect(guide.instructions).toContain('HomeAssistantInventory first');
+    expect(guide.instructions).toContain('stale or incomplete cache');
+    expect(
+      connectionGuide('troubleshoot', credentialConnectionToolDefinitions).instructions,
+    ).toContain('response_too_large');
+  });
   it('routes API-account Jira reads through approved connections instead of a networkless CLI', () => {
     const guide = connectionGuide('use', credentialConnectionToolDefinitions);
     expect(guide.instructions).toContain('ConnectionRequest');

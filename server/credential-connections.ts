@@ -1,5 +1,9 @@
 import { CredentialConnectionSetups, type ConnectionSetup } from './credential-setup.js';
 import { ConnectionRequestError, connectionRequestError } from './connection-request-error.js';
+import {
+  HomeAssistantInventories,
+  type HomeAssistantInventoryQuery,
+} from './home-assistant-inventory.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   WebSocketConfigSchema,
@@ -273,6 +277,7 @@ export class CredentialConnections {
     private send: ConnectionSender,
     private sendDashboard: DashboardSender = sendDashboardRequest,
     private sendWebSocket: WebSocketSender = websocketRequest,
+    private inventories = new HomeAssistantInventories({}),
   ) {
     this.setups = new CredentialConnectionSetups(store, (...args) => this.createVerified(...args));
   }
@@ -366,6 +371,7 @@ export class CredentialConnections {
   catalog(session?: string) {
     return this.store.list().map((c) => ({
       ...publicCredentialConnection(c),
+      inventoryAvailable: this.inventories.has(c.id),
       access:
         c.status !== 'active'
           ? 'unavailable'
@@ -380,6 +386,33 @@ export class CredentialConnections {
     if (revision !== undefined && c.revision !== revision)
       throw new Error('Connection changed; refresh and try again');
     return c;
+  }
+  async inventory(
+    session: string,
+    id: string,
+    query: HomeAssistantInventoryQuery,
+    signal: AbortSignal,
+    stillAllowed: () => boolean = () => true,
+    assertRuntimeCurrent?: () => Promise<void>,
+  ) {
+    const connection = this.connection(id);
+    const check = () => {
+      signal.throwIfAborted();
+      if (
+        !stillAllowed() ||
+        !connection.methods.includes('GET') ||
+        this.connection(id).revision !== connection.revision ||
+        !this.store.hasGrant(session, connection)
+      )
+        throw new Error('Session approval required');
+    };
+    check();
+    await assertRuntimeCurrent?.();
+    check();
+    const result = await this.inventories.read(id, query);
+    await assertRuntimeCurrent?.();
+    check();
+    return result;
   }
   async create(input: unknown, source: { secret: string } | { existing: VaultReference }) {
     const parsed = ConnectionInputSchema.parse(input);
@@ -738,7 +771,6 @@ export class CredentialConnections {
       return { status: response.status, body };
     } catch (error) {
       if (error instanceof Error && error.name === 'KeychainUnavailableError') throw error;
-      // eslint-disable-next-line preserve-caught-error -- Upstream errors may contain secrets.
       throw connectionRequestError(error, combined, request.method);
     } finally {
       controllers.delete(controller);

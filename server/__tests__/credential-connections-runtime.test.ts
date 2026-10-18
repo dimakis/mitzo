@@ -41,6 +41,23 @@ function runtimeFixture() {
   };
 }
 
+it('accepts only explicit absolute inventory file bindings from host configuration', () => {
+  const env = {
+    MITZO_KEYCHAIN_CONNECTIONS_ENABLED: '1',
+    MITZO_KEYCHAIN_HELPER: '/private/helper',
+    MITZO_KEYCHAIN_TEAM_ID: 'ABCDEFGHIJ',
+    MITZO_HA_INVENTORY_FILES: '{"ha":"/private/spoke/context/inventory.json"}',
+  };
+  expect(keychainConnectionConfig(env, 'darwin')?.inventoryFiles).toEqual({
+    ha: '/private/spoke/context/inventory.json',
+  });
+  for (const value of ['[]', '{"ha":"relative.json"}', '{"ha":42}', 'null', 'bad-json']) {
+    expect(() =>
+      keychainConnectionConfig({ ...env, MITZO_HA_INVENTORY_FILES: value }, 'darwin'),
+    ).toThrow('Invalid MITZO_HA_INVENTORY_FILES');
+  }
+});
+
 it('creates owner-only metadata, database and SQLite sidecar files', () => {
   const { directory, config } = runtimeFixture();
   const { store } = createCredentialConnectionsRuntime(config);

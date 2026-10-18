@@ -1,0 +1,78 @@
+{
+  "snapshot": {
+    "schema_version": 1,
+    "sections": {
+      "devices": {
+        "generated_at": "2026-10-18T12:00:00+00:00",
+        "items": [
+          {
+            "id": "show",
+            "name": "Shona",
+            "model": "Echo Show 8",
+            "hw_version": "2nd Gen",
+            "area_id": "kitchen"
+          }
+        ]
+      },
+      "entities": {
+        "generated_at": "2026-10-18T12:00:00+00:00",
+        "items": [
+          {
+            "entity_id": "media_player.shona",
+            "device_id": "show"
+          }
+        ]
+      },
+      "areas": {
+        "generated_at": "2026-10-18T12:00:00+00:00",
+        "items": [
+          {
+            "area_id": "kitchen",
+            "name": "Kitchen"
+          }
+        ]
+      }
+    }
+  },
+  "search": "echo",
+  "now": "2026-10-18T13:00:00Z",
+  "expected": {
+    "status": "ok",
+    "schema_version": 1,
+    "source": "ha-spoke-inventory",
+    "freshness": {
+      "devices": {
+        "generated_at": "2026-10-18T12:00:00+00:00",
+        "age_seconds": 3600,
+        "stale": false
+      },
+      "entities": {
+        "generated_at": "2026-10-18T12:00:00+00:00",
+        "age_seconds": 3600,
+        "stale": false
+      },
+      "areas": {
+        "generated_at": "2026-10-18T12:00:00+00:00",
+        "age_seconds": 3600,
+        "stale": false
+      }
+    },
+    "missing_sections": [],
+    "total_matches": 1,
+    "truncated": false,
+    "devices": [
+      {
+        "id": "show",
+        "name": "Shona",
+        "model": "Echo Show 8",
+        "hw_version": "2nd Gen",
+        "area_id": "kitchen",
+        "areas": ["Kitchen"],
+        "areas_truncated": false,
+        "entity_ids": ["media_player.shona"],
+        "entity_count": 1,
+        "entities_truncated": false
+      }
+    ]
+  }
+}
