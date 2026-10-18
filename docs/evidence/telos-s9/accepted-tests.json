@@ -1,0 +1,147 @@
+{
+  "numTotalTestSuites": 4,
+  "numPassedTestSuites": 4,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 8,
+  "numPassedTests": 8,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792274299217,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT17 partial: canonical source -> mounted HTTP -> typed client -> silent independent lead and immutable restart receipt",
+          "status": "passed",
+          "title": "CT17 partial: canonical source -> mounted HTTP -> typed client -> silent independent lead and immutable restart receipt",
+          "duration": 958.0442090000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT17 partial: definite stale context is rejected by actual HTTP/client before ordinary allocation",
+          "status": "passed",
+          "title": "CT17 partial: definite stale context is rejected by actual HTTP/client before ordinary allocation",
+          "duration": 469.6398329999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT17 partial: lost committed HTTP response replays exactly after restart; changed input conflicts without allocation",
+          "status": "passed",
+          "title": "CT17 partial: lost committed HTTP response replays exactly after restart; changed input conflicts without allocation",
+          "duration": 463.2649999999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT18 partial: fresh Symposium allocation and Telos role setup share owners but retain separate workspaces, contexts and receipts",
+          "status": "passed",
+          "title": "CT18 partial: fresh Symposium allocation and Telos role setup share owners but retain separate workspaces, contexts and receipts",
+          "duration": 647.8256670000001,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792274300904,
+      "endTime": 1792274303442.8257,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/tests/integration/telos-s9/accepted-boundaries.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "keeps all 44 approved rows traceable without upgrading partial, red, planned or unauthorised evidence into acceptance",
+          "status": "passed",
+          "title": "keeps all 44 approved rows traceable without upgrading partial, red, planned or unauthorised evidence into acceptance",
+          "duration": 4.748374999999996,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792274307069,
+      "endTime": 1792274307073.7483,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/tests/integration/telos-s9/evidence-ledger.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT18 partial: ordinary admission, delivery ACKs, reply mappings and output references cannot cross Telos/Symposium sessions",
+          "status": "passed",
+          "title": "CT18 partial: ordinary admission, delivery ACKs, reply mappings and output references cannot cross Telos/Symposium sessions",
+          "duration": 754.517542,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "CT18 partial: native queue interrupt and terminal callbacks affect only their owning Telos/Symposium conversation",
+          "status": "passed",
+          "title": "CT18 partial: native queue interrupt and terminal callbacks affect only their owning Telos/Symposium conversation",
+          "duration": 600.7029590000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792274304292,
+      "endTime": 1792274305647.703,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/tests/integration/telos-s9/shared-effects.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "CT17/CT18 partial: real task dispatcher enforces retained Telos role scope without blocking unrelated Symposium work; review stays explicit",
+          "status": "passed",
+          "title": "CT17/CT18 partial: real task dispatcher enforces retained Telos role scope without blocking unrelated Symposium work; review stays explicit",
+          "duration": 764.8935,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1792274306205,
+      "endTime": 1792274306969.8936,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/tests/integration/telos-s9/task-boundary.test.ts"
+    }
+  ]
+}

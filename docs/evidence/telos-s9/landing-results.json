@@ -1,0 +1,43 @@
+{
+  "scope": "early_offline_landing_refresh",
+  "parent": "85e8444019a4ae4a",
+  "slice": "b896d14d79d52682",
+  "acceptedBase": "fea33e215b0d1bcf29604aa13e793329588a2980",
+  "originalHead": "72f8df4d9c0ff15bcac27a0424461c2a05ed4dc8",
+  "originalCi": "success",
+  "originalCleanReviewId": 5560361972,
+  "tests": {
+    "offline": {
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0
+    },
+    "canonicalAdvisorRequiredBehavior": {
+      "passed": 0,
+      "failed": 2,
+      "skipped": 0
+    }
+  },
+  "workers": 1,
+  "nodeHeapMiB": 1024,
+  "modelCalls": 0,
+  "parentAndS9Status": "active",
+  "finalHeadCiAndReview": "required_after_push",
+  "liveQualification": "pending_separate_authorization",
+  "filesSha256": {
+    "docs/evidence/telos-s9/first-pass-ci.json": "a1643b6c4403428429abab161a166472160cb1c43e99e8e4e41e77a2e6f7511b",
+    "docs/evidence/telos-s9/first-review.json": "cb11bd9a968b533d3c2741be57bfba21f4affdaae69f4f1450006a09675968f9",
+    "docs/evidence/telos-s9/landing-canonical-advisor-red.json": "46ec31ac59280d25342fa521c1493f849360e9d6b1d84a09965dcef5609a3591",
+    "docs/evidence/telos-s9/landing-canonical-advisor-red.log": "cb37e36ab529e373e35ab69c759e616c5884938dac8c3a54f906f5505bede1ae",
+    "docs/evidence/telos-s9/landing-offline-tests.json": "bde24f7682419dda4d5ab84b2a8f5d160e8d3d10c10ba808092a9329ab785d74",
+    "docs/evidence/telos-s9/landing-offline-tests.log": "a0f5dfcdb7bebd4adde88dd2f8e9dec2948873ce5cb952bbdbf5b153a94242a8",
+    "docs/evidence/telos-s9/landing-source.json": "7138d1cf6b241c25583a47875e1d2a07af5690038bdb65842242cf1ddb205135",
+    "tests/integration/telos-s9/accepted-boundaries.test.ts": "8ff4fe30d20b4d823c92a767246d033e568b99430e497ed743cc149388615171",
+    "tests/integration/telos-s9/canonical-advisor.red-contract.ts": "427319488617ff897f9450e3fbff0e98eed0f5642e6f640a85bc01cebace3070",
+    "tests/integration/telos-s9/evidence-ledger.test.ts": "9e5e6d10eaa4085c4faef41fd21f7d9acac48e1ebc9b4b73cd1a69be58db5791",
+    "tests/integration/telos-s9/fixture.ts": "bee64abd981b05a94d9bc8dc53643225a9a26d61bcd2dd675959a316ff79702e",
+    "tests/integration/telos-s9/red.vitest.config.ts": "e0181a7fad9203663cfdd9ae4c8288ae7bbc1d63e7e1491c42c7590593d2875b",
+    "tests/integration/telos-s9/shared-effects.test.ts": "2c532a9d18367c556ca4885ca82c7db0deb7415a53a3f3ecb32278d85c1dbfb6",
+    "tests/integration/telos-s9/task-boundary.test.ts": "87f161c4365f0dc704271fce9cfacd84a0894246d0c7b75775b1506db3a9698e"
+  }
+}

@@ -1,0 +1,545 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node/24.10.0/bin/node",
+      "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      "tests/integration/telos-s9/ui.playwright.config.ts",
+      "--grep",
+      "shared action foreground",
+      "--workers=1",
+      "--output=/tmp/s9-original-contrast-artifacts",
+      "--reporter=list,json"
+    ],
+    "configFile": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.playwright.config.ts",
+    "rootDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/tmp/s9-original-contrast-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "browser-startup-0",
+        "name": "browser-startup-0",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/support",
+        "testIgnore": [],
+        "testMatch": ["**/browser-startup.setup.ts"],
+        "timeout": 20000
+      },
+      {
+        "outputDir": "/tmp/s9-original-contrast-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "browser-startup-1",
+        "name": "browser-startup-1",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/support",
+        "testIgnore": [],
+        "testMatch": ["**/browser-startup.setup.ts"],
+        "timeout": 20000
+      },
+      {
+        "outputDir": "/tmp/s9-original-contrast-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "desktop-chromium",
+        "name": "desktop-chromium",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9",
+        "testIgnore": [],
+        "testMatch": ["ui.contract.ts"],
+        "timeout": 20000
+      },
+      {
+        "outputDir": "/tmp/s9-original-contrast-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "mobile-webkit",
+        "name": "mobile-webkit",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9",
+        "testIgnore": [],
+        "testMatch": ["ui.contract.ts"],
+        "timeout": 20000
+      }
+    ],
+    "quiet": false,
+    "reporter": [["list"], ["json"]],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "../../support/browser-startup.setup.ts",
+      "file": "../../support/browser-startup.setup.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "browser startup",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "browser-startup-0",
+              "projectName": "browser-startup-0",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 307,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:05:49.328Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7104cce1e3aa52e2069d-181dcb86d99237e8af58",
+          "file": "../../support/browser-startup.setup.ts",
+          "line": 5,
+          "column": 1
+        },
+        {
+          "title": "browser startup",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "browser-startup-1",
+              "projectName": "browser-startup-1",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 593,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:05:50.055Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7104cce1e3aa52e2069d-49ceadd811755a9b6779",
+          "file": "../../support/browser-startup.setup.ts",
+          "line": 5,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "ui.contract.ts",
+      "file": "ui.contract.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "S9 shared action foreground preserves semantic contrast (dark)",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-chromium",
+              "projectName": "desktop-chromium",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 459,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m19\u001b[27m, 2\u001b[7m0\u001b[27m, 2\u001b[7m2\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m242\u001b[27m, 2\u001b[7m42\u001b[27m, 2\u001b[7m45\u001b[27m)\"\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m19\u001b[27m, 2\u001b[7m0\u001b[27m, 2\u001b[7m2\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m242\u001b[27m, 2\u001b[7m42\u001b[27m, 2\u001b[7m45\u001b[27m)\"\u001b[39m\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36",
+                    "location": {
+                      "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                      "column": 36,
+                      "line": 241
+                    },
+                    "snippet": "  239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n> 241 |     expect.soft(colors.foreground).toBe(colors.expected);\n      |                                    ^\n  242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                        "column": 36,
+                        "line": 241
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m19\u001b[27m, 2\u001b[7m0\u001b[27m, 2\u001b[7m2\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m242\u001b[27m, 2\u001b[7m42\u001b[27m, 2\u001b[7m45\u001b[27m)\"\u001b[39m\n\n  239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n> 241 |     expect.soft(colors.foreground).toBe(colors.expected);\n      |                                    ^\n  242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36"
+                    },
+                    {
+                      "location": {
+                        "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                        "column": 29,
+                        "line": 242
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThanOrEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: >= \u001b[32m4.5\u001b[39m\nReceived:    \u001b[31m1.3564243263890676\u001b[39m\n\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n  241 |     expect.soft(colors.foreground).toBe(colors.expected);\n> 242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n      |                             ^\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);\n  245 |   });\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:242:29"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:05:51.173Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "computed-colors",
+                      "contentType": "application/json",
+                      "body": "eyJmb3JlZ3JvdW5kIjoicmdiKDI0MiwgMjQyLCAyNDUpIiwiYmFja2dyb3VuZCI6InJnYigxNzgsIDIyMiwgMTYxKSIsImV4cGVjdGVkIjoicmdiKDE5LCAyMCwgMjIpIiwiY29udHJhc3QiOjEuMzU2NDI0MzI2Mzg5MDY3Nn0="
+                    },
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--desktop-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--desktop-chromium/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--desktop-chromium/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                    "column": 36,
+                    "line": 241
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "f0096583255a62f845d6-402c0dc6dded2bcfc0f0",
+          "file": "ui.contract.ts",
+          "line": 197,
+          "column": 3
+        },
+        {
+          "title": "S9 shared action foreground preserves semantic contrast (light)",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-chromium",
+              "projectName": "desktop-chromium",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 510,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m250, 249, 246\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m32, 33, 39\u001b[27m)\"\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m250, 249, 246\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m32, 33, 39\u001b[27m)\"\u001b[39m\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36",
+                    "location": {
+                      "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                      "column": 36,
+                      "line": 241
+                    },
+                    "snippet": "  239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n> 241 |     expect.soft(colors.foreground).toBe(colors.expected);\n      |                                    ^\n  242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                        "column": 36,
+                        "line": 241
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m250, 249, 246\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m32, 33, 39\u001b[27m)\"\u001b[39m\n\n  239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n> 241 |     expect.soft(colors.foreground).toBe(colors.expected);\n      |                                    ^\n  242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36"
+                    },
+                    {
+                      "location": {
+                        "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                        "column": 29,
+                        "line": 242
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThanOrEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: >= \u001b[32m4.5\u001b[39m\nReceived:    \u001b[31m2.5057118244298087\u001b[39m\n\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n  241 |     expect.soft(colors.foreground).toBe(colors.expected);\n> 242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n      |                             ^\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);\n  245 |   });\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:242:29"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:05:52.811Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "computed-colors",
+                      "contentType": "application/json",
+                      "body": "eyJmb3JlZ3JvdW5kIjoicmdiKDMyLCAzMywgMzkpIiwiYmFja2dyb3VuZCI6InJnYigyMiwgMTA3LCA4OCkiLCJleHBlY3RlZCI6InJnYigyNTAsIDI0OSwgMjQ2KSIsImNvbnRyYXN0IjoyLjUwNTcxMTgyNDQyOTgwODd9"
+                    },
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--desktop-chromium/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--desktop-chromium/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--desktop-chromium/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                    "column": 36,
+                    "line": 241
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "f0096583255a62f845d6-048f2e81f3e82a16b4f9",
+          "file": "ui.contract.ts",
+          "line": 197,
+          "column": 3
+        },
+        {
+          "title": "S9 shared action foreground preserves semantic contrast (dark)",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-webkit",
+              "projectName": "mobile-webkit",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 1247,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m19\u001b[27m, 2\u001b[7m0\u001b[27m, 2\u001b[7m2\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m242\u001b[27m, 2\u001b[7m42\u001b[27m, 2\u001b[7m45\u001b[27m)\"\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m19\u001b[27m, 2\u001b[7m0\u001b[27m, 2\u001b[7m2\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m242\u001b[27m, 2\u001b[7m42\u001b[27m, 2\u001b[7m45\u001b[27m)\"\u001b[39m\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36",
+                    "location": {
+                      "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                      "column": 36,
+                      "line": 241
+                    },
+                    "snippet": "  239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n> 241 |     expect.soft(colors.foreground).toBe(colors.expected);\n      |                                    ^\n  242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                        "column": 36,
+                        "line": 241
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m19\u001b[27m, 2\u001b[7m0\u001b[27m, 2\u001b[7m2\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m242\u001b[27m, 2\u001b[7m42\u001b[27m, 2\u001b[7m45\u001b[27m)\"\u001b[39m\n\n  239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n> 241 |     expect.soft(colors.foreground).toBe(colors.expected);\n      |                                    ^\n  242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36"
+                    },
+                    {
+                      "location": {
+                        "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                        "column": 29,
+                        "line": 242
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThanOrEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: >= \u001b[32m4.5\u001b[39m\nReceived:    \u001b[31m1.3564243263890676\u001b[39m\n\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n  241 |     expect.soft(colors.foreground).toBe(colors.expected);\n> 242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n      |                             ^\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);\n  245 |   });\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:242:29"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:05:54.104Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "computed-colors",
+                      "contentType": "application/json",
+                      "body": "eyJmb3JlZ3JvdW5kIjoicmdiKDI0MiwgMjQyLCAyNDUpIiwiYmFja2dyb3VuZCI6InJnYigxNzgsIDIyMiwgMTYxKSIsImV4cGVjdGVkIjoicmdiKDE5LCAyMCwgMjIpIiwiY29udHJhc3QiOjEuMzU2NDI0MzI2Mzg5MDY3Nn0="
+                    },
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-8721f-ves-semantic-contrast-dark--mobile-webkit/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                    "column": 36,
+                    "line": 241
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "f0096583255a62f845d6-493c78b862c16ca547e6",
+          "file": "ui.contract.ts",
+          "line": 197,
+          "column": 3
+        },
+        {
+          "title": "S9 shared action foreground preserves semantic contrast (light)",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-webkit",
+              "projectName": "mobile-webkit",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 675,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m250, 249, 246\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m32, 33, 39\u001b[27m)\"\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m250, 249, 246\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m32, 33, 39\u001b[27m)\"\u001b[39m\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36",
+                    "location": {
+                      "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                      "column": 36,
+                      "line": 241
+                    },
+                    "snippet": "  239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n> 241 |     expect.soft(colors.foreground).toBe(colors.expected);\n      |                                    ^\n  242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                        "column": 36,
+                        "line": 241
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"rgb(\u001b[7m250, 249, 246\u001b[27m)\"\u001b[39m\nReceived: \u001b[31m\"rgb(\u001b[7m32, 33, 39\u001b[27m)\"\u001b[39m\n\n  239 |       .attach('computed-colors', { body: JSON.stringify(colors), contentType: 'application/json' });\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n> 241 |     expect.soft(colors.foreground).toBe(colors.expected);\n      |                                    ^\n  242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:241:36"
+                    },
+                    {
+                      "location": {
+                        "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                        "column": 29,
+                        "line": 242
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThanOrEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: >= \u001b[32m4.5\u001b[39m\nReceived:    \u001b[31m2.5057118244298087\u001b[39m\n\n  240 |     await page.screenshot({ path: info.outputPath(`action-${theme}.png`), fullPage: true });\n  241 |     expect.soft(colors.foreground).toBe(colors.expected);\n> 242 |     expect(colors.contrast).toBeGreaterThanOrEqual(4.5);\n      |                             ^\n  243 |     expect(host.unexpected).toEqual([]);\n  244 |     expect(host.errors).toEqual([]);\n  245 |   });\n    at /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts:242:29"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-17T23:05:56.618Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "computed-colors",
+                      "contentType": "application/json",
+                      "body": "eyJmb3JlZ3JvdW5kIjoicmdiKDMyLCAzMywgMzkpIiwiYmFja2dyb3VuZCI6InJnYigyMiwgMTA3LCA4OCkiLCJleHBlY3RlZCI6InJnYigyNTAsIDI0OSwgMjQ2KSIsImNvbnRyYXN0IjoyLjUwNTcxMTgyNDQyOTgwODd9"
+                    },
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/tmp/s9-original-contrast-artifacts/ui.contract.ts-S9-shared-a-217ab-es-semantic-contrast-light--mobile-webkit/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/s9-combined/tests/integration/telos-s9/ui.contract.ts",
+                    "column": 36,
+                    "line": 241
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "f0096583255a62f845d6-1138f5c4fc4e748ff408",
+          "file": "ui.contract.ts",
+          "line": 197,
+          "column": 3
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-17T23:05:48.578Z",
+    "duration": 9156.25,
+    "expected": 2,
+    "skipped": 0,
+    "unexpected": 4,
+    "flaky": 0
+  }
+}
