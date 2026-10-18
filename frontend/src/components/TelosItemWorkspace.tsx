@@ -29,6 +29,7 @@ const date = (value: string | null) => value ?? 'Unknown';
 export function TelosItemWorkspace({
   record,
   records,
+  refreshKey,
   onOpen,
   onBack,
   relatedState = 'ready',
@@ -36,6 +37,7 @@ export function TelosItemWorkspace({
 }: {
   record: TelosWorkItem;
   records: TelosWorkItem[];
+  refreshKey: string | number;
   onOpen(id: string, view?: 'Chat'): void;
   onBack(): void;
   relatedState?: 'loading' | 'unavailable' | 'ready';
@@ -145,6 +147,7 @@ export function TelosItemWorkspace({
       {children.length > 0 ? (
         <TelosOutcomesTree
           compact
+          refreshKey={refreshKey}
           records={children}
           onOpen={onOpen}
           storageKey={'telos.child.navigation.' + record.itemId}

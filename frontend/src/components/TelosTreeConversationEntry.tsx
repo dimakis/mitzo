@@ -6,11 +6,11 @@ const api = new TelosWorkApiClient(apiFetch);
 /** A workspace entry, never an allocator or a second role setup owner. */
 export function TelosTreeConversationEntry({
   itemId,
-  refreshKey = 0,
+  refreshKey,
   onOpenChat,
 }: {
   itemId: string;
-  refreshKey?: string | number;
+  refreshKey: string | number;
   onOpenChat(): void;
 }) {
   const [result, setResult] = useState<{

@@ -106,6 +106,7 @@ export function TodoDetailView() {
           <TelosItemWorkspace
             key={record.itemId}
             record={record}
+            refreshKey={canonical.refreshKey}
             relatedState={
               error
                 ? 'unavailable'

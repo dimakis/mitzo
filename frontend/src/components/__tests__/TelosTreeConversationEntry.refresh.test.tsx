@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosWorkItem, TelosWorkView } from '@mitzo/protocol';
 import type { TodoItem } from '../../types/todo';
 import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
-import { TodoView } from '../../pages/TodoView';
+import { TodoWorkspace } from '../../pages/TodoWorkspace';
 
 const { updates, collection } = vi.hoisted(() => ({
   updates: new Set<() => void>(),
@@ -20,7 +20,13 @@ vi.mock('../../lib/event-bus-singleton', () => ({
     },
   },
 }));
-vi.mock('../../hooks/useTodoData', () => ({ useTodoData: collection }));
+vi.mock('../../hooks/useTodoData', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../hooks/useTodoData')>()),
+  useTodoData: collection,
+}));
+vi.mock('../TelosItemRoleEntries', () => ({ TelosItemRoleEntries: () => null }));
+vi.mock('../TelosItemSources', () => ({ TelosItemSources: () => null }));
+vi.mock('../WorkOutputs', () => ({ WorkOutputs: () => null }));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: Record<string, unknown>) => unknown) =>
     select({ newSession: vi.fn(), setPendingSession: vi.fn() }),
@@ -28,30 +34,38 @@ vi.mock('@mitzo/client/hooks', () => ({
 
 const fixture = createTelosWorkFixtures().leadWithUnstartedSlice;
 let record: TelosWorkItem;
-function work(kind: TelosWorkView['kind'] = 'outcome', assigned = false): TelosWorkView {
+let childRecord: TelosWorkItem | undefined;
+let subscriptionBaseline: number;
+function work(
+  kind: TelosWorkView['kind'] = 'outcome',
+  assigned = false,
+  itemId = record.itemId,
+): TelosWorkView {
   return {
-    itemId: record.itemId,
+    itemId,
     kind,
-    parentId: null,
+    parentId: itemId === childRecord?.itemId ? record.itemId : null,
     revision: 'f'.repeat(64),
     links: [],
     assignments:
       assigned && (kind === 'outcome' || kind === 'work_item')
-        ? [{ ...fixture.assignments[0], role: kind === 'outcome' ? 'lead' : 'worker' }]
+        ? [{ ...fixture.assignments[0], itemId, role: kind === 'outcome' ? 'lead' : 'worker' }]
         : [],
     sources: [],
     attempts: [],
   };
 }
-function mount() {
+function mount(path = '/todos') {
   return render(
-    <MemoryRouter>
-      <TodoView />
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/todos/:id?" element={<TodoWorkspace />} />
+      </Routes>
     </MemoryRouter>,
   );
 }
-function row() {
-  return screen.getByRole('button', { name: record.summary }).closest('li');
+function row(summary = record.summary) {
+  return screen.getByRole('button', { name: summary }).closest('li');
 }
 function refresh() {
   fireEvent.click(screen.getByRole('button', { name: 'Refresh Telos' }));
@@ -61,6 +75,9 @@ function update() {
 }
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
+  subscriptionBaseline = updates.size;
+  childRecord = undefined;
   record = { ...fixture.items[0], parentId: null };
   const item: TodoItem = {
     id: record.itemId,
@@ -86,13 +103,15 @@ beforeEach(() => {
     profiles: ['manual'],
     refresh: vi.fn(),
   });
-  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async () =>
-    structuredClone(record),
-  );
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async (id) => {
+    const found = [record, childRecord].find((value) => value?.itemId === id);
+    if (!found) throw Error('Unknown test record');
+    return structuredClone(found);
+  });
 });
 afterEach(() => {
   cleanup();
-  expect(updates.size).toBe(0);
+  expect(updates.size).toBe(subscriptionBaseline);
   vi.restoreAllMocks();
   collection.mockReset();
 });
@@ -204,3 +223,108 @@ it.each(['success', 'failure'] as const)(
     expect(row()).toBe(mounted);
   },
 );
+
+function mountChild(tab: 'Overview' | 'Work') {
+  childRecord = { ...fixture.items[1], parentId: record.itemId };
+  const parent = collection().items[0] as TodoItem;
+  parent.children = [
+    {
+      ...parent,
+      id: childRecord.itemId,
+      summary: childRecord.summary,
+      parentId: record.itemId,
+      children: [],
+      childCount: 0,
+    },
+  ];
+  parent.childCount = 1;
+  sessionStorage.setItem('telos.item.tab.' + record.itemId, tab);
+  return childRecord;
+}
+
+it.each([
+  ['Overview', 'item event'],
+  ['Overview', 'visible resume'],
+  ['Work', 'item event'],
+  ['Work', 'visible resume'],
+] as const)(
+  'recovers the same mounted child in %s through %s and refreshes assignment/kind',
+  async (tab, source) => {
+    const child = mountChild(tab);
+    let current = work('work_item', false, child.itemId);
+    vi.spyOn(TelosWorkApiClient.prototype, 'read')
+      .mockRejectedValueOnce(Error('temporary child failure'))
+      .mockImplementation(async () => structuredClone(current));
+    mount('/todos/' + record.itemId);
+    await screen.findByText('Conversations unavailable');
+    const mounted = row(child.summary);
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    if (source === 'item event') update();
+    else act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await screen.findByRole('button', { name: 'Choose worker' });
+    current = work('work_item', true, child.itemId);
+    update();
+    await screen.findByRole('button', { name: 'Worker chat' });
+    childRecord = { ...child, kind: 'outcome' };
+    current = work('outcome', true, child.itemId);
+    update();
+    await screen.findByRole('button', { name: 'Lead chat' });
+    expect(screen.queryByRole('button', { name: 'Worker chat' })).toBeNull();
+    childRecord = { ...child, kind: 'coordinator' };
+    current = work('coordinator', false, child.itemId);
+    visibility.mockReturnValue('visible');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await screen.findByRole('button', { name: 'View coordinator' });
+    childRecord = { ...child, kind: null };
+    current = work(null, false, child.itemId);
+    update();
+    await screen.findByText('Role unclassified');
+    expect(row(child.summary)).toBe(mounted);
+    expect(
+      screen.getByRole('button', { name: tab, pressed: true }).getAttribute('aria-pressed'),
+    ).toBe('true');
+  },
+);
+
+it.each([
+  ['Overview', 'success'],
+  ['Overview', 'failure'],
+  ['Work', 'success'],
+  ['Work', 'failure'],
+] as const)('keeps the newest mounted child in %s after superseded %s', async (tab, outcome) => {
+  const child = mountChild(tab);
+  const old = work('work_item', false, child.itemId);
+  let resolve!: (value: TelosWorkView) => void;
+  let reject!: (error: Error) => void;
+  const pending = new Promise<TelosWorkView>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  let signal: AbortSignal | undefined;
+  const read = vi
+    .spyOn(TelosWorkApiClient.prototype, 'read')
+    .mockResolvedValueOnce(old)
+    .mockImplementationOnce((_id, abort) => {
+      signal = abort;
+      return pending;
+    })
+    .mockResolvedValue(work('work_item', true, child.itemId));
+  mount('/todos/' + record.itemId);
+  await screen.findByRole('button', { name: 'Choose worker' });
+  const mounted = row(child.summary);
+  update();
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await screen.findByRole('button', { name: 'Worker chat' });
+  expect(signal?.aborted).toBe(true);
+  await act(async () => {
+    if (outcome === 'success') resolve(old);
+    else reject(Error('superseded child failure'));
+    await pending.catch(() => undefined);
+  });
+  expect(screen.getByRole('button', { name: 'Worker chat' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Choose worker' })).toBeNull();
+  expect(screen.queryByText('Conversations unavailable')).toBeNull();
+  expect(row(child.summary)).toBe(mounted);
+});

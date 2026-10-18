@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.307-telos-s7-reviewed-convergence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.308-telos-s7-child-refresh';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosTreeConversationEntry.tsx':
-    'bebfed2ec3cec1f1c3788ffcd8e55f0ed8935b501b48479586a24754acac5ce6',
+    'e8311cc22e369d1f9c4d8db26e2f3da54c58a654bd2c8becdf8429504d81502a',
   '../../frontend/src/lib/telos-kind-label.ts':
     'a89a6bff28e8ac2fed83ac9bd19305185f6ee6d7a4f7efad196e3e5571a114b8',
   '../../frontend/src/hooks/useTelosRecords.ts':
@@ -32,9 +31,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosWorkspace.css':
     '5faeb55ac0a68b9c7a658d24416daf44e0daccf14f7f7cbe36309d86d9ca2e32',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
-    '5deb955ca8613a17fee3cca046dcbeae3c1ec690e5ace19c3466d52d2a30a2a5',
+    '9f13033b6db608433c50785607bd4b990276548fe9c00ea82dd25a5b9bd3e0c1',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
-    '0fca81457016e2555a9d988ee316962858b9ba4fdabf6c9d17081228c83bfe8a',
+    '8887547994e8428bba3ac664407601535c8dfc3bc619725fd2e598671bf1f54f',
   '../../frontend/src/pages/TodoWorkspace.tsx':
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/TodoView.tsx':
@@ -103,7 +102,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/todo.ts':
     '40ce25d2ee7d5bb6f235d440cf3b5f6baa8f5760c92d4f0856276c6748468cbf',
   '../../frontend/src/pages/TodoDetailView.tsx':
-    '38bd3f3b80b3ad26531e4e9fea72cd505f4c6435bd1d21afe0374c14666234ee',
+    '3eb0ef1d057d081be4c914f109ead9c41c25e6aa0b3ad3e84b72ac399a8a8a1a',
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':

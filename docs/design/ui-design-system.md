@@ -1513,7 +1513,9 @@ not inherit the old fixed mobile page width after the focused-route migration.
 Kind labels never come from child counts or source profiles. Current-role links
 are read through the existing work client; the row enters the workspace Chat tab
 and the existing role owner performs setup. It never allocates from a tree read.
-Mounted conversation rows share the canonical record owner's refresh generation.
+Mounted conversation rows in the collection and the focused item's Overview/Work
+child trees share the canonical record owner's refresh generation. This prop is
+required through the detail workspace, tree and row so omitted callers fail typing.
 Refresh Telos, item updates and visible resume recheck failed reads, assignments
 and kinds without remounting the row or creating another event subscription.
 Superseded reads remain abort-fenced, including transports that resolve after abort.
