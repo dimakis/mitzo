@@ -104,6 +104,47 @@ it('denies task execution by coordination roles and limits workers to their sele
     assertTelosWorkTaskExecutionScope(owner(), 'ordinary', undefined, 'task'),
   ).not.toThrow();
 });
+it('authorizes the exact durable task mapping without rewriting immutable worker role context', () => {
+  const store = owner();
+  const context = selected('worker');
+  delete context.executionTaskId;
+  retainTelosWorkRoleContext(store, 'worker', binding, context);
+  const mapping = {
+    executionTaskId: 'durable-task',
+    childItemId: 'item',
+    leadConversationId: 'lead-chat',
+    workerConversationId: 'worker',
+    contextHash: createHash('sha256')
+      .update(JSON.stringify(resolveTelosWorkRoleContext(store, 'worker', binding)))
+      .digest('hex'),
+  };
+
+  expect(() =>
+    assertTelosWorkTaskExecutionScope(store, 'worker', binding, 'durable-task', mapping),
+  ).not.toThrow();
+  expect(() =>
+    assertTelosWorkTaskExecutionScope(store, 'worker', binding, 'other-task', mapping),
+  ).toThrow(/authorize/);
+  expect(() =>
+    assertTelosWorkTaskExecutionScope(store, 'lead-chat', binding, 'durable-task', mapping),
+  ).toThrow();
+  expect(() =>
+    assertTelosWorkTaskExecutionScope(owner(), 'worker', binding, 'durable-task', mapping),
+  ).toThrow(/authorize/);
+  expect(() =>
+    assertTelosWorkTaskExecutionScope(store, 'worker', binding, 'durable-task', {
+      ...mapping,
+      contextHash: 'wrong',
+    }),
+  ).toThrow(/authorize/);
+  expect(() =>
+    assertTelosWorkTaskExecutionScope(store, 'worker', binding, 'durable-task', {
+      ...mapping,
+      workerConversationId: 'other',
+    }),
+  ).toThrow(/authorize/);
+  expect(resolveTelosWorkRoleContext(store, 'worker', binding)?.executionTaskId).toBeUndefined();
+});
 it('rejects changed reviewed bytes and conflicting retained role records', () => {
   const store = owner();
   const changed = selected();

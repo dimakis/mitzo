@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type React
 import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
+import { telosWorkerReceipt } from './TelosWorkerReceiptCard';
 import { AgentActivity } from './AgentActivity';
 import { completedWebsiteRead } from '../lib/web-access-outcome';
 import { PermissionBanner } from './PermissionBanner';
@@ -420,6 +421,7 @@ export function ChatArea({
           const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
           const keepVisible =
             Boolean(progress) ||
+            Boolean(telosWorkerReceipt(block, sessionId)) ||
             (!completedWebsiteRead(block) &&
               ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
                 block.toolName ?? '',

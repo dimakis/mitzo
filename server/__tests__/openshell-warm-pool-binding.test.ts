@@ -275,7 +275,7 @@ it('production lifecycle previews use the durable account of a normally claimed 
   const lifecycle = initializeOpenShellLifecycle(f.config, {
     registry: { findBySessionId: () => undefined, entries: function* () {} },
     eventStore: { getSession: () => ({}) },
-    taskStore: { getTree: () => [] },
+    taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
     queue: () => ({ queued: 0, running: 0, recovery: false }),
   })!;
   try {

@@ -3,11 +3,20 @@ import type { TaskStore } from './task-store.js';
 const SUMMARY_MAX_CHARS = 2000;
 const MAX_DEPTH = 5;
 
+export interface TaskContextOptions {
+  /** A Telos worker receives only the selected slice, never sibling material. */
+  includeSiblingContext?: boolean;
+}
+
 /**
  * Build an XML task context block for injection into the system prompt.
  * Per design doc §8.1.
  */
-export function buildTaskContextPrompt(store: TaskStore, taskId: string): string | null {
+export function buildTaskContextPrompt(
+  store: TaskStore,
+  taskId: string,
+  options: TaskContextOptions = {},
+): string | null {
   const task = store.get(taskId);
   if (!task) return null;
 
@@ -42,7 +51,11 @@ export function buildTaskContextPrompt(store: TaskStore, taskId: string): string
   }
 
   // Sibling context
-  if (task.parentId) {
+  if (
+    task.parentId &&
+    !store.getTelosExecutionBinding(taskId) &&
+    options.includeSiblingContext !== false
+  ) {
     const siblings = store.getChildren(task.parentId);
     if (siblings.length > 1) {
       lines.push('  <siblings>');
@@ -99,9 +112,23 @@ export function buildTaskContextPrompt(store: TaskStore, taskId: string): string
 /**
  * Build the task board system prompt addition (§8.2).
  */
-export function buildTaskSystemPrompt(store: TaskStore, taskId: string): string {
-  const context = buildTaskContextPrompt(store, taskId);
+export function buildTaskSystemPrompt(
+  store: TaskStore,
+  taskId: string,
+  options: TaskContextOptions = {},
+): string {
+  const context = buildTaskContextPrompt(store, taskId, options);
   if (!context) return '';
+
+  if (store.getTelosExecutionBinding(taskId)) {
+    return (
+      '\n\n## Delegated Telos slice\n\n' +
+      'Work only on this exact selected slice. Do not create or dispatch sibling tasks. ' +
+      'Use TaskStatus to inspect this task, TaskArtifact to save evidence, and TaskComplete ' +
+      'only when its acceptance criteria are met.\n\n' +
+      context
+    );
+  }
 
   return (
     '\n\n## Task Board\n\n' +
