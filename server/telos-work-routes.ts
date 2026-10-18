@@ -215,6 +215,13 @@ export function createTelosWorkRouter(options: {
                 ? 400
                 : 503;
           res.status(status).json({
+            ...(operation.path === 'roles/setup' &&
+            status === 409 &&
+            known &&
+            error.code === 'conflict' &&
+            error.recovery
+              ? { recovery: error.recovery }
+              : {}),
             code:
               status === 403
                 ? 'unauthorized'
