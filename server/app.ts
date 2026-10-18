@@ -2276,8 +2276,12 @@ async function setupTelosRole(request: TelosWorkRoleRequest, reviewed = false, o
         : telosRoleHost(connectionId).setup(request),
   );
 }
-async function delegateTelosSlice(request: TelosWorkRoleRequest) {
+async function delegateTelosSlice(request: TelosWorkRoleRequest, explicitOrdinary = false) {
   request.assertAuthorized();
+  const ordinary =
+    explicitOrdinary ||
+    (request.actor.kind === 'conversation' &&
+      eventStore.getSession(request.actor.id)?.ordinaryWorkspaceId != null);
   const run = (connectionId?: string) => {
     const leadId = request.actor.kind === 'conversation' ? request.actor.id : undefined;
     const resolve = async (scope: TelosWorkDelegationScope, signal: AbortSignal) => {
@@ -2293,11 +2297,35 @@ async function delegateTelosSlice(request: TelosWorkRoleRequest) {
       }
       return selected;
     };
-    return createTelosWorkDelegationHost({
+    const host = createTelosWorkDelegationHost({
       dbPath: telosDatabasePath,
       events: eventStore,
       tasks: taskStore,
-      workspaces: () => getRepositoryWorkspaces(),
+      workspaces: () => (ordinary ? getOrdinaryWorkspaces() : getRepositoryWorkspaces()),
+      ordinary: {
+        qualifySettings: (scope, signal) =>
+          resolveTelosOrdinaryWorkspaceSelection(
+            scope.input.settings,
+            signal,
+            connectionId,
+            leadId,
+          ),
+        resolvePreparation: (scope, signal) =>
+          resolveTelosOrdinaryWorkspaceSelection(scope.settings, signal, connectionId, leadId),
+        authorizeSettings: async (scope, signal) => {
+          await resolveTelosOrdinaryWorkspaceSelection(
+            scope.settings,
+            signal,
+            connectionId,
+            leadId,
+          );
+        },
+        dispatch: (owner, actor, input, signal) => {
+          if (!orchestrator)
+            throw new TelosWorkError('conflict', 'Ordinary delegation dispatcher unavailable');
+          return orchestrator.delegateSlice(owner, actor, input, signal);
+        },
+      },
       ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
       sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
       resolvePreparation: resolve,
@@ -2308,7 +2336,8 @@ async function delegateTelosSlice(request: TelosWorkRoleRequest) {
           throw new TelosWorkError('conflict', 'Ordinary delegation dispatcher unavailable');
         return orchestrator.delegateSlice(owner, actor, input, signal);
       },
-    }).delegate(request);
+    });
+    return explicitOrdinary ? host.delegateOrdinary(request) : host.delegate(request);
   };
   return request.actor.kind === 'operator'
     ? withAgentLibraryRecoveryAuthorization(request.authorization, run)
@@ -2373,6 +2402,7 @@ app.use(
     roleSetup: setupTelosRole,
     roleSetupReviewed: (request) => setupTelosRole(request, true),
     delegateSlice: delegateTelosSlice,
+    ordinaryDelegateSlice: (request) => delegateTelosSlice(request, true),
     roleContext: (request) => telosRoleHost().context(request),
     roleReview: (request) => telosRoleHost().review(request),
     advisorPreview: (request) => saveTelosAdvisorDraft('preview', request),

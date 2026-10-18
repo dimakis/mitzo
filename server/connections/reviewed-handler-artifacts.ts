@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.331-ordinary-preparation-role-http.1';
+  'v1.0.332-ordinary-delegation-http.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -217,7 +217,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-work-conversation.ts':
     '6abc340f3236812d9e9875e8a60944590575d991e95ccaf3f2b61aff323c5175',
   '../telos-work-routes.ts':
-    '8443a0b9bcb0babed4cd301483a67009c814f2c5f17fe8e15eb5ac3eff6d49b5',
+    'ee2488cfb4d65b5012253e564cf820b5f472b8c4d31025046d5402eae40960aa',
   '../../packages/client/src/telos-work-api.ts':
     'c96657c94f4328dbea81bdf8ec5fd16cf76cae9810c238ce91561a814cd97523',
   '../telos-work-schema.ts':
@@ -668,7 +668,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   // Request authority and physical review composition share runtime admission.
   '../app.ts':
-    '29bb1cca82081d4ac85ab78f2e4a024dbf23735cf712a84fb08823703a2da217',
+    '9be7ac80a7789a94e0e329cb31386b7f68df50fa5bd1f467c2d5786cd8f5685f',
   '../auth-check-tracing.ts':
     '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts':
@@ -1262,7 +1262,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-work-delegation.ts':
     '77318c1f005b8a1af4d3e05924d65ab6c84bd069846a2f93243cdf5255af8fac',
   '../telos-work-delegation-host.ts':
-    'cdda7dc57cf51c6980f4d444da7325bf94a766d1c911c3d5053b1ffd97b8c946',
+    'f80204bc86526b806ae42d144bcffacc07aba609925698d300a6ebeeb20aa9ee',
   '../telos-work-command-scope.ts':
     'ee4418309938ce4f14d62d08f051b2fcd7cfeefed51812defea067fcdcc8079c',
   '../telos-work-execution-authority.ts':
