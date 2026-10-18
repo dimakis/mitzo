@@ -18,7 +18,14 @@ export const ApiToolReferenceSchema = z.strictObject({
   version: z.number().int().positive(),
   revision: z.uuid(),
 });
+/** Accepted statically installed custom implementations; no source or grants travel in profiles. */
+export const CustomToolReferenceSchema = z.strictObject({
+  id: z.string().regex(/^custom:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/),
+  version: z.number().int().positive(),
+  revision: z.uuid(),
+});
 export const AgentToolReferenceSchema = z.union([
+  CustomToolReferenceSchema,
   ApiToolReferenceSchema,
   BuiltinToolReferenceSchema,
   ConfiguredToolReferenceSchema,

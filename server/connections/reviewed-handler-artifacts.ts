@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.290';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.305';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -38,7 +38,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '64e5c10201281d54c61e62bf06b1260aff990939f38cb1b4052ba6335d001e0b',
   '../../frontend/src/components/SandboxBatchCleanup.tsx':
     'af232871b17f95cfe1cee1bcd7031236cad69ba7db51645af07e084823e247c3',
-
+  '../tool-builder-schema.ts': 'b55fb292b80f3f1c5ad9376a27abaf62b901cdf07e5fb62ce07cf7fbc17a419f',
+  '../custom-tool-registry.ts': '700f948fa87df78c94879efe1a07ecc6402dff483550a3c2fbeec136183d81cb',
+  '../tool-builder-router.ts': '098b60cbc463a81cb3a43fa45a6fcd0ddba309ae6c4ef1ba3b69a26c2c916bd5',
+  '../tool-builder-store.ts': '26ec2fa2c3bccd7a2c1fd41dbf4a0b3f10116ff97a3f684a502445096da06e3d',
+  '../tool-builder.ts': 'f086bdabeac717acab30aa0433a5b2eb17cafb82ec56126009ad6a5a58a01b61',
+  '../symposium-access-tools.ts':
+    'f5ee50c9bea25c0453b52941eb186f43e8de6efa674736eab22348ac08b59032',
   '../../frontend/src/components/QuickChatSettings.tsx':
     'cbc362221b4b23133a708f2d99b41db97797254aedb2a25547f30005ee91dbe6',
   '../../frontend/src/components/QuickChatSettings.css':
@@ -202,7 +208,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-tool-catalog.ts': '4e65aeca8a1e76bbc5d8bba140b1085810a3645f00c566e8f0bfc1122aa472b4',
   '../agent-tool-selection.ts': 'dbf832f63b538a46862eff28906798487ef00c5d6b4fe9ad6ab4eda12af84771',
   '../../packages/protocol/src/agent-tools.ts':
-    'c2ac5032c8cae17467c1e60638b5bf0efb7410ca345f9ba116e73aa606cdac26',
+    'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
   '../symposium-session-create.ts':
     '1696f970ee8d8680ce3d73f80cc06b5712dfe78159a1a6635cad81f24e040640',
   // Task presentation and retained execution intent; no execution enrollment.

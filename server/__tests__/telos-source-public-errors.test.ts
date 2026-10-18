@@ -1,12 +1,28 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
-import { replayEventsToMessages, replayEventsToTranscript } from '../chat.js';
+import { eventStore, replayEventsToMessages, replayEventsToTranscript } from '../chat.js';
 import { createTelosConversationSource } from '../telos-conversation-source.js';
 import { compileCollaborationSourceContext } from '../collaboration-context-compiler.js';
 import { nativeSourceWriter } from './fixtures/telos-native-source.js';
 import { createTelosSourceApprovalData } from './fixtures/telos-source-approval-data.js';
+
+// Import the actual replay owner without sharing chat's startup database with
+// other Vitest workers. The per-case source stores remain real temporary files.
+const startupOwner = await vi.hoisted(async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'telos-public-error-startup-'));
+  vi.stubEnv('REPO_PATH', root);
+  return { remove: () => fs.rmSync(root, { recursive: true, force: true }) };
+});
+afterAll(() => {
+  eventStore.close();
+  startupOwner.remove();
+  vi.unstubAllEnvs();
+});
 
 const cleanup: Array<() => void> = [];
 afterEach(() =>

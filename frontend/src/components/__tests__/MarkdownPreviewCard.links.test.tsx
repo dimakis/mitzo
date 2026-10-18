@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { act, render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { beforeEach } from 'vitest';
@@ -29,8 +30,8 @@ describe('MarkdownPreviewCard links', () => {
         <MarkdownPreviewCard filePath="outputs/report.md" sessionId="old-session" />
       </MemoryRouter>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Share file' }));
+    await userEvent.click(screen.getByRole('button', { name: 'File options' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Share file' }));
     await waitFor(() => expect(shareFile).toHaveBeenCalledWith('outputs/report.md', 'old-session'));
     expect(screen.queryByText('Loading...')).toBeNull();
   });
@@ -50,7 +51,7 @@ describe('MarkdownPreviewCard links', () => {
         <MarkdownPreviewCard filePath="report.md" sessionId="sandbox-session" />
       </MemoryRouter>,
     );
-    fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
+    await userEvent.click(screen.getByRole('button', { name: /report.md/ }));
     expect(await screen.findByText(message)).toBeTruthy();
   });
 
@@ -72,9 +73,9 @@ describe('MarkdownPreviewCard links', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
+    await userEvent.click(screen.getByRole('button', { name: /report.md/ }));
     const link = await screen.findByRole('link', { name: 'details' });
-    fireEvent.click(link);
+    await userEvent.click(link);
 
     await waitFor(() => {
       const url = new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test');
@@ -97,16 +98,14 @@ it('uses the resolved preview identity for sharing, Open and relative links', as
       <Location />
     </MemoryRouter>,
   );
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /report.md/ }));
-  });
+  await userEvent.click(screen.getByRole('button', { name: /report.md/ }));
   await screen.findByRole('link', { name: 'details' });
-  fireEvent.click(screen.getByRole('button', { name: 'File options' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Share file' }));
+  await userEvent.click(screen.getByRole('button', { name: 'File options' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Share file' }));
   await waitFor(() => expect(shareFile).toHaveBeenCalledWith(actual, 'session-1'));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  fireEvent.click(screen.getByRole('button', { name: 'File options' }));
-  fireEvent.click(await screen.findByRole('button', { name: /^Open$/ }));
+  await userEvent.click(screen.getByRole('button', { name: 'File options' }));
+  await userEvent.click(await screen.findByRole('button', { name: /^Open$/ }));
   await waitFor(() =>
     expect(
       new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test').searchParams.get(
@@ -114,7 +113,7 @@ it('uses the resolved preview identity for sharing, Open and relative links', as
       ),
     ).toBe(actual),
   );
-  fireEvent.click(screen.getByRole('link', { name: 'details' }));
+  await userEvent.click(screen.getByRole('link', { name: 'details' }));
   await waitFor(() =>
     expect(
       new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test').searchParams.get(
