@@ -41,8 +41,10 @@ cases. Package/scoped server/frontend types pass. Eight browser scenarios cover
 metadata and reviewed-wrapper recovery on mobile WebKit and desktop Chromium,
 light/dark, 320px, alternate accents and 160% Georgia, focus/44px actions, exact
 material errors and retained composer drafts. Captures are implementation evidence.
-Full-shell and final combined CI/review remain required. CT06 and whole S5a
-acceptance are open; S5b runtime still requires accepted S5a.
+Full-shell and final combined CI/review remain required. The separate CT06
+canonical journey now passes offline through real runtime admission and dispatch,
+with fake provider effects; see [its evidence](s5a-canonical-journey.md). Whole S5a
+acceptance remains open; S5b runtime still requires accepted S5a.
 
 All evidence is synthetic/offline, with fake provider/external effects. No live
 model, staging, production or deployment qualification is claimed.
