@@ -64,7 +64,7 @@ Accepted or ambiguous provider work retains its existing recovery fences.
 Metadata-only resume does not authorize another account, change provider thread
 identity, grant tools, bypass ownership, or clear startup uncertainty records.
 
-The intentional source successor is `v1.0.319-codex-resume`. It refreshes the five
+The intentional source successor is `v1.0.320-codex-resume`. It refreshes the five
 changed existing runtime fingerprints and adds migration validation to the
 reviewed source closure. Provider-policy and GitHub publication implementation
 revisions remain unchanged because their authority and network semantics did not
