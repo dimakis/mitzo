@@ -1,0 +1,16 @@
+{
+  "coreCommit": "fb5854f6f4280bd84da3abf3c3ae8afb7a167739",
+  "coreTree": "f85449b00b16a24d769739447c7820dccd5f5e11",
+  "candidateHead": "b4fbc90c06e18b50f71edef88c0276547f847bd3",
+  "candidateTree": "3842d99338a9bac1da8fed85fbcea4c9867f3404",
+  "status": "?? node_modules",
+  "command": "node mitzo/node_modules/tsx/dist/cli.mjs implementation-evidence/verify-fb585-source-pins.mts",
+  "implementationRevision": "v1.0.304-symposium-integration.11",
+  "sourcePins": 569,
+  "mismatches": [],
+  "productionChanges": [],
+  "compiledChecker": {
+    "result": "Not rerun: no broad dist build attempted; actual source manifest/function checked through tsx. Prior cb32 missing-dist diagnostic remains historical."
+  },
+  "runtimeQualification": "not performed; source hashes only"
+}

@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { TodoView } from '../TodoView';
+import { TodoView, TodoCreateForm } from '../TodoView';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -43,7 +43,7 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Loading...')).toBeTruthy();
+    expect(screen.getByText('Loading outcomes…')).toBeTruthy();
   });
 
   it('shows empty state when no items', () => {
@@ -63,7 +63,7 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('No active items')).toBeTruthy();
+    expect(screen.getByText('No outcomes yet.')).toBeTruthy();
   });
 
   it('shows a load error instead of the empty state', () => {
@@ -86,7 +86,7 @@ describe('TodoView', () => {
     );
 
     expect(screen.getByText('Unable to load Telos items')).toBeTruthy();
-    expect(screen.queryByText('No active items')).toBeNull();
+    expect(screen.queryByText('No outcomes yet.')).toBeNull();
   });
 
   it('renders items and profile filters', () => {
@@ -138,10 +138,35 @@ describe('TodoView', () => {
     expect(screen.getByText('work')).toBeTruthy();
   });
 
-  it('filters by profile when pill clicked', () => {
+  it('retains legacy profile filtering when workspace records are unavailable', () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
-      items: [],
+      items: [
+        {
+          id: 'legacy',
+          summary: 'Legacy record',
+          profile: 'work',
+          urgency: 0.5,
+          starred: false,
+          status: 'active',
+          ageDays: 0,
+          parentId: null,
+          children: [],
+          childCount: 0,
+          completedChildCount: 0,
+          sources: [],
+          contextHints: {
+            repos: [],
+            paths: [],
+            issues: [],
+            docIds: [],
+            people: [],
+            jiraKeys: [],
+            keywords: [],
+            taskHint: '',
+          },
+        },
+      ],
       profiles: ['centaur', 'work'],
       ack: vi.fn(),
       done: vi.fn(),
@@ -211,11 +236,11 @@ describe('TodoView', () => {
     fireEvent.touchEnd(card);
 
     expect(mockNavigate).toHaveBeenCalledWith('/todos/abc', {
-      state: { item, activeProfile: undefined, scrollTop: 0 },
+      state: { item, activeProfile: undefined, scrollTop: 0, telosHistory: [] },
     });
   });
 
-  it('presents Work as one clear heading and leaves branding to the shell', () => {
+  it('presents Telos outcomes as one clear heading and leaves branding to the shell', () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       items: [],
@@ -232,7 +257,7 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole('heading', { name: 'Work', level: 1 })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Telos outcomes', level: 1 })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Telos' })).toBeNull();
     expect(container.querySelector('.mitzo-logo')).toBeNull();
   });
@@ -376,11 +401,15 @@ describe('TodoView', () => {
     });
     render(
       <MemoryRouter>
-        <TodoView />
+        <TodoCreateForm
+          profiles={['work']}
+          onCreate={vi.fn()}
+          onCreateOutcome={createOutcome}
+          onCancel={vi.fn()}
+        />
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByTitle('Add todo'));
     fireEvent.change(screen.getByPlaceholderText('Short outcome title'), {
       target: { value: 'Ship durable outcomes' },
     });

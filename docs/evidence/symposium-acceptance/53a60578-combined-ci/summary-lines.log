@@ -1,0 +1,43 @@
+core 2026-10-18T06:44:16.2612110Z  Test Files  6 passed (6)
+core 2026-10-18T06:44:16.2613173Z       Tests  109 passed (109)
+core 2026-10-18T06:44:16.2615370Z    Duration  2.68s (transform 254ms, setup 0ms, import 949ms, tests 2.46s, environment 875ms)
+core 2026-10-18T06:45:49.0219674Z  ↓ server/__tests__/symposium-application-physical.contract.test.ts (1 test | 1 skipped)
+core 2026-10-18T06:47:23.1708873Z  ↓ server/__tests__/symposium-source-physical.contract.test.ts (1 test | 1 skipped)
+core 2026-10-18T06:47:58.6740512Z  ✓ server/__tests__/todos.test.ts (43 tests | 1 skipped) 4024ms
+core 2026-10-18T06:49:18.2234046Z  ↓ server/__tests__/symposium-successor-physical.contract.test.ts (1 test | 1 skipped)
+core 2026-10-18T06:49:31.5192241Z  ↓ server/__tests__/symposium-owned-seal-physical.contract.test.ts (1 test | 1 skipped)
+core 2026-10-18T06:50:14.9125152Z  ✓ server/__tests__/sandboxed-command.test.ts (27 tests | 11 skipped) 97ms
+core 2026-10-18T06:50:23.6557577Z  ✓ server/__tests__/openshell-runtime-migration-legacy-helper.test.ts (3 tests | 1 skipped) 1356ms
+core 2026-10-18T06:50:42.9047494Z  ✓ server/__tests__/credential-sdk-runtime-authority.test.ts (10 tests | 2 skipped) 325ms
+core 2026-10-18T06:50:53.1324013Z  ✓ server/__tests__/keychain-vault.test.ts (18 tests | 1 skipped) 27ms
+core 2026-10-18T06:51:19.9044374Z  ✓ server/__tests__/backup-service.test.ts (14 tests | 1 skipped) 1311ms
+core 2026-10-18T06:53:24.9857308Z  ✓ server/__tests__/tool-builder-test-runner.test.ts (7 tests | 2 skipped) 24ms
+core 2026-10-18T06:53:29.5364512Z  ↓ server/__tests__/symposium-artifact-physical.contract.test.ts (1 test | 1 skipped)
+core 2026-10-18T06:53:32.7443998Z  ✓ server/__tests__/staging-pipeline-host.test.js (8 tests | 1 skipped) 19ms
+core 2026-10-18T06:53:57.8948980Z  ✓ server/__tests__/ecosystem-backup.test.ts (7 tests | 1 skipped) 97ms
+core 2026-10-18T06:54:18.6164786Z  ↓ server/__tests__/symposium-claude-physical.contract.test.ts (1 test | 1 skipped)
+core 2026-10-18T06:55:17.3289195Z  ✓ server/__tests__/credential-sdk-boundary.test.ts (3 tests | 1 skipped) 15ms
+core 2026-10-18T06:56:07.7546548Z  ↓ server/__tests__/mgmt-knowledge-publisher-integration.test.ts (1 test | 1 skipped)
+core 2026-10-18T06:57:11.0616071Z  ↓ server/__tests__/custom-rest-openshell-linter.test.ts (1 test | 1 skipped)
+core 2026-10-18T06:58:01.0335699Z  ↓ server/__tests__/openai-account-enrollment-keychain-native.test.ts (1 test | 1 skipped)
+core 2026-10-18T06:58:02.0875118Z  Test Files  1288 passed | 9 skipped (1297)
+core 2026-10-18T06:58:02.0994468Z       Tests  17668 passed | 31 skipped (17699)
+core 2026-10-18T06:58:02.1010368Z    Duration  774.54s (transform 42.14s, setup 0ms, import 661.64s, tests 1173.04s, environment 257.40s)
+mobile-webkit 2026-10-18T06:45:13.4788184Z   ✓    3 [mobile-webkit] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (light/lavender/system) (36.7s)
+mobile-webkit 2026-10-18T06:45:45.7682950Z   ✓    9 [mobile-webkit] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (light/teal/georgia) (32.3s)
+mobile-webkit 2026-10-18T06:46:17.1747414Z   ✓   15 [mobile-webkit] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (dark/lavender/system) (31.4s)
+mobile-webkit 2026-10-18T06:46:46.6686729Z   ✓   20 [mobile-webkit] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (dark/teal/georgia) (29.5s)
+mobile-webkit 2026-10-18T06:57:16.2814992Z   12 skipped
+mobile-webkit 2026-10-18T06:57:16.2815682Z   251 passed (12.9m)
+mobile-chromium 2026-10-18T06:44:38.6633607Z   ✓    3 [mobile-chromium] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (light/lavender/system) (20.2s)
+mobile-chromium 2026-10-18T06:44:54.2795971Z   ✓    7 [mobile-chromium] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (light/teal/georgia) (15.6s)
+mobile-chromium 2026-10-18T06:45:09.5251729Z   ✓   13 [mobile-chromium] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (dark/lavender/system) (15.2s)
+mobile-chromium 2026-10-18T06:45:25.2298985Z   ✓   17 [mobile-chromium] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (dark/teal/georgia) (15.7s)
+mobile-chromium 2026-10-18T06:51:52.4997402Z   12 skipped
+mobile-chromium 2026-10-18T06:51:52.4997746Z   251 passed (7.7m)
+desktop-chromium 2026-10-18T06:45:23.5879823Z   ✓    3 [desktop-chromium] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (light/lavender/system) (23.4s)
+desktop-chromium 2026-10-18T06:45:41.9332104Z   ✓    6 [desktop-chromium] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (light/teal/georgia) (18.3s)
+desktop-chromium 2026-10-18T06:45:59.3663486Z   ✓   12 [desktop-chromium] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (dark/lavender/system) (17.4s)
+desktop-chromium 2026-10-18T06:46:17.0947010Z   ✓   16 [desktop-chromium] › tests/offline/agent-library.spec.ts:866:3 › edits and publishes named agents while preserving Agents navigation (dark/teal/georgia) (17.7s)
+desktop-chromium 2026-10-18T06:52:54.2963444Z   11 skipped
+desktop-chromium 2026-10-18T06:52:54.2963884Z   252 passed (8.1m)

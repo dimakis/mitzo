@@ -1,0 +1,30 @@
+{
+  "source": {
+    "commit": "b580e7f46ecc368dca213645afc8de28f9b1ab4e",
+    "tree": "6f793776857def8215d6e2b9b07e0d05445b5077",
+    "status": "?? node_modules",
+    "trackedDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untrackedSourceSha256": {}
+  },
+  "startedAt": "2026-10-18T00:47:56.934Z",
+  "finishedAt": "2026-10-18T00:48:06.929Z",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.symposium-acceptance.config.ts"
+  ],
+  "requiredJourneys": true,
+  "reusedOwnerContracts": false,
+  "artifactCandidate": true,
+  "heapMiB": 1024,
+  "maxWorkers": 1,
+  "node": "v24.10.0",
+  "vitest": "4.1.11",
+  "exitCode": 1,
+  "signal": null,
+  "result": "failed",
+  "outputSha256": "f22271c4fbfeaf17eb7b2a8864bfc75274e3a0e79cc23b3c95221fa358dc4738",
+  "liveQualification": "not performed; this runner selects offline fixtures only"
+}

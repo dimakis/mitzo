@@ -1,0 +1,208 @@
+{
+  "failedPrHead": "48e4d2ab8a3e86ab14fef9ff173203e6d97880ea",
+  "run": 39101438934,
+  "failedJob": 117598374461,
+  "jobUrl": "https://github.com/dimakis/mitzo/actions/runs/39101438934/job/117598374461",
+  "actualCiCheckout": "52fec5e80a4de081f2ed0853421977c961c86ea0",
+  "actualCiTree": "17342c3c1db9e18e640d83066b938aa272ae9d44",
+  "acceptedMain": "d5d3aa0322b55e9e2c8589efc568c7330f0530a8",
+  "localAcceptedMerge": "06c0066248b54f774f74e0a6016162b65441e65c",
+  "localMergeTreeEqualsFailedCi": true,
+  "actualTraceSourceSha256": "1f3b6e8a931e8f1514d0b3dd7e2ff686e722962ed437ece84a0bb376c23e994c",
+  "traceSourceEqualsAcceptedMainAndOwnerParent": true,
+  "lineNumberExplanation": "Old C head had unsplit test atline9; CI composed accepted main where the same journey begins atline33. Exact trace source matches that composed source.",
+  "failedCounts": {
+    "passed": 247,
+    "failed": 1,
+    "skipped": 12,
+    "timeoutMs": 60000
+  },
+  "browserInteractionJob": "success",
+  "connectionsAggregate": "failure downstream from offline matrix; no second browser defect inferred",
+  "traceObservations": {
+    "allFourAppearanceCaptureSets": {
+      "light-lavender-system": [
+        "agent-builder-light-lavender-system.png",
+        "agent-context-editor-light-lavender-system.png",
+        "agent-context-preview-light-lavender-system.png",
+        "agent-library-light-lavender-system.png",
+        "agent-task-settings-light-lavender-system.png",
+        "agent-tools-light-lavender-system.png",
+        "tool-library-light-lavender-system.png"
+      ],
+      "light-teal-georgia": [
+        "agent-builder-light-teal-georgia.png",
+        "agent-context-editor-light-teal-georgia.png",
+        "agent-context-preview-light-teal-georgia.png",
+        "agent-library-light-teal-georgia.png",
+        "agent-task-settings-light-teal-georgia.png",
+        "agent-tools-light-teal-georgia.png",
+        "tool-library-light-teal-georgia.png"
+      ],
+      "dark-lavender-system": [
+        "agent-builder-dark-lavender-system.png",
+        "agent-context-editor-dark-lavender-system.png",
+        "agent-context-preview-dark-lavender-system.png",
+        "agent-library-dark-lavender-system.png",
+        "agent-task-settings-dark-lavender-system.png",
+        "agent-tools-dark-lavender-system.png",
+        "tool-library-dark-lavender-system.png"
+      ],
+      "dark-teal-georgia": [
+        "agent-builder-dark-teal-georgia.png",
+        "agent-context-editor-dark-teal-georgia.png",
+        "agent-context-preview-dark-teal-georgia.png",
+        "agent-library-dark-teal-georgia.png",
+        "agent-task-settings-dark-teal-georgia.png",
+        "agent-tools-dark-teal-georgia.png",
+        "tool-library-dark-teal-georgia.png"
+      ]
+    },
+    "lastNavigation": "/chat",
+    "lastRecordedCall": {
+      "method": "getAttribute",
+      "params": {
+        "selector": "internal:role=button[name=/^Workspace controls,/]",
+        "strict": true,
+        "name": "aria-expanded"
+      },
+      "startTime": 76138.747,
+      "endTime": 76540.482,
+      "durationMs": 401.735,
+      "result": {
+        "value": "false"
+      },
+      "error": null
+    },
+    "beforeHooksStartTime": 16263.358,
+    "afterHooksStartTime": 76545.103,
+    "observedEnvelopeMs": 60281.745,
+    "failureScreenshotViewed": true,
+    "finding": "All four appearance capture sets and final chat handoff reached. Last attribute read completed in401.735ms just before overall60s teardown. No separate stalled-action defect established, and no source/host-load/flake cause inferred."
+  },
+  "artifact": {
+    "id": 12126454923,
+    "sizeBytes": 171661175,
+    "expiresAt": "2026-10-25T05:56:56Z",
+    "downloadApi": "https://api.github.com/repos/dimakis/mitzo/actions/artifacts/12126454923/zip",
+    "retainedLocalArchive": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/implementation-evidence/48e4-failed-ci/offline-artifact.zip",
+    "archiveSha256": "fe516b2522b3ff7ba3499bffe721639a47d8cb29fa3d99bd4718d87c4ccf0196",
+    "retainedLocalTrace": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/implementation-evidence/48e4-failed-ci/agent-library-failure/trace.zip",
+    "traceBytes": 34836483,
+    "traceSha256": "ac215d6d638b4d8ec293523144594ebd09115684ad81c3a4c8dd0459e71c36de",
+    "scope": "Full171MB artifact and33MB trace retained locally; source/context/screenshot and compact observations versioned here."
+  },
+  "ownerFix": {
+    "commit": "3440ea283508e8fce45b5cf795a692f4d9b61c4d",
+    "parent": "6de2a67cad4dbea3518f7181599aab252d725d0e",
+    "signatureVerified": true,
+    "onlyFile": "tests/offline/agent-library.spec.ts",
+    "sourceSha256": "ee566459d7b39c0d2de9354ccb71cb55882a7c29935bceb61c81248efeee15d0",
+    "byteIdentical": true,
+    "sourceAlsoMatchesCore39a": true,
+    "localCherryPick": "fda8320ad400743663d759aac030c07442e778a2",
+    "localTree": "3f589ef6626da53bd6f5e22045f30bff42b2ce2c",
+    "change": "Four complete independent appearance journeys, each retains original60000ms timeout; original retained-task conflict checks apply to every fresh case.",
+    "astInventory": {
+      "assertions": 117,
+      "screenshots": 12,
+      "navigation": 78,
+      "timeoutCalls": 1,
+      "appearanceVariants": 4,
+      "equal": true
+    },
+    "newHealthHelperImported": false,
+    "s7OrUnrelatedBranchImported": false
+  },
+  "signedComposition": {
+    "acceptedMainMerge": "a37061a1e5e23dd9c8e42fdf5df5c2c5af200bca",
+    "ownerFixMerge": "93e96324e52bfc4bc5bbd098e278962b38d79567",
+    "bothVerified": true,
+    "oldCHeadRetained": true,
+    "ownerCommitRetainedAsParent": true,
+    "fixedTreeEqualsLocalAuditedTree": true,
+    "scope": "Accepted main and exact owner fix retained as ancestors of signed published C head53a60578. No PR or main merge."
+  },
+  "localFocusedValidation": {
+    "sourceHead": "fda8320ad400743663d759aac030c07442e778a2",
+    "protocolBuild": "Only own C package built, generated files ignored; foreign dependency source/build unchanged.",
+    "temporaryDependencyScopeRestored": true,
+    "listingExitCode": 0,
+    "passed": 0,
+    "startupFailed": 1,
+    "skipped": 4,
+    "retries": 0,
+    "durationMs": 42101.946,
+    "classification": "UNQUALIFIED: original30000ms browser-startup test times out; changed cases NOT RUN. No launch retry, binary switch or host-guard bypass.",
+    "testFormatExitCode": 0,
+    "testEslintExitCode": 0
+  },
+  "combinedCi": {
+    "head": "53a6057879493734cba507a234a4f3d28eac31fa",
+    "run": 39104956665,
+    "conclusion": "success",
+    "allEightJobsSuccess": true,
+    "verification": "../53a60578-combined-ci/verification.json"
+  },
+  "appOmissionJoiningNativeUxIosGates": "Unchanged and open",
+  "noModelLiveStagingOrRuntimeActivation": true,
+  "noPrOrMainMerge": true,
+  "jsonRepresentations": [
+    {
+      "rawFile": "raw/artifact-metadata.json.raw",
+      "rawSha256": "696531b0aee1db321df90cf564a8a81eddbca5542b29465d796b8d176a7a546c",
+      "formattedFile": "artifact-metadata.json",
+      "formattedSha256": "d12787f0d7b73968b2b6a0c7b3600c5ca60e22008f94409343bfe492e5430335",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/ci-checkout.json.raw",
+      "rawSha256": "50194cfccb71d63d3bc1281c13bc241c97c8e54e542251b09fc5fb23934fcf78",
+      "formattedFile": "ci-checkout.json",
+      "formattedSha256": "497e2944a8693a80fb7710f930932168c271e9f298bf62b59b0eb36ccd66efb0",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/job.json.raw",
+      "rawSha256": "750768c44ef1c0e8b6ba57ccd203247947bb0536509386dde4e338895c48cfa5",
+      "formattedFile": "job.json",
+      "formattedSha256": "7055ef46ca7708c1db9e25a80b486ae1fd50ddf20aa86e87a86a712978e4e0e7",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/jobs.json.raw",
+      "rawSha256": "ca0b260981183928059b4f5ed406da7eda000ac2f46fc3cfd7808e9f056b6254",
+      "formattedFile": "jobs.json",
+      "formattedSha256": "a369b0abaa111c2c0aeaabddc729bc6a187527f74b95e27c2ea0b3084dc12a3f",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/local-result.json.raw",
+      "rawSha256": "deca87e953ef0fa4e60d26b098d4d70bf6ac3385c2a506c75cd791ba041a1d9c",
+      "formattedFile": "local-result.json",
+      "formattedSha256": "deca87e953ef0fa4e60d26b098d4d70bf6ac3385c2a506c75cd791ba041a1d9c",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/owner-ast-audit.json.raw",
+      "rawSha256": "17e2d74095c05fc7c49e066408b9b8343d3cc79aff2fe1e9be3692eebfc87336",
+      "formattedFile": "owner-ast-audit.json",
+      "formattedSha256": "0368444df0529cf388453936d1244541616643a9a677b57995e63060ee705aa0",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/owner-signature.json.raw",
+      "rawSha256": "6da5af4198b85b68837cb227a244af4ebb5693dd58eb72a5ad91e1227cf99d79",
+      "formattedFile": "owner-signature.json",
+      "formattedSha256": "72f4204d49a1b4a0b67ca752ca1b0aa378c5db13af83d2bc4a4ee5b0aeddeafb",
+      "semanticEqual": true
+    },
+    {
+      "rawFile": "raw/run.json.raw",
+      "rawSha256": "d5aadc989dfca8f3975f22aa00b98c3ad5b4b16993c0a17c90db2a62bdcc09b3",
+      "formattedFile": "run.json",
+      "formattedSha256": "88a6951a3c5f14b22cc893df9bb99c2b5a9af08def28c8f38e77e47bc6a9ac02",
+      "semanticEqual": true
+    }
+  ]
+}

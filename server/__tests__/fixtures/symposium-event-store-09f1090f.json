@@ -1,0 +1,14 @@
+{
+  "generator": "node scripts/generate-symposium-migration-fixture.mjs",
+  "ownerCommit": "09f1090fd5be8b1167188a178dca2186eb445795",
+  "ownerTree": "54df91831b2f23a236c343e72549d34dbb693bae",
+  "ownerSourceSha256": "541394244cf8830e3e1c689fa851cf869b8cb6483aacfcfe2803539ab733e671",
+  "snapshotSha256": "eaa237038d212320fff78d058eefe5f52e245db14ff838327b8c0d7c64fec6b0",
+  "sqliteSha256": "b2233e47cb743db3e746c5de84d59a06bff1858bb4077e538db944dac4faf892",
+  "sqliteBytes": 487424,
+  "syntheticOnly": true,
+  "schemaEdits": false,
+  "group": "00000000-0000-4000-8000-000000000191",
+  "snapshotId": "08ac6574-58a2-4c8a-ab96-36a8a84f9cd4",
+  "reviewSha256": "d1eaf7495ab7cb8cc05d0a479e6775668f8e5b5ace072c1f266e1f7c2d41a4a6"
+}
