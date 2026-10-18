@@ -350,14 +350,16 @@ it('acknowledges a durably echoed prompt while startup waits, without dispatchin
   const store = new EventStore(':memory:');
   let finish!: () => void;
   let receipt: unknown;
-  const dispatch = vi.fn(async (_message, sessionId, retained?: () => void) => {
-    store.upsertSession({ sessionId });
-    store.append(sessionId, 'user_message', { messageId: message.clientMsgId });
-    retained?.();
-    await new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-  });
+  const dispatch = vi.fn<Parameters<typeof acceptSendCommandAsync>[2]>(
+    async (_message, sessionId, retained) => {
+      store.upsertSession({ sessionId });
+      store.append(sessionId, 'user_message', { messageId: message.clientMsgId });
+      retained?.();
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+  );
   const preparation = vi.spyOn(store, 'setSendCommandPreparing');
   try {
     const first = acceptSendCommandAsync(store, message, dispatch, { acknowledgeRetained: true });

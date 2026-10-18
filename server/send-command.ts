@@ -68,8 +68,9 @@ export function acceptSendCommand(
   return { ok: true, accepted: true, clientMsgId: message.clientMsgId, sessionId };
 }
 
-/** Async counterpart used when dispatch has an admission boundary that must
- * complete before the HTTP receipt is acknowledged. */
+/** Admission is awaited by default. Opt-in retention receipts require the exact
+ * durable prompt and keep the same in-flight dispatch until admission settles.
+ * Late failures remain durable; a retention receipt never authorizes execution. */
 export function acceptSendCommandAsync(
   store: EventStore,
   message: SendMessage,

@@ -148,6 +148,7 @@ jobs:
             test-results/offline/**/local-*.png
             test-results/offline/**/quick-chat-settings-*.png
             test-results/offline/**/quick-sheet-*.png
+            test-results/offline/**/prompt-preparation-*.png
           retention-days: 7
           if-no-files-found: ignore
 

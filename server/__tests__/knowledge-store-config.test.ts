@@ -163,7 +163,7 @@ if c.get('fixtureMode')=='aliased-directory':
  (root/'alias').symlink_to(bundle)
  output['publicationDirectory']=str(root/'alias')
 output.update(builderCommit=c['builderCommit'],publishedSourceUrl=c['sourceUrl'])
-(state_root/'state.json').write_text(json.dumps(output))
+(state_root/'state.json').write_text(json.dumps(output, sort_keys=True))
 print(json.dumps(output))
 `,
   );

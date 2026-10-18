@@ -1004,3 +1004,29 @@ it('shows preparation after durable ordinary acceptance and clears it only for t
   channel.listener({ type: 'message_start', sessionId: 'ordinary-session', messageId: 'answer' });
   expect(store.getState().sendStatus).toBeNull();
 });
+
+it('does not restore a preparation banner when response output beats its HTTP receipt', () => {
+  const { store } = setup();
+  channel.listener({ type: 'session_id', sessionId: 'fast-session' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'fast-session',
+    seq: 1,
+    messageId: 'fast-prompt',
+    text: 'Hello',
+  });
+  channel.listener({
+    type: 'message_start',
+    sessionId: 'fast-session',
+    seq: 2,
+    messageId: 'fast-answer',
+  });
+  channel.listener({
+    type: '_send_accepted',
+    originalSessionId: null,
+    sessionId: 'fast-session',
+    clientMsgId: 'fast-prompt',
+    retained: true,
+  });
+  expect(store.getState().sendStatus).toBeNull();
+});
