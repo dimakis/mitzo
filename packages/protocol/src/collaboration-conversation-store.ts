@@ -8,10 +8,12 @@ import {
   CollaborationForwardPreparationSchema,
   CollaborationForwardConfirmationSchema,
   CollaborationForwardReadSchema,
-  collaborationForwardSelectionFingerprint,
-  validateCollaborationForwardPacket,
   type CollaborationForwardPreparation,
 } from './collaboration-forward.js';
+import {
+  collaborationForwardSelectionFingerprint,
+  validateCollaborationForwardPacket,
+} from './collaboration-forward-custody.js';
 import {
   SessionCollaborationIdSchema,
   SessionCollaborationSchema,

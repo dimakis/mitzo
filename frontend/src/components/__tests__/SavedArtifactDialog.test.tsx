@@ -10,6 +10,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import type { TodoOutput } from '../../types/todo';
 import { SavedArtifactDialog } from '../SavedArtifactDialog';
 import { apiFetch } from '../../lib/api-fetch';
 import { installDialogStub } from './dialog-stub';
@@ -24,7 +25,7 @@ function render(element: ReactElement) {
   return renderComponent(element, { wrapper: MemoryRouter });
 }
 const id = 'a'.repeat(32);
-const version = (revision: number) => ({
+const version = (revision: number): TodoOutput => ({
   id,
   itemId: 'work',
   filename: 'plan.md',
@@ -34,7 +35,7 @@ const version = (revision: number) => ({
   size: 40,
   url: `/api/telos/artifacts/${id}?revision=${revision}`,
   sessionId: 'gone-source',
-  sourceKind: 'session_artifact' as const,
+  sourceKind: 'session_artifact',
   sourcePath: '/retained/plan.md',
   createdAt: '2026-10-17T10:00:00Z',
 });
@@ -128,7 +129,7 @@ it('refreshes the newest history page on reopen without changing the selected ol
   });
   const close = vi.fn();
   function Controlled({ open }: { open: boolean }) {
-    const [artifact, setArtifact] = useState(version(2));
+    const [artifact, setArtifact] = useState<TodoOutput>(version(2));
     return (
       <SavedArtifactDialog
         artifact={artifact}

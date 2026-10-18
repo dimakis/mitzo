@@ -1,9 +1,7 @@
 import { expect, it } from 'vitest';
 import { ZodError } from 'zod';
-import {
-  CollaborationForwardSelectionSchema as ProtocolSelection,
-  collaborationForwardSelectionFingerprint,
-} from '@mitzo/protocol';
+import { CollaborationForwardSelectionSchema as ProtocolSelection } from '@mitzo/protocol';
+import { collaborationForwardSelectionFingerprint } from '@mitzo/protocol/collaboration-forward-custody';
 import {
   CollaborationForwardSelectionSchema,
   collaborationForwardFingerprint,

@@ -6,9 +6,9 @@ import {
   CollaborationSnapshotMessageSchema,
   CollaborationSnapshotSelectionSchema,
   CollaborationForwardSelectionSchema,
-  collaborationForwardSelectionFingerprint,
   type CollaborationForwardSelection,
 } from '@mitzo/protocol';
+import { collaborationForwardSelectionFingerprint } from '@mitzo/protocol/collaboration-forward-custody';
 import type { AuthorizedCollaborationContext } from './collaboration-context-compiler.js';
 import type {
   RetainedCollaborationArtifact,

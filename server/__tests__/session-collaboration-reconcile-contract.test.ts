@@ -3,7 +3,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
-import { CollaborationApiClient } from '../../packages/client/src/collaboration-api.js';
+import { CollaborationApiClient } from '@mitzo/client';
 import {
   authMiddleware,
   authenticateToken,
@@ -12,6 +12,7 @@ import {
   revokeAuthSession,
 } from '../auth.js';
 import { createSessionCollaborationRouter } from '../session-collaboration-router.js';
+import type { OrdinaryCollaborationJoiningAuthority } from '../collaboration-joining-owner.js';
 import { createJoiningFixture, cleanupJoiningFixtures } from './fixtures/collaboration-joining.js';
 
 afterEach(cleanupJoiningFixtures);
@@ -270,13 +271,16 @@ it('aborts an in-flight real reconciliation on revocation before any link mutati
     started = resolve;
   });
   let signal!: AbortSignal;
-  h.f.authority.authorizeReconciliation.mockImplementationOnce(async (_input, requestSignal) => {
-    signal = requestSignal;
-    started();
-    await new Promise<void>((resolve) =>
-      requestSignal.addEventListener('abort', () => resolve(), { once: true }),
-    );
-  });
+  const authority: OrdinaryCollaborationJoiningAuthority = h.f.authority;
+  vi.spyOn(authority, 'authorizeReconciliation').mockImplementationOnce(
+    async (_input, requestSignal) => {
+      signal = requestSignal;
+      started();
+      await new Promise<void>((resolve) =>
+        requestSignal.addEventListener('abort', () => resolve(), { once: true }),
+      );
+    },
+  );
   const before = h.f.store.collaborationConversation.view(h.f.group);
   const pending = h.api.reconcileJoin(h.f.group, h.join.joinId, h.approval);
   const result = expect(pending).rejects.toMatchObject({ status: 403 });

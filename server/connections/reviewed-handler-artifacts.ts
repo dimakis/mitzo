@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.287-symposium-integration.7';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.287-symposium-integration.9';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -45,7 +45,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-retained-artifact-source.ts':
     'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
   '../collaboration-forwarding.ts':
-    'fdc3746940ad4b1c9b577e9b4c74d4cf2f4fe54839de5dd292a361f9cf0019fe',
+    '9a30674bf9923a2a350debdab77dcf84a7d368794bb576145d0d1cfe1847e15d',
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../../frontend/src/components/SandboxOwnershipReview.tsx':
@@ -169,7 +169,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.tsx':
     'ad099f4b66e624a7baac6963cef7891508797155c059f9d55bc04ef3f11edced',
   '../../frontend/src/components/ConversationAgents.css':
-    '5a1aa906f60df487eebec602c1d00596aa5ca78be35783d5e0b0d9390c2add28',
+    '1e2983469c9c65668c85cf9702545dbf60deb68f6bedbdd4bdda36b857128f8f',
   '../../frontend/src/components/ComposerResponders.tsx':
     '1d9d03fc824c8903172bc7216dfcdd7bf0275092315b824f583d96410b900c76',
   '../../frontend/src/components/ComposerResponders.css':
@@ -181,12 +181,16 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Fresh-agent review compilation and metadata; execution remains disabled.
   '../collaboration-context-compiler.ts':
     'd52551cd2b7515c93b86acdcba09ca46118d6632c698831e2bc5540dd866e572',
+  '../../packages/protocol/src/collaboration-forward-custody.ts':
+    '63368fb15184ad9424eb91ef60a6bf8d37fd9ae67a6305eea46cef8e34d56d95',
+  '../../packages/protocol/package.json':
+    'a61c766103f7c7ba441d67bc52ea1d583e42f57ba8ad1ca2c90d50bdd25fb746',
   '../../packages/protocol/src/collaboration-forward.ts':
-    '102364eea13520355ff0852506b4f5002ed6585149cd9f2cb39ef2d474dd6adb',
+    '400794ca0ec65ee75f153787d18ffbf1bdca81f0187959e69fade002b9c18271',
   '../../packages/protocol/src/collaboration-conversation.ts':
     'ab95eb8658192f89d338e53eb6d342f8bbeedecfd80003e004460eb83e131e17',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    'e7f1af8a89063d4cbfa39d2c33a0d057a721f2b2e634928d152984c9d3b76176',
+    '13d0a87a074d7f7fc39d57c549b6777fc7a0d12a56d54ec4ab91cf7900d95c6a',
   '../../packages/client/src/collaboration-api.ts':
     'c1305792f5d04a5b5bb586ae406668111ce1eccc097f8c1cab42c89bc8fc207f',
   '../../packages/client/src/collaboration-projection.ts':

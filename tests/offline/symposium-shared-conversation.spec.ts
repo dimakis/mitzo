@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import {
   CollaborationPolicyUpdateSchema,
   CollaborationViewSchema,
@@ -146,6 +147,54 @@ for (const theme of ['dark', 'light'])
         el.style.removeProperty('width');
       });
     }
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
+    // CI's serif fallback has different glyph metrics from macOS Georgia.
+    // Keep the protected readable name track with the count adjacent.
+    await header.evaluate((el) => {
+      el.style.fontFamily = '"Times New Roman", serif';
+    });
+    const serifMetrics = [];
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const serifNames = header.locator('.conversation-participant-names');
+      const serifBounds = (await serifNames.boundingBox())!;
+      expect(serifBounds.width).toBeGreaterThanOrEqual(64);
+      const count = header.locator(
+        width <= 360 ? '.conversation-participant-count' : '.conversation-participant-wide-count',
+      );
+      await expect(count).toBeVisible();
+      const countBounds = (await count.boundingBox())!;
+      const headerBounds = (await header.boundingBox())!;
+      expect(countBounds.x).toBeGreaterThanOrEqual(serifBounds.x + serifBounds.width);
+      expect(countBounds.x - (serifBounds.x + serifBounds.width)).toBeLessThanOrEqual(8);
+      expect(countBounds.x + countBounds.width).toBeLessThanOrEqual(
+        headerBounds.x + headerBounds.width,
+      );
+      const typography = await serifNames.evaluate((el) => {
+        const style = getComputedStyle(el);
+        const range = document.createRange();
+        range.selectNodeContents(el.firstElementChild!);
+        return {
+          fontFamily: style.fontFamily,
+          fontSize: style.fontSize,
+          glyphWidth: range.getBoundingClientRect().width,
+        };
+      });
+      serifMetrics.push({
+        width,
+        nameTrackWidth: serifBounds.width,
+        countGap: countBounds.x - (serifBounds.x + serifBounds.width),
+        ...typography,
+      });
+      await header.screenshot({ path: info.outputPath(`header-serif-${width}-${theme}.png`) });
+    }
+    await writeFile(
+      info.outputPath(`header-serif-metrics-${theme}.json`),
+      JSON.stringify(serifMetrics, null, 2),
+    );
+    await header.evaluate((el) => {
+      el.style.removeProperty('font-family');
+    });
     await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
     const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     const trigger = page.getByRole('button', { name: 'Choose who replies' });
