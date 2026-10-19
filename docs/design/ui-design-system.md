@@ -1538,7 +1538,11 @@ The approved additive priority amendment uses `TodoPrioritySelect` in the curren
 item header and a compact `P<n>` badge in each recursive item card. The native
 select inherits the shared font, semantic colors, control height and focus rule.
 Pending saves disable the field; failures announce uncertainty beside the field
-and preserve the last confirmed value. Existing grouping, sorting and navigation
+and preserve the last confirmed value. The item route owns this pending/error
+state across the legacy-to-canonical header handoff. Hydrating a canonical record
+must not discard a refusal warning or enable another write while one is pending;
+the current record remains authoritative for the displayed confirmed value.
+Existing grouping, sorting and navigation
 remain unchanged. This is not the later S7/S8 workspace implementation.
 
 The intercepted `telos-priority.spec.ts` fixture covers the actual responsive workspace
