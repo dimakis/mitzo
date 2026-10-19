@@ -11,7 +11,7 @@ import {
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
 import type { KnowledgeLibraryRuntime } from './knowledge-library-runtime.js';
-import { KnowledgeDraftConflict, KnowledgeDraftMissing } from './knowledge-draft-store.js';
+import { KnowledgeDraftConflict } from './knowledge-draft-store.js';
 import { safeKnowledgePath } from './knowledge-library-source.js';
 
 const revision = z.string().regex(/^[a-f0-9]{40,64}$/);
@@ -186,14 +186,13 @@ export function sessionKnowledgeTools(
           )
           .digest('hex');
         const draftId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
-        let retry = false;
-        try {
-          runtime.store.get(draftId);
-          retry = true;
-        } catch (error) {
-          if (!(error instanceof KnowledgeDraftMissing)) throw error;
-        }
-        if (!retry) {
+        let draft = runtime.store.recoverRequest(
+          draftId,
+          request.title,
+          request.baseRevision,
+          request.documents,
+        );
+        if (!draft) {
           await runtime.refresh();
           assert();
           if ((await runtime.source.revision(signal)) !== request.baseRevision)
@@ -201,25 +200,26 @@ export function sessionKnowledgeTools(
               'Accepted knowledge changed. Read the intended document again and reconcile the proposed update before saving.',
             );
           assert();
-        }
-        const documents = [];
-        for (const proposed of request.documents) {
+          const documents = [];
+          for (const proposed of request.documents) {
+            assert();
+            const base = await runtime.source.read(proposed.path, request.baseRevision, signal);
+            assert();
+            documents.push({ ...proposed, base: base.content });
+          }
+          if (documents.every((d) => d.content === d.base))
+            throw new KnowledgeToolProblem(
+              'The proposed documents match accepted knowledge; there is no update to save.',
+            );
+          if ((await runtime.source.revision(signal)) !== request.baseRevision)
+            throw new KnowledgeToolProblem(
+              'Accepted knowledge changed while saving. Read the intended document again before retrying.',
+            );
           assert();
-          const base = await runtime.source.read(proposed.path, request.baseRevision, signal);
-          assert();
-          documents.push({ ...proposed, base: base.content });
+          // Synchronous create is idempotent and cannot overwrite later human edits.
+          draft = runtime.store.create(request.title, request.baseRevision, documents, draftId);
         }
-        if (documents.every((d) => d.content === d.base))
-          throw new KnowledgeToolProblem(
-            'The proposed documents match accepted knowledge; there is no update to save.',
-          );
-        if (!retry && (await runtime.source.revision(signal)) !== request.baseRevision)
-          throw new KnowledgeToolProblem(
-            'Accepted knowledge changed while saving. Read the intended document again before retrying.',
-          );
         assert();
-        // Synchronous create is idempotent and cannot overwrite later human edits.
-        const draft = runtime.store.create(request.title, request.baseRevision, documents, draftId);
         return {
           content: JSON.stringify({
             status: draft.state === 'draft' ? 'draft-saved' : draft.state,

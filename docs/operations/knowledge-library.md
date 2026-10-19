@@ -13,7 +13,11 @@ or expired authorization does not fall back to another repository or local note.
 The save receipt names the exact documents, draft ID, version, Library location
 and next action. A stable request UUID scoped to the conversation, account and
 enrolled source makes a lost-response retry recover the existing draft; changed
-payloads cannot overwrite it. New proposals refresh and verify the accepted
+payloads cannot overwrite it. Recovery verifies the persisted original proposal
+fingerprint and returns the current receipt even if accepted Git history was
+rewritten or the draft was edited later. Older saved requests without that
+fingerprint remain available in the Library but cannot use this recovery path.
+New proposals refresh and verify the accepted
 revision before saving. If it changed, read and reconcile the intended document
 again. The initial chat path updates existing accepted documents; use the Library
 editor for new documents and structural changes. Saved drafts remain available

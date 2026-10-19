@@ -41,6 +41,7 @@ it('includes Knowledge draft execution and its registrations in the reviewed run
   const artifacts: Readonly<Record<string, string>> = reviewedHandlerSourceArtifacts;
   for (const file of [
     '../session-knowledge-tools.ts',
+    '../knowledge-draft-store.ts',
     '../session-credential-tools.ts',
     '../credential-sdk-tools.ts',
     '../agent-tool-catalog.ts',
@@ -248,6 +249,62 @@ it.each(['accepted', 'closed'] as const)(
     expect(receipt.nextAction).not.toMatch(/send this draft for review/i);
     expect(receipt).not.toHaveProperty('published');
     expect(receipt).not.toHaveProperty('adopted');
+  },
+);
+
+it.each(['draft', 'accepted', 'closed'] as const)(
+  'recovers the current %s receipt after accepted history is rewritten',
+  async (state) => {
+    const api = tools();
+    const request = input();
+    const first = await api.execute(
+      'SaveKnowledgeDraft',
+      request,
+      new AbortController().signal,
+      identity,
+    );
+    const { draftId } = JSON.parse(first!.content);
+    const saved = store.get(draftId);
+    store.save(
+      draftId,
+      saved.version,
+      saved.documents.map((d) => ({ ...d, content: 'Later human edit' })),
+    );
+    if (state !== 'draft') store.status(draftId, state);
+    git('checkout', '--orphan', 'rewritten');
+    writeFileSync(join(root, 'direct_reports/person.md'), '# Rewritten accepted history\n');
+    git('add', '.');
+    git('commit', '-qm', 'rewritten accepted');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    await expect(source.read(request.documents[0].path, revision)).rejects.toThrow();
+    const read = vi.spyOn(source, 'read');
+    const retry = await api.execute(
+      'SaveKnowledgeDraft',
+      request,
+      new AbortController().signal,
+      identity,
+    );
+    expect(retry?.isError).toBe(false);
+    expect(JSON.parse(retry!.content)).toMatchObject({
+      draftId,
+      version: 2,
+      status: state === 'draft' ? 'draft-saved' : state,
+    });
+    expect(read).not.toHaveBeenCalled();
+    expect(store.get(draftId).documents[0].content).toBe('Later human edit');
+    for (const changed of [
+      { ...request, title: 'Different title' },
+      { ...request, baseRevision: git('rev-parse', 'HEAD') },
+      { ...request, documents: [{ ...request.documents[0], content: 'Changed retry' }] },
+      { ...request, documents: [{ ...request.documents[0], path: 'direct_reports/other.md' }] },
+    ]) {
+      expect(
+        (await api.execute('SaveKnowledgeDraft', changed, new AbortController().signal, identity))
+          ?.isError,
+      ).toBe(true);
+    }
+    expect(store.list()).toHaveLength(1);
+    expect(store.get(draftId).version).toBe(2);
   },
 );
 
