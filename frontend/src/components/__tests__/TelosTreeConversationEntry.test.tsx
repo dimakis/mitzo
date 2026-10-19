@@ -54,3 +54,14 @@ it('reads a coordinator current assignment from the retained lead role while pre
   fireEvent.click(screen.getByRole('button', { name: 'Coordinator chat' }));
   expect(open).toHaveBeenCalledOnce();
 });
+it('does not treat an additional coordinator lead link as a current control assignment', async () => {
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue({
+    ...view,
+    kind: 'coordinator',
+    assignments: [],
+  });
+  render(<TelosTreeConversationEntry refreshKey={0} itemId={item.itemId} onOpenChat={vi.fn()} />);
+  expect(await screen.findByText('No coordinator assigned')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'View coordinator' })).toBeTruthy();
+  expect(screen.queryByText('Coordinator assigned')).toBeNull();
+});
