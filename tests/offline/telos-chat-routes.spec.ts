@@ -1,3 +1,4 @@
+import { settingsHome, settingRow } from '../support/chat-settings';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -27,6 +28,12 @@ for (const software of [false, true])
   }, info) => {
     test.setTimeout(60_000);
     const files = (await bundle).outputFiles!;
+    const inventory = localInventoryFixture();
+    inventory.accounts[0].models.push({
+      id: 'luna-review-fixture',
+      label: 'Luna review fixture',
+      reasoningEfforts: ['low', 'high'],
+    });
     const errors: string[] = [],
       writes: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -184,20 +191,26 @@ for (const software of [false, true])
               isHidden: false,
               isActive: false,
               accountBinding: {
-                provider: 'openai-codex',
-                accountId: 'personal',
+                ...inventory.accounts[0].account,
                 accountLabel: 'Offline personal account',
-                model: 'luna-fixture',
+                model: id === 'reviewer' ? 'luna-review-fixture' : 'luna-fixture',
               },
+              runtimeBinding: {
+                version: 2,
+                account: inventory.accounts[0].account,
+                harness: { implementation: 'codex' },
+                execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+              },
+              runtimeCommandScope: 'conversation',
+              agentProfile: inventory.agentProfiles[0],
               modelSelection: {
-                model: 'luna-fixture',
-                models: [
-                  { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
-                ],
+                model: id === 'reviewer' ? 'luna-review-fixture' : 'luna-fixture',
+                reasoningEffort: id === 'reviewer' ? 'high' : 'low',
+                models: inventory.accounts[0].models,
               },
               ...(software
                 ? { repositoryWorkspaceId: 'repository-fixture' }
-                : { ordinaryWorkspaceId: 'ordinary-fixture' }),
+                : { ordinaryWorkspaceId: '11111111-1111-4111-8111-111111111111' }),
             },
           });
         if (session[2] === 'messages')
@@ -280,8 +293,7 @@ for (const software of [false, true])
             spawnEnabled: false,
           },
         });
-      if (path === '/api/chat/runtime/capabilities')
-        return route.fulfill({ json: localInventoryFixture() });
+      if (path === '/api/chat/runtime/capabilities') return route.fulfill({ json: inventory });
       if (path === '/api/accounts')
         return route.fulfill({
           json: [
@@ -322,11 +334,24 @@ for (const software of [false, true])
     });
     await page.goto('/todos/slice?view=Chat');
     await expect(page.getByRole('heading', { name: 'Chats · 2' })).toBeVisible();
-    await page.getByRole('button', { name: 'Open Assigned worker', exact: true }).click();
+    await page.getByRole('button', { name: /^Open Assigned worker(?:\b|:)/ }).click();
     await expect(page).toHaveURL(/\/chat\/worker\?telosChatItem=slice$/);
     await expect(page.getByText('Worker retained transcript', { exact: true })).toBeVisible();
     const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     await input.fill('Worker independent draft');
+    const workerSettings = await settingsHome(page);
+    await expect(settingRow(workerSettings, 'Model')).toContainText('Luna fixture');
+    await page.getByRole('button', { name: /^Workspace controls/ }).click();
+    await expect(input).toHaveValue('Worker independent draft');
+    await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Resources', exact: true })).toBeVisible();
+    await page
+      .getByRole('dialog', { name: 'Resources', exact: true })
+      .getByRole('button', { name: 'Close', exact: true })
+      .click();
+    await expect(input).toHaveValue('Worker independent draft');
+    await expect(page).toHaveURL(/\/chat\/worker\?telosChatItem=slice$/);
+
     await expect(page.getByRole('button', { name: 'View item: ' + record.summary })).toBeVisible();
     const back = page.getByRole('link', { name: 'Back', exact: true });
     await expect(back).toHaveCount(1);
@@ -342,12 +367,15 @@ for (const software of [false, true])
     await expect(input).toHaveValue('Worker independent draft');
     await back.click();
     await expect(page.getByRole('heading', { name: 'Chats · 2' })).toBeVisible();
-    await page.getByRole('button', { name: 'Open Reviewer', exact: true }).click();
+    await page.getByRole('button', { name: /^Open Reviewer(?:\b|:)/ }).click();
     await expect(page.getByText('Reviewer retained transcript', { exact: true })).toBeVisible();
     await expect(input).toHaveValue('');
     await input.fill('Reviewer independent draft');
+    const reviewerSettings = await settingsHome(page);
+    await expect(settingRow(reviewerSettings, 'Model')).toContainText('Luna review fixture');
+    await page.getByRole('button', { name: /^Workspace controls/ }).click();
     await page.getByRole('button', { name: 'Chats for this item: 2' }).click();
-    await page.getByRole('button', { name: 'Open Assigned worker', exact: true }).click();
+    await page.getByRole('button', { name: /^Open Assigned worker(?:\b|:)/ }).click();
     await expect(input).toHaveValue('Worker independent draft');
     await page.reload();
     await expect(input).toHaveValue('Worker independent draft');
