@@ -16,6 +16,17 @@ const brokerDiscovery = vi.hoisted(() => ({
   managerConfigs: [] as unknown[],
   launch: vi.fn(),
   hostLaunch: vi.fn(),
+  pinnedHostLaunch: vi.fn(),
+  hostObservation: vi.fn(),
+  hostCurrent: vi.fn(),
+}));
+
+vi.mock('../ordinary-local-codex-host-runtime.js', async (original) => ({
+  ...(await original<typeof import('../ordinary-local-codex-host-runtime.js')>()),
+  OrdinaryLocalCodexHostRuntime: class {
+    observe = brokerDiscovery.hostObservation;
+    assertCurrentSync = brokerDiscovery.hostCurrent;
+  },
 }));
 
 vi.mock('../openshell-runtime.js', async (importOriginal) => ({
@@ -33,6 +44,7 @@ vi.mock('../codex-app-server-client.js', async (importOriginal) => ({
   CodexAppServerClient: {
     launchOpenShell: brokerDiscovery.launch,
     launch: brokerDiscovery.hostLaunch,
+    launchPreflight: brokerDiscovery.pinnedHostLaunch,
   },
 }));
 
@@ -695,6 +707,46 @@ describe('brokered ChatGPT subscription profile', () => {
     expect(brokerDiscovery.hostLaunch).toHaveBeenCalledWith(host.credentialRef);
     expect(brokerDiscovery.request).toHaveBeenCalledWith('account/read', { refreshToken: false });
     expect(brokerDiscovery.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses the enrolled native executable for host metadata instead of the global CLI', async () => {
+    vi.clearAllMocks();
+    vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
+    const host = {
+      id: 'pinned-host-discovery',
+      label: 'Mac ChatGPT',
+      provider: 'openai-codex',
+      email: 'mac@example.test',
+      planType: 'pro',
+      models: subscription.models,
+      credentialRef: '/private/existing-mac-login',
+    };
+    brokerDiscovery.hostObservation.mockResolvedValue({ executablePath: '/private/pinned/codex' });
+    brokerDiscovery.pinnedHostLaunch.mockReturnValue({
+      initialize: brokerDiscovery.initialize,
+      request: brokerDiscovery.request,
+      close: brokerDiscovery.close,
+    });
+    brokerDiscovery.request.mockImplementation(async (method: string) => {
+      if (method === 'account/read')
+        return { account: { type: 'chatgpt', email: host.email, planType: host.planType } };
+      if (method === 'model/list') return discoveryPage();
+      throw Error('Unexpected metadata request');
+    });
+    try {
+      const profiles = new AccountProfiles([host], { codexEnabled: true });
+      await profiles.refresh(true);
+      expect(brokerDiscovery.pinnedHostLaunch).toHaveBeenCalledWith(
+        host.credentialRef,
+        '/private/pinned/codex',
+      );
+      expect(brokerDiscovery.hostLaunch).not.toHaveBeenCalled();
+      expect(brokerDiscovery.hostCurrent).toHaveBeenCalledOnce();
+      expect(brokerDiscovery.close).toHaveBeenCalledOnce();
+      expect(profiles.catalog()[0].modelDiscovery.stale).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('enforces one total deadline through a pending model-list request', async () => {

@@ -219,6 +219,43 @@ describe('operator drafts', () => {
       ),
     ).toThrow('request');
   });
+  it('persists the original proposal fingerprint across edits and restart', () => {
+    const revision = git('rev-parse', 'HEAD');
+    const docs = [{ path: 'architecture/overview.md', base: 'old', content: 'new' }];
+    const draft = store.create('Change', revision, docs);
+    const updated = store.save(
+      draft.id,
+      draft.version,
+      [{ ...docs[0], base: 'different base', content: 'human edit' }],
+      'f'.repeat(40),
+    );
+    store.close();
+    store = new KnowledgeDraftStore(join(root, 'drafts.sqlite'));
+    expect(
+      store.recoverRequest(draft.id, 'Change', revision, [{ path: docs[0].path, content: 'new' }]),
+    ).toEqual(updated);
+    expect(() =>
+      store.recoverRequest(draft.id, 'Change', revision, [
+        { path: docs[0].path, content: 'human edit' },
+      ]),
+    ).toThrow('cannot be verified');
+    expect(store.recoverRequest('missing', 'Change', revision, docs)).toBeUndefined();
+  });
+  it('migrates older request records without trusting a possibly edited draft as the original proposal', () => {
+    const revision = git('rev-parse', 'HEAD');
+    const docs = [{ path: 'architecture/overview.md', base: 'old', content: 'new' }];
+    const draft = store.create('Change', revision, docs);
+    store.close();
+    const db = new Database(join(root, 'drafts.sqlite'));
+    db.exec('ALTER TABLE knowledge_draft_requests DROP COLUMN proposal_fingerprint');
+    db.close();
+    store = new KnowledgeDraftStore(join(root, 'drafts.sqlite'));
+    expect(() => store.recoverRequest(draft.id, 'Change', revision, docs)).toThrow(
+      'cannot be verified',
+    );
+    expect(store.get(draft.id)).toEqual(draft);
+    expect(store.create('Change', revision, docs, draft.id)).toEqual(draft);
+  });
   it('persists one versioned change set across restart, independent of chats', () => {
     const draft = store.create('Architecture update', git('rev-parse', 'HEAD'), [
       { path: 'architecture/overview.md', base: '# Accepted architecture\n', content: '# Edit\n' },

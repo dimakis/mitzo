@@ -1,0 +1,327 @@
+diff --git a/codex-rs/core/src/client_format_tests.rs b/codex-rs/core/src/client_format_tests.rs
+index 780492f..637e5e1 100644
+--- a/codex-rs/core/src/client_format_tests.rs
++++ b/codex-rs/core/src/client_format_tests.rs
+@@ -82,3 +82,49 @@ fn formatter_matches_actual_ordinary_owner_bytes_and_copy_normalization() -> any
+     }
+     Ok(())
+ }
++
++#[test]
++fn capture_uses_actual_ordinary_owner_and_refuses_populated_final_metadata() -> anyhow::Result<()> {
++    use crate::responses_request_format::ResponsesOutputBudget;
++    use crate::responses_request_format::capture_finalized_responses_request;
++
++    let client = test_model_client(SessionSource::Exec);
++    let metadata = test_responses_metadata_for_client(
++        &client,
++        Some("captured-turn"),
++        "captured-window".into(),
++        /*parent_thread_id*/ None,
++        TestCodexResponsesRequestKind::Turn,
++    );
++    let request = client.build_responses_request(
++        &Prompt::default(),
++        &test_model_info(),
++        /*effort*/ None,
++        codex_protocol::config_types::ReasoningSummary::Auto,
++        /*service_tier*/ None,
++        &metadata,
++        /*include_internal*/ false,
++    )?;
++    // Ordinary metadata comes from the existing owner; the capture helper must not
++    // silently erase it to manufacture public-body compatibility.
++    assert!(
++        request
++            .client_metadata
++            .as_ref()
++            .is_some_and(|values| !values.is_empty())
++    );
++    let retained = serde_json::to_value(&request)?;
++    assert!(
++        capture_finalized_responses_request(
++            request.clone(),
++            &client.request_contributors,
++            ResponsesOutputBudget {
++                max_output_tokens: 64,
++                model_output_limit: 128,
++            },
++        )
++        .is_err()
++    );
++    assert_eq!(serde_json::to_value(&request)?, retained);
++    Ok(())
++}
+diff --git a/codex-rs/core/src/responses_request_format.rs b/codex-rs/core/src/responses_request_format.rs
+index 4e6bd08..7dc8805 100644
+--- a/codex-rs/core/src/responses_request_format.rs
++++ b/codex-rs/core/src/responses_request_format.rs
+@@ -1,18 +1,22 @@
+ //! Pure formatting of a complete, already-resolved ordinary Responses request.
+ //!
+ //! Callers own coherent source capture, provider/auth resolution and all late request contributors.
+-//! This ordinary body retains native metadata and has no output cap or truncation field. It is
+-//! deliberately not a public prepared-request adapter; adding a public route requires an explicit
+-//! supported body contract, rather than stripping unsupported fields here.
++//! The ordinary formatter retains native metadata and has no output cap or truncation field.
++//! Capture below freezes only the supported public subset of an already-finalized ordinary body.
++//! It does not discover sources/tools, prepare a session or establish account/route authority;
++//! unsupported native semantics remain a refusal.
+ 
+ use crate::client_common::Prompt;
+ use crate::context::BaseInstructionsFragment;
+ use crate::context::ContextualUserFragment;
++use codex_api::ApiError;
++use codex_api::FrozenResponsesRequest;
+ use codex_api::Reasoning;
+ use codex_api::ReasoningContext;
+ use codex_api::ResponsesApiRequest;
+ use codex_api::StreamOptions;
+ use codex_api::create_text_param_for_request;
++use codex_extension_api::ModelRequestContributor;
+ use codex_protocol::ResponseItemId;
+ use codex_protocol::ThreadId;
+ use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
+@@ -25,6 +29,7 @@ use codex_tools::create_tools_json_for_responses_api;
+ use codex_tools::create_tools_json_for_responses_lite;
+ use codex_tools::create_tools_raw_json_for_responses_api;
+ use std::collections::HashMap;
++use std::sync::Arc;
+ use uuid::Uuid;
+ 
+ /// Immutable values captured by the existing request owner before pure formatting.
+@@ -57,6 +62,66 @@ pub(crate) struct RequestCopyNormalization {
+     pub(crate) content_item_kinds_enabled: bool,
+ }
+ 
++/// Explicit output reservation checked against a caller-supplied numeric bound.
++/// This validates body shape only: no selected-account/model limit authority or
++/// pre-session source capture is established by these numbers.
++#[cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Prepared admission is not installed.")
++)]
++pub(crate) struct ResponsesOutputBudget {
++    pub(crate) max_output_tokens: u64,
++    pub(crate) model_output_limit: u64,
++}
++
++/// Freeze a finalized ordinary HTTP body without rerunning any request contributors.
++///
++/// The existing owner must first resolve account metadata, normalize the request copy and
++/// finish all transport body mutations. Borrow its authoritative request-contributor inventory;
++/// a nonempty inventory refuses rather than invoking or silently bypassing a callback. Resolved
++/// immutable contributions must already be in `request`, where public validation retains or
++/// refuses them. An empty inventory does not establish pre-session source/tool capture.
++///
++/// Only an empty internal metadata map can be omitted: it contains no entries to translate or
++/// discard. Populated metadata, Responses Lite, internal item fields and other unsupported
++/// semantics refuse through the same strict body/count contract used for restoration.
++#[cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Prepared admission is not installed.")
++)]
++pub(crate) fn capture_finalized_responses_request(
++    mut request: ResponsesApiRequest,
++    request_contributors: &[Arc<dyn ModelRequestContributor>],
++    budget: ResponsesOutputBudget,
++) -> std::result::Result<FrozenResponsesRequest, ApiError> {
++    if !request_contributors.is_empty() {
++        return Err(ApiError::InvalidRequest {
++            message: "cannot capture unresolved Responses request contributors".to_string(),
++        });
++    }
++    if request
++        .client_metadata
++        .as_ref()
++        .is_some_and(HashMap::is_empty)
++    {
++        request.client_metadata = None;
++    }
++    let mut body = serde_json::to_value(request).map_err(|_| ApiError::InvalidRequest {
++        message: "cannot encode finalized Responses request".to_string(),
++    })?;
++    let fields = body
++        .as_object_mut()
++        .ok_or_else(|| ApiError::InvalidRequest {
++            message: "finalized Responses request must be an object".to_string(),
++        })?;
++    fields.insert(
++        "max_output_tokens".to_string(),
++        budget.max_output_tokens.into(),
++    );
++    fields.insert("truncation".to_string(), "disabled".into());
++    FrozenResponsesRequest::new(body, budget.model_output_limit)
++}
++
+ pub(crate) fn format_responses_request(
+     prompt: &Prompt,
+     model_info: &ModelInfo,
+diff --git a/codex-rs/core/src/responses_request_format_tests.rs b/codex-rs/core/src/responses_request_format_tests.rs
+index e1022af..92fedfc 100644
+--- a/codex-rs/core/src/responses_request_format_tests.rs
++++ b/codex-rs/core/src/responses_request_format_tests.rs
+@@ -193,3 +193,163 @@ fn formatter_ordinary_body_does_not_silently_become_a_public_prepared_body() {
+     body["truncation"] = json!("disabled");
+     assert!(FrozenResponsesRequest::new(body, /*model_output_limit*/ 16).is_err());
+ }
++
++fn public_context() -> ResolvedResponsesRequestContext {
++    let mut context = context();
++    context.concurrent_reasoning_summaries_enabled = false;
++    context.client_metadata.clear();
++    context
++}
++
++fn capture_budget() -> ResponsesOutputBudget {
++    ResponsesOutputBudget {
++        max_output_tokens: 64,
++        model_output_limit: 128,
++    }
++}
++
++#[test]
++fn capture_retains_final_ordinary_body_and_count_projection() {
++    let mut request =
++        format_responses_request(&prompt(), &model(), &public_context(), options()).unwrap();
++    normalize_request_copy(
++        &mut request.input,
++        RequestCopyNormalization {
++            content_item_kinds_enabled: false,
++        },
++    );
++    let mut expected = serde_json::to_value(&request).unwrap();
++    let fields = expected.as_object_mut().unwrap();
++    fields.remove("client_metadata");
++    fields.insert("max_output_tokens".into(), json!(64));
++    fields.insert("truncation".into(), json!("disabled"));
++    let mut without_metadata = request.clone();
++    without_metadata.client_metadata = None;
++    let absent =
++        capture_finalized_responses_request(without_metadata, &[], capture_budget()).unwrap();
++    let frozen = capture_finalized_responses_request(request, &[], capture_budget()).unwrap();
++    assert_eq!(frozen.encoded_body(), absent.encoded_body());
++    assert_eq!(frozen.body(), &expected);
++    assert_eq!(
++        frozen.encoded_body(),
++        serde_json::to_vec(&expected).unwrap()
++    );
++    assert_eq!(
++        frozen.count_body(),
++        &json!({
++            "model": expected["model"],
++            "instructions": expected["instructions"],
++            "input": expected["input"],
++            "tools": expected["tools"],
++            "tool_choice": expected["tool_choice"],
++            "parallel_tool_calls": expected["parallel_tool_calls"],
++            "reasoning": expected["reasoning"],
++            "text": expected["text"],
++            "truncation": "disabled",
++        })
++    );
++    let restored = FrozenResponsesRequest::from_encoded(frozen.encoded_body(), 128).unwrap();
++    assert_eq!(restored.encoded_body(), frozen.encoded_body());
++}
++
++#[test]
++fn capture_refuses_internal_contributions_without_rewriting_them() {
++    let baseline =
++        format_responses_request(&prompt(), &model(), &public_context(), options()).unwrap();
++    let mut populated_metadata = baseline.clone();
++    populated_metadata.client_metadata = Some(HashMap::from([(
++        "model-visible-contribution".into(),
++        "must not disappear".into(),
++    )]));
++    let mut concurrent_summaries = baseline.clone();
++    concurrent_summaries.stream_options = Some(codex_api::StreamOptions {
++        reasoning_summary_delivery: codex_api::ReasoningSummaryDelivery::SequentialCutoff,
++    });
++    let mut access_programs = baseline.clone();
++    access_programs.access_programs = Some(codex_api::AccessPrograms::from(
++        codex_protocol::turn_input::CyberAccessProgram::Standard,
++    ));
++    let mut encrypted_arguments = baseline.clone();
++    encrypted_arguments.input.push(
++        serde_json::from_value(json!({
++            "type": "function_call", "call_id": "captured-call", "name": "fixture_tool",
++            "arguments": "{}", "encrypted_function_args": ["must not disappear"]
++        }))
++        .unwrap(),
++    );
++    let mut internal_message_metadata = baseline.clone();
++    internal_message_metadata.input.push(serde_json::from_value(json!({
++        "type": "message", "role": "user", "content": [],
++        "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["must not disappear"]}
++    })).unwrap());
++    let mut lite_model = model();
++    lite_model.use_responses_lite = true;
++    let lite =
++        format_responses_request(&prompt(), &lite_model, &public_context(), options()).unwrap();
++    for request in [
++        populated_metadata,
++        concurrent_summaries,
++        access_programs,
++        encrypted_arguments,
++        internal_message_metadata,
++        lite,
++    ] {
++        let original = serde_json::to_value(&request).unwrap();
++        assert!(
++            capture_finalized_responses_request(request.clone(), &[], capture_budget()).is_err()
++        );
++        assert_eq!(serde_json::to_value(&request).unwrap(), original);
++    }
++}
++
++#[test]
++fn capture_refuses_unresolved_contributors_without_invoking_them() {
++    use codex_extension_api::ModelRequestContributor;
++    use codex_extension_api::ModelRequestInput;
++    use codex_extension_api::ModelResponseInterceptor;
++    use std::sync::Arc;
++    use std::sync::atomic::AtomicUsize;
++    use std::sync::atomic::Ordering;
++
++    #[derive(Debug)]
++    struct UnresolvedContributor(Arc<AtomicUsize>);
++
++    impl ModelRequestContributor for UnresolvedContributor {
++        fn request(
++            &self,
++            _input: ModelRequestInput<'_>,
++        ) -> Option<Box<dyn ModelResponseInterceptor>> {
++            self.0.fetch_add(1, Ordering::SeqCst);
++            None
++        }
++    }
++
++    let invocations = Arc::new(AtomicUsize::new(0));
++    let contributors: Vec<Arc<dyn ModelRequestContributor>> =
++        vec![Arc::new(UnresolvedContributor(Arc::clone(&invocations)))];
++    let request =
++        format_responses_request(&prompt(), &model(), &public_context(), options()).unwrap();
++    assert!(capture_finalized_responses_request(request, &contributors, capture_budget()).is_err());
++    assert_eq!(invocations.load(Ordering::SeqCst), 0);
++}
++
++#[test]
++fn capture_refuses_invalid_or_unenforceable_output_reservations() {
++    let request =
++        format_responses_request(&prompt(), &model(), &public_context(), options()).unwrap();
++    for (max_output_tokens, model_output_limit) in
++        [(0, 128), (15, 128), (129, 128), (64, 0), (64, u64::MAX)]
++    {
++        assert!(
++            capture_finalized_responses_request(
++                request.clone(),
++                &[],
++                ResponsesOutputBudget {
++                    max_output_tokens,
++                    model_output_limit,
++                },
++            )
++            .is_err()
++        );
++    }
++}
