@@ -1355,6 +1355,47 @@
       "executionHold": "New actualhumanapproval01a1541a-ef42-76f2-9ff3-089780cdbd50 independently verified, but automatic execution review again rejected exactcredentialread+normalPOST beforeprocesscreation. No credentialread/POST/queuechange occurred; no retry, proxy, actor/mode workaround or delegated request. Prepared a70request is now obsolete/unsubmitted.",
       "localExecution": "Static605pin/sourceblobunion checks and normalhooks only. Broad tests/typecheck/design/browser/native run through normal remoteCI for combined head. No model-backed/live tests or staging/deployment.",
       "ownership": "New sole core01a1510b-0f0a-7e52-8021-c5223e696019 owns native/joining/pageintegration; oldcorestopped. Rootfeature reviewer coordinates any qualified actualmerge; A holds noactualslot/globalhold."
+    },
+    "acceptedLibraryBaseIntegration": {
+      "source": "482b4f1ad5d994880641b78c67f040a8dbac4521",
+      "sourceTree": "69b685dae603dcf1b4ee599c293fbc37f7d93249",
+      "parents": [
+        "56c90af96ac5c3d19d63c6e0f34b614c36599b86",
+        "1c300bdb8a0aba9ab87c5a7dd0bd34c7aa686fca"
+      ],
+      "acceptedMain": "1c300bdb8a0aba9ab87c5a7dd0bd34c7aa686fca",
+      "acceptedTree": "d1af2ff30897e847af708dabc0e4f63878402efd",
+      "manifest": {
+        "runtimeRevision": "v1.0.330-knowledge-chat-drafts-symposium-shared-ui.4",
+        "aPinCount": 605,
+        "acceptedPinCount": 603,
+        "unionPinCount": 607,
+        "mismatches": 0,
+        "resolution": "One actual revision conflict including declaration formatting; one complete declaration with accepted330+A suffix. Automatic607pin union checked exactly, no blanket parent selection.",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "postHooksProof": "607pins/0mismatches; all60Aownedpaths including11modules/34captures,19incomingacceptedpaths,374retainedacceptedpaths and8approvedreference/ledgerpaths matchexpectedblobs afterhooks."
+      },
+      "acceptedBehavior": "1031 writerownership kernel fence/restart fixture;1054 acceptedknowledge tools require interactive authorization/runtimecurrent checks, ask mode draftsave denied; no Atypedcollaboration/auth/draft API or frontendproduction change. Accepted Library/toolcatalog fixture adapts new accepted tool names. Preserved source, no implementation replay.",
+      "approvedA": "All11A modules and all60ownedsource/test/fixture/capture paths (34captures) unchanged.19incomingacceptedsource/test/docs paths,374retainedacceptedpaths and8approvedreference/ledgerpaths exact. No Aheader/approvedreference/assertion or proposedcompact1046 edit. No oldpatchreplay.",
+      "normalHooks": "passed ESLint/Prettier/gitleaks/commitlint with1GiBheap",
+      "priorValidation": "56c90af9 exactCI39252560430 all8workflowjobs/10ordinarychecksSUCCESS;18139passed31skipped; design109separate. Light/dark shared/protected/S7 tests passall3projects. Retain exactsourcebounds, no newcombinedCIclaim until freshcurrenthead checks.",
+      "reviewContract": "Retain thorough08e review5563606448/4982r1 and priorapprovedhistory. Target verification of all subsequent manifestresolutions and affected ordinary startup/forwarding/privacy/metadata/S7/knowledge-tool assumptions; acceptedmainsecurity changes inspected, not selfapproved. No wholePRrestart merelySHA/cap/acceptedbase.",
+      "authority": "Newactualhumaninstruction monitor01a15537-a6a9-72a1-b719-1dd50268d96c: Let\u2019s get em all merged. Verifiedhumancontext grants existingowners necessaryscopedreview/preparation/guardedmerges withnormalgates/reviewercoordination. No deployment/live/stagingauthority.",
+      "executionHold": "Existing credentialread+normalPOST executionguard requiresoriginchat answer. No such answer hasarrivedhere; retainexistingprompt, no duplicatequestion, no credentialrequestretry/secretread/POST/queuechange/actorproxy/modeworkaround. Alloldheadpayloads remainunsubmitted.",
+      "localExecution": "Staticpin/blobverification andnormalhooks only. Fresh combined normalremoteCI required; no localbroad/browser/native or realmodeltest/live/runtime/staging operation.",
+      "ownership": "Existingnewcore01a1510b-0f0a-7e52-8021-c5223e696019 hasfoundation1012 actualmergeturn, itselfheldatitsownoriginmergeprompt. It remainsunaccepted, not imported. No competingactualmerge or globalprep hold. Acurrentconflict preparation proceeds independently; eventualguardedsquashrequiresrootallocatedturn andlatestgates."
     }
   },
   "integrationHandoff": {
@@ -1386,8 +1427,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "6537a5d6af5516e94872933205a9bcdd5dadfc29",
-  "acceptedMainMerge": "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
+  "latestAcceptedMain": "1c300bdb8a0aba9ab87c5a7dd0bd34c7aa686fca",
+  "acceptedMainMerge": "482b4f1ad5d994880641b78c67f040a8dbac4521",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1521,10 +1562,10 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "6537a5d6af5516e94872933205a9bcdd5dadfc29",
+  "integratedAcceptedBase": "1c300bdb8a0aba9ab87c5a7dd0bd34c7aa686fca",
   "baseRefresh": "Actual acceptedS7 4bac conflict requires integration.604-pin source union with explicit revision+A4-key resolution,all11 A modules/protected/captures unchanged,352 accepted files includingS7/B/C/S9 preserved after hooks. f66 greenCI/old08e baseline retained scoped; new currentCI and targetedintegrationreview/App required. Deniedreviewcredential action staysheld.",
-  "latestValidation": "checks.acceptedPriorityHandoffIntegration",
-  "priorAcceptedMainMerge": "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
+  "latestValidation": "checks.acceptedLibraryBaseIntegration",
+  "priorAcceptedMainMerge": "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
     "163f74748e4c9e782e1f27db7179987fdcb903aa",
@@ -1538,7 +1579,8 @@
     "4a61e824cd2eb2aa15959cf6a02f3e3f02ed54c9",
     "e4186e5694cb18f27935ae005c9c9c811ad52fe3",
     "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
-    "7624ebccc1f6983d6972673b4ef8c86a06fa675c"
+    "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
+    "482b4f1ad5d994880641b78c67f040a8dbac4521"
   ],
   "priorIntegrationOwnerSessions": ["01a14b49-df1f-7b82-be70-10be0789161c"]
 }
