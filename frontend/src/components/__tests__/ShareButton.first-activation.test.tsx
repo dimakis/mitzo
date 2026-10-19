@@ -42,9 +42,9 @@ it('retains the first activation of a newly committed saved-file control', async
   expect(document.activeElement).toBe(trigger);
   await waitFor(() => {
     expect(trigger!.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('button', { name: 'Open', exact: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Open$/ })).toBeTruthy();
   });
   expect(host.querySelector('button[aria-label="File options"]')).toBe(trigger);
-  await act(async () => screen.getByRole('button', { name: 'Open', exact: true }).click());
+  await act(async () => screen.getByRole('button', { name: /^Open$/ }).click());
   expect(open).toHaveBeenCalledOnce();
 });
