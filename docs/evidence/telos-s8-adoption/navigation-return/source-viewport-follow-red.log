@@ -1,0 +1,52 @@
+
+Running 7 tests using 1 worker
+
+(node:79687) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (164ms)
+(node:79694) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source anchors visible assistant text and returns to its item (dark) (1.7s)
+  ✓  3 [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source failure releases ordinary restore, send and stream following (dark) (1.0s)
+  ✓  4 [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source historical blank public text preserves activity and ordinary following (dark) (1.1s)
+  ✓  5 [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source anchors visible assistant text and returns to its item (light) (1.6s)
+  ✓  6 [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source failure releases ordinary restore, send and stream following (light) (1.1s)
+  ✘  7 [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source historical blank public text preserves activity and ordinary following (light) (6.0s)
+
+
+  1) [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source historical blank public text preserves activity and ordinary following (light) 
+
+    Error: expect(received).toBeLessThan(expected)
+
+    Expected: < 3
+    Received:   45
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      225 |       const distanceFromBottom = () =>
+      226 |         scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+    > 227 |       await expect.poll(distanceFromBottom).toBeLessThan(3);
+          |                                             ^
+      228 |       await scroll.evaluate((el) => {
+      229 |         el.scrollTop = 0;
+      230 |         el.dispatchEvent(new Event('scroll'));
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-coordinator/tests/offline/telos-source-navigation.spec.ts:227:45
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-source-navigation-re-ea350-d-ordinary-following-light--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-source-navigation-re-ea350-d-ordinary-following-light--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-source-navigation-re-ea350-d-ordinary-following-light--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-source-navigation-re-ea350-d-ordinary-following-light--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source historical blank public text preserves activity and ordinary following (light) 
+  6 passed (14.2s)

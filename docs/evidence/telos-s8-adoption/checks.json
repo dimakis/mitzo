@@ -1,7 +1,7 @@
 {
   "baseAcceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
   "componentCandidate": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
-  "implementationCheckpoint": "15ae62ef8594212bda5fcf2da1bfddc4f86c4c40",
+  "implementationCheckpoint": "9b595892eccd0bf07257fe684ded0ccfeb838d8d",
   "productionAdoption": [
     "TelosItemWorkspace Chat -> TelosItemChatTab -> ordinary /chat/:sessionId",
     "ChatView/DesktopChatView -> TelosChatRouteLayout using recorded association and canonical record -> TelosChatFrame",
@@ -17,16 +17,22 @@
     "ordinaryReadIsolation": "Original S5b write guard detected unrelated work-link POST; dedicated route regression failed then passed after restricting work lookup"
   },
   "checks": {
-    "focusedPassed": 199,
+    "focusedPassed": 311,
     "existingSkipped": 1,
     "fullRouteBrowserCases": 6,
     "componentMotionCases": 12,
     "browserStartupChecks": 2,
     "eslint": "PASS",
     "s5bFrontendOverlay": "28 focused checks, 12 browser scenarios plus 2 startup; original S5b fixture unchanged",
-    "ci": "Prior56 CI running when correction prepared; exact correction-head CI/review required",
-    "focusedScope": "21 files: S8/design plus existing S7 route/scroll/output, source/linked-context and runtime artifact checks",
-    "boundedReview": "Three P2s reproduced and corrected; independent targeted closure pending"
+    "ci": "76CI exposed artifact fixture provider and source fixture/45px viewport gaps, reproduced/fixed; new exact-head CI required",
+    "focusedScope": "30 files: coordinator/role revisions, S8/source/ChatArea, artifact navigation, S7 return/scroll, design and full source registry",
+    "boundedReview": "76 route and81af coordinator source independently closed; final loading/source-return/viewport delta bounded closure pending",
+    "coordinatorRoleBrowserCases": 12,
+    "sourceBrowserCases": 18,
+    "combinedLatestBrowserScenarios": 36,
+    "latestRoleBrowserScenarios": 12,
+    "latestTotalBrowserScenarios": 48,
+    "boundedHelperTypecheck": "PASS: strict no-emit for navigation-only helper, broad types/build remain CI"
   },
   "limits": [
     "Candidate source; not accepted main or full S9 acceptance",
@@ -34,7 +40,7 @@
     "Exact S5b frontend overlay qualification is separate from backend/main assembly",
     "Four backend merge conflict owners remain outside S8; full native/peer chain belongs to S5b/S6/S9",
     "Frozen component PR1050 remains on3f08dd81 with CIgreen and queued Centaur; no redundant FULL request, no merge/deployment",
-    "Coordinator lead setup UX17/journey6 remains S6 interface plus S8 adapter gap; generic New chat fallback currently advisor",
-    "S5b production owner has resolved backend conflicts in6091; joined corrected route composition and S9 acceptance remain pending"
+    "S5b production owner has resolved backend conflicts in6091; joined corrected route composition and S9 acceptance remain pending",
+    "Coordinator UI maps to backendlead; S6 reviewed coordinator mandate and joined V2 ordinary-host/native control acceptance remain open"
   ]
 }

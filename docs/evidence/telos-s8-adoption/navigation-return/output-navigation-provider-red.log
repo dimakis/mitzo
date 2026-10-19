@@ -1,0 +1,37 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-coordinator
+
+ ❯ frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx (9 tests | 2 failed) 373ms
+   × opens exactly one pinned document on direct navigation with remembered Chat and preserves the tab on close 7ms
+   × shows unavailable pinned documents and retries without leaving remembered Chat 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx > opens exactly one pinned document on direct navigation with remembered Chat and preserves the tab on close
+ FAIL  frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx > shows unavailable pinned documents and retries without leaving remembered Chat
+Error: useMitzoStore must be used within a <MitzoStoreProvider>
+ ❯ useMitzoStore packages/client/src/hooks/useStore.ts:24:11
+     22|   const store = useContext(MitzoStoreContext);
+     23|   if (!store) {
+     24|     throw new Error('useMitzoStore must be used within a <MitzoStorePr…
+       |           ^
+     25|   }
+     26|   return useStore(store, selector);
+ ❯ useTelosChatSetup frontend/src/hooks/useTelosChatSetup.ts:10:22
+ ❯ TelosItemChatTab frontend/src/components/TelosItemChatTab.tsx:23:17
+ ❯ Object.react_stack_bottom_frame ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ ❯ beginWork ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ ❯ runWithFiberInDEV ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ ❯ performUnitOfWork ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/react-dom/cjs/react-dom-client.development.js:17641:22
+ ❯ workLoopSync ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/react-dom/cjs/react-dom-client.development.js:17469:41
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 7 passed (9)
+   Start at  00:34:27
+   Duration  1.61s (transform 379ms, setup 0ms, import 666ms, tests 373ms, environment 449ms)
+

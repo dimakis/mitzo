@@ -8,8 +8,9 @@ Centaur baseline; this branch does not rewrite that review target.
 The real item Chat tab now mounts `TelosItemChatTab`. Multiple conversations
 list first with no selection. Exactly one available ordinary non-origin chat can
 enter directly on initial entry. A refresh cannot silently select a remaining
-chat. Back and the Chats action return to the explicit chooser, including after
-direct entry and reload. Collection/item navigation state travels with that return.
+chat. Chooser-entry Back and the Chats action return to the explicit chooser,
+including after direct entry and reload. Source-entry Back restores its actual
+Overview/Materials or previous-chat snapshot. Collection/item navigation state travels with that return.
 External Codex sources use explicit retained-URL inspection; reviewed ordinary
 sources use the existing exact-source API. Several retained exchanges require an
 explicit choice in Materials rather than guessing a snapshot.
@@ -114,6 +115,54 @@ logs are under `docs/evidence/telos-s8-adoption/route-review-corrections/`.
 S5b’s production owner has resolved the earlier backend conflicts in candidate
 6091 and is composing the frozen route source; that is separate from the earlier
 688 frontend overlay. Its composed page hashes/runtime identity need their own
-qualification, and S9 must verify the joined candidate. UX17/journey6 coordinator
-lead setup/mandate remains an explicit S6 interface and S8 adapter gap: generic
-New chat currently falls back to advisor. No coordinator parity is claimed.
+qualification, and S9 must verify the joined candidate. At76, UX17/journey6 coordinator lead setup remained an S6 interface/S8 adapter
+gap. The bounded coordinator adapter below addresses UI routing; reviewed
+coordinator guidance and the joined native control journey remain unaccepted.
+
+
+## Coordinator entry adapter after the76 baseline
+
+Explicit coordinator kind now uses the existing backend lead role in the Chat
+tab/list, Overview role entry and tree. Choose/Change remains explicit assignment;
+New chat remains additional lead and confers no current control assignment. The
+tree retains Coordinator display labels and reads only authoritative current
+lead assignments. Unknown kind is not inferred. One shared mapping keeps these
+four callers consistent; the existing setup/revision owner remains unchanged.
+
+The six pre-fix failures and248 passing checks, actual coordinator/lead setup
+route scenarios, source qualification and inspected light/dark mobile/desktop
+captures are retained under `docs/evidence/telos-s8-adoption/coordinator-entry/`.
+The earlier76 route review stays the baseline; review of this new mapping is a
+separate bounded delta. S5b and S6 own V2 host composition and coordinator-specific
+mandate/control proof; S9 owns the joined application acceptance. No full UX17
+completion follows from this UI adapter.
+
+
+## Loading Back, actual source origin and viewport parity
+
+The final navigation-only return snapshot is qualified by item, target
+conversation/current URL and local app path before the header uses it. Back is
+available while metadata is pending; work data, item/tree controls, assignment
+and tool authority remain independently validated. Chooser entry returns to the
+chooser; source entry restores its actual prior view or chat, including query,
+collection state and tab snapshot. Explicit snapshots take precedence over later
+stored tab changes; no-explicit-view artifact navigation keeps its remembered tab.
+
+The existing source-follow tests caught a real45px gap after async slim-row
+hydration. A viewport ResizeObserver now retains ordinary following only when the
+reader already chose it and no retained source anchor owns the position. Source
+boundary and manual-scroll assertions remain unchanged. The two artifact unit
+fixtures use the same new-Chat isolation seam as the old role entry, preserving
+all artifact/retry/tab assertions.
+
+Production9b595892 qualifies311 focused tests (one prior skip) and36 combined
+route/source/motion scenarios plus startup checks. Raw red/green evidence and
+scoped source fingerprints are in
+`docs/evidence/telos-s8-adoption/navigation-return/`. The existing coordinator/lead
+setup route suite is separately requalified on that source. Prior76/81af reviews
+are retained; loading/source-return/viewport corrections need bounded closure.
+No full joined V2/native/coordinator acceptance or final trusted gate is inferred.
+
+The final production9b595892 rerun passes all12 coordinator/lead setup
+scenarios plus their startup checks. With the36 combined source/route/motion
+cases, the final selected browser evidence covers48 distinct scenarios.

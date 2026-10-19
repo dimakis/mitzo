@@ -1,0 +1,25 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-coordinator
+
+ ❯ frontend/src/components/__tests__/TelosItemWorkspace.test.tsx (8 tests | 1 failed) 148ms
+   × restores an explicit Materials navigation snapshot over a later stored Chat preference 60ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/components/__tests__/TelosItemWorkspace.test.tsx > restores an explicit Materials navigation snapshot over a later stored Chat preference
+AssertionError: expected 'false' to be 'true' // Object.is equality
+
+Expected: "true"
+Received: "false"
+
+ ❯ frontend/src/components/__tests__/TelosItemWorkspace.test.tsx:29:90
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+   Start at  00:30:51
+   Duration  1.29s (transform 309ms, setup 0ms, import 596ms, tests 148ms, environment 436ms)
+
