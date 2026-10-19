@@ -23,7 +23,7 @@ export class OrdinaryCollaborationReview {
     },
   ) {}
 
-  async review(group: string, raw: unknown) {
+  async review(group: string, raw: unknown, options?: { assertBeforeCommit(): void }) {
     const record = this.deps.store.collaborationConversation.reserveReviewCompilation(group, raw);
     if (record.snapshotId) {
       const snapshot = this.deps.store.collaborationConversation.getSnapshot(
@@ -55,6 +55,7 @@ export class OrdinaryCollaborationReview {
       record.selection.requestId,
       draft,
       witnesses,
+      options?.assertBeforeCommit,
     );
   }
 }

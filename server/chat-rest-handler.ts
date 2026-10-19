@@ -215,6 +215,7 @@ export function createChatRestRouter(
           preserveReceiptErrors?: boolean;
           preserveReceiptSession?: boolean;
           receiptAdmitted?: boolean;
+          onRetained?: () => void;
         } = {},
       ) => {
         const delegate = new SseTransport(connectionId, sseRegistry);
@@ -244,6 +245,12 @@ export function createChatRestRouter(
               );
               event = { ...durable, seq };
             }
+            if (
+              event.type === 'user_message' &&
+              event.messageId === command.clientMsgId &&
+              event.sessionId === sessionId
+            )
+              options.onRetained?.();
             if (ctx.connRegistry.hasOpenWatchers(sessionId))
               ctx.connRegistry.broadcast(sessionId, event);
             else delegate.send(event);
@@ -311,7 +318,12 @@ export function createChatRestRouter(
         );
         res.status(202).json(receipt);
       } else {
-        const receipt = await acceptSendCommandAsync(ctx.eventStore, admittedMessage, dispatch);
+        const receipt = await acceptSendCommandAsync(
+          ctx.eventStore,
+          admittedMessage,
+          (command, sessionId, onRetained) => dispatch(command, sessionId, { onRetained }),
+          { acknowledgeRetained: true },
+        );
         res.status(202).json(receipt);
       }
     } catch (err) {

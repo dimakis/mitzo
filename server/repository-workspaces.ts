@@ -273,6 +273,28 @@ interface Dependencies {
 export class RepositoryWorkspaces {
   private db: Database.Database;
   private ordinaryWorkspaceCustody?: OrdinaryWorkspaceCustody;
+  private activeOperations = 0;
+  private released = false;
+  private assertAvailable() {
+    if (this.released) throw Error('Repository workspace owner released');
+  }
+  private async runOperation<T>(run: () => Promise<T>): Promise<T> {
+    this.assertAvailable();
+    this.activeOperations++;
+    try {
+      return await run();
+    } finally {
+      this.activeOperations--;
+    }
+  }
+  /** Release only idle persistence. Never cancel work or delete retained sources/tasks. */
+  closeIdle(): void {
+    if (this.released) return;
+    if (this.activeOperations || this.pendingChats.size || this.pendingDelegated.size)
+      throw Error('Repository workspace owner active');
+    this.close();
+    this.released = true;
+  }
   private pendingChats = new Map<
     string,
     { key: string; result: Promise<RepositoryChatPreparation> }
@@ -300,19 +322,20 @@ export class RepositoryWorkspaces {
       operation_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL);`);
   }
   private ordinaryWorkspaceProvider() {
+    this.assertAvailable();
     return (this.ordinaryWorkspaceCustody ??= new OrdinaryWorkspaceCustody(
       this.db,
       this.deps.ordinaryPreparation,
     ));
   }
   prepareOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['prepare']>[0]) {
-    return this.ordinaryWorkspaceProvider().prepare(input);
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().prepare(input));
   }
   reserveOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['reserve']>[0]) {
-    return this.ordinaryWorkspaceProvider().reserve(input);
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().reserve(input));
   }
   claimOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['claim']>[0]) {
-    return this.ordinaryWorkspaceProvider().claim(input);
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().claim(input));
   }
   getOrdinaryWorkspace(id: string) {
     return this.ordinaryWorkspaceProvider().get(id);
@@ -341,130 +364,132 @@ export class RepositoryWorkspaces {
     },
     events: EventStore,
   ) {
-    const selected = structuredClone({ ...input, signal: undefined });
-    reservationReference.parse(selected.allocationOperationId);
-    const settings = OrdinarySilentPreparationSelectionSchema.parse(selected.settings);
-    // Use the ordinary dispatch owner's exact workdir contract before claiming.
-    if (settings.binding.execution.location === 'openshell')
-      OrdinaryOpenShellCommandAdmissionSchema.shape.workspace.shape.cwd.parse(
-        selected.sandboxWorkdir,
-      );
-    const profile = AgentLibraryVersionSchema.parse(selected.agentProfile);
-    if (
-      !isDeepStrictEqual(
-        {
-          profileId: profile.profileId,
-          revision: profile.revision,
-          ...(profile.kind ? { kind: profile.kind } : {}),
-        },
-        settings.selection.agent,
-      ) ||
-      profile.contentHash !== contextDigest(profile.definition)
-    )
-      throw Error('Original ordinary agent profile required');
-    if (
-      settings.repositoryWorkspaceId !== selected.id ||
-      !selected.allocationOperationId ||
-      selected.agentProfile?.definition.contextRecipe !== undefined
-    )
-      throw Error('Silent ordinary preparation settings unavailable');
-    const record = this.get(selected.id);
-    if (
-      !record.ordinaryPreparation ||
-      !isDeepStrictEqual(record.ordinaryPreparation.runtimeBinding, settings.binding) ||
-      selected.binding.model !== settings.selection.model
-    )
-      throw Error('Original ordinary preparation required');
-    const conversationId = nativeStartupSessionId(`repository:${selected.id}`);
-    const preparationFingerprint = ordinaryPreparationFingerprint({
-      allocationOperationId: selected.allocationOperationId,
-      ...(selected.delegationAttemptId
-        ? { delegationAttemptId: selected.delegationAttemptId }
-        : {}),
-      id: selected.id,
-      binding: selected.binding,
-      taskRoot: selected.taskRoot,
-      settings,
-      agentProfile: selected.agentProfile,
-      sandboxWorkdir: selected.sandboxWorkdir,
-    });
-    const reservation = {
-      id: selected.id,
-      binding: selected.binding,
-      conversationId,
-      taskRoot: selected.taskRoot,
-      runtimeBinding: settings.binding,
-      commandFingerprint: preparationFingerprint,
-    };
-    // Reuse the reservation owner's pure ID/account/path checks before claiming.
-    this.snapshotHostInput(reservation);
-    const signal = input.signal;
-    signal.throwIfAborted();
-    const assertSilent = async (current: RepositoryWorkspace) => {
-      await this.assertOrdinaryPreparation(current, selected.binding, signal, true);
-      await this.deps.ordinaryPreparation?.assertSilent?.(
-        current.ordinaryPreparation!,
-        selected.binding,
-        settings,
-        signal,
-      );
-      this.assertUnchangedHostRecord(current);
-    };
-    await assertSilent(record);
-    this.db
-      .transaction(() => {
-        const previous = this.db
-          .prepare(
-            'SELECT workspace_id, fingerprint FROM ordinary_preparation_allocations WHERE operation_id=?',
-          )
-          .get(selected.allocationOperationId) as
-          { workspace_id: string; fingerprint: string } | undefined;
-        if (previous) {
-          if (
-            previous.workspace_id !== selected.id ||
-            previous.fingerprint !== preparationFingerprint
-          )
-            throw Error('Ordinary allocation operation cannot be replaced');
-        } else
-          this.db
-            .prepare('INSERT INTO ordinary_preparation_allocations VALUES (?,?,?)')
-            .run(selected.allocationOperationId, selected.id, preparationFingerprint);
-      })
-      .immediate();
-    let cwd: string;
-    if (settings.binding.execution.location === 'local') {
-      const descriptor = await this.reserveHostTask({ ...reservation, signal });
-      cwd = descriptor.directory;
-    } else {
-      await this.reserveOrdinarySandboxTask({ ...reservation, signal });
-      cwd = selected.sandboxWorkdir!;
-    }
-    const current = this.getHostRecord(selected.id);
-    await this.authorizeHostRecord(current, selected.binding, signal);
-    await this.verifyHostSource(current, signal);
-    await assertSilent(current);
-    signal.throwIfAborted();
-    const receipt = events.prepareOrdinarySession(
-      {
-        sessionId: conversationId,
-        repositoryWorkspaceId: selected.id,
-        cwd,
-        accountBinding: selected.binding,
-        agentProfile: selected.agentProfile,
-        selectedModel: settings.selection.model,
-        reasoningEffort: settings.selection.thinking,
-        mode: settings.selection.permission.mode,
-      },
-      {
+    return this.runOperation(async () => {
+      const selected = structuredClone({ ...input, signal: undefined });
+      reservationReference.parse(selected.allocationOperationId);
+      const settings = OrdinarySilentPreparationSelectionSchema.parse(selected.settings);
+      // Use the ordinary dispatch owner's exact workdir contract before claiming.
+      if (settings.binding.execution.location === 'openshell')
+        OrdinaryOpenShellCommandAdmissionSchema.shape.workspace.shape.cwd.parse(
+          selected.sandboxWorkdir,
+        );
+      const profile = AgentLibraryVersionSchema.parse(selected.agentProfile);
+      if (
+        !isDeepStrictEqual(
+          {
+            profileId: profile.profileId,
+            revision: profile.revision,
+            ...(profile.kind ? { kind: profile.kind } : {}),
+          },
+          settings.selection.agent,
+        ) ||
+        profile.contentHash !== contextDigest(profile.definition)
+      )
+        throw Error('Original ordinary agent profile required');
+      if (
+        settings.repositoryWorkspaceId !== selected.id ||
+        !selected.allocationOperationId ||
+        selected.agentProfile?.definition.contextRecipe !== undefined
+      )
+        throw Error('Silent ordinary preparation settings unavailable');
+      const record = this.get(selected.id);
+      if (
+        !record.ordinaryPreparation ||
+        !isDeepStrictEqual(record.ordinaryPreparation.runtimeBinding, settings.binding) ||
+        selected.binding.model !== settings.selection.model
+      )
+        throw Error('Original ordinary preparation required');
+      const conversationId = nativeStartupSessionId(`repository:${selected.id}`);
+      const preparationFingerprint = ordinaryPreparationFingerprint({
         allocationOperationId: selected.allocationOperationId,
-        preparationFingerprint,
-        settings,
         ...(selected.delegationAttemptId
           ? { delegationAttemptId: selected.delegationAttemptId }
           : {}),
-      },
-    );
-    return { receipt, reservation };
+        id: selected.id,
+        binding: selected.binding,
+        taskRoot: selected.taskRoot,
+        settings,
+        agentProfile: selected.agentProfile,
+        sandboxWorkdir: selected.sandboxWorkdir,
+      });
+      const reservation = {
+        id: selected.id,
+        binding: selected.binding,
+        conversationId,
+        taskRoot: selected.taskRoot,
+        runtimeBinding: settings.binding,
+        commandFingerprint: preparationFingerprint,
+      };
+      // Reuse the reservation owner's pure ID/account/path checks before claiming.
+      this.snapshotHostInput(reservation);
+      const signal = input.signal;
+      signal.throwIfAborted();
+      const assertSilent = async (current: RepositoryWorkspace) => {
+        await this.assertOrdinaryPreparation(current, selected.binding, signal, true);
+        await this.deps.ordinaryPreparation?.assertSilent?.(
+          current.ordinaryPreparation!,
+          selected.binding,
+          settings,
+          signal,
+        );
+        this.assertUnchangedHostRecord(current);
+      };
+      await assertSilent(record);
+      this.db
+        .transaction(() => {
+          const previous = this.db
+            .prepare(
+              'SELECT workspace_id, fingerprint FROM ordinary_preparation_allocations WHERE operation_id=?',
+            )
+            .get(selected.allocationOperationId) as
+            { workspace_id: string; fingerprint: string } | undefined;
+          if (previous) {
+            if (
+              previous.workspace_id !== selected.id ||
+              previous.fingerprint !== preparationFingerprint
+            )
+              throw Error('Ordinary allocation operation cannot be replaced');
+          } else
+            this.db
+              .prepare('INSERT INTO ordinary_preparation_allocations VALUES (?,?,?)')
+              .run(selected.allocationOperationId, selected.id, preparationFingerprint);
+        })
+        .immediate();
+      let cwd: string;
+      if (settings.binding.execution.location === 'local') {
+        const descriptor = await this.reserveHostTask({ ...reservation, signal });
+        cwd = descriptor.directory;
+      } else {
+        await this.reserveOrdinarySandboxTask({ ...reservation, signal });
+        cwd = selected.sandboxWorkdir!;
+      }
+      const current = this.getHostRecord(selected.id);
+      await this.authorizeHostRecord(current, selected.binding, signal);
+      await this.verifyHostSource(current, signal);
+      await assertSilent(current);
+      signal.throwIfAborted();
+      const receipt = events.prepareOrdinarySession(
+        {
+          sessionId: conversationId,
+          repositoryWorkspaceId: selected.id,
+          cwd,
+          accountBinding: selected.binding,
+          agentProfile: selected.agentProfile,
+          selectedModel: settings.selection.model,
+          reasoningEffort: settings.selection.thinking,
+          mode: settings.selection.permission.mode,
+        },
+        {
+          allocationOperationId: selected.allocationOperationId,
+          preparationFingerprint,
+          settings,
+          ...(selected.delegationAttemptId
+            ? { delegationAttemptId: selected.delegationAttemptId }
+            : {}),
+        },
+      );
+      return { receipt, reservation };
+    });
   }
   /** Prepare a new isolated worker from its lead's pinned repository selection.
    * The allocation identity is retained before acquisition; no command is submitted.
@@ -637,6 +662,7 @@ export class RepositoryWorkspaces {
       .run(record.id, JSON.stringify(record), record.conversationId ?? null);
   }
   getForConversation(conversationId: string) {
+    this.assertAvailable();
     const row = this.db
       .prepare('SELECT record FROM repository_workspaces WHERE conversation_id=?')
       .get(conversationId) as { record: string } | undefined;
@@ -649,16 +675,18 @@ export class RepositoryWorkspaces {
     return { ...record, ...(!record.sourceReleased ? { seed: this.source(record) } : {}) };
   }
   async validateHostTask(conversationId: string, directory: string) {
-    const record = this.getForConversation(conversationId);
-    if (
-      !record ||
-      record.sandbox ||
-      record.directory !== directory ||
-      !record.taskIdentity ||
-      record.taskIdentity.featureBranch !== record.featureBranch
-    )
-      throw new Error('Retained repository task claim is unavailable');
-    return validateRepositoryTaskCheckout(directory, record.taskIdentity);
+    return this.runOperation(async () => {
+      const record = this.getForConversation(conversationId);
+      if (
+        !record ||
+        record.sandbox ||
+        record.directory !== directory ||
+        !record.taskIdentity ||
+        record.taskIdentity.featureBranch !== record.featureBranch
+      )
+        throw new Error('Retained repository task claim is unavailable');
+      return validateRepositoryTaskCheckout(directory, record.taskIdentity);
+    });
   }
   status(id: string, binding: AccountBinding) {
     const record = this.get(id);
@@ -680,6 +708,7 @@ export class RepositoryWorkspaces {
     binding: AccountBinding,
     sourceConversationId?: string,
   ): RepositoryChatPreparation {
+    this.assertAvailable();
     // An owned status read may recover a draft prepared under an earlier model.
     // Account/provider/profile identity stays fixed; launching still requires the stored full binding.
     const sameOwner = (value: RepositoryWorkspace) =>
@@ -715,6 +744,7 @@ export class RepositoryWorkspaces {
     prompt: string,
     signal: AbortSignal,
   ): Promise<RepositoryChatPreparation> {
+    this.assertAvailable();
     const repository = canonicalRepositorySelection(selected);
     const key = JSON.stringify([binding, connectionId, repository, prompt]);
     const pending = this.pendingChats.get(sourceConversationId);
@@ -727,6 +757,7 @@ export class RepositoryWorkspaces {
         );
       return pending.result;
     }
+    this.activeOperations++;
     const result = (async () => {
       signal.throwIfAborted();
       const records = this.chatRecords(sourceConversationId).filter(
@@ -776,40 +807,44 @@ export class RepositoryWorkspaces {
     })().finally(() => {
       if (this.pendingChats.get(sourceConversationId)?.result === result)
         this.pendingChats.delete(sourceConversationId);
+      this.activeOperations--;
     });
     this.pendingChats.set(sourceConversationId, { key, result });
     return result;
   }
   async discard(id: string, binding: AccountBinding) {
-    const record = this.get(id);
-    if (
-      record.state === 'ready' &&
-      record.ordinaryPreparation &&
-      !record.ordinaryFirstReservation
-    ) {
-      await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000), true);
-      binding = structuredClone(record.binding);
-    }
-    if (
-      record.ordinaryFirstReservation ||
-      !isDeepStrictEqual(record.binding, binding) ||
-      !['preview', 'ready', 'failed', 'discarded'].includes(record.state)
-    )
-      throw new Error('Only an unused preparation can be discarded');
-    const originalRecord = JSON.stringify(record);
-    record.state = 'discarded';
-    this.db
-      .transaction(() => {
-        const changed = this.db
-          .prepare('UPDATE repository_workspaces SET record=? WHERE id=? AND record=?')
-          .run(JSON.stringify(record), id, originalRecord);
-        if (changed.changes !== 1)
-          throw new Error('Repository preparation ownership changed before discard');
-      })
-      .immediate();
-    await rm(join(this.directory, id), { recursive: true, force: true });
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      if (
+        record.state === 'ready' &&
+        record.ordinaryPreparation &&
+        !record.ordinaryFirstReservation
+      ) {
+        await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000), true);
+        binding = structuredClone(record.binding);
+      }
+      if (
+        record.ordinaryFirstReservation ||
+        !isDeepStrictEqual(record.binding, binding) ||
+        !['preview', 'ready', 'failed', 'discarded'].includes(record.state)
+      )
+        throw new Error('Only an unused preparation can be discarded');
+      const originalRecord = JSON.stringify(record);
+      record.state = 'discarded';
+      this.db
+        .transaction(() => {
+          const changed = this.db
+            .prepare('UPDATE repository_workspaces SET record=? WHERE id=? AND record=?')
+            .run(JSON.stringify(record), id, originalRecord);
+          if (changed.changes !== 1)
+            throw new Error('Repository preparation ownership changed before discard');
+        })
+        .immediate();
+      await rm(join(this.directory, id), { recursive: true, force: true });
+    });
   }
   get(id: string): RepositoryWorkspace {
+    this.assertAvailable();
     const row = this.db.prepare('SELECT record FROM repository_workspaces WHERE id=?').get(id) as
       { record: string } | undefined;
     if (!row) throw new Error('Repository preparation unavailable');
@@ -819,17 +854,19 @@ export class RepositoryWorkspaces {
     return join(this.directory, record.id, 'mgmt');
   }
   async releaseSource(id: string, binding: AccountBinding, conversationId: string) {
-    const record = this.get(id);
-    if (
-      record.state !== 'claimed' ||
-      record.conversationId !== conversationId ||
-      !isDeepStrictEqual(record.binding, binding)
-    )
-      throw new Error('Repository source release requires its settled conversation claim');
-    if (record.sourceReleased) return;
-    await rm(join(this.directory, id), { recursive: true, force: true });
-    record.sourceReleased = true;
-    this.save(record);
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      if (
+        record.state !== 'claimed' ||
+        record.conversationId !== conversationId ||
+        !isDeepStrictEqual(record.binding, binding)
+      )
+        throw new Error('Repository source release requires its settled conversation claim');
+      if (record.sourceReleased) return;
+      await rm(join(this.directory, id), { recursive: true, force: true });
+      record.sourceReleased = true;
+      this.save(record);
+    });
   }
   async startupSeed(
     id: string,
@@ -837,19 +874,21 @@ export class RepositoryWorkspaces {
     conversationId: string,
     signal: AbortSignal,
   ) {
-    const record = this.get(id);
-    if (
-      record.state !== 'claimed' ||
-      record.sourceReleased ||
-      !record.sandbox ||
-      record.conversationId !== conversationId
-    )
-      throw new Error('Repository sandbox seed claim is unavailable');
-    await this.authorize(record, binding, signal);
-    if ((await repositorySourceDigest(this.source(record))) !== record.sourceDigest)
-      throw new Error('Prepared repository source changed before sandbox upload');
-    await this.authorize(record, binding, signal);
-    return this.source(record);
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      if (
+        record.state !== 'claimed' ||
+        record.sourceReleased ||
+        !record.sandbox ||
+        record.conversationId !== conversationId
+      )
+        throw new Error('Repository sandbox seed claim is unavailable');
+      await this.authorize(record, binding, signal);
+      if ((await repositorySourceDigest(this.source(record))) !== record.sourceDigest)
+        throw new Error('Prepared repository source changed before sandbox upload');
+      await this.authorize(record, binding, signal);
+      return this.source(record);
+    });
   }
   private async authorize(
     record: RepositoryWorkspace,
@@ -900,21 +939,23 @@ export class RepositoryWorkspaces {
     signal.throwIfAborted();
   }
   async qualifiedStatus(id: string, binding: AccountBinding) {
-    const record = this.get(id);
-    if (!isDeepStrictEqual(record.binding, binding)) {
-      if (
-        record.state !== 'ready' ||
-        record.ordinaryFirstReservation ||
-        !record.ordinaryPreparation?.sourceIdentity
-      )
-        throw new Error('Prepared first command is frozen');
-      await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000), true);
-    } else if (record.ordinaryPreparation)
-      await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000));
-    if (record.state === 'ready' && record.ordinaryPreparation)
-      await this.verifyHostSource(record, AbortSignal.timeout(30000));
-    this.assertUnchangedHostRecord(record);
-    return publicRepositoryWorkspace(record);
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      if (!isDeepStrictEqual(record.binding, binding)) {
+        if (
+          record.state !== 'ready' ||
+          record.ordinaryFirstReservation ||
+          !record.ordinaryPreparation?.sourceIdentity
+        )
+          throw new Error('Prepared first command is frozen');
+        await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000), true);
+      } else if (record.ordinaryPreparation)
+        await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000));
+      if (record.state === 'ready' && record.ordinaryPreparation)
+        await this.verifyHostSource(record, AbortSignal.timeout(30000));
+      this.assertUnchangedHostRecord(record);
+      return publicRepositoryWorkspace(record);
+    });
   }
   private async firstBinding(
     record: RepositoryWorkspace,
@@ -945,109 +986,116 @@ export class RepositoryWorkspaces {
     signal: AbortSignal,
     ordinaryRuntime?: OrdinaryRepositoryRuntimeSelection,
   ) {
-    const repository = canonicalRepositorySelection(selected);
-    const authorized = await this.deps.authorize(binding, connectionId, repository, signal);
-    const preview = await (this.deps.inspect ?? inspectGithubRepositorySource)(repository, signal);
-    const record: RepositoryWorkspace = {
-      ...preview,
-      id: randomUUID(),
-      connectionId,
-      connectionRevision: authorized.revision,
-      binding: structuredClone(binding),
-      featureBranch: '',
-      state: 'preview',
-      createdAt: Date.now(),
-      ...(ordinaryRuntime
-        ? {
-            ordinaryPreparation: OrdinaryRepositoryPreparationSchema.parse(
-              await this.deps.ordinaryPreparation?.capture(binding, ordinaryRuntime, signal),
-            ),
-          }
-        : {}),
-    };
-    record.featureBranch = `mitzo/repo-${record.id}`;
-    await this.authorize(record, binding, signal);
-    this.save(record);
-    return publicRepositoryWorkspace(record);
-  }
-  async prepare(id: string, binding: AccountBinding, signal: AbortSignal) {
-    const record = this.get(id);
-    const originalRecord = JSON.stringify(record);
-    await this.authorize(record, binding, signal);
-    // Reserve the exact preview before effects. A losing preparer must never
-    // enter acquisition cleanup for a source another owner has already reserved.
-    if (record.state !== 'preview' || Date.now() - record.createdAt > 5 * 60000)
-      throw new Error('Preview expired or already used; preview the repository again');
-    record.state = 'preparing';
-    const preparingRecord = JSON.stringify(record);
-    this.db
-      .transaction(() => {
-        const retained = this.db
-          .prepare('SELECT record FROM repository_workspaces')
-          .all() as Array<{ record: string }>;
-        if (
-          retained.filter((row) => {
-            const value = JSON.parse(row.record) as RepositoryWorkspace;
-            return (
-              value.binding.accountId === binding.accountId &&
-              ['preparing', 'ready', 'reserved', 'claiming', 'claimed'].includes(value.state) &&
-              !value.sourceReleased
-            );
-          }).length >= 8
-        )
-          throw new Error('This account already has eight prepared or preparing repositories');
-        const changed = this.db
-          .prepare(
-            'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
-          )
-          .run(preparingRecord, id, originalRecord);
-        if (changed.changes !== 1)
-          throw new Error('Preview expired or already used; preview the repository again');
-      })
-      .immediate();
-    try {
-      await mkdir(join(this.directory, id), { mode: 0o700 });
-      await (this.deps.prepare ?? prepareGithubRepositorySource)(
-        { repository: record.repository, baseBranch: record.baseBranch, baseOid: record.baseOid },
-        this.source(record),
-        record.featureBranch,
+    return this.runOperation(async () => {
+      const repository = canonicalRepositorySelection(selected);
+      const authorized = await this.deps.authorize(binding, connectionId, repository, signal);
+      const preview = await (this.deps.inspect ?? inspectGithubRepositorySource)(
+        repository,
         signal,
       );
-      record.sourceDigest = await repositorySourceDigest(this.source(record));
-      if (record.ordinaryPreparation) {
-        const source = await lstat(this.source(record));
-        record.ordinaryPreparation.sourceIdentity = { dev: source.dev, ino: source.ino };
-      }
+      const record: RepositoryWorkspace = {
+        ...preview,
+        id: randomUUID(),
+        connectionId,
+        connectionRevision: authorized.revision,
+        binding: structuredClone(binding),
+        featureBranch: '',
+        state: 'preview',
+        createdAt: Date.now(),
+        ...(ordinaryRuntime
+          ? {
+              ordinaryPreparation: OrdinaryRepositoryPreparationSchema.parse(
+                await this.deps.ordinaryPreparation?.capture(binding, ordinaryRuntime, signal),
+              ),
+            }
+          : {}),
+      };
+      record.featureBranch = `mitzo/repo-${record.id}`;
       await this.authorize(record, binding, signal);
-      record.state = 'ready';
+      this.save(record);
+      return publicRepositoryWorkspace(record);
+    });
+  }
+  async prepare(id: string, binding: AccountBinding, signal: AbortSignal) {
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      const originalRecord = JSON.stringify(record);
+      await this.authorize(record, binding, signal);
+      // Reserve the exact preview before effects. A losing preparer must never
+      // enter acquisition cleanup for a source another owner has already reserved.
+      if (record.state !== 'preview' || Date.now() - record.createdAt > 5 * 60000)
+        throw new Error('Preview expired or already used; preview the repository again');
+      record.state = 'preparing';
+      const preparingRecord = JSON.stringify(record);
       this.db
         .transaction(() => {
+          const retained = this.db
+            .prepare('SELECT record FROM repository_workspaces')
+            .all() as Array<{ record: string }>;
+          if (
+            retained.filter((row) => {
+              const value = JSON.parse(row.record) as RepositoryWorkspace;
+              return (
+                value.binding.accountId === binding.accountId &&
+                ['preparing', 'ready', 'reserved', 'claiming', 'claimed'].includes(value.state) &&
+                !value.sourceReleased
+              );
+            }).length >= 8
+          )
+            throw new Error('This account already has eight prepared or preparing repositories');
           const changed = this.db
             .prepare(
               'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
             )
-            .run(JSON.stringify(record), id, preparingRecord);
+            .run(preparingRecord, id, originalRecord);
           if (changed.changes !== 1)
-            throw new Error('Repository preparation ownership changed before completion');
+            throw new Error('Preview expired or already used; preview the repository again');
         })
         .immediate();
-      return publicRepositoryWorkspace(record);
-    } catch (error) {
-      record.state = 'failed';
-      const ownsFailure = this.db
-        .transaction(() => {
-          return (
-            this.db
+      try {
+        await mkdir(join(this.directory, id), { mode: 0o700 });
+        await (this.deps.prepare ?? prepareGithubRepositorySource)(
+          { repository: record.repository, baseBranch: record.baseBranch, baseOid: record.baseOid },
+          this.source(record),
+          record.featureBranch,
+          signal,
+        );
+        record.sourceDigest = await repositorySourceDigest(this.source(record));
+        if (record.ordinaryPreparation) {
+          const source = await lstat(this.source(record));
+          record.ordinaryPreparation.sourceIdentity = { dev: source.dev, ino: source.ino };
+        }
+        await this.authorize(record, binding, signal);
+        record.state = 'ready';
+        this.db
+          .transaction(() => {
+            const changed = this.db
               .prepare(
                 'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
               )
-              .run(JSON.stringify(record), id, preparingRecord).changes === 1
-          );
-        })
-        .immediate();
-      if (ownsFailure) await rm(join(this.directory, id), { recursive: true, force: true });
-      throw error;
-    }
+              .run(JSON.stringify(record), id, preparingRecord);
+            if (changed.changes !== 1)
+              throw new Error('Repository preparation ownership changed before completion');
+          })
+          .immediate();
+        return publicRepositoryWorkspace(record);
+      } catch (error) {
+        record.state = 'failed';
+        const ownsFailure = this.db
+          .transaction(() => {
+            return (
+              this.db
+                .prepare(
+                  'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
+                )
+                .run(JSON.stringify(record), id, preparingRecord).changes === 1
+            );
+          })
+          .immediate();
+        if (ownsFailure) await rm(join(this.directory, id), { recursive: true, force: true });
+        throw error;
+      }
+    });
   }
   private snapshotHostInput(input: Omit<HostRepositoryReservationInput, 'signal'>) {
     const snapshot = structuredClone({
@@ -1124,6 +1172,7 @@ export class RepositoryWorkspaces {
   getHostReservation(
     input: Omit<HostRepositoryReservationInput, 'signal'>,
   ): HostRepositoryReservation {
+    this.assertAvailable();
     const expected = this.snapshotHostInput(input);
     const record = this.getHostRecord(expected.id);
     const descriptor = this.reservationDescriptor(record);
@@ -1189,240 +1238,246 @@ export class RepositoryWorkspaces {
   }
   /** Pins host identity in the existing SQLite row, without creating destination files. */
   async reserveHostTask(input: HostRepositoryReservationInput): Promise<HostRepositoryReservation> {
-    const expected = this.snapshotHostInput(input),
-      signal = input.signal;
-    signal.throwIfAborted();
-    const record = this.getHostRecord(expected.id);
-    if (record.state !== 'ready') {
-      const descriptor = this.getHostReservation(expected);
-      await this.authorizeHostRecord(record, record.binding, signal);
-      if (descriptor.state !== 'claimed') await this.verifyHostSource(record, signal);
-      await this.assertHostRoot(descriptor.hostReservation);
+    return this.runOperation(async () => {
+      const expected = this.snapshotHostInput(input),
+        signal = input.signal;
       signal.throwIfAborted();
-      this.assertUnchangedHostRecord(record);
-      return this.getHostReservation(expected);
-    }
-    if (
-      record.ordinaryFirstReservation !== undefined ||
-      record.hostReservation !== undefined ||
-      record.conversationId !== undefined ||
-      record.directory !== undefined ||
-      record.sandbox !== undefined ||
-      record.taskIdentity !== undefined ||
-      record.sourceReleased
-    )
-      throw new Error('Prepared repository already reserved');
-    await this.firstBinding(record, expected, signal);
-    const marker: HostTaskReservationMarker = {
-      version: 1,
-      taskRoot: expected.taskRoot,
-      rootIdentity: await this.hostRootIdentity(expected.taskRoot),
-    };
-    signal.throwIfAborted();
-    const reserved: RepositoryWorkspace = {
-      ...record,
-      binding: structuredClone(expected.binding),
-      state: 'reserved',
-      ...(record.ordinaryPreparation
-        ? {
-            ordinaryFirstReservation: {
-              conversationId: expected.conversationId,
-              binding: structuredClone(expected.binding),
-              commandFingerprint: expected.commandFingerprint!,
-            },
-          }
-        : {}),
-      conversationId: expected.conversationId,
-      directory: join(expected.taskRoot, `repo-${record.id}`, 'mgmt'),
-      sandbox: false,
-      hostReservation: marker,
-    };
-    this.reservationDescriptor(reserved);
-    try {
-      await this.authorizeHostRecord(record, record.binding, signal);
-      await this.verifyHostSource(record, signal);
-      await this.authorizeHostRecord(record, record.binding, signal);
-      await this.assertHostSource(record, signal);
-      await this.assertHostRoot(marker);
+      const record = this.getHostRecord(expected.id);
+      if (record.state !== 'ready') {
+        const descriptor = this.getHostReservation(expected);
+        await this.authorizeHostRecord(record, record.binding, signal);
+        if (descriptor.state !== 'claimed') await this.verifyHostSource(record, signal);
+        await this.assertHostRoot(descriptor.hostReservation);
+        signal.throwIfAborted();
+        this.assertUnchangedHostRecord(record);
+        return this.getHostReservation(expected);
+      }
+      if (
+        record.ordinaryFirstReservation !== undefined ||
+        record.hostReservation !== undefined ||
+        record.conversationId !== undefined ||
+        record.directory !== undefined ||
+        record.sandbox !== undefined ||
+        record.taskIdentity !== undefined ||
+        record.sourceReleased
+      )
+        throw new Error('Prepared repository already reserved');
       await this.firstBinding(record, expected, signal);
+      const marker: HostTaskReservationMarker = {
+        version: 1,
+        taskRoot: expected.taskRoot,
+        rootIdentity: await this.hostRootIdentity(expected.taskRoot),
+      };
       signal.throwIfAborted();
-      return this.db
+      const reserved: RepositoryWorkspace = {
+        ...record,
+        binding: structuredClone(expected.binding),
+        state: 'reserved',
+        ...(record.ordinaryPreparation
+          ? {
+              ordinaryFirstReservation: {
+                conversationId: expected.conversationId,
+                binding: structuredClone(expected.binding),
+                commandFingerprint: expected.commandFingerprint!,
+              },
+            }
+          : {}),
+        conversationId: expected.conversationId,
+        directory: join(expected.taskRoot, `repo-${record.id}`, 'mgmt'),
+        sandbox: false,
+        hostReservation: marker,
+      };
+      this.reservationDescriptor(reserved);
+      try {
+        await this.authorizeHostRecord(record, record.binding, signal);
+        await this.verifyHostSource(record, signal);
+        await this.authorizeHostRecord(record, record.binding, signal);
+        await this.assertHostSource(record, signal);
+        await this.assertHostRoot(marker);
+        await this.firstBinding(record, expected, signal);
+        signal.throwIfAborted();
+        return this.db
+          .transaction(() => {
+            this.assertUnchangedHostRecord(record);
+            const result = this.db
+              .prepare(
+                'UPDATE repository_workspaces SET record=?,conversation_id=? WHERE id=? AND record=? AND conversation_id IS NULL',
+              )
+              .run(
+                JSON.stringify(reserved),
+                expected.conversationId,
+                expected.id,
+                JSON.stringify(record),
+              );
+            if (result.changes !== 1) throw new Error('Prepared repository reservation changed');
+            return this.getHostReservation(expected);
+          })
+          .immediate();
+      } catch (error) {
+        // One bounded reconciliation: an exact concurrent reservation can win
+        // while source/auth reads await. All other errors and states refuse.
+        if (!(error instanceof HostWorkspaceOwnershipChangedError)) throw error;
+        const current = this.getHostRecord(expected.id);
+        if (current.state !== 'reserved' || !isDeepStrictEqual(current, reserved)) throw error;
+        this.getHostReservation(expected);
+        await this.authorizeHostRecord(current, expected.binding, signal);
+        await this.verifyHostSource(current, signal);
+        await this.assertHostRoot(marker);
+        signal.throwIfAborted();
+        this.assertUnchangedHostRecord(current);
+        return this.getHostReservation(expected);
+      }
+    });
+  }
+  async reserveOrdinarySandboxTask(input: HostRepositoryReservationInput) {
+    return this.runOperation(async () => {
+      const expected = this.snapshotHostInput(input),
+        signal = input.signal;
+      const record = this.getHostRecord(expected.id);
+      if (!record.ordinaryPreparation) return; // Legacy full-binding claim remains its original owner.
+      if (record.ordinaryFirstReservation) {
+        if (
+          !isDeepStrictEqual(record.ordinaryFirstReservation, {
+            conversationId: expected.conversationId,
+            binding: expected.binding,
+            commandFingerprint: expected.commandFingerprint,
+          }) ||
+          !isDeepStrictEqual(record.ordinaryPreparation.runtimeBinding, expected.runtimeBinding)
+        )
+          throw new Error('Prepared first command is frozen');
+        await this.authorize(record, expected.binding, signal);
+        return;
+      }
+      if (
+        record.state !== 'ready' ||
+        record.hostReservation ||
+        record.conversationId ||
+        record.taskIdentity ||
+        record.sourceReleased ||
+        record.ordinaryPreparation.runtimeBinding.execution.location !== 'openshell'
+      )
+        throw new Error('Prepared repository already reserved');
+      await this.firstBinding(record, expected, signal);
+      await this.authorize(record, record.binding, signal);
+      await this.verifyHostSource(record, signal);
+      await this.firstBinding(record, expected, signal);
+      const reserved: RepositoryWorkspace = {
+        ...record,
+        binding: structuredClone(expected.binding),
+        ordinaryFirstReservation: {
+          conversationId: expected.conversationId,
+          binding: structuredClone(expected.binding),
+          commandFingerprint: expected.commandFingerprint!,
+        },
+      };
+      this.db
         .transaction(() => {
           this.assertUnchangedHostRecord(record);
           const result = this.db
             .prepare(
-              'UPDATE repository_workspaces SET record=?,conversation_id=? WHERE id=? AND record=? AND conversation_id IS NULL',
+              'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
             )
-            .run(
-              JSON.stringify(reserved),
-              expected.conversationId,
-              expected.id,
-              JSON.stringify(record),
-            );
+            .run(JSON.stringify(reserved), record.id, JSON.stringify(record));
           if (result.changes !== 1) throw new Error('Prepared repository reservation changed');
-          return this.getHostReservation(expected);
         })
         .immediate();
-    } catch (error) {
-      // One bounded reconciliation: an exact concurrent reservation can win
-      // while source/auth reads await. All other errors and states refuse.
-      if (!(error instanceof HostWorkspaceOwnershipChangedError)) throw error;
-      const current = this.getHostRecord(expected.id);
-      if (current.state !== 'reserved' || !isDeepStrictEqual(current, reserved)) throw error;
-      this.getHostReservation(expected);
-      await this.authorizeHostRecord(current, expected.binding, signal);
-      await this.verifyHostSource(current, signal);
-      await this.assertHostRoot(marker);
-      signal.throwIfAborted();
-      this.assertUnchangedHostRecord(current);
-      return this.getHostReservation(expected);
-    }
-  }
-  async reserveOrdinarySandboxTask(input: HostRepositoryReservationInput) {
-    const expected = this.snapshotHostInput(input),
-      signal = input.signal;
-    const record = this.getHostRecord(expected.id);
-    if (!record.ordinaryPreparation) return; // Legacy full-binding claim remains its original owner.
-    if (record.ordinaryFirstReservation) {
-      if (
-        !isDeepStrictEqual(record.ordinaryFirstReservation, {
-          conversationId: expected.conversationId,
-          binding: expected.binding,
-          commandFingerprint: expected.commandFingerprint,
-        }) ||
-        !isDeepStrictEqual(record.ordinaryPreparation.runtimeBinding, expected.runtimeBinding)
-      )
-        throw new Error('Prepared first command is frozen');
-      await this.authorize(record, expected.binding, signal);
-      return;
-    }
-    if (
-      record.state !== 'ready' ||
-      record.hostReservation ||
-      record.conversationId ||
-      record.taskIdentity ||
-      record.sourceReleased ||
-      record.ordinaryPreparation.runtimeBinding.execution.location !== 'openshell'
-    )
-      throw new Error('Prepared repository already reserved');
-    await this.firstBinding(record, expected, signal);
-    await this.authorize(record, record.binding, signal);
-    await this.verifyHostSource(record, signal);
-    await this.firstBinding(record, expected, signal);
-    const reserved: RepositoryWorkspace = {
-      ...record,
-      binding: structuredClone(expected.binding),
-      ordinaryFirstReservation: {
-        conversationId: expected.conversationId,
-        binding: structuredClone(expected.binding),
-        commandFingerprint: expected.commandFingerprint!,
-      },
-    };
-    this.db
-      .transaction(() => {
-        this.assertUnchangedHostRecord(record);
-        const result = this.db
-          .prepare(
-            'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
-          )
-          .run(JSON.stringify(reserved), record.id, JSON.stringify(record));
-        if (result.changes !== 1) throw new Error('Prepared repository reservation changed');
-      })
-      .immediate();
+    });
   }
   /** Claim uncertainty before every destination effect; interrupted claims never replay. */
   async claimReservedHostTask(
     input: HostRepositoryReservationInput,
   ): Promise<RepositoryWorkspace & { seed?: string }> {
-    const expected = this.snapshotHostInput(input),
-      signal = input.signal;
-    signal.throwIfAborted();
-    const descriptor = this.getHostReservation(expected),
-      record = this.getHostRecord(expected.id);
-    if (descriptor.state === 'claiming')
-      throw new Error('Host task claim is uncertain; preserve its original claim');
-    await this.authorizeHostRecord(record, expected.binding, signal);
-    await this.assertHostRoot(descriptor.hostReservation);
-    this.assertUnchangedHostRecord(record);
-    if (descriptor.state === 'claimed') {
-      await this.validateHostTask(expected.conversationId, descriptor.directory);
-      this.assertUnchangedHostRecord(record);
+    return this.runOperation(async () => {
+      const expected = this.snapshotHostInput(input),
+        signal = input.signal;
+      signal.throwIfAborted();
+      const descriptor = this.getHostReservation(expected),
+        record = this.getHostRecord(expected.id);
+      if (descriptor.state === 'claiming')
+        throw new Error('Host task claim is uncertain; preserve its original claim');
       await this.authorizeHostRecord(record, expected.binding, signal);
       await this.assertHostRoot(descriptor.hostReservation);
-      // Authorization may await arbitrary host callbacks. Revalidate the pinned
-      // retained checkout afterward, while allowing task edits and commits.
-      await this.validateHostTask(expected.conversationId, descriptor.directory);
-      signal.throwIfAborted();
       this.assertUnchangedHostRecord(record);
-      return { ...record, ...(!record.sourceReleased ? { seed: this.source(record) } : {}) };
-    }
-    await this.verifyHostSource(record, signal);
-    await this.authorizeHostRecord(record, expected.binding, signal);
-    await this.assertHostSource(record, signal);
-    await this.assertHostRoot(descriptor.hostReservation);
-    signal.throwIfAborted();
-    const claiming: RepositoryWorkspace = { ...record, state: 'claiming' };
-    this.db
-      .transaction(() => {
-        this.getHostReservation(expected);
+      if (descriptor.state === 'claimed') {
+        await this.validateHostTask(expected.conversationId, descriptor.directory);
         this.assertUnchangedHostRecord(record);
-        const result = this.db
-          .prepare(
-            'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id=?',
-          )
-          .run(
-            JSON.stringify(claiming),
-            expected.id,
-            JSON.stringify(record),
-            expected.conversationId,
-          );
-        if (result.changes !== 1) throw new Error('Host task claim already reserved');
-      })
-      .immediate();
-    await this.assertHostRoot(descriptor.hostReservation);
-    this.assertUnchangedHostRecord(claiming);
-    signal.throwIfAborted();
-    await mkdir(join(expected.taskRoot, `repo-${record.id}`), { mode: 0o700 });
-    await this.assertHostRoot(descriptor.hostReservation);
-    this.assertUnchangedHostRecord(claiming);
-    signal.throwIfAborted();
-    await copyRepositoryTaskCheckout(this.source(record), descriptor.directory, signal);
-    if ((await repositorySourceDigest(descriptor.directory)) !== record.sourceDigest)
-      throw new Error('Task repository copy changed');
-    this.assertUnchangedHostRecord(claiming);
-    const taskIdentity = await snapshotRepositoryTaskCheckout(
-      descriptor.directory,
-      record.featureBranch,
-    );
-    this.assertUnchangedHostRecord(claiming);
-    await this.authorizeHostRecord(claiming, expected.binding, signal);
-    await this.assertHostRoot(descriptor.hostReservation);
-    // Initial readiness requires the exact copied source, unlike later retained
-    // retries where legitimate edits are preserved. No callback may replace it.
-    if ((await repositorySourceDigest(descriptor.directory)) !== record.sourceDigest)
-      throw new Error('Task repository copy changed before claim completion');
-    await validateRepositoryTaskCheckout(descriptor.directory, taskIdentity);
-    signal.throwIfAborted();
-    this.assertUnchangedHostRecord(claiming);
-    const claimed: RepositoryWorkspace = { ...claiming, state: 'claimed', taskIdentity };
-    this.db
-      .transaction(() => {
-        this.getHostReservation(expected);
-        this.assertUnchangedHostRecord(claiming);
-        const result = this.db
-          .prepare(
-            'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id=?',
-          )
-          .run(
-            JSON.stringify(claimed),
-            expected.id,
-            JSON.stringify(claiming),
-            expected.conversationId,
-          );
-        if (result.changes !== 1) throw new Error('Host task claim completion changed');
-      })
-      .immediate();
-    return { ...claimed, seed: this.source(claimed) };
+        await this.authorizeHostRecord(record, expected.binding, signal);
+        await this.assertHostRoot(descriptor.hostReservation);
+        // Authorization may await arbitrary host callbacks. Revalidate the pinned
+        // retained checkout afterward, while allowing task edits and commits.
+        await this.validateHostTask(expected.conversationId, descriptor.directory);
+        signal.throwIfAborted();
+        this.assertUnchangedHostRecord(record);
+        return { ...record, ...(!record.sourceReleased ? { seed: this.source(record) } : {}) };
+      }
+      await this.verifyHostSource(record, signal);
+      await this.authorizeHostRecord(record, expected.binding, signal);
+      await this.assertHostSource(record, signal);
+      await this.assertHostRoot(descriptor.hostReservation);
+      signal.throwIfAborted();
+      const claiming: RepositoryWorkspace = { ...record, state: 'claiming' };
+      this.db
+        .transaction(() => {
+          this.getHostReservation(expected);
+          this.assertUnchangedHostRecord(record);
+          const result = this.db
+            .prepare(
+              'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id=?',
+            )
+            .run(
+              JSON.stringify(claiming),
+              expected.id,
+              JSON.stringify(record),
+              expected.conversationId,
+            );
+          if (result.changes !== 1) throw new Error('Host task claim already reserved');
+        })
+        .immediate();
+      await this.assertHostRoot(descriptor.hostReservation);
+      this.assertUnchangedHostRecord(claiming);
+      signal.throwIfAborted();
+      await mkdir(join(expected.taskRoot, `repo-${record.id}`), { mode: 0o700 });
+      await this.assertHostRoot(descriptor.hostReservation);
+      this.assertUnchangedHostRecord(claiming);
+      signal.throwIfAborted();
+      await copyRepositoryTaskCheckout(this.source(record), descriptor.directory, signal);
+      if ((await repositorySourceDigest(descriptor.directory)) !== record.sourceDigest)
+        throw new Error('Task repository copy changed');
+      this.assertUnchangedHostRecord(claiming);
+      const taskIdentity = await snapshotRepositoryTaskCheckout(
+        descriptor.directory,
+        record.featureBranch,
+      );
+      this.assertUnchangedHostRecord(claiming);
+      await this.authorizeHostRecord(claiming, expected.binding, signal);
+      await this.assertHostRoot(descriptor.hostReservation);
+      // Initial readiness requires the exact copied source, unlike later retained
+      // retries where legitimate edits are preserved. No callback may replace it.
+      if ((await repositorySourceDigest(descriptor.directory)) !== record.sourceDigest)
+        throw new Error('Task repository copy changed before claim completion');
+      await validateRepositoryTaskCheckout(descriptor.directory, taskIdentity);
+      signal.throwIfAborted();
+      this.assertUnchangedHostRecord(claiming);
+      const claimed: RepositoryWorkspace = { ...claiming, state: 'claimed', taskIdentity };
+      this.db
+        .transaction(() => {
+          this.getHostReservation(expected);
+          this.assertUnchangedHostRecord(claiming);
+          const result = this.db
+            .prepare(
+              'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id=?',
+            )
+            .run(
+              JSON.stringify(claimed),
+              expected.id,
+              JSON.stringify(claiming),
+              expected.conversationId,
+            );
+          if (result.changes !== 1) throw new Error('Host task claim completion changed');
+        })
+        .immediate();
+      return { ...claimed, seed: this.source(claimed) };
+    });
   }
   async claim(
     id: string,
@@ -1431,64 +1486,67 @@ export class RepositoryWorkspaces {
     taskRoot: string,
     sandbox: boolean,
   ) {
-    const record = this.get(id);
-    if (record.hostReservation !== undefined)
-      throw new Error('Host repository reservation requires its owning materialization path');
-    if (
-      record.ordinaryPreparation &&
-      (!sandbox ||
-        !record.ordinaryFirstReservation ||
-        record.ordinaryFirstReservation.conversationId !== conversationId ||
-        !isDeepStrictEqual(record.ordinaryFirstReservation.binding, binding))
-    )
-      throw new Error('Original ordinary sandbox reservation unavailable');
-    const signal = AbortSignal.timeout(30000);
-    await this.authorize(record, binding, signal);
-    if (record.state === 'claimed') {
-      if (record.conversationId !== conversationId || record.sandbox !== sandbox)
-        throw new Error('Repository preparation already belongs to another conversation');
-      if (record.directory) await this.validateHostTask(conversationId, record.directory);
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      if (record.hostReservation !== undefined)
+        throw new Error('Host repository reservation requires its owning materialization path');
+      if (
+        record.ordinaryPreparation &&
+        (!sandbox ||
+          !record.ordinaryFirstReservation ||
+          record.ordinaryFirstReservation.conversationId !== conversationId ||
+          !isDeepStrictEqual(record.ordinaryFirstReservation.binding, binding))
+      )
+        throw new Error('Original ordinary sandbox reservation unavailable');
+      const signal = AbortSignal.timeout(30000);
       await this.authorize(record, binding, signal);
-      // Do not verify against the original tree after launch: task edits and commits are expected.
+      if (record.state === 'claimed') {
+        if (record.conversationId !== conversationId || record.sandbox !== sandbox)
+          throw new Error('Repository preparation already belongs to another conversation');
+        if (record.directory) await this.validateHostTask(conversationId, record.directory);
+        await this.authorize(record, binding, signal);
+        // Do not verify against the original tree after launch: task edits and commits are expected.
+        return { ...record, seed: this.source(record) };
+      }
+      if (this.get(id).state !== 'ready') throw new Error('Repository preparation is not ready');
+      if ((await repositorySourceDigest(this.source(record))) !== record.sourceDigest)
+        throw new Error('Prepared repository source changed');
+      await this.deps.verify?.(record, this.source(record));
+      await this.authorize(record, binding, signal);
+      // Reserve ownership before any task copy. A failed copy retains this conversation's identity.
+      if (this.get(id).state !== 'ready')
+        throw new Error('Repository preparation already reserved');
+      const originalRecord = JSON.stringify(record);
+      record.state = 'claiming';
+      record.conversationId = conversationId;
+      record.sandbox = sandbox;
+      record.directory = sandbox ? undefined : join(taskRoot, `repo-${record.id}`, 'mgmt');
+      this.db
+        .transaction(() => {
+          const changed = this.db
+            .prepare(
+              'UPDATE repository_workspaces SET record=?,conversation_id=? WHERE id=? AND record=? AND conversation_id IS NULL',
+            )
+            .run(JSON.stringify(record), conversationId, id, originalRecord);
+          if (changed.changes !== 1)
+            throw new Error('Repository preparation ownership changed before claim');
+        })
+        .immediate();
+      if (record.directory) {
+        if ((await realpath(taskRoot)) !== taskRoot) throw new Error('Task workspace root changed');
+        await mkdir(join(taskRoot, `repo-${record.id}`), { mode: 0o700 });
+        await copyRepositoryTaskCheckout(this.source(record), record.directory, signal);
+        if ((await repositorySourceDigest(record.directory)) !== record.sourceDigest)
+          throw new Error('Task repository copy changed');
+        record.taskIdentity = await snapshotRepositoryTaskCheckout(
+          record.directory,
+          record.featureBranch,
+        );
+      }
+      await this.authorize(record, binding, signal);
+      record.state = 'claimed';
+      this.save(record);
       return { ...record, seed: this.source(record) };
-    }
-    if (this.get(id).state !== 'ready') throw new Error('Repository preparation is not ready');
-    if ((await repositorySourceDigest(this.source(record))) !== record.sourceDigest)
-      throw new Error('Prepared repository source changed');
-    await this.deps.verify?.(record, this.source(record));
-    await this.authorize(record, binding, signal);
-    // Reserve ownership before any task copy. A failed copy retains this conversation's identity.
-    if (this.get(id).state !== 'ready') throw new Error('Repository preparation already reserved');
-    const originalRecord = JSON.stringify(record);
-    record.state = 'claiming';
-    record.conversationId = conversationId;
-    record.sandbox = sandbox;
-    record.directory = sandbox ? undefined : join(taskRoot, `repo-${record.id}`, 'mgmt');
-    this.db
-      .transaction(() => {
-        const changed = this.db
-          .prepare(
-            'UPDATE repository_workspaces SET record=?,conversation_id=? WHERE id=? AND record=? AND conversation_id IS NULL',
-          )
-          .run(JSON.stringify(record), conversationId, id, originalRecord);
-        if (changed.changes !== 1)
-          throw new Error('Repository preparation ownership changed before claim');
-      })
-      .immediate();
-    if (record.directory) {
-      if ((await realpath(taskRoot)) !== taskRoot) throw new Error('Task workspace root changed');
-      await mkdir(join(taskRoot, `repo-${record.id}`), { mode: 0o700 });
-      await copyRepositoryTaskCheckout(this.source(record), record.directory, signal);
-      if ((await repositorySourceDigest(record.directory)) !== record.sourceDigest)
-        throw new Error('Task repository copy changed');
-      record.taskIdentity = await snapshotRepositoryTaskCheckout(
-        record.directory,
-        record.featureBranch,
-      );
-    }
-    await this.authorize(record, binding, signal);
-    record.state = 'claimed';
-    this.save(record);
-    return { ...record, seed: this.source(record) };
+    });
   }
 }

@@ -78,3 +78,10 @@ navigation and reattach. No hidden Git fixture can qualify those journeys. Code
 acceptance, complete offline integration, owning UI acceptance and live runtime
 qualification remain separate. No model, live target, staging or deployment test
 is authorized by this work.
+
+Accepted-main idle persistence release is shared by repository and ordinary
+workspaces. Ordinary prepare, reserve and claim remain active until their asynchronous
+readiness work settles. Validation retains its synchronous custody contract. Idle release refuses those operations
+without cancellation or replacement. After release, every ordinary entrypoint
+fails before readiness acquisition or private persistence access; reads cannot
+lazily reopen custody. This adds no cleanup, deletion or task lifecycle operation.

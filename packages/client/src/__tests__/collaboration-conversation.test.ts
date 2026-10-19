@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { ZodError } from 'zod';
 import { CollaborationApiClient, CollaborationApiError } from '../collaboration-api.js';
 import {
   createCollaborationProjection,
@@ -136,6 +137,67 @@ it('uses authenticated typed API requests, validates responses and preserves dis
   );
   await expect(api.view(group)).rejects.toThrow();
   expect(new CollaborationApiError(409, 'conflict', 'Changed').status).toBe(409);
+});
+
+it('recovers and reconciles only explicit retained identities using one authenticated request and the caller signal', async () => {
+  const fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify(join)));
+  const api = new CollaborationApiClient(fetch);
+  const signal = new AbortController().signal;
+  expect(await api.recoverJoin(group, join.joinId, signal)).toEqual(join);
+  expect(fetch).toHaveBeenLastCalledWith(
+    `/api/session-collaborations/${group}/joins/${join.joinId}/recover`,
+    {
+      credentials: 'include',
+      signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    },
+  );
+  const input = { requestId: uuid(30), expectedMembershipRevision: 2, snapshot: join.snapshot };
+  expect(await api.reconcileJoin(group, join.joinId, input, signal)).toEqual(join);
+  expect(fetch).toHaveBeenLastCalledWith(
+    `/api/session-collaborations/${group}/joins/${join.joinId}/reconcile`,
+    {
+      credentials: 'include',
+      signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+  );
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it('does not fetch invalid recovery/reconciliation identities or extra authority claims', async () => {
+  const fetch = vi.fn();
+  const api = new CollaborationApiClient(fetch);
+  const input = { requestId: uuid(30), expectedMembershipRevision: 2, snapshot: join.snapshot };
+  expect(() => api.recoverJoin(group, 'invalid')).toThrow(ZodError);
+  expect(() => api.reconcileJoin('invalid', join.joinId, input)).toThrow(ZodError);
+  expect(() => api.reconcileJoin(group, 'invalid', input)).toThrow(ZodError);
+  expect(() =>
+    api.reconcileJoin(group, join.joinId, { ...input, expectedMembershipRevision: -1 }),
+  ).toThrow(ZodError);
+  expect(() =>
+    api.reconcileJoin(group, join.joinId, { ...input, operatorId: 'spoofed' } as typeof input),
+  ).toThrow(ZodError);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('preserves uncertainty without automatic retries and validates recovery/reconciliation responses', async () => {
+  const fetch = vi.fn().mockRejectedValueOnce(new TypeError('lost response'));
+  const api = new CollaborationApiClient(fetch);
+  const input = { requestId: uuid(30), expectedMembershipRevision: 2, snapshot: join.snapshot };
+  await expect(api.reconcileJoin(group, join.joinId, input)).rejects.toThrow('lost response');
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fetch.mockResolvedValueOnce(
+    new Response(JSON.stringify({ ...join, providerThreadId: 'private' })),
+  );
+  await expect(api.reconcileJoin(group, join.joinId, input)).rejects.toThrow();
+  fetch.mockResolvedValueOnce(new Response(JSON.stringify({ malformed: true })));
+  await expect(api.recoverJoin(group, join.joinId)).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledTimes(3);
 });
 
 it('applies partial recipient outcomes and exact duplicate replay without touching ordinary chat state', () => {

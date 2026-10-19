@@ -6,7 +6,31 @@ contract and ordinary dispatch integration remain incomplete.
 Parent: `c0851ba23fcc5d04`. This specifies an extension of ordinary Codex;
 it does not qualify a runtime, install joining authority or authorize activation.
 
+## Stop semantics clarified during continuation
+
+Stop uses ordinary best-effort cancellation. A close that wins the native
+one-use attempt decision prevents a delayed sender from starting it. Once the
+attempt commits, dispatch may reach the provider even if Stop follows immediately;
+the ordinary transport owner tries to cancel, retains uncertainty if acceptance
+is unknown, and never permits replay. A crash after commitment but before socket
+write is also consumed uncertainty. Stop does not acquire a new host revocation
+barrier or wait for earlier admissions to settle. These are the selected semantics;
+the ordinary dispatch integration remains incomplete.
+
+This clarification is specific to Stop. Changes to source, access, account,
+route, model, settings, or other dispatch authority still invalidate a stale
+prepared request before a new attempt. Do not treat a caller epoch, prior host
+check, or Stop semantics as proof that those authorities are ordered against
+native consumption.
+
 ## Source baseline and evidence
+
+This continuation started from accepted main
+`d0b06dc200a154ef055a4e6f0eb386c4eb208607`, including #1000 and #1002, and refreshed
+accepted main to `f5c1fd4b01e3d6f33cfaa7b950f77d5ef847e7d3` (#995) during independent reassessment. The checkpoints
+below describe the earlier foundation implementation, not a replacement baseline.
+The source bundle now composes retained formatter/attempt candidates; its exact
+tree and check results are recorded independently from #1000 acceptance.
 
 The accepted #990 checkpoint is `02196e5d8ad7ee0f253c23c831d3fc8540866336`.
 GitHub main was freshly verified at
@@ -33,7 +57,7 @@ The retained investigation checkout is read-only and is not an installed runtime
 
 The [prepared-request source bundle](../spikes/openshell-codex/prepared-request-native/README.md)
 retains the first implementation boundaries: immutable public Responses bytes,
-authoritative count transport, explicit single-attempt HTTP, and durable native
+public input-token-count transport, explicit single-attempt HTTP, and durable native
 one-use state. Existing review/compiler/EventStore owners now support a private
 native witness and a public total-count assessment with stable original review
 identity across incomplete retries. These source primitives do not expand native
@@ -308,6 +332,12 @@ automatic generation retries on this branch; classify ambiguous outcomes uncerta
 Refreshed credentials or route revisions require reauthorization before consumption;
 they cannot silently modify a consumed request. Stop/disconnect cancel through the
 ordinary owner and retain uncertainty whenever acceptance is unknown.
+
+The source state owner now supports explicit per-sampling chains: one root per
+command, one consumed successor per predecessor, fixed command model/settings,
+and one original native turn acknowledgement. Legacy bindings are not upgraded
+into continuation rights. These records do not prove the prior sampling completed
+or authorize the actual tool loop; that remains the ordinary execution owner.
 
 The initial capability covers one provider sampling request. A tool-using turn may
 need subsequent requests: each requires fresh native prepare/count/consume under

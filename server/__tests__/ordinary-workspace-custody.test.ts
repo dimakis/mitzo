@@ -354,3 +354,73 @@ it('retains the original identity and files when authority is lost after directo
     'Preserve this original directory',
   );
 });
+
+it.each(['prepare', 'reserve', 'claim'] as const)(
+  'keeps shared persistence active across suspended ordinary %s',
+  async (stage) => {
+    const f = await fixture();
+    const prepared = stage === 'prepare' ? undefined : await f.prepare();
+    const input = prepared ? f.input(prepared.preparationId) : undefined;
+    const reservation =
+      stage === 'claim' ? await f.owner.reserveOrdinaryWorkspace(input!) : undefined;
+    const claim = reservation
+      ? {
+          id: reservation.id,
+          conversationId: reservation.conversationId,
+          binding,
+          taskRoot: f.taskRoot,
+          signal: new AbortController().signal,
+        }
+      : undefined;
+    let release!: () => void;
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    f.assert.mockClear();
+    f.assert.mockImplementationOnce(() => gate);
+    const operation =
+      stage === 'prepare'
+        ? f.prepare()
+        : stage === 'reserve'
+          ? f.owner.reserveOrdinaryWorkspace(input!)
+          : f.owner.claimOrdinaryWorkspace(claim!);
+    try {
+      await vi.waitFor(() => expect(f.assert).toHaveBeenCalledOnce());
+      expect(() => f.owner.closeIdle()).toThrow('active');
+    } finally {
+      release();
+      await operation.catch(() => undefined);
+    }
+    expect(await operation).toBeDefined();
+  },
+);
+
+it('fences ordinary entrypoints after shared persistence is released without reacquiring readiness', async () => {
+  const f = await fixture();
+  const prepared = await f.prepare();
+  const input = f.input(prepared.preparationId);
+  const reservation = await f.owner.reserveOrdinaryWorkspace(input);
+  const claim = {
+    id: reservation.id,
+    conversationId: reservation.conversationId,
+    binding,
+    taskRoot: f.taskRoot,
+    signal: new AbortController().signal,
+  };
+  const materialized = await f.owner.claimOrdinaryWorkspace(claim);
+  f.owner.closeIdle();
+  f.capture.mockClear();
+  f.assert.mockClear();
+  await expect(f.prepare()).rejects.toThrow('released');
+  await expect(f.owner.reserveOrdinaryWorkspace(input)).rejects.toThrow('released');
+  await expect(f.owner.claimOrdinaryWorkspace(claim)).rejects.toThrow('released');
+  expect(() => f.owner.getOrdinaryWorkspace(reservation.id)).toThrow('released');
+  expect(() => f.owner.getOrdinaryWorkspaceForConversation(reservation.conversationId)).toThrow(
+    'released',
+  );
+  expect(() =>
+    f.owner.validateOrdinaryWorkspace(reservation.conversationId, materialized.directory),
+  ).toThrow('released');
+  expect(f.capture).not.toHaveBeenCalled();
+  expect(f.assert).not.toHaveBeenCalled();
+});

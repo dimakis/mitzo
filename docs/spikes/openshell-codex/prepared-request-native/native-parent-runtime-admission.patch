@@ -1,0 +1,515 @@
+From 995970127f1af4750fa4c6b418550b6a06f71586 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 21:24:51 +0100
+Subject: [PATCH] refactor(core): seal scoped parent admission continuation
+
+---
+ .../core/src/tools/runtimes/unified_exec.rs   |  63 ++++++
+ .../runtimes/unified_exec/parent_binding.rs   |  37 ++++
+ codex-rs/core/src/tools/runtimes/zsh_fork.rs  |   3 +
+ .../zsh_fork/parent_admission_scope_tests.rs  | 195 ++++++++++++++++++
+ .../runtimes/zsh_fork/unix_escalation.rs      | 123 ++++++++++-
+ 5 files changed, 417 insertions(+), 4 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs
+
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec.rs b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+index b4409a9..d687e69 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+@@ -85,6 +85,11 @@ pub(super) enum ParentBindingPhase {
+         environment_id: String,
+         descriptor_present: bool,
+     },
++    ParentAdmissionAttempt {
++        call_id: String,
++        environment_id: String,
++        admitted: bool,
++    },
+     ExecutorBound {
+         call_id: String,
+         environment_id: String,
+@@ -184,6 +189,64 @@ impl InitialParentApprovalCandidate {
+         )
+     }
+ 
++    #[cfg(unix)]
++    pub(super) fn matches_child_context(
++        &self,
++        child: parent_binding::ParentChildContext<'_>,
++    ) -> bool {
++        self.restricted_launch.matches_child_context(child)
++    }
++
++    /// Inert until the approval owner supplies its fixed resolution continuation.
++    #[cfg(unix)]
++    pub(super) async fn with_current_parent_resolution(
++        &self,
++        session: &Arc<crate::session::session::Session>,
++        selected: &crate::session::InterceptedApprovalSelection,
++        used_config: &Arc<crate::config::Config>,
++        evaluated_policy: &Arc<codex_execpolicy::Policy>,
++        hooks: &crate::hook_runtime::PermissionRequestHookObservation,
++        finish: impl FnOnce() -> Option<crate::tools::ApprovalResolution> + Send,
++    ) -> Option<crate::tools::ApprovalResolution> {
++        #[cfg(test)]
++        let (action, _) = selected.approval_request();
++        self.approval
++            .with_current_parent_resolution(
++                session,
++                selected,
++                used_config,
++                evaluated_policy,
++                hooks,
++                || {
++                    // Session and both synchronous owners still hold their real guards here.
++                    // This orders local admission with the original guard's Release close only.
++                    let admission = self.initial_active.compare_exchange(
++                        true,
++                        true,
++                        std::sync::atomic::Ordering::AcqRel,
++                        std::sync::atomic::Ordering::Acquire,
++                    );
++                    #[cfg(test)]
++                    if let ApprovalAction::Execve {
++                        id, environment_id, ..
++                    } = action
++                    {
++                        record_parent_binding_phase(
++                            session,
++                            ParentBindingPhase::ParentAdmissionAttempt {
++                                call_id: id,
++                                environment_id,
++                                admitted: admission.is_ok(),
++                            },
++                        );
++                    }
++                    admission.ok()?;
++                    finish()
++                },
++            )
++            .await
++    }
++
+     pub(super) fn matches_original_exec_policy(
+         &self,
+         policy: &Arc<codex_execpolicy::Policy>,
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+index ee55958..5078763 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+@@ -78,7 +78,44 @@ pub(in crate::tools::runtimes) struct ParentExecutorView<'a> {
+     pub use_legacy_landlock: bool,
+ }
+ 
++/// Plain optional-subset inputs, not custody of an original launch.
++#[cfg(unix)]
++#[derive(Clone, Copy)]
++pub(in crate::tools::runtimes) struct ParentChildContext<'a> {
++    pub permission_profile: &'a PermissionProfile,
++    pub windows_sandbox_level: WindowsSandboxLevel,
++    pub environment_id: &'a str,
++    pub cwd: &'a PathUri,
++}
++
++#[cfg(unix)]
++pub(in crate::tools::runtimes) fn same_parent_child_context(
++    original: ParentChildContext<'_>,
++    child: ParentChildContext<'_>,
++) -> bool {
++    original.permission_profile == child.permission_profile
++        && original.windows_sandbox_level == child.windows_sandbox_level
++        && original.environment_id == child.environment_id
++        && original.cwd == child.cwd
++}
++
+ impl InitialParentRestrictedLaunch {
++    #[cfg(unix)]
++    pub(in crate::tools::runtimes) fn matches_child_context(
++        &self,
++        child: ParentChildContext<'_>,
++    ) -> bool {
++        same_parent_child_context(
++            ParentChildContext {
++                permission_profile: &self.permission_profile,
++                windows_sandbox_level: self.windows_sandbox_level,
++                environment_id: &self.environment_id,
++                cwd: &self.cwd,
++            },
++            child,
++        )
++    }
++
+     pub(in crate::tools::runtimes) fn capture(
+         req: &UnifiedExecRequest,
+         attempt: &SandboxAttempt<'_>,
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork.rs b/codex-rs/core/src/tools/runtimes/zsh_fork.rs
+index 3fd4a4a..d7ff87c 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork.rs
+@@ -123,3 +123,6 @@ mod imp {
+         Ok(None)
+     }
+ }
++
++#[cfg(unix)]
++pub(crate) use unix_escalation::InterceptedParentAdmission;
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs
+new file mode 100644
+index 0000000..c4d3fd4
+--- /dev/null
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs
+@@ -0,0 +1,195 @@
++//! Plain mapping and retained evaluation only; never a Candidate, Bound or flag.
++use super::*;
++use crate::tools::runtimes::unified_exec::parent_binding::ParentChildContext;
++use crate::tools::runtimes::unified_exec::parent_binding::same_parent_child_context;
++use codex_protocol::permissions::NetworkSandboxPolicy;
++use pretty_assertions::assert_eq;
++
++#[test]
++fn plain_child_context_matches_all_four_original_facts() -> anyhow::Result<()> {
++    let profile = PermissionProfile::read_only();
++    let cwd = PathUri::from_abs_path(&AbsolutePathBuf::current_dir()?);
++    let original = ParentChildContext {
++        permission_profile: &profile,
++        windows_sandbox_level: WindowsSandboxLevel::Disabled,
++        environment_id: "original-environment",
++        cwd: &cwd,
++    };
++    assert!(same_parent_child_context(original, original));
++    let foreign_cwd = PathUri::from_abs_path(&AbsolutePathBuf::current_dir()?.join("other"));
++    let different_profile = PermissionProfile::from_runtime_permissions(
++        &profile.file_system_sandbox_policy(),
++        NetworkSandboxPolicy::Enabled,
++    );
++    let different_filesystem = PermissionProfile::workspace_write();
++    for child in [
++        ParentChildContext {
++            permission_profile: &different_filesystem,
++            ..original
++        },
++        ParentChildContext {
++            permission_profile: &different_profile,
++            ..original
++        },
++        ParentChildContext {
++            windows_sandbox_level: WindowsSandboxLevel::RestrictedToken,
++            ..original
++        },
++        ParentChildContext {
++            environment_id: "foreign-environment",
++            ..original
++        },
++        ParentChildContext {
++            cwd: &foreign_cwd,
++            ..original
++        },
++    ] {
++        assert!(!same_parent_child_context(original, child));
++    }
++    // This is a comparison of plain inputs, not an original-launch receipt.
++    Ok(())
++}
++
++fn context() -> InterceptedExecPolicyContext {
++    InterceptedExecPolicyContext {
++        approval_policy: AskForApproval::OnRequest,
++        permission_profile: PermissionProfile::read_only(),
++        windows_sandbox_level: WindowsSandboxLevel::Disabled,
++        sandbox_permissions: SandboxPermissions::RequireEscalated,
++        enable_shell_wrapper_parsing: false,
++    }
++}
++fn captured() -> anyhow::Result<CapturedInterceptedEvaluation> {
++    let program = AbsolutePathBuf::current_dir()?.join("q4b-plain-command");
++    Ok(CapturedInterceptedEvaluation::evaluate(
++        Arc::new(Policy::empty()),
++        &program,
++        &["original-argv-zero".into(), "first".into(), "second".into()],
++        context(),
++    ))
++}
++
++#[test]
++fn actual_single_evaluation_matches_its_normalized_command_without_mutation() -> anyhow::Result<()>
++{
++    let captured = captured()?;
++    let original = captured.clone();
++    let command = captured.commands[0].clone();
++    assert_eq!(captured.evaluation.decision, Decision::Prompt);
++    assert!(captured.matches_parent_prompt(&context(), &command));
++    assert_eq!(captured.evaluation, original.evaluation);
++    assert_eq!(captured.commands, original.commands);
++    assert_eq!(captured.context, original.context);
++    assert!(Arc::ptr_eq(
++        &captured.evaluated_policy,
++        &original.evaluated_policy
++    ));
++    // Source custody is the same Prompt/selected packet; this is NOT raw argv0/cwd evidence.
++    Ok(())
++}
++
++#[test]
++fn every_provider_context_input_must_match_the_original_evaluation() -> anyhow::Result<()> {
++    let captured = captured()?;
++    let command = &captured.commands[0];
++    let original = context();
++    let mut expected = original.clone();
++    expected.approval_policy = AskForApproval::Never;
++    assert!(!captured.matches_parent_prompt(&expected, command));
++    expected = original.clone();
++    expected.sandbox_permissions = SandboxPermissions::UseDefault;
++    assert!(!captured.matches_parent_prompt(&expected, command));
++    expected = original.clone();
++    expected.permission_profile = PermissionProfile::from_runtime_permissions(
++        &original.permission_profile.file_system_sandbox_policy(),
++        NetworkSandboxPolicy::Enabled,
++    );
++    assert!(!captured.matches_parent_prompt(&expected, command));
++    expected = original.clone();
++    expected.permission_profile = PermissionProfile::workspace_write();
++    assert!(!captured.matches_parent_prompt(&expected, command));
++    expected = original.clone();
++    expected.windows_sandbox_level = WindowsSandboxLevel::Elevated;
++    assert!(!captured.matches_parent_prompt(&expected, command));
++    expected = original.clone();
++    expected.enable_shell_wrapper_parsing = true;
++    assert!(!captured.matches_parent_prompt(&expected, command));
++    assert!(captured.matches_parent_prompt(&original, command));
++    Ok(())
++}
++
++#[test]
++fn complete_singleton_correspondence_refuses_plain_observation_mutations() -> anyhow::Result<()> {
++    let original = captured()?;
++    let command = original.commands[0].clone();
++    assert!(original.matches_parent_prompt(&context(), &command));
++    for mutation in [
++        "wrapper",
++        "multiple",
++        "empty",
++        "foreign",
++        "reordered",
++        "foreign-match",
++    ] {
++        let mut changed = original.clone();
++        match mutation {
++            "wrapper" => changed.context.enable_shell_wrapper_parsing = true,
++            "multiple" => {
++                changed.commands.push(command.clone());
++                changed
++                    .evaluation
++                    .matched_rules
++                    .push(changed.evaluation.matched_rules[0].clone());
++            }
++            "empty" => changed.commands.clear(),
++            "foreign" => changed.commands[0][0] = "foreign".into(),
++            "reordered" => changed.commands[0].swap(1, 2),
++            "foreign-match" => {
++                let RuleMatch::HeuristicsRuleMatch { command, .. } =
++                    &mut changed.evaluation.matched_rules[0]
++                else {
++                    panic!("actual heuristic fixture")
++                };
++                command[0] = "foreign-match".into();
++            }
++            _ => unreachable!(),
++        }
++        assert!(
++            !changed.matches_parent_prompt(&context(), &command),
++            "{mutation}"
++        );
++    }
++    let mut foreign = command.clone();
++    foreign[1] = "foreign-selected-argument".into();
++    assert!(!original.matches_parent_prompt(&context(), &foreign));
++    assert!(!original.matches_parent_prompt(&context(), &[]));
++    Ok(())
++}
++
++#[test]
++fn actual_wrapper_multiple_commands_and_dangerous_default_do_not_enter_subset() -> anyhow::Result<()>
++{
++    let mut wrapper_context = context();
++    wrapper_context.enable_shell_wrapper_parsing = true;
++    let wrapper = CapturedInterceptedEvaluation::evaluate(
++        Arc::new(Policy::empty()),
++        &AbsolutePathBuf::from_absolute_path("/bin/zsh")?,
++        &["zsh".into(), "-c".into(), "printf first; cat second".into()],
++        wrapper_context.clone(),
++    );
++    assert_eq!(wrapper.commands.len(), 2);
++    assert!(!wrapper.matches_parent_prompt(&wrapper_context, &wrapper.commands[0]));
++    let dangerous = CapturedInterceptedEvaluation::evaluate(
++        Arc::new(Policy::empty()),
++        &AbsolutePathBuf::from_absolute_path("/bin/rm")?,
++        &["rm".into(), "-rf".into(), "/".into()],
++        context(),
++    );
++    assert_eq!(dangerous.evaluation.decision, Decision::Prompt);
++    assert!(!dangerous.matches_parent_prompt(&context(), &dangerous.commands[0]));
++    assert_eq!(
++        dangerous.context.sandbox_permissions,
++        SandboxPermissions::RequireEscalated
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+index b4eb6e5..67e00a6 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+@@ -183,8 +183,8 @@ pub(crate) async fn prepare_unified_exec_zsh_fork(
+ 
+ /// Passive physical custody only; this type cannot admit an intercepted call.
+ struct BoundParentApproval {
+-    _candidate: InitialParentApprovalCandidate,
+-    _provider_policy: Arc<Policy>,
++    candidate: InitialParentApprovalCandidate,
++    provider_policy: Arc<Policy>,
+ }
+ 
+ impl BoundParentApproval {
+@@ -200,12 +200,110 @@ impl BoundParentApproval {
+             return None;
+         }
+         Some(Self {
+-            _candidate: candidate,
+-            _provider_policy: policy,
++            candidate,
++            provider_policy: policy,
+         })
+     }
+ }
+ 
++/// Borrows the same actual Prompt packet; no production caller is installed yet.
++/// Its constructors and all custody fields remain private to this owner.
++pub(crate) struct InterceptedParentAdmission<'a> {
++    provider: &'a CoreShellActionProvider,
++    bound: &'a BoundParentApproval,
++    captured: &'a CapturedInterceptedEvaluation,
++    selected: &'a crate::session::InterceptedApprovalSelection,
++}
++
++impl<'a> InterceptedParentAdmission<'a> {
++    fn from_actual_prompt(
++        provider: &'a CoreShellActionProvider,
++        captured: &'a CapturedInterceptedEvaluation,
++        selected: &'a crate::session::InterceptedApprovalSelection,
++    ) -> Option<Self> {
++        let bound = provider.parent_approval.as_ref()?;
++        let (action, context) = selected.approval_request();
++        let ApprovalAction::Execve {
++            id,
++            environment_id,
++            source,
++            command,
++            cwd,
++            additional_permissions,
++            ..
++        } = action
++        else {
++            return None;
++        };
++        let expected_context = InterceptedExecPolicyContext {
++            approval_policy: provider.approval_policy,
++            permission_profile: provider.permission_profile.clone(),
++            windows_sandbox_level: provider.review_context.turn().windows_sandbox_level,
++            sandbox_permissions: provider.approval_sandbox_permissions,
++            enable_shell_wrapper_parsing: ENABLE_INTERCEPTED_EXEC_POLICY_SHELL_WRAPPER_PARSING,
++        };
++        let cwd = PathUri::from_abs_path(&cwd);
++        if id != provider.call_id
++            || context.call_id != provider.call_id
++            || context.tool_name != provider.tool_name
++            || environment_id != provider.environment_id
++            || source != provider.source
++            || provider.sandbox_permissions != SandboxPermissions::RequireEscalated
++            || provider.prompt_permissions.is_some()
++            || additional_permissions.is_some()
++            || !captured.matches_parent_prompt(&expected_context, &command)
++            || !Arc::ptr_eq(&captured.evaluated_policy, &bound.provider_policy)
++            || !Arc::ptr_eq(&provider.parent_exec_policy, &bound.provider_policy)
++            || !bound.candidate.matches_child_context(
++                crate::tools::runtimes::unified_exec::parent_binding::ParentChildContext {
++                    permission_profile: &captured.context.permission_profile,
++                    windows_sandbox_level: captured.context.windows_sandbox_level,
++                    environment_id: &environment_id,
++                    cwd: &cwd,
++                },
++            )
++        {
++            return None;
++        }
++        Some(Self {
++            provider,
++            bound,
++            captured,
++            selected,
++        })
++    }
++
++    pub(crate) async fn try_resolve(
++        &self,
++        selected: &crate::session::InterceptedApprovalSelection,
++        used_config: &Arc<crate::config::Config>,
++        hooks: &crate::hook_runtime::PermissionRequestHookObservation,
++        finish: impl FnOnce() -> Option<crate::tools::ApprovalResolution> + Send,
++    ) -> Option<crate::tools::ApprovalResolution> {
++        if !std::ptr::eq(self.selected, selected) {
++            return None;
++        }
++        let policy = self.provider.policy.read().await;
++        if !Arc::ptr_eq(&policy, &self.captured.evaluated_policy)
++            || !Arc::ptr_eq(&policy, &self.bound.provider_policy)
++        {
++            return None;
++        }
++        // Retain the actual provider read guard across Fresh's held-owner check and finish.
++        self.bound
++            .candidate
++            .with_current_parent_resolution(
++                &self.provider.session,
++                selected,
++                used_config,
++                &policy,
++                hooks,
++                finish,
++            )
++            .await
++    }
++}
++
+ struct CoreShellActionProvider {
+     // Retained only; child resolution does not consume this evidence yet.
+     parent_approval: Option<BoundParentApproval>,
+@@ -603,6 +701,19 @@ impl CapturedInterceptedEvaluation {
+         }
+     }
+ 
++    /// Same Prompt's already-normalized command only; no raw argv0/cwd receipt or reparse.
++    fn matches_parent_prompt(
++        &self,
++        expected: &InterceptedExecPolicyContext,
++        command: &[String],
++    ) -> bool {
++        !self.context.enable_shell_wrapper_parsing
++            && &self.context == expected
++            && self.commands.len() == 1
++            && self.commands[0].as_slice() == command
++            && self.inherited_default_fallback_is_allow()
++    }
++
+     /// Inert classification; actual routing, issuer, physical and lifetime gates are separate.
+     fn inherited_default_fallback_is_allow(&self) -> bool {
+         if self.evaluation.decision != Decision::Prompt
+@@ -1047,3 +1158,7 @@ mod parent_binding_tests;
+ #[cfg(test)]
+ #[path = "physical_parent_binding_tests.rs"]
+ mod physical_parent_binding_tests;
++
++#[cfg(test)]
++#[path = "parent_admission_scope_tests.rs"]
++mod parent_admission_scope_tests;
+-- 
+2.54.0 (Apple Git-157)
+

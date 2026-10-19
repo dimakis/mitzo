@@ -1,0 +1,396 @@
+diff --git a/codex-rs/codex-api/src/requests/frozen_responses.rs b/codex-rs/codex-api/src/requests/frozen_responses.rs
+index 669dae6..b0e31b9 100644
+--- a/codex-rs/codex-api/src/requests/frozen_responses.rs
++++ b/codex-rs/codex-api/src/requests/frozen_responses.rs
+@@ -399,18 +399,81 @@ fn validate_controls(fields: &Map<String, Value>) -> Result<(), ApiError> {
+     }
+     if let Some(tools) = fields.get("tools") {
+         for tool in tools.as_array().ok_or_else(unsupported)? {
+-            let tool = object(
++            validate_tool(tool, true)?;
++        }
++    }
++    Ok(())
++}
++
++// Public create/count tool shapes used by the ordinary tool serializers. This
++// qualified subset retains the conservative identifier restriction in name();
++// it does not claim that restriction is a public API ceiling. Other documented
++// tool fields still refuse here. Shape validation does not establish selected
++// model/tool authority or inventory completeness, and never rewrites values.
++fn validate_tool(tool: &Value, allow_namespace: bool) -> Result<(), ApiError> {
++    match tool.get("type").and_then(Value::as_str) {
++        Some("function") => {
++            let fields = object(
++                tool,
++                &[
++                    "type",
++                    "name",
++                    "description",
++                    "parameters",
++                    "strict",
++                    "defer_loading",
++                ],
++            )?;
++            strings(fields, &["description"])?;
++            ensure(
++                name(fields.get("name"))
++                    && fields.get("parameters").is_none_or(Value::is_object)
++                    && fields.get("strict").is_none_or(Value::is_boolean)
++                    && fields.get("defer_loading").is_none_or(Value::is_boolean),
++            )?;
++        }
++        Some("custom") => {
++            let fields = object(
+                 tool,
+-                &["type", "name", "description", "parameters", "strict"],
++                &["type", "name", "description", "defer_loading", "format"],
+             )?;
+-            strings(tool, &["description"])?;
++            strings(fields, &["description"])?;
+             ensure(
+-                tool.get("type").and_then(Value::as_str) == Some("function")
+-                    && name(tool.get("name"))
+-                    && tool.get("parameters").is_none_or(Value::is_object)
+-                    && tool.get("strict").is_none_or(Value::is_boolean),
++                name(fields.get("name"))
++                    && fields.get("defer_loading").is_none_or(Value::is_boolean),
+             )?;
++            if let Some(format) = fields.get("format") {
++                match format.get("type").and_then(Value::as_str) {
++                    Some("text") => {
++                        object(format, &["type"])?;
++                    }
++                    Some("grammar") => {
++                        let format = object(format, &["type", "syntax", "definition"])?;
++                        ensure(
++                            matches!(
++                                format.get("syntax").and_then(Value::as_str),
++                                Some("lark" | "regex")
++                            ) && format.get("definition").is_some_and(Value::is_string),
++                        )?;
++                    }
++                    _ => return Err(unsupported()),
++                }
++            }
++        }
++        Some("namespace") if allow_namespace => {
++            let fields = object(tool, &["type", "name", "description", "tools"])?;
++            ensure(
++                name(fields.get("name")) && fields.get("description").is_some_and(Value::is_string),
++            )?;
++            for child in fields
++                .get("tools")
++                .and_then(Value::as_array)
++                .ok_or_else(unsupported)?
++            {
++                validate_tool(child, false)?;
++            }
+         }
++        _ => return Err(unsupported()),
+     }
+     Ok(())
+ }
+diff --git a/codex-rs/codex-api/src/requests/frozen_responses_tests.rs b/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
+index 13eaf30..a5f0ac0 100644
+--- a/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
++++ b/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
+@@ -207,3 +207,135 @@ fn frozen_restores_identical_encoded_body_and_count_projection() {
+     assert!(FrozenResponsesRequest::from_encoded(whitespace.as_bytes(), 16).is_err());
+     assert!(FrozenResponsesRequest::from_encoded(frozen.encoded_body(), 15).is_err());
+ }
++
++fn assert_tools_retained(tools: Value) {
++    let mut request = body();
++    request["tools"] = tools.clone();
++    let encoded = serde_json::to_vec(&request).unwrap();
++    let frozen = FrozenResponsesRequest::new(request.clone(), 16).unwrap();
++    assert_eq!(frozen.body(), &request);
++    assert_eq!(frozen.encoded_body(), encoded);
++    assert_eq!(frozen.count_body()["tools"], tools);
++    let restored = FrozenResponsesRequest::from_encoded(&encoded, 16).unwrap();
++    assert_eq!(restored.encoded_body(), encoded);
++    assert_eq!(restored.count_body(), frozen.count_body());
++}
++
++#[test]
++fn frozen_accepts_deferred_function_tools_without_projection_loss() {
++    for deferred in [false, true] {
++        assert_tools_retained(json!([{
++            "type":"function", "name":"retained_function", "description":"Retained description.",
++            "defer_loading":deferred, "strict":true,
++            "parameters":{
++                "type":"object", "properties":{"value":{"$ref":"#/$defs/value"}},
++                "$defs":{"value":{"type":"string", "enum":["second", "first"]}},
++                "required":["value"], "additionalProperties":false,
++                "x-application-schema-label":"retained schema extension"
++            }
++        }]));
++    }
++}
++
++#[test]
++fn frozen_accepts_custom_tool_formats_without_projection_loss() {
++    for format in [
++        None,
++        Some(json!({"type":"text"})),
++        Some(json!({"type":"grammar", "syntax":"lark", "definition":"start: \"retained\"\n"})),
++        Some(json!({"type":"grammar", "syntax":"regex", "definition":"^(second|first)\\n$"})),
++    ] {
++        for deferred in [None, Some(false), Some(true)] {
++            let mut tool = json!({"type":"custom", "name":"retained_custom"});
++            if let Some(format) = &format {
++                tool["format"] = format.clone();
++            }
++            if let Some(deferred) = deferred {
++                tool["defer_loading"] = deferred.into();
++            }
++            assert_tools_retained(json!([tool]));
++        }
++    }
++}
++
++#[test]
++fn frozen_accepts_namespace_tools_without_reordering_or_flattening() {
++    assert_tools_retained(json!([
++        {"type":"function", "name":"same_name", "parameters":{}},
++        {"type":"namespace", "name":"retained_namespace", "description":"", "tools":[
++            {"type":"custom", "name":"same_name", "description":"Custom first.", "defer_loading":true,
++                "format":{"type":"grammar", "syntax":"regex", "definition":"^retained$"}},
++            {"type":"function", "name":"second", "defer_loading":false, "strict":false,
++                "parameters":{"type":"object", "properties":{}, "required":[]}},
++            {"type":"custom", "name":"third", "format":{"type":"text"}}
++        ]},
++        {"type":"namespace", "name":"empty_namespace", "description":"Retained empty list.", "tools":[]}
++    ]));
++}
++
++#[test]
++fn frozen_refuses_invalid_or_unqualified_tool_branches_without_repair() {
++    for tool in [
++        json!(null),
++        json!({"name":"missing_type"}),
++        json!({"type":"function", "name":"f", "defer_loading":null}),
++        json!({"type":"function", "name":"f", "defer_loading":"true"}),
++        json!({"type":"function", "name":"f", "parameters":[]}),
++        json!({"type":"function", "name":"f", "strict":null}),
++        json!({"type":"custom", "name":"c", "description":false}),
++        json!({"type":"custom", "name":"c", "defer_loading":1}),
++        json!({"type":"custom", "name":"c", "parameters":{}}),
++        json!({"type":"custom", "name":"c", "strict":true}),
++        json!({"type":"custom", "name":"c", "format":null}),
++        json!({"type":"custom", "name":"c", "format":{"type":"text", "syntax":"regex", "definition":".*"}}),
++        json!({"type":"custom", "name":"c", "format":{"type":"grammar", "syntax":"lark"}}),
++        json!({"type":"custom", "name":"c", "format":{"type":"grammar", "definition":".*"}}),
++        json!({"type":"custom", "name":"c", "format":{"type":"grammar", "syntax":"unknown", "definition":".*"}}),
++        json!({"type":"custom", "name":"c", "format":{"type":"grammar", "syntax":"regex", "definition":12}}),
++        json!({"type":"custom", "name":"c", "format":{"type":"unknown"}}),
++        json!({"type":"namespace", "name":"n", "tools":[]}),
++        json!({"type":"namespace", "name":"n", "description":null, "tools":[]}),
++        json!({"type":"namespace", "name":"n", "description":"n", "tools":{}}),
++        json!({"type":"namespace", "name":"n", "description":"n", "tools":[], "defer_loading":true}),
++        json!({"type":"namespace", "name":"n", "description":"n", "tools":[
++            {"type":"namespace", "name":"nested", "description":"nested", "tools":[]}
++        ]}),
++        json!({"type":"namespace", "name":"n", "description":"n", "tools":[{"type":"tool_search"}]}),
++        // Public features outside this actual ordinary-serializer subset still refuse.
++        json!({"type":"function", "name":"f", "allowed_callers":["programmatic"]}),
++        json!({"type":"function", "name":"f", "async":true}),
++        json!({"type":"function", "name":"f", "output_schema":{}}),
++        json!({"type":"function", "name":"f", "future_control":true}),
++        json!({"type":"mcp", "server_url":"https://example.com"}),
++    ] {
++        let mut request = body();
++        request["tools"] = json!([tool]);
++        let original = request.clone();
++        let encoded = serde_json::to_vec(&request).unwrap();
++        assert!(
++            FrozenResponsesRequest::new(request.clone(), 16).is_err(),
++            "{tool}"
++        );
++        assert!(
++            FrozenResponsesRequest::from_encoded(&encoded, 16).is_err(),
++            "{tool}"
++        );
++        assert_eq!(request, original);
++    }
++}
++
++#[test]
++fn frozen_tool_names_keep_the_explicit_conservative_identifier_subset() {
++    // This is the retained implementation subset, not a public API name ceiling.
++    for name in ["".to_string(), "contains.dot".to_string(), "x".repeat(65)] {
++        for tool in [
++            json!({"type":"function", "name":name}),
++            json!({"type":"custom", "name":name}),
++            json!({"type":"namespace", "name":name, "description":"", "tools":[]}),
++        ] {
++            let mut request = body();
++            request["tools"] = json!([tool]);
++            assert!(FrozenResponsesRequest::new(request, 16).is_err());
++        }
++    }
++}
+diff --git a/codex-rs/core/src/responses_request_format_tests.rs b/codex-rs/core/src/responses_request_format_tests.rs
+index 92fedfc..e28e714 100644
+--- a/codex-rs/core/src/responses_request_format_tests.rs
++++ b/codex-rs/core/src/responses_request_format_tests.rs
+@@ -252,6 +252,158 @@ fn capture_retains_final_ordinary_body_and_count_projection() {
+     assert_eq!(restored.encoded_body(), frozen.encoded_body());
+ }
+ 
++#[tokio::test]
++async fn capture_retains_ordinary_serialized_tool_shapes_through_recorded_count() {
++    use codex_api::AuthProvider;
++    use codex_api::Provider;
++    use codex_api::ResponsesClient;
++    use codex_api::RetryConfig;
++    use codex_client::HttpTransport;
++    use codex_client::Request;
++    use codex_client::Response;
++    use codex_client::StreamResponse;
++    use codex_client::TransportError;
++    use codex_tools::FreeformTool;
++    use codex_tools::FreeformToolFormat;
++    use codex_tools::ResponsesApiNamespace;
++    use codex_tools::ResponsesApiNamespaceTool;
++    use std::sync::Arc;
++    use std::sync::Mutex;
++    use std::time::Duration;
++
++    #[derive(Clone, Default)]
++    struct RecordingCountTransport(Arc<Mutex<Vec<Request>>>);
++
++    impl HttpTransport for RecordingCountTransport {
++        async fn execute(
++            &self,
++            _request: Request,
++        ) -> std::result::Result<Response, TransportError> {
++            panic!("ordinary HTTP execution must not run");
++        }
++
++        async fn stream(
++            &self,
++            _request: Request,
++        ) -> std::result::Result<StreamResponse, TransportError> {
++            panic!("model generation must not run");
++        }
++
++        async fn execute_once(
++            &self,
++            request: Request,
++        ) -> std::result::Result<Response, TransportError> {
++            self.0.lock().unwrap().push(request);
++            Ok(Response {
++                status: http::StatusCode::OK,
++                headers: http::HeaderMap::new(),
++                body: serde_json::to_vec(&json!({
++                    "object":"response.input_tokens", "input_tokens":23
++                }))
++                .unwrap()
++                .into(),
++            })
++        }
++    }
++
++    struct FixtureAuth;
++    impl AuthProvider for FixtureAuth {
++        fn add_auth_headers(&self, headers: &mut http::HeaderMap) {
++            headers.insert(
++                "authorization",
++                http::HeaderValue::from_static("Bearer fixture"),
++            );
++        }
++    }
++
++    let mut prompt = prompt();
++    let ToolSpec::Function(mut function) = prompt.tools[0].clone() else {
++        panic!("expected the ordinary function fixture");
++    };
++    function.defer_loading = Some(true);
++    let custom = FreeformTool {
++        name: "apply_patch".into(),
++        description: "Retained ordinary grammar.".into(),
++        defer_loading: Some(false),
++        format: FreeformToolFormat {
++            r#type: "grammar".into(),
++            syntax: "lark".into(),
++            definition: "start: \"retained patch\"\n".into(),
++        },
++    };
++    prompt.tools = vec![
++        ToolSpec::Function(function.clone()),
++        ToolSpec::Freeform(custom.clone()),
++        ToolSpec::Namespace(ResponsesApiNamespace {
++            name: "ordinary_namespace".into(),
++            description: "Retained ordinary namespace.".into(),
++            tools: vec![
++                ResponsesApiNamespaceTool::Custom(custom),
++                ResponsesApiNamespaceTool::Function(function),
++            ],
++        }),
++    ]
++    .into();
++    let expected_tools =
++        json!(codex_tools::create_tools_json_for_responses_api(&prompt.tools).unwrap());
++    let raw = codex_tools::create_tools_raw_json_for_responses_api(&prompt.tools).unwrap();
++    assert_eq!(
++        serde_json::from_str::<serde_json::Value>(raw.get()).unwrap(),
++        expected_tools
++    );
++
++    // This is deliberately a lower-level public-body fixture with empty native
++    // metadata. Real ordinary metadata/source capture and authority remain unavailable.
++    let request =
++        format_responses_request(&prompt, &model(), &public_context(), options()).unwrap();
++    let retained = serde_json::to_value(&request).unwrap();
++    assert_eq!(retained["tools"], expected_tools);
++    let frozen = capture_finalized_responses_request(request, &[], capture_budget()).unwrap();
++    assert_eq!(frozen.body()["tools"], expected_tools);
++    assert_eq!(frozen.body()["input"], retained["input"]);
++    assert_eq!(frozen.body()["text"], retained["text"]);
++    assert_eq!(frozen.body()["reasoning"], retained["reasoning"]);
++    assert_eq!(frozen.max_output_tokens(), 64);
++    assert_eq!(frozen.count_body()["tools"], expected_tools);
++    let restored = FrozenResponsesRequest::from_encoded(frozen.encoded_body(), 128).unwrap();
++    assert_eq!(restored.encoded_body(), frozen.encoded_body());
++
++    let transport = RecordingCountTransport::default();
++    let client = ResponsesClient::new(
++        transport.clone(),
++        Provider {
++            name: "fixture".into(),
++            base_url: "https://api.openai.com/v1".into(),
++            query_params: None,
++            headers: http::HeaderMap::new(),
++            retry: RetryConfig {
++                max_attempts: 3,
++                base_delay: Duration::ZERO,
++                retry_429: true,
++                retry_5xx: true,
++                retry_transport: true,
++            },
++            stream_idle_timeout: Duration::from_secs(1),
++        },
++        Arc::new(FixtureAuth),
++    );
++    assert_eq!(client.count_input_tokens(&frozen).await.unwrap(), 23);
++    let recorded = transport.0.lock().unwrap();
++    assert_eq!(recorded.len(), 1);
++    assert_eq!(
++        recorded[0].url,
++        "https://api.openai.com/v1/responses/input_tokens"
++    );
++    let encoded_count = recorded[0].prepare_body_for_send().unwrap().body_bytes();
++    let count: serde_json::Value = serde_json::from_slice(&encoded_count).unwrap();
++    assert_eq!(&count, frozen.count_body());
++    assert_eq!(count["tools"], expected_tools);
++    assert_eq!(
++        serde_json::to_vec(&count["tools"]).unwrap(),
++        serde_json::to_vec(&frozen.body()["tools"]).unwrap()
++    );
++}
++
+ #[test]
+ fn capture_refuses_internal_contributions_without_rewriting_them() {
+     let baseline =

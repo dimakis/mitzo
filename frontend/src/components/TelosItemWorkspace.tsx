@@ -1,4 +1,5 @@
 import { TodoPrioritySelect } from './TodoPrioritySelect';
+import type { TodoPrioritySaveState } from '../lib/todo-priority-save-state';
 import { todoPriority } from '../lib/todo-utils';
 import { setTodoPriority } from '../lib/todo-priority';
 import { useState } from 'react';
@@ -35,6 +36,7 @@ export function TelosItemWorkspace({
   onBack,
   relatedState = 'ready',
   onRefresh,
+  prioritySaveState,
 }: {
   record: TelosWorkItem;
   records: TelosWorkItem[];
@@ -43,6 +45,7 @@ export function TelosItemWorkspace({
   onBack(): void;
   relatedState?: 'loading' | 'unavailable' | 'ready';
   onRefresh?(): void;
+  prioritySaveState?: TodoPrioritySaveState;
 }) {
   const location = useLocation();
   const key = 'telos.item.tab.' + record.itemId;
@@ -174,6 +177,7 @@ export function TelosItemWorkspace({
           </span>
         </div>
         <TodoPrioritySelect
+          saveState={prioritySaveState}
           priority={todoPriority(record)}
           onChange={(priority) => setTodoPriority(record.itemId, priority)}
         />
