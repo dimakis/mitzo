@@ -15,7 +15,7 @@ interface RecordsResult {
 }
 /** Join the current collection to accepted record DTOs. Per-record reads are
  * bounded to four requests; a collection projection remains an upstream API gap. */
-export function useTelosRecords(ids: string[]) {
+export function useTelosRecords(ids: string[], refreshKey: string | number = 0) {
   const key = JSON.stringify([...new Set(ids)]);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<RecordsResult>();
@@ -97,7 +97,7 @@ export function useTelosRecords(ids: string[]) {
         });
     });
     return () => controller.abort();
-  }, [key, retry]);
+  }, [key, retry, refreshKey]);
   const current = result?.key === key ? result : undefined;
   return {
     // Conversation controls share this owner’s manual/event/resume invalidation.

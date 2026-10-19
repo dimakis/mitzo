@@ -98,8 +98,9 @@ export function useTelosChatRoute(conversationId: string | null) {
       ? result
       : undefined;
   const itemId = current?.itemId ?? null;
-  const work = useTelosChatWork(itemId, generation);
-  const records = useTelosRecords(itemId ? [itemId] : []);
+  const refreshKey = `${generation}:${connectionStatus}`;
+  const work = useTelosChatWork(itemId, refreshKey);
+  const records = useTelosRecords(itemId ? [itemId] : [], refreshKey);
   const record = records.records.find((value) => value.itemId === itemId);
   const data =
     itemId &&

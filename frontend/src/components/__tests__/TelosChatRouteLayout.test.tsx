@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { TelosWorkApiClient } from '@mitzo/client';
@@ -86,13 +86,15 @@ function mount(query = '?telosChatItem=slice', linked = true) {
     'fetch',
     vi.fn().mockResolvedValue({ ok: true, json: async () => ({ sessionId: 'worker' }) }),
   );
+  const store = createTestStore();
   render(
-    <MitzoStoreProvider value={createTestStore()}>
+    <MitzoStoreProvider value={store}>
       <MemoryRouter initialEntries={['/chat/worker' + query]}>
         <Harness />
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
+  return store;
 }
 it('adopts one compact item/chats/work row around the existing ordinary controls and composer', async () => {
   mount();
@@ -112,4 +114,33 @@ it('does not attach an unrelated explicit item to an ordinary conversation', asy
   await screen.findByRole('status');
   expect(screen.queryByRole('button', { name: /View item:/ })).toBeNull();
   expect(screen.getByRole('textbox', { name: 'Draft' })).toBeTruthy();
+});
+it('rechecks current work and canonical record projections after transport reconnect without remounting the composer', async () => {
+  const store = mount();
+  await screen.findByRole('button', { name: 'View item: Recording plan' });
+  const input = screen.getByRole('textbox', { name: 'Draft' });
+  fireEvent.change(input, { target: { value: 'Reconnect draft' } });
+  const current = await TelosWorkApiClient.prototype.read('slice');
+  vi.mocked(TelosWorkApiClient.prototype.read).mockResolvedValue({
+    ...current,
+    links: [
+      ...current.links,
+      {
+        ...current.links[0],
+        linkId: 'review',
+        role: 'reviewer',
+        conversation: { namespace: 'mitzo', conversationId: 'reviewer' },
+      },
+    ],
+  });
+  vi.mocked(TelosWorkApiClient.prototype.readRecord).mockResolvedValue({
+    ...record,
+    summary: 'Updated recording plan',
+    priority: 9,
+  });
+  act(() => store.setState((s) => ({ connection: { ...s.connection, status: 'connected' } })));
+  await screen.findByRole('button', { name: 'Chats for this item: 2' });
+  await screen.findByRole('button', { name: 'View item: Updated recording plan' });
+  expect(screen.getByRole('textbox', { name: 'Draft' })).toBe(input);
+  expect((input as HTMLTextAreaElement).value).toBe('Reconnect draft');
 });
